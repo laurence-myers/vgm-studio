@@ -23,7 +23,6 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-from __future__ import with_statement
 import os
 import struct
 import sys
@@ -35,7 +34,7 @@ def convertDRO2to1(dro2_file, dro1_file):
     hardware_type_map = [0, 2, 1] # V2 goes OPL-2, Dual 2, 3. V1 goes OPL-2, 3, Dual 2.
     DRO_VERSION_V1_NEW = (0, 1)
     DRO_VERSION_V2 = (2, 0)
-    DRO_HEADER = "DBRAWOPL"
+    DRO_HEADER = b"DBRAWOPL"
 
     header_name = dro2_file.read(8)
     if header_name != DRO_HEADER:
@@ -70,7 +69,7 @@ def convertDRO2to1(dro2_file, dro1_file):
     data_start_offset = dro1_file.tell()
     total_size = 0
     last_bank = 0
-    for i in xrange(iLengthPairs):
+    for i in range(iLengthPairs):
         reg, val = struct.unpack('2B', dro2_file.read(2))
         if reg == iShortDelayCode:
             out_val = struct.pack('2B', 0x00, val)
@@ -108,11 +107,11 @@ def convertDRO2to1(dro2_file, dro1_file):
 def main():
     args = sys.argv
     if len(args) < 2 or len(args) > 3:
-        print "Please pass the name of the file you want to convert, and optionally the output file name."
+        print("Please pass the name of the file you want to convert, and optionally the output file name.")
         return 1
     input_file_name = args[1]
     if not os.path.isfile(input_file_name):
-        print "File not found, or is not a file: %s" % input_file_name
+        print("File not found, or is not a file: %s" % input_file_name)
         return 2
     if len(args) == 3:
         output_file_name = args[2]
@@ -120,20 +119,20 @@ def main():
         base, ext = os.path.splitext(input_file_name)
         output_file_name = base + "_1" + ext
     if os.path.isfile(output_file_name):
-        print ("Output file already exists, please delete it or rename it, or specify a different output file name: %s"
-            % output_file_name)
+        print(("Output file already exists, please delete it or rename it, or specify a different output file name: %s"
+            % output_file_name))
         return 3
 
     try:
-        print "Converting V2 file %s to V1 file %s..." % (input_file_name, output_file_name)
-        with file(input_file_name, 'rb') as input_file:
-            with file(output_file_name, 'wb') as output_file:
+        print("Converting V2 file %s to V1 file %s..." % (input_file_name, output_file_name))
+        with open(input_file_name, 'rb') as input_file:
+            with open(output_file_name, 'wb') as output_file:
                 convertDRO2to1(input_file, output_file)
 
-        print "Done!"
+        print("Done!")
         return 0
-    except Exception, e:
-        print e
+    except Exception as e:
+        print(e)
         return 4
 
 if __name__ == "__main__": sys.exit(main())

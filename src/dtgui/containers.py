@@ -29,12 +29,11 @@ try:
 except ImportError:
     win32api = None
 import wx
-import dro_globals
-import dro_util
+from .. import dro_util
 
-from menus import DTMainMenuBar
-from tables import DTSongDataList
-from ui_util import guiID
+from .menus import DTMainMenuBar
+from .tables import DTSongDataList
+from .ui_util import guiID
 
 class DTMainFrame(wx.Frame):
     def __init__(self, wx_app, *args, **kwds):
@@ -49,8 +48,8 @@ class DTMainFrame(wx.Frame):
         try:
             config = dro_util.read_config()
             maximize_window = config.getboolean("ui", "maximize_window")
-        except Exception, e:
-            print 'Could not read the value for "maximize_window" in "drotrim.ini"; defaulting to windowed mode.'
+        except Exception as e:
+            print('Could not read the value for "maximize_window" in "drotrim.ini"; defaulting to windowed mode.')
             maximize_window = False
         self.Maximize(maximize_window)
 

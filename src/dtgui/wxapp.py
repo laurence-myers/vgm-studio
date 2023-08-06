@@ -24,21 +24,14 @@
 #    THE SOFTWARE.
 import os.path
 import wx
-import dro_analysis
-import dro_data
-import dro_event
-import dro_globals
-import dro_io
+from .. import dro_analysis, dro_data, dro_event, dro_globals, dro_io, dro_tasks, dro_undo, dro_util
 try:
     import dro_player
 except ImportError:
     dro_player = None
-import dro_tasks
-import dro_undo
-import dro_util
-from containers import DTMainFrame
-from dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
-from ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
+from .containers import DTMainFrame
+from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
+from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
 
 class DTApp(wx.App):
     def OnInit(self):
@@ -53,8 +46,8 @@ class DTApp(wx.App):
         try:
             config = dro_util.read_config()
             self.tail_length = config.getint("ui", "tail_length")
-        except Exception, e:
-            print "Could not read tail length from drotrim.ini, using default value."
+        except Exception as e:
+            print("Could not read tail length from drotrim.ini, using default value.")
             self.tail_length = 3000
         self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog

@@ -48,7 +48,7 @@ def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
     channel = (bank_num << 8) | 0xBD
     channel_num = (channel & 0xFF) - 0xAF
     if not len(percs):
-        print "Skipping bank %01i, perc channel" % (bank_num,)
+        print("Skipping bank %01i, perc channel" % (bank_num,))
         return
     for p in percs:
         inst_num = int(math.log(p, 2))
@@ -63,9 +63,9 @@ def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
             sys.stdout.flush()
             time.sleep(0.05)
         sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-        print " - Finished rendering percussion %01i - %s" % (inst_num + 1,
-            PERC_NAME_MAP[inst_num])
-    print "Finished rendering bank %01i, perc channel" % (bank_num,)
+        print(" - Finished rendering percussion %01i - %s" % (inst_num + 1,
+            PERC_NAME_MAP[inst_num]))
+    print("Finished rendering bank %01i, perc channel" % (bank_num,))
 
 
 def split_tracks(player, dro_song, isolate_percussion=False):
@@ -79,7 +79,7 @@ def split_tracks(player, dro_song, isolate_percussion=False):
         channel_num = (channel & 0xFF) - 0xAF
         bank_num = (channel & 0x100) >> 8
         if usage[channel] == 0:
-            print "Skipping bank %01s, channel %02s" % (bank_num, channel_num,)
+            print("Skipping bank %01s, channel %02s" % (bank_num, channel_num,))
             continue
         if isolate_percussion and (channel & 0xFF) == 0xBD:
             __split_percussion_channel(player, dro_song, bank_num, perc_usage)
@@ -96,8 +96,8 @@ def split_tracks(player, dro_song, isolate_percussion=False):
                 sys.stdout.flush()
                 time.sleep(0.05)
             sys.stdout.write("\r" + dro_util.ms_to_timestr(dro_song.ms_length) + " / " + dro_util.ms_to_timestr(dro_song.ms_length))
-            print " - Finished rendering bank %01i, channel %02i" % (bank_num, channel_num,)
-    print "Done!"
+            print(" - Finished rendering bank %01i, channel %02i" % (bank_num, channel_num,))
+    print("Done!")
 
 
 def __parse_arguments():
@@ -119,12 +119,12 @@ def __parse_arguments():
 def main():
     oparser, options, args = __parse_arguments()
     if len(args) < 1:
-        print "Please pass the name of the song to split as the first argument."
+        print("Please pass the name of the song to split as the first argument.")
         oparser.print_help()
         return 1
     song_to_play = args[0]
     if not os.path.isfile(song_to_play):
-        print "Song does not appear to exist, or is not a file: %s" % song_to_play
+        print("Song does not appear to exist, or is not a file: %s" % song_to_play)
         oparser.print_help()
         return 3
 
@@ -135,14 +135,14 @@ def main():
     player.capture_dro = options.split_to_dro
     player.recording_on = not options.split_to_dro
     player.load_song(dro_song)
-    print dro_song.pretty_string()
+    print(dro_song.pretty_string())
 
     try:
         split_tracks(player, dro_song, options.isolate_percussion)
-    except KeyboardInterrupt, ke:
+    except KeyboardInterrupt as ke:
         pass
-    except Exception, e:
-        print e
+    except Exception as e:
+        print(e)
         return 2
     finally:
         if player.is_playing:

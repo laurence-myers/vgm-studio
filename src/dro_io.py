@@ -23,7 +23,6 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-from __future__ import with_statement
 from dro_data import DRO_FILE_V1, DRO_FILE_V2, DROSong, DROSongV2, DRODataV1, DRODataV2, DROInstruction
 from dro_util import *
 

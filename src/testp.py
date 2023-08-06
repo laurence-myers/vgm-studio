@@ -14,7 +14,7 @@ def test_inner():
 @profile
 def test_tuples():
     data = []
-    for i in xrange(400000):
+    for i in range(400000):
         data.append((i, str(i)))
     return
 
@@ -26,7 +26,7 @@ def test_slots():
             self.intval = intval
             self.strval = strval
     data = []
-    for i in xrange(400000):
+    for i in range(400000):
         data.append(Result(i, str(i)))
     return
 
@@ -34,7 +34,7 @@ def test_slots():
 @profile
 def test_main():
     result = test_inner()
-    print result
+    print(result)
     del result
     #test_tuples()
     #test_slots()

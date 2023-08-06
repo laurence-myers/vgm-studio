@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-from __future__ import with_statement
+
 import codecs
 import datetime
 import os
@@ -36,7 +36,7 @@ output_file_name = "readme.html"
 
 def main():
     if len(sys.argv) < 5:
-        print "Insufficient arguments, please pass the input directory, the template directory, the output directory, and the documnent source URL."
+        print("Insufficient arguments, please pass the input directory, the template directory, the output directory, and the documnent source URL.")
         return 1
     try:
         in_dir = sys.argv[1]
@@ -63,14 +63,14 @@ def main():
         with file(os.path.join(out_dir, output_file_name), 'w') as output_file:
             output_file.write(html_output)
 
-        print "Successfully converted Creole wiki page {} to {} using template {}".format(
+        print("Successfully converted Creole wiki page {} to {} using template {}".format(
             in_wiki_file_name,
             output_file_name,
             template_file_name
-        )
+        ))
 
-    except Exception, e:
-        print e
+    except Exception as e:
+        print(e)
         return 2
 
     return 0

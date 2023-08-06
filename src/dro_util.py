@@ -23,7 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-import ConfigParser
+import configparser
 import os.path
 import sys
 import struct
@@ -44,7 +44,7 @@ class StructFromKeywords(object):
 def read_config():
     global __config
     if __config is None:
-        __config = ConfigParser.SafeConfigParser()
+        __config = configparser.SafeConfigParser()
         # Mitigate issue #4 by always searching for a config file in the same
         #  path as the executable.
         exe_path = get_exe_path()
@@ -56,7 +56,7 @@ def read_config():
 def warning(text):
     """ Accepts a string, prints string prefixed with "WARNING! - " """
     # maybe TODO: GUI message queue?
-    print "WARNING! - " + text
+    print("WARNING! - " + text)
 
 def get_exe_path():
     return os.path.dirname(sys.argv[0])

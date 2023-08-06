@@ -22,10 +22,10 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-import dro_globals
+from .. import dro_globals
 import wx
 
-from ui_util import guiID
+from .ui_util import guiID
 
 class DTMainMenuBar(wx.MenuBar):
     def __init__(self, *args, **kwds):

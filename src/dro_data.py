@@ -37,7 +37,7 @@ DRO_FILE_V2 = 2
 
 class DROInstruction(object):
     __slots__ = ["inst_type", "command", "value", "bank"]
-    T_REGISTER, T_DELAY, T_BANK_SWITCH = range(3)
+    T_REGISTER, T_DELAY, T_BANK_SWITCH = list(range(3))
     TYPE_MAP = ["T_REGISTER", "T_DELAY", "T_BANK_SWITCH"]
 
     def __init__(self, inst_type, command, value, bank=None):
@@ -238,7 +238,7 @@ class DRODataV1(DROData):
     def translate_index(self, index):
         try:
             return self.index_map[index]
-        except IndexError, ie:
+        except IndexError as ie:
             if index == len(self.index_map):
                 return len(self.data)
             else:
@@ -272,7 +272,7 @@ class DRODataV1(DROData):
         return len(self.index_map)
 
     def iter_indexes(self):
-        return xrange(len(self.index_map))
+        return range(len(self.index_map))
 
     def generate_index_map(self):
         self.index_map = []
@@ -328,10 +328,10 @@ class DRODataV2(DROData):
         return DROInstruction(inst_type, cmd, val, bank)
 
     def __len__(self):
-        return len(self.data) / 2
+        return len(self.data) // 2
 
     def iter_indexes(self):
-        return xrange(len(self.data) / 2)
+        return range(len(self.data) // 2)
 
 
 class DROSong(object):

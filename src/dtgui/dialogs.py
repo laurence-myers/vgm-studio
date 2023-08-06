@@ -23,12 +23,9 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import wx
-import dro_analysis
-import dro_data
-import dro_globals
-import dro_util
-from containers import TextPanel
-from ui_util import guiID, errorAlert
+from .. import dro_analysis, dro_data, dro_globals, dro_util
+from .containers import TextPanel
+from .ui_util import guiID, errorAlert
 
 class DTDialogGoto(wx.Dialog):
     def __init__(self, wx_app, parent, max_pos, *args, **kwds):
@@ -141,8 +138,8 @@ class DROInfoDialog ( wx.Dialog ):
         try:
             config = dro_util.read_config()
             dro_info_edit_enabled = config.getboolean("ui", "dro_info_edit_enabled")
-        except Exception, e:
-            print 'Could not read the value for "dro_info_edit_enabled" in "drotrim.ini"; defaulting to false.'
+        except Exception as e:
+            print('Could not read the value for "dro_info_edit_enabled" in "drotrim.ini"; defaulting to false.')
             dro_info_edit_enabled = False
         # begin wxGlade: MyDialog.__init__
         self.parent = parent
@@ -223,7 +220,7 @@ class DROInfoDialog ( wx.Dialog ):
             opl_type = self.cHardwareType.GetSelection()
             assert 0 <= opl_type < len(self.dro_song.OPL_TYPE_MAP)
             ms_length = int(self.tcLengthMs.GetValue())
-        except Exception, e:
+        except Exception as e:
             errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
             return
         dro_globals.g_wx_app.updateDROInfo(opl_type, ms_length)
@@ -263,7 +260,7 @@ class LoopAnalysisDialog(wx.Dialog):
 
         # Create as many tabs as there are analysis methods.
         self.result_pages = []
-        for i in xrange(loop_analyzer.num_analyses()):
+        for i in range(loop_analyzer.num_analyses()):
             page = TextPanel(self.notebook, "No analysis performed yet.")
             self.notebook.AddPage(page, "#%d" % (i + 1,))
             self.result_pages.append(page)

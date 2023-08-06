@@ -140,7 +140,7 @@ def __test():
                 return True
 
             def handle_event(self, event):
-                print event.payload
+                print(event.payload)
                 assert event.payload == "The event ran okay"
                 self.time_event_triggered += 1
                 self.mainframe.Destroy()
@@ -160,7 +160,7 @@ def __test():
         def __init__(self):
             self.times_event_trigerred = 0
         def handle_event(self, event):
-            print event.payload
+            print(event.payload)
             assert event.payload == "The event ran okay"
             self.times_event_trigerred += 1
     th = TestHandler()

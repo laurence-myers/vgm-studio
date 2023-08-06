@@ -163,11 +163,11 @@ def __test():
 
     class UndoTestObject(object):
         def an_undo_action(self, original_state):
-            print "Action undone"
+            print("Action undone")
 
         @undoable("meow", get_controller, an_undo_action)
         def an_action(self):
-            print "Do an action"
+            print("Do an action")
 
     obj = UndoTestObject()
 

@@ -31,12 +31,12 @@ import dro_util
 def generate_registers_to_init():
     registers_to_init = [0x01, 0x04, 0x05, 0x08, 0xBD]
     operator_bases = (0x20, 0x40, 0x60, 0x80, 0xE0)
-    for i in xrange(24):
+    for i in range(24):
         if (i & 7) < 6:
             for operator_base in operator_bases:
                 registers_to_init.append(operator_base + i)
     channel_bases = (0xA0, 0xB0, 0xC0)
-    for i in xrange(9):
+    for i in range(9):
         for channel_base in channel_bases:
             registers_to_init.append(channel_base + i)
     return registers_to_init

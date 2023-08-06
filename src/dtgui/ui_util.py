@@ -22,10 +22,10 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-import StringIO
+import io
 import traceback
 import wx
-import dro_globals
+from .. import dro_globals
 
 gGUIIDS = {}
 
@@ -41,8 +41,8 @@ def catchUnhandledExceptions(func):
     def inner_func(self, *args, **kwds):
         try:
             func(self, *args, **kwds)
-        except Exception, e:
-            fp = StringIO.StringIO()
+        except Exception as e:
+            fp = io.StringIO()
             traceback.print_exc(file=fp)
 
             traceback.print_exc()
@@ -59,7 +59,7 @@ def requiresDROLoaded(func):
             if dro_globals.g_wx_app is not None:
                 dro_globals.g_wx_app.setStatusText(msg)
             else:
-                print msg
+                print(msg)
             return
         else:
             func(self, *args, **kwds)
@@ -68,6 +68,6 @@ def requiresDROLoaded(func):
 def guiID(name):
     """ Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
     If the name is not in the dict, it's added."""
-    if not gGUIIDS.has_key(name):
+    if name not in gGUIIDS:
         gGUIIDS[name] = wx.NewId()
     return gGUIIDS[name]

@@ -194,9 +194,9 @@ class OPLStream(object):
         (e.g. when creating a new OPL stream).
         """
         orig_bank = self.bank
-        for bank in xrange(2):
+        for bank in range(2):
             self.bank = bank
-            for reg in xrange(0x100):
+            for reg in range(0x100):
                 self.write(reg, 0x00)
         self.bank = orig_bank
 
@@ -262,8 +262,8 @@ class OPLStream(object):
 
 
 class DROPlayer(object):
-    CHANNEL_REGISTERS = frozenset(range(0xB0, 0xB8 + 1)  +
-                                  range(0x1B0, 0x1B8 + 1))
+    CHANNEL_REGISTERS = frozenset(list(range(0xB0, 0xB8 + 1))  +
+                                  list(range(0x1B0, 0x1B8 + 1)))
     PERCUSSION_REGISTER = 0xBD
     #PERCUSSION_VALUES = frozenset(map(lambda i: 2 ** i, range(5)))
 
@@ -277,8 +277,8 @@ class DROPlayer(object):
             self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")
             self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
-        except Exception, e:
-            print "Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e
+        except Exception as e:
+            print("Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e)
             self.frequency = 48000
             self.buffer_size = 512
             self.bit_depth = 16
@@ -559,12 +559,12 @@ def main():
     """
     oparser, options, args = __parse_arguments()
     if len(args) < 1:
-        print "Please pass the name of the song to play as the first argument."
+        print("Please pass the name of the song to play as the first argument.")
         oparser.print_help()
         return 1
     song_to_play = args[0]
     if not os.path.isfile(song_to_play):
-        print "Song does not appear to exist, or is not a file: %s" % song_to_play
+        print("Song does not appear to exist, or is not a file: %s" % song_to_play)
         return 3
 
     file_reader = dro_io.DroFileIO()
@@ -573,7 +573,7 @@ def main():
     dro_player.sound_on = not options.render
     dro_player.recording_on = options.render
     dro_player.load_song(dro_song)
-    print dro_song.pretty_string()
+    print(dro_song.pretty_string())
 
     timer_thread = None
     try:
@@ -620,10 +620,10 @@ def main():
                 calc_ms_length_string,
                 calc_ms_length_string)
             )
-    except KeyboardInterrupt, ke:
+    except KeyboardInterrupt as ke:
         pass
-    except Exception, e:
-        print e
+    except Exception as e:
+        print(e)
         return 2
     finally:
         dro_player.close_audio_output()
