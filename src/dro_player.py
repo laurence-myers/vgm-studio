@@ -173,7 +173,7 @@ class OPLStream(object):
         self.output_streams = output_streams
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
-        self.pyaudio_buffer = buffer(self.buffer)
+        self.pyaudio_buffer = memoryview(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self._bank = 0
         self.chip_delay_drift = 0 # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
@@ -238,7 +238,7 @@ class OPLStream(object):
         while samples_to_render > 1 and not self.stop_requested:
             if samples_to_render < self.buffer_size:
                 tmp_buffer = self.__create_bytearray((samples_to_render % self.buffer_size))
-                tmp_audio_buffer = buffer(tmp_buffer)
+                tmp_audio_buffer = memoryview(tmp_buffer)
                 samples_to_render = 0
             else:
                 tmp_buffer = self.buffer
@@ -248,7 +248,7 @@ class OPLStream(object):
             for ostream in self.output_streams:
                 try:
                     if hasattr(ostream, 'is_active') and ostream.is_active():
-                        ostream.write(buffer(tmp_audio_buffer))
+                        ostream.write(memoryview(tmp_audio_buffer))
                 except IOError:
                     return
 
@@ -466,7 +466,7 @@ class DROPlayerUpdateThread(threading.Thread):
     def run(self):
         while (self.dro_player.pos < len(self.current_song.data)
                and self.dro_player.is_playing
-               and not self.stop_request.isSet()):
+               and not self.stop_request.is_set()):
             # First, check if we need to mute a channel register.
             new_muted_channels = self.active_channels - self.dro_player.active_channels
             orig_bank = self.dro_player.processing_streams.bank
@@ -522,7 +522,7 @@ class _TimerUpdateThread(threading.Thread):
     def run(self):
         calc_ms_length_string = dro_util.ms_to_timestr(self.calc_ms_length)
         last_run_time = time.clock()
-        while not self.stop_request.isSet():
+        while not self.stop_request.is_set():
             curr_time = time.clock()
             delta = curr_time - last_run_time
             last_run_time = curr_time

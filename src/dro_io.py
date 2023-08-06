@@ -41,7 +41,7 @@ class DroFileIO(object):
         """ Accepts a file name (string). Returns a DROSong object and whether it was auto-trimmed (boolean).
 
         Raises DROFileException on invalid file data/version."""
-        with file(file_name, 'rb') as drof:
+        with open(file_name, 'rb') as drof:
             header_name = drof.read(8)
             if header_name != DRO_HEADER:
                 raise DROFileException("Does not appear to be a DRO file (invalid header. Expected %s, found %s)." %
@@ -60,7 +60,7 @@ class DroFileIO(object):
             return dro_song
 
     def write(self, file_name, dro_song):
-        with file(file_name, 'wb') as drof:
+        with open(file_name, 'wb') as drof:
             drof.write(DRO_HEADER)
             if dro_song.file_version == DRO_FILE_V1:
                 writer = DroFileIOv1()

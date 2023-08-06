@@ -50,7 +50,7 @@ def main():
             creole_text = in_file.read()
         html_body = creole2html(creole_text)
 
-        with file(os.path.join(template_dir, template_file_name), 'r') as template_file:
+        with open(os.path.join(template_dir, template_file_name), 'r') as template_file:
             html_output = template_file.read()
         html_output = html_output.format(
             title=app_globals.g_app_name + " " + app_globals.g_app_version,
@@ -60,7 +60,7 @@ def main():
 
         if not os.path.isdir(out_dir):
             os.mkdir(out_dir)
-        with file(os.path.join(out_dir, output_file_name), 'w') as output_file:
+        with open(os.path.join(out_dir, output_file_name), 'w') as output_file:
             output_file.write(html_output)
 
         print("Successfully converted Creole wiki page {} to {} using template {}".format(

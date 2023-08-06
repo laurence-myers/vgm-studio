@@ -463,7 +463,7 @@ class DRODetailedRegisterAnalyzer(object):
         # Wait for the data lock to become available.
         with dro_song.data_lock:
             for inst in dro_song.data:
-                if self._stop.isSet():
+                if self._stop.is_set():
                     return
                 if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                     self.state_descriptions.append(
