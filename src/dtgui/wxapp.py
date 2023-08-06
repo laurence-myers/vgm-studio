@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 import os.path
 import wx
-from .. import dro_analysis, dro_data, dro_event, dro_globals, dro_io, dro_tasks, dro_undo, dro_util
+from src import dro_analysis, dro_data, dro_event, dro_globals, dro_io, dro_tasks, dro_undo, dro_util
 try:
     import dro_player
 except ImportError:
@@ -68,29 +68,29 @@ class DTApp(wx.App):
         return True
 
     def _RegisterEventHandlers(self):
-        wx.EVT_MENU(self.mainframe, guiID("MENU_OPENDRO"), self.menuOpenDRO)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_SAVEDRO"), self.menuSaveDRO)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_SAVEDROAS"), self.menuSaveDROAs)
-        wx.EVT_MENU(self.mainframe, wx.ID_EXIT, self.menuExit)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_UNDO"), self.menuUndo)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_REDO"), self.menuRedo)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_GOTO"), self.menuGoto)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_FINDREG"), self.menuFindReg)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_DELETE"), self.menuDelete)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_DROINFO"), self.menuDROInfo)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_LOOPANALYSIS"), self.menuLoopAnalysis)
-        wx.EVT_MENU(self.mainframe, wx.ID_HELP, self.menuHelp)
-        wx.EVT_MENU(self.mainframe, guiID("MENU_ABOUT"), self.menuAbout)
+        self.mainframe.Bind(wx.EVT_MENU, self.menuOpenDRO, id=guiID("MENU_OPENDRO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuSaveDRO, id=guiID("MENU_SAVEDRO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuSaveDROAs, id=guiID("MENU_SAVEDROAS"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuExit, id=wx.ID_EXIT)
+        self.mainframe.Bind(wx.EVT_MENU, self.menuUndo, id=guiID("MENU_UNDO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuRedo, id=guiID("MENU_REDO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuGoto, id=guiID("MENU_GOTO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuFindReg, id=guiID("MENU_FINDREG"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuDelete, id=guiID("MENU_DELETE"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuDROInfo, id=guiID("MENU_DROINFO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuLoopAnalysis, id=guiID("MENU_LOOPANALYSIS"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menuHelp, id=wx.ID_HELP)
+        self.mainframe.Bind(wx.EVT_MENU, self.menuAbout, id=guiID("MENU_ABOUT"))
 
-        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_DELETE"), self.buttonDelete)
-        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY"), self.buttonPlay)
-        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_STOP"), self.buttonStop)
-        wx.EVT_BUTTON(self.mainframe, guiID("BUTTON_PLAY_TAIL"), self.buttonPlayTail)
+        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonDelete, id=guiID("BUTTON_DELETE"))
+        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonPlay, id=guiID("BUTTON_PLAY"))
+        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonStop, id=guiID("BUTTON_STOP"))
+        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonPlayTail, id=guiID("BUTTON_PLAY_TAIL"))
 
-        wx.EVT_CLOSE(self.mainframe, self.closeFrame)
+        self.mainframe.Bind(wx.EVT_CLOSE, self.closeFrame)
 
-        wx.EVT_KEY_DOWN(self, self.keyListener)
-        wx.EVT_LIST_KEY_DOWN(self.mainframe, -1, self.keyListenerForList)
+        self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
+        self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
 
         dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_STARTED",
                     self,
@@ -107,7 +107,7 @@ class DTApp(wx.App):
         od = wx.FileDialog(self.mainframe,
             "Open DRO",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
-            style=wx.OPEN|wx.FILE_MUST_EXIST|wx.CHANGE_DIR)
+            style=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST|wx.FD_CHANGE_DIR)
         result = od.ShowModal()
         filename = od.GetPath()
         od.Destroy()
@@ -194,7 +194,7 @@ class DTApp(wx.App):
         sd = wx.FileDialog(self.mainframe,
             "Save DRO file",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
-            style=wx.SAVE|wx.OVERWRITE_PROMPT|wx.CHANGE_DIR)
+            style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT|wx.FD_CHANGE_DIR)
         if sd.ShowModal() == wx.ID_OK:
             self.drosong.name = sd.GetPath()
             self.menuSaveDRO(event)

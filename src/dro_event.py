@@ -101,10 +101,9 @@ class CustomEventManager(object):
         if event_name not in self.__event_settings:
             self.__create_event(event_name)
         if wx is not None and isinstance(target, wx.EvtHandler):
-            binder = self.__event_settings[event_name].gui_binder
+            self.__event_settings[event_name].gui_binder.Bind(target, -1, -1, handler_func)
         else:
-            binder = self.__event_settings[event_name].binder
-        binder(target, handler_func)
+            self.__event_settings[event_name].binder(target, handler_func)
 
     def unbind_event(self, event_name, target, handler_func):
         """ Unbinds an event handler from an event.

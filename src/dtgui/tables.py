@@ -134,7 +134,7 @@ class DTSongDataList(wx.ListCtrl):
         self.SetItemCount(self.GetItemCount())
 
     def RegisterEvents(self):
-        #wx.EVT_LIST_ITEM_SELECTED(self, -1, self.SelectItem)
+        #self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.SelectItem)
         pass
 
     def HasSelected(self):

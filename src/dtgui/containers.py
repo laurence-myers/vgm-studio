@@ -29,7 +29,7 @@ try:
 except ImportError:
     win32api = None
 import wx
-from .. import dro_util
+from src import dro_util
 
 from .menus import DTMainMenuBar
 from .tables import DTSongDataList

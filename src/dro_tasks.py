@@ -104,7 +104,7 @@ class TaskMaster(object):
             for task in self.tasks.values():
                 task.cancel()
                 task.join(0.5)
-                active_tasks_exist |= task.isAlive()
+                active_tasks_exist |= task.is_alive()
             if active_tasks_exist:
                 time.sleep(0.5)
 

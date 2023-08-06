@@ -346,12 +346,12 @@ class DROSong(object):
     def __init__(self, file_version, name, data, ms_length, opl_type):
         self.file_version = file_version
         self.name = name
-        self.data = data
+        self.data: DROData = data
         self.ms_length = ms_length
         self.opl_type = opl_type
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
-        self.detailed_register_descriptions = None
+        self.detailed_register_descriptions: dro_analysis.DetailedRegisterInfo | None = None
         self.data_lock = threading.RLock()
 
     def getLengthMS(self):
@@ -491,12 +491,12 @@ class DROSong(object):
         else:
             return self.detailed_register_descriptions[item][1]
 
-    def get_bank_description(self, item):
+    def get_bank_description(self, item) -> str:
         if (self.detailed_register_descriptions is None or
             item >= len(self.detailed_register_descriptions)):
             return "(N/A)"
         else:
-            return self.detailed_register_descriptions[item][0]
+            return str(self.detailed_register_descriptions[item][0])
 
     def generate_detailed_register_descriptions(self):
         self.stop_detailed_register_descriptions()

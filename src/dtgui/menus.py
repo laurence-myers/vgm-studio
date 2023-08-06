@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-from .. import dro_globals
+from src import dro_globals
 import wx
 
 from .ui_util import guiID
@@ -55,9 +55,9 @@ class DTMainMenuBar(wx.MenuBar):
         # Help menu
         self.menuHelp = wx.Menu()
         self.menuHelpHelp = wx.MenuItem(self.menuHelp, wx.ID_HELP, "&Help...\tCtrl-H", "Displays a little bit of help.", wx.ITEM_NORMAL)
-        self.menuHelp.AppendItem(self.menuHelpHelp)
+        self.menuHelp.Append(self.menuHelpHelp)
         self.menuHelpAbout = wx.MenuItem(self.menuHelp, guiID("MENU_ABOUT"), "&About...", "Open the about dialog.", wx.ITEM_NORMAL)
-        self.menuHelp.AppendItem(self.menuHelpAbout)
+        self.menuHelp.Append(self.menuHelpAbout)
         self.Append(self.menuHelp, "&Help")
 
         self.__set_properties()

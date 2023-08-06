@@ -63,7 +63,7 @@ class WavRenderer(object):
             self.wav_fname = "{}.wav".format(dro_song.name)
         self.wav = wave.open(self.wav_fname, 'wb')
         self.wav.setnchannels(self.channels)
-        self.wav.setsampwidth(self.bit_depth / 8)
+        self.wav.setsampwidth(self.bit_depth // 8)
         self.wav.setframerate(self.frequency)
 
     def close(self):
@@ -171,7 +171,7 @@ class OPLStream(object):
         self.channels = channels
         self.chip_write_delay = chip_write_delay
         self.output_streams = output_streams
-        self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth / 8), channels=self.channels)
+        self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth // 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
         self.pyaudio_buffer = memoryview(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
@@ -217,7 +217,7 @@ class OPLStream(object):
                 ostream.close()
 
     def __create_bytearray(self, size):
-        return bytearray(size * (self.bit_depth / 8) * self.channels)
+        return bytearray(size * (self.bit_depth // 8) * self.channels)
 
     def write(self, register, value):
         if self.bank:
@@ -309,7 +309,7 @@ class DROPlayer(object):
     def init_audio_output(self):
         if self.audio_stream is None:
             self.audio_stream = self.audio.open(
-                format = self.audio.get_format_from_width(self.bit_depth / 8),
+                format = self.audio.get_format_from_width(self.bit_depth // 8),
                 channels = self.channels,
                 rate = self.frequency,
                 output = True)

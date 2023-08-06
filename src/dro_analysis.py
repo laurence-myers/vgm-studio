@@ -27,9 +27,11 @@ from collections import defaultdict
 import difflib
 import threading
 
-from . import dro_data
-from .dro_util import DROTrimmerException, read_config
-from . import regdata
+import dro_data
+from dro_util import DROTrimmerException, read_config
+import regdata
+
+DetailedRegisterInfo = list[tuple[int, str]]
 
 # Duplicated from dro_data to avoid circular import. TODO: move to common location.
 DRO_FILE_V1 = 1
@@ -386,7 +388,7 @@ class DROLoopAnalyzer(object):
         # This will give us an indication on whether or not the song loops, and if so,
         #  where the loop points are.
         sm = difflib.SequenceMatcher()
-        tmp_len = len(dro_song.data) / 2
+        tmp_len = len(dro_song.data) // 2
         tmp_a = dro_song.data[:tmp_len]
         tmp_b = dro_song.data[tmp_len:]
         sm.set_seqs(tmp_a, tmp_b)
@@ -432,8 +434,8 @@ class DRODetailedRegisterAnalyzer(object):
     OPL_TYPE_OPL3 = 2
 
     def __init__(self):
-        self.state_descriptions = []
-        self.current_bank = 0
+        self.state_descriptions: DetailedRegisterInfo = []
+        self.current_bank: int = 0
         self.current_state = None
         self.OPL_TYPE_DRO1_MAP: list[int] = [
             self.OPL_TYPE_OPL2,

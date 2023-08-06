@@ -26,7 +26,7 @@
 from dro_data import DRO_FILE_V1, DRO_FILE_V2, DROSong, DROSongV2, DRODataV1, DRODataV2, DROInstruction
 from dro_util import *
 
-DRO_HEADER = "DBRAWOPL"
+DRO_HEADER = b"DBRAWOPL"
 DRO_VERSION_V1_OLD = (1, 0)
 DRO_VERSION_V1_NEW = (0, 1) # the DOSBox devs really screwed the versioning up, didn't they?
 DRO_VERSION_V2 = (2, 0)

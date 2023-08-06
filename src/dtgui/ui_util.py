@@ -25,7 +25,7 @@
 import io
 import traceback
 import wx
-from .. import dro_globals
+from src import dro_globals
 
 gGUIIDS = {}
 
