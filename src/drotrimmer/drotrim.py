@@ -22,50 +22,16 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+#
+# DRO Trimmer
+# Laurence Dougal Myers
+# 0.1.0 Started October 2006, released 12 June 2007 (public domain)
+# 0.2.0 Started 23 August 2008, released 26 December 2008 (LGPL)
+# 3.0.0 Started 20 April 2012. (MIT license)
 
-from py2exe import freeze
-import drotrimmer.dro_globals as dro_globals
+from .dtgui.wxapp import start_gui_app
 
-opts = {
-    "bundle_files": 2,
-    "dll_excludes": ["MSVCP90.dll"],
-    "excludes": ["tkinter"],
-    "includes": [],
-    "packages": ["drotrimmer", "drotrimmer.dtgui"]
-}
+def main():
+    return start_gui_app()
 
-def convert_version(in_version):
-    ver_bits = [v[1:] for v in in_version.split()]
-    if len(ver_bits) == 2:
-        ver_bits.append("0")
-    return '.'.join(ver_bits)
-
-
-freeze(
-    version_info={
-        "version": convert_version(dro_globals.g_app_version),
-        "description": "DRO Trimmer",
-        "product_name": "DRO Trimmer",
-        "company_name": "Laurence Dougal Myers",
-        "comments": "jestarjokin@jestarjokin.net"
-    },
-    windows=[
-        {
-            "script": "drotrim.py",
-            "icon_resources": [(1, "drotrimmer/dt.ico")],
-        }
-    ],
-    data_files=[(".", ["drotrimmer/drotrim.ini"])],
-    console=[
-        {
-            "script": "dro_player.py"
-        },
-        {
-            "script": "dro2to1.py"
-        },
-        {
-            "script": "dro_split.py"
-        },
-    ],
-    options=opts
-)
+if __name__ == "__main__": main()

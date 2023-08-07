@@ -28,7 +28,7 @@ import datetime
 import os
 import sys
 from creole import creole2html
-import dro_globals as app_globals
+from drotrimmer import dro_globals as app_globals
 
 in_wiki_file_name = "Home.wiki"
 template_file_name = "doc_template.html"

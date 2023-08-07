@@ -23,49 +23,20 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
-from py2exe import freeze
-import drotrimmer.dro_globals as dro_globals
+g_wx_app = None
 
-opts = {
-    "bundle_files": 2,
-    "dll_excludes": ["MSVCP90.dll"],
-    "excludes": ["tkinter"],
-    "includes": [],
-    "packages": ["drotrimmer", "drotrimmer.dtgui"]
-}
+g_undo_controller = None
+def get_undo_controller():
+    # Must be instantiated externally.
+    return g_undo_controller
 
-def convert_version(in_version):
-    ver_bits = [v[1:] for v in in_version.split()]
-    if len(ver_bits) == 2:
-        ver_bits.append("0")
-    return '.'.join(ver_bits)
+g_custom_event_manager = None
+def custom_event_manager():
+    return g_custom_event_manager
 
+g_task_master = None
+def task_master():
+    return g_task_master
 
-freeze(
-    version_info={
-        "version": convert_version(dro_globals.g_app_version),
-        "description": "DRO Trimmer",
-        "product_name": "DRO Trimmer",
-        "company_name": "Laurence Dougal Myers",
-        "comments": "jestarjokin@jestarjokin.net"
-    },
-    windows=[
-        {
-            "script": "drotrim.py",
-            "icon_resources": [(1, "drotrimmer/dt.ico")],
-        }
-    ],
-    data_files=[(".", ["drotrimmer/drotrim.ini"])],
-    console=[
-        {
-            "script": "dro_player.py"
-        },
-        {
-            "script": "dro2to1.py"
-        },
-        {
-            "script": "dro_split.py"
-        },
-    ],
-    options=opts
-)
+g_app_name = "DRO Trimmer"
+g_app_version = "v5 r1"
