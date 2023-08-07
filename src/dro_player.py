@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import math
 import optparse
 import os
 import sys
@@ -173,7 +174,6 @@ class OPLStream(object):
         self.output_streams = output_streams
         self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth // 8), channels=self.channels)
         self.buffer = self.__create_bytearray(buffer_size)
-        self.pyaudio_buffer = memoryview(self.buffer)
         self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
         self._bank = 0
         self.chip_delay_drift = 0 # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
@@ -238,17 +238,15 @@ class OPLStream(object):
         while samples_to_render > 1 and not self.stop_requested:
             if samples_to_render < self.buffer_size:
                 tmp_buffer = self.__create_bytearray((samples_to_render % self.buffer_size))
-                tmp_audio_buffer = memoryview(tmp_buffer)
                 samples_to_render = 0
             else:
                 tmp_buffer = self.buffer
-                tmp_audio_buffer = self.pyaudio_buffer
                 samples_to_render -= self.buffer_size
             self.opl.getSamples(tmp_buffer)
             for ostream in self.output_streams:
                 try:
                     if hasattr(ostream, 'is_active') and ostream.is_active():
-                        ostream.write(memoryview(tmp_audio_buffer))
+                        ostream.write(bytes(tmp_buffer))
                 except IOError:
                     return
 
@@ -521,18 +519,24 @@ class _TimerUpdateThread(threading.Thread):
 
     def run(self):
         calc_ms_length_string = dro_util.ms_to_timestr(self.calc_ms_length)
-        last_run_time = time.clock()
+        last_run_time = time.monotonic()
+        last_minutes = 0
+        last_seconds = 0
         while not self.stop_request.is_set():
-            curr_time = time.clock()
+            curr_time = time.monotonic()
             delta = curr_time - last_run_time
             last_run_time = curr_time
-            self.time_elapsed += delta * 1000
-            sys.stdout.write("\r{} / {}".format(
-                 dro_util.ms_to_timestr(self.time_elapsed),
-                 calc_ms_length_string
+            self.time_elapsed += delta
+            minutes, seconds = divmod(math.floor(self.time_elapsed), 60)
+            if minutes != last_minutes or seconds != last_seconds:
+                last_minutes = minutes
+                last_seconds = seconds
+                sys.stdout.write("\r{} / {}".format(
+                     dro_util.to_timestr(minutes, seconds),
+                     calc_ms_length_string
+                    )
                 )
-            )
-            sys.stdout.flush()
+                sys.stdout.flush()
             time.sleep(0.01)
 
 
@@ -608,11 +612,11 @@ def main():
                             channel = 0xB0 + int(chin) - 1
                         channel |= (bank << 8)
                         dro_player.active_channels = set([channel])
-                    elif chin == "`" or chin == "~": # reset
+                    elif chin == b"`" or chin == b"~":  # reset
                         dro_player.active_channels = set(dro_player.CHANNEL_REGISTERS)
-                    elif chin == "-" or chin == "_": # switch to bank 0
+                    elif chin == b"-" or chin == b"_":  # switch to bank 0
                         bank = 0
-                    elif chin == "=" or chin == "+": # switch to bank 1
+                    elif chin == b"=" or chin == b"+":  # switch to bank 1
                         bank = 1
                 time.sleep(0.01)
             # Print the end time too (but cheat)
@@ -631,7 +635,7 @@ def main():
             dro_player.stop()
         if timer_thread is not None:
             timer_thread.stop_request.set()
-            if timer_thread.isAlive(): # not quite right, but meh.
+            if timer_thread.is_alive():  # not quite right, but meh.
                 timer_thread.join()
     return 0
 

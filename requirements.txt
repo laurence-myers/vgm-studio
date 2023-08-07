@@ -1,1 +1,3 @@
+PyAudio ~= 0.2.13
+PyOPL @ git+https://github.com/adambiser/pyopl.git@4c65a9e252969e1c358883d53d1427339db928dd
 wxPython ~= 4.2.1

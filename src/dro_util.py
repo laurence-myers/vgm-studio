@@ -106,6 +106,9 @@ def ms_to_timestr(ms_val):
     # Stolen from StackOverflow, post by Sven Marnach
     minutes, milliseconds = divmod(ms_val, 60000)
     seconds = float(milliseconds) / 1000
+    return to_timestr(minutes, seconds)
+
+def to_timestr(minutes, seconds):
     return "%02i:%02i" % (minutes, seconds)
 
 ## {{{ http://code.activestate.com/recipes/134892/ (r2)
