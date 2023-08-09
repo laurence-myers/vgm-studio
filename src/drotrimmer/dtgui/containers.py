@@ -24,10 +24,6 @@
 #    THE SOFTWARE.
 import os
 import sys
-try:
-    import win32api
-except ImportError:
-    win32api = None
 import wx
 from .. import dro_util
 
@@ -55,11 +51,8 @@ class DTMainFrame(wx.Frame):
 
         # Set icon, if available
         use_external_icon = True
-        if win32api is not None:
-            exe_name = win32api.GetModuleFileName(win32api.GetModuleHandle(None))
-        else:
-            exe_name = sys.executable # seems to do the same thing...
-            # If the program is being run from the Python interpreter (and not
+        exe_name = sys.executable
+        # If the program is being run from the Python interpreter (and not
         #  a packged exe), use the external icon file. Otherwise, load the
         #  icon from the packaged exe resources.
         if not os.path.basename(exe_name).startswith("python"):
