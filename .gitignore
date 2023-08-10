@@ -1,5 +1,5 @@
 dist/
-doc_src/
+docs_src/
 venv/
 *.pyc
 .idea/*

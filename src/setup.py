@@ -34,6 +34,24 @@ import drotrimmer.dro_globals as dro_globals
 from setup_docs import generate_docs
 
 
+def filtered_walk(dir: Path):
+    for dirpath, dirnames, filenames in os.walk(dir, topdown=True):
+        # Filter out some directories
+        dirnames[:] = set(dirnames) - {
+            '.git',
+            '__pycache__',
+            'dist'
+        }
+        # Filter out some files
+        filenames[:] = [f for f in filenames if Path(f).suffix not in {
+            '.bak',
+            '.dro',
+            '.pyc'
+        }]
+        for in_file_str in filenames:
+            yield Path(dirpath) / in_file_str
+
+
 # @see https://stackoverflow.com/a/2656405/953887
 def on_remove_error(func, path, _exc_info):
     """
@@ -108,26 +126,43 @@ freeze(
     options=opts
 )
 
-
 print("Building docs...")
-remove_existing_directory('../doc_src')
+remove_existing_directory('../docs_src')
 docs_url = "https://bitbucket.org/jestar_jokin/dro-trimmer/wiki"
-subprocess.run(["git", "clone", docs_url, "../doc_src"])
-generate_docs("../doc_src", "../src", "../docs", docs_url)
-remove_existing_directory('../doc_src')
+subprocess.run(["git", "clone", docs_url, "../docs_src"])
+generate_docs("../docs_src", "../src", "../docs", docs_url)
 
-print("Packaging into a zip file...")
+print("Packaging binaries into a zip file...")
 remove_existing_directory('../dist')
 Path('../dist').mkdir()
 today_version = datetime.date.today().isoformat().replace('-', '')
+drotrim_path = Path('drotrim')
+
 with zipfile.ZipFile(
         '../dist/drotrim_bin_{0}.zip'.format(today_version),
         'w',
         zipfile.ZIP_DEFLATED,
         compresslevel=9) as zip:
-    for in_file in Path('../docs/').glob('*'):
-        zip.write(in_file, arcname=('drotrim' / in_file.relative_to('../docs')))
-    for in_file in Path('dist/').glob('*'):
-        zip.write(in_file, arcname=('drotrim' / in_file.relative_to('dist/')))
+    for in_file in Path('../docs/').rglob('*'):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../docs')))
 
-# TODO: package the src
+    for in_file in Path('dist/').rglob('*'):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('dist/')))
+
+print("Packaging source files...")
+with (zipfile.ZipFile(
+        '../dist/drotrim_src_{0}.zip'.format(today_version),
+        'w',
+        zipfile.ZIP_DEFLATED,
+        compresslevel=9) as zip):
+    for in_file in filtered_walk(Path('../docs/')):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+
+    for in_file in filtered_walk(Path('../docs_src')):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+
+    for in_file in filtered_walk(Path('../res/')):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+
+    for in_file in filtered_walk(Path('../src/')):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
