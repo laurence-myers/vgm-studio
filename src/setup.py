@@ -24,17 +24,41 @@
 #    THE SOFTWARE.
 
 import datetime
+import os
 from pathlib import Path
 from py2exe import freeze
 import shutil
+import subprocess
 import zipfile
 import drotrimmer.dro_globals as dro_globals
+from setup_docs import generate_docs
+
+
+# @see https://stackoverflow.com/a/2656405/953887
+def on_remove_error(func, path, _exc_info):
+    """
+    Error handler for ``shutil.rmtree``.
+
+    If the error is due to an access error (read only file)
+    it attempts to add write permission and then retries.
+
+    If the error is for another reason it re-raises the error.
+
+    Usage : ``shutil.rmtree(path, onerror=onerror)``
+    """
+    import stat
+    # Is the error an access error?
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWUSR)
+        func(path)
+    else:
+        raise
 
 
 def remove_existing_directory(directory: str) -> None:
     path_obj = Path(directory)
     if path_obj.is_dir() and path_obj.exists():
-        shutil.rmtree(path_obj)
+        shutil.rmtree(path_obj, onerror=on_remove_error)
 
 
 opts = {
@@ -84,11 +108,15 @@ freeze(
     options=opts
 )
 
+
+print("Building docs...")
+remove_existing_directory('../doc_src')
+docs_url = "https://bitbucket.org/jestar_jokin/dro-trimmer/wiki"
+subprocess.run(["git", "clone", docs_url, "../doc_src"])
+generate_docs("../doc_src", "../src", "../docs", docs_url)
+remove_existing_directory('../doc_src')
+
 print("Packaging into a zip file...")
-
-# TODO:
-# - Build HTML docs from wiki src (Creole)
-
 remove_existing_directory('../dist')
 Path('../dist').mkdir()
 today_version = datetime.date.today().isoformat().replace('-', '')
