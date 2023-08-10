@@ -23,8 +23,19 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+import datetime
+from pathlib import Path
 from py2exe import freeze
+import shutil
+import zipfile
 import drotrimmer.dro_globals as dro_globals
+
+
+def remove_existing_directory(directory: str) -> None:
+    path_obj = Path(directory)
+    if path_obj.is_dir() and path_obj.exists():
+        shutil.rmtree(path_obj)
+
 
 opts = {
     "bundle_files": 2,
@@ -34,12 +45,15 @@ opts = {
     "packages": ["drotrimmer", "drotrimmer.dtgui"]
 }
 
-def convert_version(in_version):
+
+def convert_version(in_version: str) -> str:
     ver_bits = [v[1:] for v in in_version.split()]
     if len(ver_bits) == 2:
         ver_bits.append("0")
     return '.'.join(ver_bits)
 
+
+remove_existing_directory('dist/')
 
 freeze(
     version_info={
@@ -69,3 +83,23 @@ freeze(
     ],
     options=opts
 )
+
+print("Packaging into a zip file...")
+
+# TODO:
+# - Build HTML docs from wiki src (Creole)
+
+remove_existing_directory('../dist')
+Path('../dist').mkdir()
+today_version = datetime.date.today().isoformat().replace('-', '')
+with zipfile.ZipFile(
+        '../dist/drotrim_bin_{0}.zip'.format(today_version),
+        'w',
+        zipfile.ZIP_DEFLATED,
+        compresslevel=9) as zip:
+    for in_file in Path('../docs/').glob('*'):
+        zip.write(in_file, arcname=('drotrim' / in_file.relative_to('../docs')))
+    for in_file in Path('dist/').glob('*'):
+        zip.write(in_file, arcname=('drotrim' / in_file.relative_to('dist/')))
+
+# TODO: package the src
