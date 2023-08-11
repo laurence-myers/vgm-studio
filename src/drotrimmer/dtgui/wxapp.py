@@ -22,7 +22,9 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+import ctypes
 import os.path
+import sys
 import wx
 from .. import dro_analysis, dro_data, dro_event, dro_globals, dro_io, dro_tasks, dro_undo, dro_util
 try:
@@ -514,6 +516,14 @@ class DTApp(wx.App):
 
 
 def start_gui_app():
+    # Fix blurriness on Windows
+    # @see https://stackoverflow.com/a/54247018/953887
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(True)
+        except:
+            pass
+
     app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
     dro_globals.g_custom_event_manager = dro_event.CustomEventManager()
