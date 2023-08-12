@@ -20,14 +20,7 @@ class WaveformPanel(object):
         frame_width = frame.GetSize()[0]
         self.num_buckets = frame_width
 
-        # Generate some Data
-        x_data = [x1 for x2 in range(frame_width) for x1 in (x2, x2)]
-        y_data = [0, 65535, 0, 65535/2, 0, 12000, 0, 6000, 0, 20000] * (frame_width // 8) * 2
-
-        # most items require data as a list of (x, y) pairs:
-        #    [[1x, y1], [x2, y2], [x3, y3], ..., [xn, yn]]
-        self.xy_data = list(zip(x_data, y_data))
-        self.draw()
+        self.xy_data = []
 
     def draw(self):
         line = wxplot.PolyLine(
