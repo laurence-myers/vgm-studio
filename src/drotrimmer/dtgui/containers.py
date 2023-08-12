@@ -72,7 +72,7 @@ class DTMainFrame(wx.Frame):
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
         if dro_player_enabled:
-            self.waveform_panel = WaveformPanel(self)
+            self.waveform_panel: WaveformPanel | None = WaveformPanel(self)
             self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
             self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
             tail_in_seconds = tail_length / 1000.0

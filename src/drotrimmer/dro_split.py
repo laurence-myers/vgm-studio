@@ -125,10 +125,12 @@ def main():
 
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
-    player = dro_player.DROPlayer(channels=(2 if options.preserve_panning else 1))
-    player.sound_on = False
-    player.capture_dro = options.split_to_dro
-    player.recording_on = not options.split_to_dro
+    player = dro_player.DROPlayer(
+        capture_dro=options.split_to_dro,
+        channels=(2 if options.preserve_panning else 1),
+        recording_on=not options.split_to_dro,
+        sound_on=False,
+    )
     player.load_song(dro_song)
     print(dro_song.pretty_string())
 

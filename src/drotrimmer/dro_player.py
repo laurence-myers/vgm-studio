@@ -26,6 +26,7 @@
 import math
 import optparse
 import os
+import struct
 import sys
 import threading
 import time
@@ -68,7 +69,7 @@ class WavRenderer(object):
                 self.wav = None # Hm, maybe should leave it hanging around?
                 self.wav_fname = None
 
-    def write(self, data):
+    def write(self, data: bytes):
         with self.wav_lock:
             if self.wav is not None:
                 self.wav.writeframes(data)
@@ -78,6 +79,38 @@ class WavRenderer(object):
 
     def is_active(self):
         return self.wav and self.wav._file # a bid dodgy, accessing a "private" property.
+
+
+class WaveformRenderer(object):
+    def __init__(self):
+        self.frequency = 44010
+        self.bit_depth = 16
+        self.channels = 1
+        self.points: list[(int, int)] = []
+        self.samples_written = 0
+        self.quantized_samples_written = 0
+        self.samples_per_bucket: int = 0
+        self.callback = None
+
+    def write(self, data: bytes):
+        # TODO: better initialization of this instance
+        if self.samples_per_bucket and self.callback:
+            bucket = 0
+            for sample, in struct.iter_unpack("h", data):
+                bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
+                if remainder == 0:
+                    self.points.append((bucket, 0))
+                    self.points.append((bucket, sample))
+                self.samples_written += 1
+
+            if bucket % 100 == 0:
+                self.callback(self.points)
+
+    def is_active(self):
+        return True
+
+    def set_quantization(self, total_length_ms: int, num_buckets: int):
+        self.samples_per_bucket = math.floor(total_length_ms * (self.frequency / 1000.0) / num_buckets)
 
 
 class ProcessingStreamsList(list):
@@ -158,7 +191,7 @@ class OPLStream(object):
             bit_depth: int,
             channels: int,
             chip_write_delay: float,
-            output_streams: list[pyaudio.PyAudio | WavRenderer]
+            output_streams: list[pyaudio.PyAudio | WavRenderer | WaveformRenderer]
     ):
         self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
@@ -259,7 +292,14 @@ class DROPlayer(object):
     PERCUSSION_REGISTER = 0xBD
     #PERCUSSION_VALUES = frozenset(map(lambda i: 2 ** i, range(5)))
 
-    def __init__(self, channels: int = 2):
+    def __init__(
+            self,
+            capture_dro=False,
+            channels: int = 2,
+            recording_on=False,
+            sound_on=True,
+            waveform_on=False
+    ):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
@@ -275,15 +315,26 @@ class DROPlayer(object):
             self.buffer_size = 512
             self.bit_depth = 16
             self.chip_write_delay = 0
-        self.channels = channels # crap
-        self.audio = pyaudio.PyAudio()
+
+        self.capture_dro = capture_dro
+        self.channels: int = channels # crap
+        self.recording_on = recording_on
+        self.sound_on = sound_on
+        self.waveform_on = waveform_on
+
+        if self.sound_on:
+            self.audio: pyaudio.PyAudio | None = pyaudio.PyAudio()
         self.audio_stream = None
         # Set up the WAV Renderer
-        self.wav_renderer = WavRenderer(
-            self.frequency,
-            self.bit_depth,
-            self.channels
-        )
+        if self.recording_on:
+            self.wav_renderer: WavRenderer | None = WavRenderer(
+                self.frequency,
+                self.bit_depth,
+                self.channels
+            )
+        if waveform_on:
+            self.waveform_renderer: WaveformRenderer | None = WaveformRenderer()
+
         # Set up other stuff
         self.processing_streams = ProcessingStreamsList()
         self.current_song = None
@@ -291,9 +342,6 @@ class DROPlayer(object):
         self.pos = 0
         self.time_elapsed = 0
         self.update_thread = None
-        self.sound_on = True
-        self.recording_on = False
-        self.capture_dro = False
         self.active_channels = set(self.CHANNEL_REGISTERS)
         self.active_percussion = [0xFF, 0xFF]
         self.writes_elapsed = 0
@@ -332,6 +380,8 @@ class DROPlayer(object):
             output_streams.append(self.audio_stream)
         if self.recording_on:
             output_streams.append(self.wav_renderer)
+        if self.waveform_on:
+            output_streams.append(self.waveform_renderer)
         opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
                                     self.chip_write_delay, output_streams)
         if self.current_song is not None:
@@ -564,9 +614,10 @@ def main():
 
     file_reader = dro_io.DroFileIO()
     dro_song = file_reader.read(song_to_play)
-    dro_player = DROPlayer()
-    dro_player.sound_on = not options.render
-    dro_player.recording_on = options.render
+    dro_player = DROPlayer(
+        recording_on=options.render,
+        sound_on=not options.render
+    )
     dro_player.load_song(dro_song)
     print(dro_song.pretty_string())
 

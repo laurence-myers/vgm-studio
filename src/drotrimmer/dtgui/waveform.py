@@ -1,3 +1,8 @@
+from ..dro_data import DROSong
+try:
+    from ..dro_player import DROPlayer
+except:
+    DROPlayer = None
 import wx
 from wx.lib import plot as wxplot
 
@@ -10,31 +15,37 @@ class WaveformPanel(object):
         self.panel.enableAxesValues = False
         self.panel.enableGrid = False
         self.panel.enableLegend = False
-        self.panel.SetBackgroundColour(wx.Colour(0xEE, 0xEE, 0xEE))
+        self.panel.SetBackgroundColour(wx.Colour(0x11, 0x11, 0x88))
 
-        # Do an initial draw
-        self.draw(frame)
-
-    def draw(self, frame: wx.Frame):
-        # Generate some Data
         frame_width = frame.GetSize()[0]
+        self.num_buckets = frame_width
+
+        # Generate some Data
         x_data = [x1 for x2 in range(frame_width) for x1 in (x2, x2)]
         y_data = [0, 65535, 0, 65535/2, 0, 12000, 0, 6000, 0, 20000] * (frame_width // 8) * 2
 
         # most items require data as a list of (x, y) pairs:
         #    [[1x, y1], [x2, y2], [x3, y3], ..., [xn, yn]]
-        xy_data = list(zip(x_data, y_data))
+        self.xy_data = list(zip(x_data, y_data))
+        self.draw()
 
-        # Create your Poly object(s).
-        # Use keyword args to set display properties.
+    def draw(self):
         line = wxplot.PolyLine(
-            xy_data,
-            colour=wx.Colour(0x55, 0x55, 0xCC),
+            self.xy_data,
+            colour=wx.Colour(0x66, 0xFF, 0x66),
             width=3,
         )
-
-        # create your graphics object
         graphics = wxplot.PlotGraphics([line])
+        self.panel.Draw(graphics, yAxis=(-32768, 32767))
 
-        # draw the graphics object on the canvas
-        self.panel.Draw(graphics)
+    def load_song(self, drosong: DROSong):
+        dro_player = DROPlayer(channels=1, sound_on=False, waveform_on=True)
+        dro_player.load_song(drosong)
+        dro_player.waveform_renderer.callback = self.redraw
+        dro_player.waveform_renderer.set_quantization(drosong.ms_length, self.num_buckets)
+        dro_player.reset()
+        dro_player.play()
+
+    def redraw(self, points: list[(int, int)]):
+        self.xy_data = points
+        self.draw()

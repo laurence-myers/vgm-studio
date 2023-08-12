@@ -140,6 +140,9 @@ class DTApp(wx.App):
                 self.dro_player.stop()
                 self.dro_player.load_song(self.drosong)
 
+            if self.mainframe.waveform_panel is not None:
+                self.mainframe.waveform_panel.load_song(self.drosong)
+
             self.mainframe.dtlist.CreateList(self.drosong)
             self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
 
