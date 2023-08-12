@@ -100,7 +100,7 @@ class WaveformRenderer(object):
                 bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
                 if remainder == 0:
                     self.points.append((bucket, 0))
-                    self.points.append((bucket, sample))
+                    self.points.append((bucket, abs(sample)))
                 self.samples_written += 1
 
             if bucket % 100 == 0:

@@ -29,7 +29,7 @@ class WaveformPanel(object):
             width=3,
         )
         graphics = wxplot.PlotGraphics([line])
-        self.panel.Draw(graphics, yAxis=(-32768, 32767))
+        self.panel.Draw(graphics)
 
     def load_song(self, drosong: DROSong):
         dro_player = DROPlayer(channels=1, sound_on=False, waveform_on=True)
