@@ -339,7 +339,7 @@ class DROSong(object):
         "Dual OPL-2"
     ]
 
-    def __init__(self, file_version, name, data, ms_length, opl_type):
+    def __init__(self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int):
         self.file_version = file_version
         self.name = name
         self.data: DROData = data
@@ -356,7 +356,7 @@ class DROSong(object):
     def getLengthData(self):
         return len(self.data)
 
-    def find_next_instruction(self, start, s_inst, look_backwards=False):
+    def find_next_instruction(self, start: int, s_inst: str, look_backwards: bool = False):
         """ Takes a starting index and register number (as a hex string) or
         a special value of "DLYS", "DLYL" or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""

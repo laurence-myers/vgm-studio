@@ -53,7 +53,7 @@ class DTSongDataList(wx.ListCtrl):
         self.SetColumnWidth(4, parent.GetCharWidth() * 70)
         self.SetColumnWidth(5, parent.GetCharWidth() * 70)
 
-    def OnGetItemText(self, item, column):
+    def OnGetItemText(self, item, column: int):
         # Possible TODO: split the description into sub-components
         # eg for "Tremolo / Vibrato / Sustain / KSR / Frequency Multiplication Factor"
         # (can't use bitmask because we may be disabling items - could possibly be solved by

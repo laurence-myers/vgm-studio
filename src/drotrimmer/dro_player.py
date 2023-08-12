@@ -45,7 +45,7 @@ def stopPlayerOnException(func):
 
 
 class WavRenderer(object):
-    def __init__(self, frequency, bit_depth, channels):
+    def __init__(self, frequency: int, bit_depth: int, channels: int):
         self.frequency = frequency
         self.bit_depth = bit_depth
         self.channels = channels
@@ -53,7 +53,7 @@ class WavRenderer(object):
         self.wav_fname = None
         self.wav_lock = threading.RLock()
 
-    def open(self, dro_song):
+    def open(self, dro_song: dro_data.DROSong):
         if self.wav_fname is None:
             self.wav_fname = "{}.wav".format(dro_song.name)
         self.wav = wave.open(self.wav_fname, 'wb')
@@ -73,7 +73,7 @@ class WavRenderer(object):
             if self.wav is not None:
                 self.wav.writeframes(data)
 
-    def set_output_fname(self, output_fname):
+    def set_output_fname(self, output_fname: str):
         self.wav_fname = "{}.wav".format(output_fname)
 
     def is_active(self):
@@ -90,24 +90,24 @@ class ProcessingStreamsList(list):
         return self._bank
 
     @bank.setter
-    def bank(self, value):
+    def bank(self, value: int):
         self._bank = value
         for stream in self:
             stream.bank = value
 
-    def open(self, dro_song):
+    def open(self, dro_song: dro_data.DROSong):
         for stream in self:
             stream.open(dro_song)
 
-    def set_output_fname(self, output_fname):
+    def set_output_fname(self, output_fname: str):
         for stream in self:
             stream.set_output_fname(output_fname)
 
-    def write(self, register, value):
+    def write(self, register: int, value: int):
         for stream in self:
             stream.write(register, value)
 
-    def render(self, ms_to_render):
+    def render(self, ms_to_render: int):
         for stream in self:
             stream.render(ms_to_render)
 
@@ -151,15 +151,15 @@ class OPLStream(object):
 
     """
 
-    def __init__(self, frequency, buffer_size, bit_depth, channels, chip_write_delay, output_streams):
-        """
-        @type frequency: int
-        @type buffer_size: int
-        @type bit_depth: int
-        @type channels: int
-        @type chip_write_delay: float
-        @type output_streams: list, containing PyAudio or WavRenderer objects.
-        """
+    def __init__(
+            self,
+            frequency: int,
+            buffer_size: int,
+            bit_depth: int,
+            channels: int,
+            chip_write_delay: float,
+            output_streams: list[pyaudio.PyAudio | WavRenderer]
+    ):
         self.frequency = frequency # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
         self.bit_depth = bit_depth
@@ -179,7 +179,7 @@ class OPLStream(object):
         return self._bank
 
     @bank.setter
-    def bank(self, value):
+    def bank(self, value: int):
         self._bank = value
 
     def reset(self):
@@ -194,12 +194,12 @@ class OPLStream(object):
                 self.write(reg, 0x00)
         self.bank = orig_bank
 
-    def open(self, dro_song):
+    def open(self, dro_song: dro_data.DROSong):
         for ostream in self.output_streams:
             if isinstance(ostream, WavRenderer): # blech
                 ostream.open(dro_song)
 
-    def set_output_fname(self, output_fname):
+    def set_output_fname(self, output_fname: str):
         for ostream in self.output_streams:
             if isinstance(ostream, WavRenderer): # blech
                 ostream.set_output_fname(output_fname)
@@ -210,17 +210,17 @@ class OPLStream(object):
             if isinstance(ostream, WavRenderer): # blech
                 ostream.close()
 
-    def __create_bytearray(self, size):
+    def __create_bytearray(self, size: int):
         return bytearray(size * (self.bit_depth // 8) * self.channels)
 
-    def write(self, register, value):
+    def write(self, register: int, value: int):
         if self.bank:
             register |= 0x100
             # Could be re-written as "register |= self.bank << 2"
         self.opl.writeReg(register, value)
         self.chip_delay_drift += self.chip_write_delay
 
-    def render(self, length_ms):
+    def render(self, length_ms: int | float):
         # Taken from PyOPL 1.0 and 1.2. Accurate rendering, though a bit inefficient.
         samples_to_render = length_ms * self.frequency / 1000.0
         samples_to_render += self.sample_overflow
@@ -259,7 +259,7 @@ class DROPlayer(object):
     PERCUSSION_REGISTER = 0xBD
     #PERCUSSION_VALUES = frozenset(map(lambda i: 2 ** i, range(5)))
 
-    def __init__(self, channels=2):
+    def __init__(self, channels: int = 2):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
@@ -313,10 +313,7 @@ class DROPlayer(object):
             except Exception:
                 pass
 
-    def load_song(self, new_song):
-        """
-        @type new_song: DROSongV2
-        """
+    def load_song(self, new_song: dro_data.DROSong):
         self.is_playing = False
         self.current_song = new_song
         self.reset()
@@ -350,7 +347,7 @@ class DROPlayer(object):
         self.active_percussion = set(self.CHANNEL_REGISTERS)
         self.active_percussion = [0xFF, 0xFF]
 
-    def set_output_fname(self, output_fname):
+    def set_output_fname(self, output_fname: str):
         self.processing_streams.set_output_fname(output_fname)
 
     def play(self):
@@ -386,12 +383,12 @@ class DROSeeker(object):
     """ Helper class to seek in DRO songs. Externalised from the player so the player class remains DRO-version neutral.
     """
 
-    def __init__(self, dro_player):
+    def __init__(self, dro_player: DROPlayer):
         self.dro_player = dro_player # circular reference, yuck
     
     # Could potentially merge with the updater thread, and have a flag to skip "rendering" of any sound.
     @stopPlayerOnException
-    def seek_to_time(self, seek_time_ms):
+    def seek_to_time(self, seek_time_ms: int):
         """Seeks to the specified time.
         Seek time is clamped between 0 and the song's recorded ms_length."""
         seek_time_ms = min(max(seek_time_ms, 0), self.dro_player.current_song.ms_length)
@@ -419,7 +416,7 @@ class DROSeeker(object):
         self.dro_player.processing_streams.clear_chip_delay_drift()
 
     @stopPlayerOnException
-    def seek_to_pos(self, seek_pos):
+    def seek_to_pos(self, seek_pos: int):
         """Seeks to a particular instruction position.
         This method is useful for playing a song from an instruction highlighted in the table editor.
         Note the position has no real bearing on the length of the song in ms - for a song with 200 instructions,
@@ -446,7 +443,7 @@ class DROSeeker(object):
 class DROPlayerUpdateThread(threading.Thread):
     PERCUSSION_REGISTER = 0xBD
 
-    def __init__(self, dro_player, current_song):
+    def __init__(self, dro_player: DROPlayer, current_song: dro_data.DROSong):
         super(DROPlayerUpdateThread, self).__init__()
         self.dro_player = dro_player # circular reference, yuck
         self.current_song = current_song
@@ -505,7 +502,7 @@ class DROPlayerUpdateThread(threading.Thread):
 
 
 class _TimerUpdateThread(threading.Thread):
-    def __init__(self, calc_ms_length):
+    def __init__(self, calc_ms_length: int):
         super(_TimerUpdateThread, self).__init__()
         self.time_elapsed = 0
         self.calc_ms_length = calc_ms_length
