@@ -25,11 +25,13 @@
 import os
 import sys
 import wx
+
 from .. import dro_util
 
 from .menus import DTMainMenuBar
 from .tables import DTSongDataList
 from .ui_util import guiID
+from .waveform import WaveformPanel
 
 class DTMainFrame(wx.Frame):
     def __init__(self, wx_app, *args, **kwds):
@@ -70,6 +72,7 @@ class DTMainFrame(wx.Frame):
         self.panel_1 = wx.Panel(self, -1)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
         if dro_player_enabled:
+            self.waveform_panel = WaveformPanel(self)
             self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
             self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
             tail_in_seconds = tail_length / 1000.0
@@ -88,7 +91,9 @@ class DTMainFrame(wx.Frame):
         self.statusbar.SetFieldsCount(2)
 
     def __do_layout(self, dro_player_enabled):
-        grid_sizer_1 = wx.FlexGridSizer(2, 1, 0, 0)
+        grid_sizer_1 = wx.FlexGridSizer(3 if dro_player_enabled else 2, 1, 0, 0)
+        if dro_player_enabled:
+            grid_sizer_1.Add(self.waveform_panel.panel, 1, wx.EXPAND, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
