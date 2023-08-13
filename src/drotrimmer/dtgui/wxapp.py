@@ -483,6 +483,8 @@ class DTApp(wx.App):
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.close_audio_output()
+        if self.mainframe.waveform_panel:
+            self.mainframe.waveform_panel.stop()
 
     def togglePlayback(self, event):
         if self.dro_player is not None:

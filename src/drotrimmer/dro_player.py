@@ -82,7 +82,7 @@ class WavRenderer(object):
 
 
 class WaveformRenderer(object):
-    def __init__(self):
+    def __init__(self, callback, total_length_ms: int, num_buckets: int):
         self.frequency: int = 44010
         self.bit_depth: int = 16
         self.channels: int = 1
@@ -90,12 +90,14 @@ class WaveformRenderer(object):
         self.samples_written: int = 0
         self.quantized_samples_written: int = 0
         self.samples_per_bucket: int = 0
-        self.callback = None
+        self.callback = callback
         self.curr_max_sample: int = 0
+        self.expected_total_samples: float = 0
+        self.set_quantization(total_length_ms, num_buckets)
 
     def write(self, data: bytes):
-        # TODO: better initialization of this instance
-        if self.samples_per_bucket and self.callback:
+        if self.samples_written < self.expected_total_samples:
+            bucket = 0
             for sample, in struct.iter_unpack("h", data):
                 bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
                 self.curr_max_sample = max(sample, abs(self.curr_max_sample))
@@ -105,14 +107,14 @@ class WaveformRenderer(object):
                     self.curr_max_sample = 0
                 self.samples_written += 1
 
-            if bucket % 100 == 0:
-                self.callback(self.points)
+            self.callback(self.points, bucket)
 
     def is_active(self):
         return True
 
     def set_quantization(self, total_length_ms: int, num_buckets: int):
-        self.samples_per_bucket = math.floor(total_length_ms * (self.frequency / 1000.0) / num_buckets)
+        self.expected_total_samples = total_length_ms * (self.frequency / 1000.0)
+        self.samples_per_bucket = math.floor(self.expected_total_samples / num_buckets)
 
 
 class ProcessingStreamsList(list):
@@ -299,8 +301,7 @@ class DROPlayer(object):
             capture_dro=False,
             channels: int = 2,
             recording_on=False,
-            sound_on=True,
-            waveform_on=False
+            sound_on=True
     ):
         # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
@@ -322,7 +323,6 @@ class DROPlayer(object):
         self.channels: int = channels # crap
         self.recording_on = recording_on
         self.sound_on = sound_on
-        self.waveform_on = waveform_on
 
         if self.sound_on:
             self.audio: pyaudio.PyAudio | None = pyaudio.PyAudio()
@@ -334,8 +334,7 @@ class DROPlayer(object):
                 self.bit_depth,
                 self.channels
             )
-        if waveform_on:
-            self.waveform_renderer: WaveformRenderer | None = WaveformRenderer()
+        self.waveform_renderer: WaveformRenderer | None = None
 
         # Set up other stuff
         self.processing_streams = ProcessingStreamsList()
@@ -382,7 +381,7 @@ class DROPlayer(object):
             output_streams.append(self.audio_stream)
         if self.recording_on:
             output_streams.append(self.wav_renderer)
-        if self.waveform_on:
+        if self.waveform_renderer:
             output_streams.append(self.waveform_renderer)
         opl_stream = OPLStream(self.frequency, self.buffer_size, self.bit_depth, self.channels,
                                     self.chip_write_delay, output_streams)
