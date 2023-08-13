@@ -9,19 +9,25 @@ import wx
 from wx.lib import plot as wxplot
 
 
-class WaveformPanel(object):
-    def __init__(self, frame: wx.Frame):
+class WaveformPanel(wx.Panel):
+    def __init__(self, parent: wx.Frame):
         # Create the canvas
-        self.panel = wxplot.PlotCanvas(frame, size=frame.ToDIP(wx.Size(0, 200)))
+        super().__init__(parent)
+        self.panel = wxplot.PlotCanvas(self, size=parent.ToDIP(wx.Size(0, 200)))
         self.panel.enableAxes = False
         self.panel.enableAxesValues = False
         self.panel.enableGrid = False
         self.panel.enableLegend = False
         self.panel.SetBackgroundColour(wx.Colour(0x11, 0x22, 0x55))
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(self.panel, 1, wx.EXPAND | wx.ALL, 0)
+        self.SetSizer(sizer)
+
         self.dro_player: DROPlayer = DROPlayer(channels=1, sound_on=False)
         #self.dro_player.chip_write_delay = 0  # TODO: should we include this?
 
-        frame_width = frame.GetSize()[0]
+        frame_width = parent.GetSize()[0]
         self.num_buckets: int = frame_width
 
         self.xy_data: list[(int, int)] = []

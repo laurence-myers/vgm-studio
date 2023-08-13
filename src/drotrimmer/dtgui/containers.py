@@ -93,7 +93,7 @@ class DTMainFrame(wx.Frame):
     def __do_layout(self, dro_player_enabled):
         grid_sizer_1 = wx.FlexGridSizer(3 if dro_player_enabled else 2, 1, 0, 0)
         if dro_player_enabled:
-            grid_sizer_1.Add(self.waveform_panel.panel, 1, wx.EXPAND, 0)
+            grid_sizer_1.Add(self.waveform_panel, 1, wx.EXPAND, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
