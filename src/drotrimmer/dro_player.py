@@ -83,24 +83,26 @@ class WavRenderer(object):
 
 class WaveformRenderer(object):
     def __init__(self):
-        self.frequency = 44010
-        self.bit_depth = 16
-        self.channels = 1
+        self.frequency: int = 44010
+        self.bit_depth: int = 16
+        self.channels: int = 1
         self.points: list[(int, int)] = []
-        self.samples_written = 0
-        self.quantized_samples_written = 0
+        self.samples_written: int = 0
+        self.quantized_samples_written: int = 0
         self.samples_per_bucket: int = 0
         self.callback = None
+        self.curr_max_sample: int = 0
 
     def write(self, data: bytes):
         # TODO: better initialization of this instance
         if self.samples_per_bucket and self.callback:
-            bucket = 0
             for sample, in struct.iter_unpack("h", data):
                 bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
-                if remainder == 0:
+                self.curr_max_sample = max(sample, abs(self.curr_max_sample))
+                if remainder == self.samples_per_bucket - 1:
                     self.points.append((bucket, 0))
-                    self.points.append((bucket, abs(sample)))
+                    self.points.append((bucket, self.curr_max_sample))
+                    self.curr_max_sample = 0
                 self.samples_written += 1
 
             if bucket % 100 == 0:

@@ -10,12 +10,12 @@ from wx.lib import plot as wxplot
 class WaveformPanel(object):
     def __init__(self, frame: wx.Frame):
         # Create the canvas
-        self.panel = wxplot.PlotCanvas(frame)
+        self.panel = wxplot.PlotCanvas(frame, size=frame.ToDIP(wx.Size(0, 200)))
         self.panel.enableAxes = False
         self.panel.enableAxesValues = False
         self.panel.enableGrid = False
         self.panel.enableLegend = False
-        self.panel.SetBackgroundColour(wx.Colour(0x11, 0x11, 0x88))
+        self.panel.SetBackgroundColour(wx.Colour(0x11, 0x22, 0x55))
 
         frame_width = frame.GetSize()[0]
         self.num_buckets = frame_width
@@ -25,11 +25,11 @@ class WaveformPanel(object):
     def draw(self):
         line = wxplot.PolyLine(
             self.xy_data,
-            colour=wx.Colour(0x66, 0xFF, 0x66),
+            colour=wx.Colour(0x22, 0xFF, 0x22),
             width=3,
         )
         graphics = wxplot.PlotGraphics([line])
-        self.panel.Draw(graphics)
+        self.panel.Draw(graphics, xAxis=(0, self.num_buckets))
 
     def load_song(self, drosong: DROSong):
         dro_player = DROPlayer(channels=1, sound_on=False, waveform_on=True)
