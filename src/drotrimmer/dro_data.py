@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 
 import array
-from . import dro_analysis, dro_globals, dro_undo, dro_util, regdata
+from . import dro_analysis, dro_globals, dro_logging, dro_undo, dro_util, regdata
 import threading
 
 DRO_FILE_V1 = 1
@@ -86,7 +86,7 @@ class DROData(object):
         self.long_delay_code = None
         self.delay_codes = None
 
-    def translate_index(self, key):
+    def translate_index(self, key: int) -> int:
         raise NotImplementedError()
 
     def interpret_data(self, real_index):
@@ -144,7 +144,7 @@ class DROData(object):
         for i in index_list:
             del self[i]
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: int | slice):
         """ Returns the item, translated from the "logical" index
         to the real index in the underlying array. The returned item is
         a DROInstruction object, interpreted from the raw data.
@@ -186,7 +186,7 @@ class DROData(object):
     def raw_iter(self):
         return iter(self.data)
 
-    def get_raw(self, key):
+    def get_raw(self, key: int):
         first_index = self.translate_index(key)
         try:
             second_index = self.translate_index(key + 1)
@@ -339,6 +339,8 @@ class DROSong(object):
         "Dual OPL-2"
     ]
 
+    __LOG = dro_logging.get_logger("DROSong")
+
     def __init__(self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int):
         self.file_version = file_version
         self.name = name
@@ -396,7 +398,6 @@ class DROSong(object):
         (Note to self: if this gets exposed to outside calls, make it
         "undoable" too.)
         """
-        self.stop_detailed_register_descriptions()
         with self.data_lock:
             self.data.insert_multiple(index_and_value_list)
         # Keep track of delays inserted, so we can update the total delay count.
@@ -405,16 +406,15 @@ class DROSong(object):
             if inst.inst_type == DROInstruction.T_DELAY:
                 self.ms_length += inst.value
         # Also need to update our register descriptions, since the data has changed.
-        self.generate_detailed_register_descriptions()
+        # This has to be done from outside DROSong, so just clear any existing descriptions.
+        self.detailed_register_descriptions = None
 
     @dro_undo.undoable("Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions)
-    def delete_instructions(self, index_list):
+    def delete_instructions(self, index_list: list[int]) -> list[(int, list[int])]:
         """ Deletes instructions at the given indexes.
 
         Returns a list of tuples, containing the index deleted and the value
         that was stored at that index."""
-        self.stop_detailed_register_descriptions()
-
         # First, copy the data to be deleted.
         deleted_data = []
         index_list.sort()
@@ -428,7 +428,8 @@ class DROSong(object):
         with self.data_lock:
             self.data.delete_multiple(index_list, is_sorted=True)
         # Also need to update our register descriptions, since the data has changed.
-        self.generate_detailed_register_descriptions()
+        # This has to be done from outside DROSong, so just clear any existing descriptions.
+        self.detailed_register_descriptions = None
         return deleted_data
 
     def get_register_display(self, item):
@@ -494,22 +495,12 @@ class DROSong(object):
         else:
             return str(self.detailed_register_descriptions[item][0])
 
-    def generate_detailed_register_descriptions(self):
-        self.stop_detailed_register_descriptions()
+    def generate_detailed_register_descriptions(self) -> list[tuple[int, str]] | None:
         self.detailed_register_descriptions = None
         detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
-        # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
-        # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
-        dro_globals.task_master().start_task(
-            "REG_ANALYSIS",
-            0.1,
-            detailed_register_analyzer.analyze_dro,
-            detailed_register_analyzer.cancel,
-            [self]
-        )
-
-    def stop_detailed_register_descriptions(self):
-        dro_globals.task_master().cancel_task("REG_ANALYSIS")
+        self.detailed_register_descriptions = detailed_register_analyzer.analyze_dro(self)
+        DROSong.__LOG.debug("Generated detailed register descriptions.")
+        return self.detailed_register_descriptions
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (

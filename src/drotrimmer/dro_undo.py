@@ -23,9 +23,15 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import threading
+from typing import Callable
 import weakref
 
-def undoable(description, undo_controller_getter, undo_function):
+
+def undoable(
+        description: str,
+        undo_controller_getter: Callable[[], 'UndoController'],
+        undo_function: Callable
+):
     """ Decorator. Allows any side effects
     of the method to be undone or redone at a later stage.
 

@@ -26,7 +26,7 @@ import ctypes
 import os.path
 import sys
 import wx
-from .. import dro_analysis, dro_data, dro_event, dro_globals, dro_io, dro_tasks, dro_undo, dro_util
+from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_undo, dro_util
 try:
     from .. import dro_player
 except ImportError:
@@ -94,14 +94,6 @@ class DTApp(wx.App):
         self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
         self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
 
-        dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_STARTED",
-                                                      self,
-                                                      self.startDetailedRegisterAnalysis)
-        dro_globals.custom_event_manager().bind_event("TASK_REG_ANALYSIS_FINISHED",
-                                                      self,
-                                                      self.finishDetailedRegisterAnalysis)
-
-
     # ____________________
     # Start Menu Event Handlers
     @catchUnhandledExceptions
@@ -134,7 +126,9 @@ class DTApp(wx.App):
             delay_mismatch = delay_mismatch_analyzer.result
 
             # Load detailed register analysis.
-            self.drosong.generate_detailed_register_descriptions()
+            # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
+            # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
+            self.__triggerDetailedRegisterAnalysis()
 
             if self.dro_player is not None:
                 self.dro_player.stop()
@@ -252,6 +246,8 @@ class DTApp(wx.App):
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
+            self.__triggerDetailedRegisterAnalysis()
         else:
             self.setStatusText("Nothing to undo.")
 
@@ -264,6 +260,8 @@ class DTApp(wx.App):
             self.mainframe.dtlist.RefreshItemCount()
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
+            self.__triggerDetailedRegisterAnalysis()
         else:
             self.setStatusText("Nothing to redo.")
 
@@ -305,7 +303,7 @@ class DTApp(wx.App):
     # Start Button Event Handlers
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def buttonDelete(self, event):
+    def buttonDelete(self, _event):
         if self.mainframe and self.mainframe.dtlist and self.mainframe.dtlist.HasSelected():
             if self.dro_player is not None:
                 self.dro_player.stop()
@@ -335,7 +333,7 @@ class DTApp(wx.App):
             #  Unfortunately we need to update the whole lot. Could speed things up by storing "snapshots" of the
             #  chip state and only refreshing the descriptions, from the nearest snapshot before the first deleted
             #  instruction onwards.
-            #self.drosong.generate_detailed_register_descriptions() # handled in the drosong object's delete method.
+            self.__triggerDetailedRegisterAnalysis()
 
     @requiresDROLoaded
     def buttonPlay(self, event):
@@ -477,7 +475,6 @@ class DTApp(wx.App):
             event.Skip()
 
     def closeFrame(self, event):
-        dro_globals.g_task_master.stop_all_tasks()
         wx.Window.DestroyChildren(self.mainframe)
         wx.Window.Destroy(self.mainframe)
         if self.dro_player is not None:
@@ -510,11 +507,14 @@ class DTApp(wx.App):
         if self.mainframe.statusbar:
             self.mainframe.statusbar.SetStatusText(message, section)
 
-    def startDetailedRegisterAnalysis(self, event):
+    def __triggerDetailedRegisterAnalysis(self):
+        # TODO: debounce
+        wx.CallLater(100, self.__doDetailedRegisterAnalysis)
+
+    def __doDetailedRegisterAnalysis(self):
         self.setStatusText("Analyzing registers....", section=1)
 
-    def finishDetailedRegisterAnalysis(self, event):
-        self.drosong.detailed_register_descriptions = event.result
+        self.drosong.generate_detailed_register_descriptions()
         if self.mainframe.dtlist:
             self.mainframe.dtlist.RefreshViewableItems()
             self.setStatusText("", section=1)
@@ -531,15 +531,12 @@ def start_gui_app():
 
     app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
-    dro_globals.g_custom_event_manager = dro_event.CustomEventManager()
-    dro_globals.g_task_master = dro_tasks.TaskMaster()
     try:
         app = DTApp(0)
         dro_globals.g_wx_app = app
         app.SetExitOnFrameDelete(True)
         app.MainLoop()
     finally:
-        dro_globals.g_task_master.stop_all_tasks()
         if app is not None:
             if app.dro_player is not None:
                 app.dro_player.stop() # usually not needed, since it's handled by closeFrame

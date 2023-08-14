@@ -22,13 +22,10 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+import logging
 
-g_wx_app = None
+logging.basicConfig(level=logging.DEBUG)
 
-g_undo_controller = None
-def get_undo_controller():
-    # Must be instantiated externally.
-    return g_undo_controller
 
-g_app_name = "DRO Trimmer"
-g_app_version = "v5 r1"
+def get_logger(name: str) -> logging.Logger:
+    return logging.getLogger(name)

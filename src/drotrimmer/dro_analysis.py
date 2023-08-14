@@ -451,8 +451,8 @@ class DRODetailedRegisterAnalyzer(object):
     def cancel(self):
         self._stop.set()
 
-    def analyze_dro(self, dro_song: dro_data.DROSong):
-        self.state_descriptions = []
+    def analyze_dro(self, dro_song: dro_data.DROSong) -> list[tuple[int, str]] | None:
+        self.state_descriptions: list[tuple[int, str]] = []
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
             opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
