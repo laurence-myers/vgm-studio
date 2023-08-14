@@ -128,14 +128,12 @@ class DTApp(wx.App):
             # Load detailed register analysis.
             # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
             # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
-            self.__triggerDetailedRegisterAnalysis()
+            # Also load the waveform
+            self.__triggerDetailedRegisterAnalysisAndWaveform()
 
             if self.dro_player is not None:
                 self.dro_player.stop()
                 self.dro_player.load_song(self.drosong)
-
-            if self.mainframe.waveform_panel is not None:
-                self.mainframe.waveform_panel.load_song(self.drosong)
 
             self.mainframe.dtlist.CreateList(self.drosong)
             self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
@@ -247,7 +245,7 @@ class DTApp(wx.App):
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
             # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
-            self.__triggerDetailedRegisterAnalysis()
+            self.__triggerDetailedRegisterAnalysisAndWaveform()
         else:
             self.setStatusText("Nothing to undo.")
 
@@ -261,7 +259,7 @@ class DTApp(wx.App):
             self.mainframe.dtlist.RefreshViewableItems()
             self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
             # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
-            self.__triggerDetailedRegisterAnalysis()
+            self.__triggerDetailedRegisterAnalysisAndWaveform()
         else:
             self.setStatusText("Nothing to redo.")
 
@@ -333,7 +331,7 @@ class DTApp(wx.App):
             #  Unfortunately we need to update the whole lot. Could speed things up by storing "snapshots" of the
             #  chip state and only refreshing the descriptions, from the nearest snapshot before the first deleted
             #  instruction onwards.
-            self.__triggerDetailedRegisterAnalysis()
+            self.__triggerDetailedRegisterAnalysisAndWaveform()
 
     @requiresDROLoaded
     def buttonPlay(self, event):
@@ -507,9 +505,11 @@ class DTApp(wx.App):
         if self.mainframe.statusbar:
             self.mainframe.statusbar.SetStatusText(message, section)
 
-    def __triggerDetailedRegisterAnalysis(self):
+    def __triggerDetailedRegisterAnalysisAndWaveform(self):
         # TODO: debounce
         wx.CallLater(100, self.__doDetailedRegisterAnalysis)
+        if self.mainframe.waveform_panel:
+            wx.CallLater(100, self.mainframe.waveform_panel.load_song, self.drosong)
 
     def __doDetailedRegisterAnalysis(self):
         self.setStatusText("Analyzing registers....", section=1)

@@ -1,4 +1,5 @@
 from ..dro_data import DROSong
+from ..dro_logging import get_logger
 try:
     from ..dro_player import DROPlayer, WaveformRenderer
 except:
@@ -10,6 +11,8 @@ import wx
 
 
 class WaveformPanel(wx.Panel):
+    __LOG = get_logger("WaveformPanel")
+
     def __init__(self, parent: wx.Frame):
         super().__init__(parent)
         self.SetBackgroundStyle(wx.BG_STYLE_CUSTOM)
@@ -27,6 +30,7 @@ class WaveformPanel(wx.Panel):
         self.draw_rate_secs: float = 0.100
 
     def load_song(self, drosong: DROSong):
+        WaveformPanel.__LOG.debug("Loading song: %s", drosong.name)
         self.xy_data = []
         self.Refresh()
         self.stop()
@@ -39,6 +43,7 @@ class WaveformPanel(wx.Panel):
         self.Refresh()
 
     def on_paint(self, _event):
+        WaveformPanel.__LOG.debug("Painting")
         width, height = self.GetClientSize()
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
@@ -50,7 +55,7 @@ class WaveformPanel(wx.Panel):
             return
 
         # Automatically scale to the peak value
-        max_value = max(self.xy_data, key=lambda xy: xy[1])[1]
+        max_value = max(self.xy_data, key=lambda xy: xy[1])[1] or 1
         # Set the pen width relative to the width on screen,
         # so that resizing the window doesn't create gaps between lines.
         dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22), width // self.num_buckets + 1))
