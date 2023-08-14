@@ -4,62 +4,64 @@ try:
 except:
     DROPlayer = None
     WaveformRenderer = None
+import math
 import time
 import wx
-from wx.lib import plot as wxplot
 
 
 class WaveformPanel(wx.Panel):
     def __init__(self, parent: wx.Frame):
-        # Create the canvas
         super().__init__(parent)
-        self.panel = wxplot.PlotCanvas(self, size=parent.ToDIP(wx.Size(0, 200)))
-        self.panel.enableAxes = False
-        self.panel.enableAxesValues = False
-        self.panel.enableGrid = False
-        self.panel.enableLegend = False
-        self.panel.SetBackgroundColour(wx.Colour(0x11, 0x22, 0x55))
-
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(self.panel, 1, wx.EXPAND | wx.ALL, 0)
-        self.SetSizer(sizer)
+        self.SetBackgroundStyle(wx.BG_STYLE_CUSTOM)
+        self.Bind(wx.EVT_SIZE, self.on_size)
+        self.Bind(wx.EVT_PAINT, self.on_paint)
 
         self.dro_player: DROPlayer = DROPlayer(channels=1, sound_on=False)
         #self.dro_player.chip_write_delay = 0  # TODO: should we include this?
 
-        frame_width = parent.GetSize()[0]
+        frame_width = parent.GetClientSize()[0]
         self.num_buckets: int = frame_width
 
         self.xy_data: list[(int, int)] = []
         self.last_drawn_at: float = time.time()
         self.draw_rate_secs: float = 0.100
 
-    def draw(self):
-        if self.panel:  # don't let DROPlayer to update waveform when we're shuttind down
-            line = wxplot.PolyLine(
-                self.xy_data,
-                colour=wx.Colour(0x22, 0xFF, 0x22),
-                width=3,
-            )
-            graphics = wxplot.PlotGraphics([line])
-            self.panel.Draw(graphics, xAxis=(0, self.num_buckets))
-
     def load_song(self, drosong: DROSong):
         self.xy_data = []
+        self.Refresh()
         self.stop()
         self.dro_player.waveform_renderer = WaveformRenderer(self.redraw, drosong.ms_length, self.num_buckets)
         self.dro_player.load_song(drosong)
         self.dro_player.play()
 
-    def redraw(self, points: list[(int, int)], bucket: int):
+    def on_size(self, event):
+        event.Skip()
+        self.Refresh()
+
+    def on_paint(self, _event):
+        width, height = self.GetClientSize()
+        dc = wx.AutoBufferedPaintDC(self)
+        dc.Clear()
+        dc.SetBrush(wx.Brush(wx.Colour(0x11, 0x22, 0x55)))
+        dc.DrawRectangle(0, 0, width, height)
+
+        # No data? Don't draw.
+        if len(self.xy_data) == 0:
+            return
+
+        # Automatically scale to the peak value
+        max_value = max(self.xy_data, key=lambda xy: xy[1])[1]
+        # Set the pen width relative to the width on screen,
+        # so that resizing the window doesn't create gaps between lines.
+        dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22), width // self.num_buckets + 1))
+        for (x, y) in self.xy_data:
+            x = math.floor((x / self.num_buckets) * width)
+            # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
+            dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
+
+    def redraw(self, points: list[(int, int)]):
         self.xy_data = points
-        # Re-draw every few seconds, or when
-        # we've calculated all the points.
-        now = time.time()
-        if now - self.last_drawn_at >= self.draw_rate_secs \
-                or bucket >= self.num_buckets:
-            self.last_drawn_at = now
-            self.draw()
+        self.Refresh()
 
     def stop(self):
         self.dro_player.stop()

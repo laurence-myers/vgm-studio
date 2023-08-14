@@ -30,7 +30,9 @@ import struct
 import sys
 import threading
 import time
+from typing import Callable
 import wave
+
 import pyaudio
 import pyopl
 from . import dro_analysis, dro_capture, dro_data, dro_globals, dro_util, dro_io
@@ -90,24 +92,22 @@ class WaveformRenderer(object):
         self.samples_written: int = 0
         self.quantized_samples_written: int = 0
         self.samples_per_bucket: int = 0
-        self.callback = callback
+        self.callback: Callable[[list[(int, int)]], None] = callback
         self.curr_max_sample: int = 0
         self.expected_total_samples: float = 0
         self.set_quantization(total_length_ms, num_buckets)
 
     def write(self, data: bytes):
         if self.samples_written < self.expected_total_samples:
-            bucket = 0
             for sample, in struct.iter_unpack("h", data):
                 bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
                 self.curr_max_sample = max(sample, abs(self.curr_max_sample))
                 if remainder == self.samples_per_bucket - 1:
-                    self.points.append((bucket, 0))
                     self.points.append((bucket, self.curr_max_sample))
                     self.curr_max_sample = 0
                 self.samples_written += 1
 
-            self.callback(self.points, bucket)
+            self.callback(self.points)
 
     def is_active(self):
         return True
