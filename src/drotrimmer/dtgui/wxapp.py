@@ -473,13 +473,12 @@ class DTApp(wx.App):
             event.Skip()
 
     def closeFrame(self, event):
-        wx.Window.DestroyChildren(self.mainframe)
-        wx.Window.Destroy(self.mainframe)
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.close_audio_output()
         if self.mainframe.waveform_panel:
             self.mainframe.waveform_panel.stop()
+        self.mainframe.Destroy()
 
     def togglePlayback(self, event):
         if self.dro_player is not None:
@@ -529,18 +528,9 @@ def start_gui_app():
         except:
             pass
 
-    app = None
     dro_globals.g_undo_controller = dro_undo.UndoController()
-    try:
-        app = DTApp(0)
-        dro_globals.g_wx_app = app
-        app.SetExitOnFrameDelete(True)
-        app.MainLoop()
-    finally:
-        if app is not None:
-            if app.dro_player is not None:
-                app.dro_player.stop() # usually not needed, since it's handled by closeFrame
-                app.dro_player.close_audio_output()
-            app.Destroy()
+    app = DTApp(0)
+    dro_globals.g_wx_app = app
+    app.MainLoop()
 
 if __name__ == "__main__": start_gui_app()
