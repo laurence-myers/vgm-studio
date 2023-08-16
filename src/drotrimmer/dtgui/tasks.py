@@ -118,6 +118,8 @@ class TaskMaster:
             del self.task_futures[task_name]
 
     def start_task(self, task: IncrementalTask) -> None:
+        """Queues a task to be run. Cancels any existing running or pending instance of a task with the same name."""
+        self.cancel_task(task.name)
         future = self.executor.submit(task.run)
         self.task_futures[task.name] = (future, task)
 
