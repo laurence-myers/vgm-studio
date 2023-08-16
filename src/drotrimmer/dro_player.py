@@ -23,6 +23,18 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 
+"""
+DROPlayer initialises:
+
+- output streams: things that take PCM data and write it somewhere else (audio, wav, waveform)
+- processing streams: things that take DRO instructions, `write()` instructions, or `render()` something.
+  - OPLStream: converts DRO instructions to PCM data, using PyOPL. Accepts a list of output streams.
+  - DroCapture: converts DRO -> DRO, used for splitting into separate channels.
+- DROPlayerUpdateThread: created on `play()`. Runs in a thread. Directly manipulates the dro_player.
+
+This means that, starting playback is handled in the main thread, but actual rendering occurs in a separate thread.
+"""
+
 import math
 import optparse
 import os
