@@ -26,7 +26,7 @@ import ctypes
 import os.path
 import sys
 import wx
-from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_undo, dro_util
+from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_logging, dro_undo, dro_util
 try:
     from .. import dro_player
 except ImportError:
@@ -34,8 +34,11 @@ except ImportError:
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
+from . import tasks
 
 class DTApp(wx.App):
+    log = dro_logging.get_logger("DTApp")
+
     def OnInit(self):
         self.drosong = None
         # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
@@ -54,6 +57,7 @@ class DTApp(wx.App):
         self.goto_dialog = None # Goto diaog
         self.frdialog = None # Find Register dialog
         self.loop_analysis_dialog = None # Loop Analysis Dialog
+        self.task_master = tasks.TaskMaster()
 
         self.mainframe = DTMainFrame(self,
                                      None,
@@ -93,6 +97,10 @@ class DTApp(wx.App):
 
         self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
         self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
+
+        # Custom events
+        self.Bind(tasks.EVT_TASK_RESULT, self.onResult)
+        self.Bind(tasks.EVT_TASK_COMPLETED, self.onTaskCompleted)
 
     # ____________________
     # Start Menu Event Handlers
@@ -466,19 +474,42 @@ class DTApp(wx.App):
             self.menuRedo(event)
         elif keycode == 90 and event.CmdDown(): # CTRL-Z
             self.menuUndo(event)
+        elif keycode == 90:  # Z. TODO: remove this
+            self.startTestTask(event)
+        elif keycode == 83:  # S. TODO: remove this
+            self.cancelTestTask(event)
         elif self.dro_player is not None and keycode == 32: # Spacebar
             self.togglePlayback(event)
         else:
             #print keycode
             event.Skip()
 
-    def closeFrame(self, event):
+    def startTestTask(self, _event):
+        task_name = f"Task {self.task_master.get_num_tasks() + 1}"
+        task = tasks.ExampleTask(task_name, self)
+        self.task_master.start_task(task)
+        self.log.debug(f"Starting {task_name}\n")
+
+    def cancelTestTask(self, _event):
+        task_name = f"Task {self.task_master.get_num_tasks()}"
+        self.task_master.cancel_task(task_name)
+
+    def onResult(self, event: tasks.TaskResultEvent):
+        self.log.debug(f"{event.task_name} result: {event.value}\n")
+
+    def onTaskCompleted(self, event: tasks.TaskCompletedEvent):
+        task_name = event.task_name
+        self.task_master.remove_completed_task(task_name)
+        self.log.debug(f"{task_name} completed\n")
+
+    def closeFrame(self, _event):
         if self.dro_player is not None:
             self.dro_player.stop()
             self.dro_player.close_audio_output()
         if self.mainframe.waveform_panel:
             self.mainframe.waveform_panel.stop()
         self.mainframe.Destroy()
+        self.task_master.stop()
 
     def togglePlayback(self, event):
         if self.dro_player is not None:
