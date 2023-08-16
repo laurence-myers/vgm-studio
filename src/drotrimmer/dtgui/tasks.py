@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import concurrent.futures
-from .. import dro_logging
+from .. import dro_analysis, dro_data, dro_logging
 import threading
 import typing
 import wx
@@ -18,9 +18,8 @@ class IncrementalTask(ABC):
     based on its name.
     """
 
-    def __init__(self, name: str, target: wx.EvtHandler) -> None:
+    def __init__(self, name: str) -> None:
         self.name: str = name
-        self.target: wx.EvtHandler = target
         self.stop_requested = threading.Event()
 
         self.log = dro_logging.get_logger(f"IncrementalTask[{self.name}]")
@@ -33,17 +32,17 @@ class IncrementalTask(ABC):
         if not self.stop_requested.is_set():  # Don't start if we've already been asked to stop
             self.log.debug("Starting iteration")
             for value in generator:
-                self.log.debug(f"Value: {value}")
-                self.log.debug("In iter, checking if stop requested")
+                # self.log.debug(f"Value: {value}")
+                # self.log.debug("In iter, checking if stop requested")
                 if self.stop_requested.is_set():
                     self.log.debug("Stopping task")
                     # Don't use the semaphore, in case it was set _after_ we got the last value
                     was_stop_requested = True
                     break
-                self.log.debug("Dispatching result event")
-                wx.PostEvent(self.target, TaskResultEvent(self.name, value))
+                # self.log.debug("Dispatching result event")
+                wx.PostEvent(wx.GetApp(), TaskResultEvent(self.name, value))
         self.log.debug("Dispatching completed event")
-        wx.PostEvent(self.target, TaskCompletedEvent(self.name, was_stop_requested))
+        wx.PostEvent(wx.GetApp(), TaskCompletedEvent(self.name, was_stop_requested))
 
     @abstractmethod
     def _generate_results(self) -> typing.Iterator[typing.Any]:
@@ -58,6 +57,21 @@ class ExampleTask(IncrementalTask):  # TODO: remove this class
         for i in range(10):
             yield i
             wx.MilliSleep(200)
+
+
+class DetailedRegisterAnalysisTask(IncrementalTask):
+    def __init__(self, drosong: dro_data.DROSong):
+        super().__init__("DetailedRegisterAnalysisTask")
+        self.drosong = drosong
+
+    def _generate_results(self) -> typing.Iterator[tuple[int, str]]:
+        detailed_register_descriptions = []
+        detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
+        for entry in detailed_register_analyzer.analyze_dro(self.drosong):
+            detailed_register_descriptions.append(entry)
+        # Turns out, it's faster to just calculate everything and return it at once, than to do it per instruction.
+        # (Maybe we could chunk it up, either by number of instructions, or every 100 ms)
+        yield detailed_register_descriptions
 
 
 class TaskResultEvent(wx.PyEvent):

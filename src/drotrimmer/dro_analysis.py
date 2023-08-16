@@ -22,10 +22,9 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-
+import typing
 from collections import defaultdict
 import difflib
-import threading
 
 from . import dro_data, regdata
 from .dro_util import DROTrimmerException, read_config
@@ -433,7 +432,6 @@ class DRODetailedRegisterAnalyzer(object):
     OPL_TYPE_OPL3 = 2
 
     def __init__(self):
-        self.state_descriptions: DetailedRegisterInfo = []
         self.current_bank: int = 0
         self.current_state = None
         self.OPL_TYPE_DRO1_MAP: list[int] = [
@@ -446,13 +444,8 @@ class DRODetailedRegisterAnalyzer(object):
             self.OPL_TYPE_DUAL_OPL2,
             self.OPL_TYPE_OPL3
         ] # a bit pointless, but added for consistency.
-        self._stop = threading.Event()
 
-    def cancel(self):
-        self._stop.set()
-
-    def analyze_dro(self, dro_song: dro_data.DROSong) -> list[tuple[int, str]] | None:
-        self.state_descriptions: list[tuple[int, str]] = []
+    def analyze_dro(self, dro_song: dro_data.DROSong) -> typing.Iterator[tuple[int, str]]:
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
             opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
@@ -464,16 +457,11 @@ class DRODetailedRegisterAnalyzer(object):
         # Wait for the data lock to become available.
         with dro_song.data_lock:
             for inst in dro_song.data:
-                if self._stop.is_set():
-                    return
                 if inst.inst_type == dro_data.DROInstruction.T_DELAY:
-                    self.state_descriptions.append(
-                        (self.current_bank, "Delay: %s ms" % (inst.value,)))
+                    yield (self.current_bank, "Delay: %s ms" % (inst.value,))
                 elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                     self.current_bank = inst.value
-                    self.state_descriptions.append(
-                        (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
-                    )
+                    yield (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
                 else:
                     if inst.bank is not None:
                         self.current_bank = inst.bank
@@ -481,9 +469,7 @@ class DRODetailedRegisterAnalyzer(object):
                                                               inst.command,
                                                               inst.value,
                                                               opl_type)
-                    self.state_descriptions.append(
-                        (self.current_bank, desc))
-        return self.state_descriptions
+                    yield (self.current_bank, desc)
 
     def __analyze_and_update_register(self, bank: int, reg: int, val: int, opl_type: int):
         try:

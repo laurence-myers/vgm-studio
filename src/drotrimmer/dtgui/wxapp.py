@@ -486,7 +486,7 @@ class DTApp(wx.App):
 
     def startTestTask(self, _event):
         task_name = f"Task {self.task_master.get_num_tasks() + 1}"
-        task = tasks.ExampleTask(task_name, self)
+        task = tasks.ExampleTask(task_name)
         self.task_master.start_task(task)
         self.log.debug(f"Starting {task_name}\n")
 
@@ -495,12 +495,21 @@ class DTApp(wx.App):
         self.task_master.cancel_task(task_name)
 
     def onResult(self, event: tasks.TaskResultEvent):
-        self.log.debug(f"{event.task_name} result: {event.value}\n")
+        # self.log.debug(f"{event.task_name} result\n")
+
+        if event.task_name == "DetailedRegisterAnalysisTask":
+            if self.drosong:
+                self.drosong.detailed_register_descriptions = event.value
+                if self.mainframe.dtlist:
+                    self.mainframe.dtlist.RefreshViewableItems()
 
     def onTaskCompleted(self, event: tasks.TaskCompletedEvent):
         task_name = event.task_name
         self.task_master.remove_completed_task(task_name)
         self.log.debug(f"{task_name} completed\n")
+
+        if event.task_name == "DetailedRegisterAnalysisTask":
+            self.setStatusText("", section=1)
 
     def closeFrame(self, _event):
         if self.dro_player is not None:
@@ -537,17 +546,14 @@ class DTApp(wx.App):
 
     def __triggerDetailedRegisterAnalysisAndWaveform(self):
         # TODO: debounce
-        wx.CallLater(100, self.__doDetailedRegisterAnalysis)
+        self.__doDetailedRegisterAnalysis()
         if self.mainframe.waveform_panel:
             wx.CallLater(100, self.mainframe.waveform_panel.load_song, self.drosong)
 
     def __doDetailedRegisterAnalysis(self):
         self.setStatusText("Analyzing registers....", section=1)
 
-        self.drosong.generate_detailed_register_descriptions()
-        if self.mainframe.dtlist:
-            self.mainframe.dtlist.RefreshViewableItems()
-            self.setStatusText("", section=1)
+        self.task_master.start_task(tasks.DetailedRegisterAnalysisTask(self.drosong))
 
 
 def start_gui_app():

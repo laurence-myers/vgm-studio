@@ -495,13 +495,6 @@ class DROSong(object):
         else:
             return str(self.detailed_register_descriptions[item][0])
 
-    def generate_detailed_register_descriptions(self) -> list[tuple[int, str]] | None:
-        self.detailed_register_descriptions = None
-        detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
-        self.detailed_register_descriptions = detailed_register_analyzer.analyze_dro(self)
-        DROSong.__LOG.debug("Generated detailed register descriptions.")
-        return self.detailed_register_descriptions
-
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
             self.name, self.file_version, self.opl_type, self.OPL_TYPE_MAP[self.opl_type], self.ms_length
