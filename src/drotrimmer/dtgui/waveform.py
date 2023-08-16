@@ -1,10 +1,6 @@
 from ..dro_data import DROSong
 from ..dro_logging import get_logger
-try:
-    from ..dro_player import DROPlayer, WaveformRenderer
-except:
-    DROPlayer = None
-    WaveformRenderer = None
+from ..dro_player import DROPlayer, WaveformRenderer
 import math
 import time
 import wx

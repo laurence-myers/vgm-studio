@@ -26,11 +26,7 @@ import ctypes
 import os.path
 import sys
 import wx
-from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_logging, dro_undo, dro_util
-try:
-    from .. import dro_player
-except ImportError:
-    dro_player = None
+from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_logging, dro_player, dro_undo, dro_util
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
@@ -41,12 +37,7 @@ class DTApp(wx.App):
 
     def OnInit(self):
         self.drosong = None
-        # The DRO player functionality is optional, so users without the PyOPL and PyAudio modules installed can
-        #  still make use of the editor.
-        if dro_player is not None:
-            self.dro_player = dro_player.DROPlayer()
-        else:
-            self.dro_player = None
+        self.dro_player = dro_player.DROPlayer()
 
         try:
             config = dro_util.read_config()
@@ -64,8 +55,7 @@ class DTApp(wx.App):
                                      -1,
                                      "DRO Trimmer %s" % (dro_globals.g_app_version,),
                                      size=wx.Size(640, 480),
-                                     tail_length=self.tail_length,
-                                     dro_player_enabled=self.dro_player is not None)
+                                     tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
 
@@ -139,9 +129,8 @@ class DTApp(wx.App):
             # Also load the waveform
             self.__triggerDetailedRegisterAnalysisAndWaveform()
 
-            if self.dro_player is not None:
-                self.dro_player.stop()
-                self.dro_player.load_song(self.drosong)
+            self.dro_player.stop()
+            self.dro_player.load_song(self.drosong)
 
             self.mainframe.dtlist.CreateList(self.drosong)
             self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
@@ -311,9 +300,8 @@ class DTApp(wx.App):
     @requiresDROLoaded
     def buttonDelete(self, _event):
         if self.mainframe and self.mainframe.dtlist and self.mainframe.dtlist.HasSelected():
-            if self.dro_player is not None:
-                self.dro_player.stop()
-                # I think all of this should be moved to the dtlist...
+            self.dro_player.stop()
+            # I think all of this should be moved to the dtlist...
             selected_items = self.mainframe.dtlist.GetAllSelected()
             self.drosong.delete_instructions(selected_items)
             self.mainframe.dtlist.RefreshItemCount()
@@ -343,26 +331,23 @@ class DTApp(wx.App):
 
     @requiresDROLoaded
     def buttonPlay(self, event):
-        if self.dro_player is not None:
-            self.dro_player.stop()
-            self.dro_player.reset()
-            if self.mainframe.dtlist.HasSelected():
-                self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
-            self.dro_player.play()
+        self.dro_player.stop()
+        self.dro_player.reset()
+        if self.mainframe.dtlist.HasSelected():
+            self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
+        self.dro_player.play()
 
     @requiresDROLoaded
     def buttonStop(self, event):
-        if self.dro_player is not None:
-            self.dro_player.stop()
-            self.dro_player.reset()
+        self.dro_player.stop()
+        self.dro_player.reset()
 
     @requiresDROLoaded
     def buttonPlayTail(self, event):
-        if self.dro_player is not None:
-            self.dro_player.stop()
-            self.dro_player.reset()
-            self.dro_player.seek_to_time(max(self.dro_player.current_song.ms_length - self.tail_length, 0))
-            self.dro_player.play()
+        self.dro_player.stop()
+        self.dro_player.reset()
+        self.dro_player.seek_to_time(max(self.dro_player.current_song.ms_length - self.tail_length, 0))
+        self.dro_player.play()
 
     @catchUnhandledExceptions
     def buttonGoto(self, event):
@@ -478,7 +463,7 @@ class DTApp(wx.App):
             self.startTestTask(event)
         elif keycode == 83:  # S. TODO: remove this
             self.cancelTestTask(event)
-        elif self.dro_player is not None and keycode == 32: # Spacebar
+        elif keycode == 32: # Spacebar
             self.togglePlayback(event)
         else:
             #print keycode
@@ -512,20 +497,17 @@ class DTApp(wx.App):
             self.setStatusText("", section=1)
 
     def closeFrame(self, _event):
-        if self.dro_player is not None:
-            self.dro_player.stop()
-            self.dro_player.close_audio_output()
-        if self.mainframe.waveform_panel:
-            self.mainframe.waveform_panel.stop()
+        self.dro_player.stop()
+        self.dro_player.close_audio_output()
+        self.mainframe.waveform_panel.stop()
         self.mainframe.Destroy()
         self.task_master.stop()
 
     def togglePlayback(self, event):
-        if self.dro_player is not None:
-            if self.dro_player.is_playing:
-                self.buttonStop(event)
-            else:
-                self.buttonPlay(event)
+        if self.dro_player.is_playing:
+            self.buttonStop(event)
+        else:
+            self.buttonPlay(event)
 
     # Other stuff
     def __updateDROInfoRedo(self, args_list): # sigh
@@ -547,8 +529,7 @@ class DTApp(wx.App):
     def __triggerDetailedRegisterAnalysisAndWaveform(self):
         # TODO: debounce
         self.__doDetailedRegisterAnalysis()
-        if self.mainframe.waveform_panel:
-            wx.CallLater(100, self.mainframe.waveform_panel.load_song, self.drosong)
+        wx.CallLater(100, self.mainframe.waveform_panel.load_song, self.drosong)
 
     def __doDetailedRegisterAnalysis(self):
         self.setStatusText("Analyzing registers....", section=1)
