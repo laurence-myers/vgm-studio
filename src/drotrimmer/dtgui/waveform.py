@@ -5,9 +5,9 @@ import wx
 
 
 class WaveformPanel(wx.Panel):
-    __LOG = get_logger("WaveformPanel")
+    log = get_logger("WaveformPanel")
 
-    def __init__(self, parent: wx.Frame):
+    def __init__(self, parent: wx.Window):
         super().__init__(parent)
         self.SetBackgroundStyle(wx.BG_STYLE_CUSTOM)
         self.Bind(wx.EVT_SIZE, self.on_size)
@@ -16,8 +16,9 @@ class WaveformPanel(wx.Panel):
         self.dro_player: DROPlayer = DROPlayer(channels=1, sound_on=False)
         #self.dro_player.chip_write_delay = 0  # TODO: should we include this?
 
-        frame_width = parent.GetClientSize()[0]
-        self.num_buckets: int = frame_width
+        # Set a reasonable default resolution for the waveform.
+        # (We could also calculate it from self.GetClientSize()[0], but there's complications.)
+        self.x_resolution = 768
 
         self.xy_data: list[(int, int)] = []
 
@@ -30,7 +31,7 @@ class WaveformPanel(wx.Panel):
         self.Refresh()
 
     def on_paint(self, _event):
-        WaveformPanel.__LOG.debug("Painting")
+        self.log.debug("Painting")
         width, height = self.GetClientSize()
         dc = wx.AutoBufferedPaintDC(self)
         dc.Clear()
@@ -45,9 +46,9 @@ class WaveformPanel(wx.Panel):
         max_value = max(self.xy_data, key=lambda xy: xy[1])[1] or 1
         # Set the pen width relative to the width on screen,
         # so that resizing the window doesn't create gaps between lines.
-        dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22), width // self.num_buckets + 1))
+        dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22), width // self.x_resolution + 1))
         for (x, y) in self.xy_data:
-            x = math.floor((x / self.num_buckets) * width)
+            x = math.floor((x / self.x_resolution) * width)
             # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
             dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
 

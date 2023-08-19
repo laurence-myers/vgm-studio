@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 
 import array
-from . import dro_analysis, dro_globals, dro_logging, dro_undo, dro_util, regdata
+from . import dro_analysis, dro_globals, dro_undo, dro_util, regdata
 import threading
 
 DRO_FILE_V1 = 1
@@ -338,8 +338,6 @@ class DROSong(object):
         "OPL-3",
         "Dual OPL-2"
     ]
-
-    __LOG = dro_logging.get_logger("DROSong")
 
     def __init__(self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int):
         self.file_version = file_version

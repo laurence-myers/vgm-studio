@@ -54,7 +54,7 @@ class DTApp(wx.App):
                                      None,
                                      -1,
                                      "DRO Trimmer %s" % (dro_globals.g_app_version,),
-                                     size=wx.Size(640, 480),
+                                     # size=wx.Size(1900, 1200),
                                      tail_length=self.tail_length)
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
@@ -537,7 +537,7 @@ class DTApp(wx.App):
             tasks.WaveformRenderTask(
                 self.mainframe.waveform_panel.dro_player,
                 self.drosong,
-                self.mainframe.waveform_panel.num_buckets
+                self.mainframe.waveform_panel.x_resolution
             ),
             debounce_sec=1 if debounce else None
         )

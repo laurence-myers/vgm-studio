@@ -66,12 +66,18 @@ class DTMainFrame(wx.Frame):
             self.SetIcon(icon)
 
         self.statusbar = self.CreateStatusBar()
-        self.dtlist = DTSongDataList(self, wx_app.drosong)
-        self.panel_1 = wx.Panel(self, -1)
+
+        self.splitter_1 = wx.SplitterWindow(self)
+
+        self.waveform_panel: WaveformPanel | None = WaveformPanel(self.splitter_1)
+
+        self.bottom_panel = wx.Panel(self.splitter_1)
+        self.dtlist = DTSongDataList(self.bottom_panel, wx_app.drosong)
+        self.panel_1 = wx.Panel(self.bottom_panel)
         self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
-        self.waveform_panel: WaveformPanel | None = WaveformPanel(self)
         self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
         self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
+
         tail_in_seconds = tail_length / 1000.0
         if tail_in_seconds % 1:
             tail_str = "%.2f" % (tail_in_seconds,)
@@ -88,8 +94,9 @@ class DTMainFrame(wx.Frame):
         self.statusbar.SetFieldsCount(2)
 
     def __do_layout(self):
+        self.splitter_1.SetMinimumPaneSize(100)
+
         grid_sizer_1 = wx.FlexGridSizer(3, 1, 0, 0)
-        grid_sizer_1.Add(self.waveform_panel, 1, wx.EXPAND, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
@@ -104,18 +111,21 @@ class DTMainFrame(wx.Frame):
 
         grid_sizer_1.Add(self.panel_1, 1, wx.EXPAND, 0)
 
-        self.SetAutoLayout(1)
-        self.SetSizer(grid_sizer_1)
-        grid_sizer_1.Fit(self)
-        grid_sizer_1.SetSizeHints(self)
+        self.bottom_panel.SetAutoLayout(1)
+        self.bottom_panel.SetSizer(grid_sizer_1)
+        grid_sizer_1.Fit(self.bottom_panel)
+        grid_sizer_1.SetSizeHints(self.bottom_panel)
 
         grid_sizer_1.AddGrowableCol(0, self.dtlist.GetBestSize().width)
         grid_sizer_1.AddGrowableRow(0, 90)
 
+        self.splitter_1.SplitHorizontally(self.waveform_panel, self.bottom_panel, 100)
+
         self.statusbar.SetStatusWidths([-2, -1])
 
         self.Layout()
-        self.SetSize((600, 400))
+        self.SetSize(self.ToDIP(wx.Size(1900, 1200)))
+        self.Centre()
 
 
 class TextPanel(wx.Panel):
