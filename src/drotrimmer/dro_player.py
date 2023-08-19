@@ -38,11 +38,11 @@ This means that, starting playback is handled in the main thread, but actual ren
 import math
 import optparse
 import os
+import queue
 import struct
 import sys
 import threading
 import time
-from typing import Callable
 import wave
 
 import pyaudio
@@ -96,7 +96,7 @@ class WavRenderer(object):
 
 
 class WaveformRenderer(object):
-    def __init__(self, callback, total_length_ms: int, num_buckets: int):
+    def __init__(self, points_queue: queue.SimpleQueue, total_length_ms: int, num_buckets: int):
         self.frequency: int = 44010
         self.bit_depth: int = 16
         self.channels: int = 1
@@ -104,10 +104,12 @@ class WaveformRenderer(object):
         self.samples_written: int = 0
         self.quantized_samples_written: int = 0
         self.samples_per_bucket: int = 0
-        self.callback: Callable[[list[(int, int)]], None] = callback
+        self.queue: queue.SimpleQueue[list[(int, int)]] = points_queue
         self.curr_max_sample: int = 0
         self.expected_total_samples: float = 0
         self.set_quantization(total_length_ms, num_buckets)
+        self._last_wait = 0
+        self._wait_period = 0.1
 
     def write(self, data: bytes):
         if self.samples_written < self.expected_total_samples:
@@ -119,7 +121,10 @@ class WaveformRenderer(object):
                     self.curr_max_sample = 0
                 self.samples_written += 1
 
-            self.callback(self.points)
+            self.queue.put(self.points)
+            if time.time() - self._last_wait > self._wait_period:
+                time.sleep(0.01)  # Avoid smashing the CPU, so the UI is more responsive
+                self._last_wait = time.time()
 
     def is_active(self):
         return True

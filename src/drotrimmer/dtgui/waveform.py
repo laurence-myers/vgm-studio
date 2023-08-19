@@ -1,8 +1,6 @@
-from ..dro_data import DROSong
 from ..dro_logging import get_logger
-from ..dro_player import DROPlayer, WaveformRenderer
+from ..dro_player import DROPlayer
 import math
-import time
 import wx
 
 
@@ -22,17 +20,10 @@ class WaveformPanel(wx.Panel):
         self.num_buckets: int = frame_width
 
         self.xy_data: list[(int, int)] = []
-        self.last_drawn_at: float = time.time()
-        self.draw_rate_secs: float = 0.100
 
-    def load_song(self, drosong: DROSong):
-        WaveformPanel.__LOG.debug("Loading song: %s", drosong.name)
+    def clear(self):
         self.xy_data = []
         self.Refresh()
-        self.stop()
-        self.dro_player.waveform_renderer = WaveformRenderer(self.redraw, drosong.ms_length, self.num_buckets)
-        self.dro_player.load_song(drosong)
-        self.dro_player.play()
 
     def on_size(self, event):
         event.Skip()

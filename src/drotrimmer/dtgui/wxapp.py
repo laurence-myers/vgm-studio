@@ -127,7 +127,7 @@ class DTApp(wx.App):
             # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
             # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
             # Also load the waveform
-            self.__triggerDetailedRegisterAnalysisAndWaveform()
+            self.__triggerDetailedRegisterAnalysisAndWaveform(debounce=False)
 
             self.dro_player.stop()
             self.dro_player.load_song(self.drosong)
@@ -488,6 +488,9 @@ class DTApp(wx.App):
                 if self.mainframe.dtlist:
                     self.mainframe.dtlist.RefreshViewableItems()
 
+        elif event.task_name == "WaveformRenderTask":
+            self.mainframe.waveform_panel.redraw(event.value)
+
     def onTaskCompleted(self, event: tasks.TaskCompletedEvent):
         task_name = event.task_name
         self.task_master.remove_completed_task(task_name)
@@ -526,10 +529,18 @@ class DTApp(wx.App):
         if self.mainframe.statusbar:
             self.mainframe.statusbar.SetStatusText(message, section)
 
-    def __triggerDetailedRegisterAnalysisAndWaveform(self):
-        # TODO: debounce
+    def __triggerDetailedRegisterAnalysisAndWaveform(self, debounce: bool = True):
         self.__doDetailedRegisterAnalysis()
-        wx.CallLater(100, self.mainframe.waveform_panel.load_song, self.drosong)
+        # TODO: don't reach into the waveform panel to get the player or num_buckets
+        self.mainframe.waveform_panel.clear()
+        self.task_master.start_task(
+            tasks.WaveformRenderTask(
+                self.mainframe.waveform_panel.dro_player,
+                self.drosong,
+                self.mainframe.waveform_panel.num_buckets
+            ),
+            debounce_sec=1 if debounce else None
+        )
 
     def __doDetailedRegisterAnalysis(self):
         self.setStatusText("Analyzing registers....", section=1)
