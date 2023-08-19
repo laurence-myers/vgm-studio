@@ -483,15 +483,15 @@ class DROSong(object):
 
     def get_detailed_register_description(self, item):
         if (self.detailed_register_descriptions is None or
-            item >= len(self.detailed_register_descriptions)):
-            return "(not available)"
+                item >= len(self.detailed_register_descriptions)):
+            return self.get_instruction_description(item)
         else:
             return self.detailed_register_descriptions[item][1]
 
     def get_bank_description(self, item) -> str:
         if (self.detailed_register_descriptions is None or
-            item >= len(self.detailed_register_descriptions)):
-            return "(N/A)"
+                item >= len(self.detailed_register_descriptions)):
+            return "?"
         else:
             return str(self.detailed_register_descriptions[item][0])
 
