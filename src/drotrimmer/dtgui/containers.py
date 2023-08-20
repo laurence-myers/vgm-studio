@@ -69,7 +69,7 @@ class DTMainFrame(wx.Frame):
 
         self.splitter_1 = wx.SplitterWindow(self)
 
-        self.waveform_panel: WaveformPanel | None = WaveformPanel(self.splitter_1)
+        self.waveform_panel: WaveformPanel = WaveformPanel(self.splitter_1)
 
         self.bottom_panel = wx.Panel(self.splitter_1)
         self.dtlist = DTSongDataList(self.bottom_panel, wx_app.drosong)

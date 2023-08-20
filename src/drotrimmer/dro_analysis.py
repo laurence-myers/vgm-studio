@@ -29,7 +29,8 @@ import difflib
 from . import dro_data, regdata
 from .dro_util import DROTrimmerException, read_config
 
-DetailedRegisterInfo = list[tuple[int, str]]
+DetailedRegisterEntry = tuple[int, str, int]
+DetailedRegisterInfo = list[DetailedRegisterEntry]
 
 # Duplicated from dro_data to avoid circular import. TODO: move to common location.
 DRO_FILE_V1 = 1
@@ -445,7 +446,7 @@ class DRODetailedRegisterAnalyzer(object):
             self.OPL_TYPE_OPL3
         ] # a bit pointless, but added for consistency.
 
-    def analyze_dro(self, dro_song: dro_data.DROSong) -> typing.Iterator[tuple[int, str]]:
+    def analyze_dro(self, dro_song: dro_data.DROSong) -> typing.Iterator[DetailedRegisterEntry]:
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
             opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
@@ -456,12 +457,14 @@ class DRODetailedRegisterAnalyzer(object):
                                        (dro_song.file_version,)))
         # Wait for the data lock to become available.
         with dro_song.data_lock:
+            total_delay = 0
             for inst in dro_song.data:
                 if inst.inst_type == dro_data.DROInstruction.T_DELAY:
-                    yield (self.current_bank, "Delay: %s ms" % (inst.value,))
+                    yield (self.current_bank, "Delay: %s ms" % (inst.value,), total_delay)
+                    total_delay += inst.value
                 elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                     self.current_bank = inst.value
-                    yield (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],))
+                    yield (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],), total_delay)
                 else:
                     if inst.bank is not None:
                         self.current_bank = inst.bank
@@ -469,7 +472,7 @@ class DRODetailedRegisterAnalyzer(object):
                                                               inst.command,
                                                               inst.value,
                                                               opl_type)
-                    yield (self.current_bank, desc)
+                    yield (self.current_bank, desc, total_delay)
 
     def __analyze_and_update_register(self, bank: int, reg: int, val: int, opl_type: int):
         try:

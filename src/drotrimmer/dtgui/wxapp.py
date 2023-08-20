@@ -29,6 +29,7 @@ import wx
 from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_logging, dro_player, dro_undo, dro_util
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
+from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
 from . import tasks
 
@@ -89,6 +90,7 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
 
         # Custom events
+        self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
         self.Bind(tasks.EVT_TASK_RESULT, self.onResult)
         self.Bind(tasks.EVT_TASK_COMPLETED, self.onTaskCompleted)
 
@@ -511,6 +513,14 @@ class DTApp(wx.App):
             self.buttonStop(event)
         else:
             self.buttonPlay(event)
+
+    def onListItemSelected(self, event: FirstSelectedItemChangedEvent):
+        item: int | None = event.item_index
+        self.log.debug(f"Got an item: {item}")
+        if self.drosong.detailed_register_descriptions and item is not None:
+            ms_offset = self.drosong.detailed_register_descriptions[item][2]
+            self.log.debug(f"ms offset:{ms_offset}")
+            self.mainframe.waveform_panel.set_playback_start_indicator(ms_offset, self.drosong.ms_length)
 
     # Other stuff
     def __updateDROInfoRedo(self, args_list): # sigh

@@ -23,18 +23,32 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 from ..dro_data import DROSong
+from .ui_util import guiID
 import wx
+
+
+_type_EVT_FIRST_SELECTED_ITEM_CHANGED = wx.NewEventType()
+EVT_FIRST_SELECTED_ITEM_CHANGED = wx.PyEventBinder(_type_EVT_FIRST_SELECTED_ITEM_CHANGED)
+
+
+class FirstSelectedItemChangedEvent(wx.PyEvent):
+    def __init__(self, item_index: int | None) -> None:
+        super().__init__(eventType=_type_EVT_FIRST_SELECTED_ITEM_CHANGED)
+        self.item_index = item_index
+
 
 class DTSongDataList(wx.ListCtrl):
     def __init__(self, parent: wx.Window, drosong: DROSong | None):
-        wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.VSCROLL)
+        wx.ListCtrl.__init__(self, parent, id=guiID("LIST_DT_SONG_DATA"), style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.VSCROLL)
 
         self.drosong = drosong
-        self.parent = parent
+        self.previous_first_selected: int | None = None
         self.SetItemCount(self.GetItemCount()) # not as dumb as it looks. Because it's virtual, need to calculate the item count.
 
         self.CreateColumns()
-        self.RegisterEvents()
+        self.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.OnPossibleSelectionChange)
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnPossibleSelectionChange)
+        self.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnPossibleSelectionChange)
 
     def CreateColumns(self):
         self.InsertColumn(0, "Pos.")
@@ -129,10 +143,6 @@ class DTSongDataList(wx.ListCtrl):
     def RefreshItemCount(self):
         self.SetItemCount(self.GetItemCount())
 
-    def RegisterEvents(self):
-        #self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.SelectItem)
-        pass
-
     def HasSelected(self):
         return self.GetSelectedItemCount() > 0
 
@@ -143,3 +153,14 @@ class DTSongDataList(wx.ListCtrl):
             sel_items.append(item)
             item = self.GetNextSelected(item)
         return sel_items
+
+    def OnPossibleSelectionChange(self, _event):
+        # If item focus changes, OR item selection changes, OR item deselection changes,
+        # Raise a custom event with the earliest selected item.
+        # This will account for "shift+click" or "shift+arrow down" selections, which don't seem to trigger a
+        # "EVT_LIST_ITEM_SELECTED" event.
+        first_selected = self.GetFirstSelected()
+        first_selected = None if first_selected == -1 else first_selected
+        if self.previous_first_selected is not first_selected:
+            wx.PostEvent(wx.GetApp(), FirstSelectedItemChangedEvent(first_selected))
+            self.previous_first_selected = first_selected
