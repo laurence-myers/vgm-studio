@@ -22,13 +22,11 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+from ..dro_data import DROSong
 import wx
 
 class DTSongDataList(wx.ListCtrl):
-    def __init__(self, parent, drosong):
-        """
-        @type drosong: DROSong
-        """
+    def __init__(self, parent: wx.Window, drosong: DROSong | None):
         wx.ListCtrl.__init__(self, parent, -1, style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.VSCROLL)
 
         self.drosong = drosong
@@ -53,7 +51,7 @@ class DTSongDataList(wx.ListCtrl):
         self.SetColumnWidth(4, parent.GetCharWidth() * 70)
         self.SetColumnWidth(5, parent.GetCharWidth() * 70)
 
-    def OnGetItemText(self, item, column: int):
+    def OnGetItemText(self, item: int, column: int):
         # Possible TODO: split the description into sub-components
         # eg for "Tremolo / Vibrato / Sustain / KSR / Frequency Multiplication Factor"
         # (can't use bitmask because we may be disabling items - could possibly be solved by
@@ -94,7 +92,7 @@ class DTSongDataList(wx.ListCtrl):
             item = self.GetNextSelected(item)
         return last_item
 
-    def SelectItemManual(self, ind):
+    def SelectItemManual(self, ind: int):
         self.Select(ind, 1) # select
         self.Focus(ind)
 
@@ -107,10 +105,8 @@ class DTSongDataList(wx.ListCtrl):
             if oldsel + 1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
                 self.ScrollLines(1)
 
-    def CreateList(self, insong):
-        """ Regenerates the list based on data from a DROSong object. Takes a DROSong object.
-
-        @type insong: DROSong"""
+    def CreateList(self, insong: DROSong):
+        """ Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
         self.DeleteAllItems()
         if self.HasSelected():
             self.Deselect()

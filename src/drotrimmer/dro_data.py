@@ -430,7 +430,7 @@ class DROSong(object):
         self.detailed_register_descriptions = None
         return deleted_data
 
-    def get_register_display(self, item):
+    def get_register_display(self, item: int):
         inst = self.data[item]
         if inst.inst_type == DROInstruction.T_DELAY:
             if inst.command == self.data.short_delay_code:
@@ -444,7 +444,7 @@ class DROSong(object):
         else: # must be a register instruction
             return '0x%02X' % (inst.command,)
 
-    def get_value_display(self, item):
+    def get_value_display(self, item: int):
         inst = self.data[item]
         if inst.inst_type == DROInstruction.T_DELAY:
             return "%d ms" % (inst.value,)
@@ -453,7 +453,7 @@ class DROSong(object):
         else: # must be a register instruction
             return '0x%02X (%d)' % (inst.value, inst.value)
 
-    def get_instruction_description(self, item):
+    def get_instruction_description(self, item: int):
         inst = self.data[item]
         if inst.inst_type == DROInstruction.T_DELAY:
             if inst.command == self.data.short_delay_code:
@@ -479,14 +479,14 @@ class DROSong(object):
                     reg_desc = "(unknown)"
             return reg_desc
 
-    def get_detailed_register_description(self, item):
+    def get_detailed_register_description(self, item: int):
         if (self.detailed_register_descriptions is None or
                 item >= len(self.detailed_register_descriptions)):
             return self.get_instruction_description(item)
         else:
             return self.detailed_register_descriptions[item][1]
 
-    def get_bank_description(self, item) -> str:
+    def get_bank_description(self, item: int) -> str:
         if (self.detailed_register_descriptions is None or
                 item >= len(self.detailed_register_descriptions)):
             return "?"
