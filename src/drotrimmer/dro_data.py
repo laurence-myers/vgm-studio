@@ -25,6 +25,7 @@
 
 import array
 from . import dro_analysis, dro_globals, dro_undo, dro_util, regdata
+import math
 import threading
 
 DRO_FILE_V1 = 1
@@ -492,6 +493,30 @@ class DROSong(object):
             return "?"
         else:
             return str(self.detailed_register_descriptions[item][0])
+
+    def get_index_and_ms_offset_by_position_pct(self, position_pct: float) -> tuple[int, int] | None:
+        if not self.detailed_register_descriptions:
+            return None
+        target_delay = self.ms_length * position_pct
+        index = math.floor(len(self.detailed_register_descriptions) * position_pct)
+        if 0 > index > len(self.detailed_register_descriptions):
+            return None  # Shouldn't normally happen
+        item = self.detailed_register_descriptions[index]
+        # Not far enough into the song, keep going
+        if item[2] < target_delay:
+            while (
+                    index < len(self.detailed_register_descriptions)
+                    and self.detailed_register_descriptions[index + 1][2] < target_delay
+            ):
+                index += 1
+        # Too far, go back a bit
+        elif item[2] > target_delay:
+            while (
+                index > 0
+                and self.detailed_register_descriptions[index - 1][2] > target_delay
+            ):
+                index -= 1
+        return index, self.detailed_register_descriptions[index][2]
 
     def __str__(self):
         return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (

@@ -31,14 +31,21 @@ from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
-from . import tasks
+from . import tasks, waveform
 
 class DTApp(wx.App):
-    log = dro_logging.get_logger("DTApp")
+    dro_player: dro_player.DROPlayer
+    drosong: dro_data.DROSong | None
+    frdialog: DTDialogFindReg | None
+    goto_dialog: DTDialogGoto | None
+    log: dro_logging.Logger = dro_logging.get_logger("DTApp")
+    loop_analysis_dialog: LoopAnalysisDialog | None
+    tail_length: int
+    task_master: tasks.TaskMaster
 
     def OnInit(self):
-        self.drosong = None
-        self.dro_player = dro_player.DROPlayer()
+        self.drosong: dro_data.DROSong | None = None
+        self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
         try:
             config = dro_util.read_config()
@@ -46,12 +53,12 @@ class DTApp(wx.App):
         except Exception as e:
             print("Could not read tail length from drotrim.ini, using default value.")
             self.tail_length = 3000
-        self.goto_dialog = None # Goto diaog
-        self.frdialog = None # Find Register dialog
-        self.loop_analysis_dialog = None # Loop Analysis Dialog
-        self.task_master = tasks.TaskMaster()
+        self.goto_dialog: DTDialogGoto | None = None # Goto diaog
+        self.frdialog: DTDialogFindReg | None = None # Find Register dialog
+        self.loop_analysis_dialog: LoopAnalysisDialog | None = None # Loop Analysis Dialog
+        self.task_master: tasks.TaskMaster = tasks.TaskMaster()
 
-        self.mainframe = DTMainFrame(self,
+        self.mainframe: DTMainFrame = DTMainFrame(self,
                                      None,
                                      -1,
                                      "DRO Trimmer %s" % (dro_globals.g_app_version,),
@@ -91,6 +98,8 @@ class DTApp(wx.App):
 
         # Custom events
         self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
+        self.Bind(waveform.EVT_WAVEFORM_GO_TO, self.onWaveformGoTo)
+        self.Bind(waveform.EVT_WAVEFORM_HOVER, self.onWaveformHover)
         self.Bind(tasks.EVT_TASK_RESULT, self.onResult)
         self.Bind(tasks.EVT_TASK_COMPLETED, self.onTaskCompleted)
 
@@ -514,13 +523,29 @@ class DTApp(wx.App):
         else:
             self.buttonPlay(event)
 
-    def onListItemSelected(self, event: FirstSelectedItemChangedEvent):
+    def onListItemSelected(self, event: FirstSelectedItemChangedEvent) -> None:
         item: int | None = event.item_index
-        self.log.debug(f"Got an item: {item}")
+        self.log.debug(f"Got an item to select: {item}")
         if self.drosong.detailed_register_descriptions and item is not None:
             ms_offset = self.drosong.detailed_register_descriptions[item][2]
-            self.log.debug(f"ms offset:{ms_offset}")
+            self.log.debug(f"Selected item's ms offset: {ms_offset}")
             self.mainframe.waveform_panel.set_playback_start_indicator(ms_offset, self.drosong.ms_length)
+
+    def onWaveformGoTo(self, event: waveform.WaveformGoToEvent) -> None:
+        pct = event.x_position_pct
+        if self.drosong:
+            result = self.drosong.get_index_and_ms_offset_by_position_pct(pct)
+            if result is not None:
+                index, _ = result
+                self.mainframe.dtlist.Deselect()
+                self.mainframe.dtlist.SelectItemManual(index)
+
+    def onWaveformHover(self, event: waveform.WaveformHoverEvent) -> None:
+        pct = event.x_position_pct
+        if self.drosong:
+            result = self.drosong.get_index_and_ms_offset_by_position_pct(pct)
+            ms_offset: int | None = None if result is None else result[1]
+            self.mainframe.waveform_panel.set_hover_indicator(ms_offset, self.drosong.ms_length)
 
     # Other stuff
     def __updateDROInfoRedo(self, args_list): # sigh
