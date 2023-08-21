@@ -24,7 +24,10 @@
 #    THE SOFTWARE.
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
+    level=logging.DEBUG
+)
 
 
 def get_logger(name: str) -> logging.Logger:
