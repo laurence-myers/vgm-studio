@@ -105,8 +105,15 @@ class WaveformPanel(wx.Panel):
 
         # Playback start indicator
         dc.SetPen(wx.Pen(wx.Colour(0xFF, 0xFF, 0xFF), pen_width))
-        x = math.floor((self.playback_start_indicator / self.x_resolution) * width)
-        dc.DrawLine(x, height, x, 0)
+        playback_start_x = math.floor((self.playback_start_indicator / self.x_resolution) * width)
+        dc.DrawLine(playback_start_x, height, playback_start_x, 0)
+
+        # Dim the stuff before the playback position
+        # Need to use GraphicsContext to support alpha transparency
+        gc = wx.GraphicsContext.Create(dc)
+        if gc:
+            gc.SetBrush(wx.Brush(wx.Colour(0x00, 0x00, 0x00, 0x7F)))
+            gc.DrawRectangle(0, 0, playback_start_x, height)
 
     def redraw(self, points: list[(int, int)]) -> None:
         self.xy_data = points
