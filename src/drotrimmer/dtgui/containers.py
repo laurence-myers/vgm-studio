@@ -96,6 +96,7 @@ class DTMainFrame(wx.Frame):
     def __do_layout(self):
         self.splitter_1.SetMinimumPaneSize(100)
 
+
         grid_sizer_1 = wx.FlexGridSizer(3, 1, 0, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
@@ -119,7 +120,7 @@ class DTMainFrame(wx.Frame):
         grid_sizer_1.AddGrowableCol(0, self.dtlist.GetBestSize().width)
         grid_sizer_1.AddGrowableRow(0, 90)
 
-        self.splitter_1.SplitHorizontally(self.waveform_panel, self.bottom_panel, 100)
+        self.splitter_1.SplitHorizontally(self.waveform_panel, self.bottom_panel, 150)
 
         self.statusbar.SetStatusWidths([-2, -1])
 
