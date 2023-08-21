@@ -96,42 +96,42 @@ class WavRenderer(object):
 
 
 class WaveformRenderer(object):
-    def __init__(self, points_queue: queue.SimpleQueue, total_length_ms: int, num_buckets: int):
-        self.frequency: int = 44010
+    def __init__(self, frequency: int, points_queue: queue.SimpleQueue, total_length_ms: int, num_buckets: int):
+        self.frequency: int = frequency
         self.bit_depth: int = 16
         self.channels: int = 1
         self.points: list[(int, int)] = []
         self.samples_written: int = 0
         self.quantized_samples_written: int = 0
-        self.samples_per_bucket: int = 0
+        self.samples_per_bucket: float = 0
         self.queue: queue.SimpleQueue[list[(int, int)]] = points_queue
         self.curr_max_sample: int = 0
-        self.expected_total_samples: float = 0
+        self.expected_total_samples: int = 0
         self.set_quantization(total_length_ms, num_buckets)
         self._last_wait = 0
         self._wait_period = 0.1
 
     def write(self, data: bytes):
-        if self.samples_written < self.expected_total_samples:
-            for sample, in struct.iter_unpack("h", data):
-                bucket, remainder = divmod(self.samples_written, self.samples_per_bucket)
-                self.curr_max_sample = max(sample, abs(self.curr_max_sample))
-                if remainder == self.samples_per_bucket - 1:
-                    self.points.append((bucket, self.curr_max_sample))
-                    self.curr_max_sample = 0
-                self.samples_written += 1
+        for sample, in struct.iter_unpack("h", data):
+            bucket = math.floor(self.samples_written / self.samples_per_bucket)
+            self.curr_max_sample = max(sample, abs(self.curr_max_sample))
+            next_bucket = math.floor((self.samples_written + 1) / self.samples_per_bucket)
+            if bucket != next_bucket:
+                self.points.append((bucket, self.curr_max_sample))
+                self.curr_max_sample = 0
+            self.samples_written += 1
 
-            self.queue.put(self.points)
-            if time.time() - self._last_wait > self._wait_period:
-                time.sleep(0.01)  # Avoid smashing the CPU, so the UI is more responsive
-                self._last_wait = time.time()
+        self.queue.put(self.points)
+        if time.time() - self._last_wait > self._wait_period:
+            time.sleep(0.01)  # Avoid smashing the CPU, so the UI is more responsive
+            self._last_wait = time.time()
 
     def is_active(self):
         return True
 
     def set_quantization(self, total_length_ms: int, num_buckets: int):
-        self.expected_total_samples = total_length_ms * (self.frequency / 1000.0)
-        self.samples_per_bucket = math.floor(self.expected_total_samples / num_buckets)
+        self.expected_total_samples = math.floor(total_length_ms * (self.frequency / 1000.0))
+        self.samples_per_bucket = self.expected_total_samples / num_buckets
 
 
 class ProcessingStreamsList(list):

@@ -97,7 +97,7 @@ class WaveformRenderTask(IncrementalTask):
     def _generate_results(self) -> typing.Iterator[list[tuple[int, int]]]:
         # self.log.debug("Starting generate results")
         xy_data = []
-        self.dro_player.waveform_renderer = WaveformRenderer(self.queue, self.drosong.ms_length, self.num_buckets)
+        self.dro_player.waveform_renderer = WaveformRenderer(self.dro_player.frequency, self.queue, self.drosong.ms_length, self.num_buckets)
         self.dro_player.load_song(self.drosong)
         self.dro_player.play()
         # self.log.debug("Starting generate results loop")
