@@ -539,6 +539,8 @@ class DTApp(wx.App):
                 index, _ = result
                 self.mainframe.dtlist.Deselect()
                 self.mainframe.dtlist.SelectItemManual(index)
+                if self.dro_player.is_playing:
+                    self.dro_player.seek_to_pos(index)
 
     def onWaveformHover(self, event: waveform.WaveformHoverEvent) -> None:
         pct = event.x_position_pct
