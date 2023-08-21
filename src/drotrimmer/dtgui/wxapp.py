@@ -544,10 +544,16 @@ class DTApp(wx.App):
 
     def onWaveformHover(self, event: waveform.WaveformHoverEvent) -> None:
         pct = event.x_position_pct
-        if self.drosong:
+        if pct is None:
+            self.mainframe.waveform_panel.clear_hover_indicator()
+        elif self.drosong:
             result = self.drosong.get_index_and_ms_offset_by_position_pct(pct)
             ms_offset: int | None = None if result is None else result[1]
-            self.mainframe.waveform_panel.set_hover_indicator(ms_offset, self.drosong.ms_length)
+            if ms_offset is None:
+                self.mainframe.waveform_panel.clear_hover_indicator()
+            else:
+                self.mainframe.waveform_panel.set_hover_indicator(ms_offset, self.drosong.ms_length)
+
 
     # Other stuff
     def __updateDROInfoRedo(self, args_list): # sigh

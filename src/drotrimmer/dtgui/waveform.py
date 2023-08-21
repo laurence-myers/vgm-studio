@@ -16,7 +16,7 @@ class WaveformGoToEvent(wx.PyEvent):
 
 
 class WaveformHoverEvent(wx.PyEvent):
-    def __init__(self, x_position_pct: float) -> None:
+    def __init__(self, x_position_pct: float | None) -> None:
         super().__init__(eventType=_type_EVT_WAVEFORM_HOVER)
         self.x_position_pct = x_position_pct
 
@@ -30,6 +30,7 @@ class WaveformPanel(wx.Panel):
         self.Bind(wx.EVT_SIZE, self.on_size)
         self.Bind(wx.EVT_PAINT, self.on_paint)
         # Mouse events
+        self.Bind(wx.EVT_LEAVE_WINDOW, self.on_mouse_leave)
         self.Bind(wx.EVT_LEFT_DOWN, self.on_mouse_left_click)
         self.Bind(wx.EVT_MOTION, self.on_mouse_motion)
 
@@ -57,12 +58,20 @@ class WaveformPanel(wx.Panel):
         self.hover_indicator = None
         self.Refresh()
 
+    def clear_hover_indicator(self) -> None:
+        self.hover_indicator = None
+        self.Refresh()
+
     def on_mouse_left_click(self, event: wx.MouseEvent):
         event.Skip()  # allow default processing, e.g. window focus
         pos = event.GetPosition()
         x_position_pct = pos[0] / self.GetClientSize()[0]
         self.log.debug(f"Clicked in waveform: {pos}, x_position_pct: {x_position_pct}")
         wx.PostEvent(wx.GetApp(), WaveformGoToEvent(x_position_pct))
+
+    def on_mouse_leave(self, event: wx.MouseEvent):
+        event.Skip()
+        wx.PostEvent(wx.GetApp(), WaveformHoverEvent(None))
 
     def on_mouse_motion(self, event: wx.MouseEvent):
         event.Skip()
@@ -119,8 +128,8 @@ class WaveformPanel(wx.Panel):
         self.xy_data = points
         self.Refresh()
 
-    def set_hover_indicator(self, ms_offset: int | None, ms_length: int) -> None:
-        self.hover_indicator = None if ms_offset is None else self.__calculate_relative_position_from_ms(
+    def set_hover_indicator(self, ms_offset: int, ms_length: int) -> None:
+        self.hover_indicator = self.__calculate_relative_position_from_ms(
             ms_offset,
             ms_length
         )
