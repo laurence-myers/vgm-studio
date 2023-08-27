@@ -220,12 +220,13 @@ class OPLStream(object):
         self.channels = channels
         self.chip_write_delay = chip_write_delay
         self.output_streams = output_streams
-        self.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth // 8), channels=self.channels)
-        self.buffer = self.__create_bytearray(buffer_size)
-        self.stop_requested = False # required so we don't keep rendering obsolete data after stopping playback.
-        self._bank = 0
+        self.opl: pyopl.opl = pyopl.opl(frequency, sampleSize=(self.bit_depth // 8), channels=self.channels)
+        self.buffer: bytearray = self.__create_bytearray(buffer_size)
+        self.stop_requested: bool = False # required so we don't keep rendering obsolete data after stopping playback.
+        self._bank: 0 | 1 = 0
         self.chip_delay_drift = 0 # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
-        self.sample_overflow = 0 # float, fraction of samples that still need to be rendered.
+        self.sample_overflow: float = 0 # fraction of samples that still need to be rendered.
+        self.samples_rendered: int = 0
         self.reset()
 
     @property
@@ -247,6 +248,9 @@ class OPLStream(object):
             for reg in range(0x100):
                 self.write(reg, 0x00)
         self.bank = orig_bank
+        self.chip_delay_drift = 0
+        self.sample_overflow = 0
+        self.samples_rendered = 0
 
     def open(self, dro_song: dro_data.DROSong):
         for ostream in self.output_streams:
@@ -297,6 +301,7 @@ class OPLStream(object):
                         ostream.write(bytes(tmp_buffer))
                 except IOError:
                     return
+            self.samples_rendered += len(tmp_buffer)
 
     def render_chip_delay(self):
         if self.chip_delay_drift > 0:
@@ -352,17 +357,23 @@ class DROPlayer(object):
                 self.channels
             )
         self.waveform_renderer: WaveformRenderer | None = None
+        """Used in the UI. Produces a series of (x,y) points."""
 
         # Set up other stuff
         self.processing_streams = ProcessingStreamsList()
-        self.current_song = None
-        self.is_playing = False
-        self.pos = 0
-        self.time_elapsed = 0
+        """A list of processing streams, which accepts instructions and produce some output (PCM data, or DRO data)."""
+        self.current_song: dro_data.DROSong | None = None
+        self.is_playing: bool = False
+        self.pos: int = 0
+        """The current index in the DROSong data."""
+        self.time_elapsed: int = 0
+        """The time elapsed in ms. Note this based on delay instructions execute, not playback time."""
         self.update_thread = None
         self.active_channels = set(self.CHANNEL_REGISTERS)
+        """Allows muting channels, useful for dro_split."""
         self.active_percussion = [0xFF, 0xFF]
         self.writes_elapsed = 0
+        """Used for calculating chip write delay."""
 
     def init_audio_output(self):
         if self.audio_stream is None:
@@ -424,6 +435,27 @@ class DROPlayer(object):
         self.update_thread = DROPlayerUpdateThread(self, self.current_song)
         self.update_thread.start()
 
+    @property
+    def position_pct(self) -> float:
+        # Prefer samples rendered, which is more accurate. If it's not set, check time elapsed.
+        samples_rendered = 0
+        for ps in self.processing_streams:
+            if isinstance(ps, OPLStream):
+                samples_rendered = ps.samples_rendered
+                break
+        if not samples_rendered and self.time_elapsed:
+            return self.time_elapsed / self.current_song.ms_length
+        total_samples = self.current_song.ms_length / 1000 * self.frequency * self.channels * (self.bit_depth // 8)
+        return samples_rendered / total_samples
+
+    def __set_samples_rendered_from_time_elapsed(self):
+        samples_elapsed = self.time_elapsed / 1000 * self.frequency * self.channels * (self.bit_depth // 8)
+        # Yucky, why do we reach into processing streams and OPLStream? Not very SOLID
+        for ps in self.processing_streams:
+            if isinstance(ps, OPLStream):
+                ps.samples_rendered = samples_elapsed
+                break
+
     def stop(self):
         self.is_playing = False
         if self.update_thread is not None:
@@ -433,10 +465,12 @@ class DROPlayer(object):
     def seek_to_time(self, seek_time):
         seeker = DROSeeker(self)
         seeker.seek_to_time(seek_time)
+        self.__set_samples_rendered_from_time_elapsed()
 
     def seek_to_pos(self, seek_pos):
         seeker = DROSeeker(self)
         seeker.seek_to_pos(seek_pos)
+        self.__set_samples_rendered_from_time_elapsed()
 
     @property
     def write_delay_elapsed(self):
@@ -462,6 +496,8 @@ class DROSeeker(object):
         seek_time_ms = min(max(seek_time_ms, 0), self.dro_player.current_song.ms_length)
 
         self.dro_player.pos = 0
+        self.dro_player.time_elapsed = 0
+        self.dro_player.writes_elapsed = 0
         while (self.dro_player.time_elapsed < seek_time_ms
                and self.dro_player.pos < len(self.dro_player.current_song.data)):
             inst = self.dro_player.current_song.data[self.dro_player.pos]
@@ -492,6 +528,8 @@ class DROSeeker(object):
         """
         seek_pos = min(seek_pos, len(self.dro_player.current_song.data)) # make sure seek_pos is within bounds
         self.dro_player.pos = 0
+        self.dro_player.time_elapsed = 0
+        self.dro_player.writes_elapsed = 0
         while self.dro_player.pos < seek_pos:
             inst = self.dro_player.current_song.data[self.dro_player.pos]
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:

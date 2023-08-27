@@ -46,6 +46,7 @@ class WaveformPanel(wx.Panel):
         self.xy_data: list[(int, int)] = []
         self.playback_start_indicator: int = 0
         self.hover_indicator: int | None = None
+        self.playback_position: int = 0
 
         # Fixed size bitmap for the waveform. Render it to memory to save re-drawing it every paint.
         self._RenderedWaveform = wx.Bitmap(_waveform_width, _waveform_height)
@@ -87,26 +88,22 @@ class WaveformPanel(wx.Panel):
             # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
             dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
 
-    def on_mouse_left_click(self, event: wx.MouseEvent):
+    def on_mouse_left_click(self, event: wx.MouseEvent) -> None:
         event.Skip()  # allow default processing, e.g. window focus
         pos = event.GetPosition()
         x_position_pct = pos[0] / self.GetClientSize()[0]
         self.log.debug(f"Clicked in waveform: {pos}, x_position_pct: {x_position_pct}")
         wx.PostEvent(wx.GetApp(), WaveformGoToEvent(x_position_pct))
 
-    def on_mouse_leave(self, event: wx.MouseEvent):
+    def on_mouse_leave(self, event: wx.MouseEvent) -> None:
         event.Skip()
         wx.PostEvent(wx.GetApp(), WaveformHoverEvent(None))
 
-    def on_mouse_motion(self, event: wx.MouseEvent):
+    def on_mouse_motion(self, event: wx.MouseEvent) -> None:
         event.Skip()
         pos = event.GetPosition()
         x_position_pct = pos[0] / self.GetClientSize()[0]
         wx.PostEvent(wx.GetApp(), WaveformHoverEvent(x_position_pct))
-
-    def on_size(self, event: wx.SizeEvent) -> None:
-        event.Skip()
-        self.Refresh()
 
     def on_paint(self, _event: wx.PaintEvent) -> None:
         # self.log.debug("Painting")
@@ -143,12 +140,22 @@ class WaveformPanel(wx.Panel):
         playback_start_x = math.floor((self.playback_start_indicator / self.x_resolution) * width)
         dc.DrawLine(playback_start_x, height, playback_start_x, 0)
 
-        # Dim the stuff before the playback position
+        # Playback position
+        dc.SetPen(wx.Pen(wx.Colour(0xFF, 0xFF, 0x00), pen_width))
+        playback_x = math.floor((self.playback_position / self.x_resolution) * width)
+        dc.DrawLine(playback_x, height, playback_x, 0)
+
+        # Dim the stuff before the playback start position
         # Need to use GraphicsContext to support alpha transparency
         gc = wx.GraphicsContext.Create(dc)
         if gc:
             gc.SetBrush(wx.Brush(wx.Colour(0x00, 0x00, 0x00, 0x7F)))
             gc.DrawRectangle(0, 0, playback_start_x, height)
+
+
+    def on_size(self, event: wx.SizeEvent) -> None:
+        event.Skip()
+        self.Refresh()
 
     def redraw(self, points: list[(int, int)]) -> None:
         self.xy_data = points
@@ -161,6 +168,12 @@ class WaveformPanel(wx.Panel):
             ms_length
         )
         self.Refresh()
+
+    def set_playback_position_pct(self, position_pct: float) -> None:
+        new_position = math.floor(position_pct * self.x_resolution)
+        if new_position != self.playback_position:
+            self.playback_position = new_position
+            self.Refresh()
 
     def set_playback_start_indicator(self, ms_offset: int, ms_length: int) -> None:
         self.playback_start_indicator = self.__calculate_relative_position_from_ms(

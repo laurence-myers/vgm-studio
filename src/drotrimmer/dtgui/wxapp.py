@@ -40,6 +40,9 @@ class DTApp(wx.App):
     goto_dialog: DTDialogGoto | None
     log: dro_logging.Logger = dro_logging.get_logger("DTApp")
     loop_analysis_dialog: LoopAnalysisDialog | None
+    mainframe: DTMainFrame
+    _playback_position_timer: wx.Timer
+    playback_position_update_interval_ms: int = 10
     tail_length: int
     task_master: tasks.TaskMaster
 
@@ -57,6 +60,9 @@ class DTApp(wx.App):
         self.frdialog: DTDialogFindReg | None = None # Find Register dialog
         self.loop_analysis_dialog: LoopAnalysisDialog | None = None # Loop Analysis Dialog
         self.task_master: tasks.TaskMaster = tasks.TaskMaster()
+
+        playback_position_timer_id = guiID('TIMER_PLAYBACK_POSITION')
+        self._playback_position_timer: wx.Timer = wx.Timer(self, playback_position_timer_id)
 
         self.mainframe: DTMainFrame = DTMainFrame(self,
                                      None,
@@ -95,6 +101,8 @@ class DTApp(wx.App):
 
         self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
         self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
+
+        self.Bind(wx.EVT_TIMER, self.onPlaybackPositionTimer, id=guiID("TIMER_PLAYBACK_POSITION"))
 
         # Custom events
         self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
@@ -139,6 +147,9 @@ class DTApp(wx.App):
             # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
             # Also load the waveform
             self.__triggerDetailedRegisterAnalysisAndWaveform(debounce=False)
+            self.mainframe.waveform_panel.set_playback_position_pct(
+                0
+            )
 
             self.dro_player.stop()
             self.dro_player.load_song(self.drosong)
@@ -347,11 +358,13 @@ class DTApp(wx.App):
         if self.mainframe.dtlist.HasSelected():
             self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
         self.dro_player.play()
+        self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
     @requiresDROLoaded
     def buttonStop(self, event):
         self.dro_player.stop()
         self.dro_player.reset()
+        self._playback_position_timer.Stop()
 
     @requiresDROLoaded
     def buttonPlayTail(self, event):
@@ -359,6 +372,7 @@ class DTApp(wx.App):
         self.dro_player.reset()
         self.dro_player.seek_to_time(max(self.dro_player.current_song.ms_length - self.tail_length, 0))
         self.dro_player.play()
+        self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
     @catchUnhandledExceptions
     def buttonGoto(self, event):
@@ -530,6 +544,14 @@ class DTApp(wx.App):
             ms_offset = self.drosong.detailed_register_descriptions[item][2]
             self.log.debug(f"Selected item's ms offset: {ms_offset}")
             self.mainframe.waveform_panel.set_playback_start_indicator(ms_offset, self.drosong.ms_length)
+
+    def onPlaybackPositionTimer(self, _event: wx.TimerEvent) -> None:
+        if not self.drosong or not self.dro_player.is_playing:
+            return
+        position_pct = self.dro_player.position_pct
+        self.mainframe.waveform_panel.set_playback_position_pct(
+            position_pct
+        )
 
     def onWaveformGoTo(self, event: waveform.WaveformGoToEvent) -> None:
         pct = event.x_position_pct
