@@ -8,6 +8,8 @@ EVT_WAVEFORM_GO_TO = wx.PyEventBinder(_type_EVT_WAVEFORM_GO_TO)
 _type_EVT_WAVEFORM_HOVER = wx.NewEventType()
 EVT_WAVEFORM_HOVER = wx.PyEventBinder(_type_EVT_WAVEFORM_HOVER)
 
+_waveform_height = 327
+_waveform_width = 768
 
 class WaveformGoToEvent(wx.PyEvent):
     def __init__(self, x_position_pct: float) -> None:
@@ -39,11 +41,15 @@ class WaveformPanel(wx.Panel):
 
         # Set a reasonable default resolution for the waveform.
         # (We could also calculate it from self.GetClientSize()[0], but there's complications.)
-        self.x_resolution: int = 768
+        self.x_resolution: int = _waveform_width
 
         self.xy_data: list[(int, int)] = []
         self.playback_start_indicator: int = 0
         self.hover_indicator: int | None = None
+
+        # Fixed size bitmap for the waveform. Render it to memory to save re-drawing it every paint.
+        self._RenderedWaveform = wx.Bitmap(_waveform_width, _waveform_height)
+        self.__draw_waveform()
 
     def __calculate_relative_position_from_ms(self, ms_offset: int, ms_length: int) -> int:
         frequency = self.dro_player.frequency
@@ -56,11 +62,30 @@ class WaveformPanel(wx.Panel):
         self.xy_data = []
         self.playback_start_indicator = 0
         self.hover_indicator = None
+        self.__draw_waveform()
         self.Refresh()
 
     def clear_hover_indicator(self) -> None:
         self.hover_indicator = None
         self.Refresh()
+
+    def __draw_waveform(self) -> None:
+        width, height = _waveform_width, _waveform_height
+        dc = wx.MemoryDC()
+        dc.SelectObject(self._RenderedWaveform)
+        dc.SetBrush(wx.Brush(wx.Colour(0x11, 0x22, 0x55)))
+        dc.DrawRectangle(0, 0, width, height)
+
+        # No data? Don't draw.
+        if len(self.xy_data) == 0:
+            return
+
+        # Automatically scale to the peak value
+        max_value = max(self.xy_data, key=lambda xy: xy[1])[1] or 1
+        dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22)))
+        for (x, y) in self.xy_data:
+            # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
+            dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
 
     def on_mouse_left_click(self, event: wx.MouseEvent):
         event.Skip()  # allow default processing, e.g. window focus
@@ -87,24 +112,25 @@ class WaveformPanel(wx.Panel):
         # self.log.debug("Painting")
         width, height = self.GetClientSize()
         dc = wx.AutoBufferedPaintDC(self)
-        dc.Clear()
-        dc.SetBrush(wx.Brush(wx.Colour(0x11, 0x22, 0x55)))
-        dc.DrawRectangle(0, 0, width, height)
 
-        # No data? Don't draw.
-        if len(self.xy_data) == 0:
-            return
+        rendered_waveform_dc = wx.MemoryDC()
+        rendered_waveform_dc.SelectObjectAsSource(self._RenderedWaveform)
+        dc.StretchBlit(
+            0,
+            0,
+            width,
+            height,
+            rendered_waveform_dc,
+            0,
+            0,
+            _waveform_width,
+            _waveform_height
+        )
+        del rendered_waveform_dc
 
-        # Automatically scale to the peak value
-        max_value = max(self.xy_data, key=lambda xy: xy[1])[1] or 1
         # Set the pen width relative to the width on screen,
         # so that resizing the window doesn't create gaps between lines.
         pen_width = width // self.x_resolution + 1
-        dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22), pen_width))
-        for (x, y) in self.xy_data:
-            x = math.floor((x / self.x_resolution) * width)
-            # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
-            dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
 
         # Hover, showing where the playback start indicator will snap to
         if self.hover_indicator is not None:
@@ -126,6 +152,7 @@ class WaveformPanel(wx.Panel):
 
     def redraw(self, points: list[(int, int)]) -> None:
         self.xy_data = points
+        self.__draw_waveform()
         self.Refresh()
 
     def set_hover_indicator(self, ms_offset: int, ms_length: int) -> None:
