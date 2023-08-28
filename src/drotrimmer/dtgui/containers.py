@@ -26,7 +26,7 @@ import os
 import sys
 import wx
 
-from .. import dro_util
+from .. import dro_config, dro_util
 
 from .menus import DTMainMenuBar
 from .tables import DTSongDataList
@@ -42,7 +42,7 @@ class DTMainFrame(wx.Frame):
 
         # Maximize window base on config settings (added by Wraithverge)
         try:
-            config = dro_util.read_config()
+            config = dro_config.read_config()
             maximize_window = config.getboolean("ui", "maximize_window")
         except Exception as e:
             print('Could not read the value for "maximize_window" in "drotrim.ini"; defaulting to windowed mode.')

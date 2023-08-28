@@ -26,7 +26,8 @@ import ctypes
 import os.path
 import sys
 import wx
-from .. import dro_analysis, dro_data, dro_globals, dro_io, dro_logging, dro_player, dro_undo, dro_util
+
+from .. import dro_analysis, dro_config, dro_data, dro_globals, dro_io, dro_logging, dro_player, dro_undo, dro_util
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
@@ -51,7 +52,7 @@ class DTApp(wx.App):
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
         try:
-            config = dro_util.read_config()
+            config = dro_config.read_config()
             self.tail_length = config.getint("ui", "tail_length")
         except Exception as e:
             print("Could not read tail length from drotrim.ini, using default value.")

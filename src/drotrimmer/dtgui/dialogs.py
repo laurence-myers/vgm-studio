@@ -23,7 +23,8 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import wx
-from .. import dro_analysis, dro_data, dro_globals, dro_util
+
+from .. import dro_analysis, dro_config, dro_data, dro_globals, dro_util
 from .containers import TextPanel
 from .ui_util import guiID, errorAlert
 
@@ -136,7 +137,7 @@ class DTDialogFindReg(wx.Dialog):
 class DROInfoDialog ( wx.Dialog ):
     def __init__(self, parent, dro_song, *args, **kwds):
         try:
-            config = dro_util.read_config()
+            config = dro_config.read_config()
             dro_info_edit_enabled = config.getboolean("ui", "dro_info_edit_enabled")
         except Exception as e:
             print('Could not read the value for "dro_info_edit_enabled" in "drotrim.ini"; defaulting to false.')

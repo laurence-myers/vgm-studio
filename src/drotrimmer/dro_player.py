@@ -47,7 +47,8 @@ import wave
 
 import pyaudio
 import pyopl
-from . import dro_analysis, dro_capture, dro_data, dro_globals, dro_util, dro_io
+
+from . import dro_analysis, dro_capture, dro_config, dro_data, dro_globals, dro_util, dro_io
 
 def stopPlayerOnException(func):
     def inner_func(self, *args, **kwds):
@@ -329,7 +330,7 @@ class DROPlayer(object):
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
         try:
-            config = dro_util.read_config()
+            config = dro_config.read_config()
             self.frequency = config.getint("audio", "frequency")
             self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")

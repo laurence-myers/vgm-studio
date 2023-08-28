@@ -27,7 +27,8 @@ from collections import defaultdict
 import difflib
 
 from . import dro_data, regdata
-from .dro_util import DROTrimmerException, read_config
+from .dro_config import read_config
+from .dro_util import DROTrimmerException
 
 DetailedRegisterEntry = tuple[int, str, int]
 DetailedRegisterInfo = list[DetailedRegisterEntry]
