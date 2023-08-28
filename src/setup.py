@@ -108,10 +108,10 @@ freeze(
     windows=[
         {
             "script": "drotrim.py",
-            "icon_resources": [(1, "drotrimmer/dt.ico")],
+            "icon_resources": [(1, "dt.ico")],
         }
     ],
-    data_files=[(".", ["drotrimmer/drotrim.ini"])],
+    data_files=[(".", ["drotrim.ini"])],
     console=[
         {
             "script": "dro_player.py"
