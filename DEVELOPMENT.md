@@ -20,6 +20,12 @@ py -m pip install -r requirements_dev.txt
 
 Set up Black for auto-formatting: [here's how to set it up in IntelliJ or PyCharm.](https://www.jetbrains.com/help/pycharm/2023.2/reformat-and-rearrange-code.html#format-python-code-with-black)
 
+Set up Git to ignore bulk change commits (like auto-formatting) when running "blame".
+
+```PowerShell
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
 ## Run
 
 ```PowerShell
