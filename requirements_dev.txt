@@ -1,2 +1,3 @@
+black >= 23.7.0
 py2exe ~= 0.13.0.0
 python-creole ~= 1.5.0rc3
