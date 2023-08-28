@@ -23,7 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import threading
-from typing import Callable
+from typing import Any, Callable
 import weakref
 
 
@@ -85,6 +85,9 @@ def undoable(
 
 
 class StateAndReturnValue:
+    state: Any
+    value: Any
+
     def __init__(self, state, value):
         self.state = state
         self.value = (
