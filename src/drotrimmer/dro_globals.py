@@ -26,9 +26,12 @@
 g_wx_app = None
 
 g_undo_controller = None
+
+
 def get_undo_controller():
     # Must be instantiated externally.
     return g_undo_controller
+
 
 g_app_name = "DRO Trimmer"
 g_app_version = "v5 r1"

@@ -28,7 +28,9 @@ import wx
 
 
 _type_EVT_FIRST_SELECTED_ITEM_CHANGED = wx.NewEventType()
-EVT_FIRST_SELECTED_ITEM_CHANGED = wx.PyEventBinder(_type_EVT_FIRST_SELECTED_ITEM_CHANGED)
+EVT_FIRST_SELECTED_ITEM_CHANGED = wx.PyEventBinder(
+    _type_EVT_FIRST_SELECTED_ITEM_CHANGED
+)
 
 
 class FirstSelectedItemChangedEvent(wx.PyEvent):
@@ -39,11 +41,18 @@ class FirstSelectedItemChangedEvent(wx.PyEvent):
 
 class DTSongDataList(wx.ListCtrl):
     def __init__(self, parent: wx.Window, drosong: DROSong | None):
-        wx.ListCtrl.__init__(self, parent, id=guiID("LIST_DT_SONG_DATA"), style=wx.LC_REPORT|wx.SUNKEN_BORDER|wx.LC_VIRTUAL|wx.VSCROLL)
+        wx.ListCtrl.__init__(
+            self,
+            parent,
+            id=guiID("LIST_DT_SONG_DATA"),
+            style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_VIRTUAL | wx.VSCROLL,
+        )
 
         self.drosong = drosong
         self.previous_first_selected: int | None = None
-        self.SetItemCount(self.GetItemCount()) # not as dumb as it looks. Because it's virtual, need to calculate the item count.
+        self.SetItemCount(
+            self.GetItemCount()
+        )  # not as dumb as it looks. Because it's virtual, need to calculate the item count.
 
         self.CreateColumns()
         self.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.OnPossibleSelectionChange)
@@ -107,7 +116,7 @@ class DTSongDataList(wx.ListCtrl):
         return last_item
 
     def SelectItemManual(self, ind: int):
-        self.Select(ind, 1) # select
+        self.Select(ind, 1)  # select
         self.Focus(ind)
 
     def SelectNextItem(self):
@@ -120,7 +129,7 @@ class DTSongDataList(wx.ListCtrl):
                 self.ScrollLines(1)
 
     def CreateList(self, insong: DROSong):
-        """ Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
+        """Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
         self.DeleteAllItems()
         if self.HasSelected():
             self.Deselect()
@@ -135,10 +144,12 @@ class DTSongDataList(wx.ListCtrl):
             item = self.GetNextSelected(item)
 
     def RefreshViewableItems(self):
-        """ Updates items from the index of the topmost visible item to the index of the topmost visible item plus the number of items visible."""
+        """Updates items from the index of the topmost visible item to the index of the topmost visible item plus the number of items visible."""
         first_index = self.GetTopItem()
-        last_index = min(self.GetTopItem() + self.GetCountPerPage(), self.GetItemCount() - 1)
-        self.RefreshItems(first_index, last_index) #redraw
+        last_index = min(
+            self.GetTopItem() + self.GetCountPerPage(), self.GetItemCount() - 1
+        )
+        self.RefreshItems(first_index, last_index)  # redraw
 
     def RefreshItemCount(self):
         self.SetItemCount(self.GetItemCount())

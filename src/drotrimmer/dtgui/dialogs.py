@@ -28,6 +28,7 @@ from .. import dro_analysis, dro_config, dro_data, dro_globals, dro_util
 from .containers import TextPanel
 from .ui_util import guiID, errorAlert
 
+
 class DTDialogGoto(wx.Dialog):
     def __init__(self, wx_app, parent, max_pos, *args, **kwds):
         # begin wxGlade: DTDialogGoto.__init__
@@ -55,10 +56,10 @@ class DTDialogGoto(wx.Dialog):
         szMain = wx.BoxSizer(wx.VERTICAL)
         szButtons = wx.BoxSizer(wx.HORIZONTAL)
         # Layout adjusted by Wraithverge to be consistent with Find Reg layout.
-        szMain.Add(self.scPosition, 0, wx.ALL|wx.ALIGN_CENTER, 5)
+        szMain.Add(self.scPosition, 0, wx.ALL | wx.ALIGN_CENTER, 5)
         szButtons.Add((0, 5), 0, 0, 0)
-        szButtons.Add(self.btnGo, 0, wx.ALL|wx.ALIGN_CENTER_VERTICAL, 5)
-        szButtons.Add(self.btnClose, 0, wx.ALL|wx.ALIGN_CENTER_VERTICAL, 5)
+        szButtons.Add(self.btnGo, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        szButtons.Add(self.btnClose, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
         szMain.Add(szButtons, 0, wx.ALL, 0)
         self.SetSizer(szMain)
         szMain.Fit(self)
@@ -69,6 +70,7 @@ class DTDialogGoto(wx.Dialog):
         self.scPosition.SetValue(0)
         self.scPosition.SetValue("")
         self.scPosition.SetRange(0, max_pos)
+
 
 # end of class DTDialogGoto
 
@@ -88,18 +90,31 @@ class DTDialogFindReg(wx.Dialog):
         if self.dro_version == dro_data.DRO_FILE_V2:
             # NOTE: could be some confusion with codemaps and low/high banks.
             # Currently looks up the real register value (note the codemap index), and ignores banks.
-            self.regchoices = ["DLYS", "DLYL", "DALL"] + [('0x%02X' % rk) for rk in range(0x100)]
+            self.regchoices = ["DLYS", "DLYL", "DALL"] + [
+                ("0x%02X" % rk) for rk in range(0x100)
+            ]
         else:
-            self.regchoices = ["DLYS", "DLYL", "DALL", "BANK"] + [('0x%02X' % rk) for rk in range(0x100)]
+            self.regchoices = ["DLYS", "DLYL", "DALL", "BANK"] + [
+                ("0x%02X" % rk) for rk in range(0x100)
+            ]
 
         self.lRegister = wx.StaticText(self, -1, "Instruction:")
-        self.cbRegisters = wx.ComboBox(self, -1, choices=self.regchoices, style=wx.CB_DROPDOWN|wx.CB_DROPDOWN|wx.CB_READONLY)
+        self.cbRegisters = wx.ComboBox(
+            self,
+            -1,
+            choices=self.regchoices,
+            style=wx.CB_DROPDOWN | wx.CB_DROPDOWN | wx.CB_READONLY,
+        )
         self.bFindNext = wx.Button(self, guiID("BUTTON_FINDREG"), "Find Next")
-        self.bFindPrevious = wx.Button(self, guiID("BUTTON_FINDREGPREV"), "Find Previous")
+        self.bFindPrevious = wx.Button(
+            self, guiID("BUTTON_FINDREGPREV"), "Find Previous"
+        )
         self.bCancel = wx.Button(self, wx.ID_CANCEL, "Close")
 
         self.Bind(wx.EVT_BUTTON, wx_app.buttonFindReg, id=guiID("BUTTON_FINDREG"))
-        self.Bind(wx.EVT_BUTTON, wx_app.buttonFindRegPrevious, id=guiID("BUTTON_FINDREGPREV"))
+        self.Bind(
+            wx.EVT_BUTTON, wx_app.buttonFindRegPrevious, id=guiID("BUTTON_FINDREGPREV")
+        )
 
         self.__set_properties()
         self.__do_layout()
@@ -120,21 +135,22 @@ class DTDialogFindReg(wx.Dialog):
         gsTop = wx.FlexGridSizer(1, 2, 0, 5)
         gsTop.Add(self.lRegister, 1, wx.ALIGN_CENTER, 0)
         gsTop.Add(self.cbRegisters, 0, 0, 0)
-        sMain.Add(gsTop, 0, wx.ALL|wx.ALIGN_CENTER, 2)
+        sMain.Add(gsTop, 0, wx.ALL | wx.ALIGN_CENTER, 2)
         sMiddle.Add(self.bFindPrevious, 0, 0, 0)
         sMiddle.Add(self.bFindNext, 0, 0, 0)
-        sMain.Add(sMiddle, 0, wx.ALL|wx.ALIGN_RIGHT, 5)
+        sMain.Add(sMiddle, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
         sBottom.Add(self.bCancel, 0, wx.LEFT, 10)
-        sMain.Add(sBottom, 0, wx.ALL|wx.ALIGN_RIGHT, 5)
+        sMain.Add(sBottom, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
         self.SetSizer(sMain)
         sMain.Fit(self)
         self.Layout()
         # end wxGlade
 
+
 # end of class DTDialogFindReg
 
 
-class DROInfoDialog ( wx.Dialog ):
+class DROInfoDialog(wx.Dialog):
     def __init__(self, parent, dro_song, *args, **kwds):
         config = dro_config.get_config()
         dro_info_edit_enabled = config.ui.dro_info_edit_enabled
@@ -163,7 +179,9 @@ class DROInfoDialog ( wx.Dialog ):
         self.dro_song = dro_song
         self.edit_mode = False
         if dro_info_edit_enabled:
-            self.Bind(wx.EVT_BUTTON, self.EditSaveButtonEvent, id=guiID("BUTTON_DROINFO_EDIT"))
+            self.Bind(
+                wx.EVT_BUTTON, self.EditSaveButtonEvent, id=guiID("BUTTON_DROINFO_EDIT")
+            )
 
     def __set_properties(self):
         # begin wxGlade: MyDialog.__set_properties
@@ -218,24 +236,32 @@ class DROInfoDialog ( wx.Dialog ):
             assert 0 <= opl_type < len(self.dro_song.OPL_TYPE_MAP)
             ms_length = int(self.tcLengthMs.GetValue())
         except Exception as e:
-            errorAlert(self, "Error updating DRO info, check that the entered values are correct.")
+            errorAlert(
+                self,
+                "Error updating DRO info, check that the entered values are correct.",
+            )
             return
         dro_globals.g_wx_app.updateDROInfo(opl_type, ms_length)
-        md = wx.MessageDialog(self,
-            "DRO info updated.\n"
-            "Remember to save the file.",
-            style=wx.OK|wx.ICON_INFORMATION)
+        md = wx.MessageDialog(
+            self,
+            "DRO info updated.\n" "Remember to save the file.",
+            style=wx.OK | wx.ICON_INFORMATION,
+        )
         md.ShowModal()
         md.Destroy()
 
 
 class LoopAnalysisDialog(wx.Dialog):
-    def __init__(self, wx_app, loop_analyzer, parent,**kwds):
-        wx.Dialog.__init__(self,
-                           parent,
-                           style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER |
-                                 wx.MAXIMIZE_BOX | wx.MINIMIZE_BOX,
-                           **kwds)
+    def __init__(self, wx_app, loop_analyzer, parent, **kwds):
+        wx.Dialog.__init__(
+            self,
+            parent,
+            style=wx.DEFAULT_DIALOG_STYLE
+            | wx.RESIZE_BORDER
+            | wx.MAXIMIZE_BOX
+            | wx.MINIMIZE_BOX,
+            **kwds
+        )
         self.notebook = wx.Notebook(self, size=(400, 300))
 
         # Create buttons
@@ -243,13 +269,14 @@ class LoopAnalysisDialog(wx.Dialog):
         self.btnClose = wx.Button(self, wx.ID_CANCEL, "Close")
 
         # Create first page
-        info_text = ("This is the loop analysis dialog.\n\n"
-        "It provides multiple analyses to determine interesting parts of the song data, "
-        "hinting at sections that may be loop points.\n\n"
-        "Some analysis methods will work better than others, depending on the song, "
-        "where the loop occurs, how many times the song loops, how much data exists "
-        "after a loop point, etc.\n\n"
-        "Please refer to the online documentation for more information."
+        info_text = (
+            "This is the loop analysis dialog.\n\n"
+            "It provides multiple analyses to determine interesting parts of the song data, "
+            "hinting at sections that may be loop points.\n\n"
+            "Some analysis methods will work better than others, depending on the song, "
+            "where the loop occurs, how many times the song loops, how much data exists "
+            "after a loop point, etc.\n\n"
+            "Please refer to the online documentation for more information."
         )
 
         page1 = TextPanel(self.notebook, info_text)

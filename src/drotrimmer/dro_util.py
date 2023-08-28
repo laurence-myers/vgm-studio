@@ -27,23 +27,27 @@ import os.path
 import sys
 import struct
 
+
 class DROTrimmerException(Exception):
     pass
+
 
 class DROFileException(DROTrimmerException):
     pass
 
 
 def warning(text):
-    """ Accepts a string, prints string prefixed with "WARNING! - " """
+    """Accepts a string, prints string prefixed with "WARNING! - " """
     # maybe TODO: GUI message queue?
     print("WARNING! - " + text)
+
 
 def get_exe_path():
     return os.path.dirname(sys.argv[0])
 
+
 def condense_slices(index_list):
-    """ Assumes index_list is sorted, in either ascending or descending order.
+    """Assumes index_list is sorted, in either ascending or descending order.
     Based on http://stackoverflow.com/a/10987875"""
     start = index_list[0]
     i = 1
@@ -64,24 +68,31 @@ def condense_slices(index_list):
         c_list.append(slice(min(start, index_list[-1]), max(start, index_list[-1])))
     return c_list
 
+
 # These are only used for DRO 1 files...
 def write_char(in_f, val):
     in_f.write(struct.pack("<B", val))
 
-def read_char(in_f): # 1 byte
+
+def read_char(in_f):  # 1 byte
     return struct.unpack("<B", in_f.read(1))[0]
+
 
 def write_short(in_f, val):
     in_f.write(struct.pack("<H", val))
 
-def read_short(in_f): # 2 bytes
+
+def read_short(in_f):  # 2 bytes
     return struct.unpack("<H", in_f.read(2))[0]
+
 
 def write_int(in_f, val):
     in_f.write(struct.pack("<L", val))
 
-def read_int(in_f): # 4 bytes, really a word
+
+def read_int(in_f):  # 4 bytes, really a word
     return struct.unpack("<L", in_f.read(4))[0]
+
 
 def ms_to_timestr(ms_val):
     # Stolen from StackOverflow, post by Sven Marnach
@@ -89,8 +100,10 @@ def ms_to_timestr(ms_val):
     seconds = float(milliseconds) / 1000
     return to_timestr(minutes, seconds)
 
+
 def to_timestr(minutes, seconds):
     return "%02i:%02i" % (minutes, seconds)
+
 
 ## {{{ http://code.activestate.com/recipes/134892/ (r2)
 class _Getch:
@@ -98,16 +111,19 @@ class _Getch:
     Gets a single character from standard input.  Does not echo to
     the screen.
     """
+
     def __init__(self):
         try:
             self.impl = _GetchWindows()
         except ImportError:
             try:
                 self.impl = _GetchMacCarbon()
-            except(AttributeError, ImportError):
+            except (AttributeError, ImportError):
                 self.impl = _GetchUnix()
 
-    def __call__(self): return self.impl()
+    def __call__(self):
+        return self.impl()
+
 
 class _GetchUnix:
     def __init__(self):
@@ -115,6 +131,7 @@ class _GetchUnix:
 
     def __call__(self):
         import sys, tty, termios
+
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
@@ -124,6 +141,7 @@ class _GetchUnix:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
+
 class _GetchMacCarbon:
     """
     A function which returns the current ASCII key that is down;
@@ -131,14 +149,17 @@ class _GetchMacCarbon:
     page http://www.mactech.com/macintosh-c/chap02-1.html was
     very helpful in figuring out how to do this.
     """
+
     def __init__(self):
         import Carbon
-        Carbon.Evt #see if it has this (in Unix, it doesn't)
+
+        Carbon.Evt  # see if it has this (in Unix, it doesn't)
 
     def __call__(self):
         import Carbon
-        if Carbon.Evt.EventAvail(0x0008)[0]==0: # 0x0008 is the keyDownMask
-            return ''
+
+        if Carbon.Evt.EventAvail(0x0008)[0] == 0:  # 0x0008 is the keyDownMask
+            return ""
         else:
             #
             # The event contains the following info:
@@ -149,8 +170,9 @@ class _GetchMacCarbon:
             # number is converted to an ASCII character with chr() and
             # returned
             #
-            (what,msg,when,where,mod)=Carbon.Evt.GetNextEvent(0x0008)[1]
+            (what, msg, when, where, mod) = Carbon.Evt.GetNextEvent(0x0008)[1]
             return chr(msg & 0x000000FF)
+
 
 class _GetchWindows:
     def __init__(self):
@@ -158,8 +180,10 @@ class _GetchWindows:
 
     def __call__(self):
         import msvcrt
+
         if msvcrt.kbhit():
             return msvcrt.getch()
+
 
 getch = _Getch()
 ## end of http://code.activestate.com/recipes/134892/ }}}

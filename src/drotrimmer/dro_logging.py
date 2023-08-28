@@ -27,8 +27,7 @@ import logging
 Logger = logging.Logger
 
 logging.basicConfig(
-    format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
-    level=logging.DEBUG
+    format="[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s", level=logging.DEBUG
 )
 
 

@@ -44,26 +44,26 @@ class DROInstruction(object):
         self.bank = bank
 
     def __repr__(self):
-        return ("DROInstruction(DROInstruction.%s, %s, %s, bank=%s)" %
-            (self.TYPE_MAP[self.inst_type],
-                self.command,
-                self.value,
-                self.bank))
+        return "DROInstruction(DROInstruction.%s, %s, %s, bank=%s)" % (
+            self.TYPE_MAP[self.inst_type],
+            self.command,
+            self.value,
+            self.bank,
+        )
 
     def __eq__(self, other):
         if type(other) == DROInstruction:
-            if (self.inst_type == other.inst_type and
-                self.command == other.command and
-                self.value == other.value and
-                self.bank == other.bank):
+            if (
+                self.inst_type == other.inst_type
+                and self.command == other.command
+                and self.value == other.value
+                and self.bank == other.bank
+            ):
                 return True
         return False
 
     def __hash__(self):
-        return hash((self.inst_type,
-                     self.command,
-                     self.value,
-                     self.bank))
+        return hash((self.inst_type, self.command, self.value, self.bank))
 
 
 class DRODataFactory(object):
@@ -73,16 +73,19 @@ class DRODataFactory(object):
         elif file_version == DRO_FILE_V2:
             return DRODataV1(*args, **kwds)
         else:
-            return dro_util.DROTrimmerException("Unknown DRO version for data factory: %s" % file_version)
+            return dro_util.DROTrimmerException(
+                "Unknown DRO version for data factory: %s" % file_version
+            )
 
 
 class DROData(object):
-    """ Wraps around the DRO data, providing access to each instruction,
+    """Wraps around the DRO data, providing access to each instruction,
     while efficiently storing the item in memory.
     Locking should be performed by
     """
+
     def __init__(self, *args, **kwds):
-        self.data = array.array('B')
+        self.data = array.array("B")
         self.short_delay_code = None
         self.long_delay_code = None
         self.delay_codes = None
@@ -122,21 +125,21 @@ class DROData(object):
                 try:
                     second_index = self.translate_index(key.stop + 1)
                 except IndexError:
-                    second_index = None # possibly dangerous
+                    second_index = None  # possibly dangerous
         else:
             first_index = self.translate_index(key)
             try:
                 second_index = self.translate_index(key + 1)
             except IndexError:
-                second_index = None # possibly dangerous
+                second_index = None  # possibly dangerous
         del self.data[first_index:second_index]
 
     def delete_multiple(self, index_list, is_sorted=False):
         """NOTE: the given index_list will be sorted in-place, and reversed in-place."""
         # Sort if required
         if not is_sorted:
-            index_list.sort() # dodgy, hidden side effects
-        index_list.reverse() # dodgy, hidden side effects
+            index_list.sort()  # dodgy, hidden side effects
+        index_list.reverse()  # dodgy, hidden side effects
         # We're usually going to delete slices, so convert ranges of
         #  indexes into slices. Will be more efficient to do one
         #  deletion of 10000 items, than 10000 deletions of one item.
@@ -146,7 +149,7 @@ class DROData(object):
             del self[i]
 
     def __getitem__(self, key: int | slice):
-        """ Returns the item, translated from the "logical" index
+        """Returns the item, translated from the "logical" index
         to the real index in the underlying array. The returned item is
         a DROInstruction object, interpreted from the raw data.
 
@@ -205,7 +208,7 @@ class DROData(object):
 class DRODataV1(DROData):
     def __init__(self, *args, **kwds):
         super(DRODataV1, self).__init__(*args, **kwds)
-        self.index_map = [] # keys are indexes.
+        self.index_map = []  # keys are indexes.
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
         self.delay_codes = (self.short_delay_code, self.long_delay_code)
@@ -288,7 +291,7 @@ class DRODataV1(DROData):
             elif cmd == 0x04:
                 i += 3
             else:
-                i+= 2
+                i += 2
 
 
 class DRODataV2(DROData):
@@ -332,15 +335,13 @@ class DRODataV2(DROData):
 
 
 class DROSong(object):
-    """ NOTE: this actually implements methods for the V1 file format.
-    """
-    OPL_TYPE_MAP = [
-        "OPL-2",
-        "OPL-3",
-        "Dual OPL-2"
-    ]
+    """NOTE: this actually implements methods for the V1 file format."""
 
-    def __init__(self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int):
+    OPL_TYPE_MAP = ["OPL-2", "OPL-3", "Dual OPL-2"]
+
+    def __init__(
+        self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int
+    ):
         self.file_version = file_version
         self.name = name
         self.data: DROData = data
@@ -348,7 +349,9 @@ class DROSong(object):
         self.opl_type = opl_type
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
-        self.detailed_register_descriptions: dro_analysis.DetailedRegisterInfo | None = None
+        self.detailed_register_descriptions: dro_analysis.DetailedRegisterInfo | None = (
+            None
+        )
         self.data_lock = threading.RLock()
 
     def getLengthMS(self):
@@ -357,8 +360,10 @@ class DROSong(object):
     def getLengthData(self):
         return len(self.data)
 
-    def find_next_instruction(self, start: int, s_inst: str, look_backwards: bool = False):
-        """ Takes a starting index and register number (as a hex string) or
+    def find_next_instruction(
+        self, start: int, s_inst: str, look_backwards: bool = False
+    ):
+        """Takes a starting index and register number (as a hex string) or
         a special value of "DLYS", "DLYL" or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""
 
@@ -366,19 +371,28 @@ class DROSong(object):
         #  looking for.
         i = start
         if s_inst == "DLYS":
-            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY and datum.command == self.data.short_delay_code
+            ct = (
+                lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+                and datum.command == self.data.short_delay_code
+            )
         elif s_inst == "DLYL":
-            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY and datum.command == self.data.long_delay_code
+            ct = (
+                lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+                and datum.command == self.data.long_delay_code
+            )
         elif s_inst == "DALL":
             ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
         elif s_inst == "BANK":
             ct = lambda datum, inst: datum.inst_type == DROInstruction.T_BANK_SWITCH
         else:
-            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_REGISTER and datum.command == inst
+            ct = (
+                lambda datum, inst: datum.inst_type == DROInstruction.T_REGISTER
+                and datum.command == inst
+            )
             s_inst = int(s_inst, 16)
 
         if look_backwards:
-            i -= 2 # so we don't get stuck on the currently selected instruction
+            i -= 2  # so we don't get stuck on the currently selected instruction
             while i >= 0:
                 if ct(self.data[i], s_inst):
                     return i
@@ -392,7 +406,7 @@ class DROSong(object):
         return -1
 
     def __insert_instructions(self, index_and_value_list):
-        """ Currently just an internal method, used for undoing deletions.
+        """Currently just an internal method, used for undoing deletions.
 
         (Note to self: if this gets exposed to outside calls, make it
         "undoable" too.)
@@ -408,9 +422,11 @@ class DROSong(object):
         # This has to be done from outside DROSong, so just clear any existing descriptions.
         self.detailed_register_descriptions = None
 
-    @dro_undo.undoable("Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions)
+    @dro_undo.undoable(
+        "Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions
+    )
     def delete_instructions(self, index_list: list[int]) -> list[(int, list[int])]:
-        """ Deletes instructions at the given indexes.
+        """Deletes instructions at the given indexes.
 
         Returns a list of tuples, containing the index deleted and the value
         that was stored at that index."""
@@ -442,8 +458,8 @@ class DROSong(object):
                 return "???"
         elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
             return "BANK"
-        else: # must be a register instruction
-            return '0x%02X' % (inst.command,)
+        else:  # must be a register instruction
+            return "0x%02X" % (inst.command,)
 
     def get_value_display(self, item: int):
         inst = self.data[item]
@@ -451,8 +467,8 @@ class DROSong(object):
             return "%d ms" % (inst.value,)
         elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
             return ("low", "high")[inst.value]
-        else: # must be a register instruction
-            return '0x%02X (%d)' % (inst.value, inst.value)
+        else:  # must be a register instruction
+            return "0x%02X (%d)" % (inst.value, inst.value)
 
     def get_instruction_description(self, item: int):
         inst = self.data[item]
@@ -464,9 +480,10 @@ class DROSong(object):
             else:
                 return "???"
         elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
-            return ("Switch to %s registers (Dual OPL-2 / OPL-3)" %
-                    (("low", "high")[inst.value],))
-        else: # must be a register instruction
+            return "Switch to %s registers (Dual OPL-2 / OPL-3)" % (
+                ("low", "high")[inst.value],
+            )
+        else:  # must be a register instruction
             try:
                 reg_desc = regdata.registers[inst.command]
             except KeyError:
@@ -481,20 +498,25 @@ class DROSong(object):
             return reg_desc
 
     def get_detailed_register_description(self, item: int):
-        if (self.detailed_register_descriptions is None or
-                item >= len(self.detailed_register_descriptions)):
+        if self.detailed_register_descriptions is None or item >= len(
+            self.detailed_register_descriptions
+        ):
             return self.get_instruction_description(item)
         else:
             return self.detailed_register_descriptions[item][1]
 
     def get_bank_description(self, item: int) -> str:
-        if (self.detailed_register_descriptions is None or
-                item >= len(self.detailed_register_descriptions)):
+        if self.detailed_register_descriptions is None or item >= len(
+            self.detailed_register_descriptions
+        ):
             return "?"
         else:
             return str(self.detailed_register_descriptions[item][0])
 
-    def get_index_and_ms_offset_by_position_pct(self, position_pct: float) -> tuple[int, int] | None:
+    def get_index_and_ms_offset_by_position_pct(
+        self,
+        position_pct: float,
+    ) -> tuple[int, int] | None:
         if not self.detailed_register_descriptions:
             return None
         target_delay = self.ms_length * position_pct
@@ -505,8 +527,8 @@ class DROSong(object):
         # Not far enough into the song, keep going
         if item[2] < target_delay:
             while (
-                    index < len(self.detailed_register_descriptions)
-                    and self.detailed_register_descriptions[index + 1][2] < target_delay
+                index < len(self.detailed_register_descriptions)
+                and self.detailed_register_descriptions[index + 1][2] < target_delay
             ):
                 index += 1
         # Too far, go back a bit
@@ -519,8 +541,15 @@ class DROSong(object):
         return index, self.detailed_register_descriptions[index][2]
 
     def __str__(self):
-        return "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']" % (
-            self.name, self.file_version, self.opl_type, self.OPL_TYPE_MAP[self.opl_type], self.ms_length
+        return (
+            "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']"
+            % (
+                self.name,
+                self.file_version,
+                self.opl_type,
+                self.OPL_TYPE_MAP[self.opl_type],
+                self.ms_length,
+            )
         )
 
     def pretty_string(self):
@@ -530,10 +559,10 @@ class DROSong(object):
             "OPL Type: %(opl_type)s\n"
             "Length (ms): %(ms_length)s"
         ) % {
-            "name" : self.name,
-            "file_version" : self.file_version,
-            "opl_type" : self.OPL_TYPE_MAP[self.opl_type],
-            "ms_length" : self.ms_length
+            "name": self.name,
+            "file_version": self.file_version,
+            "opl_type": self.OPL_TYPE_MAP[self.opl_type],
+            "ms_length": self.ms_length,
         }
         return pstr
 
@@ -542,10 +571,20 @@ class DROSongV2(DROSong):
     OPL_TYPE_MAP = [
         "OPL-2",
         "Dual OPL-2",
-        "OPL-3"
+        "OPL-3",
     ]
 
-    def __init__(self, file_version, name, data, ms_length, opl_type, codemap, short_delay_code, long_delay_code):
+    def __init__(
+        self,
+        file_version,
+        name,
+        data,
+        ms_length,
+        opl_type,
+        codemap,
+        short_delay_code,
+        long_delay_code,
+    ):
         super(DROSongV2, self).__init__(file_version, name, data, ms_length, opl_type)
         # TODO: remove this, unnecessary
         self.codemap = codemap

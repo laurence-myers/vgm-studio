@@ -27,12 +27,23 @@ import os.path
 import sys
 import wx
 
-from .. import dro_analysis, dro_config, dro_data, dro_globals, dro_io, dro_logging, dro_player, dro_undo, dro_util
+from .. import (
+    dro_analysis,
+    dro_config,
+    dro_data,
+    dro_globals,
+    dro_io,
+    dro_logging,
+    dro_player,
+    dro_undo,
+    dro_util,
+)
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
 from . import tasks, waveform
+
 
 class DTApp(wx.App):
     dro_player: dro_player.DROPlayer
@@ -53,20 +64,26 @@ class DTApp(wx.App):
 
         config = dro_config.get_config()
         self.tail_length = config.ui.tail_length
-        self.goto_dialog: DTDialogGoto | None = None # Goto diaog
-        self.frdialog: DTDialogFindReg | None = None # Find Register dialog
-        self.loop_analysis_dialog: LoopAnalysisDialog | None = None # Loop Analysis Dialog
+        self.goto_dialog: DTDialogGoto | None = None  # Goto diaog
+        self.frdialog: DTDialogFindReg | None = None  # Find Register dialog
+        self.loop_analysis_dialog: LoopAnalysisDialog | None = (
+            None  # Loop Analysis Dialog
+        )
         self.task_master: tasks.TaskMaster = tasks.TaskMaster()
 
-        playback_position_timer_id = guiID('TIMER_PLAYBACK_POSITION')
-        self._playback_position_timer: wx.Timer = wx.Timer(self, playback_position_timer_id)
+        playback_position_timer_id = guiID("TIMER_PLAYBACK_POSITION")
+        self._playback_position_timer: wx.Timer = wx.Timer(
+            self, playback_position_timer_id
+        )
 
-        self.mainframe: DTMainFrame = DTMainFrame(self,
-                                     None,
-                                     -1,
-                                     "DRO Trimmer %s" % (dro_globals.g_app_version,),
-                                     # size=wx.Size(1900, 1200),
-                                     tail_length=self.tail_length)
+        self.mainframe: DTMainFrame = DTMainFrame(
+            self,
+            None,
+            -1,
+            "DRO Trimmer %s" % (dro_globals.g_app_version,),
+            # size=wx.Size(1900, 1200),
+            tail_length=self.tail_length,
+        )
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
 
@@ -85,21 +102,29 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_MENU, self.menuFindReg, id=guiID("MENU_FINDREG"))
         self.mainframe.Bind(wx.EVT_MENU, self.menuDelete, id=guiID("MENU_DELETE"))
         self.mainframe.Bind(wx.EVT_MENU, self.menuDROInfo, id=guiID("MENU_DROINFO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuLoopAnalysis, id=guiID("MENU_LOOPANALYSIS"))
+        self.mainframe.Bind(
+            wx.EVT_MENU, self.menuLoopAnalysis, id=guiID("MENU_LOOPANALYSIS")
+        )
         self.mainframe.Bind(wx.EVT_MENU, self.menuHelp, id=wx.ID_HELP)
         self.mainframe.Bind(wx.EVT_MENU, self.menuAbout, id=guiID("MENU_ABOUT"))
 
         self.mainframe.Bind(wx.EVT_BUTTON, self.buttonDelete, id=guiID("BUTTON_DELETE"))
         self.mainframe.Bind(wx.EVT_BUTTON, self.buttonPlay, id=guiID("BUTTON_PLAY"))
         self.mainframe.Bind(wx.EVT_BUTTON, self.buttonStop, id=guiID("BUTTON_STOP"))
-        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonPlayTail, id=guiID("BUTTON_PLAY_TAIL"))
+        self.mainframe.Bind(
+            wx.EVT_BUTTON, self.buttonPlayTail, id=guiID("BUTTON_PLAY_TAIL")
+        )
 
         self.mainframe.Bind(wx.EVT_CLOSE, self.closeFrame)
 
         self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
         self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
 
-        self.Bind(wx.EVT_TIMER, self.onPlaybackPositionTimer, id=guiID("TIMER_PLAYBACK_POSITION"))
+        self.Bind(
+            wx.EVT_TIMER,
+            self.onPlaybackPositionTimer,
+            id=guiID("TIMER_PLAYBACK_POSITION"),
+        )
 
         # Custom events
         self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
@@ -112,10 +137,12 @@ class DTApp(wx.App):
     # Start Menu Event Handlers
     @catchUnhandledExceptions
     def menuOpenDRO(self, event):
-        od = wx.FileDialog(self.mainframe,
+        od = wx.FileDialog(
+            self.mainframe,
             "Open DRO",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
-            style=wx.FD_OPEN|wx.FD_FILE_MUST_EXIST|wx.FD_CHANGE_DIR)
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_CHANGE_DIR,
+        )
         result = od.ShowModal()
         filename = od.GetPath()
         od.Destroy()
@@ -144,42 +171,51 @@ class DTApp(wx.App):
             # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
             # Also load the waveform
             self.__triggerDetailedRegisterAnalysisAndWaveform(debounce=False)
-            self.mainframe.waveform_panel.set_playback_position_pct(
-                0
-            )
+            self.mainframe.waveform_panel.set_playback_position_pct(0)
 
             self.dro_player.stop()
             self.dro_player.load_song(self.drosong)
 
             self.mainframe.dtlist.CreateList(self.drosong)
-            self.setStatusText("Successfully opened " + os.path.basename(filename) + ".")
+            self.setStatusText(
+                "Successfully opened " + os.path.basename(filename) + "."
+            )
 
             # File was auto-trimmed, notify user
-            dats = "T" # despite auto-trimming string
+            dats = "T"  # despite auto-trimming string
             if auto_trimmed:
                 dats = "Despite auto-trimming, t"
-                md = wx.MessageDialog(self.mainframe,
-                    'The DRO was found to contain a bogus delay as\n' +
-                    'its first instruction. It has been automatically\n' +
-                    'removed. (Don\'t forget to save!)',
-                    'DRO auto-trimmed',
-                    style=wx.OK|wx.ICON_INFORMATION)
+                md = wx.MessageDialog(
+                    self.mainframe,
+                    "The DRO was found to contain a bogus delay as\n"
+                    + "its first instruction. It has been automatically\n"
+                    + "removed. (Don't forget to save!)",
+                    "DRO auto-trimmed",
+                    style=wx.OK | wx.ICON_INFORMATION,
+                )
                 md.ShowModal()
                 # File has mismatch between measured and reported
             if delay_mismatch:
-                msg = (dats + 'here was a mismatch between\n' +
-                'the measured length of the song in milliseconds,\n' +
-                'and the length stored in the DRO file.\n')
+                msg = (
+                    dats
+                    + "here was a mismatch between\n"
+                    + "the measured length of the song in milliseconds,\n"
+                    + "and the length stored in the DRO file.\n"
+                )
                 if self.drosong.file_version == dro_data.DRO_FILE_V1:
-                    msg += 'Please re-save the file to use the calculated value.'
+                    msg += "Please re-save the file to use the calculated value."
                 else:
-                    msg += ('Please set "dro_info_edit_enabled" to "true"\n' +
-                        'in drotrim.ini, then edit the song length on\n' +
-                        'the DRO Info screen.')
-                md = wx.MessageDialog(self.mainframe,
+                    msg += (
+                        'Please set "dro_info_edit_enabled" to "true"\n'
+                        + "in drotrim.ini, then edit the song length on\n"
+                        + "the DRO Info screen."
+                    )
+                md = wx.MessageDialog(
+                    self.mainframe,
                     msg,
-                    'DRO timing mismatch',
-                    style=wx.OK|wx.ICON_INFORMATION)
+                    "DRO timing mismatch",
+                    style=wx.OK | wx.ICON_INFORMATION,
+                )
                 md.ShowModal()
 
             # Reset undo history when a new file is opened.
@@ -204,10 +240,12 @@ class DTApp(wx.App):
 
     @requiresDROLoaded
     def menuSaveDROAs(self, event):
-        sd = wx.FileDialog(self.mainframe,
+        sd = wx.FileDialog(
+            self.mainframe,
             "Save DRO file",
             wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
-            style=wx.FD_SAVE|wx.FD_OVERWRITE_PROMPT|wx.FD_CHANGE_DIR)
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT | wx.FD_CHANGE_DIR,
+        )
         if sd.ShowModal() == wx.ID_OK:
             self.drosong.name = sd.GetPath()
             self.menuSaveDRO(event)
@@ -220,14 +258,16 @@ class DTApp(wx.App):
     def menuGoto(self, event):
         if self.goto_dialog is not None:
             self.goto_dialog.Destroy()
-        self.goto_dialog = DTDialogGoto(self, self.mainframe, len(self.drosong.data) - 1)
+        self.goto_dialog = DTDialogGoto(
+            self, self.mainframe, len(self.drosong.data) - 1
+        )
         self.goto_dialog.Show()
 
-    @catchUnhandledExceptions # Added by Wraithverge.
+    @catchUnhandledExceptions  # Added by Wraithverge.
     @requiresDROLoaded
     def menuFindReg(self, event):
         if self.frdialog is not None:
-            self.frdialog.Destroy() # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
+            self.frdialog.Destroy()  # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
 
@@ -280,36 +320,42 @@ class DTApp(wx.App):
             self.setStatusText("Nothing to redo.")
 
     def menuHelp(self, event):
-        hd = wx.MessageDialog(self.mainframe,
-            'Full instructions are available online.\n' +
-            'https://bitbucket.org/jestar_jokin/dro-trimmer/wiki/Home\n'
-            '\n' +
-            '1) Select an instruction.\n' +
-            '2) Delete via button or the Del key.\n' +
-            '3) Profit!\n\n' +
-            'If you\'re trimming a looping song, look for a\n' +
-            'whole bunch of instructions with no delays, as\n' +
-            'this might be where the instruments are set up.',
-            'Help',
-            style=wx.OK|wx.ICON_INFORMATION)
+        hd = wx.MessageDialog(
+            self.mainframe,
+            "Full instructions are available online.\n"
+            + "https://bitbucket.org/jestar_jokin/dro-trimmer/wiki/Home\n"
+            "\n"
+            + "1) Select an instruction.\n"
+            + "2) Delete via button or the Del key.\n"
+            + "3) Profit!\n\n"
+            + "If you're trimming a looping song, look for a\n"
+            + "whole bunch of instructions with no delays, as\n"
+            + "this might be where the instruments are set up.",
+            "Help",
+            style=wx.OK | wx.ICON_INFORMATION,
+        )
         hd.ShowModal()
         hd.Destroy()
 
     def menuAbout(self, event):
-        ad = wx.MessageDialog(self.mainframe,
-            ('DRO Trimmer ' + dro_globals.g_app_version + "\n"
-             'Laurence Dougal Myers\n' +
-             'Web: http://www.jestarjokin.net/apps/drotrimmer\n' +
-             'Web: https://bitbucket.org/jestar_jokin/dro-trimmer/\n' +
-             'E-Mail: jestarjokin@jestarjokin.net\n\n' +
-             'Thanks to:\n' +
-             'The DOSBOX team\n' +
-             'The AdPlug team\n' +
-             'Adam Nielsen for PyOPL\n' +
-             'Wraithverge for testing, feedback and contributions\n' +
-             'pi-r-squared for their original attempt at a DRO editor'),
-            'About',
-            style=wx.OK|wx.ICON_INFORMATION)
+        ad = wx.MessageDialog(
+            self.mainframe,
+            (
+                "DRO Trimmer " + dro_globals.g_app_version + "\n"
+                "Laurence Dougal Myers\n"
+                + "Web: http://www.jestarjokin.net/apps/drotrimmer\n"
+                + "Web: https://bitbucket.org/jestar_jokin/dro-trimmer/\n"
+                + "E-Mail: jestarjokin@jestarjokin.net\n\n"
+                + "Thanks to:\n"
+                + "The DOSBOX team\n"
+                + "The AdPlug team\n"
+                + "Adam Nielsen for PyOPL\n"
+                + "Wraithverge for testing, feedback and contributions\n"
+                + "pi-r-squared for their original attempt at a DRO editor"
+            ),
+            "About",
+            style=wx.OK | wx.ICON_INFORMATION,
+        )
         ad.ShowModal()
         ad.Destroy()
 
@@ -318,7 +364,11 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     @requiresDROLoaded
     def buttonDelete(self, _event):
-        if self.mainframe and self.mainframe.dtlist and self.mainframe.dtlist.HasSelected():
+        if (
+            self.mainframe
+            and self.mainframe.dtlist
+            and self.mainframe.dtlist.HasSelected()
+        ):
             self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
             selected_items = self.mainframe.dtlist.GetAllSelected()
@@ -367,7 +417,9 @@ class DTApp(wx.App):
     def buttonPlayTail(self, event):
         self.dro_player.stop()
         self.dro_player.reset()
-        self.dro_player.seek_to_time(max(self.dro_player.current_song.ms_length - self.tail_length, 0))
+        self.dro_player.seek_to_time(
+            max(self.dro_player.current_song.ms_length - self.tail_length, 0)
+        )
         self.dro_player.play()
         self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
@@ -391,12 +443,17 @@ class DTApp(wx.App):
     @catchUnhandledExceptions
     def buttonFindReg(self, event, look_backwards=False):
         rToFind = self.frdialog.cbRegisters.GetValue()
-        if rToFind == '': return
+        if rToFind == "":
+            return
         if not self.mainframe.dtlist.HasSelected():
             start = 0
         else:
             start = self.mainframe.dtlist.GetLastSelected() + 1
-        i = self.drosong.find_next_instruction(start, rToFind, look_backwards=look_backwards)
+        i = self.drosong.find_next_instruction(
+            start,
+            rToFind,
+            look_backwards=look_backwards,
+        )
         if i == -1:
             self.setStatusText("Could not find another occurrence of " + rToFind + ".")
             return
@@ -404,10 +461,12 @@ class DTApp(wx.App):
         self.mainframe.dtlist.SelectItemManual(i)
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.RefreshViewableItems()
-        self.setStatusText("Occurrence of " + rToFind + " found at position " + str(i) + ".")
+        self.setStatusText(
+            "Occurrence of " + rToFind + " found at position " + str(i) + "."
+        )
 
     def buttonFindRegPrevious(self, event):
-        self.buttonFindReg(event, look_backwards=True) # blech
+        self.buttonFindReg(event, look_backwards=True)  # blech
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -416,7 +475,11 @@ class DTApp(wx.App):
             start = 0
         else:
             start = self.mainframe.dtlist.GetLastSelected() + 1
-        i = self.drosong.find_next_instruction(start, "DALL", look_backwards=look_backwards)
+        i = self.drosong.find_next_instruction(
+            start,
+            "DALL",
+            look_backwards=look_backwards,
+        )
         if i == -1:
             self.setStatusText("No more notes found.")
             return
@@ -432,7 +495,10 @@ class DTApp(wx.App):
     @requiresDROLoaded
     def buttonAnalyzeLoop(self, event):
         if self.loop_analysis_dialog is None:
-            errorAlert(self.mainframe, "Loop analysis requires the Loop Analysis dialog to be open, but none found.")
+            errorAlert(
+                self.mainframe,
+                "Loop analysis requires the Loop Analysis dialog to be open, but none found.",
+            )
             return
         analyzer = dro_analysis.DROLoopAnalyzer()
         results = analyzer.analyze_dro(self.drosong)
@@ -445,7 +511,7 @@ class DTApp(wx.App):
         if not self:
             return
         keycode = event.GetKeyCode()
-        if keycode in (wx.WXK_DELETE, wx.WXK_BACK): # delete or backspace
+        if keycode in (wx.WXK_DELETE, wx.WXK_BACK):  # delete or backspace
             self.buttonDelete(None)
             event.Veto()
         elif keycode == wx.WXK_LEFT:
@@ -463,32 +529,32 @@ class DTApp(wx.App):
         if not self:
             return
         keycode = event.GetKeyCode()
-        if keycode == 70 and event.CmdDown(): # CTRL-F
+        if keycode == 70 and event.CmdDown():  # CTRL-F
             self.menuFindReg(event)
-        elif keycode == 71 and event.CmdDown(): # CTRL-G
+        elif keycode == 71 and event.CmdDown():  # CTRL-G
             self.menuGoto(event)
-        elif keycode == 72 and event.CmdDown(): # CTRL-H
+        elif keycode == 72 and event.CmdDown():  # CTRL-H
             self.menuHelp(event)
-        elif keycode == 73 and event.CmdDown(): # CTRL-I
+        elif keycode == 73 and event.CmdDown():  # CTRL-I
             self.menuDROInfo(event)
-        elif keycode == 79 and event.CmdDown(): # CTRL-O
+        elif keycode == 79 and event.CmdDown():  # CTRL-O
             self.menuOpenDRO(event)
-        elif keycode == 83 and event.ShiftDown() and event.CmdDown(): # CTRL-SHIFT-S
+        elif keycode == 83 and event.ShiftDown() and event.CmdDown():  # CTRL-SHIFT-S
             self.menuSaveDROAs(event)
-        elif keycode == 83 and event.CmdDown(): # CTRL-S
+        elif keycode == 83 and event.CmdDown():  # CTRL-S
             self.menuSaveDRO(event)
-        elif keycode == 89 and event.CmdDown(): # CTRL-Y
+        elif keycode == 89 and event.CmdDown():  # CTRL-Y
             self.menuRedo(event)
-        elif keycode == 90 and event.CmdDown(): # CTRL-Z
+        elif keycode == 90 and event.CmdDown():  # CTRL-Z
             self.menuUndo(event)
         elif keycode == 90:  # Z. TODO: remove this
             self.startTestTask(event)
         elif keycode == 83:  # S. TODO: remove this
             self.cancelTestTask(event)
-        elif keycode == 32: # Spacebar
+        elif keycode == 32:  # Spacebar
             self.togglePlayback(event)
         else:
-            #print keycode
+            # print keycode
             event.Skip()
 
     def startTestTask(self, _event):
@@ -540,15 +606,16 @@ class DTApp(wx.App):
         if self.drosong.detailed_register_descriptions and item is not None:
             ms_offset = self.drosong.detailed_register_descriptions[item][2]
             self.log.debug(f"Selected item's ms offset: {ms_offset}")
-            self.mainframe.waveform_panel.set_playback_start_indicator(ms_offset, self.drosong.ms_length)
+            self.mainframe.waveform_panel.set_playback_start_indicator(
+                ms_offset,
+                self.drosong.ms_length,
+            )
 
     def onPlaybackPositionTimer(self, _event: wx.TimerEvent) -> None:
         if not self.drosong or not self.dro_player.is_playing:
             return
         position_pct = self.dro_player.position_pct
-        self.mainframe.waveform_panel.set_playback_position_pct(
-            position_pct
-        )
+        self.mainframe.waveform_panel.set_playback_position_pct(position_pct)
 
     def onWaveformGoTo(self, event: waveform.WaveformGoToEvent) -> None:
         pct = event.x_position_pct
@@ -571,15 +638,21 @@ class DTApp(wx.App):
             if ms_offset is None:
                 self.mainframe.waveform_panel.clear_hover_indicator()
             else:
-                self.mainframe.waveform_panel.set_hover_indicator(ms_offset, self.drosong.ms_length)
-
+                self.mainframe.waveform_panel.set_hover_indicator(
+                    ms_offset,
+                    self.drosong.ms_length,
+                )
 
     # Other stuff
-    def __updateDROInfoRedo(self, args_list): # sigh
+    def __updateDROInfoRedo(self, args_list):  # sigh
         self.updateDROInfo(*args_list)
 
-    #@requiresDROLoaded # not really required here
-    @dro_undo.undoable("DRO Header Changes", dro_globals.get_undo_controller, __updateDROInfoRedo)
+    # @requiresDROLoaded # not really required here
+    @dro_undo.undoable(
+        "DRO Header Changes",
+        dro_globals.get_undo_controller,
+        __updateDROInfoRedo,
+    )
     def updateDROInfo(self, opl_type, ms_length):
         original_values = [self.drosong.opl_type, self.drosong.ms_length]
         self.drosong.opl_type = opl_type
@@ -599,9 +672,9 @@ class DTApp(wx.App):
             tasks.WaveformRenderTask(
                 self.mainframe.waveform_panel.dro_player,
                 self.drosong,
-                self.mainframe.waveform_panel.x_resolution
+                self.mainframe.waveform_panel.x_resolution,
             ),
-            debounce_sec=1 if debounce else None
+            debounce_sec=1 if debounce else None,
         )
 
     def __doDetailedRegisterAnalysis(self):
@@ -624,4 +697,6 @@ def start_gui_app():
     dro_globals.g_wx_app = app
     app.MainLoop()
 
-if __name__ == "__main__": start_gui_app()
+
+if __name__ == "__main__":
+    start_gui_app()

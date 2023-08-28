@@ -26,6 +26,7 @@
 import array
 from . import dro_data, dro_io, dro_util
 
+
 def generate_registers_to_init():
     registers_to_init = [0x01, 0x04, 0x05, 0x08, 0xBD]
     operator_bases = (0x20, 0x40, 0x60, 0x80, 0xE0)
@@ -51,7 +52,7 @@ class DroCapture(object):
             self.code_map[register] = i
         self.length_ms = 0
         self._bank = 0
-        self.data = array.array('B')
+        self.data = array.array("B")
         self.opl_type = None
         self.file_name = None
 
@@ -79,12 +80,14 @@ class DroCapture(object):
             code = self.code_map[register]
         except KeyError:
             if len(self.code_map) >= 128:
-                raise dro_util.DROTrimmerException("Too many (unknown) registers! Maximum registers used is 128. "
-                "Try deleting some of the instructions that write to unknown registers, using the DRO Trimmer GUI, "
-                "then try splitting to DRO files again.")
+                raise dro_util.DROTrimmerException(
+                    "Too many (unknown) registers! Maximum registers used is 128. "
+                    "Try deleting some of the instructions that write to unknown registers, using the DRO Trimmer GUI, "
+                    "then try splitting to DRO files again."
+                )
             code = len(self.code_map) + 2
             self.code_map[register] = code
-        code |= (self.bank << 7)
+        code |= self.bank << 7
         self.data.append(code)
         self.data.append(value)
 
@@ -103,10 +106,10 @@ class DroCapture(object):
             self.data.append(short_delays - 1)
 
     def render_chip_delay(self):
-        pass # do nothing
+        pass  # do nothing
 
     def clear_chip_delay_drift(self):
-        pass # do nothing
+        pass  # do nothing
 
     def stop(self):
         codelist = sorted(self.code_map.keys(), key=lambda key: self.code_map[key])
@@ -126,7 +129,7 @@ class DroCapture(object):
             self.opl_type,
             codelist,
             self.short_delay_code,
-            self.long_delay_code
+            self.long_delay_code,
         )
 
         dro_io.DroFileIO().write(self.file_name, song_wrapper)
@@ -135,7 +138,7 @@ class DroCapture(object):
         self.bank = 0
         for register in DroCapture.REGISTERS_TO_INIT:
             if register == 5:
-                continue # reg 5 only exists in the high bank
+                continue  # reg 5 only exists in the high bank
             self.write(register, 0)
         if self.opl_type > 0:
             self.bank = 1

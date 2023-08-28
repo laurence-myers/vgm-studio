@@ -33,7 +33,9 @@ class IncrementalTask(ABC):
             generator = self._generate_results()
             self.log.debug("Generator got")
             was_stop_requested = False
-            if not self.stop_requested.is_set():  # Don't start if we've already been asked to stop
+            if (
+                not self.stop_requested.is_set()
+            ):  # Don't start if we've already been asked to stop
                 self.log.debug("Starting iteration")
                 for value in generator:
                     # self.log.debug(f"Value: {value}")
@@ -84,7 +86,9 @@ class DetailedRegisterAnalysisTask(IncrementalTask):
 
 
 class WaveformRenderTask(IncrementalTask):
-    def __init__(self, dro_player: DROPlayer, drosong: dro_data.DROSong, num_buckets: int):
+    def __init__(
+        self, dro_player: DROPlayer, drosong: dro_data.DROSong, num_buckets: int
+    ):
         super().__init__("WaveformRenderTask")
         self.dro_player = dro_player
         self.drosong = drosong
@@ -97,16 +101,21 @@ class WaveformRenderTask(IncrementalTask):
     def _generate_results(self) -> typing.Iterator[list[tuple[int, int]]]:
         # self.log.debug("Starting generate results")
         xy_data = []
-        self.dro_player.waveform_renderer = WaveformRenderer(self.dro_player.frequency, self.queue, self.drosong.ms_length, self.num_buckets)
+        self.dro_player.waveform_renderer = WaveformRenderer(
+            self.dro_player.frequency,
+            self.queue,
+            self.drosong.ms_length,
+            self.num_buckets,
+        )
         self.dro_player.load_song(self.drosong)
         self.dro_player.play()
         # self.log.debug("Starting generate results loop")
         last_update = time.time()
         update_period = 0.1
         while (
-                not self.stop_requested.is_set()
-                and self.dro_player.is_playing  # TODO: work out why the player is stopped but the task isn't
-                and len(xy_data) < self.num_buckets
+            not self.stop_requested.is_set()
+            and self.dro_player.is_playing  # TODO: work out why the player is stopped but the task isn't
+            and len(xy_data) < self.num_buckets
         ):
             try:
                 # self.log.debug("Getting from queue")
@@ -146,9 +155,15 @@ class TaskMaster:
     task_futures: dict[str, (concurrent.futures.Future, IncrementalTask)]
 
     def __init__(self) -> None:
-        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2)  # TODO: catch and log/display errors
-        self.scheduled_tasks: dict[str, tuple[threading.Timer, IncrementalTask]] = {}  # Store for debouncing
-        self.task_futures: dict[str, tuple[concurrent.futures.Future, IncrementalTask]] = {}  # Store for cancellation
+        self.executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2
+        )  # TODO: catch and log/display errors
+        self.scheduled_tasks: dict[
+            str, tuple[threading.Timer, IncrementalTask]
+        ] = {}  # Store for debouncing
+        self.task_futures: dict[
+            str, tuple[concurrent.futures.Future, IncrementalTask]
+        ] = {}  # Store for cancellation
 
     def _cancel_all_tasks(self) -> None:
         for _, (timer, task) in self.scheduled_tasks.items():
@@ -189,12 +204,16 @@ class TaskMaster:
         self.__submit_task(task)
         self.__remove_scheduled_task(task.name)
 
-    def start_task(self, task: IncrementalTask, debounce_sec: float | None = None) -> None:
+    def start_task(
+        self, task: IncrementalTask, debounce_sec: float | None = None
+    ) -> None:
         """Queues a task to be run. Cancels any existing running or pending instance of a task with the same name."""
         self.cancel_task(task.name)
         if debounce_sec:
             # Debounce by starting a timer. (We already cancelled any scheduled execution)
-            timer = threading.Timer(debounce_sec, self.__start_scheduled_task, args=[task])
+            timer = threading.Timer(
+                debounce_sec, self.__start_scheduled_task, args=[task]
+            )
             self.scheduled_tasks[task.name] = (timer, task)
             timer.start()
         else:

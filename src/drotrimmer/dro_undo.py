@@ -28,11 +28,11 @@ import weakref
 
 
 def undoable(
-        description: str,
-        undo_controller_getter: Callable[[], 'UndoController'],
-        undo_function: Callable
+    description: str,
+    undo_controller_getter: Callable[[], "UndoController"],
+    undo_function: Callable,
 ):
-    """ Decorator. Allows any side effects
+    """Decorator. Allows any side effects
     of the method to be undone or redone at a later stage.
 
     Requirements for use:
@@ -53,6 +53,7 @@ def undoable(
       is no other context that could affect the behaviour of the "redo"
       function).
     """
+
     def wrap(func):
         def inner_func(self, *args, **kwds):
             result = func(self, *args, **kwds)
@@ -66,22 +67,45 @@ def undoable(
             bypass_undo = undo_controller_getter().bypass
             if not bypass_undo:
                 undo_controller_getter().append(
-                    UndoMemo(description, self, undo_function, undo_state, func, (args, kwds))
+                    UndoMemo(
+                        description,
+                        self,
+                        undo_function,
+                        undo_state,
+                        func,
+                        (args, kwds),
+                    )
                 )
 
             return value
+
         return inner_func
+
     return wrap
 
-class StateAndReturnValue():
+
+class StateAndReturnValue:
     def __init__(self, state, value):
         self.state = state
-        self.value = value # not sure if this supports multiple values. Maybe should use *args?
+        self.value = (
+            value  # not sure if this supports multiple values. Maybe should use *args?
+        )
+
 
 class UndoMemo(object):
-    def __init__(self, description, instance, undo_function, changed_state, redo_function, redo_args_and_kwds):
+    def __init__(
+        self,
+        description,
+        instance,
+        undo_function,
+        changed_state,
+        redo_function,
+        redo_args_and_kwds,
+    ):
         self.description = description
-        self.instance = weakref.proxy(instance) # don't want "undo" functionality stopping GC
+        self.instance = weakref.proxy(
+            instance
+        )  # don't want "undo" functionality stopping GC
         self.undo_function = undo_function
         self.changed_state = changed_state
         self.redo_function = redo_function
@@ -91,7 +115,10 @@ class UndoMemo(object):
         self.undo_function(self.instance, self.changed_state)
 
     def redo(self):
-        self.redo_function(self.instance, *self.redo_args_and_kwds[0], **self.redo_args_and_kwds[1])
+        self.redo_function(
+            self.instance, *self.redo_args_and_kwds[0], **self.redo_args_and_kwds[1]
+        )
+
 
 class UndoController(object):
     def __init__(self):
@@ -116,13 +143,13 @@ class UndoController(object):
         self._lock.acquire()
         # If we've already tried undoing, truncate the list
         if self.has_something_to_redo():
-            del self.buffer[self.position + 1:]
+            del self.buffer[self.position + 1 :]
         self.buffer.append(value)
         self.position += 1
         self._lock.release()
 
     def undo(self):
-        """ Perform an undo action, using the entry in the undo buffer
+        """Perform an undo action, using the entry in the undo buffer
         pointed to from the current position.
 
         Returns a string if an undo was performed, described the action
@@ -133,9 +160,9 @@ class UndoController(object):
         If buffer is emtpy, will do nothing.
         """
         self._lock.acquire()
-        if self.has_something_to_undo(): # silently ignore calls if nothing to undo.
+        if self.has_something_to_undo():  # silently ignore calls if nothing to undo.
             memo = self.buffer[self.position]
-            self.bypass = True # If the "undo" function is also "undoable", we don't want to keep track of that undo.
+            self.bypass = True  # If the "undo" function is also "undoable", we don't want to keep track of that undo.
             memo.undo()
             self.bypass = False
             self.position -= 1
@@ -152,7 +179,7 @@ class UndoController(object):
         self._lock.acquire()
         if self.has_something_to_redo():  # silently ignore calls if nothing to redo.
             memo = self.buffer[self.position]
-            self.bypass = True # If the "redo" function is also "undoable", we don't want to keep track of that undo.
+            self.bypass = True  # If the "redo" function is also "undoable", we don't want to keep track of that undo.
             memo.redo()
             self.bypass = False
             self.position += 1
@@ -164,6 +191,7 @@ class UndoController(object):
 
 def __test():
     con = UndoController()
+
     def get_controller():
         return con
 
@@ -204,4 +232,6 @@ def __test():
     assert len(con.buffer) == 3
     assert con.position == 1
 
-if __name__ == "__main__": __test()
+
+if __name__ == "__main__":
+    __test()

@@ -29,13 +29,17 @@ from .. import dro_globals
 
 gGUIIDS = {}
 
+
 def errorAlert(parent, msg, title="Error"):
-    alert = wx.MessageDialog(parent, #hrmmm
+    alert = wx.MessageDialog(
+        parent,
         msg,
         title,
-        wx.OK|wx.ICON_ERROR)
+        wx.OK | wx.ICON_ERROR,
+    )  # hrmmm
     alert.ShowModal()
     alert.Destroy()
+
 
 def catchUnhandledExceptions(func):
     def inner_func(self, *args, **kwds):
@@ -46,11 +50,16 @@ def catchUnhandledExceptions(func):
             traceback.print_exc(file=fp)
 
             traceback.print_exc()
-            errorAlert(self.mainframe, #that's a bit gross
-                "An unhandled exception was thrown, please contact support.\n" +
-                "\nError:\n" + fp.getvalue(),
-                "Unhandled Exception")
+            errorAlert(
+                self.mainframe,  # that's a bit gross
+                "An unhandled exception was thrown, please contact support.\n"
+                + "\nError:\n"
+                + fp.getvalue(),
+                "Unhandled Exception",
+            )
+
     return inner_func
+
 
 def requiresDROLoaded(func):
     def inner_func(self, *args, **kwds):
@@ -63,10 +72,12 @@ def requiresDROLoaded(func):
             return
         else:
             func(self, *args, **kwds)
+
     return inner_func
 
+
 def guiID(name):
-    """ Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
+    """Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
     If the name is not in the dict, it's added."""
     if name not in gGUIIDS:
         gGUIIDS[name] = wx.NewId()  # This is deprecated, might need to replace it

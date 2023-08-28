@@ -54,8 +54,8 @@ class DROTotalDelayWithWriteDelayCalculator(object):
         self.chip_write_delay: float = config.audio.chip_write_delay
 
     def sum_delay(self, dro_song: dro_data.DROSong):
-        calc_delay = 0 # milliseconds
-        total_write_delay = 0 # microseconds
+        calc_delay = 0  # milliseconds
+        total_write_delay = 0  # microseconds
         for inst in dro_song.data:
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 calc_delay += inst.value
@@ -88,13 +88,22 @@ class DROTotalDelayMismatchAnalyzer(object):
 
 class DROLoopAnalyzer(object):
     class Match(object):
-        def __init__(self, start: int | None = None, end: int | None = None, length: int = 0):
+        def __init__(
+            self,
+            start: int | None = None,
+            end: int | None = None,
+            length: int = 0,
+        ):
             self.start = start
             self.end = end
             self.length = length
 
         def __repr__(self):
-            return "Match(start=%s, end=%s, length=%s)" % (self.start, self.end, self.length)
+            return "Match(start=%s, end=%s, length=%s)" % (
+                self.start,
+                self.end,
+                self.length,
+            )
 
     class AnalysisResult(object):
         def __init__(self, description: str, result: str):
@@ -110,7 +119,7 @@ class DROLoopAnalyzer(object):
             self.analyze_earliest_end_delay_and_note_match,
             self.analyze_latest_start_match,
             self.analyze_longest_instruction_blocks,
-            self.analyze_seqeunce_matcher
+            self.analyze_seqeunce_matcher,
         ]
 
     def num_analyses(self):
@@ -174,14 +183,15 @@ class DROLoopAnalyzer(object):
             #  or it's the same length as the longest match but has an earlier
             #  starting point.
             if match_ended:
-                if (curr_match.length > longest_match.length or
-                    (curr_match.length == longest_match.length and
-                     curr_match.start < longest_match.start)):
+                if curr_match.length > longest_match.length or (
+                    curr_match.length == longest_match.length
+                    and curr_match.start < longest_match.start
+                ):
                     longest_match = curr_match
                     end_match = self.Match(
                         start=later_index + 1,
                         end=end_index,
-                        length=curr_match.length
+                        length=curr_match.length,
                     )
                 curr_match = None
                 later_index = end_index
@@ -192,24 +202,38 @@ class DROLoopAnalyzer(object):
                 later_index -= 1
 
         result += "My conclusions:\n"
-        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
+        if (
+            longest_match.start is None
+            or longest_match.end is None
+            or longest_match.length == 0
+        ):
             result += "No match found. I'm sorry.\n"
         else:
             # Convert matching indexes to original indexes
             longest_match = self.Match(
                 start=original_indexes[longest_match.start],
                 end=original_indexes[longest_match.end],
-                length=original_indexes[longest_match.end] - original_indexes[longest_match.start] + 1
+                length=original_indexes[longest_match.end]
+                - original_indexes[longest_match.start]
+                + 1,
             )
             end_match = self.Match(
                 start=original_indexes[end_match.start],
                 end=original_indexes[end_match.end],
-                length=original_indexes[end_match.end] - original_indexes[end_match.start] + 1
+                length=original_indexes[end_match.end]
+                - original_indexes[end_match.start]
+                + 1,
             )
-            result += ("Loop section 1: start=%s, end=%s, length=%s.\n" %
-                       (longest_match.start, longest_match.end, longest_match.length))
-            result += ("Loop section 2: start=%s, end=%s, length=%s.\n" %
-                       (end_match.start, end_match.end, end_match.length))
+            result += "Loop section 1: start=%s, end=%s, length=%s.\n" % (
+                longest_match.start,
+                longest_match.end,
+                longest_match.length,
+            )
+            result += "Loop section 2: start=%s, end=%s, length=%s.\n" % (
+                end_match.start,
+                end_match.end,
+                end_match.length,
+            )
 
         return result
 
@@ -236,7 +260,7 @@ class DROLoopAnalyzer(object):
         original_indexes = []
         dro_data_copy = dro_song.data.shallow_copy()
 
-        MIN_DELAY_TO_INCLUDE = 2 # skip delays of 1 ms
+        MIN_DELAY_TO_INCLUDE = 2  # skip delays of 1 ms
         for i, inst in enumerate(dro_song.data):
             should_include = False
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
@@ -250,7 +274,9 @@ class DROLoopAnalyzer(object):
                 original_indexes.append(i)
 
         result = self.__do_backward_search_analysis(dro_data_copy, original_indexes)
-        return self.AnalysisResult("Earliest match to end (delays and note on/off only)", result)
+        return self.AnalysisResult(
+            "Earliest match to end (delays and note on/off only)", result
+        )
 
     def analyze_latest_start_match(self, dro_song: dro_data.DROSong):
         """
@@ -270,12 +296,17 @@ class DROLoopAnalyzer(object):
                     break
                 else:
                     continue
-            elif (inst.inst_type == dro_data.DROInstruction.T_REGISTER and
-                  inst.value in range(0xB0, 0xB9)):
+            elif (
+                inst.inst_type == dro_data.DROInstruction.T_REGISTER
+                and inst.value in range(0xB0, 0xB9)
+            ):
                 note_on_found = True
 
         if start_pos == 0:
-            return self.AnalysisResult("Latest match to start", "Forward search couldn't find a place to start.\n")
+            return self.AnalysisResult(
+                "Latest match to start",
+                "Forward search couldn't find a place to start.\n",
+            )
 
         # Next, do the search for reals.
         # (This is very similar to method on & two, but goes forwards instead)
@@ -303,14 +334,13 @@ class DROLoopAnalyzer(object):
             #  or it's the same length as the longest match but has a later
             #  starting point.
             if match_ended:
-                if (curr_match.length > longest_match.length or
-                    (curr_match.length == longest_match.length and
-                     curr_match.start > longest_match.start)):
+                if curr_match.length > longest_match.length or (
+                    curr_match.length == longest_match.length
+                    and curr_match.start > longest_match.start
+                ):
                     longest_match = curr_match
                     start_match = self.Match(
-                        start=start_pos,
-                        end=early_index - 1,
-                        length=curr_match.length
+                        start=start_pos, end=early_index - 1, length=curr_match.length
                     )
                 curr_match = None
                 early_index = start_pos
@@ -321,13 +351,23 @@ class DROLoopAnalyzer(object):
                 early_index += 1
 
         result += "My conclusions:\n"
-        if longest_match.start is None or longest_match.end is None or longest_match.length == 0:
+        if (
+            longest_match.start is None
+            or longest_match.end is None
+            or longest_match.length == 0
+        ):
             result += "No match found. I'm sorry.\n"
         else:
-            result += ("Loop section 1: start=%s, end=%s, length=%s.\n" %
-                       (start_match.start, start_match.end, start_match.length))
-            result += ("Loop section 2: start=%s, end=%s, length=%s.\n" %
-                       (longest_match.start, longest_match.end, longest_match.length))
+            result += "Loop section 1: start=%s, end=%s, length=%s.\n" % (
+                start_match.start,
+                start_match.end,
+                start_match.length,
+            )
+            result += "Loop section 2: start=%s, end=%s, length=%s.\n" % (
+                longest_match.start,
+                longest_match.end,
+                longest_match.length,
+            )
 
         return self.AnalysisResult("Latest match to start", result)
 
@@ -363,7 +403,9 @@ class DROLoopAnalyzer(object):
         sections.sort(key=lambda m: m.length, reverse=True)
         num_to_display = min(len(sections), 15)
         if len(sections) > 1 and sections[0].start == 0:
-            interesting_sections = sections[1:num_to_display + 1] # skip the first one since it's the start of the song
+            interesting_sections = sections[
+                1 : num_to_display + 1
+            ]  # skip the first one since it's the start of the song
         else:
             interesting_sections = sections[0:num_to_display]
         sections_string = "\n".join(str(sec) for sec in interesting_sections)
@@ -388,15 +430,21 @@ class DROLoopAnalyzer(object):
         tmp_a = dro_song.data[:tmp_len]
         tmp_b = dro_song.data[tmp_len:]
         sm.set_seqs(tmp_a, tmp_b)
-        #result1 = sm.get_matching_blocks()
-        #print result1
+        # result1 = sm.get_matching_blocks()
+        # print result1
 
         # We have to do "len(dro_song.data) - tmp_len" because of rounding when
         #  dividing by two earlier.
         result = sm.find_longest_match(0, tmp_len, 0, len(dro_song.data) - tmp_len)
-        result_str += ("Result of analysis:\n longest block = " + str(result[2]) +
-                       ",\n start first half = " + str(result[0]) +
-                       ",\n start second half = " + str(result[1] + tmp_len) + "\n")
+        result_str += (
+            "Result of analysis:\n longest block = "
+            + str(result[2])
+            + ",\n start first half = "
+            + str(result[0])
+            + ",\n start second half = "
+            + str(result[1] + tmp_len)
+            + "\n"
+        )
 
         # TODO: Find the first instance of the data block dro_data[result[0]:result[1] + tmp_len]?
         # No. This is not the problem. The problem is that the longest block could be because
@@ -409,15 +457,19 @@ class DROLoopAnalyzer(object):
 
         # If first instruction is note off, alert user
         inst = dro_song.data[result[0]]
-        if (inst.inst_type == dro_data.DROInstruction.T_REGISTER and
-            inst.value in range(0xB0, 0xB9)):
-            result_str += ("Note: The first instruction in the matched block was a key on/off. There may be " +
-                           "a more appropriate block earlier in the song.\n")
+        if (
+            inst.inst_type == dro_data.DROInstruction.T_REGISTER
+            and inst.value in range(0xB0, 0xB9)
+        ):
+            result_str += (
+                "Note: The first instruction in the matched block was a key on/off. There may be "
+                + "a more appropriate block earlier in the song.\n"
+            )
 
         # Now search for the first delay
         for i, inst in enumerate(dro_song.data):
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
-                result_str += ("First delay at pos = " + str(i) + "\n")
+                result_str += "First delay at pos = " + str(i) + "\n"
                 break
 
         return self.AnalysisResult("Halved sequence match", result_str)
@@ -435,43 +487,63 @@ class DRODetailedRegisterAnalyzer(object):
         self.OPL_TYPE_DRO1_MAP: list[int] = [
             self.OPL_TYPE_OPL2,
             self.OPL_TYPE_OPL3,
-            self.OPL_TYPE_DUAL_OPL2
+            self.OPL_TYPE_DUAL_OPL2,
         ]
         self.OPL_TYPE_DRO2_MAP: list[int] = [
             self.OPL_TYPE_OPL2,
             self.OPL_TYPE_DUAL_OPL2,
-            self.OPL_TYPE_OPL3
-        ] # a bit pointless, but added for consistency.
+            self.OPL_TYPE_OPL3,
+        ]  # a bit pointless, but added for consistency.
 
-    def analyze_dro(self, dro_song: dro_data.DROSong) -> typing.Iterator[DetailedRegisterEntry]:
+    def analyze_dro(
+        self,
+        dro_song: dro_data.DROSong,
+    ) -> typing.Iterator[DetailedRegisterEntry]:
         self.current_state = [None] * 0x1FF
         if dro_song.file_version == DRO_FILE_V1:
             opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
         elif dro_song.file_version == DRO_FILE_V2:
             opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
         else:
-            raise (DROTrimmerException("Unrecognised DRO version: %s. Cannot perform state analysis." %
-                                       (dro_song.file_version,)))
+            raise (
+                DROTrimmerException(
+                    "Unrecognised DRO version: %s. Cannot perform state analysis."
+                    % (dro_song.file_version,)
+                )
+            )
         # Wait for the data lock to become available.
         with dro_song.data_lock:
             total_delay = 0
             for inst in dro_song.data:
                 if inst.inst_type == dro_data.DROInstruction.T_DELAY:
-                    yield (self.current_bank, "Delay: %s ms" % (inst.value,), total_delay)
+                    yield (
+                        self.current_bank,
+                        "Delay: %s ms" % (inst.value,),
+                        total_delay,
+                    )
                     total_delay += inst.value
                 elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
                     self.current_bank = inst.value
-                    yield (self.current_bank, "Bank switch: %s" % (("low", "high")[self.current_bank],), total_delay)
+                    yield (
+                        self.current_bank,
+                        "Bank switch: %s" % (("low", "high")[self.current_bank],),
+                        total_delay,
+                    )
                 else:
                     if inst.bank is not None:
                         self.current_bank = inst.bank
-                    desc = self.__analyze_and_update_register(self.current_bank,
-                                                              inst.command,
-                                                              inst.value,
-                                                              opl_type)
+                    desc = self.__analyze_and_update_register(
+                        self.current_bank, inst.command, inst.value, opl_type
+                    )
                     yield (self.current_bank, desc, total_delay)
 
-    def __analyze_and_update_register(self, bank: int, reg: int, val: int, opl_type: int):
+    def __analyze_and_update_register(
+        self,
+        bank: int,
+        reg: int,
+        val: int,
+        opl_type: int,
+    ):
         try:
             if bank and (0x100 | reg) in regdata.registers:
                 register_description = regdata.registers[0x100 | reg]
@@ -493,7 +565,7 @@ class DRODetailedRegisterAnalyzer(object):
 
         self.current_state[reg_and_bank] = val
 
-        return ' / '.join(changed_desc) if len(changed_desc) else '(no changes)'
+        return " / ".join(changed_desc) if len(changed_desc) else "(no changes)"
 
 
 class DRORegisterUsageAnalyzer(object):
@@ -515,7 +587,9 @@ class DRORegisterUsageAnalyzer(object):
         the analysis."""
         self.usage = defaultdict(int)
         self.perc_usage = defaultdict(bool)
-        perc_bitmasks = regdata.register_bitmask_lookup[regdata.registers[self.PERC_CHANNEL]]
+        perc_bitmasks = regdata.register_bitmask_lookup[
+            regdata.registers[self.PERC_CHANNEL]
+        ]
         with dro_song.data_lock:
             bank = 0
             for inst in dro_song.data:
@@ -525,7 +599,10 @@ class DRORegisterUsageAnalyzer(object):
                     bank = inst.value
                 if inst.inst_type == dro_data.DROInstruction.T_REGISTER:
                     self.usage[(bank << 8) | inst.command] += 1
-                    if inst.command == self.PERC_CHANNEL and self.detailed_percussion_analysis:
+                    if (
+                        inst.command == self.PERC_CHANNEL
+                        and self.detailed_percussion_analysis
+                    ):
                         # Go through all bitmasks, mark any usages.
                         for i, pb in enumerate(perc_bitmasks):
                             if inst.value & pb.mask:
@@ -552,19 +629,19 @@ class DROSimpleNoteAnalyser(object):
 
     class NoteStatus(object):
         PITCH_MAP = {
-            0x015B : ' C',
-            0x016B : 'C#',
-            0x0181 : ' D',
-            0x0198 : 'D#',
-            0x01B0 : ' E',
-            0x01CA : ' F',
-            0x01E5 : 'F#',
-            0x0202 : ' G',
-            0x0220 : 'G#',
-            0x0241 : ' A',
-            0x0263 : 'A#',
-            0x0287 : ' B',
-            0x02AE : ' C'
+            0x015B: " C",
+            0x016B: "C#",
+            0x0181: " D",
+            0x0198: "D#",
+            0x01B0: " E",
+            0x01CA: " F",
+            0x01E5: "F#",
+            0x0202: " G",
+            0x0220: "G#",
+            0x0241: " A",
+            0x0263: "A#",
+            0x0287: " B",
+            0x02AE: " C",
         }
 
         def __init__(self, channel=None, note_status_to_clone=None):
@@ -584,9 +661,16 @@ class DROSimpleNoteAnalyser(object):
             # 0x241 = 577
             # 24.7 hz between notes
             # approx 1.31 per hz
-            closest_value = min(self.PITCH_MAP.keys(), key=lambda x: abs(x - self.pitch))
+            closest_value = min(
+                self.PITCH_MAP.keys(), key=lambda x: abs(x - self.pitch)
+            )
             note_name = "%s-%s" % (self.PITCH_MAP[closest_value], self.octave)
-            return "(ch: %s, pitch: %x, oct: %s, note: %s)" % (self.channel, self.pitch, self.octave, note_name)
+            return "(ch: %s, pitch: %x, oct: %s, note: %s)" % (
+                self.channel,
+                self.pitch,
+                self.octave,
+                note_name,
+            )
 
     def analyze_dro(self, dro_song):
         """
@@ -595,7 +679,10 @@ class DROSimpleNoteAnalyser(object):
 
         @type dro_song: DROSong
         """
-        channel_notes = [DROSimpleNoteAnalyser.NoteStatus(channel=i + 1) for i in range(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)]
+        channel_notes = [
+            DROSimpleNoteAnalyser.NoteStatus(channel=i + 1)
+            for i in range(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)
+        ]
         output = [[] for _ in range(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)]
         with dro_song.data_lock:
             for inst in dro_song.data:
@@ -609,15 +696,23 @@ class DROSimpleNoteAnalyser(object):
                 # If it's B0 - B8, update the pitch and note on/off
                 elif inst.command in DROSimpleNoteAnalyser.KEY_ON_REGISTERS:
                     note_status = self.get_channel_status(channel_notes, inst)
-                    note_status.pitch = (note_status.pitch & 0x00FF) | ((inst.value & 0x03) << 8)
+                    note_status.pitch = (note_status.pitch & 0x00FF) | (
+                        (inst.value & 0x03) << 8
+                    )
                     note_status.octave = (inst.value & 0x1C) >> 2
                     orig_on_value = note_status.on
                     note_status.on = (inst.value & 0x20) > 0
                     # If note on status changes, make a new entry in the output list
                     if note_status.on ^ orig_on_value and note_status.on:
-                        output[note_status.channel - 1].append(DROSimpleNoteAnalyser.NoteStatus(note_status_to_clone=note_status))
+                        output[note_status.channel - 1].append(
+                            DROSimpleNoteAnalyser.NoteStatus(
+                                note_status_to_clone=note_status
+                            )
+                        )
         return output
 
     def get_channel_status(self, channel_notes, inst):
-        channel_index = (inst.command & 0x0F) + (inst.bank * DROSimpleNoteAnalyser.CHANNELS_PER_BANK)
+        channel_index = (inst.command & 0x0F) + (
+            inst.bank * DROSimpleNoteAnalyser.CHANNELS_PER_BANK
+        )
         return channel_notes[channel_index]

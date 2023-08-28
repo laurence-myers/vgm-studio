@@ -11,6 +11,7 @@ EVT_WAVEFORM_HOVER = wx.PyEventBinder(_type_EVT_WAVEFORM_HOVER)
 _waveform_height = 327
 _waveform_width = 768
 
+
 class WaveformGoToEvent(wx.PyEvent):
     def __init__(self, x_position_pct: float) -> None:
         super().__init__(eventType=_type_EVT_WAVEFORM_GO_TO)
@@ -37,7 +38,7 @@ class WaveformPanel(wx.Panel):
         self.Bind(wx.EVT_MOTION, self.on_mouse_motion)
 
         self.dro_player: DROPlayer = DROPlayer(channels=1, sound_on=False)
-        #self.dro_player.chip_write_delay = 0  # TODO: should we include this?
+        # self.dro_player.chip_write_delay = 0  # TODO: should we include this?
 
         # Set a reasonable default resolution for the waveform.
         # (We could also calculate it from self.GetClientSize()[0], but there's complications.)
@@ -52,7 +53,9 @@ class WaveformPanel(wx.Panel):
         self._RenderedWaveform = wx.Bitmap(_waveform_width, _waveform_height)
         self.__draw_waveform()
 
-    def __calculate_relative_position_from_ms(self, ms_offset: int, ms_length: int) -> int:
+    def __calculate_relative_position_from_ms(
+        self, ms_offset: int, ms_length: int
+    ) -> int:
         frequency = self.dro_player.frequency
         total_samples: int = ms_length * frequency // 1000
         samples_per_line: float = total_samples / self.x_resolution
@@ -84,9 +87,11 @@ class WaveformPanel(wx.Panel):
         # Automatically scale to the peak value
         max_value = max(self.xy_data, key=lambda xy: xy[1])[1] or 1
         dc.SetPen(wx.Pen(wx.Colour(0x22, 0xFF, 0x22)))
-        for (x, y) in self.xy_data:
+        for x, y in self.xy_data:
             # Draw from the bottom of the rect to the top, with a small gap at the top for aesthetics.
-            dc.DrawLine(x, height, x, height - math.floor((y / max_value) * (height - 10)))
+            dc.DrawLine(
+                x, height, x, height - math.floor((y / max_value) * (height - 10))
+            )
 
     def on_mouse_left_click(self, event: wx.MouseEvent) -> None:
         event.Skip()  # allow default processing, e.g. window focus
@@ -121,7 +126,7 @@ class WaveformPanel(wx.Panel):
             0,
             0,
             _waveform_width,
-            _waveform_height
+            _waveform_height,
         )
         del rendered_waveform_dc
 
@@ -137,7 +142,9 @@ class WaveformPanel(wx.Panel):
 
         # Playback start indicator
         dc.SetPen(wx.Pen(wx.Colour(0xFF, 0xFF, 0xFF), pen_width))
-        playback_start_x = math.floor((self.playback_start_indicator / self.x_resolution) * width)
+        playback_start_x = math.floor(
+            (self.playback_start_indicator / self.x_resolution) * width
+        )
         dc.DrawLine(playback_start_x, height, playback_start_x, 0)
 
         # Playback position
@@ -152,7 +159,6 @@ class WaveformPanel(wx.Panel):
             gc.SetBrush(wx.Brush(wx.Colour(0x00, 0x00, 0x00, 0x7F)))
             gc.DrawRectangle(0, 0, playback_start_x, height)
 
-
     def on_size(self, event: wx.SizeEvent) -> None:
         event.Skip()
         self.Refresh()
@@ -165,7 +171,7 @@ class WaveformPanel(wx.Panel):
     def set_hover_indicator(self, ms_offset: int, ms_length: int) -> None:
         self.hover_indicator = self.__calculate_relative_position_from_ms(
             ms_offset,
-            ms_length
+            ms_length,
         )
         self.Refresh()
 
@@ -178,9 +184,11 @@ class WaveformPanel(wx.Panel):
     def set_playback_start_indicator(self, ms_offset: int, ms_length: int) -> None:
         self.playback_start_indicator = self.__calculate_relative_position_from_ms(
             ms_offset,
-            ms_length
+            ms_length,
         )
-        self.log.debug(f"New start pos: {self.playback_start_indicator}. xy_data len: {len(self.xy_data)}")
+        self.log.debug(
+            f"New start pos: {self.playback_start_indicator}. xy_data len: {len(self.xy_data)}"
+        )
         self.Refresh()
 
     def stop(self) -> None:

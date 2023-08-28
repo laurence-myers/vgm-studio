@@ -33,11 +33,12 @@ from .tables import DTSongDataList
 from .ui_util import guiID
 from .waveform import WaveformPanel
 
+
 class DTMainFrame(wx.Frame):
     def __init__(self, wx_app, *args, **kwds):
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
-        tail_length = kwds['tail_length']
-        del kwds['tail_length']
+        tail_length = kwds["tail_length"]
+        del kwds["tail_length"]
         wx.Frame.__init__(self, *args, **kwds)
 
         # Maximize window base on config settings (added by Wraithverge)
@@ -56,7 +57,7 @@ class DTMainFrame(wx.Frame):
             use_external_icon = False
         if use_external_icon:
             exe_path = dro_util.get_exe_path()
-            ico_name = os.path.join(exe_path, 'dt.ico')
+            ico_name = os.path.join(exe_path, "dt.ico")
             icon = wx.Icon(ico_name, wx.BITMAP_TYPE_ICO)
             self.SetIcon(icon)
 
@@ -69,8 +70,12 @@ class DTMainFrame(wx.Frame):
         self.bottom_panel = wx.Panel(self.splitter_1)
         self.dtlist = DTSongDataList(self.bottom_panel, wx_app.drosong)
         self.panel_1 = wx.Panel(self.bottom_panel)
-        self.button_delete = wx.Button(self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction")
-        self.button_play = wx.Button(self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos.")
+        self.button_delete = wx.Button(
+            self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction"
+        )
+        self.button_play = wx.Button(
+            self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos."
+        )
         self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
 
         tail_in_seconds = tail_length / 1000.0
@@ -78,8 +83,11 @@ class DTMainFrame(wx.Frame):
             tail_str = "%.2f" % (tail_in_seconds,)
         else:
             tail_str = "%d" % (tail_in_seconds,)
-        self.button_play_tail = wx.Button(self.panel_1, guiID("BUTTON_PLAY_TAIL"),
-            "Play last %s second%s" % (tail_str, 's' if tail_in_seconds != 1 else ''))
+        self.button_play_tail = wx.Button(
+            self.panel_1,
+            guiID("BUTTON_PLAY_TAIL"),
+            "Play last %s second%s" % (tail_str, "s" if tail_in_seconds != 1 else ""),
+        )
 
         self.__set_properties()
         self.__do_layout()
@@ -90,7 +98,6 @@ class DTMainFrame(wx.Frame):
 
     def __do_layout(self):
         self.splitter_1.SetMinimumPaneSize(100)
-
 
         grid_sizer_1 = wx.FlexGridSizer(3, 1, 0, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)

@@ -34,35 +34,45 @@ in_wiki_file_name = "Home.wiki"
 template_file_name = "doc_template.html"
 output_file_name = "readme.html"
 
-def generate_docs(in_dir: str, template_dir: str, out_dir: str, generated_source: str) -> None:
+
+def generate_docs(
+    in_dir: str, template_dir: str, out_dir: str, generated_source: str
+) -> None:
     generated_date = datetime.datetime.now().strftime("%d %b %Y, %H:%M:%S")
 
-    with codecs.open(os.path.join(in_dir, in_wiki_file_name), 'r', 'utf-8') as in_file:
+    with codecs.open(os.path.join(in_dir, in_wiki_file_name), "r", "utf-8") as in_file:
         creole_text = in_file.read()
     html_body = creole2html(creole_text)
 
-    with open(os.path.join(template_dir, template_file_name), 'r') as template_file:
+    with open(os.path.join(template_dir, template_file_name), "r") as template_file:
         html_output = template_file.read()
     html_output = html_output.format(
         title=app_globals.g_app_name + " " + app_globals.g_app_version,
         body=html_body,
         generated_date=generated_date,
-        generated_source=generated_source)
+        generated_source=generated_source,
+    )
 
     if not os.path.isdir(out_dir):
         os.mkdir(out_dir)
-    with open(os.path.join(out_dir, output_file_name), 'w') as output_file:
+    with open(os.path.join(out_dir, output_file_name), "w") as output_file:
         output_file.write(html_output)
 
-    print("Successfully converted Creole wiki page {} to {} using template {}".format(
-        in_wiki_file_name,
-        output_file_name,
-        template_file_name
-    ))
+    print(
+        "Successfully converted Creole wiki page {} to {} using template {}".format(
+            in_wiki_file_name,
+            output_file_name,
+            template_file_name,
+        )
+    )
+
 
 def main():
     if len(sys.argv) < 5:
-        print("Insufficient arguments, please pass the input directory, the template directory, the output directory, and the document source URL.")
+        print(
+            "Insufficient arguments, please pass the input directory, the template directory, the output directory, "
+            "and the document source URL."
+        )
         return 1
     try:
         in_dir = sys.argv[1]
@@ -77,5 +87,6 @@ def main():
 
     return 0
 
-if __name__ == "__main__": sys.exit(main())
 
+if __name__ == "__main__":
+    sys.exit(main())

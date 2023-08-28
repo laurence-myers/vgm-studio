@@ -38,16 +38,21 @@ def filtered_walk(dir: Path):
     for dirpath, dirnames, filenames in os.walk(dir, topdown=True):
         # Filter out some directories
         dirnames[:] = set(dirnames) - {
-            '.git',
-            '__pycache__',
-            'dist'
+            ".git",
+            "__pycache__",
+            "dist",
         }
         # Filter out some files
-        filenames[:] = [f for f in filenames if Path(f).suffix not in {
-            '.bak',
-            '.dro',
-            '.pyc'
-        }]
+        filenames[:] = [
+            f
+            for f in filenames
+            if Path(f).suffix
+            not in {
+                ".bak",
+                ".dro",
+                ".pyc",
+            }
+        ]
         for in_file_str in filenames:
             yield Path(dirpath) / in_file_str
 
@@ -65,6 +70,7 @@ def on_remove_error(func, path, _exc_info):
     Usage : ``shutil.rmtree(path, onerror=onerror)``
     """
     import stat
+
     # Is the error an access error?
     if not os.access(path, os.W_OK):
         os.chmod(path, stat.S_IWUSR)
@@ -84,7 +90,10 @@ opts = {
     "dll_excludes": ["MSVCP90.dll"],
     "excludes": ["tkinter"],
     "includes": [],
-    "packages": ["drotrimmer", "drotrimmer.dtgui"]
+    "packages": [
+        "drotrimmer",
+        "drotrimmer.dtgui",
+    ],
 }
 
 
@@ -92,10 +101,10 @@ def convert_version(in_version: str) -> str:
     ver_bits = [v[1:] for v in in_version.split()]
     if len(ver_bits) == 2:
         ver_bits.append("0")
-    return '.'.join(ver_bits)
+    return ".".join(ver_bits)
 
 
-remove_existing_directory('dist/')
+remove_existing_directory("dist/")
 
 freeze(
     version_info={
@@ -103,7 +112,7 @@ freeze(
         "description": "DRO Trimmer",
         "product_name": "DRO Trimmer",
         "company_name": "Laurence Dougal Myers",
-        "comments": "jestarjokin@jestarjokin.net"
+        "comments": "jestarjokin@jestarjokin.net",
     },
     windows=[
         {
@@ -114,55 +123,57 @@ freeze(
     data_files=[(".", ["drotrim.ini"])],
     console=[
         {
-            "script": "dro_player.py"
+            "script": "dro_player.py",
         },
         {
-            "script": "dro2to1.py"
+            "script": "dro2to1.py",
         },
         {
-            "script": "dro_split.py"
+            "script": "dro_split.py",
         },
     ],
-    options=opts
+    options=opts,
 )
 
 print("Building docs...")
-remove_existing_directory('../docs_src')
+remove_existing_directory("../docs_src")
 docs_url = "https://bitbucket.org/jestar_jokin/dro-trimmer/wiki"
 subprocess.run(["git", "clone", docs_url, "../docs_src"])
 generate_docs("../docs_src", "../src", "../docs", docs_url)
 
 print("Packaging binaries into a zip file...")
-remove_existing_directory('../dist')
-Path('../dist').mkdir()
-today_version = datetime.date.today().isoformat().replace('-', '')
-drotrim_path = Path('drotrim')
+remove_existing_directory("../dist")
+Path("../dist").mkdir()
+today_version = datetime.date.today().isoformat().replace("-", "")
+drotrim_path = Path("drotrim")
 
 with zipfile.ZipFile(
-        '../dist/drotrim_bin_{0}.zip'.format(today_version),
-        'w',
-        zipfile.ZIP_DEFLATED,
-        compresslevel=9) as zip:
-    for in_file in Path('../docs/').rglob('*'):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../docs')))
+    "../dist/drotrim_bin_{0}.zip".format(today_version),
+    "w",
+    zipfile.ZIP_DEFLATED,
+    compresslevel=9,
+) as zip:
+    for in_file in Path("../docs/").rglob("*"):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("../docs")))
 
-    for in_file in Path('dist/').rglob('*'):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('dist/')))
+    for in_file in Path("dist/").rglob("*"):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("dist/")))
 
 print("Packaging source files...")
-with (zipfile.ZipFile(
-        '../dist/drotrim_src_{0}.zip'.format(today_version),
-        'w',
-        zipfile.ZIP_DEFLATED,
-        compresslevel=9) as zip):
-    for in_file in filtered_walk(Path('../docs/')):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+with zipfile.ZipFile(
+    "../dist/drotrim_src_{0}.zip".format(today_version),
+    "w",
+    zipfile.ZIP_DEFLATED,
+    compresslevel=9,
+) as zip:
+    for in_file in filtered_walk(Path("../docs/")):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("../")))
 
-    for in_file in filtered_walk(Path('../docs_src')):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+    for in_file in filtered_walk(Path("../docs_src")):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("../")))
 
-    for in_file in filtered_walk(Path('../res/')):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+    for in_file in filtered_walk(Path("../res/")):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("../")))
 
-    for in_file in filtered_walk(Path('../src/')):
-        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to('../')))
+    for in_file in filtered_walk(Path("../src/")):
+        zip.write(in_file, arcname=(drotrim_path / in_file.relative_to("../")))

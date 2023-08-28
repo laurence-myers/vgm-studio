@@ -31,7 +31,10 @@
 
 from .dtgui.wxapp import start_gui_app
 
+
 def main():
     return start_gui_app()
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()

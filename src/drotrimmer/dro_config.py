@@ -6,7 +6,7 @@ from .dro_logging import get_logger
 from .dro_util import get_exe_path, DROTrimmerException
 
 __config = None
-__log = get_logger('Config')
+__log = get_logger("Config")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +37,10 @@ def get_config() -> DROConfig:
         try:
             __config = __read_config()
         except Exception as e:
-            __log.warning("Could not read config from drotrim.ini, using default values. (Error: %s)" % e)
+            __log.warning(
+                "Could not read config from drotrim.ini, using default values. (Error: %s)"
+                % e
+            )
             __config = DROConfig()
         __log.debug(__config)
     return __config
@@ -48,7 +51,9 @@ def __read_config() -> DROConfig:
     # Mitigate issue #4 by always searching for a config file in the same
     #  path as the executable.
     exe_path = get_exe_path()
-    config_files_parsed = parsed_config.read(['drotrim.ini', os.path.join(exe_path, 'drotrim.ini')])
+    config_files_parsed = parsed_config.read(
+        ["drotrim.ini", os.path.join(exe_path, "drotrim.ini")]
+    )
     if not len(config_files_parsed):
         raise DROTrimmerException("Could not read drotrim.ini.")
 
@@ -57,39 +62,39 @@ def __read_config() -> DROConfig:
         bit_depth=parsed_config.getint(
             "audio",
             "bit_depth",
-            fallback=default_config.audio.bit_depth
+            fallback=default_config.audio.bit_depth,
         ),
         buffer_size=parsed_config.getint(
             "audio",
             "buffer_size",
-            fallback=default_config.audio.buffer_size
+            fallback=default_config.audio.buffer_size,
         ),
         chip_write_delay=parsed_config.getfloat(
             "audio",
             "chip_write_delay",
-            fallback=default_config.audio.chip_write_delay
+            fallback=default_config.audio.chip_write_delay,
         ),
         frequency=parsed_config.getint(
             "audio",
             "frequency",
-            fallback=default_config.audio.frequency
-        )
+            fallback=default_config.audio.frequency,
+        ),
     )
     ui_config = DROConfigUI(
         dro_info_edit_enabled=parsed_config.getboolean(
             "ui",
             "dro_info_edit_enabled",
-            fallback=default_config.ui.dro_info_edit_enabled
+            fallback=default_config.ui.dro_info_edit_enabled,
         ),
         maximize_window=parsed_config.getboolean(
             "ui",
             "maximize_window",
-            fallback=default_config.ui.maximize_window
+            fallback=default_config.ui.maximize_window,
         ),
         tail_length=parsed_config.getint(
             "ui",
             "tail_length",
-            fallback=default_config.ui.tail_length
-        )
+            fallback=default_config.ui.tail_length,
+        ),
     )
     return DROConfig(audio_config, ui_config)

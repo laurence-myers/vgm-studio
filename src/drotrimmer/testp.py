@@ -1,5 +1,7 @@
 from . import dro_io
-#from . import dro_analysis
+
+# from . import dro_analysis
+
 
 @profile
 def test_inner():
@@ -7,9 +9,10 @@ def test_inner():
     dro_song = dro_loader.read("pm2_014.dro")
     del dro_loader
     return dro_song
-    #ana = dro_analysis.DRODetailedRegisterAnalyzer()
-    #result = ana.analyze_dro(dro_song)
-    #return result
+    # ana = dro_analysis.DRODetailedRegisterAnalyzer()
+    # result = ana.analyze_dro(dro_song)
+    # return result
+
 
 @profile
 def test_tuples():
@@ -18,13 +21,16 @@ def test_tuples():
         data.append((i, str(i)))
     return
 
+
 @profile
 def test_slots():
     class Result(object):
         __slots__ = ["intval", "strval"]
+
         def __init__(self, intval, strval):
             self.intval = intval
             self.strval = strval
+
     data = []
     for i in range(400000):
         data.append(Result(i, str(i)))
@@ -36,7 +42,9 @@ def test_main():
     result = test_inner()
     print(result)
     del result
-    #test_tuples()
-    #test_slots()
+    # test_tuples()
+    # test_slots()
 
-if __name__ == "__main__": test_main()
+
+if __name__ == "__main__":
+    test_main()
