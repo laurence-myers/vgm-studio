@@ -41,13 +41,8 @@ class DTMainFrame(wx.Frame):
         wx.Frame.__init__(self, *args, **kwds)
 
         # Maximize window base on config settings (added by Wraithverge)
-        try:
-            config = dro_config.get_config()
-            maximize_window = config.getboolean("ui", "maximize_window")
-        except Exception as e:
-            print('Could not read the value for "maximize_window" in "drotrim.ini"; defaulting to windowed mode.')
-            maximize_window = False
-        self.Maximize(maximize_window)
+        config = dro_config.get_config()
+        self.Maximize(config.ui.maximize_window)
 
         # Set icon, if available
         use_external_icon = True

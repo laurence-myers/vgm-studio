@@ -326,21 +326,13 @@ class DROPlayer(object):
             recording_on=False,
             sound_on=True
     ):
-        # TODO: move config reading somewhere else
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
-        try:
-            config = dro_config.get_config()
-            self.frequency = config.getint("audio", "frequency")
-            self.buffer_size = config.getint("audio", "buffer_size")
-            self.bit_depth = config.getint("audio", "bit_depth")
-            self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
-        except Exception as e:
-            print("Could not read audio settings from drotrim.ini, using default values. (Error: %s)" % e)
-            self.frequency = 48000
-            self.buffer_size = 512
-            self.bit_depth = 16
-            self.chip_write_delay = 0
+        config = dro_config.get_config()
+        self.frequency = config.audio.frequency
+        self.buffer_size = config.audio.buffer_size
+        self.bit_depth = config.audio.bit_depth
+        self.chip_write_delay = config.audio.chip_write_delay
 
         self.capture_dro = capture_dro
         self.channels: int = channels # crap

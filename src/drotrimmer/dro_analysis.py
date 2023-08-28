@@ -50,12 +50,8 @@ class DROTotalDelayCalculator(object):
 
 class DROTotalDelayWithWriteDelayCalculator(object):
     def __init__(self):
-        try:
-            config = get_config()
-            self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
-        except Exception as e:
-            print("Could not read audio settings from drotrim.ini, using default value for chip write delay. (Error: %s)" % e)
-            self.chip_write_delay = 0
+        config = get_config()
+        self.chip_write_delay: float = config.audio.chip_write_delay
 
     def sum_delay(self, dro_song: dro_data.DROSong):
         calc_delay = 0 # milliseconds

@@ -51,12 +51,8 @@ class DTApp(wx.App):
         self.drosong: dro_data.DROSong | None = None
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
-        try:
-            config = dro_config.get_config()
-            self.tail_length = config.getint("ui", "tail_length")
-        except Exception as e:
-            print("Could not read tail length from drotrim.ini, using default value.")
-            self.tail_length = 3000
+        config = dro_config.get_config()
+        self.tail_length = config.ui.tail_length
         self.goto_dialog: DTDialogGoto | None = None # Goto diaog
         self.frdialog: DTDialogFindReg | None = None # Find Register dialog
         self.loop_analysis_dialog: LoopAnalysisDialog | None = None # Loop Analysis Dialog
