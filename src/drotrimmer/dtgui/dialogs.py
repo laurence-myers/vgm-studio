@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 import wx
 
-from .. import dro_analysis, dro_config, dro_data, dro_globals, dro_util
+from .. import dro_analysis, dro_config, dro_data, dro_globals
 from .containers import TextPanel
 from .ui_util import guiID, errorAlert
 

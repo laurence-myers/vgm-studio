@@ -36,7 +36,6 @@ from .. import (
     dro_logging,
     dro_player,
     dro_undo,
-    dro_util,
 )
 from .containers import DTMainFrame
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
