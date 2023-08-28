@@ -27,7 +27,7 @@ from collections import defaultdict
 import difflib
 
 from . import dro_data, regdata
-from .dro_config import read_config
+from .dro_config import get_config
 from .dro_util import DROTrimmerException
 
 DetailedRegisterEntry = tuple[int, str, int]
@@ -51,7 +51,7 @@ class DROTotalDelayCalculator(object):
 class DROTotalDelayWithWriteDelayCalculator(object):
     def __init__(self):
         try:
-            config = read_config()
+            config = get_config()
             self.chip_write_delay = config.getfloat("audio", "chip_write_delay")
         except Exception as e:
             print("Could not read audio settings from drotrim.ini, using default value for chip write delay. (Error: %s)" % e)

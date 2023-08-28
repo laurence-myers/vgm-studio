@@ -330,7 +330,7 @@ class DROPlayer(object):
         # TODO: separate frequency etc for opl rendering
         #  (similar to DOSBox's mixer vs opl settings)
         try:
-            config = dro_config.read_config()
+            config = dro_config.get_config()
             self.frequency = config.getint("audio", "frequency")
             self.buffer_size = config.getint("audio", "buffer_size")
             self.bit_depth = config.getint("audio", "bit_depth")

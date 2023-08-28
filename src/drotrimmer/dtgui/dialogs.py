@@ -137,7 +137,7 @@ class DTDialogFindReg(wx.Dialog):
 class DROInfoDialog ( wx.Dialog ):
     def __init__(self, parent, dro_song, *args, **kwds):
         try:
-            config = dro_config.read_config()
+            config = dro_config.get_config()
             dro_info_edit_enabled = config.getboolean("ui", "dro_info_edit_enabled")
         except Exception as e:
             print('Could not read the value for "dro_info_edit_enabled" in "drotrim.ini"; defaulting to false.')

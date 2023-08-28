@@ -52,7 +52,7 @@ class DTApp(wx.App):
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
         try:
-            config = dro_config.read_config()
+            config = dro_config.get_config()
             self.tail_length = config.getint("ui", "tail_length")
         except Exception as e:
             print("Could not read tail length from drotrim.ini, using default value.")

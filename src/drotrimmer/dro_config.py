@@ -6,7 +6,7 @@ from .dro_util import get_exe_path, DROTrimmerException
 __config = None
 
 
-def read_config():
+def get_config():
     global __config
     if __config is None:
         __config = configparser.SafeConfigParser()
