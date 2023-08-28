@@ -73,8 +73,8 @@ class DetailedRegisterAnalysisTask(IncrementalTask):
         super().__init__("DetailedRegisterAnalysisTask")
         self.drosong = drosong
 
-    def _generate_results(self) -> typing.Iterator[list[tuple[int, str]]]:
-        detailed_register_descriptions: list[tuple[int, str]] = []
+    def _generate_results(self) -> typing.Iterator[list[tuple[int, str, int]]]:
+        detailed_register_descriptions: list[tuple[int, str, int]] = []
         detailed_register_analyzer = dro_analysis.DRODetailedRegisterAnalyzer()
         for entry in detailed_register_analyzer.analyze_dro(self.drosong):
             if self.stop_requested.is_set():
