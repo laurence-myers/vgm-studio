@@ -138,7 +138,7 @@ class WaveformRenderTask(IncrementalTask):
 
 
 class TaskResultEvent(wx.PyEvent):
-    def __init__(self, task_name: str, value: int) -> None:
+    def __init__(self, task_name: str, value: typing.Any) -> None:
         super().__init__(eventType=_type_EVT_TASK_RESULT)
         self.task_name = task_name
         self.value = value
