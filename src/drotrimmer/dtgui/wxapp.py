@@ -235,7 +235,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuSaveDRO(self, event):
+    def menuSaveDRO(self, _event):
         filename = self.drosong.name
         # Seeing as the filename is stored in the drosong, I should modify
         #  save_dro to only take a DROSong.
@@ -254,12 +254,12 @@ class DTApp(wx.App):
             self.drosong.name = sd.GetPath()
             self.menuSaveDRO(event)
 
-    def menuExit(self, event):
+    def menuExit(self, _event):
         self.mainframe.Close(False)
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuGoto(self, event):
+    def menuGoto(self, _event):
         if self.goto_dialog is not None:
             self.goto_dialog.Destroy()
         self.goto_dialog = DTDialogGoto(
@@ -269,7 +269,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions  # Added by Wraithverge.
     @requiresDROLoaded
-    def menuFindReg(self, event):
+    def menuFindReg(self, _event):
         if self.frdialog is not None:
             self.frdialog.Destroy()  # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
@@ -277,7 +277,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuLoopAnalysis(self, event):
+    def menuLoopAnalysis(self, _event):
         if self.loop_analysis_dialog is not None:
             self.loop_analysis_dialog.Destroy()
         # Create a dummy analyzer so we know how many result pages we need to create.
@@ -285,19 +285,19 @@ class DTApp(wx.App):
         self.loop_analysis_dialog = LoopAnalysisDialog(self, analyzer, self.mainframe)
         self.loop_analysis_dialog.Show()
 
-    def menuDelete(self, event):
+    def menuDelete(self, _event):
         self.buttonDelete(None)
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuDROInfo(self, event):
+    def menuDROInfo(self, _event):
         dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
         dro_info_dialog.ShowModal()
         dro_info_dialog.Destroy()
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuUndo(self, event):
+    def menuUndo(self, _event):
         undo_desc = dro_globals.get_undo_controller().undo()
         if undo_desc:
             self.setStatusText("Undone: %s" % (undo_desc,))
@@ -311,7 +311,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def menuRedo(self, event):
+    def menuRedo(self, _event):
         redo_desc = dro_globals.get_undo_controller().redo()
         if redo_desc:
             self.setStatusText("Redone: %s" % (redo_desc,))
@@ -323,7 +323,7 @@ class DTApp(wx.App):
         else:
             self.setStatusText("Nothing to redo.")
 
-    def menuHelp(self, event):
+    def menuHelp(self, _event):
         hd = wx.MessageDialog(
             self.mainframe,
             "Full instructions are available online.\n"
@@ -341,7 +341,7 @@ class DTApp(wx.App):
         hd.ShowModal()
         hd.Destroy()
 
-    def menuAbout(self, event):
+    def menuAbout(self, _event):
         ad = wx.MessageDialog(
             self.mainframe,
             (
@@ -403,7 +403,7 @@ class DTApp(wx.App):
             self.__triggerDetailedRegisterAnalysisAndWaveform()
 
     @requiresDROLoaded
-    def buttonPlay(self, event):
+    def buttonPlay(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
         if self.mainframe.dtlist.HasSelected():
@@ -412,13 +412,13 @@ class DTApp(wx.App):
         self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
     @requiresDROLoaded
-    def buttonStop(self, event):
+    def buttonStop(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
         self._playback_position_timer.Stop()
 
     @requiresDROLoaded
-    def buttonPlayTail(self, event):
+    def buttonPlayTail(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
         self.dro_player.seek_to_time(
@@ -428,7 +428,7 @@ class DTApp(wx.App):
         self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
     @catchUnhandledExceptions
-    def buttonGoto(self, event):
+    def buttonGoto(self, _event):
         position = self.goto_dialog.scPosition.GetValue()
         try:
             position = int(position)
@@ -445,7 +445,7 @@ class DTApp(wx.App):
         self.setStatusText("Gone to position: %s" % position)
 
     @catchUnhandledExceptions
-    def buttonFindReg(self, event, look_backwards=False):
+    def buttonFindReg(self, _event, look_backwards=False):
         rToFind = self.frdialog.cbRegisters.GetValue()
         if rToFind == "":
             return
@@ -474,7 +474,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def buttonNextNote(self, event, look_backwards=False):
+    def buttonNextNote(self, _event, look_backwards=False):
         if not self.mainframe.dtlist.HasSelected():
             start = 0
         else:
@@ -497,7 +497,7 @@ class DTApp(wx.App):
 
     @catchUnhandledExceptions
     @requiresDROLoaded
-    def buttonAnalyzeLoop(self, event):
+    def buttonAnalyzeLoop(self, _event):
         if self.loop_analysis_dialog is None:
             errorAlert(
                 self.mainframe,
