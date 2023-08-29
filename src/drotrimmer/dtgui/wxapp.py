@@ -37,7 +37,7 @@ from .. import (
     dro_player,
     dro_undo,
 )
-from .containers import DTMainFrame
+from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
@@ -126,6 +126,7 @@ class DTApp(wx.App):
         )
 
         # Custom events
+        self.Bind(EVT_FILE_DROP, self.onFileDrop)
         self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
         self.Bind(waveform.EVT_WAVEFORM_GO_TO, self.onWaveformGoTo)
         self.Bind(waveform.EVT_WAVEFORM_HOVER, self.onWaveformHover)
@@ -135,7 +136,7 @@ class DTApp(wx.App):
     # ____________________
     # Start Menu Event Handlers
     @catchUnhandledExceptions
-    def menuOpenDRO(self, event):
+    def menuOpenDRO(self, _event) -> None:
         od = wx.FileDialog(
             self.mainframe,
             "Open DRO",
@@ -147,6 +148,10 @@ class DTApp(wx.App):
         od.Destroy()
         del od
         if result == wx.ID_OK:
+            self.__loadFile(filename)
+
+    def __loadFile(self, filename: str) -> None:
+        if filename:  # Just to keep indentation and preserve Git history
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
 
@@ -598,6 +603,10 @@ class DTApp(wx.App):
             self.buttonStop(event)
         else:
             self.buttonPlay(event)
+
+    def onFileDrop(self, event: FileDropEvent):
+        self.log.debug(f"File drop event received. Filename: {event.filename}")
+        self.__loadFile(event.filename)
 
     def onListItemSelected(self, event: FirstSelectedItemChangedEvent) -> None:
         item: int | None = event.item_index

@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import os
+import re
 import sys
 import wx
 
@@ -32,6 +33,27 @@ from .menus import DTMainMenuBar
 from .tables import DTSongDataList
 from .ui_util import guiID
 from .waveform import WaveformPanel
+
+
+_type_EVT_FILE_DROP = wx.NewEventType()
+EVT_FILE_DROP = wx.PyEventBinder(_type_EVT_FILE_DROP)
+
+
+class FileDropEvent(wx.PyEvent):
+    def __init__(self, filename: str) -> None:
+        super().__init__(eventType=_type_EVT_FILE_DROP)
+        self.filename = filename
+
+
+class MainFrameDropTarget(wx.FileDropTarget):
+    extension_re = re.compile(r"\.dro$", re.IGNORECASE)
+
+    def OnDropFiles(self, _x: int, _y: int, filenames: list[str]):
+        # Only allow 1 file, and it must have a supported extension.
+        if len(filenames) == 1 and self.extension_re.search(filenames[0]):
+            wx.PostEvent(wx.GetApp(), FileDropEvent(filenames[0]))
+            return True
+        return False
 
 
 class DTMainFrame(wx.Frame):
@@ -91,10 +113,10 @@ class DTMainFrame(wx.Frame):
 
         self.__set_properties()
         self.__do_layout()
+        self.__bind_events()
 
-    def __set_properties(self):
-        self.SetMenuBar(DTMainMenuBar())
-        self.statusbar.SetFieldsCount(2)
+    def __bind_events(self):
+        self.SetDropTarget(MainFrameDropTarget())
 
     def __do_layout(self):
         self.splitter_1.SetMinimumPaneSize(100)
@@ -129,6 +151,10 @@ class DTMainFrame(wx.Frame):
         self.Layout()
         self.SetSize(self.ToDIP(wx.Size(1900, 1200)))
         self.Centre()
+
+    def __set_properties(self):
+        self.SetMenuBar(DTMainMenuBar())
+        self.statusbar.SetFieldsCount(2)
 
 
 class TextPanel(wx.Panel):
