@@ -80,5 +80,5 @@ def guiID(name):
     """Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
     If the name is not in the dict, it's added."""
     if name not in gGUIIDS:
-        gGUIIDS[name] = wx.NewId()  # This is deprecated, might need to replace it
+        gGUIIDS[name] = wx.NewIdRef()
     return gGUIIDS[name]
