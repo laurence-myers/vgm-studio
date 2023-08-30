@@ -370,6 +370,7 @@ class DROSong(object):
         # This is nuts. Change the comparison test depending on what we're
         #  looking for.
         i = start
+        look_for: str | int = s_inst
         if s_inst == "DLYS":
             ct = (
                 lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
@@ -389,17 +390,17 @@ class DROSong(object):
                 lambda datum, inst: datum.inst_type == DROInstruction.T_REGISTER
                 and datum.command == inst
             )
-            s_inst = int(s_inst, 16)
+            look_for = int(s_inst, 16)
 
         if look_backwards:
             i -= 2  # so we don't get stuck on the currently selected instruction
             while i >= 0:
-                if ct(self.data[i], s_inst):
+                if ct(self.data[i], look_for):
                     return i
                 i -= 1
         else:
             while i < len(self.data):
-                if ct(self.data[i], s_inst):
+                if ct(self.data[i], look_for):
                     return i
                 i += 1
 
@@ -425,7 +426,7 @@ class DROSong(object):
     @dro_undo.undoable(
         "Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions
     )
-    def delete_instructions(self, index_list: list[int]) -> list[(int, list[int])]:
+    def delete_instructions(self, index_list: list[int]) -> list[tuple[int, list[int]]]:
         """Deletes instructions at the given indexes.
 
         Returns a list of tuples, containing the index deleted and the value

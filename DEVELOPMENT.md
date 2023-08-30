@@ -38,3 +38,15 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 cd src
 ..\venv\Scripts\python.exe setup.py
 ```
+
+## Format code
+
+```PowerShell
+black src/
+```
+
+## Type-check code
+
+```PowerShell
+mypy src/
+```

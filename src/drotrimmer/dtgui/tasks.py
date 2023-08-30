@@ -6,8 +6,8 @@ import queue
 import threading
 import time
 import typing
-import wx
-import wx.lib.newevent
+import wx  # type: ignore
+import wx.lib.newevent  # type: ignore
 
 _type_EVT_TASK_RESULT = wx.NewEventType()
 EVT_TASK_RESULT = wx.PyEventBinder(_type_EVT_TASK_RESULT)
@@ -100,7 +100,7 @@ class WaveformRenderTask(IncrementalTask):
 
     def _generate_results(self) -> typing.Iterator[list[tuple[int, int]]]:
         # self.log.debug("Starting generate results")
-        xy_data = []
+        xy_data: list[tuple[int, int]] = []
         self.dro_player.waveform_renderer = WaveformRenderer(
             self.dro_player.frequency,
             self.queue,
@@ -152,7 +152,7 @@ class TaskCompletedEvent(wx.PyEvent):
 
 
 class TaskMaster:
-    task_futures: dict[str, (concurrent.futures.Future, IncrementalTask)]
+    task_futures: dict[str, tuple[concurrent.futures.Future, IncrementalTask]]
 
     def __init__(self) -> None:
         self.executor = concurrent.futures.ThreadPoolExecutor(
@@ -169,8 +169,8 @@ class TaskMaster:
         for _, (timer, task) in self.scheduled_tasks.items():
             timer.cancel()
             task.request_stop()
-        for _, (timer, task) in self.task_futures.items():
-            timer.cancel()
+        for _, (future, task) in self.task_futures.items():
+            future.cancel()
             task.request_stop()
 
     def cancel_task(self, task_name: str) -> bool:

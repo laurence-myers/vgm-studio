@@ -25,7 +25,7 @@
 import os
 import re
 import sys
-import wx
+import wx  # type: ignore
 
 from .. import dro_config, dro_util
 
@@ -57,7 +57,7 @@ class MainFrameDropTarget(wx.FileDropTarget):
 
 
 class DTMainFrame(wx.Frame):
-    def __init__(self, wx_app, *args, **kwds):
+    def __init__(self, wx_app: wx.App, *args, **kwds) -> None:
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         tail_length = kwds["tail_length"]
         del kwds["tail_length"]

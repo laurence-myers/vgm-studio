@@ -49,13 +49,13 @@ class DROTotalDelayCalculator(object):
 
 
 class DROTotalDelayWithWriteDelayCalculator(object):
-    def __init__(self):
+    def __init__(self) -> None:
         config = get_config()
         self.chip_write_delay: float = config.audio.chip_write_delay
 
     def sum_delay(self, dro_song: dro_data.DROSong):
-        calc_delay = 0  # milliseconds
-        total_write_delay = 0  # microseconds
+        calc_delay: float = 0.0  # milliseconds
+        total_write_delay: float = 0.0  # microseconds
         for inst in dro_song.data:
             if inst.inst_type == dro_data.DROInstruction.T_DELAY:
                 calc_delay += inst.value
@@ -323,8 +323,9 @@ class DROLoopAnalyzer(object):
                 # Check if we're starting a new match
                 if early_index == start_pos:
                     curr_match = self.Match(start=i, end=i, length=0)
-                curr_match.length += 1
-                curr_match.end = i
+                if curr_match:  # keep mypy happy
+                    curr_match.length += 1
+                    curr_match.end = i
                 if i == len(dro_song.data) - 1:
                     match_ended = True
             elif curr_match is not None:
@@ -334,9 +335,14 @@ class DROLoopAnalyzer(object):
             #  or it's the same length as the longest match but has a later
             #  starting point.
             if match_ended:
-                if curr_match.length > longest_match.length or (
-                    curr_match.length == longest_match.length
-                    and curr_match.start > longest_match.start
+                if curr_match and (
+                    curr_match.length > longest_match.length
+                    or (
+                        curr_match.length == longest_match.length
+                        and curr_match.start is not None
+                        and longest_match.start is not None
+                        and curr_match.start > longest_match.start
+                    )
                 ):
                     longest_match = curr_match
                     start_match = self.Match(
@@ -411,7 +417,9 @@ class DROLoopAnalyzer(object):
         sections_string = "\n".join(str(sec) for sec in interesting_sections)
         result = "Interesting sections (by size):\n%s" % (sections_string,)
         result += "\n\n"
-        interesting_sections.sort(key=lambda m: m.start, reverse=True)
+        interesting_sections.sort(
+            key=lambda m: m.start if m.start is not None else -1, reverse=True
+        )
         sections_string = "\n".join(str(sec) for sec in interesting_sections)
         result += "Interesting sections (by position):\n%s" % (sections_string,)
         return self.AnalysisResult("Longest instruction blocks", result)
@@ -481,9 +489,9 @@ class DRODetailedRegisterAnalyzer(object):
     OPL_TYPE_DUAL_OPL2 = 1
     OPL_TYPE_OPL3 = 2
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.current_bank: int = 0
-        self.current_state = None
+        self.current_state: list[int | None] = []
         self.OPL_TYPE_DRO1_MAP: list[int] = [
             self.OPL_TYPE_OPL2,
             self.OPL_TYPE_OPL3,
@@ -542,7 +550,7 @@ class DRODetailedRegisterAnalyzer(object):
         bank: int,
         reg: int,
         val: int,
-        opl_type: int,
+        _opl_type: int,
     ):
         try:
             if bank and (0x100 | reg) in regdata.registers:
@@ -573,8 +581,8 @@ class DRORegisterUsageAnalyzer(object):
 
     def __init__(self, detailed_percussion_analysis: bool = False):
         self.detailed_percussion_analysis = detailed_percussion_analysis
-        self.perc_usage = defaultdict(bool)
-        self.usage = defaultdict(int)
+        self.perc_usage: defaultdict[int, bool] = defaultdict(bool)
+        self.usage: defaultdict[int, int] = defaultdict(int)
 
     def analyze_dro(self, dro_song):
         """Returns two dicts. First dict is register usage, second dictt is perc inst usage.

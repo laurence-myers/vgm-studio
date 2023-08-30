@@ -1,7 +1,7 @@
 from ..dro_logging import get_logger
 from ..dro_player import DROPlayer
 import math
-import wx
+import wx  # type: ignore
 
 _type_EVT_WAVEFORM_GO_TO = wx.NewEventType()
 EVT_WAVEFORM_GO_TO = wx.PyEventBinder(_type_EVT_WAVEFORM_GO_TO)
@@ -44,7 +44,7 @@ class WaveformPanel(wx.Panel):
         # (We could also calculate it from self.GetClientSize()[0], but there's complications.)
         self.x_resolution: int = _waveform_width
 
-        self.xy_data: list[(int, int)] = []
+        self.xy_data: list[tuple[int, int]] = []
         self.playback_start_indicator: int = 0
         self.hover_indicator: int | None = None
         self.playback_position: int = 0
@@ -163,7 +163,7 @@ class WaveformPanel(wx.Panel):
         event.Skip()
         self.Refresh()
 
-    def redraw(self, points: list[(int, int)]) -> None:
+    def redraw(self, points: list[tuple[int, int]]) -> None:
         self.xy_data = points
         self.__draw_waveform()
         self.Refresh()

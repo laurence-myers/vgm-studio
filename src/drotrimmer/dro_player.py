@@ -43,10 +43,11 @@ import struct
 import sys
 import threading
 import time
+from typing import Literal
 import wave
 
 import pyaudio
-import pyopl
+import pyopl  # type: ignore
 
 from . import (
     dro_analysis,
@@ -71,15 +72,15 @@ def stopPlayerOnException(func):
 
 
 class WavRenderer(object):
-    def __init__(self, frequency: int, bit_depth: int, channels: int):
+    def __init__(self, frequency: int, bit_depth: int, channels: int) -> None:
         self.frequency = frequency
         self.bit_depth = bit_depth
         self.channels = channels
-        self.wav = None
-        self.wav_fname = None
+        self.wav: wave.Wave_write | None = None
+        self.wav_fname: str | None = None
         self.wav_lock = threading.RLock()
 
-    def open(self, dro_song: dro_data.DROSong):
+    def open(self, dro_song: dro_data.DROSong) -> None:
         if self.wav_fname is None:
             self.wav_fname = "{}.wav".format(dro_song.name)
         self.wav = wave.open(self.wav_fname, "wb")
@@ -87,7 +88,7 @@ class WavRenderer(object):
         self.wav.setsampwidth(self.bit_depth // 8)
         self.wav.setframerate(self.frequency)
 
-    def close(self):
+    def close(self) -> None:
         with self.wav_lock:
             if self.wav is not None:
                 self.wav.close()
@@ -99,7 +100,7 @@ class WavRenderer(object):
             if self.wav is not None:
                 self.wav.writeframes(data)
 
-    def set_output_fname(self, output_fname: str):
+    def set_output_fname(self, output_fname: str) -> None:
         self.wav_fname = "{}.wav".format(output_fname)
 
     def is_active(self):
@@ -119,16 +120,16 @@ class WaveformRenderer(object):
         self.frequency: int = frequency
         self.bit_depth: int = 16
         self.channels: int = 1
-        self.points: list[(int, int)] = []
+        self.points: list[tuple[int, int]] = []
         self.samples_written: int = 0
         self.quantized_samples_written: int = 0
         self.samples_per_bucket: float = 0
-        self.queue: queue.SimpleQueue[list[(int, int)]] = points_queue
+        self.queue: queue.SimpleQueue[list[tuple[int, int]]] = points_queue
         self.curr_max_sample: int = 0
         self.expected_total_samples: int = 0
         self.set_quantization(total_length_ms, num_buckets)
-        self._last_wait = 0
-        self._wait_period = 0.1
+        self._last_wait: float = 0.0
+        self._wait_period: float = 0.1
 
     def write(self, data: bytes):
         for (sample,) in struct.iter_unpack("h", data):
@@ -235,7 +236,7 @@ class OPLStream(object):
         bit_depth: int,
         channels: int,
         chip_write_delay: float,
-        output_streams: list[pyaudio.PyAudio | WavRenderer | WaveformRenderer],
+        output_streams: list[pyaudio.Stream | WavRenderer | WaveformRenderer],
     ):
         self.frequency = frequency  # Changing this to be different to the audio rate produces a tempo-shifting effect
         self.buffer_size = buffer_size
@@ -250,8 +251,8 @@ class OPLStream(object):
         )
         self.buffer: bytearray = self.__create_bytearray(buffer_size)
         self.stop_requested: bool = False  # required so we don't keep rendering obsolete data after stopping playback.
-        self._bank: 0 | 1 = 0
-        self.chip_delay_drift = 0  # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
+        self._bank: Literal[0, 1] = 0
+        self.chip_delay_drift: float = 0.0  # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
         self.sample_overflow: float = (
             0  # fraction of samples that still need to be rendered.
         )
@@ -259,11 +260,11 @@ class OPLStream(object):
         self.reset()
 
     @property
-    def bank(self):
+    def bank(self) -> Literal[0, 1]:
         return self._bank
 
     @bank.setter
-    def bank(self, value: int):
+    def bank(self, value: Literal[0, 1]):
         self._bank = value
 
     def reset(self):
@@ -372,7 +373,7 @@ class DROPlayer(object):
 
         if self.sound_on:
             self.audio: pyaudio.PyAudio | None = pyaudio.PyAudio()
-        self.audio_stream = None
+        self.audio_stream: pyaudio.Stream | None = None
         # Set up the WAV Renderer
         if self.recording_on:
             self.wav_renderer: WavRenderer | None = WavRenderer(
@@ -399,14 +400,17 @@ class DROPlayer(object):
         self.writes_elapsed = 0
         """Used for calculating chip write delay."""
 
-    def init_audio_output(self):
-        if self.audio_stream is None:
-            self.audio_stream = self.audio.open(
-                format=self.audio.get_format_from_width(self.bit_depth // 8),
-                channels=self.channels,
-                rate=self.frequency,
-                output=True,
+    def __init_audio_output(self) -> pyaudio.Stream:
+        if not self.audio:
+            raise dro_util.DROTrimmerException(
+                "Can't init audio stream, PyAudio was not initialised."
             )
+        return self.audio.open(
+            format=self.audio.get_format_from_width(self.bit_depth // 8),
+            channels=self.channels,
+            rate=self.frequency,
+            output=True,
+        )
 
     def close_audio_output(self):
         if self.audio_stream is not None:
@@ -420,7 +424,7 @@ class DROPlayer(object):
         self.current_song = new_song
         self.reset()
 
-    def reset(self):
+    def reset(self) -> None:
         self.is_playing = False
         self.pos = 0
         self.time_elapsed = 0
@@ -430,11 +434,12 @@ class DROPlayer(object):
         self.update_thread = (
             None  # This thread gets created only when playing actually begins.
         )
-        output_streams = []
-        if self.sound_on:
-            self.init_audio_output()
+        output_streams: list[pyaudio.Stream | WavRenderer | WaveformRenderer] = []
+        if self.sound_on and self.audio:
+            if not self.audio_stream:
+                self.audio_stream = self.__init_audio_output()
             output_streams.append(self.audio_stream)
-        if self.recording_on:
+        if self.recording_on and self.wav_renderer:
             output_streams.append(self.wav_renderer)
         if self.waveform_renderer:
             output_streams.append(self.waveform_renderer)
@@ -471,6 +476,8 @@ class DROPlayer(object):
     @property
     def position_pct(self) -> float:
         # Prefer samples rendered, which is more accurate. If it's not set, check time elapsed.
+        if not self.current_song:
+            return 0
         samples_rendered = 0
         for ps in self.processing_streams:
             if isinstance(ps, OPLStream):
@@ -534,9 +541,12 @@ class DROSeeker(object):
 
     # Could potentially merge with the updater thread, and have a flag to skip "rendering" of any sound.
     @stopPlayerOnException
-    def seek_to_time(self, seek_time_ms: int):
+    def seek_to_time(self, seek_time_ms: int) -> None:
         """Seeks to the specified time.
         Seek time is clamped between 0 and the song's recorded ms_length."""
+        if not self.dro_player.current_song:
+            return
+
         seek_time_ms = min(max(seek_time_ms, 0), self.dro_player.current_song.ms_length)
 
         self.dro_player.pos = 0
@@ -565,12 +575,14 @@ class DROSeeker(object):
         self.dro_player.processing_streams.clear_chip_delay_drift()
 
     @stopPlayerOnException
-    def seek_to_pos(self, seek_pos: int):
+    def seek_to_pos(self, seek_pos: int) -> None:
         """Seeks to a particular instruction position.
         This method is useful for playing a song from an instruction highlighted in the table editor.
         Note the position has no real bearing on the length of the song in ms - for a song with 200 instructions,
         40 of them might be initializing registers/operators.
         """
+        if not self.dro_player.current_song:
+            return
         seek_pos = min(
             seek_pos, len(self.dro_player.current_song.data)
         )  # make sure seek_pos is within bounds

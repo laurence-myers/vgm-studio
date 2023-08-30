@@ -27,7 +27,7 @@ import codecs
 import datetime
 import os
 import sys
-from creole import creole2html
+from creole import creole2html  # type: ignore
 from drotrimmer import dro_globals as app_globals
 
 in_wiki_file_name = "Home.wiki"

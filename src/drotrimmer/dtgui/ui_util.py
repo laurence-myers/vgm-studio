@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 import io
 import traceback
-import wx
+import wx  # type: ignore
 from .. import dro_globals
 
 gGUIIDS = {}

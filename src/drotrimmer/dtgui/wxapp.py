@@ -25,7 +25,7 @@
 import ctypes
 import os.path
 import sys
-import wx
+import wx  # type: ignore
 
 from .. import (
     dro_analysis,
@@ -57,7 +57,7 @@ class DTApp(wx.App):
     tail_length: int
     task_master: tasks.TaskMaster
 
-    def OnInit(self):
+    def OnInit(self) -> bool:
         self.drosong: dro_data.DROSong | None = None
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
@@ -154,6 +154,8 @@ class DTApp(wx.App):
         if filename:  # Just to keep indentation and preserve Git history
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
+            if not self.drosong:  # Just to keep mypy happy
+                return
 
             # Delete first instruction if it's a bogus delay (mostly for V1)
             first_delay_analyzer = dro_analysis.DROFirstDelayAnalyzer()
@@ -609,6 +611,8 @@ class DTApp(wx.App):
         self.__loadFile(event.filename)
 
     def onListItemSelected(self, event: FirstSelectedItemChangedEvent) -> None:
+        if not self.drosong:
+            return
         item: int | None = event.item_index
         self.log.debug(f"Got an item to select: {item}")
         if self.drosong.detailed_register_descriptions and item is not None:
@@ -673,6 +677,8 @@ class DTApp(wx.App):
             self.mainframe.statusbar.SetStatusText(message, section)
 
     def __triggerDetailedRegisterAnalysisAndWaveform(self, debounce: bool = True):
+        if not self.drosong:
+            return
         self.__doDetailedRegisterAnalysis()
         # TODO: don't reach into the waveform panel to get the player or num_buckets
         self.mainframe.waveform_panel.clear()
