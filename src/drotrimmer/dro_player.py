@@ -456,7 +456,7 @@ class DROPlayer(object):
         if self.capture_dro:
             dro_out_stream = dro_capture.DroCapture()
             self.processing_streams.append(dro_out_stream)
-        self.active_percussion = set(self.CHANNEL_REGISTERS)
+        self.active_channels = set(self.CHANNEL_REGISTERS)
         self.active_percussion = [0xFF, 0xFF]
 
     def set_output_fname(self, output_fname: str):
