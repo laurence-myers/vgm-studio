@@ -23,6 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 import ctypes
+import optparse
 import os.path
 import sys
 import wx
@@ -36,6 +37,7 @@ from .. import (
     dro_logging,
     dro_player,
     dro_undo,
+    dro_util,
 )
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
@@ -150,7 +152,7 @@ class DTApp(wx.App):
             self.__loadFile(filename)
 
     def __loadFile(self, filename: str) -> None:
-        if filename:  # Just to keep indentation and preserve Git history
+        try:
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
             if not self.drosong:  # Just to keep mypy happy
@@ -233,6 +235,10 @@ class DTApp(wx.App):
             # Reset the loop analysis dialog, if it exists.
             if self.loop_analysis_dialog is not None:
                 self.loop_analysis_dialog.load_results(None)
+        except dro_util.DROFileException as e:
+            errorAlert(self.mainframe, str(e), "Failed to load file")
+        except FileNotFoundError as e:
+            errorAlert(self.mainframe, str(e), "Failed to open file")
 
     @catchUnhandledExceptions
     @requiresDROLoaded
@@ -605,6 +611,7 @@ class DTApp(wx.App):
         else:
             self.buttonPlay(event)
 
+    @catchUnhandledExceptions
     def onFileDrop(self, event: FileDropEvent):
         self.log.debug(f"File drop event received. Filename: {event.filename}")
         self.__loadFile(event.filename)
@@ -696,7 +703,20 @@ class DTApp(wx.App):
         self.task_master.start_task(tasks.DetailedRegisterAnalysisTask(self.drosong))
 
 
+def __parse_arguments():
+    usage = (
+        "Usage: %prog [dro_file]\n\n"
+        + "Opens a GUI to edit a DRO song. Optionally pass the name of a file to open."
+    )
+    version = dro_globals.g_app_version
+    oparser = optparse.OptionParser(usage, version=version)
+    options, args = oparser.parse_args()
+    return oparser, options, args
+
+
 def start_gui_app():
+    _oparser, _options, args = __parse_arguments()
+
     # Fix blurriness on Windows
     # @see https://stackoverflow.com/a/54247018/953887
     if sys.platform == "win32":
@@ -708,6 +728,17 @@ def start_gui_app():
     dro_globals.g_undo_controller = dro_undo.UndoController()
     app = DTApp(0)
     dro_globals.g_wx_app = app
+
+    # If we were passed a file name arg, queue it up to be loaded in the GUI.
+    if len(args) > 0:
+        initial_file_name = args[0]
+        wx.PostEvent(
+            app,
+            FileDropEvent(  # re-use the existing file drop event class
+                initial_file_name
+            ),
+        )
+
     app.MainLoop()
 
 

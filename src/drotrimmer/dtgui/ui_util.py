@@ -31,7 +31,7 @@ from .. import dro_globals
 gGUIIDS = {}
 
 
-def errorAlert(parent, msg, title="Error"):
+def errorAlert(parent: wx.Window, msg: str, title: str = "Error"):
     alert = wx.MessageDialog(
         parent,
         msg,
