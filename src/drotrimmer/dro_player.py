@@ -55,12 +55,17 @@ from . import (
     dro_config,
     dro_data,
     dro_globals,
+    dro_logging,
     dro_util,
     dro_io,
 )
 
 
-def stopPlayerOnException(func):
+_log = dro_logging.get_logger("DRO Player")
+"""A generic logger for use by the module"""
+
+
+def stop_player_on_exception(func):
     def inner_func(self, *args, **kwds):
         try:
             func(self, *args, **kwds)
@@ -252,7 +257,8 @@ class OPLStream(object):
         self.buffer: bytearray = self.__create_bytearray(buffer_size)
         self.stop_requested: bool = False  # required so we don't keep rendering obsolete data after stopping playback.
         self._bank: Literal[0, 1] = 0
-        self.chip_delay_drift: float = 0.0  # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
+        # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
+        self.chip_delay_drift: float = 0.0
         self.sample_overflow: float = (
             0  # fraction of samples that still need to be rendered.
         )
@@ -416,8 +422,8 @@ class DROPlayer(object):
         if self.audio_stream is not None:
             try:
                 self.audio_stream.close()
-            except Exception:
-                pass
+            except Exception as e:
+                _log.exception(e)
 
     def load_song(self, new_song: dro_data.DROSong):
         self.is_playing = False
@@ -534,13 +540,14 @@ class DROPlayer(object):
 
 
 class DROSeeker(object):
-    """Helper class to seek in DRO songs. Externalised from the player so the player class remains DRO-version neutral."""
+    """Helper class to seek in DRO songs.
+    Externalised from the player so the player class remains DRO-version neutral."""
 
     def __init__(self, dro_player: DROPlayer):
         self.dro_player = dro_player  # circular reference, yuck
 
     # Could potentially merge with the updater thread, and have a flag to skip "rendering" of any sound.
-    @stopPlayerOnException
+    @stop_player_on_exception
     def seek_to_time(self, seek_time_ms: int) -> None:
         """Seeks to the specified time.
         Seek time is clamped between 0 and the song's recorded ms_length."""
@@ -574,7 +581,7 @@ class DROSeeker(object):
             self.dro_player.pos += 1
         self.dro_player.processing_streams.clear_chip_delay_drift()
 
-    @stopPlayerOnException
+    @stop_player_on_exception
     def seek_to_pos(self, seek_pos: int) -> None:
         """Seeks to a particular instruction position.
         This method is useful for playing a song from an instruction highlighted in the table editor.
@@ -616,7 +623,7 @@ class DROPlayerUpdateThread(threading.Thread):
         self.active_channels = set(self.dro_player.active_channels)
         self.active_percussion = set(self.dro_player.active_percussion)
 
-    @stopPlayerOnException
+    @stop_player_on_exception
     def run(self):
         while (
             self.dro_player.pos < len(self.current_song.data)
@@ -625,11 +632,9 @@ class DROPlayerUpdateThread(threading.Thread):
         ):
             # First, check if we need to mute a channel register.
             new_muted_channels = self.active_channels - self.dro_player.active_channels
-            orig_bank = self.dro_player.processing_streams.bank
             for channel in new_muted_channels:
                 self.dro_player.processing_streams.bank = (channel & 0x100) >> 8
                 self.dro_player.processing_streams.write(channel & 0xFF, 0x00)
-            del orig_bank
             # Check if we need to unmute a channel register (also remove muted channels).
             if self.dro_player.active_channels ^ self.active_channels:
                 self.active_channels = set(self.dro_player.active_channels)
@@ -656,7 +661,7 @@ class DROPlayerUpdateThread(threading.Thread):
                     val = inst.value & mask
                     self.dro_player.processing_streams.write(inst.command, val)
                 # Non-channel registers get a pass.
-                elif not inst.command in self.dro_player.CHANNEL_REGISTERS:
+                elif inst.command not in self.dro_player.CHANNEL_REGISTERS:
                     self.dro_player.processing_streams.write(inst.command, inst.value)
                 # Only write to channel registers if they are active.
                 elif (
@@ -798,7 +803,7 @@ def main():
             sys.stdout.write(
                 "\r{} / {}".format(calc_ms_length_string, calc_ms_length_string)
             )
-    except KeyboardInterrupt as ke:
+    except KeyboardInterrupt:
         pass
     except Exception as e:
         print(e)
