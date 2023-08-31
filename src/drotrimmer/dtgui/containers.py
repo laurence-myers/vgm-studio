@@ -57,7 +57,7 @@ class MainFrameDropTarget(wx.FileDropTarget):
 
 
 class DTMainFrame(wx.Frame):
-    def __init__(self, wx_app: wx.App, *args, **kwds) -> None:
+    def __init__(self, *args, **kwds) -> None:
         kwds["style"] = wx.DEFAULT_FRAME_STYLE
         tail_length = kwds["tail_length"]
         del kwds["tail_length"]
@@ -90,7 +90,7 @@ class DTMainFrame(wx.Frame):
         self.waveform_panel: WaveformPanel = WaveformPanel(self.splitter_1)
 
         self.bottom_panel = wx.Panel(self.splitter_1)
-        self.dtlist = DTSongDataList(self.bottom_panel, wx_app.drosong)
+        self.dtlist = DTSongDataList(self.bottom_panel, None)
         self.panel_1 = wx.Panel(self.bottom_panel)
         self.button_delete = wx.Button(
             self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction"

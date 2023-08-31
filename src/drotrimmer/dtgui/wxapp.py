@@ -76,7 +76,6 @@ class DTApp(wx.App):
         )
 
         self.mainframe: DTMainFrame = DTMainFrame(
-            self,
             None,
             -1,
             "DRO Trimmer %s" % (dro_globals.g_app_version,),
