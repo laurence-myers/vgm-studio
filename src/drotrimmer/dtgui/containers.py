@@ -25,7 +25,7 @@
 import os
 import re
 import sys
-import wx  # type: ignore
+import wx
 
 from .. import dro_config, dro_util
 

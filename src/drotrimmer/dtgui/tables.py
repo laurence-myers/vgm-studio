@@ -24,7 +24,7 @@
 #    THE SOFTWARE.
 from ..dro_data import DROSong
 from .ui_util import guiID
-import wx  # type: ignore
+import wx
 
 
 _type_EVT_FIRST_SELECTED_ITEM_CHANGED = wx.NewEventType()

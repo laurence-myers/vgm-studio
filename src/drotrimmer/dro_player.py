@@ -47,7 +47,7 @@ from typing import Literal
 import wave
 
 import pyaudio
-import pyopl  # type: ignore
+import pyopl
 
 from . import (
     dro_analysis,

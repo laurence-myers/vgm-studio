@@ -1,7 +1,7 @@
 from ..dro_logging import get_logger
 from ..dro_player import DROPlayer
 import math
-import wx  # type: ignore
+import wx
 
 _type_EVT_WAVEFORM_GO_TO = wx.NewEventType()
 EVT_WAVEFORM_GO_TO = wx.PyEventBinder(_type_EVT_WAVEFORM_GO_TO)

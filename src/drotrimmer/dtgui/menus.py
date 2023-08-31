@@ -23,7 +23,7 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 from .. import dro_globals
-import wx  # type: ignore
+import wx
 
 from .ui_util import guiID
 

@@ -25,7 +25,7 @@
 import ctypes
 import os.path
 import sys
-import wx  # type: ignore
+import wx
 
 from .. import (
     dro_analysis,

@@ -6,8 +6,8 @@ import queue
 import threading
 import time
 import typing
-import wx  # type: ignore
-import wx.lib.newevent  # type: ignore
+import wx
+import wx.lib.newevent
 
 _type_EVT_TASK_RESULT = wx.NewEventType()
 EVT_TASK_RESULT = wx.PyEventBinder(_type_EVT_TASK_RESULT)

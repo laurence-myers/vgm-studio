@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-import wx  # type: ignore
+import wx
 
 from .. import dro_analysis, dro_config, dro_data, dro_globals
 from .containers import TextPanel

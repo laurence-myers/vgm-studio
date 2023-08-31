@@ -26,7 +26,7 @@
 import datetime
 import os
 from pathlib import Path
-from py2exe import freeze  # type: ignore
+from py2exe import freeze
 import shutil
 import subprocess
 import zipfile
