@@ -219,7 +219,9 @@ class OPLStream(object):
     The master clock runs at 14.32 MHz. 64 cycles is 4.469273743016759776536312849162 microseconds... approximately ;)
 
     This page:
-    http://www.ugcs.caltech.edu/~john/computer/opledit/tech/opl3.txt
+    http://repetae.net/computer/opledit/tech/opl3.txt
+    or, if that's dead, from the archive:
+    https://web.archive.org/web/20141013120106/http://www.ugcs.caltech.edu/~john/computer/opledit/tech/opl3.txt
     Says:
      "Unlike Adlib (OPL2), OPL3 doesn't need delay between register writes.
      With OPL2 you had to wait 3.3 [microseconds] after index register write and another
