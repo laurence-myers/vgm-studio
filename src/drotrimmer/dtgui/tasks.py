@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 import concurrent.futures
+
+from .ui_util import customEvent
 from .. import dro_analysis, dro_data, dro_logging
 from ..dro_player import DROPlayer, WaveformRenderer
 import queue
@@ -9,10 +11,8 @@ import typing
 import wx
 import wx.lib.newevent
 
-_type_EVT_TASK_RESULT = wx.NewEventType()
-EVT_TASK_RESULT = wx.PyEventBinder(_type_EVT_TASK_RESULT)
-_type_EVT_TASK_COMPLETED = wx.NewEventType()
-EVT_TASK_COMPLETED = wx.PyEventBinder(_type_EVT_TASK_COMPLETED)
+_type_EVT_TASK_RESULT, EVT_TASK_RESULT = customEvent()
+_type_EVT_TASK_COMPLETED, EVT_TASK_COMPLETED = customEvent()
 
 
 class IncrementalTask(ABC):

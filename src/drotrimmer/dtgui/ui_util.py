@@ -25,6 +25,7 @@
 import io
 import traceback
 import wx
+from typing import Any
 from .. import dro_globals
 
 gGUIIDS = {}
@@ -59,6 +60,12 @@ def catchUnhandledExceptions(func):
             )
 
     return inner_func
+
+
+def customEvent() -> tuple[Any, wx.PyEventBinder]:
+    error_type = wx.NewEventType()
+    error_binder = wx.PyEventBinder(error_type)
+    return (error_type, error_binder)
 
 
 def requiresDROLoaded(func):

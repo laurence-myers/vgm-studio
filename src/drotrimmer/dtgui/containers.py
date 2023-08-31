@@ -31,12 +31,11 @@ from .. import dro_config, dro_util
 
 from .menus import DTMainMenuBar
 from .tables import DTSongDataList
-from .ui_util import guiID
+from .ui_util import customEvent, guiID
 from .waveform import WaveformPanel
 
 
-_type_EVT_FILE_DROP = wx.NewEventType()
-EVT_FILE_DROP = wx.PyEventBinder(_type_EVT_FILE_DROP)
+_type_EVT_FILE_DROP, EVT_FILE_DROP = customEvent()
 
 
 class FileDropEvent(wx.PyEvent):

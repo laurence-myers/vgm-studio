@@ -23,14 +23,11 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 from ..dro_data import DROSong
-from .ui_util import guiID
+from .ui_util import customEvent, guiID
 import wx
 
 
-_type_EVT_FIRST_SELECTED_ITEM_CHANGED = wx.NewEventType()
-EVT_FIRST_SELECTED_ITEM_CHANGED = wx.PyEventBinder(
-    _type_EVT_FIRST_SELECTED_ITEM_CHANGED
-)
+_type_EVT_FIRST_SELECTED_ITEM_CHANGED, EVT_FIRST_SELECTED_ITEM_CHANGED = customEvent()
 
 
 class FirstSelectedItemChangedEvent(wx.PyEvent):
