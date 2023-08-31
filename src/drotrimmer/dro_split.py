@@ -30,15 +30,16 @@ import time
 from . import dro_analysis, dro_globals, dro_io, dro_player, dro_util
 
 
-def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
-    PERC_NAME_MAP = [
-        "HH",
-        "CY",
-        "TT",
-        "SD",
-        "BD",
-    ]
+PERC_NAME_MAP = [
+    "HH",
+    "CY",
+    "TT",
+    "SD",
+    "BD",
+]
 
+
+def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
     # Ignore high bits
     percs = sorted([p for p in perc_usage.keys() if perc_usage[p] and p <= 16])
     channel = (bank_num << 8) | 0xBD
@@ -49,7 +50,7 @@ def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
     for p in percs:
         inst_num = int(math.log(p, 2))
         player.reset()
-        player.active_channels = set([(bank_num << 8) | channel])
+        player.active_channels = {(bank_num << 8) | channel}
         player.active_percussion = [0xE0, 0xE0]
         player.active_percussion[bank_num] = 0xE0 | p
         player.set_output_fname(
@@ -104,7 +105,7 @@ def split_tracks(player, dro_song, isolate_percussion=False):
             __split_percussion_channel(player, dro_song, bank_num, perc_usage)
         else:
             player.reset()
-            player.active_channels = set([channel])
+            player.active_channels = {channel}
             player.active_percussion = [0xE0, 0xE0]  # allow some values sent to 0xBD
             if (channel & 0xFF) == 0xBD:
                 player.active_percussion[bank_num] = 0xFF
@@ -198,7 +199,7 @@ def main():
 
     try:
         split_tracks(player, dro_song, options.isolate_percussion)
-    except KeyboardInterrupt as ke:
+    except KeyboardInterrupt:
         pass
     except Exception as e:
         print(e)
