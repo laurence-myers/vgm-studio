@@ -22,6 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+from typing import BinaryIO
 
 from .dro_data import (
     DRO_FILE_V1,
@@ -49,7 +50,7 @@ WRITE_CHAR_OPL = False
 
 
 class DroFileIO(object):
-    def read(self, file_name):
+    def read(self, file_name: str) -> DROSong:
         """Accepts a file name (string). Returns a DROSong object and whether it was auto-trimmed (boolean).
 
         Raises DROFileException on invalid file data/version."""
@@ -58,12 +59,12 @@ class DroFileIO(object):
             if header_name != DRO_HEADER:
                 raise DROFileException(
                     "Does not appear to be a DRO file (invalid header. Expected %s, found %s)."
-                    % (DRO_HEADER, header_name)
+                    % (DRO_HEADER.decode("ascii"), header_name.decode("ascii"))
                 )
 
             header_version = struct.unpack("<2H", drof.read(4))
             if header_version in (DRO_VERSION_V1_OLD, DRO_VERSION_V1_NEW):
-                reader = DroFileIOv1()
+                reader: DroFileIOv1 | DroFileIOv2 = DroFileIOv1()
             elif header_version == DRO_VERSION_V2:
                 reader = DroFileIOv2()
             else:
@@ -75,30 +76,33 @@ class DroFileIO(object):
             dro_song = reader.read_data(file_name, drof)
             return dro_song
 
-    def write(self, file_name, dro_song):
+    def write(self, file_name: str, dro_song: DROSong | DROSongV2) -> None:
         with open(file_name, "wb") as drof:
             drof.write(DRO_HEADER)
             if dro_song.file_version == DRO_FILE_V1:
-                writer = DroFileIOv1()
+                writer_v1: DroFileIOv1 = DroFileIOv1()
                 drof.write(
                     struct.pack("<2H", *DRO_VERSION_V1_NEW)
                 )  # hmm, maybe shouldn't be here
-            elif dro_song.file_version == DRO_FILE_V2:
-                writer = DroFileIOv2()
+                writer_v1.write_data(drof, dro_song)
+            elif dro_song.file_version == DRO_FILE_V2 and isinstance(
+                dro_song, DROSongV2  # keep mypy happy
+            ):
+                writer_v2: DroFileIOv2 = DroFileIOv2()
                 drof.write(
                     struct.pack("<2H", *DRO_VERSION_V2)
                 )  # hmm, maybe shouldn't be here
+                writer_v2.write_data(drof, dro_song)
             else:
                 # Should never get here.
                 raise DROFileException(
                     "Tried to save an unsupported version of the DRO file format. Support v1 or v2, found: %s"
                     % (dro_song.file_version,)
                 )
-            writer.write_data(drof, dro_song)
 
 
 class DroFileIOv1(object):
-    def read_data(self, file_name, drof):
+    def read_data(self, file_name: str, drof: BinaryIO) -> DROSong:
         """Accepts an open DRO file. Returns a DROSong object and whether it was auto-trimmed (boolean).
 
         Raises DROFileException on invalid file data/version."""
@@ -137,7 +141,7 @@ class DroFileIOv1(object):
 
         return DROSong(DRO_FILE_V1, file_name, dro_data, dro_ms_length, dro_opl_type)
 
-    def write_data(self, drof, dro_song):
+    def write_data(self, drof: BinaryIO, dro_song: DROSong) -> None:
         """Accepts a file name (string), and a DROSong object. Saves the DROSong
         data to a file."""
 
@@ -167,7 +171,13 @@ class DroFileIOv1(object):
             + str(total_size)
         )
 
-    def write_header(self, in_f, length, size, opl_type):
+    def write_header(
+        self,
+        in_f: BinaryIO,
+        length: int,
+        size: int,
+        opl_type: int,
+    ) -> None:
         write_int(in_f, length)
         write_int(in_f, size)
         if WRITE_CHAR_OPL:  # I guess for backwards compatibility?
@@ -177,11 +187,7 @@ class DroFileIOv1(object):
 
 
 class DroFileIOv2(object):
-    def read_data(self, file_name, drof):
-        """
-        @type file_name: str
-        @type drof: File
-        """
+    def read_data(self, file_name: str, drof: BinaryIO) -> DROSongV2:
         (
             iLengthPairs,
             iLengthMS,
@@ -228,11 +234,7 @@ class DroFileIOv2(object):
             iLongDelayCode,
         )
 
-    def write_data(self, drof, dro_song):
-        """
-        @type drof: File
-        @type dro_song: DROSongV2
-        """
+    def write_data(self, drof: BinaryIO, dro_song: DROSongV2) -> None:
         # Write the header
         drof.write(
             struct.pack(
