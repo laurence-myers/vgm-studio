@@ -50,3 +50,9 @@ black src/
 ```PowerShell
 mypy src/
 ```
+
+## Run tests
+
+```Powershell
+python -m unittest discover --start-directory tests/
+```
