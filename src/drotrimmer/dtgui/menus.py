@@ -25,7 +25,7 @@
 from .. import dro_globals
 import wx
 
-from .ui_util import guiID
+from .ui_util import gui_id
 
 
 class DTMainMenuBar(wx.MenuBar):
@@ -33,116 +33,116 @@ class DTMainMenuBar(wx.MenuBar):
         wx.MenuBar.__init__(self, *args, **kwds)
 
         # File menu
-        self.menuFile = wx.Menu()
-        self.menuFile.Append(
-            guiID("MENU_OPENDRO"),
+        self.menu_file = wx.Menu()
+        self.menu_file.Append(
+            gui_id("MENU_OPENDRO"),
             "&Open DRO...\tCtrl-O",
             "Open a DRO file.",
             wx.ITEM_NORMAL,
         )
-        self.menuFile.Append(
-            guiID("MENU_SAVEDRO"),
+        self.menu_file.Append(
+            gui_id("MENU_SAVEDRO"),
             "&Save DRO\tCtrl-S",
             "Save the current DRO file.",
             wx.ITEM_NORMAL,
         )
-        self.menuFile.Append(
-            guiID("MENU_SAVEDROAS"),
+        self.menu_file.Append(
+            gui_id("MENU_SAVEDROAS"),
             "Save DRO &As...\tCtrl-Shift-S",
             "Save the current DRO file under a new name.",
             wx.ITEM_NORMAL,
         )
-        self.menuFile.AppendSeparator()
-        self.menuFile.Append(
+        self.menu_file.AppendSeparator()
+        self.menu_file.Append(
             wx.ID_EXIT, "E&xit", "Quit, begone, depart, flee.", wx.ITEM_NORMAL
         )
-        self.Append(self.menuFile, "&File")
+        self.Append(self.menu_file, "&File")
 
-        self.menuEdit = wx.Menu()
-        self.undoMenuItem = self.menuEdit.Append(
-            guiID("MENU_UNDO"),
+        self.menu_edit = wx.Menu()
+        self.undo_menu_item = self.menu_edit.Append(
+            gui_id("MENU_UNDO"),
             "&Undo\tCtrl-Z",
             "Undoes the last change you made to the data.",
             wx.ITEM_NORMAL,
         )
-        self.redoMenuItem = self.menuEdit.Append(
-            guiID("MENU_REDO"),
+        self.redo_menu_item = self.menu_edit.Append(
+            gui_id("MENU_REDO"),
             "&Redo\tCtrl-Y",
             "Redoes the previously undone change you made to the data.",
             wx.ITEM_NORMAL,
         )
-        self.menuEdit.AppendSeparator()
-        self.menuEdit.Append(
-            guiID("MENU_GOTO"),
+        self.menu_edit.AppendSeparator()
+        self.menu_edit.Append(
+            gui_id("MENU_GOTO"),
             "&Goto...\tCtrl-G",
             "Goes to a specific position.",
             wx.ITEM_NORMAL,
         )
-        self.menuEdit.Append(
-            guiID("MENU_FINDREG"),
+        self.menu_edit.Append(
+            gui_id("MENU_FINDREG"),
             "&Find Register...\tCtrl-F",
             "Find the next occurrence of a register.",
             wx.ITEM_NORMAL,
         )
-        self.menuEdit.Append(
-            guiID("MENU_LOOPANALYSIS"),
+        self.menu_edit.Append(
+            gui_id("MENU_LOOPANALYSIS"),
             "&Loop Analysis...\tCtrl-L",
             "Attempts to find sections of data that indicate a loop point.",
             wx.ITEM_NORMAL,
         )
-        self.menuEdit.Append(
-            guiID("MENU_DROINFO"),
+        self.menu_edit.Append(
+            gui_id("MENU_DROINFO"),
             "DRO &Info...\tCtrl-I",
             "View or edit the DRO file info (song length, hardware type)",
             wx.ITEM_NORMAL,
         )
-        self.menuEdit.AppendSeparator()
-        self.menuEdit.Append(
-            guiID("MENU_DELETE"),
+        self.menu_edit.AppendSeparator()
+        self.menu_edit.Append(
+            gui_id("MENU_DELETE"),
             "&Delete Instruction(s)\tDEL",
             "Deletes the currently selected instruction.",
             wx.ITEM_NORMAL,
         )
-        self.Append(self.menuEdit, "&Edit")
+        self.Append(self.menu_edit, "&Edit")
 
         # Help menu
-        self.menuHelp = wx.Menu()
-        self.menuHelpHelp = wx.MenuItem(
-            self.menuHelp,
+        self.menu_help = wx.Menu()
+        self.menu_help_help = wx.MenuItem(
+            self.menu_help,
             wx.ID_HELP,
             "&Help...\tCtrl-H",
             "Displays a little bit of help.",
             wx.ITEM_NORMAL,
         )
-        self.menuHelp.Append(self.menuHelpHelp)
-        self.menuHelpAbout = wx.MenuItem(
-            self.menuHelp,
-            guiID("MENU_ABOUT"),
+        self.menu_help.Append(self.menu_help_help)
+        self.menu_help_about = wx.MenuItem(
+            self.menu_help,
+            gui_id("MENU_ABOUT"),
             "&About...",
             "Open the about dialog.",
             wx.ITEM_NORMAL,
         )
-        self.menuHelp.Append(self.menuHelpAbout)
-        self.Append(self.menuHelp, "&Help")
+        self.menu_help.Append(self.menu_help_about)
+        self.Append(self.menu_help, "&Help")
 
         self.__set_properties()
         self.__do_layout()
 
     def __set_properties(self):
-        self.undoMenuItem.Enable(False)
-        self.redoMenuItem.Enable(False)
+        self.undo_menu_item.Enable(False)
+        self.redo_menu_item.Enable(False)
 
     def __do_layout(self):
         pass
 
-    def updateUndoRedoMenuItems(self):
+    def update_undo_redo_menu_items(self):
         # Check if there's anything left to undo
         if dro_globals.g_undo_controller.has_something_to_undo():
-            self.undoMenuItem.Enable(True)
+            self.undo_menu_item.Enable(True)
         else:
-            self.undoMenuItem.Enable(False)
+            self.undo_menu_item.Enable(False)
             # Check if there's anything left to undo
         if dro_globals.g_undo_controller.has_something_to_redo():
-            self.redoMenuItem.Enable(True)
+            self.redo_menu_item.Enable(True)
         else:
-            self.redoMenuItem.Enable(False)
+            self.redo_menu_item.Enable(False)

@@ -32,12 +32,13 @@ class DRO2to1Exception(Exception):
     pass
 
 
-def convertDRO2to1(dro2_file, dro1_file):
-    hardware_type_map = [0, 2, 1]  # V2 goes OPL-2, Dual 2, 3. V1 goes OPL-2, 3, Dual 2.
-    DRO_VERSION_V1_NEW = (0, 1)
-    DRO_VERSION_V2 = (2, 0)
-    DRO_HEADER = b"DBRAWOPL"
+DRO_VERSION_V1_NEW = (0, 1)
+DRO_VERSION_V2 = (2, 0)
+DRO_HEADER = b"DBRAWOPL"
 
+
+def convert_dro_2_to_1(dro2_file, dro1_file):
+    hardware_type_map = [0, 2, 1]  # V2 goes OPL-2, Dual 2, 3. V1 goes OPL-2, 3, Dual 2.
     header_name = dro2_file.read(8)
     if header_name != DRO_HEADER:
         raise DRO2to1Exception(
@@ -159,7 +160,7 @@ def main():
         )
         with open(input_file_name, "rb") as input_file:
             with open(output_file_name, "wb") as output_file:
-                convertDRO2to1(input_file, output_file)
+                convert_dro_2_to_1(input_file, output_file)
 
         print("Done!")
         return 0

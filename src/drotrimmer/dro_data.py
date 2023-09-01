@@ -354,10 +354,10 @@ class DROSong(object):
         )
         self.data_lock = threading.RLock()
 
-    def getLengthMS(self):
+    def get_length_ms(self):
         return self.ms_length
 
-    def getLengthData(self):
+    def get_length_data(self):
         return len(self.data)
 
     def find_next_instruction(

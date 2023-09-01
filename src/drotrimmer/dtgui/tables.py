@@ -23,11 +23,11 @@
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
 from ..dro_data import DROSong
-from .ui_util import customEvent, guiID
+from .ui_util import custom_event, gui_id
 import wx
 
 
-_type_EVT_FIRST_SELECTED_ITEM_CHANGED, EVT_FIRST_SELECTED_ITEM_CHANGED = customEvent()
+_type_EVT_FIRST_SELECTED_ITEM_CHANGED, EVT_FIRST_SELECTED_ITEM_CHANGED = custom_event()
 
 
 class FirstSelectedItemChangedEvent(wx.PyEvent):
@@ -41,7 +41,7 @@ class DTSongDataList(wx.ListCtrl):
         wx.ListCtrl.__init__(
             self,
             parent,
-            id=guiID("LIST_DT_SONG_DATA"),
+            id=gui_id("LIST_DT_SONG_DATA"),
             style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_VIRTUAL | wx.VSCROLL,
         )
 
@@ -51,12 +51,12 @@ class DTSongDataList(wx.ListCtrl):
             self.GetItemCount()
         )  # not as dumb as it looks. Because it's virtual, need to calculate the item count.
 
-        self.CreateColumns()
-        self.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.OnPossibleSelectionChange)
-        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.OnPossibleSelectionChange)
-        self.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.OnPossibleSelectionChange)
+        self.create_columns()
+        self.Bind(wx.EVT_LIST_ITEM_FOCUSED, self.on_possible_selection_change)
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_possible_selection_change)
+        self.Bind(wx.EVT_LIST_ITEM_DESELECTED, self.on_possible_selection_change)
 
-    def CreateColumns(self):
+    def create_columns(self):
         self.InsertColumn(0, "Pos.")
         self.InsertColumn(1, "Bank")
         self.InsertColumn(2, "Reg.")
@@ -100,10 +100,10 @@ class DTSongDataList(wx.ListCtrl):
     def GetItemCount(self):
         if self.drosong is None:
             return 0
-        return self.drosong.getLengthData()
+        return self.drosong.get_length_data()
 
-    def GetLastSelected(self):
-        if not self.HasSelected():
+    def get_last_selected(self):
+        if not self.has_selected():
             return None
         item = self.GetFirstSelected()
         last_item = None
@@ -112,35 +112,35 @@ class DTSongDataList(wx.ListCtrl):
             item = self.GetNextSelected(item)
         return last_item
 
-    def SelectItemManual(self, ind: int):
+    def select_item_manual(self, ind: int):
         self.Select(ind, 1)  # select
         self.Focus(ind)
 
-    def SelectNextItem(self):
-        oldsel = self.GetLastSelected()
+    def select_next_item(self):
+        oldsel = self.get_last_selected()
         if oldsel is not None and oldsel < self.GetItemCount() - 1:
-            self.Deselect()
-            self.SelectItemManual(oldsel + 1)
+            self.deselect()
+            self.select_item_manual(oldsel + 1)
             # scroll if we're getting too near the bottom of the view
             if oldsel + 1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
                 self.ScrollLines(1)
 
-    def CreateList(self, insong: DROSong):
+    def create_list(self, insong: DROSong):
         """Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
         self.DeleteAllItems()
-        if self.HasSelected():
-            self.Deselect()
+        if self.has_selected():
+            self.deselect()
         self.drosong = insong
         self.SetItemCount(self.GetItemCount())
-        self.RefreshViewableItems()
+        self.refresh_viewable_items()
 
-    def Deselect(self):
+    def deselect(self):
         item = self.GetFirstSelected()
         while item != -1:
             self.Select(item, 0)
             item = self.GetNextSelected(item)
 
-    def RefreshViewableItems(self):
+    def refresh_viewable_items(self):
         """Updates items from the index of the topmost visible item to the index of the topmost visible item plus the number of items visible."""
         first_index = self.GetTopItem()
         last_index = min(
@@ -148,13 +148,13 @@ class DTSongDataList(wx.ListCtrl):
         )
         self.RefreshItems(first_index, last_index)  # redraw
 
-    def RefreshItemCount(self):
+    def refresh_item_count(self):
         self.SetItemCount(self.GetItemCount())
 
-    def HasSelected(self):
+    def has_selected(self):
         return self.GetSelectedItemCount() > 0
 
-    def GetAllSelected(self):
+    def get_all_selected(self):
         sel_items = []
         item = self.GetFirstSelected()
         while item != -1:
@@ -162,7 +162,7 @@ class DTSongDataList(wx.ListCtrl):
             item = self.GetNextSelected(item)
         return sel_items
 
-    def OnPossibleSelectionChange(self, _event):
+    def on_possible_selection_change(self, _event):
         # If item focus changes, OR item selection changes, OR item deselection changes,
         # Raise a custom event with the earliest selected item.
         # This will account for "shift+click" or "shift+arrow down" selections, which don't seem to trigger a

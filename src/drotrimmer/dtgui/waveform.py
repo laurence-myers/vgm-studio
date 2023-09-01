@@ -1,11 +1,11 @@
-from .ui_util import customEvent
+from .ui_util import custom_event
 from ..dro_logging import get_logger
 from ..dro_player import DROPlayer
 import math
 import wx
 
-_type_EVT_WAVEFORM_GO_TO, EVT_WAVEFORM_GO_TO = customEvent()
-_type_EVT_WAVEFORM_HOVER, EVT_WAVEFORM_HOVER = customEvent()
+_type_EVT_WAVEFORM_GO_TO, EVT_WAVEFORM_GO_TO = custom_event()
+_type_EVT_WAVEFORM_HOVER, EVT_WAVEFORM_HOVER = custom_event()
 
 _waveform_height = 327
 _waveform_width = 768

@@ -31,7 +31,7 @@ from .. import dro_globals
 gGUIIDS = {}
 
 
-def errorAlert(parent: wx.Window, msg: str, title: str = "Error"):
+def error_alert(parent: wx.Window, msg: str, title: str = "Error"):
     alert = wx.MessageDialog(
         parent,
         msg,
@@ -42,7 +42,7 @@ def errorAlert(parent: wx.Window, msg: str, title: str = "Error"):
     alert.Destroy()
 
 
-def catchUnhandledExceptions(func):
+def catch_unhandled_exceptions(func):
     def inner_func(self, *args, **kwds):
         try:
             func(self, *args, **kwds)
@@ -51,7 +51,7 @@ def catchUnhandledExceptions(func):
             traceback.print_exc(file=fp)
 
             traceback.print_exc()
-            errorAlert(
+            error_alert(
                 self.mainframe,  # that's a bit gross
                 "An unhandled exception was thrown, please contact support.\n"
                 + "\nError:\n"
@@ -62,18 +62,18 @@ def catchUnhandledExceptions(func):
     return inner_func
 
 
-def customEvent() -> tuple[Any, wx.PyEventBinder]:
+def custom_event() -> tuple[Any, wx.PyEventBinder]:
     error_type = wx.NewEventType()
     error_binder = wx.PyEventBinder(error_type)
     return (error_type, error_binder)
 
 
-def requiresDROLoaded(func):
+def requires_dro_loaded(func):
     def inner_func(self, *args, **kwds):
         if self.drosong is None:
             msg = "Please open a DRO file first."
             if dro_globals.g_wx_app is not None:
-                dro_globals.g_wx_app.setStatusText(msg)
+                dro_globals.g_wx_app.set_status_text(msg)
             else:
                 print(msg)
             return
@@ -83,7 +83,7 @@ def requiresDROLoaded(func):
     return inner_func
 
 
-def guiID(name):
+def gui_id(name):
     """Takes a name and returns an ID retrieved from the gGUIIDS dictionary.
     If the name is not in the dict, it's added."""
     if name not in gGUIIDS:

@@ -31,11 +31,11 @@ from .. import dro_config, dro_util
 
 from .menus import DTMainMenuBar
 from .tables import DTSongDataList
-from .ui_util import customEvent, guiID
+from .ui_util import custom_event, gui_id
 from .waveform import WaveformPanel
 
 
-_type_EVT_FILE_DROP, EVT_FILE_DROP = customEvent()
+_type_EVT_FILE_DROP, EVT_FILE_DROP = custom_event()
 
 
 class FileDropEvent(wx.PyEvent):
@@ -92,12 +92,12 @@ class DTMainFrame(wx.Frame):
         self.dtlist = DTSongDataList(self.bottom_panel, None)
         self.panel_1 = wx.Panel(self.bottom_panel)
         self.button_delete = wx.Button(
-            self.panel_1, guiID("BUTTON_DELETE"), "Delete instruction"
+            self.panel_1, gui_id("BUTTON_DELETE"), "Delete instruction"
         )
         self.button_play = wx.Button(
-            self.panel_1, guiID("BUTTON_PLAY"), "Play song from current pos."
+            self.panel_1, gui_id("BUTTON_PLAY"), "Play song from current pos."
         )
-        self.button_stop = wx.Button(self.panel_1, guiID("BUTTON_STOP"), "Stop song")
+        self.button_stop = wx.Button(self.panel_1, gui_id("BUTTON_STOP"), "Stop song")
 
         tail_in_seconds = tail_length / 1000.0
         if tail_in_seconds % 1:
@@ -106,7 +106,7 @@ class DTMainFrame(wx.Frame):
             tail_str = "%d" % (tail_in_seconds,)
         self.button_play_tail = wx.Button(
             self.panel_1,
-            guiID("BUTTON_PLAY_TAIL"),
+            gui_id("BUTTON_PLAY_TAIL"),
             "Play last %s second%s" % (tail_str, "s" if tail_in_seconds != 1 else ""),
         )
 
@@ -175,5 +175,5 @@ class TextPanel(wx.Panel):
         sizer.Fit(self)
         self.Layout()
 
-    def setText(self, text):
+    def set_text(self, text):
         self.textCtrl.SetValue(text)

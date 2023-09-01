@@ -26,7 +26,7 @@ import wx
 
 from .. import dro_analysis, dro_config, dro_data, dro_globals
 from .containers import TextPanel
-from .ui_util import guiID, errorAlert
+from .ui_util import gui_id, error_alert
 
 
 class DTDialogGoto(wx.Dialog):
@@ -34,42 +34,42 @@ class DTDialogGoto(wx.Dialog):
         # begin wxGlade: DTDialogGoto.__init__
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, parent, *args, **kwds)
-        self.scPosition = wx.SpinCtrl(self, -1, "", min=0, max=max_pos)
-        self.btnGo = wx.Button(self, guiID("BUTTON_GOTO_GO"), "Go")
-        self.btnClose = wx.Button(self, wx.ID_CANCEL, "Close")
+        self.sc_position = wx.SpinCtrl(self, -1, "", min=0, max=max_pos)
+        self.btn_go = wx.Button(self, gui_id("BUTTON_GOTO_GO"), "Go")
+        self.btn_close = wx.Button(self, wx.ID_CANCEL, "Close")
 
         self.__set_properties()
         self.__do_layout()
         # end wxGlade
         self.parent = parent
-        self.Bind(wx.EVT_BUTTON, wx_app.buttonGoto, id=guiID("BUTTON_GOTO_GO"))
+        self.Bind(wx.EVT_BUTTON, wx_app.button_goto, id=gui_id("BUTTON_GOTO_GO"))
 
     def __set_properties(self):
         # begin wxGlade: DTDialogGoto.__set_properties
         self.SetTitle("Goto Position")
-        self.btnGo.SetDefault()
-        self.scPosition.SetValue("")
+        self.btn_go.SetDefault()
+        self.sc_position.SetValue("")
         # end wxGlade
 
     def __do_layout(self):
         # begin wxGlade: DTDialogGoto.__do_layout
-        szMain = wx.BoxSizer(wx.VERTICAL)
-        szButtons = wx.BoxSizer(wx.HORIZONTAL)
+        sz_main = wx.BoxSizer(wx.VERTICAL)
+        sz_buttons = wx.BoxSizer(wx.HORIZONTAL)
         # Layout adjusted by Wraithverge to be consistent with Find Reg layout.
-        szMain.Add(self.scPosition, 0, wx.ALL | wx.ALIGN_CENTER, 5)
-        szButtons.Add((0, 5), 0, 0, 0)
-        szButtons.Add(self.btnGo, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
-        szButtons.Add(self.btnClose, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
-        szMain.Add(szButtons, 0, wx.ALL, 0)
-        self.SetSizer(szMain)
-        szMain.Fit(self)
+        sz_main.Add(self.sc_position, 0, wx.ALL | wx.ALIGN_CENTER, 5)
+        sz_buttons.Add((0, 5), 0, 0, 0)
+        sz_buttons.Add(self.btn_go, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sz_buttons.Add(self.btn_close, 0, wx.ALL | wx.ALIGN_CENTER_VERTICAL, 5)
+        sz_main.Add(sz_buttons, 0, wx.ALL, 0)
+        self.SetSizer(sz_main)
+        sz_main.Fit(self)
         self.Layout()
         # end wxGlade
 
     def reset(self, max_pos):
-        self.scPosition.SetValue(0)
-        self.scPosition.SetValue("")
-        self.scPosition.SetRange(0, max_pos)
+        self.sc_position.SetValue(0)
+        self.sc_position.SetValue("")
+        self.sc_position.SetRange(0, max_pos)
 
 
 # end of class DTDialogGoto
@@ -98,22 +98,24 @@ class DTDialogFindReg(wx.Dialog):
                 ("0x%02X" % rk) for rk in range(0x100)
             ]
 
-        self.lRegister = wx.StaticText(self, -1, "Instruction:")
-        self.cbRegisters = wx.ComboBox(
+        self.l_register = wx.StaticText(self, -1, "Instruction:")
+        self.cb_registers = wx.ComboBox(
             self,
             -1,
             choices=self.regchoices,
             style=wx.CB_DROPDOWN | wx.CB_DROPDOWN | wx.CB_READONLY,
         )
-        self.bFindNext = wx.Button(self, guiID("BUTTON_FINDREG"), "Find Next")
-        self.bFindPrevious = wx.Button(
-            self, guiID("BUTTON_FINDREGPREV"), "Find Previous"
+        self.b_find_next = wx.Button(self, gui_id("BUTTON_FINDREG"), "Find Next")
+        self.b_find_previous = wx.Button(
+            self, gui_id("BUTTON_FINDREGPREV"), "Find Previous"
         )
-        self.bCancel = wx.Button(self, wx.ID_CANCEL, "Close")
+        self.b_cancel = wx.Button(self, wx.ID_CANCEL, "Close")
 
-        self.Bind(wx.EVT_BUTTON, wx_app.buttonFindReg, id=guiID("BUTTON_FINDREG"))
+        self.Bind(wx.EVT_BUTTON, wx_app.button_find_reg, id=gui_id("BUTTON_FINDREG"))
         self.Bind(
-            wx.EVT_BUTTON, wx_app.buttonFindRegPrevious, id=guiID("BUTTON_FINDREGPREV")
+            wx.EVT_BUTTON,
+            wx_app.button_find_reg_previous,
+            id=gui_id("BUTTON_FINDREGPREV"),
         )
 
         self.__set_properties()
@@ -123,26 +125,26 @@ class DTDialogFindReg(wx.Dialog):
     def __set_properties(self):
         # begin wxGlade: DTDialogFindReg.__set_properties
         self.SetTitle("Find Register")
-        self.cbRegisters.SetSelection(-1)
+        self.cb_registers.SetSelection(-1)
         # end wxGlade
 
     def __do_layout(self):
         # Alignment adjustments by Wraithverge
         # begin wxGlade: DTDialogFindReg.__do_layout
-        sMain = wx.BoxSizer(wx.VERTICAL)
-        sMiddle = wx.BoxSizer(wx.HORIZONTAL)
-        sBottom = wx.BoxSizer(wx.HORIZONTAL)
-        gsTop = wx.FlexGridSizer(1, 2, 0, 5)
-        gsTop.Add(self.lRegister, 1, wx.ALIGN_CENTER, 0)
-        gsTop.Add(self.cbRegisters, 0, 0, 0)
-        sMain.Add(gsTop, 0, wx.ALL | wx.ALIGN_CENTER, 2)
-        sMiddle.Add(self.bFindPrevious, 0, 0, 0)
-        sMiddle.Add(self.bFindNext, 0, 0, 0)
-        sMain.Add(sMiddle, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
-        sBottom.Add(self.bCancel, 0, wx.LEFT, 10)
-        sMain.Add(sBottom, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
-        self.SetSizer(sMain)
-        sMain.Fit(self)
+        s_main = wx.BoxSizer(wx.VERTICAL)
+        s_middle = wx.BoxSizer(wx.HORIZONTAL)
+        s_bottom = wx.BoxSizer(wx.HORIZONTAL)
+        gs_top = wx.FlexGridSizer(1, 2, 0, 5)
+        gs_top.Add(self.l_register, 1, wx.ALIGN_CENTER, 0)
+        gs_top.Add(self.cb_registers, 0, 0, 0)
+        s_main.Add(gs_top, 0, wx.ALL | wx.ALIGN_CENTER, 2)
+        s_middle.Add(self.b_find_previous, 0, 0, 0)
+        s_middle.Add(self.b_find_next, 0, 0, 0)
+        s_main.Add(s_middle, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
+        s_bottom.Add(self.b_cancel, 0, wx.LEFT, 10)
+        s_main.Add(s_bottom, 0, wx.ALL | wx.ALIGN_RIGHT, 5)
+        self.SetSizer(s_main)
+        s_main.Fit(self)
         self.Layout()
         # end wxGlade
 
@@ -158,19 +160,19 @@ class DROInfoDialog(wx.Dialog):
         self.parent = parent
         kwds["style"] = wx.DEFAULT_DIALOG_STYLE
         wx.Dialog.__init__(self, parent, *args, **kwds)
-        self.lDROVersion = wx.StaticText(self, -1, "DRO Version")
-        self.tcDROVersion = wx.TextCtrl(self, -1, str(dro_song.file_version))
-        self.lHardwareType = wx.StaticText(self, -1, "Hardware Type")
-        self.cHardwareType = wx.Choice(self, -1, choices=dro_song.OPL_TYPE_MAP)
-        self.cHardwareType.Select(dro_song.opl_type)
-        self.lLengthMs = wx.StaticText(self, -1, "Length (MS)")
-        self.tcLengthMs = wx.TextCtrl(self, -1, str(dro_song.ms_length))
-        self.lLengthMsCalc = wx.StaticText(self, -1, "Calculated Length (MS)")
+        self.l_dro_version = wx.StaticText(self, -1, "DRO Version")
+        self.tc_dro_version = wx.TextCtrl(self, -1, str(dro_song.file_version))
+        self.l_hardware_type = wx.StaticText(self, -1, "Hardware Type")
+        self.c_hardware_type = wx.Choice(self, -1, choices=dro_song.OPL_TYPE_MAP)
+        self.c_hardware_type.Select(dro_song.opl_type)
+        self.l_length_ms = wx.StaticText(self, -1, "Length (MS)")
+        self.tc_length_ms = wx.TextCtrl(self, -1, str(dro_song.ms_length))
+        self.l_length_ms_calc = wx.StaticText(self, -1, "Calculated Length (MS)")
         calculated_delay = dro_analysis.DROTotalDelayCalculator().sum_delay(dro_song)
-        self.tcLengthMsCalc = wx.TextCtrl(self, -1, str(calculated_delay))
+        self.tc_kength_ms_calc = wx.TextCtrl(self, -1, str(calculated_delay))
         if dro_info_edit_enabled:
-            self.bEdit = wx.Button(self, guiID("BUTTON_DROINFO_EDIT"), "Edit")
-        self.bClose = wx.Button(self, wx.ID_CANCEL, "Close")
+            self.b_edit = wx.Button(self, gui_id("BUTTON_DROINFO_EDIT"), "Edit")
+        self.b_close = wx.Button(self, wx.ID_CANCEL, "Close")
 
         self.__set_properties()
         self.__do_layout(dro_info_edit_enabled)
@@ -180,68 +182,70 @@ class DROInfoDialog(wx.Dialog):
         self.edit_mode = False
         if dro_info_edit_enabled:
             self.Bind(
-                wx.EVT_BUTTON, self.EditSaveButtonEvent, id=guiID("BUTTON_DROINFO_EDIT")
+                wx.EVT_BUTTON,
+                self.edit_save_button_event,
+                id=gui_id("BUTTON_DROINFO_EDIT"),
             )
 
     def __set_properties(self):
         # begin wxGlade: MyDialog.__set_properties
         self.SetTitle("DRO Info")
         self.SetSize((330, 242))
-        self.tcDROVersion.Disable()
-        self.cHardwareType.Disable()
-        self.tcLengthMs.Disable()
-        self.tcLengthMsCalc.Disable()
-        self.bClose.SetDefault()
+        self.tc_dro_version.Disable()
+        self.c_hardware_type.Disable()
+        self.tc_length_ms.Disable()
+        self.tc_kength_ms_calc.Disable()
+        self.b_close.SetDefault()
         # end wxGlade
 
     def __do_layout(self, dro_info_edit_enabled):
         # begin wxGlade: MyDialog.__do_layout
-        sMain = wx.GridSizer(5, 2, 0, 0)
-        sButtons = wx.BoxSizer(wx.HORIZONTAL)
-        sMain.Add(self.lDROVersion, 0, wx.ALL, 5)
-        sMain.Add(self.tcDROVersion, 0, wx.ALL, 5)
-        sMain.Add(self.lHardwareType, 0, wx.ALL, 5)
-        sMain.Add(self.cHardwareType, 0, wx.ALL, 5)
-        sMain.Add(self.lLengthMs, 0, wx.ALL, 5)
-        sMain.Add(self.tcLengthMs, 0, wx.ALL, 5)
-        sMain.Add(self.lLengthMsCalc, 0, wx.ALL, 5)
-        sMain.Add(self.tcLengthMsCalc, 0, wx.ALL, 5)
-        sMain.Add((0, 0), 1, wx.EXPAND, 5)
+        s_main = wx.GridSizer(5, 2, 0, 0)
+        s_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        s_main.Add(self.l_dro_version, 0, wx.ALL, 5)
+        s_main.Add(self.tc_dro_version, 0, wx.ALL, 5)
+        s_main.Add(self.l_hardware_type, 0, wx.ALL, 5)
+        s_main.Add(self.c_hardware_type, 0, wx.ALL, 5)
+        s_main.Add(self.l_length_ms, 0, wx.ALL, 5)
+        s_main.Add(self.tc_length_ms, 0, wx.ALL, 5)
+        s_main.Add(self.l_length_ms_calc, 0, wx.ALL, 5)
+        s_main.Add(self.tc_kength_ms_calc, 0, wx.ALL, 5)
+        s_main.Add((0, 0), 1, wx.EXPAND, 5)
         if dro_info_edit_enabled:
-            sButtons.Add(self.bEdit, 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
+            s_buttons.Add(self.b_edit, 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
         else:
-            sButtons.Add((0, 0), 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
-        sButtons.Add(self.bClose, 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
-        sMain.Add(sButtons, 1, wx.EXPAND | wx.ALIGN_RIGHT, 5)
-        self.SetSizer(sMain)
+            s_buttons.Add((0, 0), 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
+        s_buttons.Add(self.b_close, 1, wx.ALL | wx.ALIGN_BOTTOM, 5)
+        s_main.Add(s_buttons, 1, wx.EXPAND | wx.ALIGN_RIGHT, 5)
+        self.SetSizer(s_main)
         self.Layout()
 
-    def EditSaveButtonEvent(self, event):
+    def edit_save_button_event(self, event):
         if self.edit_mode:
-            self.SaveChanges(event)
+            self.save_changes(event)
         else:
-            self.StartEditMode(event)
+            self.start_edit_mode(event)
 
-    def StartEditMode(self, event):
-        dro_globals.g_wx_app.setStatusText("DRO Info edit mode enabled.")
+    def start_edit_mode(self, _event):
+        dro_globals.g_wx_app.set_status_text("DRO Info edit mode enabled.")
         self.edit_mode = True
-        self.cHardwareType.Enable()
-        self.tcLengthMs.Enable()
-        self.bEdit.SetLabel("Save")
-        self.bClose.SetLabel("Cancel")
+        self.c_hardware_type.Enable()
+        self.tc_length_ms.Enable()
+        self.b_edit.SetLabel("Save")
+        self.b_close.SetLabel("Cancel")
 
-    def SaveChanges(self, event):
+    def save_changes(self, _event):
         try:
-            opl_type = self.cHardwareType.GetSelection()
+            opl_type = self.c_hardware_type.GetSelection()
             assert 0 <= opl_type < len(self.dro_song.OPL_TYPE_MAP)
-            ms_length = int(self.tcLengthMs.GetValue())
+            ms_length = int(self.tc_length_ms.GetValue())
         except Exception as e:
-            errorAlert(
+            error_alert(
                 self,
                 "Error updating DRO info, check that the entered values are correct.",
             )
             return
-        dro_globals.g_wx_app.updateDROInfo(opl_type, ms_length)
+        dro_globals.g_wx_app.update_dro_info(opl_type, ms_length)
         md = wx.MessageDialog(
             self,
             "DRO info updated.\n" "Remember to save the file.",
@@ -265,8 +269,8 @@ class LoopAnalysisDialog(wx.Dialog):
         self.notebook = wx.Notebook(self, size=(400, 300))
 
         # Create buttons
-        self.btnAnalyze = wx.Button(self, guiID("BUTTON_ANALYZE"), "Analyze")
-        self.btnClose = wx.Button(self, wx.ID_CANCEL, "Close")
+        self.btn_analyze = wx.Button(self, gui_id("BUTTON_ANALYZE"), "Analyze")
+        self.btn_close = wx.Button(self, wx.ID_CANCEL, "Close")
 
         # Create first page
         info_text = (
@@ -290,7 +294,9 @@ class LoopAnalysisDialog(wx.Dialog):
             self.result_pages.append(page)
 
         # Register events
-        self.Bind(wx.EVT_BUTTON, wx_app.buttonAnalyzeLoop, id=guiID("BUTTON_ANALYZE"))
+        self.Bind(
+            wx.EVT_BUTTON, wx_app.button_analyze_loop, id=gui_id("BUTTON_ANALYZE")
+        )
 
         # Do other UI stuff
         self.__set_properties()
@@ -301,19 +307,19 @@ class LoopAnalysisDialog(wx.Dialog):
 
     def __do_layout(self):
         # Lay things out
-        sizerButtons = wx.BoxSizer(wx.HORIZONTAL)
-        sizerButtons.Add(self.btnAnalyze, 1, wx.ALIGN_BOTTOM, 0)
-        sizerButtons.Add(self.btnClose, 1, wx.ALIGN_BOTTOM, 0)
+        sizer_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        sizer_buttons.Add(self.btn_analyze, 1, wx.ALIGN_BOTTOM, 0)
+        sizer_buttons.Add(self.btn_close, 1, wx.ALIGN_BOTTOM, 0)
 
-        sizerMain = wx.BoxSizer(wx.VERTICAL)
-        sizerMain.Add(self.notebook, 1, wx.EXPAND, 0)
-        sizerMain.Add(sizerButtons, 0, wx.EXPAND, 0)
-        self.SetSizer(sizerMain)
-        sizerMain.Fit(self)
+        sizer_main = wx.BoxSizer(wx.VERTICAL)
+        sizer_main.Add(self.notebook, 1, wx.EXPAND, 0)
+        sizer_main.Add(sizer_buttons, 0, wx.EXPAND, 0)
+        self.SetSizer(sizer_main)
+        sizer_main.Fit(self)
         self.Layout()
 
     def load_results(self, result_list):
         if result_list is None:
             result_list = ["No analysis performed yet."] * len(self.result_pages)
         for loop_analysis_result, page in zip(result_list, self.result_pages):
-            page.setText(str(loop_analysis_result))
+            page.set_text(str(loop_analysis_result))

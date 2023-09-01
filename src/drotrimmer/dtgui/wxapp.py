@@ -42,7 +42,12 @@ from .. import (
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
-from .ui_util import guiID, errorAlert, catchUnhandledExceptions, requiresDROLoaded
+from .ui_util import (
+    gui_id,
+    error_alert,
+    catch_unhandled_exceptions,
+    requires_dro_loaded,
+)
 from . import tasks, waveform
 
 
@@ -72,7 +77,7 @@ class DTApp(wx.App):
         )
         self.task_master: tasks.TaskMaster = tasks.TaskMaster()
 
-        playback_position_timer_id = guiID("TIMER_PLAYBACK_POSITION")
+        playback_position_timer_id = gui_id("TIMER_PLAYBACK_POSITION")
         self._playback_position_timer: wx.Timer = wx.Timer(
             self, playback_position_timer_id
         )
@@ -87,57 +92,61 @@ class DTApp(wx.App):
         self.mainframe.Show(True)
         self.SetTopWindow(self.mainframe)
 
-        self._RegisterEventHandlers()
+        self._register_event_handlers()
 
         return True
 
-    def _RegisterEventHandlers(self):
-        self.mainframe.Bind(wx.EVT_MENU, self.menuOpenDRO, id=guiID("MENU_OPENDRO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuSaveDRO, id=guiID("MENU_SAVEDRO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuSaveDROAs, id=guiID("MENU_SAVEDROAS"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuExit, id=wx.ID_EXIT)
-        self.mainframe.Bind(wx.EVT_MENU, self.menuUndo, id=guiID("MENU_UNDO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuRedo, id=guiID("MENU_REDO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuGoto, id=guiID("MENU_GOTO"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuFindReg, id=guiID("MENU_FINDREG"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuDelete, id=guiID("MENU_DELETE"))
-        self.mainframe.Bind(wx.EVT_MENU, self.menuDROInfo, id=guiID("MENU_DROINFO"))
+    def _register_event_handlers(self):
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_open_dro, id=gui_id("MENU_OPENDRO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_save_dro, id=gui_id("MENU_SAVEDRO"))
         self.mainframe.Bind(
-            wx.EVT_MENU, self.menuLoopAnalysis, id=guiID("MENU_LOOPANALYSIS")
+            wx.EVT_MENU, self.menu_save_dro_as, id=gui_id("MENU_SAVEDROAS")
         )
-        self.mainframe.Bind(wx.EVT_MENU, self.menuHelp, id=wx.ID_HELP)
-        self.mainframe.Bind(wx.EVT_MENU, self.menuAbout, id=guiID("MENU_ABOUT"))
-
-        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonDelete, id=guiID("BUTTON_DELETE"))
-        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonPlay, id=guiID("BUTTON_PLAY"))
-        self.mainframe.Bind(wx.EVT_BUTTON, self.buttonStop, id=guiID("BUTTON_STOP"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_exit, id=wx.ID_EXIT)
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_undo, id=gui_id("MENU_UNDO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_redo, id=gui_id("MENU_REDO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_goto, id=gui_id("MENU_GOTO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_find_reg, id=gui_id("MENU_FINDREG"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_delete, id=gui_id("MENU_DELETE"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_dro_info, id=gui_id("MENU_DROINFO"))
         self.mainframe.Bind(
-            wx.EVT_BUTTON, self.buttonPlayTail, id=guiID("BUTTON_PLAY_TAIL")
+            wx.EVT_MENU, self.menu_loop_analysis, id=gui_id("MENU_LOOPANALYSIS")
+        )
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_help, id=wx.ID_HELP)
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_about, id=gui_id("MENU_ABOUT"))
+
+        self.mainframe.Bind(
+            wx.EVT_BUTTON, self.button_delete, id=gui_id("BUTTON_DELETE")
+        )
+        self.mainframe.Bind(wx.EVT_BUTTON, self.button_play, id=gui_id("BUTTON_PLAY"))
+        self.mainframe.Bind(wx.EVT_BUTTON, self.button_stop, id=gui_id("BUTTON_STOP"))
+        self.mainframe.Bind(
+            wx.EVT_BUTTON, self.button_play_tail, id=gui_id("BUTTON_PLAY_TAIL")
         )
 
-        self.mainframe.Bind(wx.EVT_CLOSE, self.closeFrame)
+        self.mainframe.Bind(wx.EVT_CLOSE, self.close_frame)
 
-        self.Bind(wx.EVT_KEY_DOWN, self.keyListener)
-        self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.keyListenerForList)
+        self.Bind(wx.EVT_KEY_DOWN, self.key_listener)
+        self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.key_listener_for_list)
 
         self.Bind(
             wx.EVT_TIMER,
-            self.onPlaybackPositionTimer,
-            id=guiID("TIMER_PLAYBACK_POSITION"),
+            self.on_playback_position_timer,
+            id=gui_id("TIMER_PLAYBACK_POSITION"),
         )
 
         # Custom events
-        self.Bind(EVT_FILE_DROP, self.onFileDrop)
-        self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.onListItemSelected)
-        self.Bind(waveform.EVT_WAVEFORM_GO_TO, self.onWaveformGoTo)
-        self.Bind(waveform.EVT_WAVEFORM_HOVER, self.onWaveformHover)
-        self.Bind(tasks.EVT_TASK_RESULT, self.onResult)
-        self.Bind(tasks.EVT_TASK_COMPLETED, self.onTaskCompleted)
+        self.Bind(EVT_FILE_DROP, self.on_file_drop)
+        self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.on_list_item_selected)
+        self.Bind(waveform.EVT_WAVEFORM_GO_TO, self.on_waveform_go_to)
+        self.Bind(waveform.EVT_WAVEFORM_HOVER, self.on_waveform_hover)
+        self.Bind(tasks.EVT_TASK_RESULT, self.on_result)
+        self.Bind(tasks.EVT_TASK_COMPLETED, self.on_task_completed)
 
     # ____________________
     # Start Menu Event Handlers
-    @catchUnhandledExceptions
-    def menuOpenDRO(self, _event) -> None:
+    @catch_unhandled_exceptions
+    def menu_open_dro(self, _event) -> None:
         od = wx.FileDialog(
             self.mainframe,
             "Open DRO",
@@ -149,9 +158,9 @@ class DTApp(wx.App):
         od.Destroy()
         del od
         if result == wx.ID_OK:
-            self.__loadFile(filename)
+            self.__load_file(filename)
 
-    def __loadFile(self, filename: str) -> None:
+    def __load_file(self, filename: str) -> None:
         try:
             importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
@@ -177,14 +186,14 @@ class DTApp(wx.App):
             # Delay running analysis for a fraction of a second, this gives a better user experience. For example,
             # when selecting an instruction and holding down the "delete" key to delete lots of instructions.
             # Also load the waveform
-            self.__triggerDetailedRegisterAnalysisAndWaveform(debounce=False)
+            self.__trigger_detailed_register_analysis_and_waveform(debounce=False)
             self.mainframe.waveform_panel.set_playback_position_pct(0)
 
             self.dro_player.stop()
             self.dro_player.load_song(self.drosong)
 
-            self.mainframe.dtlist.CreateList(self.drosong)
-            self.setStatusText(
+            self.mainframe.dtlist.create_list(self.drosong)
+            self.set_status_text(
                 "Successfully opened " + os.path.basename(filename) + "."
             )
 
@@ -227,7 +236,7 @@ class DTApp(wx.App):
 
             # Reset undo history when a new file is opened.
             dro_globals.get_undo_controller().reset()
-            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            self.mainframe.GetMenuBar().update_undo_redo_menu_items()
 
             # Reset the Goto dialog, if it exists.
             if self.goto_dialog is not None:
@@ -236,21 +245,21 @@ class DTApp(wx.App):
             if self.loop_analysis_dialog is not None:
                 self.loop_analysis_dialog.load_results(None)
         except dro_util.DROFileException as e:
-            errorAlert(self.mainframe, str(e), "Failed to load file")
+            error_alert(self.mainframe, str(e), "Failed to load file")
         except FileNotFoundError as e:
-            errorAlert(self.mainframe, str(e), "Failed to open file")
+            error_alert(self.mainframe, str(e), "Failed to open file")
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuSaveDRO(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_save_dro(self, _event):
         filename = self.drosong.name
         # Seeing as the filename is stored in the drosong, I should modify
         #  save_dro to only take a DROSong.
         dro_io.DroFileIO().write(filename, self.drosong)
-        self.setStatusText("File saved to " + filename + ".")
+        self.set_status_text("File saved to " + filename + ".")
 
-    @requiresDROLoaded
-    def menuSaveDROAs(self, event):
+    @requires_dro_loaded
+    def menu_save_dro_as(self, event):
         sd = wx.FileDialog(
             self.mainframe,
             "Save DRO file",
@@ -259,14 +268,14 @@ class DTApp(wx.App):
         )
         if sd.ShowModal() == wx.ID_OK:
             self.drosong.name = sd.GetPath()
-            self.menuSaveDRO(event)
+            self.menu_save_dro(event)
 
-    def menuExit(self, _event):
+    def menu_exit(self, _event):
         self.mainframe.Close(False)
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuGoto(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_goto(self, _event):
         if self.goto_dialog is not None:
             self.goto_dialog.Destroy()
         self.goto_dialog = DTDialogGoto(
@@ -274,17 +283,17 @@ class DTApp(wx.App):
         )
         self.goto_dialog.Show()
 
-    @catchUnhandledExceptions  # Added by Wraithverge.
-    @requiresDROLoaded
-    def menuFindReg(self, _event):
+    @catch_unhandled_exceptions  # Added by Wraithverge.
+    @requires_dro_loaded
+    def menu_find_reg(self, _event):
         if self.frdialog is not None:
             self.frdialog.Destroy()  # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuLoopAnalysis(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_loop_analysis(self, _event):
         if self.loop_analysis_dialog is not None:
             self.loop_analysis_dialog.Destroy()
         # Create a dummy analyzer so we know how many result pages we need to create.
@@ -292,45 +301,45 @@ class DTApp(wx.App):
         self.loop_analysis_dialog = LoopAnalysisDialog(self, analyzer, self.mainframe)
         self.loop_analysis_dialog.Show()
 
-    def menuDelete(self, _event):
-        self.buttonDelete(None)
+    def menu_delete(self, _event):
+        self.button_delete(None)
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuDROInfo(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_dro_info(self, _event):
         dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
         dro_info_dialog.ShowModal()
         dro_info_dialog.Destroy()
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuUndo(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_undo(self, _event):
         undo_desc = dro_globals.get_undo_controller().undo()
         if undo_desc:
-            self.setStatusText("Undone: %s" % (undo_desc,))
-            self.mainframe.dtlist.RefreshItemCount()
-            self.mainframe.dtlist.RefreshViewableItems()
-            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            self.set_status_text("Undone: %s" % (undo_desc,))
+            self.mainframe.dtlist.refresh_item_count()
+            self.mainframe.dtlist.refresh_viewable_items()
+            self.mainframe.GetMenuBar().update_undo_redo_menu_items()
             # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
-            self.__triggerDetailedRegisterAnalysisAndWaveform()
+            self.__trigger_detailed_register_analysis_and_waveform()
         else:
-            self.setStatusText("Nothing to undo.")
+            self.set_status_text("Nothing to undo.")
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def menuRedo(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_redo(self, _event):
         redo_desc = dro_globals.get_undo_controller().redo()
         if redo_desc:
-            self.setStatusText("Redone: %s" % (redo_desc,))
-            self.mainframe.dtlist.RefreshItemCount()
-            self.mainframe.dtlist.RefreshViewableItems()
-            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            self.set_status_text("Redone: %s" % (redo_desc,))
+            self.mainframe.dtlist.refresh_item_count()
+            self.mainframe.dtlist.refresh_viewable_items()
+            self.mainframe.GetMenuBar().update_undo_redo_menu_items()
             # Need to refresh detailed analysis and waveform, because instructions may have been re-added.
-            self.__triggerDetailedRegisterAnalysisAndWaveform()
+            self.__trigger_detailed_register_analysis_and_waveform()
         else:
-            self.setStatusText("Nothing to redo.")
+            self.set_status_text("Nothing to redo.")
 
-    def menuHelp(self, _event):
+    def menu_help(self, _event):
         hd = wx.MessageDialog(
             self.mainframe,
             "Full instructions are available online.\n"
@@ -348,7 +357,7 @@ class DTApp(wx.App):
         hd.ShowModal()
         hd.Destroy()
 
-    def menuAbout(self, _event):
+    def menu_about(self, _event):
         ad = wx.MessageDialog(
             self.mainframe,
             (
@@ -372,60 +381,60 @@ class DTApp(wx.App):
 
     # ____________________
     # Start Button Event Handlers
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def buttonDelete(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def button_delete(self, _event):
         if (
             self.mainframe
             and self.mainframe.dtlist
-            and self.mainframe.dtlist.HasSelected()
+            and self.mainframe.dtlist.has_selected()
         ):
             self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
-            selected_items = self.mainframe.dtlist.GetAllSelected()
+            selected_items = self.mainframe.dtlist.get_all_selected()
             self.drosong.delete_instructions(selected_items)
-            self.mainframe.dtlist.RefreshItemCount()
+            self.mainframe.dtlist.refresh_item_count()
             # Deselect all, and re-select only the first index we deleted,
             # or the last item in the list.
             first_item = selected_items[0]
-            self.mainframe.dtlist.Deselect()
+            self.mainframe.dtlist.deselect()
             if first_item < self.mainframe.dtlist.GetItemCount():
                 newly_selected = first_item
             else:
                 # Otherwise, select the list item in the list
                 newly_selected = self.mainframe.dtlist.GetItemCount() - 1
-            self.mainframe.dtlist.SelectItemManual(newly_selected)
+            self.mainframe.dtlist.select_item_manual(newly_selected)
             self.mainframe.dtlist.EnsureVisible(newly_selected)
-            self.mainframe.dtlist.RefreshViewableItems()
+            self.mainframe.dtlist.refresh_viewable_items()
             # Keep track of Undo buffer.
             # (Crap, requires knowledge that this is an "undoable" action.
             # Might be better to investigate triggering an event, or using
             # observer/listener pattern.)
-            self.mainframe.GetMenuBar().updateUndoRedoMenuItems()
+            self.mainframe.GetMenuBar().update_undo_redo_menu_items()
             # Also need to update the detailed register descriptions, since deleting an instruction will
             #  change the state of the chip after the deleted instructions.
             #  Unfortunately we need to update the whole lot. Could speed things up by storing "snapshots" of the
             #  chip state and only refreshing the descriptions, from the nearest snapshot before the first deleted
             #  instruction onwards.
-            self.__triggerDetailedRegisterAnalysisAndWaveform()
+            self.__trigger_detailed_register_analysis_and_waveform()
 
-    @requiresDROLoaded
-    def buttonPlay(self, _event):
+    @requires_dro_loaded
+    def button_play(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
-        if self.mainframe.dtlist.HasSelected():
+        if self.mainframe.dtlist.has_selected():
             self.dro_player.seek_to_pos(self.mainframe.dtlist.GetFirstSelected())
         self.dro_player.play()
         self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
-    @requiresDROLoaded
-    def buttonStop(self, _event):
+    @requires_dro_loaded
+    def button_stop(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
         self._playback_position_timer.Stop()
 
-    @requiresDROLoaded
-    def buttonPlayTail(self, _event):
+    @requires_dro_loaded
+    def button_play_tail(self, _event):
         self.dro_player.stop()
         self.dro_player.reset()
         self.dro_player.seek_to_time(
@@ -434,79 +443,81 @@ class DTApp(wx.App):
         self.dro_player.play()
         self._playback_position_timer.Start(self.playback_position_update_interval_ms)
 
-    @catchUnhandledExceptions
-    def buttonGoto(self, _event):
-        position = self.goto_dialog.scPosition.GetValue()
+    @catch_unhandled_exceptions
+    def button_goto(self, _event):
+        position = self.goto_dialog.sc_position.GetValue()
         try:
             position = int(position)
         except Exception:
-            self.setStatusText("Invalid position for goto: %s" % position)
+            self.set_status_text("Invalid position for goto: %s" % position)
             return
         if position < 0 or position >= len(self.drosong.data):
-            self.setStatusText("Position for goto is out of range: %s" % position)
+            self.set_status_text("Position for goto is out of range: %s" % position)
             return
-        self.mainframe.dtlist.Deselect()
-        self.mainframe.dtlist.SelectItemManual(position)
+        self.mainframe.dtlist.deselect()
+        self.mainframe.dtlist.select_item_manual(position)
         self.mainframe.dtlist.EnsureVisible(position)
-        self.mainframe.dtlist.RefreshViewableItems()
-        self.setStatusText("Gone to position: %s" % position)
+        self.mainframe.dtlist.refresh_viewable_items()
+        self.set_status_text("Gone to position: %s" % position)
 
-    @catchUnhandledExceptions
-    def buttonFindReg(self, _event, look_backwards=False):
-        rToFind = self.frdialog.cbRegisters.GetValue()
-        if rToFind == "":
+    @catch_unhandled_exceptions
+    def button_find_reg(self, _event, look_backwards=False):
+        r_to_find = self.frdialog.cb_registers.GetValue()
+        if r_to_find == "":
             return
-        if not self.mainframe.dtlist.HasSelected():
+        if not self.mainframe.dtlist.has_selected():
             start = 0
         else:
-            start = self.mainframe.dtlist.GetLastSelected() + 1
+            start = self.mainframe.dtlist.get_last_selected() + 1
         i = self.drosong.find_next_instruction(
             start,
-            rToFind,
+            r_to_find,
             look_backwards=look_backwards,
         )
         if i == -1:
-            self.setStatusText("Could not find another occurrence of " + rToFind + ".")
+            self.set_status_text(
+                "Could not find another occurrence of " + r_to_find + "."
+            )
             return
-        self.mainframe.dtlist.Deselect()
-        self.mainframe.dtlist.SelectItemManual(i)
+        self.mainframe.dtlist.deselect()
+        self.mainframe.dtlist.select_item_manual(i)
         self.mainframe.dtlist.EnsureVisible(i)
-        self.mainframe.dtlist.RefreshViewableItems()
-        self.setStatusText(
-            "Occurrence of " + rToFind + " found at position " + str(i) + "."
+        self.mainframe.dtlist.refresh_viewable_items()
+        self.set_status_text(
+            "Occurrence of " + r_to_find + " found at position " + str(i) + "."
         )
 
-    def buttonFindRegPrevious(self, event):
-        self.buttonFindReg(event, look_backwards=True)  # blech
+    def button_find_reg_previous(self, event):
+        self.button_find_reg(event, look_backwards=True)  # blech
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def buttonNextNote(self, _event, look_backwards=False):
-        if not self.mainframe.dtlist.HasSelected():
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def button_next_note(self, _event, look_backwards=False):
+        if not self.mainframe.dtlist.has_selected():
             start = 0
         else:
-            start = self.mainframe.dtlist.GetLastSelected() + 1
+            start = self.mainframe.dtlist.get_last_selected() + 1
         i = self.drosong.find_next_instruction(
             start,
             "DALL",
             look_backwards=look_backwards,
         )
         if i == -1:
-            self.setStatusText("No more notes found.")
+            self.set_status_text("No more notes found.")
             return
-        self.mainframe.dtlist.Deselect()
-        self.mainframe.dtlist.SelectItemManual(i)
+        self.mainframe.dtlist.deselect()
+        self.mainframe.dtlist.select_item_manual(i)
         self.mainframe.dtlist.EnsureVisible(i)
-        self.mainframe.dtlist.RefreshViewableItems()
+        self.mainframe.dtlist.refresh_viewable_items()
 
-    def buttonPreviousNote(self, event):
-        self.buttonNextNote(event, look_backwards=True)
+    def button_previous_note(self, event):
+        self.button_next_note(event, look_backwards=True)
 
-    @catchUnhandledExceptions
-    @requiresDROLoaded
-    def buttonAnalyzeLoop(self, _event):
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def button_analyze_loop(self, _event):
         if self.loop_analysis_dialog is None:
-            errorAlert(
+            error_alert(
                 self.mainframe,
                 "Loop analysis requires the Loop Analysis dialog to be open, but none found.",
             )
@@ -514,109 +525,109 @@ class DTApp(wx.App):
         analyzer = dro_analysis.DROLoopAnalyzer()
         results = analyzer.analyze_dro(self.drosong)
         self.loop_analysis_dialog.load_results(results)
-        self.setStatusText("Loop analysis finished.")
+        self.set_status_text("Loop analysis finished.")
 
     # ____________________
     # Start Misc Event Handlers
-    def keyListenerForList(self, event):
+    def key_listener_for_list(self, event):
         if not self:
             return
         keycode = event.GetKeyCode()
         if keycode in (wx.WXK_DELETE, wx.WXK_BACK):  # delete or backspace
-            self.buttonDelete(None)
+            self.button_delete(None)
             event.Veto()
         elif keycode == wx.WXK_LEFT:
             # <-- key. Previous note
-            self.buttonPreviousNote(event)
+            self.button_previous_note(event)
             event.Veto()
         elif keycode == wx.WXK_RIGHT:
             # --> key. Next note
-            self.buttonNextNote(event)
+            self.button_next_note(event)
             event.Veto()
         else:
             event.Skip()
 
-    def keyListener(self, event):
+    def key_listener(self, event):
         if not self:
             return
         keycode = event.GetKeyCode()
         if keycode == 70 and event.CmdDown():  # CTRL-F
-            self.menuFindReg(event)
+            self.menu_find_reg(event)
         elif keycode == 71 and event.CmdDown():  # CTRL-G
-            self.menuGoto(event)
+            self.menu_goto(event)
         elif keycode == 72 and event.CmdDown():  # CTRL-H
-            self.menuHelp(event)
+            self.menu_help(event)
         elif keycode == 73 and event.CmdDown():  # CTRL-I
-            self.menuDROInfo(event)
+            self.menu_dro_info(event)
         elif keycode == 79 and event.CmdDown():  # CTRL-O
-            self.menuOpenDRO(event)
+            self.menu_open_dro(event)
         elif keycode == 83 and event.ShiftDown() and event.CmdDown():  # CTRL-SHIFT-S
-            self.menuSaveDROAs(event)
+            self.menu_save_dro_as(event)
         elif keycode == 83 and event.CmdDown():  # CTRL-S
-            self.menuSaveDRO(event)
+            self.menu_save_dro(event)
         elif keycode == 89 and event.CmdDown():  # CTRL-Y
-            self.menuRedo(event)
+            self.menu_redo(event)
         elif keycode == 90 and event.CmdDown():  # CTRL-Z
-            self.menuUndo(event)
+            self.menu_undo(event)
         elif keycode == 90:  # Z. TODO: remove this
-            self.startTestTask(event)
+            self.start_test_task(event)
         elif keycode == 83:  # S. TODO: remove this
-            self.cancelTestTask(event)
+            self.cancel_test_task(event)
         elif keycode == 32:  # Spacebar
-            self.togglePlayback(event)
+            self.toggle_playback(event)
         else:
             # print keycode
             event.Skip()
 
-    def startTestTask(self, _event):
+    def start_test_task(self, _event):
         task_name = f"Task {self.task_master.get_num_tasks() + 1}"
         task = tasks.ExampleTask(task_name)
         self.task_master.start_task(task)
         self.log.debug(f"Starting {task_name}\n")
 
-    def cancelTestTask(self, _event):
+    def cancel_test_task(self, _event):
         task_name = f"Task {self.task_master.get_num_tasks()}"
         self.task_master.cancel_task(task_name)
 
-    def onResult(self, event: tasks.TaskResultEvent):
+    def on_result(self, event: tasks.TaskResultEvent):
         # self.log.debug(f"{event.task_name} result\n")
 
         if event.task_name == "DetailedRegisterAnalysisTask":
             if self.drosong:
                 self.drosong.detailed_register_descriptions = event.value
                 if self.mainframe.dtlist:
-                    self.mainframe.dtlist.RefreshViewableItems()
+                    self.mainframe.dtlist.refresh_viewable_items()
 
         elif event.task_name == "WaveformRenderTask":
             self.mainframe.waveform_panel.redraw(event.value)
 
-    def onTaskCompleted(self, event: tasks.TaskCompletedEvent):
+    def on_task_completed(self, event: tasks.TaskCompletedEvent):
         task_name = event.task_name
         self.task_master.remove_completed_task(task_name)
         self.log.debug(f"{task_name} completed\n")
 
         if event.task_name == "DetailedRegisterAnalysisTask":
-            self.setStatusText("", section=1)
+            self.set_status_text("", section=1)
 
-    def closeFrame(self, _event):
+    def close_frame(self, _event):
         self.dro_player.stop()
         self.dro_player.close_audio_output()
         self.mainframe.waveform_panel.stop()
         self.mainframe.Destroy()
         self.task_master.stop()
 
-    def togglePlayback(self, event):
+    def toggle_playback(self, event):
         if self.dro_player.is_playing:
-            self.buttonStop(event)
+            self.button_stop(event)
         else:
-            self.buttonPlay(event)
+            self.button_play(event)
 
-    @catchUnhandledExceptions
-    def onFileDrop(self, event: FileDropEvent):
+    @catch_unhandled_exceptions
+    def on_file_drop(self, event: FileDropEvent):
         self.log.debug(f"File drop event received. Filename: {event.filename}")
-        self.__loadFile(event.filename)
+        self.__load_file(event.filename)
 
-    def onListItemSelected(self, event: FirstSelectedItemChangedEvent) -> None:
+    def on_list_item_selected(self, event: FirstSelectedItemChangedEvent) -> None:
         if not self.drosong:
             return
         item: int | None = event.item_index
@@ -629,24 +640,24 @@ class DTApp(wx.App):
                 self.drosong.ms_length,
             )
 
-    def onPlaybackPositionTimer(self, _event: wx.TimerEvent) -> None:
+    def on_playback_position_timer(self, _event: wx.TimerEvent) -> None:
         if not self.drosong or not self.dro_player.is_playing:
             return
         position_pct = self.dro_player.position_pct
         self.mainframe.waveform_panel.set_playback_position_pct(position_pct)
 
-    def onWaveformGoTo(self, event: waveform.WaveformGoToEvent) -> None:
+    def on_waveform_go_to(self, event: waveform.WaveformGoToEvent) -> None:
         pct = event.x_position_pct
         if self.drosong:
             result = self.drosong.get_index_and_ms_offset_by_position_pct(pct)
             if result is not None:
                 index, _ = result
-                self.mainframe.dtlist.Deselect()
-                self.mainframe.dtlist.SelectItemManual(index)
+                self.mainframe.dtlist.deselect()
+                self.mainframe.dtlist.select_item_manual(index)
                 if self.dro_player.is_playing:
                     self.dro_player.seek_to_pos(index)
 
-    def onWaveformHover(self, event: waveform.WaveformHoverEvent) -> None:
+    def on_waveform_hover(self, event: waveform.WaveformHoverEvent) -> None:
         pct = event.x_position_pct
         if pct is None:
             self.mainframe.waveform_panel.clear_hover_indicator()
@@ -662,30 +673,30 @@ class DTApp(wx.App):
                 )
 
     # Other stuff
-    def __updateDROInfoRedo(self, args_list):  # sigh
-        self.updateDROInfo(*args_list)
+    def __update_dro_info_redo(self, args_list):  # sigh
+        self.update_dro_info(*args_list)
 
     # @requiresDROLoaded # not really required here
     @dro_undo.undoable(
         "DRO Header Changes",
         dro_globals.get_undo_controller,
-        __updateDROInfoRedo,
+        __update_dro_info_redo,
     )
-    def updateDROInfo(self, opl_type, ms_length):
+    def update_dro_info(self, opl_type, ms_length):
         original_values = [self.drosong.opl_type, self.drosong.ms_length]
         self.drosong.opl_type = opl_type
         self.drosong.ms_length = ms_length
         return original_values
 
     # Event/threaded stuff. Requires a little more delicacy.
-    def setStatusText(self, message, section=0):
+    def set_status_text(self, message, section=0):
         if self.mainframe.statusbar:
             self.mainframe.statusbar.SetStatusText(message, section)
 
-    def __triggerDetailedRegisterAnalysisAndWaveform(self, debounce: bool = True):
+    def __trigger_detailed_register_analysis_and_waveform(self, debounce: bool = True):
         if not self.drosong:
             return
-        self.__doDetailedRegisterAnalysis()
+        self.__do_detailed_register_analysis()
         # TODO: don't reach into the waveform panel to get the player or num_buckets
         self.mainframe.waveform_panel.clear()
         self.task_master.start_task(
@@ -697,8 +708,8 @@ class DTApp(wx.App):
             debounce_sec=1 if debounce else None,
         )
 
-    def __doDetailedRegisterAnalysis(self):
-        self.setStatusText("Analyzing registers....", section=1)
+    def __do_detailed_register_analysis(self):
+        self.set_status_text("Analyzing registers....", section=1)
 
         self.task_master.start_task(tasks.DetailedRegisterAnalysisTask(self.drosong))
 
