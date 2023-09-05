@@ -1,3 +1,13 @@
+## Pre-requisites
+
+On Windows, Microsoft Visual C++ 14.0 or greater is required.
+Get it with "Microsoft C++ Build Tools": https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+Once installed, "Modify" it, go to Individual Components, select only:
+
+- Windows SDK (latest)
+- C++ x64/x86 build tools (latest)
+
 ## Setup
 
 Install Python v3.11. On Windows, I used Scoop in a Powershell terminal.
@@ -5,6 +15,8 @@ Install Python v3.11. On Windows, I used Scoop in a Powershell terminal.
 ```PowerShell
 scoop install python@3.11.4
 ```
+
+In IntelliJ, go to Project Structure -> SDKs, add a new Python (virtualenv). In Project, select the SDK.
 
 Install normal dependencies.
 
@@ -42,13 +54,14 @@ cd src
 ## Format code
 
 ```PowerShell
-black src/
+black src/ tests/
 ```
 
 ## Type-check code
 
 ```PowerShell
 mypy src/
+mypy tests/
 ```
 
 ## Run tests
