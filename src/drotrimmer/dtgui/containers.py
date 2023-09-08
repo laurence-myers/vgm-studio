@@ -30,6 +30,7 @@ import wx
 from .. import dro_config, dro_util
 
 from .menus import DTMainMenuBar
+from .playback_position_panel import PlaybackPositionPanel
 from .tables import DTSongDataList
 from .ui_util import custom_event, gui_id
 from .waveform import WaveformPanel
@@ -90,14 +91,16 @@ class DTMainFrame(wx.Frame):
 
         self.bottom_panel = wx.Panel(self.splitter_1)
         self.dtlist = DTSongDataList(self.bottom_panel, None)
-        self.panel_1 = wx.Panel(self.bottom_panel)
+        self.button_panel_1 = wx.Panel(self.bottom_panel)
         self.button_delete = wx.Button(
-            self.panel_1, gui_id("BUTTON_DELETE"), "Delete instruction"
+            self.button_panel_1, gui_id("BUTTON_DELETE"), "Delete instruction"
         )
         self.button_play = wx.Button(
-            self.panel_1, gui_id("BUTTON_PLAY"), "Play song from current pos."
+            self.button_panel_1, gui_id("BUTTON_PLAY"), "Play song from current pos."
         )
-        self.button_stop = wx.Button(self.panel_1, gui_id("BUTTON_STOP"), "Stop song")
+        self.button_stop = wx.Button(
+            self.button_panel_1, gui_id("BUTTON_STOP"), "Stop song"
+        )
 
         tail_in_seconds = tail_length / 1000.0
         if tail_in_seconds % 1:
@@ -105,22 +108,24 @@ class DTMainFrame(wx.Frame):
         else:
             tail_str = "%d" % (tail_in_seconds,)
         self.button_play_tail = wx.Button(
-            self.panel_1,
+            self.button_panel_1,
             gui_id("BUTTON_PLAY_TAIL"),
             "Play last %s second%s" % (tail_str, "s" if tail_in_seconds != 1 else ""),
         )
+
+        self.playback_position_panel = PlaybackPositionPanel(self.bottom_panel)
 
         self.__set_properties()
         self.__do_layout()
         self.__bind_events()
 
-    def __bind_events(self):
+    def __bind_events(self) -> None:
         self.SetDropTarget(MainFrameDropTarget())
 
-    def __do_layout(self):
+    def __do_layout(self) -> None:
         self.splitter_1.SetMinimumPaneSize(100)
 
-        grid_sizer_1 = wx.FlexGridSizer(3, 1, 0, 0)
+        grid_sizer_1 = wx.FlexGridSizer(5, 1, 0, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
 
         sizer_1 = wx.BoxSizer(wx.HORIZONTAL)
@@ -128,12 +133,22 @@ class DTMainFrame(wx.Frame):
         sizer_1.Add(self.button_play, 0, wx.FIXED_MINSIZE, 0)
         sizer_1.Add(self.button_stop, 0, wx.FIXED_MINSIZE, 0)
         sizer_1.Add(self.button_play_tail, 0, wx.FIXED_MINSIZE, 0)
-        self.panel_1.SetAutoLayout(1)
-        self.panel_1.SetSizer(sizer_1)
-        sizer_1.Fit(self.panel_1)
-        sizer_1.SetSizeHints(self.panel_1)
+        self.button_panel_1.SetAutoLayout(1)
+        self.button_panel_1.SetSizer(sizer_1)
+        sizer_1.Fit(self.button_panel_1)
+        sizer_1.SetSizeHints(self.button_panel_1)
 
-        grid_sizer_1.Add(self.panel_1, 1, wx.EXPAND, 0)
+        grid_sizer_1.Add(self.button_panel_1, 1, wx.EXPAND, 0)
+        grid_sizer_1.Add(
+            wx.StaticLine(
+                self.bottom_panel,
+                style=wx.LI_HORIZONTAL,
+            ),
+            wx.SizerFlags(0).Align(wx.ALIGN_TOP).Expand(),
+        )
+
+        # Info panel showing playback position
+        grid_sizer_1.Add(self.playback_position_panel, wx.SizerFlags(0).Expand())
 
         self.bottom_panel.SetAutoLayout(1)
         self.bottom_panel.SetSizer(grid_sizer_1)
@@ -151,9 +166,17 @@ class DTMainFrame(wx.Frame):
         self.SetSize(self.ToDIP(wx.Size(1900, 1200)))
         self.Centre()
 
-    def __set_properties(self):
+    def __set_properties(self) -> None:
         self.SetMenuBar(DTMainMenuBar())
         self.statusbar.SetFieldsCount(2)
+
+    def set_playback_length(self, ms: int, samples: int) -> None:
+        self.playback_position_panel.set_playback_length(ms, samples)
+
+    def set_playback_position(self, position_ms: int, position_samples: int) -> None:
+        self.playback_position_panel.set_playback_position(
+            position_ms, position_samples
+        )
 
 
 class TextPanel(wx.Panel):

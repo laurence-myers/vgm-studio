@@ -639,23 +639,27 @@ class DTApp(wx.App):
                 ms_offset,
                 self.drosong.ms_length,
             )
+            self._update_playback_position_info(ms_offset)
 
     def on_playback_position_timer(self, _event: wx.TimerEvent) -> None:
-        if not self.drosong or not self.dro_player.is_playing:
+        if not self.drosong:
             return
-        position_pct = self.dro_player.position_pct
-        self.mainframe.waveform_panel.set_playback_position_pct(position_pct)
+        self._update_playback_position_info()
+        if self.dro_player.is_playing:
+            position_pct = self.dro_player.position_pct
+            self.mainframe.waveform_panel.set_playback_position_pct(position_pct)
 
     def on_waveform_go_to(self, event: waveform.WaveformGoToEvent) -> None:
         pct = event.x_position_pct
         if self.drosong:
             result = self.drosong.get_index_and_ms_offset_by_position_pct(pct)
             if result is not None:
-                index, _ = result
+                index, ms = result
                 self.mainframe.dtlist.deselect()
                 self.mainframe.dtlist.select_item_manual(index)
                 if self.dro_player.is_playing:
                     self.dro_player.seek_to_pos(index)
+                self._update_playback_position_info(ms)
 
     def on_waveform_hover(self, event: waveform.WaveformHoverEvent) -> None:
         pct = event.x_position_pct
@@ -689,11 +693,13 @@ class DTApp(wx.App):
         return original_values
 
     # Event/threaded stuff. Requires a little more delicacy.
-    def set_status_text(self, message, section=0):
+    def set_status_text(self, message: str, section: int = 0) -> None:
         if self.mainframe.statusbar:
             self.mainframe.statusbar.SetStatusText(message, section)
 
-    def __trigger_detailed_register_analysis_and_waveform(self, debounce: bool = True):
+    def __trigger_detailed_register_analysis_and_waveform(
+        self, debounce: bool = True
+    ) -> None:
         if not self.drosong:
             return
         self.__do_detailed_register_analysis()
@@ -707,11 +713,42 @@ class DTApp(wx.App):
             ),
             debounce_sec=1 if debounce else None,
         )
+        self._update_playback_length_info()
 
-    def __do_detailed_register_analysis(self):
+    def __do_detailed_register_analysis(self) -> None:
+        if not self.drosong:
+            return
         self.set_status_text("Analyzing registers....", section=1)
-
         self.task_master.start_task(tasks.DetailedRegisterAnalysisTask(self.drosong))
+
+    def _update_playback_length_info(self) -> None:
+        if not self.drosong:
+            return
+        self.mainframe.set_playback_length(
+            self.drosong.ms_length,
+            dro_util.calculate_playback_samples(
+                self.drosong.ms_length,
+                self.dro_player.frequency,
+                self.dro_player.channels,
+                self.dro_player.bit_depth,
+            ),
+        )
+
+    def _update_playback_position_info(self, ms: int | None = None) -> None:
+        if ms is None:
+            ms = self.dro_player.time_elapsed
+            samples = self.dro_player.position_samples
+        else:
+            samples = dro_util.calculate_playback_samples(
+                ms,
+                self.dro_player.frequency,
+                self.dro_player.channels,
+                self.dro_player.bit_depth,
+            )
+        self.mainframe.set_playback_position(
+            ms,
+            samples,
+        )
 
 
 def __parse_arguments():

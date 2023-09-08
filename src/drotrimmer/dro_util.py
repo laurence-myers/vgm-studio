@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-
+import math
 import os.path
 import sys
 import struct
@@ -44,6 +44,12 @@ def warning(text):
 
 def get_exe_path():
     return os.path.dirname(sys.argv[0])
+
+
+def calculate_playback_samples(
+    ms: int, frequency: int, channels: int, bit_depth: int
+) -> int:
+    return math.ceil(ms / 1000 * frequency * channels * (bit_depth // 8))
 
 
 def condense_slices(index_list):

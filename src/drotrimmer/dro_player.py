@@ -493,22 +493,25 @@ class DROPlayer(object):
                 break
         if not samples_rendered and self.time_elapsed:
             return self.time_elapsed / self.current_song.ms_length
-        total_samples = (
-            self.current_song.ms_length
-            / 1000
-            * self.frequency
-            * self.channels
-            * (self.bit_depth // 8)
+        total_samples = dro_util.calculate_playback_samples(
+            self.current_song.ms_length, self.frequency, self.channels, self.bit_depth
         )
         return samples_rendered / total_samples
 
+    @property
+    def position_samples(self) -> int:
+        if not self.current_song:
+            return 0
+        samples_rendered = 0
+        for ps in self.processing_streams:
+            if isinstance(ps, OPLStream):
+                samples_rendered = ps.samples_rendered
+                break
+        return samples_rendered
+
     def __set_samples_rendered_from_time_elapsed(self):
-        samples_elapsed = (
-            self.time_elapsed
-            / 1000
-            * self.frequency
-            * self.channels
-            * (self.bit_depth // 8)
+        samples_elapsed = dro_util.calculate_playback_samples(
+            self.time_elapsed, self.frequency, self.channels, self.bit_depth
         )
         # Yucky, why do we reach into processing streams and OPLStream? Not very SOLID
         for ps in self.processing_streams:
