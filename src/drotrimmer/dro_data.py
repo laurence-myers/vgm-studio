@@ -70,18 +70,6 @@ class DROInstruction(object):
         return hash((self.inst_type, self.command, self.value, self.bank))
 
 
-class DRODataFactory(object):
-    def __new__(cls, file_version, *args, **kwds):
-        if file_version == DRO_FILE_V1:
-            return DRODataV1(*args, **kwds)
-        elif file_version == DRO_FILE_V2:
-            return DRODataV1(*args, **kwds)
-        else:
-            return dro_util.DROTrimmerException(
-                "Unknown DRO version for data factory: %s" % file_version
-            )
-
-
 class DROData(object):
     """Wraps around the DRO data, providing access to each instruction,
     while efficiently storing the item in memory.
