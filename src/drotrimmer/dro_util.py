@@ -26,6 +26,7 @@ import math
 import os.path
 import sys
 import struct
+from typing import BinaryIO
 
 
 class DROTrimmerException(Exception):
@@ -36,7 +37,7 @@ class DROFileException(DROTrimmerException):
     pass
 
 
-def warning(text):
+def warning(text: str) -> None:
     """Accepts a string, prints string prefixed with "WARNING! - " """
     # maybe TODO: GUI message queue?
     print("WARNING! - " + text)
@@ -76,38 +77,38 @@ def condense_slices(index_list):
 
 
 # These are only used for DRO 1 files...
-def write_char(in_f, val):
+def write_char(in_f: BinaryIO, val: int) -> None:
     in_f.write(struct.pack("<B", val))
 
 
-def read_char(in_f):  # 1 byte
+def read_char(in_f: BinaryIO) -> int:  # 1 byte
     return struct.unpack("<B", in_f.read(1))[0]
 
 
-def write_short(in_f, val):
+def write_short(in_f: BinaryIO, val: int) -> None:
     in_f.write(struct.pack("<H", val))
 
 
-def read_short(in_f):  # 2 bytes
+def read_short(in_f: BinaryIO) -> int:  # 2 bytes
     return struct.unpack("<H", in_f.read(2))[0]
 
 
-def write_int(in_f, val):
+def write_int(in_f: BinaryIO, val: int) -> None:
     in_f.write(struct.pack("<L", val))
 
 
-def read_int(in_f):  # 4 bytes, really a word
+def read_int(in_f: BinaryIO) -> int:  # 4 bytes, really a word
     return struct.unpack("<L", in_f.read(4))[0]
 
 
-def ms_to_timestr(ms_val):
+def ms_to_timestr(ms_val: int) -> str:
     # Stolen from StackOverflow, post by Sven Marnach
     minutes, milliseconds = divmod(ms_val, 60000)
     seconds = float(milliseconds) / 1000
     return to_timestr(minutes, seconds)
 
 
-def to_timestr(minutes, seconds):
+def to_timestr(minutes: int, seconds: float) -> str:
     return "%02i:%02i" % (minutes, seconds)
 
 

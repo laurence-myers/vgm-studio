@@ -73,7 +73,7 @@ class DROInstruction(object):
 class DROData(object):
     """Wraps around the DRO data, providing access to each instruction,
     while efficiently storing the item in memory.
-    Locking should be performed by
+    Locking should be performed by any outer code that mutates the data.
     """
 
     def __init__(self, *args, **kwds):
