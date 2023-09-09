@@ -24,9 +24,13 @@
 #    THE SOFTWARE.
 
 import array
-from . import dro_analysis, dro_globals, dro_undo, dro_util, regdata
+from . import dro_globals, dro_undo, dro_util, regdata
 import math
 import threading
+
+# Duplicated from dro_analysis to avoid circular import. TODO: move to common location.
+DetailedRegisterEntry = tuple[int, str, int]
+DetailedRegisterInfo = list[DetailedRegisterEntry]
 
 DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
@@ -349,9 +353,7 @@ class DROSong(object):
         self.opl_type = opl_type
         self.short_delay_code = 0x00
         self.long_delay_code = 0x01
-        self.detailed_register_descriptions: dro_analysis.DetailedRegisterInfo | None = (
-            None
-        )
+        self.detailed_register_descriptions: DetailedRegisterInfo | None = None
         self.data_lock = threading.RLock()
 
     def get_length_ms(self):
