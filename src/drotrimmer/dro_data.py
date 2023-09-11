@@ -28,7 +28,7 @@ import math
 import threading
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Self, Literal, Any
+from typing import Self, Literal, Any, overload, Iterator
 
 from . import dro_globals, dro_undo, dro_util, regdata
 
@@ -103,11 +103,11 @@ class DROData(ABC):
         ...
 
     @abstractmethod
-    def interpret_data(self, real_index):
+    def interpret_data(self, real_index: int) -> DROInstruction:
         ...
 
     @abstractmethod
-    def __len__(self):
+    def __len__(self) -> int:
         ...
 
     @abstractmethod
@@ -120,7 +120,7 @@ class DROData(ABC):
         new data to assign to the copy."""
         ...
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: int | slice) -> None:
         if type(key) == slice:
             if key.start is None:
                 first_index = None
@@ -141,7 +141,7 @@ class DROData(ABC):
                 second_index = None  # possibly dangerous
         del self.data[first_index:second_index]
 
-    def delete_multiple(self, index_list, is_sorted=False):
+    def delete_multiple(self, index_list: list[int], is_sorted: bool = False) -> None:
         """NOTE: the given index_list will be sorted in-place, and reversed in-place."""
         # Sort if required
         if not is_sorted:
@@ -155,7 +155,15 @@ class DROData(ABC):
         for i in index_list:
             del self[i]
 
-    def __getitem__(self, key: int | slice):
+    @overload
+    def __getitem__(self, key: int) -> DROInstruction:
+        ...
+
+    @overload
+    def __getitem__(self, key: slice) -> Self:
+        ...
+
+    def __getitem__(self, key: int | slice) -> DROInstruction | Self:
         """Returns the item, translated from the "logical" index
         to the real index in the underlying array. The returned item is
         a DROInstruction object, interpreted from the raw data.
@@ -171,11 +179,11 @@ class DROData(ABC):
             real_index = self.translate_index(key)
             return self.interpret_data(real_index)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[DROInstruction]:
         for i in self.iter_indexes():
             yield self[i]
 
-    def _insert(self, key, value_array):
+    def _insert(self, key: int, value_array):
         assert type(value_array) == array.array
         real_i = self.translate_index(key)
         self.data[real_i:real_i] = value_array
