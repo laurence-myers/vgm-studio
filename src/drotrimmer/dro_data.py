@@ -24,12 +24,13 @@
 #    THE SOFTWARE.
 
 import array
-from abc import ABC, abstractmethod
-from typing import Self
-
-from . import dro_globals, dro_undo, dro_util, regdata
 import math
 import threading
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Self, Literal, Any
+
+from . import dro_globals, dro_undo, dro_util, regdata
 
 # Duplicated from dro_analysis to avoid circular import. TODO: move to common location.
 DetailedRegisterEntry = tuple[int, str, int]
@@ -39,26 +40,36 @@ DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
 
 
+class DROInstructionType(Enum):
+    REGISTER = 0
+    DELAY = 1
+    BANK_SWITCH = 2
+
+
 class DROInstruction(object):
     __slots__ = ["inst_type", "command", "value", "bank"]
-    T_REGISTER, T_DELAY, T_BANK_SWITCH = list(range(3))
-    TYPE_MAP = ["T_REGISTER", "T_DELAY", "T_BANK_SWITCH"]
 
-    def __init__(self, inst_type, command, value, bank=None):
+    def __init__(
+        self,
+        inst_type: DROInstructionType,
+        command: int,
+        value: int,
+        bank: Literal[0, 1] | None = None,
+    ) -> None:
         self.inst_type = inst_type
         self.command = command
         self.value = value
         self.bank = bank
 
-    def __repr__(self):
-        return "DROInstruction(DROInstruction.%s, %s, %s, bank=%s)" % (
-            self.TYPE_MAP[self.inst_type],
+    def __repr__(self) -> str:
+        return "DROInstruction(DROInstructionType.%s, %s, %s, bank=%s)" % (
+            DROInstructionType(self.inst_type),
             self.command,
             self.value,
             self.bank,
         )
 
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         if type(other) == DROInstruction:
             if (
                 self.inst_type == other.inst_type
@@ -69,7 +80,7 @@ class DROInstruction(object):
                 return True
         return False
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((self.inst_type, self.command, self.value, self.bank))
 
 
@@ -238,23 +249,23 @@ class DRODataV1(DROData):
     def interpret_data(self, real_index):
         cmd = self.data[real_index]
         if cmd == 0x00:
-            inst_type = DROInstruction.T_DELAY
+            inst_type = DROInstructionType.DELAY
             val = self.data[real_index + 1] + 1
         elif cmd == 0x01:
-            inst_type = DROInstruction.T_DELAY
+            inst_type = DROInstructionType.DELAY
             val = (self.data[real_index + 1] | (self.data[real_index + 2] << 8)) + 1
         elif cmd == 0x02:
-            inst_type = DROInstruction.T_BANK_SWITCH
+            inst_type = DROInstructionType.BANK_SWITCH
             val = 0x00
         elif cmd == 0x03:
-            inst_type = DROInstruction.T_BANK_SWITCH
+            inst_type = DROInstructionType.BANK_SWITCH
             val = 0x01
         elif cmd == 0x04:
-            inst_type = DROInstruction.T_REGISTER
+            inst_type = DROInstructionType.REGISTER
             cmd = self.data[real_index + 1]
             val = self.data[real_index + 2]
         else:
-            inst_type = DROInstruction.T_REGISTER
+            inst_type = DROInstructionType.REGISTER
             val = self.data[real_index + 1]
 
         return DROInstruction(inst_type, cmd, val)
@@ -312,13 +323,13 @@ class DRODataV2(DROData):
         cmd = self.data[real_index]
         bank = None
         if cmd == self.short_delay_code:
-            inst_type = DROInstruction.T_DELAY
+            inst_type = DROInstructionType.DELAY
             val = self.data[real_index + 1] + 1
         elif cmd == self.long_delay_code:
-            inst_type = DROInstruction.T_DELAY
+            inst_type = DROInstructionType.DELAY
             val = (self.data[real_index + 1] + 1) << 8
         else:
-            inst_type = DROInstruction.T_REGISTER
+            inst_type = DROInstructionType.REGISTER
             bank = (cmd & 0x80) >> 7
             cmd = self.codemap[cmd & 0x7F]
             val = self.data[real_index + 1]
@@ -369,21 +380,21 @@ class DROSong(object):
         look_for: str | int = s_inst
         if s_inst == "DLYS":
             ct = (
-                lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
                 and datum.command == self.data.short_delay_code
             )
         elif s_inst == "DLYL":
             ct = (
-                lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
                 and datum.command == self.data.long_delay_code
             )
         elif s_inst == "DALL":
-            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_DELAY
+            ct = lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
         elif s_inst == "BANK":
-            ct = lambda datum, inst: datum.inst_type == DROInstruction.T_BANK_SWITCH
+            ct = lambda datum, inst: datum.inst_type == DROInstructionType.BANK_SWITCH
         else:
             ct = (
-                lambda datum, inst: datum.inst_type == DROInstruction.T_REGISTER
+                lambda datum, inst: datum.inst_type == DROInstructionType.REGISTER
                 and datum.command == inst
             )
             look_for = int(s_inst, 16)
@@ -413,7 +424,7 @@ class DROSong(object):
         # Keep track of delays inserted, so we can update the total delay count.
         for i, val in index_and_value_list:
             inst = self.data[i]
-            if inst.inst_type == DROInstruction.T_DELAY:
+            if inst.inst_type == DROInstructionType.DELAY:
                 self.ms_length += inst.value
         # Also need to update our register descriptions, since the data has changed.
         # This has to be done from outside DROSong, so just clear any existing descriptions.
@@ -433,7 +444,7 @@ class DROSong(object):
         for i in index_list:
             # Keep track of delays deleted, so we can update the total delay count.
             inst = self.data[i]
-            if inst.inst_type == DROInstruction.T_DELAY:
+            if inst.inst_type == DROInstructionType.DELAY:
                 self.ms_length -= inst.value
             deleted_data.append((i, self.data.get_raw(i)))
         # Now delete each item, in reverse order.
@@ -446,37 +457,37 @@ class DROSong(object):
 
     def get_register_display(self, item: int):
         inst = self.data[item]
-        if inst.inst_type == DROInstruction.T_DELAY:
+        if inst.inst_type == DROInstructionType.DELAY:
             if inst.command == self.data.short_delay_code:
                 return "DLYS"
             elif inst.command == self.data.long_delay_code:
                 return "DLYL"
             else:
                 return "???"
-        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
+        elif inst.inst_type == DROInstructionType.BANK_SWITCH:
             return "BANK"
         else:  # must be a register instruction
             return "0x%02X" % (inst.command,)
 
     def get_value_display(self, item: int):
         inst = self.data[item]
-        if inst.inst_type == DROInstruction.T_DELAY:
+        if inst.inst_type == DROInstructionType.DELAY:
             return "%d ms" % (inst.value,)
-        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
+        elif inst.inst_type == DROInstructionType.BANK_SWITCH:
             return ("low", "high")[inst.value]
         else:  # must be a register instruction
             return "0x%02X (%d)" % (inst.value, inst.value)
 
     def get_instruction_description(self, item: int):
         inst = self.data[item]
-        if inst.inst_type == DROInstruction.T_DELAY:
+        if inst.inst_type == DROInstructionType.DELAY:
             if inst.command == self.data.short_delay_code:
                 return "Delay (short)"
             elif inst.command == self.data.long_delay_code:
                 return "Delay (long)"
             else:
                 return "???"
-        elif inst.inst_type == DROInstruction.T_BANK_SWITCH:
+        elif inst.inst_type == DROInstructionType.BANK_SWITCH:
             return "Switch to %s registers (Dual OPL-2 / OPL-3)" % (
                 ("low", "high")[inst.value],
             )

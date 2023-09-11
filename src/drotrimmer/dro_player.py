@@ -568,16 +568,16 @@ class DROSeeker(object):
             self.dro_player.current_song.data
         ):
             inst = self.dro_player.current_song.data[self.dro_player.pos]
-            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY:
                 delay = inst.value
                 # If we go past the intended seek time, don't increment the position counter. This way we end up
                 #  before the seek time, rather than after it.
                 if self.dro_player.time_elapsed + delay > seek_time_ms:
                     break
                 self.dro_player.time_elapsed += delay
-            elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+            elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
                 self.dro_player.processing_streams.bank = inst.value  # DRO v1
-            # elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+            # elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
             else:
                 if inst.bank is not None:  # DRO v2
                     self.dro_player.processing_streams.bank = inst.bank
@@ -603,11 +603,11 @@ class DROSeeker(object):
         self.dro_player.writes_elapsed = 0
         while self.dro_player.pos < seek_pos:
             inst = self.dro_player.current_song.data[self.dro_player.pos]
-            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY:
                 self.dro_player.time_elapsed += inst.value
-            elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+            elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
                 self.dro_player.processing_streams.bank = inst.value  # DRO v1
-            # elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+            # elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
             else:
                 if inst.bank is not None:  # DRO v2
                     self.dro_player.processing_streams.bank = inst.bank
@@ -646,12 +646,12 @@ class DROPlayerUpdateThread(threading.Thread):
 
             # Process the instruction.
             inst = self.dro_player.current_song.data[self.dro_player.pos]
-            if inst.inst_type == dro_data.DROInstruction.T_DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY:
                 self.dro_player.processing_streams.render(inst.value)
                 self.dro_player.time_elapsed += inst.value
-            elif inst.inst_type == dro_data.DROInstruction.T_BANK_SWITCH:
+            elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
                 self.dro_player.processing_streams.bank = inst.value  # DRO v1
-            # elif inst.inst_type == dro_data.DROInstruction.T_REGISTER:
+            # elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
             else:
                 if inst.bank is not None:  # DRO v2
                     self.dro_player.processing_streams.bank = inst.bank

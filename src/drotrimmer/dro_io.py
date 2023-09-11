@@ -31,7 +31,7 @@ from .dro_data import (
     DROSongV2,
     DRODataV1,
     DRODataV2,
-    DROInstruction,
+    DROInstructionType,
 )
 from .dro_util import *
 
@@ -157,7 +157,7 @@ class DroFileIOv1(object):
         # (Why don't we use the value stored in the dro_song object? Seems
         #  to be a discrepancy between how V1 and V2 files write this value)
         for inst in dro_song.data:
-            if inst.inst_type == DROInstruction.T_DELAY:
+            if inst.inst_type == DROInstructionType.DELAY:
                 total_delay += inst.value
         dro_song.data.tofile(drof)
 
