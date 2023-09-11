@@ -24,6 +24,9 @@
 #    THE SOFTWARE.
 
 import array
+from abc import ABC, abstractmethod
+from typing import Self
+
 from . import dro_globals, dro_undo, dro_util, regdata
 import math
 import threading
@@ -70,40 +73,41 @@ class DROInstruction(object):
         return hash((self.inst_type, self.command, self.value, self.bank))
 
 
-class DROData(object):
+class DROData(ABC):
     """Wraps around the DRO data, providing access to each instruction,
     while efficiently storing the item in memory.
     Locking should be performed by any outer code that mutates the data.
     """
 
-    def __init__(self, *args, **kwds):
-        self.data = array.array("B")
-        self.short_delay_code = None
-        self.long_delay_code = None
-        self.delay_codes = None
+    def __init__(
+        self, data: array.array, short_delay_code: int, long_delay_code: int
+    ) -> None:
+        self.data = data
+        self.short_delay_code = short_delay_code
+        self.long_delay_code = long_delay_code
+        self.delay_codes = (short_delay_code, long_delay_code)
 
+    @abstractmethod
     def translate_index(self, key: int) -> int:
-        raise NotImplementedError()
+        ...
 
+    @abstractmethod
     def interpret_data(self, real_index):
-        raise NotImplementedError()
+        ...
 
+    @abstractmethod
     def __len__(self):
-        raise NotImplementedError()
+        ...
 
+    @abstractmethod
     def iter_indexes(self):
-        raise NotImplementedError()
+        ...
 
-    def shallow_copy(self, new_data=None):
+    @abstractmethod
+    def shallow_copy(self, new_data=None) -> Self:
         """Copies everything except the actual underlying data. You can pass in
         new data to assign to the copy."""
-        new_copy = type(self)()
-        new_copy.short_delay_code = self.short_delay_code
-        new_copy.long_delay_code = self.long_delay_code
-        new_copy.delay_codes = self.delay_codes
-        if new_data is not None:
-            new_copy.data = new_data
-        return new_copy
+        ...
 
     def __delitem__(self, key):
         if type(key) == slice:
@@ -145,8 +149,7 @@ class DROData(object):
         to the real index in the underlying array. The returned item is
         a DROInstruction object, interpreted from the raw data.
 
-        Support slices, but only return a raw array. (Only like this for one
-        of the analysers, should really return a DROData or something.)"""
+        Supports slices, which returns a new DROData."""
         if type(key) == slice:
             first_index = None if key.start is None else self.translate_index(key.start)
             last_index = None if key.stop is None else self.translate_index(key.stop)
@@ -169,9 +172,6 @@ class DROData(object):
     def insert_multiple(self, i_and_val_list):
         for i, val in i_and_val_list:
             self._insert(i, val)
-
-    def fromfile(self, file_handle, num_entries):
-        self.data.fromfile(file_handle, num_entries)
 
     def tofile(self, file_handle):
         self.data.tofile(file_handle)
@@ -198,15 +198,13 @@ class DROData(object):
 
 
 class DRODataV1(DROData):
-    def __init__(self, *args, **kwds):
-        super(DRODataV1, self).__init__(*args, **kwds)
-        self.index_map = []  # keys are indexes.
-        self.short_delay_code = 0x00
-        self.long_delay_code = 0x01
-        self.delay_codes = (self.short_delay_code, self.long_delay_code)
+    def __init__(self, data: array.array):
+        super().__init__(data, 0x00, 0x01)
+        self.index_map: list[int] = []  # keys are indexes.
+        self.generate_index_map()
 
     def delete_multiple(self, index_list, is_sorted=False):
-        super(DRODataV1, self).delete_multiple(index_list, is_sorted)
+        super().delete_multiple(index_list, is_sorted)
         self.generate_index_map()
 
     def insert_multiple(self, i_and_val_list):
@@ -219,12 +217,13 @@ class DRODataV1(DROData):
 
     def append_raw(self, value_array):
         self.index_map.append(self.raw_len())
-        super(DRODataV1, self).append_raw(value_array)
+        super().append_raw(value_array)
 
-    def shallow_copy(self, new_data=None):
-        new_copy = super(DRODataV1, self).shallow_copy(new_data)
-        if new_data is not None:
-            new_copy.generate_index_map()
+    def shallow_copy(self, new_data: array.array | None = None) -> "DRODataV1":
+        new_copy = DRODataV1(
+            new_data if new_data is not None else array.array("B"),
+        )
+        new_copy.generate_index_map()
         return new_copy
 
     def translate_index(self, index):
@@ -287,16 +286,23 @@ class DRODataV1(DROData):
 
 
 class DRODataV2(DROData):
-    def __init__(self, *args, **kwds):
-        super(DRODataV2, self).__init__(self, *args, **kwds)
-        self.codemap = None
-        self.short_delay_code = None
-        self.long_delay_code = None
-        self.delay_codes = (self.short_delay_code, self.long_delay_code)
+    def __init__(
+        self,
+        data: array.array,
+        codemap: tuple[int, ...],
+        short_delay_code: int,
+        long_delay_code: int,
+    ) -> None:
+        super().__init__(data, short_delay_code, long_delay_code)
+        self.codemap = codemap
 
-    def shallow_copy(self, new_data=None):
-        new_copy = super(DRODataV2, self).shallow_copy(new_data)
-        new_copy.codemap = self.codemap
+    def shallow_copy(self, new_data: array.array | None = None) -> "DRODataV2":
+        new_copy = DRODataV2(
+            new_data if new_data is not None else array.array("B"),
+            self.codemap,
+            self.short_delay_code,
+            self.long_delay_code,
+        )
         return new_copy
 
     def translate_index(self, key):
@@ -333,7 +339,7 @@ class DROSong(object):
 
     def __init__(
         self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int
-    ):
+    ) -> None:
         self.file_version = file_version
         self.name = name
         self.data: DROData = data
@@ -565,19 +571,18 @@ class DROSongV2(DROSong):
         "OPL-3",
     ]
 
+    data: DRODataV2
+
     def __init__(
         self,
-        file_version,
-        name,
-        data,
-        ms_length,
-        opl_type,
-        codemap,
-        short_delay_code,
-        long_delay_code,
-    ):
-        super(DROSongV2, self).__init__(file_version, name, data, ms_length, opl_type)
-        # TODO: remove this, unnecessary
-        self.codemap = codemap
+        file_version: int,
+        name: str,
+        data: DRODataV2,
+        ms_length: int,
+        opl_type: int,
+        short_delay_code: int,
+        long_delay_code: int,
+    ) -> None:
+        super().__init__(file_version, name, data, ms_length, opl_type)
         self.short_delay_code = short_delay_code
         self.long_delay_code = long_delay_code

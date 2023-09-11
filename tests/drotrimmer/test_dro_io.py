@@ -21,11 +21,13 @@ class TestDroUndo(TestCase):
         self.assertEqual(
             dro_song.detailed_register_descriptions, None
         )  # not populated yet
-        self.assertEqual(dro_song.codemap[:10], (1, 4, 5, 8, 189, 32, 64, 96, 128, 224))
+        self.assertEqual(
+            dro_song.data.codemap[:10], (1, 4, 5, 8, 189, 32, 64, 96, 128, 224)
+        )
         self.assertIsNotNone(dro_song.data_lock)
 
         dro_data = cast(DRODataV2, dro_song.data)
-        self.assertEqual(dro_data.codemap, dro_song.codemap)
+        self.assertEqual(dro_data.codemap, dro_song.data.codemap)
         self.assertEqual(
             dro_data.data[:10], array.array("B", (0, 32, 5, 49, 10, 2, 15, 2, 20, 98))
         )

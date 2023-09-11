@@ -112,14 +112,16 @@ class DroCapture(object):
         pass  # do nothing
 
     def stop(self):
-        codelist = sorted(self.code_map.keys(), key=lambda key: self.code_map[key])
+        codelist = tuple(
+            sorted(self.code_map.keys(), key=lambda key: self.code_map[key])
+        )
 
-        data_wrapper = dro_data.DRODataV2()
-        data_wrapper.data = self.data
-        data_wrapper.codemap = codelist
-        data_wrapper.short_delay_code = self.short_delay_code
-        data_wrapper.long_delay_code = self.long_delay_code
-        data_wrapper.delay_codes = (self.short_delay_code, self.long_delay_code)
+        data_wrapper = dro_data.DRODataV2(
+            self.data,
+            codelist,
+            self.short_delay_code,
+            self.long_delay_code,
+        )
 
         song_wrapper = dro_data.DROSongV2(
             dro_io.DRO_FILE_V2,
@@ -127,7 +129,6 @@ class DroCapture(object):
             data_wrapper,
             self.length_ms,
             self.opl_type,
-            codelist,
             self.short_delay_code,
             self.long_delay_code,
         )

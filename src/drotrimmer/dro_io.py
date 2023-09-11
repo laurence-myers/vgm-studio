@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-from typing import BinaryIO
+import array
 
 from .dro_data import (
     DRO_FILE_V1,
@@ -128,8 +128,9 @@ class DroFileIOv1(object):
             drof.seek(-4, 1)
             dro_opl_type = read_char(drof)
 
-        dro_data = DRODataV1()
-        dro_data.fromfile(drof, dro_byte_length)
+        raw_data = array.array("B")
+        raw_data.fromfile(drof, dro_byte_length)
+        dro_data = DRODataV1(raw_data)
         dro_data.generate_index_map()
 
         # If we haven't reached the EOF we must have an error somewhere in the code.
@@ -215,12 +216,14 @@ class DroFileIOv2(object):
                 % len(codemap)
             )
 
-        dro_data = DRODataV2()
-        dro_data.fromfile(drof, iLengthPairs * 2)
-        dro_data.codemap = codemap
-        dro_data.short_delay_code = iShortDelayCode
-        dro_data.long_delay_code = iLongDelayCode
-        dro_data.delay_codes = (iShortDelayCode, iLongDelayCode)  # meh
+        raw_data = array.array("B")
+        raw_data.fromfile(drof, iLengthPairs * 2)
+        dro_data = DRODataV2(
+            raw_data,
+            codemap,
+            iShortDelayCode,
+            iLongDelayCode,
+        )
 
         # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
         return DROSongV2(
@@ -229,7 +232,6 @@ class DroFileIOv2(object):
             dro_data,
             iLengthMS,
             iHardwareType,
-            codemap,
             iShortDelayCode,
             iLongDelayCode,
         )
@@ -246,10 +248,12 @@ class DroFileIOv2(object):
                 0,  # compression
                 dro_song.short_delay_code,
                 dro_song.long_delay_code,
-                len(dro_song.codemap),  # length of codemap
+                len(dro_song.data.codemap),  # length of codemap
             )
         )
         # Write the codemap
-        drof.write(struct.pack(str(len(dro_song.codemap)) + "B", *dro_song.codemap))
+        drof.write(
+            struct.pack(str(len(dro_song.data.codemap)) + "B", *dro_song.data.codemap)
+        )
         # Write the data
         dro_song.data.tofile(drof)
