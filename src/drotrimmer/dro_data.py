@@ -99,11 +99,11 @@ class DROData(ABC):
         self.delay_codes = (short_delay_code, long_delay_code)
 
     @abstractmethod
-    def translate_index(self, key: int) -> int:
+    def _translate_index(self, key: int) -> int:
         ...
 
     @abstractmethod
-    def interpret_data(self, real_index: int) -> DROInstruction:
+    def _interpret_data(self, real_index: int) -> DROInstruction:
         ...
 
     @abstractmethod
@@ -111,7 +111,7 @@ class DROData(ABC):
         ...
 
     @abstractmethod
-    def iter_indexes(self):
+    def _iter_indexes(self):
         ...
 
     @abstractmethod
@@ -125,18 +125,18 @@ class DROData(ABC):
             if key.start is None:
                 first_index = None
             else:
-                first_index = self.translate_index(key.start)
+                first_index = self._translate_index(key.start)
             if key.stop is None:
                 second_index = None
             else:
                 try:
-                    second_index = self.translate_index(key.stop + 1)
+                    second_index = self._translate_index(key.stop + 1)
                 except IndexError:
                     second_index = None  # possibly dangerous
         else:
-            first_index = self.translate_index(key)
+            first_index = self._translate_index(key)
             try:
-                second_index = self.translate_index(key + 1)
+                second_index = self._translate_index(key + 1)
             except IndexError:
                 second_index = None  # possibly dangerous
         del self.data[first_index:second_index]
@@ -170,22 +170,24 @@ class DROData(ABC):
 
         Supports slices, which returns a new DROData."""
         if type(key) == slice:
-            first_index = None if key.start is None else self.translate_index(key.start)
-            last_index = None if key.stop is None else self.translate_index(key.stop)
+            first_index = (
+                None if key.start is None else self._translate_index(key.start)
+            )
+            last_index = None if key.stop is None else self._translate_index(key.stop)
             new_data = self.data[first_index:last_index]
             new_copy = self.shallow_copy(new_data)
             return new_copy
         else:
-            real_index = self.translate_index(key)
-            return self.interpret_data(real_index)
+            real_index = self._translate_index(key)
+            return self._interpret_data(real_index)
 
     def __iter__(self) -> Iterator[DROInstruction]:
-        for i in self.iter_indexes():
+        for i in self._iter_indexes():
             yield self[i]
 
     def _insert(self, key: int, value_array):
         assert type(value_array) == array.array
-        real_i = self.translate_index(key)
+        real_i = self._translate_index(key)
         self.data[real_i:real_i] = value_array
 
     def insert_multiple(self, i_and_val_list):
@@ -202,9 +204,9 @@ class DROData(ABC):
         return iter(self.data)
 
     def get_raw(self, key: int):
-        first_index = self.translate_index(key)
+        first_index = self._translate_index(key)
         try:
-            second_index = self.translate_index(key + 1)
+            second_index = self._translate_index(key + 1)
         except IndexError:
             second_index = None
         if second_index is None:
@@ -229,7 +231,7 @@ class DRODataV1(DROData):
     def insert_multiple(self, i_and_val_list):
         real_offset = 0
         for num_inserted, (i, val) in enumerate(i_and_val_list):
-            real_index = self.translate_index(i - num_inserted) + real_offset
+            real_index = self._translate_index(i - num_inserted) + real_offset
             self.data[real_index:real_index] = val
             real_offset += len(val)
         self.generate_index_map()
@@ -245,7 +247,7 @@ class DRODataV1(DROData):
         new_copy.generate_index_map()
         return new_copy
 
-    def translate_index(self, index):
+    def _translate_index(self, index):
         try:
             return self.index_map[index]
         except IndexError as ie:
@@ -254,7 +256,7 @@ class DRODataV1(DROData):
             else:
                 raise ie
 
-    def interpret_data(self, real_index):
+    def _interpret_data(self, real_index):
         cmd = self.data[real_index]
         if cmd == 0x00:
             inst_type = DROInstructionType.DELAY
@@ -281,7 +283,7 @@ class DRODataV1(DROData):
     def __len__(self):
         return len(self.index_map)
 
-    def iter_indexes(self):
+    def _iter_indexes(self):
         return range(len(self.index_map))
 
     def generate_index_map(self):
@@ -324,10 +326,10 @@ class DRODataV2(DROData):
         )
         return new_copy
 
-    def translate_index(self, key):
+    def _translate_index(self, key):
         return key * 2
 
-    def interpret_data(self, real_index):
+    def _interpret_data(self, real_index):
         cmd = self.data[real_index]
         bank = None
         if cmd == self.short_delay_code:
@@ -347,7 +349,7 @@ class DRODataV2(DROData):
     def __len__(self):
         return len(self.data) // 2
 
-    def iter_indexes(self):
+    def _iter_indexes(self):
         return range(len(self.data) // 2)
 
 
