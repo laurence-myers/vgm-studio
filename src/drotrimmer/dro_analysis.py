@@ -435,8 +435,9 @@ class DROLoopAnalyzer(object):
         #  where the loop points are.
         sm = difflib.SequenceMatcher()
         tmp_len = len(dro_song.data) // 2
-        tmp_a = dro_song.data[:tmp_len]
-        tmp_b = dro_song.data[tmp_len:]
+        # TODO: avoid casting to Sequence
+        tmp_a = typing.cast(typing.Sequence[str], dro_song.data[:tmp_len])
+        tmp_b = typing.cast(typing.Sequence[str], dro_song.data[tmp_len:])
         sm.set_seqs(tmp_a, tmp_b)
         # result1 = sm.get_matching_blocks()
         # print result1
