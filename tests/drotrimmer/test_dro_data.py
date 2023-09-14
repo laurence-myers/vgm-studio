@@ -27,13 +27,6 @@ def create_dro_song_v2():
 
 
 class TestDROSongV2(TestCase):
-    def test_get_length_ms(self):
-        dro_song = create_dro_song_v2()
-        self.assertEqual(dro_song.get_length_ms(), 100)
-        self.assertEqual(
-            dro_song.get_length_ms(), dro_song.ms_length
-        )  # I'm not sure why there's a method _and_ an attribute
-
     def test_find_next_instruction(self):
         dro_song = create_dro_song_v2()
         index = dro_song.find_next_instruction(0, "0x50")
@@ -58,4 +51,11 @@ class TestDROSongV2(TestCase):
         index = dro_song.find_next_instruction(5, "DALL")
         self.assertEqual(index, 6)
         index = dro_song.find_next_instruction(0, "BANK")
-        self.assertEqual(index, -1)  # TODO: need to test a bank switch
+        self.assertEqual(index, -1)  # Bank switches are not supported in DRO v2 files
+
+    def test_get_length_ms(self):
+        dro_song = create_dro_song_v2()
+        self.assertEqual(dro_song.get_length_ms(), 100)
+        self.assertEqual(
+            dro_song.get_length_ms(), dro_song.ms_length
+        )  # I'm not sure why there's a method _and_ an attribute
