@@ -27,11 +27,13 @@ jobs:
       - name: Formatting
         run: |
           python -m black --check ./src
+          python -m black --check ./tests
 
       - name: Type checking
         run: |
           python -m mypy ./src
+          python -m mypy ./tests
 
       - name: Run tests
         run: |
-          python -m unittest discover --start-directory tests/
+          python -m unittest discover --start-directory tests/ -v
