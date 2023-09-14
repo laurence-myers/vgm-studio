@@ -28,7 +28,7 @@ import math
 import threading
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Self, Literal, Any, overload, Iterator
+from typing import Self, Literal, Any, overload, Iterator, Iterable
 
 from . import dro_globals, dro_undo, dro_util, regdata
 
@@ -185,12 +185,15 @@ class DROData(ABC):
         for i in self._iter_indexes():
             yield self[i]
 
-    def _insert(self, key: int, value_array):
+    def _insert(self, key: int, value_array: array.array) -> None:
         assert type(value_array) == array.array
         real_i = self._translate_index(key)
         self.data[real_i:real_i] = value_array
 
-    def insert_multiple(self, i_and_val_list):
+    def insert_multiple(
+        self,
+        i_and_val_list: Iterable[tuple[int, array.array]],
+    ) -> None:
         for i, val in i_and_val_list:
             self._insert(i, val)
 
@@ -203,7 +206,7 @@ class DROData(ABC):
     def raw_iter(self):
         return iter(self.data)
 
-    def get_raw(self, key: int):
+    def get_raw(self, key: int) -> array.array:
         first_index = self._translate_index(key)
         try:
             second_index = self._translate_index(key + 1)
@@ -424,7 +427,9 @@ class DROSong(object):
 
         return -1
 
-    def _insert_instructions(self, index_and_value_list):
+    def _insert_instructions(
+        self, index_and_value_list: Iterable[tuple[int, array.array]]
+    ) -> None:
         """Currently just an internal method, used for undoing deletions.
 
         (Note to self: if this gets exposed to outside calls, make it
@@ -444,7 +449,9 @@ class DROSong(object):
     @dro_undo.undoable(
         "Delete Instruction(s)", dro_globals.get_undo_controller, _insert_instructions
     )
-    def delete_instructions(self, index_list: list[int]) -> list[tuple[int, list[int]]]:
+    def delete_instructions(
+        self, index_list: list[int]
+    ) -> list[tuple[int, array.array]]:
         """Deletes instructions at the given indexes.
 
         Returns a list of tuples, containing the index deleted and the value
@@ -536,17 +543,25 @@ class DROSong(object):
         self,
         position_pct: float,
     ) -> tuple[int, int] | None:
+        """Given a percentage like 0.5, finds that position in the song by time.
+        Rather than going from the start, we start from the index at a similar percentage, e.g. given 100 instructions,
+        and position of 80%, start from index 80 (or is it 79? meh)
+        We then look backwards or forwards from that index, until we find an index with an ms offset greater/smaller
+        than the target offset.
+        """
         if not self.detailed_register_descriptions:
             return None
         target_delay = self.ms_length * position_pct
         index = math.floor(len(self.detailed_register_descriptions) * position_pct)
+        if index == len(self.detailed_register_descriptions):
+            index -= 1
         if 0 > index > len(self.detailed_register_descriptions):
             return None  # Shouldn't normally happen
         item = self.detailed_register_descriptions[index]
         # Not far enough into the song, keep going
         if item[2] < target_delay:
             while (
-                index < len(self.detailed_register_descriptions)
+                index < len(self.detailed_register_descriptions) - 1
                 and self.detailed_register_descriptions[index + 1][2] < target_delay
             ):
                 index += 1
