@@ -371,22 +371,24 @@ class DROSong(object):
         self.detailed_register_descriptions: DetailedRegisterInfo | None = None
         self.data_lock = threading.RLock()
 
-    def get_length_ms(self):
+    def get_length_ms(self) -> int:
         return self.ms_length
 
-    def get_length_data(self):
+    def get_length_data(self) -> int:
         return len(self.data)
 
     def find_next_instruction(
         self, start: int, s_inst: str, look_backwards: bool = False
-    ):
+    ) -> int:
         """Takes a starting index and register number (as a hex string) or
-        a special value of "DLYS", "DLYL" or "BANK", and finds the next
+        a special value of "DLYS", "DLYL", "DALL", or "BANK", and finds the next
         occurrence of that register after the given index. Returns the index."""
 
         # This is nuts. Change the comparison test depending on what we're
         #  looking for.
-        i = start
+        i = start + (
+            -1 if look_backwards else 1
+        )  # so we don't get stuck on the currently selected instruction
         look_for: str | int = s_inst
         if s_inst == "DLYS":
             ct = (
@@ -410,7 +412,6 @@ class DROSong(object):
             look_for = int(s_inst, 16)
 
         if look_backwards:
-            i -= 2  # so we don't get stuck on the currently selected instruction
             while i >= 0:
                 if ct(self.data[i], look_for):
                     return i
@@ -465,7 +466,7 @@ class DROSong(object):
         self.detailed_register_descriptions = None
         return deleted_data
 
-    def get_register_display(self, item: int):
+    def get_register_display(self, item: int) -> str:
         inst = self.data[item]
         if inst.inst_type == DROInstructionType.DELAY:
             if inst.command == self.data.short_delay_code:
@@ -479,7 +480,7 @@ class DROSong(object):
         else:  # must be a register instruction
             return "0x%02X" % (inst.command,)
 
-    def get_value_display(self, item: int):
+    def get_value_display(self, item: int) -> str:
         inst = self.data[item]
         if inst.inst_type == DROInstructionType.DELAY:
             return "%d ms" % (inst.value,)
@@ -488,7 +489,7 @@ class DROSong(object):
         else:  # must be a register instruction
             return "0x%02X (%d)" % (inst.value, inst.value)
 
-    def get_instruction_description(self, item: int):
+    def get_instruction_description(self, item: int) -> str:
         inst = self.data[item]
         if inst.inst_type == DROInstructionType.DELAY:
             if inst.command == self.data.short_delay_code:
@@ -515,7 +516,7 @@ class DROSong(object):
                     reg_desc = "(unknown)"
             return reg_desc
 
-    def get_detailed_register_description(self, item: int):
+    def get_detailed_register_description(self, item: int) -> str:
         if self.detailed_register_descriptions is None or item >= len(
             self.detailed_register_descriptions
         ):
@@ -558,7 +559,7 @@ class DROSong(object):
                 index -= 1
         return index, self.detailed_register_descriptions[index][2]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return (
             "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']"
             % (
@@ -570,7 +571,7 @@ class DROSong(object):
             )
         )
 
-    def pretty_string(self):
+    def pretty_string(self) -> str:
         pstr = (
             "DRO Song: %(name)s\n"
             "Format: v%(file_version)s\n"

@@ -468,7 +468,7 @@ class DTApp(wx.App):
         if not self.mainframe.dtlist.has_selected():
             start = 0
         else:
-            start = self.mainframe.dtlist.get_last_selected() + 1
+            start = self.mainframe.dtlist.get_last_selected()
         i = self.drosong.find_next_instruction(
             start,
             r_to_find,
@@ -492,26 +492,26 @@ class DTApp(wx.App):
 
     @catch_unhandled_exceptions
     @requires_dro_loaded
-    def button_next_note(self, _event, look_backwards=False):
+    def button_next_delay(self, _event, look_backwards=False):
         if not self.mainframe.dtlist.has_selected():
             start = 0
         else:
-            start = self.mainframe.dtlist.get_last_selected() + 1
+            start = self.mainframe.dtlist.get_last_selected()
         i = self.drosong.find_next_instruction(
             start,
             "DALL",
             look_backwards=look_backwards,
         )
         if i == -1:
-            self.set_status_text("No more notes found.")
+            self.set_status_text("No more delays found.")
             return
         self.mainframe.dtlist.deselect()
         self.mainframe.dtlist.select_item_manual(i)
         self.mainframe.dtlist.EnsureVisible(i)
         self.mainframe.dtlist.refresh_viewable_items()
 
-    def button_previous_note(self, event):
-        self.button_next_note(event, look_backwards=True)
+    def button_previous_delay(self, event):
+        self.button_next_delay(event, look_backwards=True)
 
     @catch_unhandled_exceptions
     @requires_dro_loaded
@@ -537,12 +537,12 @@ class DTApp(wx.App):
             self.button_delete(None)
             event.Veto()
         elif keycode == wx.WXK_LEFT:
-            # <-- key. Previous note
-            self.button_previous_note(event)
+            # <-- key. Previous delay
+            self.button_previous_delay(event)
             event.Veto()
         elif keycode == wx.WXK_RIGHT:
-            # --> key. Next note
-            self.button_next_note(event)
+            # --> key. Next delay
+            self.button_next_delay(event)
             event.Veto()
         else:
             event.Skip()
