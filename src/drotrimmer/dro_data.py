@@ -424,7 +424,7 @@ class DROSong(object):
 
         return -1
 
-    def __insert_instructions(self, index_and_value_list):
+    def _insert_instructions(self, index_and_value_list):
         """Currently just an internal method, used for undoing deletions.
 
         (Note to self: if this gets exposed to outside calls, make it
@@ -442,7 +442,7 @@ class DROSong(object):
         self.detailed_register_descriptions = None
 
     @dro_undo.undoable(
-        "Delete Instruction(s)", dro_globals.get_undo_controller, __insert_instructions
+        "Delete Instruction(s)", dro_globals.get_undo_controller, _insert_instructions
     )
     def delete_instructions(self, index_list: list[int]) -> list[tuple[int, list[int]]]:
         """Deletes instructions at the given indexes.
