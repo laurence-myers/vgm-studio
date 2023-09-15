@@ -22,14 +22,26 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+from .dro_util import DROTrimmerException
+
+if TYPE_CHECKING:
+    from .dro_undo import UndoController
 
 g_wx_app = None
 
-g_undo_controller = None
+g_undo_controller: UndoController | None = None
 
 
-def get_undo_controller():
+def get_undo_controller() -> UndoController:
+    global g_undo_controller
     # Must be instantiated externally.
+    if g_undo_controller is None:
+        raise DROTrimmerException(
+            "The global undo controller has not been initialised."
+        )
     return g_undo_controller
 
 

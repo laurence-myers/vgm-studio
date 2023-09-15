@@ -154,7 +154,7 @@ class DTSongDataList(wx.ListCtrl):
     def has_selected(self):
         return self.GetSelectedItemCount() > 0
 
-    def get_all_selected(self):
+    def get_all_selected(self) -> list[int]:
         sel_items = []
         item = self.GetFirstSelected()
         while item != -1:
