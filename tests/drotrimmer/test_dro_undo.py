@@ -1,21 +1,23 @@
-from typing import Any
 from unittest import TestCase
-from src.drotrimmer.dro_undo import UndoController, undoable
+from src.drotrimmer.dro_undo import UndoController, UndoableCommand
 
 con = UndoController()
 
 
-def get_controller():
-    return con
+class UndoTestCommand(UndoableCommand):
+    def __init__(self):
+        super().__init__("A test command")
+
+    def apply(self) -> None:
+        print("Do an action")
+
+    def revert(self) -> None:
+        print("Action undone")
 
 
 class UndoTestObject(object):
-    def an_undo_action(self, _original_state: Any) -> None:
-        print("Action undone")
-
-    @undoable("meow", get_controller, an_undo_action)
     def an_action(self) -> None:
-        print("Do an action")
+        con.execute(UndoTestCommand())
 
 
 class TestDroUndo(TestCase):

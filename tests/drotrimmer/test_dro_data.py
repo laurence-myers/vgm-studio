@@ -1,7 +1,6 @@
 import array
 from unittest import TestCase
 
-from src.drotrimmer import dro_undo, dro_globals
 from src.drotrimmer.dro_data import (
     DROSongV2,
     DRO_FILE_V2,
@@ -54,20 +53,10 @@ def create_dro_song_v2() -> DROSongV2:
     )
 
 
-class TestDROSongV2(TestCase):
-    def test_delete_instructions(self) -> None:
-        dro_globals.g_undo_controller = (
-            dro_undo.UndoController()
-        )  # TODO: make this a singleton. Or rework this.
-        dro_song = create_dro_song_v2()
-        self.assertEqual(dro_song.get_length_data(), 14)
-        self.assertEqual(dro_song.get_register_display(1), "0x30")
-        self.assertEqual(dro_song.get_value_display(1), "0x03 (3)")
-        dro_song.delete_instructions([1])
-        self.assertEqual(dro_song.get_length_data(), 13)
-        self.assertEqual(dro_song.get_register_display(1), "0x50")
-        self.assertEqual(dro_song.get_value_display(1), "0x05 (5)")
+# TODO: test DeleteInstructionsCommand
 
+
+class TestDROSongV2(TestCase):
     def test_find_next_instruction(self) -> None:
         dro_song = create_dro_song_v2()
         index = dro_song.find_next_instruction(0, "0x50")
@@ -173,20 +162,6 @@ class TestDROSongV2(TestCase):
         self.assertEqual(dro_song.get_value_display(2), "0x05 (5)")
         self.assertEqual(dro_song.get_value_display(5), "177 ms")
         self.assertEqual(dro_song.get_value_display(6), "49408 ms")
-
-    def test_insert_instructions(self) -> None:
-        dro_song = create_dro_song_v2()
-        self.assertEqual(dro_song.get_length_data(), 14)
-        self.assertEqual(dro_song.get_register_display(1), "0x30")
-        self.assertEqual(dro_song.get_value_display(1), "0x03 (3)")
-        dro_song._insert_instructions(
-            [
-                (1, array.array("B", [0x09, 0x12])),
-            ]
-        )
-        self.assertEqual(dro_song.get_length_data(), 15)
-        self.assertEqual(dro_song.get_register_display(1), "0xA0")
-        self.assertEqual(dro_song.get_value_display(1), "0x12 (18)")
 
     def test_pretty_string(self) -> None:
         dro_song = create_dro_song_v2()

@@ -51,6 +51,26 @@ from .ui_util import (
 from . import tasks, waveform
 
 
+class UpdateHeaderCommand(dro_undo.UndoableCommand):
+    def __init__(
+        self, dro_song: dro_data.DROSong, opl_type: int, ms_length: int
+    ) -> None:
+        super().__init__("DRO Header Changes")
+        self.dro_song = dro_song
+        self.opl_type = opl_type
+        self.ms_length = ms_length
+        self.original_opl_type = self.dro_song.opl_type
+        self.original_ms_length = self.ms_length
+
+    def apply(self) -> None:
+        self.dro_song.opl_type = self.opl_type
+        self.dro_song.ms_length = self.ms_length
+
+    def revert(self) -> None:
+        self.dro_song.opl_type = self.original_opl_type
+        self.dro_song.ms_length = self.original_ms_length
+
+
 class DTApp(wx.App):
     dro_player: dro_player.DROPlayer
     drosong: dro_data.DROSong | None
@@ -63,8 +83,10 @@ class DTApp(wx.App):
     playback_position_update_interval_ms: int = 10
     tail_length: int
     task_master: tasks.TaskMaster
+    undo_controller: dro_undo.UndoController
 
     def OnInit(self) -> bool:
+        self.undo_controller = dro_undo.UndoController()
         self.drosong: dro_data.DROSong | None = None
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
@@ -171,7 +193,9 @@ class DTApp(wx.App):
             first_delay_analyzer = dro_analysis.DROFirstDelayAnalyzer()
             first_delay_analyzer.analyze_dro(self.drosong)
             if first_delay_analyzer.result:
-                self.drosong.delete_instructions([0])
+                self.undo_controller.execute(
+                    dro_data.DeleteInstructionsCommand(self.drosong, [0])
+                )
                 auto_trimmed = True
             else:
                 auto_trimmed = False
@@ -235,7 +259,7 @@ class DTApp(wx.App):
                 md.ShowModal()
 
             # Reset undo history when a new file is opened.
-            dro_globals.get_undo_controller().reset()
+            self.undo_controller.reset()
             self.mainframe.GetMenuBar().update_undo_redo_menu_items()
 
             # Reset the Goto dialog, if it exists.
@@ -314,7 +338,7 @@ class DTApp(wx.App):
     @catch_unhandled_exceptions
     @requires_dro_loaded
     def menu_undo(self, _event):
-        undo_desc = dro_globals.get_undo_controller().undo()
+        undo_desc = self.undo_controller.undo()
         if undo_desc:
             self.set_status_text("Undone: %s" % (undo_desc,))
             self.mainframe.dtlist.refresh_item_count()
@@ -328,7 +352,7 @@ class DTApp(wx.App):
     @catch_unhandled_exceptions
     @requires_dro_loaded
     def menu_redo(self, _event):
-        redo_desc = dro_globals.get_undo_controller().redo()
+        redo_desc = self.undo_controller.redo()
         if redo_desc:
             self.set_status_text("Redone: %s" % (redo_desc,))
             self.mainframe.dtlist.refresh_item_count()
@@ -392,7 +416,9 @@ class DTApp(wx.App):
             self.dro_player.stop()
             # I think all of this should be moved to the dtlist...
             selected_items = self.mainframe.dtlist.get_all_selected()
-            self.drosong.delete_instructions(selected_items)
+            self.undo_controller.execute(
+                dro_data.DeleteInstructionsCommand(self.drosong, selected_items)
+            )
             self.mainframe.dtlist.refresh_item_count()
             # Deselect all, and re-select only the first index we deleted,
             # or the last item in the list.
@@ -677,20 +703,12 @@ class DTApp(wx.App):
                 )
 
     # Other stuff
-    def __update_dro_info_redo(self, args_list):  # sigh
-        self.update_dro_info(*args_list)
 
-    # @requiresDROLoaded # not really required here
-    @dro_undo.undoable(
-        "DRO Header Changes",
-        dro_globals.get_undo_controller,
-        __update_dro_info_redo,
-    )
-    def update_dro_info(self, opl_type, ms_length):
-        original_values = [self.drosong.opl_type, self.drosong.ms_length]
-        self.drosong.opl_type = opl_type
-        self.drosong.ms_length = ms_length
-        return original_values
+    def update_dro_info(self, opl_type: int, ms_length: int) -> None:
+        if self.drosong:
+            self.undo_controller.execute(
+                UpdateHeaderCommand(self.drosong, opl_type, ms_length)
+            )
 
     # Event/threaded stuff. Requires a little more delicacy.
     def set_status_text(self, message: str, section: int = 0) -> None:
@@ -773,7 +791,6 @@ def start_gui_app():
         except:
             pass
 
-    dro_globals.g_undo_controller = dro_undo.UndoController()
     app = DTApp(0)
     dro_globals.g_wx_app = app
 

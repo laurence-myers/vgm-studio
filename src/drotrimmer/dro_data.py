@@ -30,7 +30,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Self, Literal, Any, overload, Iterator, Iterable
 
-from . import dro_globals, dro_undo, dro_util, regdata
+from . import dro_util, regdata
+from .dro_undo import UndoableCommand
 
 # Duplicated from dro_analysis to avoid circular import. TODO: move to common location.
 DetailedRegisterEntry = tuple[int, str, int]
@@ -141,11 +142,8 @@ class DROData(ABC):
                 second_index = None  # possibly dangerous
         del self.data[first_index:second_index]
 
-    def delete_multiple(self, index_list: list[int], is_sorted: bool = False) -> None:
-        """NOTE: the given index_list will be sorted in-place, and reversed in-place."""
-        # Sort if required
-        if not is_sorted:
-            index_list.sort()  # dodgy, hidden side effects
+    def delete_multiple(self, index_list: list[int]) -> None:
+        """NOTE: the given index_list will be reversed in-place."""
         index_list.reverse()  # dodgy, hidden side effects
         # We're usually going to delete slices, so convert ranges of
         #  indexes into slices. Will be more efficient to do one
@@ -227,11 +225,13 @@ class DRODataV1(DROData):
         self.index_map: list[int] = []  # keys are indexes.
         self.generate_index_map()
 
-    def delete_multiple(self, index_list, is_sorted=False):
-        super().delete_multiple(index_list, is_sorted)
+    def delete_multiple(self, index_list: list[int]) -> None:
+        super().delete_multiple(index_list)
         self.generate_index_map()
 
-    def insert_multiple(self, i_and_val_list):
+    def insert_multiple(
+        self, i_and_val_list: Iterable[tuple[int, array.array]]
+    ) -> None:
         real_offset = 0
         for num_inserted, (i, val) in enumerate(i_and_val_list):
             real_index = self._translate_index(i - num_inserted) + real_offset
@@ -356,6 +356,39 @@ class DRODataV2(DROData):
         return range(len(self.data) // 2)
 
 
+class DeleteInstructionsCommand(UndoableCommand):
+    def __init__(self, dro_song: "DROSong", index_list: list[int]) -> None:
+        super().__init__("Delete Instruction(s)")
+        self._dro_song = dro_song
+        self._index_list = index_list
+        self._index_list.sort()
+        # Keep track of delays deleted, so we can update the total delay count.
+        self._delay_diff = 0
+        self._deleted_data = []
+        for i in self._index_list:
+            inst = self._dro_song.data[i]
+            if inst.inst_type == DROInstructionType.DELAY:
+                self._delay_diff += inst.value
+            self._deleted_data.append((i, self._dro_song.data.get_raw(i)))
+
+    def apply(self) -> None:
+        with self._dro_song.data_lock:
+            # Now delete each item, in reverse order.
+            self._dro_song.data.delete_multiple(self._index_list)
+            self._dro_song.ms_length -= self._delay_diff
+            # Also need to update our register descriptions, since the data has changed.
+            # This has to be done from outside DROSong, so just clear any existing descriptions.
+            self._dro_song.detailed_register_descriptions = None
+
+    def revert(self) -> None:
+        with self._dro_song.data_lock:
+            self._dro_song.data.insert_multiple(self._deleted_data)
+            self._dro_song.ms_length += self._delay_diff
+            # Also need to update our register descriptions, since the data has changed.
+            # This has to be done from outside DROSong, so just clear any existing descriptions.
+            self._dro_song.detailed_register_descriptions = None
+
+
 class DROSong(object):
     """NOTE: this actually implements methods for the V1 file format."""
 
@@ -426,52 +459,6 @@ class DROSong(object):
                 i += 1
 
         return -1
-
-    def _insert_instructions(
-        self, index_and_value_list: Iterable[tuple[int, array.array]]
-    ) -> None:
-        """Currently just an internal method, used for undoing deletions.
-
-        (Note to self: if this gets exposed to outside calls, make it
-        "undoable" too.)
-        """
-        with self.data_lock:
-            self.data.insert_multiple(index_and_value_list)
-        # Keep track of delays inserted, so we can update the total delay count.
-        for i, val in index_and_value_list:
-            inst = self.data[i]
-            if inst.inst_type == DROInstructionType.DELAY:
-                self.ms_length += inst.value
-        # Also need to update our register descriptions, since the data has changed.
-        # This has to be done from outside DROSong, so just clear any existing descriptions.
-        self.detailed_register_descriptions = None
-
-    @dro_undo.undoable(
-        "Delete Instruction(s)", dro_globals.get_undo_controller, _insert_instructions
-    )
-    def delete_instructions(
-        self, index_list: list[int]
-    ) -> list[tuple[int, array.array]]:
-        """Deletes instructions at the given indexes.
-
-        Returns a list of tuples, containing the index deleted and the value
-        that was stored at that index."""
-        # First, copy the data to be deleted.
-        deleted_data = []
-        index_list.sort()
-        for i in index_list:
-            # Keep track of delays deleted, so we can update the total delay count.
-            inst = self.data[i]
-            if inst.inst_type == DROInstructionType.DELAY:
-                self.ms_length -= inst.value
-            deleted_data.append((i, self.data.get_raw(i)))
-        # Now delete each item, in reverse order.
-        with self.data_lock:
-            self.data.delete_multiple(index_list, is_sorted=True)
-        # Also need to update our register descriptions, since the data has changed.
-        # This has to be done from outside DROSong, so just clear any existing descriptions.
-        self.detailed_register_descriptions = None
-        return deleted_data
 
     def get_register_display(self, item: int) -> str:
         inst = self.data[item]

@@ -137,12 +137,12 @@ class DTMainMenuBar(wx.MenuBar):
 
     def update_undo_redo_menu_items(self) -> None:
         # Check if there's anything left to undo
-        if dro_globals.get_undo_controller().has_something_to_undo():
+        if wx.GetApp().undo_controller.has_something_to_undo():
             self.undo_menu_item.Enable(True)
         else:
             self.undo_menu_item.Enable(False)
             # Check if there's anything left to undo
-        if dro_globals.get_undo_controller().has_something_to_redo():
+        if wx.GetApp().undo_controller.has_something_to_redo():
             self.redo_menu_item.Enable(True)
         else:
             self.redo_menu_item.Enable(False)
