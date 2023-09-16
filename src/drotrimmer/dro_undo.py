@@ -62,14 +62,13 @@ class UndoController(object):
         return not self.is_buffer_empty() and self.position < len(self.buffer) - 1
 
     def execute(self, value: UndoableCommand) -> None:
-        self._lock.acquire()
-        value.apply()
-        # If we've already tried undoing, truncate the list
-        if self.has_something_to_redo():
-            del self.buffer[self.position + 1 :]
-        self.buffer.append(value)
-        self.position += 1
-        self._lock.release()
+        with self._lock:
+            value.apply()
+            # If we've already tried undoing, truncate the list
+            if self.has_something_to_redo():
+                del self.buffer[self.position + 1 :]
+            self.buffer.append(value)
+            self.position += 1
 
     def undo(self) -> str | None:
         """Perform an undo action, using the entry in the undo buffer
@@ -82,14 +81,14 @@ class UndoController(object):
         position will be the last entry in the buffer.
         If buffer is emtpy, will do nothing.
         """
-        self._lock.acquire()
-        if self.has_something_to_undo():  # silently ignore calls if nothing to undo.
-            memo = self.buffer[self.position]
-            memo.revert()
-            self.position -= 1
-            self._lock.release()
-            return memo.description
-        self._lock.release()
+        with self._lock:
+            if (
+                self.has_something_to_undo()
+            ):  # silently ignore calls if nothing to undo.
+                memo = self.buffer[self.position]
+                memo.revert()
+                self.position -= 1
+                return memo.description
         return None
 
     def redo(self) -> str | None:
@@ -97,12 +96,12 @@ class UndoController(object):
         Returns a string if an redo was performed, described the action
         that was redone, otherwise returns None.
         """
-        self._lock.acquire()
-        if self.has_something_to_redo():  # silently ignore calls if nothing to redo.
-            command = self.buffer[self.position]
-            command.apply()
-            self.position += 1
-            self._lock.release()
-            return command.description
-        self._lock.release()
+        with self._lock:
+            if (
+                self.has_something_to_redo()
+            ):  # silently ignore calls if nothing to redo.
+                command = self.buffer[self.position + 1]
+                command.apply()
+                self.position += 1
+                return command.description
         return None

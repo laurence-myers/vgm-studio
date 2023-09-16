@@ -6,8 +6,9 @@ from src.drotrimmer.dro_data import (
     DRO_FILE_V2,
     DRODataV2,
     DetailedRegisterInfo,
+    DeleteInstructionsCommand,
 )
-
+from src.drotrimmer.dro_undo import UndoController
 
 SONG_LENGTH = (0xB1 + 0xC100) * 2
 
@@ -53,7 +54,80 @@ def create_dro_song_v2() -> DROSongV2:
     )
 
 
-# TODO: test DeleteInstructionsCommand
+class TestDeleteInstructionsCommand(TestCase):
+    def test_apply_and_revert(self) -> None:
+        undo_controller = UndoController()
+        dro_song = create_dro_song_v2()
+        index_list = [1, 6, 3, 4]
+        command = DeleteInstructionsCommand(dro_song, index_list)
+        data_slice = slice(0, 8)
+
+        # Initial
+        self.assertEqual(dro_song.get_length_data(), 14)
+        expected_1 = array.array("B", [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
+        self.assertEqual(dro_song.data.data[data_slice], expected_1)
+
+        # First apply
+        undo_controller.execute(command)
+        self.assertEqual(dro_song.get_length_data(), 14 - len(index_list))
+        expected_2 = array.array(
+            "B",
+            [
+                0x00,
+                0x01,
+                # deleted 0x01, 1
+                # deleted 0x01, 2
+                0x04,
+                0x05,
+                # deleted 0x03, 1
+                # deleted 0x03, 2
+                # deleted 0x04, 1
+                # deleted 0x04, 2
+                0xFE,
+                0xB0,
+                # deleted 0x06, 1
+                # deleted 0x06, 2
+                0x00,
+                0x01,
+            ],
+        )
+        self.assertEqual(dro_song.data.data[data_slice], expected_2)
+
+        # Delete some more
+        undo_controller.execute(DeleteInstructionsCommand(dro_song, [1]))
+        self.assertEqual(dro_song.get_length_data(), 14 - len(index_list) - 1)
+        expected_3 = array.array(
+            "B",
+            [
+                0x00,
+                0x01,
+                # deleted 0x01, 1
+                # deleted 0x01, 2
+                0xFE,
+                0xB0,
+                0x00,
+                0x01,
+                0x02,
+                0x03,
+            ],
+        )
+        self.assertEqual(dro_song.data.data[data_slice], expected_3)
+
+        # Undo
+        undo_controller.undo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_2)
+        undo_controller.redo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_3)
+        undo_controller.undo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_2)
+        undo_controller.undo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_1)
+        undo_controller.redo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_2)
+        undo_controller.redo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_3)
+        undo_controller.undo()
+        self.assertEqual(dro_song.data.data[data_slice], expected_2)
 
 
 class TestDROSongV2(TestCase):

@@ -53,12 +53,12 @@ def calculate_playback_samples(
     return math.ceil(ms / 1000 * frequency * channels * (bit_depth // 8))
 
 
-def condense_slices(index_list):
+def condense_slices(index_list: list[int]) -> list[int | slice]:
     """Assumes index_list is sorted, in either ascending or descending order.
     Based on http://stackoverflow.com/a/10987875"""
     start = index_list[0]
     i = 1
-    c_list = []
+    c_list: list[int | slice] = []
     while i < len(index_list):
         # Diff != 1? Slice ended, or non-slice value.
         if abs(index_list[i] - index_list[i - 1]) != 1:

@@ -142,14 +142,14 @@ class DROData(ABC):
                 second_index = None  # possibly dangerous
         del self.data[first_index:second_index]
 
-    def delete_multiple(self, index_list: list[int]) -> None:
-        """NOTE: the given index_list will be reversed in-place."""
-        index_list.reverse()  # dodgy, hidden side effects
+    def delete_multiple(self, original_index_list: list[int]) -> None:
         # We're usually going to delete slices, so convert ranges of
         #  indexes into slices. Will be more efficient to do one
         #  deletion of 10000 items, than 10000 deletions of one item.
         #  (That's my theory, anyway.)
-        index_list = dro_util.condense_slices(index_list)
+        index_list = dro_util.condense_slices(
+            list(sorted(original_index_list, reverse=True))
+        )
         for i in index_list:
             del self[i]
 
@@ -192,7 +192,7 @@ class DROData(ABC):
         self,
         i_and_val_list: Iterable[tuple[int, array.array]],
     ) -> None:
-        for i, val in i_and_val_list:
+        for i, val in sorted(i_and_val_list, key=lambda entry: entry[0]):
             self._insert(i, val)
 
     def tofile(self, file_handle):
@@ -361,7 +361,6 @@ class DeleteInstructionsCommand(UndoableCommand):
         super().__init__("Delete Instruction(s)")
         self._dro_song = dro_song
         self._index_list = index_list
-        self._index_list.sort()
         # Keep track of delays deleted, so we can update the total delay count.
         self._delay_diff = 0
         self._deleted_data = []
