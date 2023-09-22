@@ -30,6 +30,7 @@ class VGMSong:
         file_version: int,
         name: str,
         data: array.array,
+        instruction_offsets: list[int],
         opl_type: Literal[0, 1, 2],
         total_samples: int,
         loop_offset: int,
@@ -39,6 +40,7 @@ class VGMSong:
     ) -> None:
         self.data = data
         self.file_version = file_version
+        self.instruction_offsets = instruction_offsets
         self.loop_modifier = loop_modifier
         self.loop_num_samples = loop_num_samples
         self.loop_offset = loop_offset

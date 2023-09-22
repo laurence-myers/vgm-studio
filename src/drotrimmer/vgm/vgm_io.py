@@ -1,9 +1,11 @@
 import array
+import struct
 from typing import BinaryIO, Literal
 
 from .vgm_data import VGMSong, GD3Tag
 from ..dro_util import DROFileException, read_int, read_char
 
+ChipBank = Literal[0, 1]
 OplType = Literal[0, 1, 2]
 
 _DUAL_CHIP_FLAG = 0x40000000
@@ -13,36 +15,49 @@ _MINIMUM_SUPPORTED_VERSION = 0x00000151
 _VGM_HEADER = b"Vgm "
 
 
-def parse_command(command: int) -> None:
-    result = None
-    match command:
-        case 0x5A:
-            result = "aa dd YM3812, write value dd to register aa"
-        case 0x5E:
-            result = "aa dd	YMF262 port 0, write value dd to register aa"
-        case 0x5F:
-            result = "aa dd	YMF262 port 1, write value dd to register aa"
-        case 0x61:
-            result = (
-                "nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds). "
-                "Longer pauses than this are represented by multiple wait commands."
-            )
-        case 0x62:
-            result = (
-                "wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"
-            )
-        case 0x63:
-            result = (
-                "wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03"
-            )
-        case 0x66:
-            result = "end of sound data"
-        case wait if 0x70 <= wait <= 0x7F:
-            result = "wait n+1 samples, n can range from 0 to 15."
-        case 0xAA:
-            result = "aa dd YM3812, write value dd to register aa (chip #2)"
-
-    print(result)
+def _read_commands(in_file: BinaryIO) -> tuple[array.array, list[int]]:
+    offsets = []
+    data = array.array("B")
+    while raw := in_file.read(1):
+        offsets.append(len(data))
+        command = struct.unpack("<B", raw)[0]
+        match command:
+            case 0x5A:
+                """aa dd YM3812, write value dd to register aa"""
+                data.append(command)
+                data.fromfile(in_file, 2)
+            case 0x5E:
+                """aa dd	YMF262 port 0, write value dd to register aa"""
+                data.append(command)
+                data.fromfile(in_file, 2)
+            case 0x5F:
+                """aa dd	YMF262 port 1, write value dd to register aa"""
+                data.append(command)
+                data.fromfile(in_file, 2)
+            case 0x61:
+                """nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds).
+                Longer pauses than this are represented by multiple wait commands."""
+                data.append(command)
+                data.fromfile(in_file, 2)
+            case 0x62:
+                """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
+                data.append(command)
+            case 0x63:
+                """wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03"""
+                data.append(command)
+            case 0x66:
+                """end of sound data"""
+                break
+            case wait if 0x70 <= wait <= 0x7F:
+                """wait n+1 samples, n can range from 0 to 15."""
+                data.append(command)
+            case 0xAA:
+                """aa dd YM3812, write value dd to register aa (chip #2)"""
+                data.append(command)
+                data.fromfile(in_file, 2)
+            case _:
+                raise DROFileException(f"Unsupported VGM command: {hex(command)}")
+    return (data, offsets)
 
 
 def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
@@ -138,9 +153,7 @@ class VgmFileIO:
 
             # Read the data
             vgm_file.seek(vgm_data_offset)
-            data = array.array(
-                "B", vgm_file.read()
-            )  # includes other junk like the GD3 tag
+            (data, instruction_offsets) = _read_commands(vgm_file)
 
             # Read the GD3 tag
             if gd3_offset:
@@ -153,6 +166,7 @@ class VgmFileIO:
                 file_version=version,
                 name=file_name,
                 data=data,
+                instruction_offsets=instruction_offsets,
                 opl_type=opl_type,
                 total_samples=total_samples,
                 loop_offset=loop_offset,
