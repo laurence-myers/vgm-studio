@@ -17,13 +17,13 @@ class PlaybackPositionPanel(wx.Panel):
             self, style=wx.ALIGN_CENTER | wx.ST_NO_AUTORESIZE
         )
         self._text_position_ms.SetLabelText("0 / 0 ms")
-        self._text_position_ms.SetMinSize(self.ToDIP(wx.Size(600, 40)))
+        self._text_position_ms.SetMinSize(self.FromDIP(wx.Size(400, 20)))
 
         self._text_position_samples = wx.StaticText(
             self, style=wx.ALIGN_CENTER | wx.ST_NO_AUTORESIZE
         )
         self._text_position_samples.SetLabelText("0 / 0 samples")
-        self._text_position_samples.SetMinSize(self.ToDIP(wx.Size(600, 40)))
+        self._text_position_samples.SetMinSize(self.FromDIP(wx.Size(400, 20)))
 
         # Do layout
         info_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)

@@ -123,7 +123,7 @@ class DTMainFrame(wx.Frame):
         self.SetDropTarget(MainFrameDropTarget())
 
     def __do_layout(self) -> None:
-        self.splitter_1.SetMinimumPaneSize(100)
+        self.splitter_1.SetMinimumPaneSize(self.FromDIP(100))
 
         grid_sizer_1 = wx.FlexGridSizer(5, 1, 0, 0)
         grid_sizer_1.Add(self.dtlist, 1, wx.EXPAND, 0)
@@ -163,7 +163,7 @@ class DTMainFrame(wx.Frame):
         self.statusbar.SetStatusWidths([-2, -1])
 
         self.Layout()
-        self.SetSize(self.ToDIP(wx.Size(1900, 1200)))
+        self.SetSize(self.FromDIP(wx.Size(800, 600)))
         self.Centre()
 
     def __set_properties(self) -> None:
