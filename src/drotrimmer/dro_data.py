@@ -91,12 +91,8 @@ class DROData(ABC):
     Locking should be performed by any outer code that mutates the data.
     """
 
-    def __init__(
-        self, data: array.array, short_delay_code: int, long_delay_code: int
-    ) -> None:
+    def __init__(self, data: array.array) -> None:
         self.data = data
-        self.short_delay_code = short_delay_code
-        self.long_delay_code = long_delay_code
 
     @abstractmethod
     def _translate_index(self, key: int) -> int:
@@ -194,6 +190,14 @@ class DROData(ABC):
         for i, val in sorted(i_and_val_list, key=lambda entry: entry[0]):
             self._insert(i, val)
 
+    @abstractmethod
+    def is_long_delay(self, command: int) -> bool:
+        ...
+
+    @abstractmethod
+    def is_short_delay(self, command: int) -> bool:
+        ...
+
     def tofile(self, file_handle):
         self.data.tofile(file_handle)
 
@@ -220,7 +224,7 @@ class DROData(ABC):
 
 class DRODataV1(DROData):
     def __init__(self, data: array.array):
-        super().__init__(data, 0x00, 0x01)
+        super().__init__(data)
         self.index_map: list[int] = []  # keys are indexes.
         self.generate_index_map()
 
@@ -307,6 +311,12 @@ class DRODataV1(DROData):
             else:
                 i += 2
 
+    def is_long_delay(self, command: int) -> bool:
+        return command == 0x01
+
+    def is_short_delay(self, command: int) -> bool:
+        return command == 0x00
+
 
 class DRODataV2(DROData):
     def __init__(
@@ -316,15 +326,17 @@ class DRODataV2(DROData):
         short_delay_code: int,
         long_delay_code: int,
     ) -> None:
-        super().__init__(data, short_delay_code, long_delay_code)
+        super().__init__(data)
         self.codemap = codemap
+        self._short_delay_code = short_delay_code
+        self._long_delay_code = long_delay_code
 
     def shallow_copy(self, new_data: array.array | None = None) -> "DRODataV2":
         new_copy = DRODataV2(
             new_data if new_data is not None else array.array("B"),
             self.codemap,
-            self.short_delay_code,
-            self.long_delay_code,
+            self._short_delay_code,
+            self._long_delay_code,
         )
         return new_copy
 
@@ -334,10 +346,10 @@ class DRODataV2(DROData):
     def _interpret_data(self, real_index):
         cmd = self.data[real_index]
         bank = None
-        if cmd == self.short_delay_code:
+        if cmd == self._short_delay_code:
             inst_type = DROInstructionType.DELAY
             val = self.data[real_index + 1] + 1
-        elif cmd == self.long_delay_code:
+        elif cmd == self._long_delay_code:
             inst_type = DROInstructionType.DELAY
             val = (self.data[real_index + 1] + 1) << 8
         else:
@@ -353,6 +365,12 @@ class DRODataV2(DROData):
 
     def _iter_indexes(self):
         return range(len(self.data) // 2)
+
+    def is_long_delay(self, command: int) -> bool:
+        return command == self._long_delay_code
+
+    def is_short_delay(self, command: int) -> bool:
+        return command == self._short_delay_code
 
 
 class DeleteInstructionsCommand(UndoableCommand):
@@ -427,12 +445,12 @@ class DROSong(object):
         if s_inst == "DLYS":
             ct = (
                 lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
-                and datum.command == self.data.short_delay_code
+                and self.data.is_short_delay(datum.command)
             )
         elif s_inst == "DLYL":
             ct = (
                 lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
-                and datum.command == self.data.long_delay_code
+                and self.data.is_long_delay(datum.command)
             )
         elif s_inst == "DALL":
             ct = lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
@@ -461,9 +479,9 @@ class DROSong(object):
     def get_register_display(self, item: int) -> str:
         inst = self.data[item]
         if inst.inst_type == DROInstructionType.DELAY:
-            if inst.command == self.data.short_delay_code:
+            if self.data.is_short_delay(inst.command):
                 return "DLYS"
-            elif inst.command == self.data.long_delay_code:
+            elif self.data.is_long_delay(inst.command):
                 return "DLYL"
             else:
                 return "???"
@@ -484,9 +502,9 @@ class DROSong(object):
     def get_instruction_description(self, item: int) -> str:
         inst = self.data[item]
         if inst.inst_type == DROInstructionType.DELAY:
-            if inst.command == self.data.short_delay_code:
+            if self.data.is_short_delay(inst.command):
                 return "Delay (short)"
-            elif inst.command == self.data.long_delay_code:
+            elif self.data.is_long_delay(inst.command):
                 return "Delay (long)"
             else:
                 return "???"
