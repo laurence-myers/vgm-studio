@@ -97,7 +97,6 @@ class DROData(ABC):
         self.data = data
         self.short_delay_code = short_delay_code
         self.long_delay_code = long_delay_code
-        self.delay_codes = (short_delay_code, long_delay_code)
 
     @abstractmethod
     def _translate_index(self, key: int) -> int:

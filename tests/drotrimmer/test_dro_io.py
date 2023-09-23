@@ -31,6 +31,5 @@ class TestDroUndo(TestCase):
         self.assertEqual(
             dro_data.data[:10], array.array("B", (0, 32, 5, 49, 10, 2, 15, 2, 20, 98))
         )
-        self.assertEqual(dro_data.delay_codes, (122, 123))
         self.assertEqual(dro_data.long_delay_code, 123)
         self.assertEqual(dro_data.short_delay_code, 122)
