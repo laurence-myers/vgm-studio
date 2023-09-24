@@ -2,7 +2,7 @@ import array
 import struct
 from typing import BinaryIO, Literal
 
-from .vgm_data import VGMSong, GD3Tag
+from .vgm_data import VGMSong, GD3Tag, VGMData
 from ..dro_util import DROFileException, read_int, read_char
 
 ChipBank = Literal[0, 1]
@@ -165,8 +165,7 @@ class VgmFileIO:
             return VGMSong(
                 file_version=version,
                 name=file_name,
-                data=data,
-                instruction_offsets=instruction_offsets,
+                data=VGMData(data, instruction_offsets),
                 opl_type=opl_type,
                 total_samples=total_samples,
                 loop_offset=loop_offset,
