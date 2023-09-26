@@ -24,9 +24,65 @@ class GD3Tag:
 
 
 class VGMData(DROData):
-    def __init__(self, data: array.array, offsets: list[int]) -> None:
+    def __init__(self, data: array.array, offsets: list[int] | None = None) -> None:
         super().__init__(data)
+        if offsets is None:
+            self._generate_offsets()
+        else:
+            self._offsets = offsets
+
+    def _generate_offsets(self) -> None:
+        offsets = []
+        i = 0
+        while i < len(self.data):
+            offsets.append(i)
+            command = self.data[i]
+            match command:
+                case 0x5A:
+                    """aa dd YM3812, write value dd to register aa"""
+                    i += 3
+                case 0x5E:
+                    """aa dd	YMF262 port 0, write value dd to register aa"""
+                    i += 3
+                case 0x5F:
+                    """aa dd	YMF262 port 1, write value dd to register aa"""
+                    i += 3
+                case 0x61:
+                    """nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds).
+                    Longer pauses than this are represented by multiple wait commands.
+                    """
+                    i += 3
+                case 0x62:
+                    """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
+                    i += 1
+                case 0x63:
+                    """wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03"""
+                    i += 1
+                case wait if 0x70 <= wait <= 0x7F:
+                    """wait n+1 samples, n can range from 0 to 15."""
+                    i += 1
+                case 0xAA:
+                    """aa dd YM3812, write value dd to register aa (chip #2)"""
+                    i += 3
+                case _:
+                    raise DROTrimmerException(
+                        f"Unsupported VGM command: {hex(command)}"
+                    )
         self._offsets = offsets
+
+    def delete_multiple(self, index_list: list[int]) -> None:
+        super().delete_multiple(index_list)
+        self._generate_offsets()
+
+    def insert_multiple(
+        self, i_and_val_list: Iterable[tuple[int, array.array]]
+    ) -> None:
+        real_offset = 0
+        for num_inserted, (i, val) in enumerate(i_and_val_list):
+            real_index = self._translate_index(i - num_inserted) + real_offset
+            self.data[real_index:real_index] = val
+            real_offset += len(val)
+        self._generate_offsets()
 
     def _translate_index(self, key: int) -> int:
         return self._offsets[key]
@@ -58,7 +114,7 @@ class VGMData(DROData):
                 Longer pauses than this are represented by multiple wait commands."""
                 inst_type = DROInstructionType.DELAY
                 # TODO: convert samples to ms
-                val = (self.data[real_index + 1] << 8) + self.data[real_index + 1]
+                val = (self.data[real_index + 2] << 8) + self.data[real_index + 1]
             case 0x62:
                 """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
                 inst_type = DROInstructionType.DELAY
