@@ -39,6 +39,7 @@ from .. import (
     dro_undo,
     dro_util,
 )
+from ..vgm import vgm_io
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
@@ -172,7 +173,9 @@ class DTApp(wx.App):
         od = wx.FileDialog(
             self.mainframe,
             "Open DRO",
-            wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
+            wildcard="DRO files (*.dro)|*.dro|"
+            + "VGM files (*.vgm)|*.vgm|"
+            + "All Files|*.*",
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_CHANGE_DIR,
         )
         result = od.ShowModal()
@@ -184,27 +187,34 @@ class DTApp(wx.App):
 
     def __load_file(self, filename: str) -> None:
         try:
-            importer = dro_io.DroFileIO()
+            if filename.lower().endswith(".vgm"):
+                importer = vgm_io.VgmFileIO()
+            else:
+                importer = dro_io.DroFileIO()
             self.drosong = importer.read(filename)
             if not self.drosong:  # Just to keep mypy happy
                 return
 
-            # Delete first instruction if it's a bogus delay (mostly for V1)
-            first_delay_analyzer = dro_analysis.DROFirstDelayAnalyzer()
-            first_delay_analyzer.analyze_dro(self.drosong)
-            if first_delay_analyzer.result:
-                self.undo_controller.execute(
-                    dro_data.DeleteInstructionsCommand(self.drosong, [0])
-                )
-                auto_trimmed = True
+            if self.drosong.file_type == dro_data.SongFileType.DRO:
+                # Delete first instruction if it's a bogus delay (mostly for V1)
+                first_delay_analyzer = dro_analysis.DROFirstDelayAnalyzer()
+                first_delay_analyzer.analyze_dro(self.drosong)
+                if first_delay_analyzer.result:
+                    self.undo_controller.execute(
+                        dro_data.DeleteInstructionsCommand(self.drosong, [0])
+                    )
+                    auto_trimmed = True
+                else:
+                    auto_trimmed = False
+
+                # Check if the total delay calculated doesn't match the delay recorded
+                #  in the DRO file header.
+                delay_mismatch_analyzer = dro_analysis.DROTotalDelayMismatchAnalyzer()
+                delay_mismatch_analyzer.analyze_dro(self.drosong)
+                delay_mismatch = delay_mismatch_analyzer.result
             else:
                 auto_trimmed = False
-
-            # Check if the total delay calculated doesn't match the delay recorded
-            #  in the DRO file header.
-            delay_mismatch_analyzer = dro_analysis.DROTotalDelayMismatchAnalyzer()
-            delay_mismatch_analyzer.analyze_dro(self.drosong)
-            delay_mismatch = delay_mismatch_analyzer.result
+                delay_mismatch = None
 
             # Load detailed register analysis.
             # Delay running analysis for a fraction of a second, this gives a better user experience. For example,

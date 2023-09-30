@@ -1,4 +1,5 @@
 import array
+import math
 from unittest import TestCase
 
 from src.drotrimmer.dro_data import DROInstruction, DROInstructionType
@@ -26,7 +27,6 @@ def create_all_vgm_data() -> VGMData:
 
     return VGMData(
         array.array("B", init_data),
-        offsets=None,
     )
 
 
@@ -46,7 +46,6 @@ def create_vgm_data() -> VGMData:
 
     return VGMData(
         array.array("B", init_data),
-        offsets=None,
     )
 
 
@@ -120,7 +119,9 @@ class TestVgmData(TestCase):
         )
         self.assertEqual(
             dro_data[5],
-            DROInstruction(DROInstructionType.DELAY, 0x61, 0xB0, None),
+            DROInstruction(
+                DROInstructionType.DELAY, 0x61, math.ceil(0xB0 // 44.1), None
+            ),
         )
         self._compare_vgm_data(
             dro_data[:2],
@@ -144,7 +145,9 @@ class TestVgmData(TestCase):
         )
         self.assertEqual(
             dro_data._interpret_data(5 * 3),
-            DROInstruction(DROInstructionType.DELAY, 0x61, 0xB0, None),
+            DROInstruction(
+                DROInstructionType.DELAY, 0x61, math.ceil(0xB0 // 44.1), None
+            ),
         )
 
     def test_is_long_delay(self) -> None:
@@ -184,8 +187,8 @@ class TestVgmData(TestCase):
         dro_data = create_vgm_data()
         dro_data_copy = dro_data.shallow_copy()
         self._compare_vgm_data(dro_data, dro_data_copy, [])
-        dro_data_copy = dro_data.shallow_copy(array.array("B", [1, 2, 3]))
-        self._compare_vgm_data(dro_data, dro_data_copy, [1, 2, 3])
+        dro_data_copy = dro_data.shallow_copy(array.array("B", [0x5A, 2, 3]))
+        self._compare_vgm_data(dro_data, dro_data_copy, [0x5A, 2, 3])
 
     def test_translate_index(self) -> None:
         dro_data = create_vgm_data()

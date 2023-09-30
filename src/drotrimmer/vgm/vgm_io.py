@@ -15,11 +15,9 @@ _MINIMUM_SUPPORTED_VERSION = 0x00000151
 _VGM_HEADER = b"Vgm "
 
 
-def _read_commands(in_file: BinaryIO) -> tuple[array.array, list[int]]:
-    offsets = []
+def _read_commands(in_file: BinaryIO) -> array.array:
     data = array.array("B")
     while raw := in_file.read(1):
-        offsets.append(len(data))
         command = struct.unpack("<B", raw)[0]
         match command:
             case 0x5A:
@@ -57,7 +55,7 @@ def _read_commands(in_file: BinaryIO) -> tuple[array.array, list[int]]:
                 data.fromfile(in_file, 2)
             case _:
                 raise DROFileException(f"Unsupported VGM command: {hex(command)}")
-    return (data, offsets)
+    return data
 
 
 def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
@@ -105,7 +103,7 @@ def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
 class VgmFileIO:
     """Reads or writes VGM data from/to a file."""
 
-    def read_data(self, file_name: str) -> VGMSong:
+    def read(self, file_name: str) -> VGMSong:
         with open(file_name, "rb") as vgm_file:
             header_name = vgm_file.read(4)
             if header_name != _VGM_HEADER:
@@ -153,7 +151,7 @@ class VgmFileIO:
 
             # Read the data
             vgm_file.seek(vgm_data_offset)
-            (data, instruction_offsets) = _read_commands(vgm_file)
+            data = _read_commands(vgm_file)
 
             # Read the GD3 tag
             if gd3_offset:
@@ -165,7 +163,7 @@ class VgmFileIO:
             return VGMSong(
                 file_version=version,
                 name=file_name,
-                data=VGMData(data, instruction_offsets),
+                data=VGMData(data),
                 opl_type=opl_type,
                 total_samples=total_samples,
                 loop_offset=loop_offset,

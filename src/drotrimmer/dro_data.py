@@ -595,7 +595,8 @@ class AbstractSong(ABC):
         return index, self.detailed_register_descriptions[index][2]
 
     def __str__(self) -> str:
-        return "Song[name = '%s', ver = '%s', opl_type = '%s', ms_length = '%s']" % (
+        return "%sSong[name = '%s', ver = '%s', opl_type = '%s', ms_length = '%s']" % (
+            self.file_type.name,
             self.name,
             self.file_version,
             self.opl_type,
@@ -605,11 +606,12 @@ class AbstractSong(ABC):
     def pretty_string(self) -> str:
         pstr = (
             "Song: %(name)s\n"
-            "Format: v%(file_version)s\n"
+            "Format: %(file_type)s v%(file_version)s\n"
             "OPL Type: %(opl_type)s\n"
             "Length (ms): %(ms_length)s"
         ) % {
             "name": self.name,
+            "file_type": self.file_type.name,
             "file_version": self.file_version,
             "opl_type": self.opl_type,
             "ms_length": self.ms_length,

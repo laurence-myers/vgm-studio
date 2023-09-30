@@ -52,7 +52,7 @@ WRITE_CHAR_OPL = False
 
 class DroFileIO(object):
     def read(self, file_name: str) -> DROSongV1 | DROSongV2:
-        """Accepts a file name (string). Returns a DROSong object and whether it was auto-trimmed (boolean).
+        """Accepts a file name (string). Returns a DROSong object.
 
         Raises DROFileException on invalid file data/version."""
         with open(file_name, "rb") as drof:
@@ -108,7 +108,7 @@ class DroFileIOv1(object):
     )
 
     def read_data(self, file_name: str, drof: BinaryIO) -> DROSongV1:
-        """Accepts an open DRO file. Returns a DROSong object and whether it was auto-trimmed (boolean).
+        """Accepts an open DRO file. Returns a DROSong object.
 
         Raises DROFileException on invalid file data/version."""
         # Code interpreted from the adplug source code.

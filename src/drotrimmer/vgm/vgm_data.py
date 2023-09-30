@@ -1,4 +1,5 @@
 import array
+import math
 from dataclasses import dataclass
 from typing import Literal, Iterable
 
@@ -8,6 +9,7 @@ from ..dro_data import (
     DROInstructionType,
     AbstractSong,
     OPLType,
+    SongFileType,
 )
 from ..dro_util import DROTrimmerException
 
@@ -28,12 +30,9 @@ class GD3Tag:
 
 
 class VGMData(DROData):
-    def __init__(self, data: array.array, offsets: list[int] | None = None) -> None:
+    def __init__(self, data: array.array) -> None:
         super().__init__(data)
-        if offsets is None:
-            self._generate_offsets()
-        else:
-            self._offsets = offsets
+        self._generate_offsets()
 
     def _generate_offsets(self) -> None:
         offsets = []
@@ -117,8 +116,10 @@ class VGMData(DROData):
                 """nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds).
                 Longer pauses than this are represented by multiple wait commands."""
                 inst_type = DROInstructionType.DELAY
-                # TODO: convert samples to ms
-                val = (self.data[real_index + 2] << 8) + self.data[real_index + 1]
+                val = math.ceil(
+                    (self.data[real_index + 1] | (self.data[real_index + 2] << 8))
+                    // 44.1
+                )
             case 0x62:
                 """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
                 inst_type = DROInstructionType.DELAY
@@ -150,7 +151,6 @@ class VGMData(DROData):
     def shallow_copy(self, new_data: array.array | None = None) -> "VGMData":
         new_copy = VGMData(
             new_data if new_data is not None else array.array("B"),
-            offsets=[],  # TODO: generate offsets
         )
         return new_copy
 
@@ -181,7 +181,7 @@ class VGMSong(AbstractSong):
             file_version,
             name,
             data,
-            0,  # TODO
+            math.ceil(total_samples // 44.1),
             opl_type,
         )
         self.loop_modifier = loop_modifier

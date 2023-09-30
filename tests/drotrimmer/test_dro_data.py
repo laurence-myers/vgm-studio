@@ -393,9 +393,9 @@ class TestDROSongV2(TestCase):
         self.assertEqual(
             dro_song.pretty_string(),
             (
-                "DRO Song: test.dro\n"
-                + "Format: v2\n"
-                + "OPL Type: OPL-3\n"
+                "Song: test.dro\n"
+                + "Format: DRO v2\n"
+                + "OPL Type: OPLType.OPL3\n"
                 + f"Length (ms): {SONG_LENGTH}"
             ),
         )
@@ -404,5 +404,5 @@ class TestDROSongV2(TestCase):
         dro_song = create_dro_song_v2()
         self.assertEqual(
             str(dro_song),
-            f"DRO[name = 'test.dro', ver = '2', opl_type = '2' (OPL-3), ms_length = '{SONG_LENGTH}']",
+            f"DROSong[name = 'test.dro', ver = '2', opl_type = 'OPLType.OPL3', ms_length = '{SONG_LENGTH}']",
         )
