@@ -53,7 +53,7 @@ from . import tasks, waveform
 
 class UpdateHeaderCommand(dro_undo.UndoableCommand):
     def __init__(
-        self, dro_song: dro_data.DROSong, opl_type: int, ms_length: int
+        self, dro_song: dro_data.AbstractSong, opl_type: int, ms_length: int
     ) -> None:
         super().__init__("DRO Header Changes")
         self.dro_song = dro_song
@@ -63,7 +63,7 @@ class UpdateHeaderCommand(dro_undo.UndoableCommand):
         self.original_ms_length = self.ms_length
 
     def apply(self) -> None:
-        self.dro_song.opl_type = self.opl_type
+        self.dro_song.opl_type = dro_data.OPLType(self.opl_type)
         self.dro_song.ms_length = self.ms_length
 
     def revert(self) -> None:
@@ -73,7 +73,7 @@ class UpdateHeaderCommand(dro_undo.UndoableCommand):
 
 class DTApp(wx.App):
     dro_player: dro_player.DROPlayer
-    drosong: dro_data.DROSong | None
+    drosong: dro_data.AbstractSong | None
     frdialog: DTDialogFindReg | None
     goto_dialog: DTDialogGoto | None
     log: dro_logging.Logger = dro_logging.get_logger("DTApp")
@@ -87,7 +87,7 @@ class DTApp(wx.App):
 
     def OnInit(self) -> bool:
         self.undo_controller = dro_undo.UndoController()
-        self.drosong: dro_data.DROSong | None = None
+        self.drosong: dro_data.AbstractSong | None = None
         self.dro_player: dro_player.DROPlayer = dro_player.DROPlayer()
 
         config = dro_config.get_config()

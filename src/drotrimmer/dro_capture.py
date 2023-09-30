@@ -24,10 +24,13 @@
 #    THE SOFTWARE.
 
 import array
+from typing import Literal
+
 from . import dro_data, dro_io, dro_util
+from .dro_data import DROSongV1, DROSongV2, OPLType
 
 
-def generate_registers_to_init():
+def generate_registers_to_init() -> list[int]:
     registers_to_init = [0x01, 0x04, 0x05, 0x08, 0xBD]
     operator_bases = (0x20, 0x40, 0x60, 0x80, 0xE0)
     for i in range(24):
@@ -42,21 +45,21 @@ def generate_registers_to_init():
 
 
 class DroCapture(object):
-    REGISTERS_TO_INIT = generate_registers_to_init()
+    REGISTERS_TO_INIT: list[int] = generate_registers_to_init()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.short_delay_code = len(DroCapture.REGISTERS_TO_INIT)
         self.long_delay_code = len(DroCapture.REGISTERS_TO_INIT) + 1
-        self.code_map = {}
+        self.code_map: dict[int, int] = {}
         for i, register in enumerate(DroCapture.REGISTERS_TO_INIT):
             self.code_map[register] = i
-        self.length_ms = 0
-        self._bank = 0
+        self.length_ms: int = 0
+        self._bank: Literal[0, 1] = 0
         self.data = array.array("B")
-        self.opl_type = None
-        self.file_name = None
+        self.opl_type: OPLType | None = None
+        self.file_name: str | None = None
 
-    def open(self, dro_song):
+    def open(self, dro_song: DROSongV1 | DROSongV2) -> None:
         self.opl_type = dro_song.opl_type
         if self.file_name is None:
             self.file_name = "{}.out.dro".format(dro_song.name)
@@ -64,18 +67,18 @@ class DroCapture(object):
             self.initialise_registers()
         self.bank = 0
 
-    def set_output_fname(self, output_fname):
+    def set_output_fname(self, output_fname: str) -> None:
         self.file_name = "{}.out.dro".format(output_fname)
 
     @property
-    def bank(self):
+    def bank(self) -> Literal[0, 1]:
         return self._bank
 
     @bank.setter
-    def bank(self, value):
+    def bank(self, value: Literal[0, 1]) -> None:
         self._bank = value
 
-    def write(self, register, value):
+    def write(self, register: int, value: int) -> None:
         try:
             code = self.code_map[register]
         except KeyError:
@@ -91,7 +94,7 @@ class DroCapture(object):
         self.data.append(code)
         self.data.append(value)
 
-    def render(self, ms_to_render):
+    def render(self, ms_to_render: int) -> None:
         if not ms_to_render:
             return
         self.length_ms += ms_to_render
@@ -105,13 +108,13 @@ class DroCapture(object):
             self.data.append(self.short_delay_code)
             self.data.append(short_delays - 1)
 
-    def render_chip_delay(self):
+    def render_chip_delay(self) -> None:
         pass  # do nothing
 
-    def clear_chip_delay_drift(self):
+    def clear_chip_delay_drift(self) -> None:
         pass  # do nothing
 
-    def stop(self):
+    def stop(self) -> None:
         codelist = tuple(
             sorted(self.code_map.keys(), key=lambda key: self.code_map[key])
         )
@@ -122,6 +125,11 @@ class DroCapture(object):
             self.short_delay_code,
             self.long_delay_code,
         )
+
+        if not self.file_name or not self.opl_type:
+            raise dro_util.DROTrimmerException(
+                "Invalid state, looks like capture was never started"
+            )
 
         song_wrapper = dro_data.DROSongV2(
             dro_io.DRO_FILE_V2,
@@ -135,13 +143,15 @@ class DroCapture(object):
 
         dro_io.DroFileIO().write(self.file_name, song_wrapper)
 
-    def initialise_registers(self):
+    def initialise_registers(self) -> None:
         self.bank = 0
         for register in DroCapture.REGISTERS_TO_INIT:
             if register == 5:
                 continue  # reg 5 only exists in the high bank
             self.write(register, 0)
-        if self.opl_type > 0:
+        if (
+            self.opl_type is not None and self.opl_type.value > 0
+        ):  # Has more than one bank or chip, e.g. Dual OPL2, or OPL3
             self.bank = 1
             for register in DroCapture.REGISTERS_TO_INIT:
                 self.write(register, 0)

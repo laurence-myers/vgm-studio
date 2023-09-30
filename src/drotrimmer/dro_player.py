@@ -85,7 +85,7 @@ class WavRenderer(object):
         self.wav_fname: str | None = None
         self.wav_lock = threading.RLock()
 
-    def open(self, dro_song: dro_data.DROSong) -> None:
+    def open(self, dro_song: dro_data.AbstractSong) -> None:
         if self.wav_fname is None:
             self.wav_fname = "{}.wav".format(dro_song.name)
         self.wav = wave.open(self.wav_fname, "wb")
@@ -178,7 +178,7 @@ class ProcessingStreamsList(list):
         for stream in self:
             stream.bank = value
 
-    def open(self, dro_song: dro_data.DROSong):
+    def open(self, dro_song: dro_data.AbstractSong):
         for stream in self:
             stream.open(dro_song)
 
@@ -290,7 +290,7 @@ class OPLStream(object):
         self.sample_overflow = 0
         self.samples_rendered = 0
 
-    def open(self, dro_song: dro_data.DROSong):
+    def open(self, dro_song: dro_data.AbstractSong):
         for ostream in self.output_streams:
             if isinstance(ostream, WavRenderer):  # blech
                 ostream.open(dro_song)
@@ -395,7 +395,7 @@ class DROPlayer(object):
         # Set up other stuff
         self.processing_streams = ProcessingStreamsList()
         """A list of processing streams, which accepts instructions and produce some output (PCM data, or DRO data)."""
-        self.current_song: dro_data.DROSong | None = None
+        self.current_song: dro_data.AbstractSong | None = None
         self.is_playing: bool = False
         self.pos: int = 0
         """The current index in the DROSong data."""
@@ -427,7 +427,7 @@ class DROPlayer(object):
             except Exception as e:
                 _log.exception(e)
 
-    def load_song(self, new_song: dro_data.DROSong):
+    def load_song(self, new_song: dro_data.AbstractSong):
         self.is_playing = False
         self.current_song = new_song
         self.reset()
@@ -620,7 +620,7 @@ class DROSeeker(object):
 class DROPlayerUpdateThread(threading.Thread):
     PERCUSSION_REGISTER = 0xBD
 
-    def __init__(self, dro_player: DROPlayer, current_song: dro_data.DROSong):
+    def __init__(self, dro_player: DROPlayer, current_song: dro_data.AbstractSong):
         super(DROPlayerUpdateThread, self).__init__()
         self.dro_player = dro_player  # circular reference, yuck
         self.current_song = current_song

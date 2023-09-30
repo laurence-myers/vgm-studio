@@ -28,7 +28,6 @@ import difflib
 
 from . import dro_data, regdata
 from .dro_config import get_config
-from .dro_util import DROTrimmerException
 
 DetailedRegisterEntry = tuple[int, str, int]
 DetailedRegisterInfo = list[DetailedRegisterEntry]
@@ -39,7 +38,7 @@ DRO_FILE_V2 = 2
 
 
 class DROTotalDelayCalculator(object):
-    def sum_delay(self, dro_song: dro_data.DROSong):
+    def sum_delay(self, dro_song: dro_data.AbstractSong):
         # Bleh
         calc_delay = 0
         for inst in dro_song.data:
@@ -53,7 +52,7 @@ class DROTotalDelayWithWriteDelayCalculator(object):
         config = get_config()
         self.chip_write_delay: float = config.audio.chip_write_delay
 
-    def sum_delay(self, dro_song: dro_data.DROSong):
+    def sum_delay(self, dro_song: dro_data.AbstractSong):
         calc_delay: float = 0.0  # milliseconds
         total_write_delay: float = 0.0  # microseconds
         for inst in dro_song.data:
@@ -69,7 +68,7 @@ class DROFirstDelayAnalyzer(object):
     def __init__(self):
         self.result = False
 
-    def analyze_dro(self, dro_song: dro_data.DROSong):
+    def analyze_dro(self, dro_song: dro_data.AbstractSong):
         if not len(dro_song.data):
             return
         inst = dro_song.data[0]
@@ -81,7 +80,7 @@ class DROTotalDelayMismatchAnalyzer(object):
     def __init__(self):
         self.result = False
 
-    def analyze_dro(self, dro_song: dro_data.DROSong):
+    def analyze_dro(self, dro_song: dro_data.AbstractSong):
         calc_delay = DROTotalDelayCalculator().sum_delay(dro_song)
         self.result = calc_delay != dro_song.ms_length
 
@@ -125,7 +124,7 @@ class DROLoopAnalyzer(object):
     def num_analyses(self):
         return len(self.analysis_methods)
 
-    def analyze_dro(self, dro_song: dro_data.DROSong):
+    def analyze_dro(self, dro_song: dro_data.AbstractSong):
         """
         @type dro_song: DROSong
         """
@@ -237,7 +236,7 @@ class DROLoopAnalyzer(object):
 
         return result
 
-    def analyze_earliest_end_match(self, dro_song: dro_data.DROSong):
+    def analyze_earliest_end_match(self, dro_song: dro_data.AbstractSong):
         """
         Goes through the data backwards. Finds the "earliest" sequence of instructions that
         matches the sequence of instructions at the end of the song.
@@ -247,7 +246,9 @@ class DROLoopAnalyzer(object):
         result = self.__do_backward_search_analysis(dro_data, original_indexes)
         return self.AnalysisResult("Earliest match to end", result)
 
-    def analyze_earliest_end_delay_and_note_match(self, dro_song: dro_data.DROSong):
+    def analyze_earliest_end_delay_and_note_match(
+        self, dro_song: dro_data.AbstractSong
+    ):
         """
         Goes through the data backwards. Finds the "earliest" sequence of instructions that
         matches the sequence of instructions at the end of the song. Only looks at
@@ -278,7 +279,7 @@ class DROLoopAnalyzer(object):
             "Earliest match to end (delays and note on/off only)", result
         )
 
-    def analyze_latest_start_match(self, dro_song: dro_data.DROSong):
+    def analyze_latest_start_match(self, dro_song: dro_data.AbstractSong):
         """
         Goes through the data forwards. Finds the "latest" sequence of instructions that
         matches the sequence of instructions towards the start of the song, after the
@@ -377,7 +378,7 @@ class DROLoopAnalyzer(object):
 
         return self.AnalysisResult("Latest match to start", result)
 
-    def analyze_longest_instruction_blocks(self, dro_song: dro_data.DROSong):
+    def analyze_longest_instruction_blocks(self, dro_song: dro_data.AbstractSong):
         """
         Finds the the 15 longest blocks of instructions, separated by delay instructions.
         Excludes the first block at the beginning of the song (which is usually just
@@ -424,7 +425,7 @@ class DROLoopAnalyzer(object):
         result += "Interesting sections (by position):\n%s" % (sections_string,)
         return self.AnalysisResult("Longest instruction blocks", result)
 
-    def analyze_seqeunce_matcher(self, dro_song: dro_data.DROSong):
+    def analyze_seqeunce_matcher(self, dro_song: dro_data.AbstractSong):
         """
         Splits the data in half, and uses Python's difflib.SequenceMatcher to
         find the longest matching blocks in each half.
@@ -506,20 +507,9 @@ class DRODetailedRegisterAnalyzer(object):
 
     def analyze_dro(
         self,
-        dro_song: dro_data.DROSong,
+        dro_song: dro_data.AbstractSong,
     ) -> typing.Iterator[DetailedRegisterEntry]:
         self.current_state = [None] * 0x1FF
-        if dro_song.file_version == DRO_FILE_V1:
-            opl_type = self.OPL_TYPE_DRO1_MAP[dro_song.opl_type]
-        elif dro_song.file_version == DRO_FILE_V2:
-            opl_type = self.OPL_TYPE_DRO2_MAP[dro_song.opl_type]
-        else:
-            raise (
-                DROTrimmerException(
-                    "Unrecognised DRO version: %s. Cannot perform state analysis."
-                    % (dro_song.file_version,)
-                )
-            )
         # Wait for the data lock to become available.
         with dro_song.data_lock:
             total_delay = 0
@@ -542,7 +532,7 @@ class DRODetailedRegisterAnalyzer(object):
                     if inst.bank is not None:
                         self.current_bank = inst.bank
                     desc = self.__analyze_and_update_register(
-                        self.current_bank, inst.command, inst.value, opl_type
+                        self.current_bank, inst.command, inst.value
                     )
                     yield (self.current_bank, desc, total_delay)
 
@@ -551,7 +541,6 @@ class DRODetailedRegisterAnalyzer(object):
         bank: int,
         reg: int,
         val: int,
-        _opl_type: int,
     ):
         try:
             if bank and (0x100 | reg) in regdata.registers:
@@ -623,7 +612,7 @@ class DRODebugAnalyzer(object):
     def __init__(self):
         pass
 
-    def analyze_dro(self, dro_song: dro_data.DROSong):
+    def analyze_dro(self, dro_song: dro_data.AbstractSong):
         """Prints out the DRO song info, then prints each instruction."""
         with dro_song.data_lock:
             print(dro_song)

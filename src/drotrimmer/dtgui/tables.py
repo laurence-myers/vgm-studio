@@ -22,7 +22,7 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
-from ..dro_data import DROSong
+from ..dro_data import AbstractSong
 from .ui_util import custom_event, gui_id
 import wx
 
@@ -37,7 +37,7 @@ class FirstSelectedItemChangedEvent(wx.PyEvent):
 
 
 class DTSongDataList(wx.ListCtrl):
-    def __init__(self, parent: wx.Window, drosong: DROSong | None):
+    def __init__(self, parent: wx.Window, drosong: AbstractSong | None):
         wx.ListCtrl.__init__(
             self,
             parent,
@@ -125,7 +125,7 @@ class DTSongDataList(wx.ListCtrl):
             if oldsel + 1 >= (self.GetTopItem() + self.GetCountPerPage() - 2):
                 self.ScrollLines(1)
 
-    def create_list(self, insong: DROSong):
+    def create_list(self, insong: AbstractSong):
         """Regenerates the list based on data from a DROSong object. Takes a DROSong object."""
         self.DeleteAllItems()
         if self.has_selected():

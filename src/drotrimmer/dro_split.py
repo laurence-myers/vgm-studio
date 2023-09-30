@@ -27,7 +27,9 @@ import optparse
 import os
 import sys
 import time
-from . import dro_analysis, dro_globals, dro_io, dro_player, dro_util
+from typing import Any
+
+from . import dro_analysis, dro_data, dro_globals, dro_io, dro_player, dro_util
 
 
 PERC_NAME_MAP = [
@@ -80,14 +82,18 @@ def __split_percussion_channel(player, dro_song, bank_num, perc_usage):
     print("Finished rendering bank %01i, perc channel" % (bank_num,))
 
 
-def split_tracks(player, dro_song, isolate_percussion=False):
+def split_tracks(
+    player: dro_player.DROPlayer,
+    dro_song: dro_data.AbstractSong,
+    isolate_percussion: bool = False,
+) -> None:
     # First, analyse to identify channels that aren't used.
     usage_analyzer = dro_analysis.DRORegisterUsageAnalyzer(
         detailed_percussion_analysis=True
     )
     usage, perc_usage = usage_analyzer.analyze_dro(dro_song)
     channels_to_render = sorted(list(player.CHANNEL_REGISTERS)) + [0xBD, 0x1BD]
-    if dro_song.OPL_TYPE_MAP[dro_song.opl_type] == "OPL-2":
+    if dro_song.opl_type == dro_data.OPLType.OPL2:
         channels_to_render = [ctr for ctr in channels_to_render if ctr < 0x100]
     for channel in channels_to_render:
         channel_num = (channel & 0xFF) - 0xAF
@@ -138,7 +144,7 @@ def split_tracks(player, dro_song, isolate_percussion=False):
     print("Done!")
 
 
-def __parse_arguments():
+def __parse_arguments() -> tuple[optparse.OptionParser, Any, Any]:
     usage = (
         "Usage: %prog [options] dro_file\n\n"
         + "Renders a DRO song into multiple WAV or DRO files, one file per channel used."
@@ -174,7 +180,7 @@ def __parse_arguments():
     return oparser, options, args
 
 
-def main():
+def main() -> int:
     oparser, options, args = __parse_arguments()
     if len(args) < 1:
         print("Please pass the name of the song to split as the first argument.")

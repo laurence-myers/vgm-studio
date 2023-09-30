@@ -27,11 +27,12 @@ import array
 from .dro_data import (
     DRO_FILE_V1,
     DRO_FILE_V2,
-    DROSong,
     DROSongV2,
     DRODataV1,
     DRODataV2,
     DROInstructionType,
+    OPLType,
+    DROSongV1,
 )
 from .dro_util import *
 
@@ -50,7 +51,7 @@ WRITE_CHAR_OPL = False
 
 
 class DroFileIO(object):
-    def read(self, file_name: str) -> DROSong:
+    def read(self, file_name: str) -> DROSongV1 | DROSongV2:
         """Accepts a file name (string). Returns a DROSong object and whether it was auto-trimmed (boolean).
 
         Raises DROFileException on invalid file data/version."""
@@ -76,18 +77,16 @@ class DroFileIO(object):
             dro_song = reader.read_data(file_name, drof)
             return dro_song
 
-    def write(self, file_name: str, dro_song: DROSong | DROSongV2) -> None:
+    def write(self, file_name: str, dro_song: DROSongV1 | DROSongV2) -> None:
         with open(file_name, "wb") as drof:
             drof.write(DRO_HEADER)
-            if dro_song.file_version == DRO_FILE_V1:
+            if isinstance(dro_song, DROSongV1):
                 writer_v1: DroFileIOv1 = DroFileIOv1()
                 drof.write(
                     struct.pack("<2H", *DRO_VERSION_V1_NEW)
                 )  # hmm, maybe shouldn't be here
                 writer_v1.write_data(drof, dro_song)
-            elif dro_song.file_version == DRO_FILE_V2 and isinstance(
-                dro_song, DROSongV2  # keep mypy happy
-            ):
+            elif isinstance(dro_song, DROSongV2):
                 writer_v2: DroFileIOv2 = DroFileIOv2()
                 drof.write(
                     struct.pack("<2H", *DRO_VERSION_V2)
@@ -102,7 +101,13 @@ class DroFileIO(object):
 
 
 class DroFileIOv1(object):
-    def read_data(self, file_name: str, drof: BinaryIO) -> DROSong:
+    OPL_TYPE_MAP = (
+        OPLType.OPL2,
+        OPLType.OPL3,
+        OPLType.DUAL_OPL2,
+    )
+
+    def read_data(self, file_name: str, drof: BinaryIO) -> DROSongV1:
         """Accepts an open DRO file. Returns a DROSong object and whether it was auto-trimmed (boolean).
 
         Raises DROFileException on invalid file data/version."""
@@ -128,6 +133,8 @@ class DroFileIOv1(object):
             drof.seek(-4, 1)
             dro_opl_type = read_char(drof)
 
+        opl_type = self.OPL_TYPE_MAP[dro_opl_type]
+
         raw_data = array.array("B")
         raw_data.fromfile(drof, dro_byte_length)
         dro_data = DRODataV1(raw_data)
@@ -140,9 +147,9 @@ class DroFileIOv1(object):
                 "Tried to read the specified number of bytes in the data stream, but there were some bytes left over!"
             )
 
-        return DROSong(DRO_FILE_V1, file_name, dro_data, dro_ms_length, dro_opl_type)
+        return DROSongV1(DRO_FILE_V1, file_name, dro_data, dro_ms_length, opl_type)
 
-    def write_data(self, drof: BinaryIO, dro_song: DROSong) -> None:
+    def write_data(self, drof: BinaryIO, dro_song: DROSongV1) -> None:
         """Accepts a file name (string), and a DROSong object. Saves the DROSong
         data to a file."""
 
@@ -163,7 +170,8 @@ class DroFileIOv1(object):
 
         # rewind and rewrite the header
         drof.seek(header_start)
-        self.write_header(drof, total_delay, total_size, dro_song.opl_type)
+        opl_type = self.OPL_TYPE_MAP.index(dro_song.opl_type)
+        self.write_header(drof, total_delay, total_size, opl_type)
 
         print(
             "DRO file saved. total_delay: "

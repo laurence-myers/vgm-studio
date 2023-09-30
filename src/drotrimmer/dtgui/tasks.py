@@ -69,7 +69,7 @@ class ExampleTask(IncrementalTask):  # TODO: remove this class
 
 
 class DetailedRegisterAnalysisTask(IncrementalTask):
-    def __init__(self, drosong: dro_data.DROSong):
+    def __init__(self, drosong: dro_data.AbstractSong):
         super().__init__("DetailedRegisterAnalysisTask")
         self.drosong = drosong
 
@@ -87,7 +87,7 @@ class DetailedRegisterAnalysisTask(IncrementalTask):
 
 class WaveformRenderTask(IncrementalTask):
     def __init__(
-        self, dro_player: DROPlayer, drosong: dro_data.DROSong, num_buckets: int
+        self, dro_player: DROPlayer, drosong: dro_data.AbstractSong, num_buckets: int
     ):
         super().__init__("WaveformRenderTask")
         self.dro_player = dro_player

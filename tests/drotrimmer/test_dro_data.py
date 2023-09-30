@@ -9,6 +9,7 @@ from src.drotrimmer.dro_data import (
     DeleteInstructionsCommand,
     DROInstruction,
     DROInstructionType,
+    OPLType,
 )
 from src.drotrimmer.dro_undo import UndoController
 
@@ -59,7 +60,7 @@ def create_dro_song_v2() -> DROSongV2:
         "test.dro",
         data,
         SONG_LENGTH,
-        2,
+        OPLType.OPL3,
         0xFE,
         0xFF,
     )

@@ -22,6 +22,8 @@
 #    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 #    THE SOFTWARE.
+from typing import Any
+
 import wx
 
 from .. import dro_analysis, dro_config, dro_data, dro_globals
@@ -153,18 +155,19 @@ class DTDialogFindReg(wx.Dialog):
 
 
 class DROInfoDialog(wx.Dialog):
-    def __init__(self, parent, dro_song, *args, **kwds):
+    def __init__(self, parent: wx.Window, dro_song: dro_data.AbstractSong) -> None:
         config = dro_config.get_config()
         dro_info_edit_enabled = config.ui.dro_info_edit_enabled
         # begin wxGlade: MyDialog.__init__
         self.parent = parent
-        kwds["style"] = wx.DEFAULT_DIALOG_STYLE
-        wx.Dialog.__init__(self, parent, *args, **kwds)
+        super().__init__(parent, style=wx.DEFAULT_DIALOG_STYLE)
         self.l_dro_version = wx.StaticText(self, -1, "DRO Version")
         self.tc_dro_version = wx.TextCtrl(self, -1, str(dro_song.file_version))
         self.l_hardware_type = wx.StaticText(self, -1, "Hardware Type")
-        self.c_hardware_type = wx.Choice(self, -1, choices=dro_song.OPL_TYPE_MAP)
-        self.c_hardware_type.Select(dro_song.opl_type)
+        self.c_hardware_type = wx.Choice(
+            self, -1, choices=[e.name for e in dro_data.OPLType]
+        )
+        self.c_hardware_type.Select(dro_song.opl_type.value)
         self.l_length_ms = wx.StaticText(self, -1, "Length (MS)")
         self.tc_length_ms = wx.TextCtrl(self, -1, str(dro_song.ms_length))
         self.l_length_ms_calc = wx.StaticText(self, -1, "Calculated Length (MS)")
@@ -187,7 +190,7 @@ class DROInfoDialog(wx.Dialog):
                 id=gui_id("BUTTON_DROINFO_EDIT"),
             )
 
-    def __set_properties(self):
+    def __set_properties(self) -> None:
         # begin wxGlade: MyDialog.__set_properties
         self.SetTitle("DRO Info")
         self.SetSize((330, 242))
@@ -198,7 +201,7 @@ class DROInfoDialog(wx.Dialog):
         self.b_close.SetDefault()
         # end wxGlade
 
-    def __do_layout(self, dro_info_edit_enabled):
+    def __do_layout(self, dro_info_edit_enabled: bool) -> None:
         # begin wxGlade: MyDialog.__do_layout
         s_main = wx.GridSizer(5, 2, 0, 0)
         s_buttons = wx.BoxSizer(wx.HORIZONTAL)
@@ -220,13 +223,13 @@ class DROInfoDialog(wx.Dialog):
         self.SetSizer(s_main)
         self.Layout()
 
-    def edit_save_button_event(self, event):
+    def edit_save_button_event(self, event: Any) -> None:
         if self.edit_mode:
             self.save_changes(event)
         else:
             self.start_edit_mode(event)
 
-    def start_edit_mode(self, _event):
+    def start_edit_mode(self, _event: Any) -> None:
         dro_globals.g_wx_app.set_status_text("DRO Info edit mode enabled.")
         self.edit_mode = True
         self.c_hardware_type.Enable()
@@ -234,12 +237,12 @@ class DROInfoDialog(wx.Dialog):
         self.b_edit.SetLabel("Save")
         self.b_close.SetLabel("Cancel")
 
-    def save_changes(self, _event):
+    def save_changes(self, _event: Any) -> None:
         try:
             opl_type = self.c_hardware_type.GetSelection()
-            assert 0 <= opl_type < len(self.dro_song.OPL_TYPE_MAP)
+            assert 0 <= opl_type < len(dro_data.OPLType)
             ms_length = int(self.tc_length_ms.GetValue())
-        except Exception as e:
+        except Exception as _e:
             error_alert(
                 self,
                 "Error updating DRO info, check that the entered values are correct.",

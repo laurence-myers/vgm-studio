@@ -2,10 +2,14 @@ import array
 from dataclasses import dataclass
 from typing import Literal, Iterable
 
-from ..dro_data import DROData, DROInstruction, DROInstructionType
+from ..dro_data import (
+    DROData,
+    DROInstruction,
+    DROInstructionType,
+    AbstractSong,
+    OPLType,
+)
 from ..dro_util import DROTrimmerException
-
-OPL_TYPE_MAP = ["OPL-2", "Dual OPL-2", "OPL-3"]
 
 
 @dataclass
@@ -157,25 +161,31 @@ class VGMData(DROData):
         return command == 0x62 or command == 0x63 or 0x70 <= command <= 0x7F
 
 
-class VGMSong:
+class VGMSong(AbstractSong):
+    data: VGMData
+
     def __init__(
         self,
         file_version: int,
         name: str,
         data: VGMData,
-        opl_type: Literal[0, 1, 2],
+        opl_type: OPLType,
         total_samples: int,
         loop_offset: int,
         loop_num_samples: int,
         loop_modifier: int,
         tag: GD3Tag | None,
     ) -> None:
-        self.data = data
-        self.file_version = file_version
+        super().__init__(
+            SongFileType.VGM,
+            file_version,
+            name,
+            data,
+            0,  # TODO
+            opl_type,
+        )
         self.loop_modifier = loop_modifier
         self.loop_num_samples = loop_num_samples
         self.loop_offset = loop_offset
-        self.name = name
-        self.opl_type = opl_type
         self.tag = tag
         self.total_samples = total_samples

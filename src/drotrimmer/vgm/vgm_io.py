@@ -3,10 +3,10 @@ import struct
 from typing import BinaryIO, Literal
 
 from .vgm_data import VGMSong, GD3Tag, VGMData
+from ..dro_data import OPLType
 from ..dro_util import DROFileException, read_int, read_char
 
 ChipBank = Literal[0, 1]
-OplType = Literal[0, 1, 2]
 
 _DUAL_CHIP_FLAG = 0x40000000
 _GD3_HEADER = b"Gd3 "
@@ -140,13 +140,13 @@ class VgmFileIO:
             vgm_file.seek(0x7F)
             loop_modifier = read_char(vgm_file)
             # 0xBC = extra header offset, 4 bytes, v1.70
-            opl_type: OplType | None = None
+            opl_type: OPLType | None = None
             if is_dual_opl2:
-                opl_type = 1
+                opl_type = OPLType.DUAL_OPL2
             elif bool(ym3812_clock):
-                opl_type = 0
+                opl_type = OPLType.OPL2
             elif bool(ymf262_clock):
-                opl_type = 2
+                opl_type = OPLType.OPL3
 
             if opl_type is None:
                 raise DROFileException("No OPL2 or OPL3 data detected.")

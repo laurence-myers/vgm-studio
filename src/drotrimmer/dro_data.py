@@ -41,6 +41,17 @@ DRO_FILE_V1 = 1
 DRO_FILE_V2 = 2
 
 
+class SongFileType(Enum):
+    DRO = 0
+    VGM = 1
+
+
+class OPLType(Enum):
+    OPL2 = 0
+    DUAL_OPL2 = 1
+    OPL3 = 2
+
+
 class DROInstructionType(Enum):
     REGISTER = 0
     DELAY = 1
@@ -375,7 +386,7 @@ class DRODataV2(DROData):
 
 
 class DeleteInstructionsCommand(UndoableCommand):
-    def __init__(self, dro_song: "DROSong", index_list: list[int]) -> None:
+    def __init__(self, dro_song: "AbstractSong", index_list: list[int]) -> None:
         super().__init__("Delete Instruction(s)")
         self._dro_song = dro_song
         self._index_list = index_list
@@ -406,14 +417,19 @@ class DeleteInstructionsCommand(UndoableCommand):
             self._dro_song.detailed_register_descriptions = None
 
 
-class DROSong(object):
+class AbstractSong(ABC):
     """NOTE: this actually implements methods for the V1 file format."""
 
-    OPL_TYPE_MAP = ["OPL-2", "OPL-3", "Dual OPL-2"]
-
     def __init__(
-        self, file_version: int, name: str, data: DROData, ms_length: int, opl_type: int
+        self,
+        file_type: SongFileType,
+        file_version: int,
+        name: str,
+        data: DROData,
+        ms_length: int,
+        opl_type: OPLType,
     ) -> None:
+        self.file_type = file_type
         self.file_version = file_version
         self.name = name
         self.data: DROData = data
@@ -579,39 +595,48 @@ class DROSong(object):
         return index, self.detailed_register_descriptions[index][2]
 
     def __str__(self) -> str:
-        return (
-            "DRO[name = '%s', ver = '%s', opl_type = '%s' (%s), ms_length = '%s']"
-            % (
-                self.name,
-                self.file_version,
-                self.opl_type,
-                self.OPL_TYPE_MAP[self.opl_type],
-                self.ms_length,
-            )
+        return "Song[name = '%s', ver = '%s', opl_type = '%s', ms_length = '%s']" % (
+            self.name,
+            self.file_version,
+            self.opl_type,
+            self.ms_length,
         )
 
     def pretty_string(self) -> str:
         pstr = (
-            "DRO Song: %(name)s\n"
+            "Song: %(name)s\n"
             "Format: v%(file_version)s\n"
             "OPL Type: %(opl_type)s\n"
             "Length (ms): %(ms_length)s"
         ) % {
             "name": self.name,
             "file_version": self.file_version,
-            "opl_type": self.OPL_TYPE_MAP[self.opl_type],
+            "opl_type": self.opl_type,
             "ms_length": self.ms_length,
         }
         return pstr
 
 
-class DROSongV2(DROSong):
-    OPL_TYPE_MAP = [
-        "OPL-2",
-        "Dual OPL-2",
-        "OPL-3",
-    ]
+class DROSongV1(AbstractSong):
+    def __init__(
+        self,
+        file_version: int,
+        name: str,
+        data: DRODataV1,
+        ms_length: int,
+        opl_type: OPLType,
+    ) -> None:
+        super().__init__(
+            SongFileType.DRO,
+            file_version,
+            name,
+            data,
+            ms_length,
+            opl_type,
+        )
 
+
+class DROSongV2(AbstractSong):
     data: DRODataV2
 
     def __init__(
@@ -620,10 +645,17 @@ class DROSongV2(DROSong):
         name: str,
         data: DRODataV2,
         ms_length: int,
-        opl_type: int,
+        opl_type: OPLType,
         short_delay_code: int,
         long_delay_code: int,
     ) -> None:
-        super().__init__(file_version, name, data, ms_length, opl_type)
+        super().__init__(
+            SongFileType.DRO,
+            file_version,
+            name,
+            data,
+            ms_length,
+            opl_type,
+        )
         self.short_delay_code = short_delay_code
         self.long_delay_code = long_delay_code
