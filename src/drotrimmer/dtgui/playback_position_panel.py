@@ -58,9 +58,11 @@ class PlaybackPositionPanel(wx.Panel):
         self._update_text()
 
     def _update_text(self) -> None:
-        self._text_position_ms.SetLabelText(
-            f"{self.playback_position_ms} / {self.playback_length_ms} ms"
-        )
-        self._text_position_samples.SetLabelText(
-            f"{self.playback_position_samples} / {self.playback_length_samples} samples"
-        )
+        if self._text_position_ms:
+            self._text_position_ms.SetLabelText(
+                f"{self.playback_position_ms} / {self.playback_length_ms} ms"
+            )
+        if self._text_position_samples:
+            self._text_position_samples.SetLabelText(
+                f"{self.playback_position_samples} / {self.playback_length_samples} samples"
+            )
