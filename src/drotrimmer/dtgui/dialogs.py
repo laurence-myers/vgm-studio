@@ -230,7 +230,7 @@ class DROInfoDialog(wx.Dialog):
             self.start_edit_mode(event)
 
     def start_edit_mode(self, _event: Any) -> None:
-        dro_globals.g_wx_app.set_status_text("DRO Info edit mode enabled.")
+        wx.GetApp().set_status_text("DRO Info edit mode enabled.")
         self.edit_mode = True
         self.c_hardware_type.Enable()
         self.tc_length_ms.Enable()
@@ -248,7 +248,7 @@ class DROInfoDialog(wx.Dialog):
                 "Error updating DRO info, check that the entered values are correct.",
             )
             return
-        dro_globals.g_wx_app.update_dro_info(opl_type, ms_length)
+        wx.GetApp().update_dro_info(opl_type, ms_length)
         md = wx.MessageDialog(
             self,
             "DRO info updated.\n" "Remember to save the file.",

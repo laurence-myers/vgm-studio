@@ -77,7 +77,8 @@ class DroFileIO(object):
             dro_song = reader.read_data(file_name, drof)
             return dro_song
 
-    def write(self, file_name: str, dro_song: DROSongV1 | DROSongV2) -> None:
+    def write(self, dro_song: DROSongV1 | DROSongV2) -> None:
+        file_name = dro_song.name
         with open(file_name, "wb") as drof:
             drof.write(DRO_HEADER)
             if isinstance(dro_song, DROSongV1):

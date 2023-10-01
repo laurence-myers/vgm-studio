@@ -141,7 +141,7 @@ class DroCapture(object):
             self.long_delay_code,
         )
 
-        dro_io.DroFileIO().write(self.file_name, song_wrapper)
+        dro_io.DroFileIO().write(song_wrapper)
 
     def initialise_registers(self) -> None:
         self.bank = 0

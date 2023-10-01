@@ -26,6 +26,8 @@ import ctypes
 import optparse
 import os.path
 import sys
+from typing import Any
+
 import wx
 
 from .. import (
@@ -33,13 +35,12 @@ from .. import (
     dro_config,
     dro_data,
     dro_globals,
-    dro_io,
     dro_logging,
     dro_player,
     dro_undo,
     dro_util,
+    file_io,
 )
-from ..vgm import vgm_io
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
@@ -187,11 +188,7 @@ class DTApp(wx.App):
 
     def __load_file(self, filename: str) -> None:
         try:
-            if filename.lower().endswith(".vgm"):
-                importer = vgm_io.VgmFileIO()
-            else:
-                importer = dro_io.DroFileIO()
-            self.drosong = importer.read(filename)
+            self.drosong = file_io.read_song_from_file(filename)
             if not self.drosong:  # Just to keep mypy happy
                 return
 
@@ -285,12 +282,11 @@ class DTApp(wx.App):
 
     @catch_unhandled_exceptions
     @requires_dro_loaded
-    def menu_save_dro(self, _event):
-        filename = self.drosong.name
-        # Seeing as the filename is stored in the drosong, I should modify
-        #  save_dro to only take a DROSong.
-        dro_io.DroFileIO().write(filename, self.drosong)
-        self.set_status_text("File saved to " + filename + ".")
+    def menu_save_dro(self, _event: Any) -> None:
+        if not self.drosong:
+            return
+        file_io.write_song_to_file(self.drosong)
+        self.set_status_text(f"File saved to {self.drosong.name}.")
 
     @requires_dro_loaded
     def menu_save_dro_as(self, event):
