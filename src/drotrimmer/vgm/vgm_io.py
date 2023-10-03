@@ -1,18 +1,51 @@
 import array
+import math
 import struct
+from io import BytesIO
 from typing import BinaryIO, Literal
 
 from .vgm_data import VGMSong, GD3Tag, VGMData
+from ..dro_analysis import DROTotalDelayCalculator
 from ..dro_data import OPLType
-from ..dro_util import DROFileException, read_int, read_char
+from ..dro_util import (
+    DROFileException,
+    read_int,
+    read_char,
+    write_int,
+    write_char,
+    DROTrimmerException,
+)
 
 ChipBank = Literal[0, 1]
 
+_CLOCK_OPL2 = 3579545
+_CLOCK_DUAL_OPL2 = (
+    3579545
+    | 0xC0000000  # Spec suggests high bits should be 0x40..., but dro2vgm uses 0xC0...
+)
+_CLOCK_OPL3 = 14318180
 _DUAL_CHIP_FLAG = 0x40000000
+_GD3_ENCODING = "utf-16"
 _GD3_HEADER = b"Gd3 "
+_GD3_NULL_TERMINATOR = b"\x00\x00"
 _GD3_SUPPORTED_VERSION = 0x00000100
 _MINIMUM_SUPPORTED_VERSION = 0x00000151
 _VGM_HEADER = b"Vgm "
+_VGM_HEADER_OFFSETS = {
+    "magic_string": 0x00,
+    "eof": 0x04,
+    "version": 0x08,
+    "gd3": 0x14,
+    "total_samples": 0x18,
+    "loop_offset": 0x22,
+    "loop_num_samples": 0x26,
+    "data_offset": 0x34,
+    "ym3812_clock": 0x50,
+    "ym262_clock": 0x5C,
+    # 'volume_modifier': 0x7C,
+    # 'loop_base': 0x7E,
+    "loop_modifier": 0x7F,
+}
 
 
 def _read_commands(in_file: BinaryIO) -> array.array:
@@ -84,7 +117,9 @@ def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
         release_date,
         creator,
         notes,
-    ) = [entry.decode("utf-16") for entry in string_blob.split(b"\x00\x00")]
+    ) = [
+        entry.decode(_GD3_ENCODING) for entry in string_blob.split(_GD3_NULL_TERMINATOR)
+    ]
     return GD3Tag(
         track_name_en,
         track_name_native,
@@ -98,6 +133,18 @@ def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
         creator,
         notes,
     )
+
+
+def write_gd3_tag(gd3_tag: GD3Tag) -> bytes:
+    buffer = BytesIO()
+    buffer.write(_GD3_HEADER)
+    write_int(buffer, _GD3_SUPPORTED_VERSION)
+    for field in gd3_tag.iter_fields():
+        buffer.write(field.encode(_GD3_ENCODING))
+        buffer.write(_GD3_NULL_TERMINATOR)
+    out = buffer.getvalue()
+    buffer.close()
+    return out
 
 
 class VgmFileIO:
@@ -117,25 +164,25 @@ class VgmFileIO:
                 raise DROFileException(
                     "Unsupported VGM version, v1.51 is the minimum supported version."
                 )
-            vgm_file.seek(0x14)
+            vgm_file.seek(_VGM_HEADER_OFFSETS["gd3"])
             gd3_offset = read_int(vgm_file)
             if gd3_offset:
-                gd3_offset += 0x14
-            vgm_file.seek(0x18)
+                gd3_offset += _VGM_HEADER_OFFSETS["gd3"]
+            vgm_file.seek(_VGM_HEADER_OFFSETS["total_samples"])
             total_samples = read_int(vgm_file)
             loop_offset = read_int(vgm_file)
             loop_num_samples = read_int(vgm_file)
-            vgm_file.seek(0x34)
-            vgm_data_offset = read_int(vgm_file) + 0x34
-            vgm_file.seek(0x50)
+            vgm_file.seek(_VGM_HEADER_OFFSETS["data_offset"])
+            vgm_data_offset = read_int(vgm_file) + _VGM_HEADER_OFFSETS["data_offset"]
+            vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
             ym3812_clock_and_dual_bit = read_int(vgm_file)
             is_dual_opl2: bool = bool(ym3812_clock_and_dual_bit & _DUAL_CHIP_FLAG)
             ym3812_clock = ym3812_clock_and_dual_bit & ~_DUAL_CHIP_FLAG
-            vgm_file.seek(0x5C)
+            vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock"])
             ymf262_clock = read_int(vgm_file) & ~_DUAL_CHIP_FLAG  # only support 1 chip
             # 0x7C = volume modifier, 1 byte, v1.60
             # 0x7E = loop base, 1 byte, v1.60
-            vgm_file.seek(0x7F)
+            vgm_file.seek(_VGM_HEADER_OFFSETS["loop_modifier"])
             loop_modifier = read_char(vgm_file)
             # 0xBC = extra header offset, 4 bytes, v1.70
             opl_type: OPLType | None = None
@@ -172,5 +219,66 @@ class VgmFileIO:
                 tag=tag,
             )
 
-    def write_data(self, dro_song: VGMSong) -> None:
-        pass
+    def write(self, dro_song: VGMSong) -> None:
+        length_ms = DROTotalDelayCalculator().sum_delay(dro_song)
+        gd3_tag = write_gd3_tag(dro_song.tag) if dro_song.tag else None
+        with open(dro_song.name, "wb") as vgm_file:
+            header_size = 0xFF
+            vgm_file.write(b"\x00" * header_size)
+
+            vgm_file.seek(_VGM_HEADER_OFFSETS["magic_string"])
+            vgm_file.write(_VGM_HEADER)
+
+            vgm_file.seek(_VGM_HEADER_OFFSETS["eof"])
+            gd3_size = len(gd3_tag) if gd3_tag else 0
+            end_of_data_marker_size = 1
+            eof = (
+                header_size
+                + dro_song.data.raw_len()
+                + end_of_data_marker_size
+                + gd3_size
+                + 1  # needs a little bit extra
+            )
+            write_int(vgm_file, eof - _VGM_HEADER_OFFSETS["eof"])
+
+            vgm_file.seek(_VGM_HEADER_OFFSETS["version"])
+            version = 0x00000151
+            write_int(vgm_file, version)
+
+            if gd3_tag:
+                write_int(vgm_file, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
+
+            vgm_file.seek(_VGM_HEADER_OFFSETS["data_offset"])
+            data_offset = 0x100
+            write_int(vgm_file, data_offset - _VGM_HEADER_OFFSETS["data_offset"])
+
+            match dro_song.opl_type:
+                case OPLType.OPL2:
+                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
+                    write_int(vgm_file, _CLOCK_OPL2)
+                case OPLType.DUAL_OPL2:
+                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
+                    write_int(vgm_file, _CLOCK_DUAL_OPL2)
+                case OPLType.OPL3:
+                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock_clock"])
+                    write_int(vgm_file, _CLOCK_OPL3)
+                case _:
+                    raise DROTrimmerException(
+                        f"Unrecognised OPL chip type: {dro_song.opl_type}"
+                    )
+
+            # TODO: sum samples, don't sum it from ms
+            # TODO: investigate and fix difference in samples from original
+            vgm_file.seek(_VGM_HEADER_OFFSETS["total_samples"])
+            write_int(vgm_file, math.ceil(length_ms * 44.1))
+
+            vgm_file.seek(header_size + 1)  # go to end of header
+            dro_song.data.tofile(vgm_file)
+            write_char(vgm_file, 0x66)  # end of sound data
+
+            # Write the GD3 tag after the data
+            if gd3_tag:
+                vgm_file.write(gd3_tag)
+
+            # TODO: investigate diffs:
+            #  0x24: rate, 0x230 (560). dro2vgm seems to write it as 1000 (0x3E8)

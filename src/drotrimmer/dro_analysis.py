@@ -38,7 +38,7 @@ DRO_FILE_V2 = 2
 
 
 class DROTotalDelayCalculator(object):
-    def sum_delay(self, dro_song: dro_data.AbstractSong):
+    def sum_delay(self, dro_song: dro_data.AbstractSong) -> int:
         # Bleh
         calc_delay = 0
         for inst in dro_song.data:

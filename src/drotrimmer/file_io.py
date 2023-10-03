@@ -21,7 +21,7 @@ def write_song_to_file(dro_song: AbstractSong) -> None:
         case SongFileType.DRO:
             DroFileIO().write(cast(DROSongV1 | DROSongV2, dro_song))
         case SongFileType.VGM:
-            VgmFileIO().write_data(cast(VGMSong, dro_song))
+            VgmFileIO().write(cast(VGMSong, dro_song))
         case _:
             raise DROFileException(
                 f"Tried to save an unsupported file format: {dro_song.file_type}"

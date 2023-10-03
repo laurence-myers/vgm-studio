@@ -174,7 +174,8 @@ class DTApp(wx.App):
         od = wx.FileDialog(
             self.mainframe,
             "Open DRO",
-            wildcard="DRO files (*.dro)|*.dro|"
+            wildcard="DRO or VGM (*.dro;*.vgm)|*.dro;*.vgm|"
+            + "DRO files (*.dro)|*.dro|"
             + "VGM files (*.vgm)|*.vgm|"
             + "All Files|*.*",
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_CHANGE_DIR,
@@ -293,7 +294,10 @@ class DTApp(wx.App):
         sd = wx.FileDialog(
             self.mainframe,
             "Save DRO file",
-            wildcard="DRO files (*.dro)|*.dro|All Files|*.*",
+            wildcard="DRO or VGM (*.dro;*.vgm)|*.dro;*.vgm|"
+            + "DRO files (*.dro)|*.dro|"
+            + "VGM files (*.vgm)|*.vgm|"
+            + "All Files|*.*",
             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT | wx.FD_CHANGE_DIR,
         )
         if sd.ShowModal() == wx.ID_OK:

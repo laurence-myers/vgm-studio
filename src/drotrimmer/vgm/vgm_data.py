@@ -28,6 +28,19 @@ class GD3Tag:
     creator: str
     notes: str
 
+    def iter_fields(self) -> Iterable[str]:
+        yield self.track_name_en
+        yield self.track_name_native
+        yield self.game_name_en
+        yield self.game_name_native
+        yield self.system_name_en  # TODO: maybe derive this from AbstractSong.opl_type
+        yield self.system_name_native
+        yield self.track_author_en
+        yield self.track_author_native
+        yield self.release_date
+        yield self.creator
+        yield self.notes
+
 
 class VGMData(DROData):
     def __init__(self, data: array.array) -> None:
