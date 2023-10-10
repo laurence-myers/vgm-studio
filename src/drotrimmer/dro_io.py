@@ -27,12 +27,12 @@ import array
 from .dro_data import (
     DRO_FILE_V1,
     DRO_FILE_V2,
+    DROSongV1,
     DROSongV2,
     DRODataV1,
     DRODataV2,
     DROInstructionType,
     OPLType,
-    DROSongV1,
 )
 from .dro_util import *
 
@@ -234,13 +234,13 @@ class DroFileIOv2(object):
             iLongDelayCode,
         )
 
-        # NOTE: iHardwareType value is different compared to V1. Really should cater for it better by converting to another value.
+        opl_type = OPLType(iHardwareType)
         return DROSongV2(
             DRO_FILE_V2,
             file_name,
             dro_data,
             iLengthMS,
-            iHardwareType,
+            opl_type,
             iShortDelayCode,
             iLongDelayCode,
         )

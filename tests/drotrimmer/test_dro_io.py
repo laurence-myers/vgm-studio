@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import cast
 from unittest import TestCase
 
-from src.drotrimmer.dro_data import DRODataV2
+from src.drotrimmer.dro_data import DRODataV2, OPLType
 from src.drotrimmer.dro_io import DROSongV2, DroFileIO
 
 
@@ -16,7 +16,7 @@ class TestDroUndo(TestCase):
         self.assertEqual(dro_song.file_version, 2)
         self.assertEqual(dro_song.long_delay_code, 123)
         self.assertEqual(dro_song.short_delay_code, 122)
-        self.assertEqual(dro_song.opl_type, 0)
+        self.assertEqual(dro_song.opl_type, OPLType.OPL2)
         self.assertEqual(dro_song.name, file_name)
         self.assertEqual(
             dro_song.detailed_register_descriptions, None
