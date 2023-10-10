@@ -74,7 +74,7 @@ class DROInstruction(object):
         self.bank = bank
 
     def __repr__(self) -> str:
-        return "DROInstruction(DROInstructionType.%s, %s, %s, bank=%s)" % (
+        return "DROInstruction(%s, %s, %s, bank=%s)" % (
             DROInstructionType(self.inst_type),
             self.command,
             self.value,
