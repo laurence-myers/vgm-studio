@@ -1,6 +1,6 @@
 from typing import cast
 
-from .dro_data import AbstractSong, SongFileType, DROSongV2, DROSongV1
+from .dro_data import AbstractSong, SongFileType, DROSongV1, DROSongV2
 from .dro_io import DroFileIO
 from .dro_util import DROFileException
 from .vgm.vgm_data import VGMSong
