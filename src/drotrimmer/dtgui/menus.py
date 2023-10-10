@@ -95,6 +95,12 @@ class DTMainMenuBar(wx.MenuBar):
             "View or edit the DRO file info (song length, hardware type)",
             wx.ITEM_NORMAL,
         )
+        self.menu_edit.Append(
+            gui_id("MENU_CONVERT_TO_VGM"),
+            "&Convert to VGM",
+            "Convert to the VGM file format, enabling tags and loop points",
+            wx.ITEM_NORMAL,
+        )
         self.menu_edit.AppendSeparator()
         self.menu_edit.Append(
             gui_id("MENU_DELETE"),

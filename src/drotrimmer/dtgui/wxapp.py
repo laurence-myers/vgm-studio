@@ -30,6 +30,8 @@ from typing import Any
 
 import wx
 
+from ..dro_data import SongFileType
+from ..vgm.vgm_data import VGMSong
 from .. import (
     dro_analysis,
     dro_config,
@@ -135,6 +137,9 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_MENU, self.menu_dro_info, id=gui_id("MENU_DROINFO"))
         self.mainframe.Bind(
             wx.EVT_MENU, self.menu_loop_analysis, id=gui_id("MENU_LOOPANALYSIS")
+        )
+        self.mainframe.Bind(
+            wx.EVT_MENU, self.menu_convert_to_vgm, id=gui_id("MENU_CONVERT_TO_VGM")
         )
         self.mainframe.Bind(wx.EVT_MENU, self.menu_help, id=wx.ID_HELP)
         self.mainframe.Bind(wx.EVT_MENU, self.menu_about, id=gui_id("MENU_ABOUT"))
@@ -372,6 +377,17 @@ class DTApp(wx.App):
             self.__trigger_detailed_register_analysis_and_waveform()
         else:
             self.set_status_text("Nothing to redo.")
+
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_convert_to_vgm(self, _event):
+        if self.drosong.file_type == SongFileType.VGM:
+            self.set_status_text("File is already in VGM format")
+            return
+        self.drosong = VGMSong.from_song(self.drosong)
+        self.undo_controller.reset()  # Can't undo this operation, so just wipe the history.
+        self.__trigger_detailed_register_analysis_and_waveform()  # Need to re-analyse the file, just to be safe.
+        self.set_status_text("Successfully converted to VGM")
 
     def menu_help(self, _event):
         hd = wx.MessageDialog(

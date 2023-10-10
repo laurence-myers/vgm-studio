@@ -1,5 +1,6 @@
 import array
 import math
+import re
 from dataclasses import dataclass
 from typing import Literal, Iterable
 
@@ -12,6 +13,8 @@ from ..dro_data import (
     SongFileType,
 )
 from ..dro_util import DROTrimmerException
+
+_VGM_CONVERSION_VERSION = 0x00000151
 
 
 @dataclass
@@ -176,6 +179,66 @@ class VGMData(DROData):
 
 class VGMSong(AbstractSong):
     data: VGMData
+
+    @staticmethod
+    def from_song(dro_song: AbstractSong) -> "VGMSong":
+        data = array.array("B")
+        bank = 0
+        total_samples = 0
+        for inst in dro_song.data:
+            match inst.inst_type:
+                case DROInstructionType.BANK_SWITCH:
+                    bank = inst.value  # DRO v1
+                case DROInstructionType.DELAY:
+                    if inst.value <= 0x0F:
+                        command = 0x70 | inst.value
+                        data.append(command)
+                        total_samples += inst.value
+                    else:
+                        command = 0x61
+                        data.append(command)
+                        samples = math.ceil(inst.value * 44.1)
+                        total_samples += samples
+                        while samples > 0xFFFF:
+                            data.append(0xFF)
+                            data.append(0xFF)
+                            samples -= 0xFFFF
+                        data.append(samples & 0xFF)
+                        data.append((samples & 0xFF00) >> 8)
+                case DROInstructionType.REGISTER:
+                    # Support both DRO v1 (separate bank switch commands)
+                    # and DRO v2 (bank is interpreted by DROInstruction)
+                    inner_bank = inst.bank if inst.bank is not None else bank
+                    match dro_song.opl_type:
+                        case OPLType.OPL2:
+                            command = 0x5A
+                        case OPLType.DUAL_OPL2:
+                            command = 0xAA if inner_bank == 1 else 0x5A
+                        case OPLType.OPL3:
+                            command = 0x5F if inner_bank == 1 else 0x5E
+                        case _:
+                            raise DROTrimmerException(
+                                f"Unexpected OPLType: {dro_song.opl_type}"
+                            )
+                    data.append(command)  # VGM Chip
+                    data.append(inst.command)  # Register
+                    data.append(inst.value)
+                case _:
+                    raise DROTrimmerException(
+                        f"Unexpected DROInstructionType: {inst.inst_type}"
+                    )
+        return VGMSong(
+            _VGM_CONVERSION_VERSION,
+            # Replace .dro, or any other extension, with .vgm
+            re.sub(r"\..{3,4}$", ".vgm", dro_song.name, flags=re.IGNORECASE),
+            VGMData(data),
+            dro_song.opl_type,
+            total_samples,
+            loop_offset=0,
+            loop_modifier=0,
+            loop_num_samples=0,
+            tag=None,
+        )
 
     def __init__(
         self,
