@@ -124,7 +124,7 @@ class DROLoopAnalyzer(object):
     def num_analyses(self):
         return len(self.analysis_methods)
 
-    def analyze_dro(self, dro_song: dro_data.AbstractSong):
+    def analyze_dro(self, dro_song: dro_data.AbstractSong) -> list[AnalysisResult]:
         """
         @type dro_song: DROSong
         """

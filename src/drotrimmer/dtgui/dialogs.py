@@ -26,16 +26,16 @@ from typing import Any
 
 import wx
 
-from .. import dro_analysis, dro_config, dro_data, dro_globals
+from .. import dro_analysis, dro_config, dro_data
 from .containers import TextPanel
 from .ui_util import gui_id, error_alert
+from ..dro_analysis import DROLoopAnalyzer
 
 
 class DTDialogGoto(wx.Dialog):
-    def __init__(self, wx_app, parent, max_pos, *args, **kwds):
+    def __init__(self, wx_app: Any, parent: wx.Window, max_pos: int) -> None:
         # begin wxGlade: DTDialogGoto.__init__
-        kwds["style"] = wx.DEFAULT_DIALOG_STYLE
-        wx.Dialog.__init__(self, parent, *args, **kwds)
+        super().__init__(parent, style=wx.DEFAULT_DIALOG_STYLE)
         self.sc_position = wx.SpinCtrl(self, -1, "", min=0, max=max_pos)
         self.btn_go = wx.Button(self, gui_id("BUTTON_GOTO_GO"), "Go")
         self.btn_close = wx.Button(self, wx.ID_CANCEL, "Close")
@@ -46,14 +46,14 @@ class DTDialogGoto(wx.Dialog):
         self.parent = parent
         self.Bind(wx.EVT_BUTTON, wx_app.button_goto, id=gui_id("BUTTON_GOTO_GO"))
 
-    def __set_properties(self):
+    def __set_properties(self) -> None:
         # begin wxGlade: DTDialogGoto.__set_properties
         self.SetTitle("Goto Position")
         self.btn_go.SetDefault()
         self.sc_position.SetValue("")
         # end wxGlade
 
-    def __do_layout(self):
+    def __do_layout(self) -> None:
         # begin wxGlade: DTDialogGoto.__do_layout
         sz_main = wx.BoxSizer(wx.VERTICAL)
         sz_buttons = wx.BoxSizer(wx.HORIZONTAL)
@@ -68,7 +68,7 @@ class DTDialogGoto(wx.Dialog):
         self.Layout()
         # end wxGlade
 
-    def reset(self, max_pos):
+    def reset(self, max_pos: int) -> None:
         self.sc_position.SetValue(0)
         self.sc_position.SetValue("")
         self.sc_position.SetRange(0, max_pos)
@@ -78,13 +78,12 @@ class DTDialogGoto(wx.Dialog):
 
 
 class DTDialogFindReg(wx.Dialog):
-    def __init__(self, wx_app, *args, **kwds):
+    def __init__(self, wx_app: Any, parent: wx.Window, dro_version: int) -> None:
         # begin wxGlade: DTDialogFindReg.__init__
-        kwds["style"] = wx.DEFAULT_DIALOG_STYLE
-        wx.Dialog.__init__(self, *args, **kwds)
+        super().__init__(parent, style=wx.DEFAULT_DIALOG_STYLE)
 
-        self.parent = args[0]
-        self.dro_version = args[1]
+        self.parent = parent
+        self.dro_version = dro_version
 
         # Choices are special values for DRO commands plus registers
         # formerly: [hex(rk) for rk in registers.keys()]
@@ -124,13 +123,13 @@ class DTDialogFindReg(wx.Dialog):
         self.__do_layout()
         # end wxGlade
 
-    def __set_properties(self):
+    def __set_properties(self) -> None:
         # begin wxGlade: DTDialogFindReg.__set_properties
         self.SetTitle("Find Register")
         self.cb_registers.SetSelection(-1)
         # end wxGlade
 
-    def __do_layout(self):
+    def __do_layout(self) -> None:
         # Alignment adjustments by Wraithverge
         # begin wxGlade: DTDialogFindReg.__do_layout
         s_main = wx.BoxSizer(wx.VERTICAL)
@@ -259,15 +258,15 @@ class DROInfoDialog(wx.Dialog):
 
 
 class LoopAnalysisDialog(wx.Dialog):
-    def __init__(self, wx_app, loop_analyzer, parent, **kwds):
-        wx.Dialog.__init__(
-            self,
+    def __init__(
+        self, wx_app: Any, loop_analyzer: DROLoopAnalyzer, parent: wx.Window
+    ) -> None:
+        super().__init__(
             parent,
             style=wx.DEFAULT_DIALOG_STYLE
             | wx.RESIZE_BORDER
             | wx.MAXIMIZE_BOX
             | wx.MINIMIZE_BOX,
-            **kwds
         )
         self.notebook = wx.Notebook(self, size=(400, 300))
 
@@ -305,10 +304,10 @@ class LoopAnalysisDialog(wx.Dialog):
         self.__set_properties()
         self.__do_layout()
 
-    def __set_properties(self):
+    def __set_properties(self) -> None:
         self.SetTitle("Loop Analysis")
 
-    def __do_layout(self):
+    def __do_layout(self) -> None:
         # Lay things out
         sizer_buttons = wx.BoxSizer(wx.HORIZONTAL)
         sizer_buttons.Add(self.btn_analyze, 1, wx.ALIGN_BOTTOM, 0)
@@ -321,7 +320,7 @@ class LoopAnalysisDialog(wx.Dialog):
         sizer_main.Fit(self)
         self.Layout()
 
-    def load_results(self, result_list):
+    def load_results(self, result_list: list[Any] | None) -> None:
         if result_list is None:
             result_list = ["No analysis performed yet."] * len(self.result_pages)
         for loop_analysis_result, page in zip(result_list, self.result_pages):
