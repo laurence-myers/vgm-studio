@@ -159,7 +159,10 @@ class DROInfoDialog(wx.Dialog):
         dro_info_edit_enabled = config.ui.dro_info_edit_enabled
         # begin wxGlade: MyDialog.__init__
         self.parent = parent
-        super().__init__(parent, style=wx.DEFAULT_DIALOG_STYLE)
+        super().__init__(
+            parent,
+            style=wx.DEFAULT_DIALOG_STYLE,
+        )
         self.l_dro_version = wx.StaticText(self, -1, "DRO Version")
         self.tc_dro_version = wx.TextCtrl(self, -1, str(dro_song.file_version))
         self.l_hardware_type = wx.StaticText(self, -1, "Hardware Type")
@@ -192,7 +195,7 @@ class DROInfoDialog(wx.Dialog):
     def __set_properties(self) -> None:
         # begin wxGlade: MyDialog.__set_properties
         self.SetTitle("DRO Info")
-        self.SetSize((330, 242))
+        self.SetSize(self.FromDIP((330, 242)))
         self.tc_dro_version.Disable()
         self.c_hardware_type.Disable()
         self.tc_length_ms.Disable()
@@ -268,7 +271,7 @@ class LoopAnalysisDialog(wx.Dialog):
             | wx.MAXIMIZE_BOX
             | wx.MINIMIZE_BOX,
         )
-        self.notebook = wx.Notebook(self, size=(400, 300))
+        self.notebook = wx.Notebook(self, size=self.FromDIP((400, 300)))
 
         # Create buttons
         self.btn_analyze = wx.Button(self, gui_id("BUTTON_ANALYZE"), "Analyze")
