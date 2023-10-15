@@ -157,8 +157,9 @@ class DTApp(wx.App):
 
         self.mainframe.Bind(wx.EVT_CLOSE, self.close_frame)
 
-        self.Bind(wx.EVT_KEY_DOWN, self.key_listener)
-        self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self.key_listener_for_list)
+        self.Bind(wx.EVT_KEY_DOWN, self._key_listener)
+        self.mainframe.Bind(wx.EVT_LIST_KEY_DOWN, self._key_listener_for_list)
+        self._register_accelerators()
 
         self.Bind(
             wx.EVT_TIMER,
@@ -593,14 +594,11 @@ class DTApp(wx.App):
 
     # ____________________
     # Start Misc Event Handlers
-    def key_listener_for_list(self, event: Any) -> None:
+    def _key_listener_for_list(self, event: Any) -> None:
         if not self:
             return
         keycode = event.GetKeyCode()
-        if keycode in (wx.WXK_DELETE, wx.WXK_BACK):  # delete or backspace
-            self.button_delete(None)
-            event.Veto()
-        elif keycode == wx.WXK_LEFT:
+        if keycode == wx.WXK_LEFT:
             # <-- key. Previous delay
             self.button_previous_delay(event)
             event.Veto()
@@ -608,50 +606,57 @@ class DTApp(wx.App):
             # --> key. Next delay
             self.button_next_delay(event)
             event.Veto()
-        else:
-            event.Skip()
-
-    def key_listener(self, event: wx.KeyEvent) -> None:
-        if not self:
-            return
-        keycode = event.GetKeyCode()
-        if keycode == 70 and event.CmdDown():  # CTRL-F
-            self.menu_find_reg(event)
-        elif keycode == 71 and event.CmdDown():  # CTRL-G
-            self.menu_goto(event)
-        elif keycode == 72 and event.CmdDown():  # CTRL-H
-            self.menu_help(event)
-        elif keycode == 73 and event.CmdDown():  # CTRL-I
-            self.menu_dro_info(event)
-        elif keycode == 79 and event.CmdDown():  # CTRL-O
-            self.menu_open_dro(event)
-        elif keycode == 83 and event.ShiftDown() and event.CmdDown():  # CTRL-SHIFT-S
-            self.menu_save_dro_as(event)
-        elif keycode == 83 and event.CmdDown():  # CTRL-S
-            self.menu_save_dro(event)
-        elif keycode == 89 and event.CmdDown():  # CTRL-Y
-            self.menu_redo(event)
-        elif keycode == 90 and event.CmdDown():  # CTRL-Z
-            self.menu_undo(event)
-        elif keycode == 90:  # Z. TODO: remove this
-            self.start_test_task(event)
-        elif keycode == 83:  # S. TODO: remove this
-            self.cancel_test_task(event)
         elif keycode == 32:  # Spacebar
             self.toggle_playback(event)
         else:
             # print keycode
             event.Skip()
 
-    def start_test_task(self, _event):
-        task_name = f"Task {self.task_master.get_num_tasks() + 1}"
-        task = tasks.ExampleTask(task_name)
-        self.task_master.start_task(task)
-        self.log.debug(f"Starting {task_name}\n")
+    def _key_listener(self, event: wx.KeyEvent) -> None:
+        keycode = event.GetKeyCode()
+        # On spacebar events, we don't want to catch text entry in the tag editor.
+        # So, we only toggle playback if the main list or waveform panel has focus.
+        # This also allows users to use spacebar to trigger buttons via standard keyboard navigation.
+        if (
+            keycode == 32
+            and self.mainframe.dtlist.HasFocus()
+            or self.mainframe.waveform_panel.HasFocus()
+        ):
+            self.toggle_playback(event)
+        else:
+            event.Skip()
 
-    def cancel_test_task(self, _event):
-        task_name = f"Task {self.task_master.get_num_tasks()}"
-        self.task_master.cancel_task(task_name)
+    def _register_accelerators(self) -> None:
+        accelerator_entries = [
+            # Buttons
+            wx.AcceleratorEntry(
+                wx.ACCEL_NORMAL, wx.WXK_DELETE, gui_id("BUTTON_DELETE")
+            ),
+            wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_BACK, gui_id("BUTTON_DELETE")),
+            # wx.AcceleratorEntry(
+            #     wx.ACCEL_NORMAL, wx.WXK_LEFT, gui_id("BUTTON_PREVIOUS_DELAY")
+            # ),
+            # wx.AcceleratorEntry(
+            #     wx.ACCEL_NORMAL, wx.WXK_RIGHT, gui_id("BUTTON_NEXT_DELAY")
+            # ),
+            # Menu items
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("F"), gui_id("MENU_FINDREG")),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("G"), gui_id("MENU_GOTO")),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("H"), wx.ID_HELP),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("I"), gui_id("MENU_DROINFO")),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("O"), gui_id("MENU_OPENDRO")),
+            wx.AcceleratorEntry(
+                wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord("S"), gui_id("MENU_SAVEDROAS")
+            ),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("S"), gui_id("MENU_SAVEDRO")),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("Y"), gui_id("MENU_REDO")),
+            wx.AcceleratorEntry(wx.ACCEL_CTRL, ord("Z"), gui_id("MENU_UNDO")),
+            # Custom
+            # wx.AcceleratorEntry(
+            #     wx.ACCEL_NORMAL, wx.WXK_SPACE, gui_id("BUTTON_TOGGLE_PLAYBACK")
+            # ),
+        ]
+        self.mainframe.SetAcceleratorTable(wx.AcceleratorTable(accelerator_entries))
 
     def on_result(self, event: tasks.TaskResultEvent):
         # self.log.debug(f"{event.task_name} result\n")
