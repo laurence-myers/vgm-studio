@@ -25,7 +25,7 @@ _CLOCK_DUAL_OPL2 = (
 )
 _CLOCK_OPL3 = 14318180
 _DUAL_CHIP_FLAG = 0x40000000
-_GD3_ENCODING = "utf-16"
+_GD3_ENCODING = "utf-16-le"
 _GD3_HEADER = b"Gd3 "
 _GD3_NULL_TERMINATOR = b"\x00\x00"
 _GD3_SUPPORTED_VERSION = 0x00000100
@@ -102,9 +102,9 @@ def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
     if version != _GD3_SUPPORTED_VERSION:
         raise DROFileException("Unsupported GD3 version, only v1.00 is supported.")
     data_length = read_int(vgm_file)
-    string_blob: bytes = vgm_file.read(data_length)
+    string_blob: str = vgm_file.read(data_length).decode(_GD3_ENCODING)
     # Tag entries are null-terminated, using two byte characters.
-    # The encoding is not specified. I have chosen to only support utf-16.
+    # The encoding is not specified. I have chosen to only support utf-16-le, this seems to be what vgm_tag uses.
     (
         track_name_en,
         track_name_native,
@@ -117,9 +117,8 @@ def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
         release_date,
         creator,
         notes,
-    ) = [
-        entry.decode(_GD3_ENCODING) for entry in string_blob.split(_GD3_NULL_TERMINATOR)
-    ]
+        _,  # Using .split() gives us one extra empty string, we ignore it
+    ) = string_blob.split("\0")
     return GD3Tag(
         track_name_en,
         track_name_native,
@@ -139,9 +138,14 @@ def write_gd3_tag(gd3_tag: GD3Tag) -> bytes:
     buffer = BytesIO()
     buffer.write(_GD3_HEADER)
     write_int(buffer, _GD3_SUPPORTED_VERSION)
-    for _field_name, field_value in gd3_tag.iter_fields():
+    header_size_offset = buffer.tell()
+    write_int(buffer, 0)
+    for field_value in gd3_tag.iter_fields():
         buffer.write(field_value.encode(_GD3_ENCODING))
         buffer.write(_GD3_NULL_TERMINATOR)
+    header_size = buffer.tell() - header_size_offset - 4
+    buffer.seek(header_size_offset)
+    write_int(buffer, header_size)
     out = buffer.getvalue()
     buffer.close()
     return out
@@ -246,6 +250,7 @@ class VgmFileIO:
             write_int(vgm_file, version)
 
             if gd3_tag:
+                vgm_file.seek(_VGM_HEADER_OFFSETS["gd3"])
                 write_int(vgm_file, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
 
             vgm_file.seek(_VGM_HEADER_OFFSETS["data_offset"])

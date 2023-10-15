@@ -45,7 +45,7 @@ from .. import (
 )
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
-from .gd3_tag_dialog import GD3TagDialog
+from .gd3_tag_dialog import GD3TagDialog, EVT_TAG_UPDATE, TagUpdateEvent
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import (
     gui_id,
@@ -170,6 +170,7 @@ class DTApp(wx.App):
         # Custom events
         self.Bind(EVT_FILE_DROP, self.on_file_drop)
         self.Bind(EVT_FIRST_SELECTED_ITEM_CHANGED, self.on_list_item_selected)
+        self.Bind(EVT_TAG_UPDATE, self.on_tag_update)
         self.Bind(waveform.EVT_WAVEFORM_GO_TO, self.on_waveform_go_to)
         self.Bind(waveform.EVT_WAVEFORM_HOVER, self.on_waveform_hover)
         self.Bind(tasks.EVT_TASK_RESULT, self.on_result)
@@ -695,6 +696,12 @@ class DTApp(wx.App):
     def on_file_drop(self, event: FileDropEvent):
         self.log.debug(f"File drop event received. Filename: {event.filename}")
         self.__load_file(event.filename)
+
+    @catch_unhandled_exceptions
+    def on_tag_update(self, event: TagUpdateEvent) -> None:
+        if not self.drosong or self.drosong.file_type != SongFileType.VGM:
+            return
+        cast(VGMSong, self.drosong).tag = event.tag
 
     def on_list_item_selected(self, event: FirstSelectedItemChangedEvent) -> None:
         if not self.drosong:

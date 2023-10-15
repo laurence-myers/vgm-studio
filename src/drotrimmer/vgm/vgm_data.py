@@ -27,25 +27,22 @@ class GD3Tag:
     system_name_native: str
     track_author_en: str
     track_author_native: str
-    release_date: str  # should this be a struct?
+    release_date: str
     creator: str
     notes: str
 
-    def iter_fields(self) -> Iterable[tuple[str, str]]:
-        yield ("Track Name (EN)", self.track_name_en)
-        yield ("Track Name (orig)", self.track_name_native)
-        yield ("Game Name (EN)", self.game_name_en)
-        yield ("Game Name (orig)", self.game_name_native)
-        yield (
-            "System Name (EN)",
-            self.system_name_en,
-        )  # TODO: maybe derive this from AbstractSong.opl_type
-        yield ("System Name (orig)", self.system_name_native)
-        yield ("Track Author (EN)", self.track_author_en)
-        yield ("Track Author (orig)", self.track_author_native)
-        yield ("Release Date", self.release_date)
-        yield ("Creator", self.creator)
-        yield ("Notes", self.notes)
+    def iter_fields(self) -> Iterable[str]:
+        yield self.track_name_en
+        yield self.track_name_native
+        yield self.game_name_en
+        yield self.game_name_native
+        yield self.system_name_en  # TODO: maybe derive this from AbstractSong.opl_type
+        yield self.system_name_native
+        yield self.track_author_en
+        yield self.track_author_native
+        yield self.release_date
+        yield self.creator
+        yield self.notes
 
 
 class VGMData(DROData):
