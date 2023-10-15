@@ -139,8 +139,8 @@ def write_gd3_tag(gd3_tag: GD3Tag) -> bytes:
     buffer = BytesIO()
     buffer.write(_GD3_HEADER)
     write_int(buffer, _GD3_SUPPORTED_VERSION)
-    for field in gd3_tag.iter_fields():
-        buffer.write(field.encode(_GD3_ENCODING))
+    for _field_name, field_value in gd3_tag.iter_fields():
+        buffer.write(field_value.encode(_GD3_ENCODING))
         buffer.write(_GD3_NULL_TERMINATOR)
     out = buffer.getvalue()
     buffer.close()

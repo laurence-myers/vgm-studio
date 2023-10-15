@@ -26,7 +26,7 @@ import ctypes
 import optparse
 import os.path
 import sys
-from typing import Any
+from typing import Any, cast
 
 import wx
 
@@ -45,6 +45,7 @@ from .. import (
 )
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
 from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
+from .gd3_tag_dialog import GD3TagDialog
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import (
     gui_id,
@@ -135,6 +136,7 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_MENU, self.menu_find_reg, id=gui_id("MENU_FINDREG"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_delete, id=gui_id("MENU_DELETE"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_dro_info, id=gui_id("MENU_DROINFO"))
+        self.mainframe.Bind(wx.EVT_MENU, self.menu_edit_tag, id=gui_id("MENU_EDIT_TAG"))
         self.mainframe.Bind(
             wx.EVT_MENU, self.menu_loop_analysis, id=gui_id("MENU_LOOPANALYSIS")
         )
@@ -349,6 +351,16 @@ class DTApp(wx.App):
         dro_info_dialog = DROInfoDialog(self.mainframe, self.drosong)
         dro_info_dialog.ShowModal()
         dro_info_dialog.Destroy()
+
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_edit_tag(self, _event: Any) -> None:
+        if self.drosong.file_type != SongFileType.VGM:
+            self.set_status_text("Only VGMs support tag editing")
+            return
+        tag_edit_dialog = GD3TagDialog(self.mainframe, cast(VGMSong, self.drosong))
+        tag_edit_dialog.Show()
+        # tag_edit_dialog.Destroy()
 
     @catch_unhandled_exceptions
     @requires_dro_loaded
@@ -581,7 +593,7 @@ class DTApp(wx.App):
 
     # ____________________
     # Start Misc Event Handlers
-    def key_listener_for_list(self, event):
+    def key_listener_for_list(self, event: Any) -> None:
         if not self:
             return
         keycode = event.GetKeyCode()
@@ -599,7 +611,7 @@ class DTApp(wx.App):
         else:
             event.Skip()
 
-    def key_listener(self, event):
+    def key_listener(self, event: wx.KeyEvent) -> None:
         if not self:
             return
         keycode = event.GetKeyCode()

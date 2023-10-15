@@ -96,6 +96,12 @@ class DTMainMenuBar(wx.MenuBar):
             wx.ITEM_NORMAL,
         )
         self.menu_edit.Append(
+            gui_id("MENU_EDIT_TAG"),
+            "Edit &Tag",
+            "Edit the VGM GD3 tag",
+            wx.ITEM_NORMAL,
+        )
+        self.menu_edit.Append(
             gui_id("MENU_CONVERT_TO_VGM"),
             "&Convert to VGM",
             "Convert to the VGM file format, enabling tags and loop points",
