@@ -618,10 +618,8 @@ class DTApp(wx.App):
         # On spacebar events, we don't want to catch text entry in the tag editor.
         # So, we only toggle playback if the main list or waveform panel has focus.
         # This also allows users to use spacebar to trigger buttons via standard keyboard navigation.
-        if (
-            keycode == 32
-            and self.mainframe.dtlist.HasFocus()
-            or self.mainframe.waveform_panel.HasFocus()
+        if keycode == 32 and (
+            self.mainframe.dtlist.HasFocus() or self.mainframe.waveform_panel.HasFocus()
         ):
             self.toggle_playback(event)
         else:
