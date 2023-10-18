@@ -265,7 +265,7 @@ class VgmFileIO:
                     vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
                     write_int(vgm_file, _CLOCK_DUAL_OPL2)
                 case OPLType.OPL3:
-                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock_clock"])
+                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock"])
                     write_int(vgm_file, _CLOCK_OPL3)
                 case _:
                     raise DROTrimmerException(
