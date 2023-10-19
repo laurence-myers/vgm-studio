@@ -8,9 +8,10 @@ from .vgm.vgm_io import VgmFileIO
 
 
 def read_song_from_file(file_name: str) -> AbstractSong:
-    if file_name.lower().endswith(".dro"):
+    lower_name = file_name.lower()
+    if lower_name.endswith(".dro"):
         return DroFileIO().read(file_name)
-    elif file_name.lower().endswith(".vgm"):
+    elif lower_name.endswith(".vgm") or lower_name.endswith(".vgz"):
         return VgmFileIO().read(file_name)
     else:
         raise DROFileException(f"Tried to read an unsupported file format: {file_name}")

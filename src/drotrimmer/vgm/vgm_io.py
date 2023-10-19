@@ -1,6 +1,8 @@
 import array
+import gzip
 import math
 import struct
+from gzip import GzipFile
 from io import BytesIO
 from typing import BinaryIO, Literal
 
@@ -154,8 +156,12 @@ def write_gd3_tag(gd3_tag: GD3Tag) -> bytes:
 class VgmFileIO:
     """Reads or writes VGM data from/to a file."""
 
+    def _open(self, file_name: str, mode: Literal["rb", "wb"]) -> GzipFile | BinaryIO:
+        is_compressed = file_name.lower().endswith(".vgz")
+        return (gzip.open if is_compressed else open)(file_name, mode)
+
     def read(self, file_name: str) -> VGMSong:
-        with open(file_name, "rb") as vgm_file:
+        with self._open(file_name, "rb") as vgm_file:
             header_name = vgm_file.read(4)
             if header_name != _VGM_HEADER:
                 raise DROFileException(
@@ -226,14 +232,17 @@ class VgmFileIO:
     def write(self, dro_song: VGMSong) -> None:
         length_ms = DROTotalDelayCalculator().sum_delay(dro_song)
         gd3_tag = write_gd3_tag(dro_song.tag) if dro_song.tag else None
-        with open(dro_song.name, "wb") as vgm_file:
-            header_size = 0xFF
-            vgm_file.write(b"\x00" * header_size)
 
-            vgm_file.seek(_VGM_HEADER_OFFSETS["magic_string"])
-            vgm_file.write(_VGM_HEADER)
+        # To support negative seek when writing VGZ files, we first calculate the header in memory.
+        vgm_header_str = b""
+        with BytesIO() as vgm_header:
+            header_size = 0x100
+            vgm_header.write(b"\x00" * header_size)
 
-            vgm_file.seek(_VGM_HEADER_OFFSETS["eof"])
+            vgm_header.seek(_VGM_HEADER_OFFSETS["magic_string"])
+            vgm_header.write(_VGM_HEADER)
+
+            vgm_header.seek(_VGM_HEADER_OFFSETS["eof"])
             gd3_size = len(gd3_tag) if gd3_tag else 0
             end_of_data_marker_size = 1
             eof = (
@@ -241,32 +250,31 @@ class VgmFileIO:
                 + dro_song.data.raw_len()
                 + end_of_data_marker_size
                 + gd3_size
-                + 1  # needs a little bit extra
             )
-            write_int(vgm_file, eof - _VGM_HEADER_OFFSETS["eof"])
+            write_int(vgm_header, eof - _VGM_HEADER_OFFSETS["eof"])
 
-            vgm_file.seek(_VGM_HEADER_OFFSETS["version"])
+            vgm_header.seek(_VGM_HEADER_OFFSETS["version"])
             version = 0x00000151
-            write_int(vgm_file, version)
+            write_int(vgm_header, version)
 
             if gd3_tag:
-                vgm_file.seek(_VGM_HEADER_OFFSETS["gd3"])
-                write_int(vgm_file, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
+                vgm_header.seek(_VGM_HEADER_OFFSETS["gd3"])
+                write_int(vgm_header, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
 
-            vgm_file.seek(_VGM_HEADER_OFFSETS["data_offset"])
+            vgm_header.seek(_VGM_HEADER_OFFSETS["data_offset"])
             data_offset = 0x100
-            write_int(vgm_file, data_offset - _VGM_HEADER_OFFSETS["data_offset"])
+            write_int(vgm_header, data_offset - _VGM_HEADER_OFFSETS["data_offset"])
 
             match dro_song.opl_type:
                 case OPLType.OPL2:
-                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
-                    write_int(vgm_file, _CLOCK_OPL2)
+                    vgm_header.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
+                    write_int(vgm_header, _CLOCK_OPL2)
                 case OPLType.DUAL_OPL2:
-                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
-                    write_int(vgm_file, _CLOCK_DUAL_OPL2)
+                    vgm_header.seek(_VGM_HEADER_OFFSETS["ym3812_clock"])
+                    write_int(vgm_header, _CLOCK_DUAL_OPL2)
                 case OPLType.OPL3:
-                    vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock"])
-                    write_int(vgm_file, _CLOCK_OPL3)
+                    vgm_header.seek(_VGM_HEADER_OFFSETS["ym262_clock"])
+                    write_int(vgm_header, _CLOCK_OPL3)
                 case _:
                     raise DROTrimmerException(
                         f"Unrecognised OPL chip type: {dro_song.opl_type}"
@@ -274,10 +282,13 @@ class VgmFileIO:
 
             # TODO: sum samples, don't sum it from ms
             # TODO: investigate and fix difference in samples from original
-            vgm_file.seek(_VGM_HEADER_OFFSETS["total_samples"])
-            write_int(vgm_file, math.ceil(length_ms * 44.1))
+            vgm_header.seek(_VGM_HEADER_OFFSETS["total_samples"])
+            write_int(vgm_header, math.ceil(length_ms * 44.1))
 
-            vgm_file.seek(header_size + 1)  # go to end of header
+            vgm_header_str = vgm_header.getvalue()
+
+        with self._open(dro_song.name, "wb") as vgm_file:
+            vgm_file.write(vgm_header_str)
             dro_song.data.tofile(vgm_file)
             write_char(vgm_file, 0x66)  # end of sound data
 
