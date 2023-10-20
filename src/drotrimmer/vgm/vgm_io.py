@@ -4,7 +4,7 @@ import math
 import struct
 from gzip import GzipFile
 from io import BytesIO
-from typing import BinaryIO, Literal
+from typing import BinaryIO, Literal, cast
 
 from .vgm_data import VGMSong, GD3Tag, VGMData
 from ..dro_analysis import DROTotalDelayCalculator
@@ -51,7 +51,7 @@ _VGM_HEADER_OFFSETS = {
 }
 
 
-def _read_commands(in_file: BinaryIO) -> array.array:
+def _read_commands(in_file: BinaryIO | GzipFile) -> array.array:
     data = array.array("B")
     while raw := in_file.read(1):
         command = struct.unpack("<B", raw)[0]
@@ -94,7 +94,7 @@ def _read_commands(in_file: BinaryIO) -> array.array:
     return data
 
 
-def parse_gd3_tag(vgm_file: BinaryIO) -> GD3Tag:
+def parse_gd3_tag(vgm_file: BinaryIO | GzipFile) -> GD3Tag:
     header_name = vgm_file.read(4)
     if header_name != _GD3_HEADER:
         raise DROFileException(
@@ -159,7 +159,10 @@ class VgmFileIO:
 
     def _open(self, file_name: str, mode: Literal["rb", "wb"]) -> GzipFile | BinaryIO:
         is_compressed = file_name.lower().endswith(".vgz")
-        return (gzip.open if is_compressed else open)(file_name, mode)
+        if is_compressed:
+            return gzip.open(file_name, mode)
+        else:
+            return cast(BinaryIO, open(file_name, mode))
 
     def read(self, file_name: str) -> VGMSong:
         with self._open(file_name, "rb") as vgm_file:

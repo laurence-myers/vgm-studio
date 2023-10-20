@@ -357,7 +357,7 @@ class DTApp(wx.App):
     @catch_unhandled_exceptions
     @requires_dro_loaded
     def menu_edit_tag(self, _event: Any) -> None:
-        if self.drosong.file_type != SongFileType.VGM:
+        if self.drosong and self.drosong.file_type != SongFileType.VGM:
             self.set_status_text("Only VGMs support tag editing")
             return
         tag_edit_dialog = GD3TagDialog(self.mainframe, cast(VGMSong, self.drosong))

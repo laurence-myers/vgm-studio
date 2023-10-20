@@ -26,6 +26,7 @@ import math
 import os.path
 import sys
 import struct
+from gzip import GzipFile
 from typing import BinaryIO
 
 
@@ -77,27 +78,27 @@ def condense_slices(index_list: list[int]) -> list[int | slice]:
 
 
 # These are only used for DRO 1 files...
-def write_char(in_f: BinaryIO, val: int) -> None:
+def write_char(in_f: BinaryIO | GzipFile, val: int) -> None:
     in_f.write(struct.pack("<B", val))
 
 
-def read_char(in_f: BinaryIO) -> int:  # 1 byte
+def read_char(in_f: BinaryIO | GzipFile) -> int:  # 1 byte
     return struct.unpack("<B", in_f.read(1))[0]
 
 
-def write_short(in_f: BinaryIO, val: int) -> None:
+def write_short(in_f: BinaryIO | GzipFile, val: int) -> None:
     in_f.write(struct.pack("<H", val))
 
 
-def read_short(in_f: BinaryIO) -> int:  # 2 bytes
+def read_short(in_f: BinaryIO | GzipFile) -> int:  # 2 bytes
     return struct.unpack("<H", in_f.read(2))[0]
 
 
-def write_int(in_f: BinaryIO, val: int) -> None:
+def write_int(in_f: BinaryIO | GzipFile, val: int) -> None:
     in_f.write(struct.pack("<L", val))
 
 
-def read_int(in_f: BinaryIO) -> int:  # 4 bytes, really a word
+def read_int(in_f: BinaryIO | GzipFile) -> int:  # 4 bytes, really a word
     return struct.unpack("<L", in_f.read(4))[0]
 
 
