@@ -238,6 +238,8 @@ class VGMSong(AbstractSong):
             loop_modifier=0,
             loop_num_samples=0,
             tag=None,
+            loop_base=0,
+            volume_modifier=0,
         )
 
     def __init__(
@@ -251,6 +253,8 @@ class VGMSong(AbstractSong):
         loop_num_samples: int,
         loop_modifier: int,
         tag: GD3Tag | None,
+        loop_base: int,
+        volume_modifier: int,
     ) -> None:
         super().__init__(
             SongFileType.VGM,
@@ -260,8 +264,10 @@ class VGMSong(AbstractSong):
             math.ceil(total_samples // 44.1),
             opl_type,
         )
+        self.loop_base = loop_base
         self.loop_modifier = loop_modifier
         self.loop_num_samples = loop_num_samples
         self.loop_offset = loop_offset
         self.tag = tag
         self.total_samples = total_samples
+        self.volume_modifier = volume_modifier

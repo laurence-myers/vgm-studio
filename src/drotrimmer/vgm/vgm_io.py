@@ -39,13 +39,14 @@ _VGM_HEADER_OFFSETS = {
     "version": 0x08,
     "gd3": 0x14,
     "total_samples": 0x18,
-    "loop_offset": 0x22,
-    "loop_num_samples": 0x26,
+    "loop_offset": 0x1C,
+    "loop_num_samples": 0x20,
+    "rate": 0x24,
     "data_offset": 0x34,
     "ym3812_clock": 0x50,
     "ym262_clock": 0x5C,
-    # 'volume_modifier': 0x7C,
-    # 'loop_base': 0x7E,
+    "volume_modifier": 0x7C,
+    "loop_base": 0x7E,
     "loop_modifier": 0x7F,
 }
 
@@ -191,7 +192,11 @@ class VgmFileIO:
             vgm_file.seek(_VGM_HEADER_OFFSETS["ym262_clock"])
             ymf262_clock = read_int(vgm_file) & ~_DUAL_CHIP_FLAG  # only support 1 chip
             # 0x7C = volume modifier, 1 byte, v1.60
+            vgm_file.seek(_VGM_HEADER_OFFSETS["volume_modifier"])
+            volume_modifier = read_char(vgm_file)
             # 0x7E = loop base, 1 byte, v1.60
+            vgm_file.seek(_VGM_HEADER_OFFSETS["loop_base"])
+            loop_base = read_char(vgm_file)
             vgm_file.seek(_VGM_HEADER_OFFSETS["loop_modifier"])
             loop_modifier = read_char(vgm_file)
             # 0xBC = extra header offset, 4 bytes, v1.70
@@ -227,6 +232,8 @@ class VgmFileIO:
                 loop_num_samples=loop_num_samples,
                 loop_modifier=loop_modifier,
                 tag=tag,
+                loop_base=loop_base,
+                volume_modifier=volume_modifier,
             )
 
     def write(self, dro_song: VGMSong) -> None:
@@ -261,8 +268,23 @@ class VgmFileIO:
                 vgm_header.seek(_VGM_HEADER_OFFSETS["gd3"])
                 write_int(vgm_header, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
 
+            # TODO: sum samples, don't sum it from ms
+            # TODO: investigate and fix difference in samples from original
+            vgm_header.seek(_VGM_HEADER_OFFSETS["total_samples"])
+            write_int(vgm_header, math.ceil(length_ms * 44.1))
+
+            vgm_header.seek(_VGM_HEADER_OFFSETS["loop_offset"])
+            write_int(vgm_header, dro_song.loop_offset)
+
+            vgm_header.seek(_VGM_HEADER_OFFSETS["loop_num_samples"])
+            write_int(vgm_header, dro_song.loop_num_samples)
+
+            vgm_header.seek(_VGM_HEADER_OFFSETS["rate"])
+            rate = 1000  # matches dro2vgm
+            write_int(vgm_header, rate)
+
             vgm_header.seek(_VGM_HEADER_OFFSETS["data_offset"])
-            data_offset = 0x100
+            data_offset = header_size
             write_int(vgm_header, data_offset - _VGM_HEADER_OFFSETS["data_offset"])
 
             match dro_song.opl_type:
@@ -280,10 +302,12 @@ class VgmFileIO:
                         f"Unrecognised OPL chip type: {dro_song.opl_type}"
                     )
 
-            # TODO: sum samples, don't sum it from ms
-            # TODO: investigate and fix difference in samples from original
-            vgm_header.seek(_VGM_HEADER_OFFSETS["total_samples"])
-            write_int(vgm_header, math.ceil(length_ms * 44.1))
+            vgm_header.seek(_VGM_HEADER_OFFSETS["volume_modifier"])
+            write_char(vgm_header, dro_song.volume_modifier)
+            vgm_header.seek(_VGM_HEADER_OFFSETS["loop_base"])
+            write_char(vgm_header, dro_song.loop_base)
+            vgm_header.seek(_VGM_HEADER_OFFSETS["loop_modifier"])
+            write_char(vgm_header, dro_song.loop_modifier)
 
             vgm_header_str = vgm_header.getvalue()
 

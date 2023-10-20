@@ -101,14 +101,14 @@ def read_int(in_f: BinaryIO) -> int:  # 4 bytes, really a word
     return struct.unpack("<L", in_f.read(4))[0]
 
 
-def ms_to_timestr(ms_val: int) -> str:
+def ms_to_timestr(ms_val: float) -> str:
     # Stolen from StackOverflow, post by Sven Marnach
     minutes, milliseconds = divmod(ms_val, 60000)
     seconds = float(milliseconds) / 1000
     return to_timestr(minutes, seconds)
 
 
-def to_timestr(minutes: int, seconds: float) -> str:
+def to_timestr(minutes: float, seconds: float) -> str:
     return "%02i:%02i" % (minutes, seconds)
 
 
