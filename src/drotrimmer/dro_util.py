@@ -134,6 +134,7 @@ class _Getch:
 
 class _GetchUnix:
     def __init__(self):
+        # noinspection PyUnresolvedReferences
         import tty, sys
 
     def __call__(self):
@@ -183,6 +184,7 @@ class _GetchMacCarbon:
 
 class _GetchWindows:
     def __init__(self):
+        # noinspection PyUnresolvedReferences
         import msvcrt
 
     def __call__(self):
