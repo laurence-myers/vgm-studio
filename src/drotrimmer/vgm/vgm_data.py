@@ -132,9 +132,12 @@ class VGMData(DROData):
                 """nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds).
                 Longer pauses than this are represented by multiple wait commands."""
                 inst_type = DROInstructionType.DELAY
-                val = math.ceil(
-                    (self.data[real_index + 1] | (self.data[real_index + 2] << 8))
-                    // 44.1
+                val = math.floor(
+                    (
+                        (self.data[real_index + 1] | (self.data[real_index + 2] << 8))
+                        / 44.1
+                    )
+                    + 0.5
                 )
             case 0x62:
                 """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
