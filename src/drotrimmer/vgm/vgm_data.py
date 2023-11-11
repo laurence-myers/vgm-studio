@@ -12,7 +12,7 @@ from ..dro_data import (
     OPLType,
     SongFileType,
 )
-from ..dro_util import DROTrimmerException
+from ..dro_util import DROTrimmerException, smp_to_ms
 
 _VGM_CONVERSION_VERSION = 0x00000151
 
@@ -131,25 +131,19 @@ class VGMData(DROData):
             case 0x61:
                 """nn nn	Wait n samples, n can range from 0 to 65535 (approx 1.49 seconds).
                 Longer pauses than this are represented by multiple wait commands."""
-                inst_type = DROInstructionType.DELAY_MS
-                val = math.floor(
-                    (
-                        (self.data[real_index + 1] | (self.data[real_index + 2] << 8))
-                        / 44.1
-                    )
-                    + 0.5
-                )
+                inst_type = DROInstructionType.DELAY_SMP
+                val = self.data[real_index + 1] | (self.data[real_index + 2] << 8)
             case 0x62:
                 """wait 735 samples (60th of a second), a shortcut for 0x61 0xdf 0x02"""
-                inst_type = DROInstructionType.DELAY_MS
-                val = 1000 // 60
+                inst_type = DROInstructionType.DELAY_SMP
+                val = 735
             case 0x63:
                 """wait 882 samples (50th of a second), a shortcut for 0x61 0x72 0x03"""
-                inst_type = DROInstructionType.DELAY_MS
-                val = 1000 // 50
+                inst_type = DROInstructionType.DELAY_SMP
+                val = 882
             case wait if 0x70 <= wait <= 0x7F:
                 """wait n+1 samples, n can range from 0 to 15."""
-                inst_type = DROInstructionType.DELAY_MS
+                inst_type = DROInstructionType.DELAY_SMP
                 val = (cmd & 0x0F) + 1
             case 0xAA:
                 """aa dd YM3812, write value dd to register aa (chip #2)"""

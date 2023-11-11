@@ -55,7 +55,8 @@ class OPLType(Enum):
 class DROInstructionType(Enum):
     REGISTER = 0
     DELAY_MS = 1
-    BANK_SWITCH = 2
+    DELAY_SMP = 2
+    BANK_SWITCH = 3
 
 
 class DROInstruction(object):

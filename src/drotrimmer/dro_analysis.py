@@ -28,6 +28,7 @@ import difflib
 
 from . import dro_data, regdata
 from .dro_config import get_config
+from .dro_util import DROTrimmerException, smp_to_ms
 
 DetailedRegisterEntry = tuple[int, str, int]
 DetailedRegisterInfo = list[DetailedRegisterEntry]
@@ -43,6 +44,15 @@ class DROTotalDelayCalculator(object):
         calc_delay = 0
         for inst in dro_song.data:
             if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
+                calc_delay += inst.value
+        return calc_delay
+
+
+class DROTotalSamplesCalculator(object):
+    def sum_delay(self, dro_song: dro_data.AbstractSong) -> int:
+        calc_delay = 0
+        for inst in dro_song.data:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_SMP:
                 calc_delay += inst.value
         return calc_delay
 
@@ -512,29 +522,45 @@ class DRODetailedRegisterAnalyzer(object):
         self.current_state = [None] * 0x1FF
         # Wait for the data lock to become available.
         with dro_song.data_lock:
-            total_delay = 0
+            total_delay_ms = 0
             for inst in dro_song.data:
-                if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
-                    yield (
-                        self.current_bank,
-                        "Delay: %s ms" % (inst.value,),
-                        total_delay,
-                    )
-                    total_delay += inst.value
-                elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
-                    self.current_bank = inst.value
-                    yield (
-                        self.current_bank,
-                        "Bank switch: %s" % (("low", "high")[self.current_bank],),
-                        total_delay,
-                    )
-                else:
-                    if inst.bank is not None:
-                        self.current_bank = inst.bank
-                    desc = self.__analyze_and_update_register(
-                        self.current_bank, inst.command, inst.value
-                    )
-                    yield (self.current_bank, desc, total_delay)
+                match inst.inst_type:
+                    case dro_data.DROInstructionType.DELAY_MS:
+                        yield (
+                            self.current_bank,
+                            "Delay: %s ms" % (inst.value,),
+                            total_delay_ms,
+                        )
+                        total_delay_ms += inst.value
+
+                    case dro_data.DROInstructionType.DELAY_SMP:
+                        yield (
+                            self.current_bank,
+                            "Delay: %s smp" % (inst.value,),
+                            total_delay_ms,
+                        )
+                        total_delay_ms += smp_to_ms(inst.value)
+
+                    case dro_data.DROInstructionType.BANK_SWITCH:
+                        self.current_bank = inst.value
+                        yield (
+                            self.current_bank,
+                            "Bank switch: %s" % (("low", "high")[self.current_bank],),
+                            total_delay_ms,
+                        )
+
+                    case dro_data.DROInstructionType.REGISTER:
+                        if inst.bank is not None:
+                            self.current_bank = inst.bank
+                        desc = self.__analyze_and_update_register(
+                            self.current_bank, inst.command, inst.value
+                        )
+                        yield (self.current_bank, desc, total_delay_ms)
+
+                    case _:
+                        raise DROTrimmerException(
+                            f"Unrecognised instruction type: {inst.inst_type}"
+                        )
 
     def __analyze_and_update_register(
         self,

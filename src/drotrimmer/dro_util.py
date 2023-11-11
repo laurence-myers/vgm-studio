@@ -54,6 +54,10 @@ def calculate_playback_samples(
     return math.ceil(ms / 1000 * frequency * channels * (bit_depth // 8))
 
 
+def smp_to_ms(samples: int, frequency: int = 44100) -> int:
+    return math.floor((samples / (frequency / 1000)) + 0.5)
+
+
 def condense_slices(index_list: list[int]) -> list[int | slice]:
     """Assumes index_list is sorted, in either ascending or descending order.
     Based on http://stackoverflow.com/a/10987875"""

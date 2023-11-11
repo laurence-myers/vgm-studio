@@ -164,45 +164,49 @@ class WaveformRenderer(object):
 
 
 class ProcessingStreamsList(list):
-    def __init__(self):
+    def __init__(self) -> None:
         super(ProcessingStreamsList, self).__init__()
         self._bank = 0
 
     @property
-    def bank(self):
+    def bank(self) -> int:
         return self._bank
 
     @bank.setter
-    def bank(self, value: int):
+    def bank(self, value: int) -> None:
         self._bank = value
         for stream in self:
             stream.bank = value
 
-    def open(self, dro_song: dro_data.AbstractSong):
+    def open(self, dro_song: dro_data.AbstractSong) -> None:
         for stream in self:
             stream.open(dro_song)
 
-    def set_output_fname(self, output_fname: str):
+    def set_output_fname(self, output_fname: str) -> None:
         for stream in self:
             stream.set_output_fname(output_fname)
 
-    def write(self, register: int, value: int):
+    def write(self, register: int, value: int) -> None:
         for stream in self:
             stream.write(register, value)
 
-    def render(self, ms_to_render: int):
+    def render(self, ms_to_render: int) -> None:
         for stream in self:
             stream.render(ms_to_render)
 
-    def render_chip_delay(self):
+    def render_samples(self, samples_to_render: int, frequency: int = 44100) -> None:
+        for stream in self:
+            stream.render_samples(samples_to_render, frequency)
+
+    def render_chip_delay(self) -> None:
         for stream in self:
             stream.render_chip_delay()
 
-    def clear_chip_delay_drift(self):
+    def clear_chip_delay_drift(self) -> None:
         for stream in self:
             stream.clear_chip_delay_drift()
 
-    def stop(self):
+    def stop(self) -> None:
         for stream in self:
             stream.stop()
 
@@ -316,9 +320,12 @@ class OPLStream(object):
         self.opl.writeReg(register, value)
         self.chip_delay_drift += self.chip_write_delay
 
-    def render(self, length_ms: int | float):
+    def render(self, length_ms: int | float) -> None:
         # Taken from PyOPL 1.0 and 1.2. Accurate rendering, though a bit inefficient.
         samples_to_render = length_ms * self.frequency / 1000.0
+        self._render_samples_out(samples_to_render)
+
+    def _render_samples_out(self, samples_to_render: int | float) -> None:
         samples_to_render += self.sample_overflow
         self.sample_overflow = samples_to_render % 1
         if samples_to_render < 2:
@@ -342,6 +349,18 @@ class OPLStream(object):
                 except IOError:
                     return
             self.samples_rendered += len(tmp_buffer)
+
+    def render_samples(self, samples_to_render: int, frequency: int = 44100) -> None:
+        self._render_samples_out(
+            samples_to_render
+            * frequency
+            / self.frequency
+            / (
+                # I'm not sure why, but samples needs to account for channels + bit depth
+                self.channels
+                + self.bit_depth // 8
+            )
+        )
 
     def render_chip_delay(self):
         if self.chip_delay_drift > 0:
@@ -568,8 +587,15 @@ class DROSeeker(object):
             self.dro_player.current_song.data
         ):
             inst = self.dro_player.current_song.data[self.dro_player.pos]
-            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
-                delay = inst.value
+            if (
+                inst.inst_type == dro_data.DROInstructionType.DELAY_MS
+                or inst.inst_type == dro_data.DROInstructionType.DELAY_SMP
+            ):
+                delay = (
+                    dro_util.smp_to_ms(inst.value)
+                    if inst.inst_type == dro_data.DROInstructionType.DELAY_SMP
+                    else inst.value
+                )
                 # If we go past the intended seek time, don't increment the position counter. This way we end up
                 #  before the seek time, rather than after it.
                 if self.dro_player.time_elapsed + delay > seek_time_ms:
@@ -605,6 +631,8 @@ class DROSeeker(object):
             inst = self.dro_player.current_song.data[self.dro_player.pos]
             if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 self.dro_player.time_elapsed += inst.value
+            elif inst.inst_type == dro_data.DROInstructionType.DELAY_SMP:
+                self.dro_player.time_elapsed += dro_util.smp_to_ms(inst.value)
             elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
                 self.dro_player.processing_streams.bank = inst.value  # DRO v1
             # elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
@@ -649,6 +677,9 @@ class DROPlayerUpdateThread(threading.Thread):
             if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 self.dro_player.processing_streams.render(inst.value)
                 self.dro_player.time_elapsed += inst.value
+            elif inst.inst_type == dro_data.DROInstructionType.DELAY_SMP:
+                self.dro_player.processing_streams.render_samples(inst.value)
+                self.dro_player.time_elapsed += dro_util.smp_to_ms(inst.value)
             elif inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
                 self.dro_player.processing_streams.bank = inst.value  # DRO v1
             # elif inst.inst_type == dro_data.DROInstructionType.REGISTER:

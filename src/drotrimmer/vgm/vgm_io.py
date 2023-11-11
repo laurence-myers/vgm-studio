@@ -1,13 +1,12 @@
 import array
 import gzip
-import math
 import struct
 from gzip import GzipFile
 from io import BytesIO
 from typing import BinaryIO, Literal, cast
 
 from .vgm_data import VGMSong, GD3Tag, VGMData
-from ..dro_analysis import DROTotalDelayCalculator
+from ..dro_analysis import DROTotalSamplesCalculator
 from ..dro_data import OPLType
 from ..dro_util import (
     DROFileException,
@@ -240,7 +239,7 @@ class VgmFileIO:
             )
 
     def write(self, dro_song: VGMSong) -> None:
-        length_ms = DROTotalDelayCalculator().sum_delay(dro_song)
+        length_smp = DROTotalSamplesCalculator().sum_delay(dro_song)
         gd3_tag = write_gd3_tag(dro_song.tag) if dro_song.tag else None
 
         # To support negative seek when writing VGZ files, we first calculate the header in memory.
@@ -271,10 +270,9 @@ class VgmFileIO:
                 vgm_header.seek(_VGM_HEADER_OFFSETS["gd3"])
                 write_int(vgm_header, eof - gd3_size - _VGM_HEADER_OFFSETS["gd3"])
 
-            # TODO: sum samples, don't sum it from ms
             # TODO: investigate and fix difference in samples from original
             vgm_header.seek(_VGM_HEADER_OFFSETS["total_samples"])
-            write_int(vgm_header, math.ceil(length_ms * 44.1))
+            write_int(vgm_header, length_smp)
 
             vgm_header.seek(_VGM_HEADER_OFFSETS["loop_offset"])
             write_int(vgm_header, dro_song.loop_offset)
@@ -322,6 +320,3 @@ class VgmFileIO:
             # Write the GD3 tag after the data
             if gd3_tag:
                 vgm_file.write(gd3_tag)
-
-            # TODO: investigate diffs:
-            #  0x24: rate, 0x230 (560). dro2vgm seems to write it as 1000 (0x3E8)
