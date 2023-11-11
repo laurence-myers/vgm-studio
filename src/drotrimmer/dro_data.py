@@ -54,7 +54,7 @@ class OPLType(Enum):
 
 class DROInstructionType(Enum):
     REGISTER = 0
-    DELAY = 1
+    DELAY_MS = 1
     BANK_SWITCH = 2
 
 
@@ -276,10 +276,10 @@ class DRODataV1(DROData):
     def _interpret_data(self, real_index: int) -> DROInstruction:
         cmd = self.data[real_index]
         if cmd == 0x00:
-            inst_type = DROInstructionType.DELAY
+            inst_type = DROInstructionType.DELAY_MS
             val = self.data[real_index + 1] + 1
         elif cmd == 0x01:
-            inst_type = DROInstructionType.DELAY
+            inst_type = DROInstructionType.DELAY_MS
             val = (self.data[real_index + 1] | (self.data[real_index + 2] << 8)) + 1
         elif cmd == 0x02:
             inst_type = DROInstructionType.BANK_SWITCH
@@ -359,10 +359,10 @@ class DRODataV2(DROData):
         cmd = self.data[real_index]
         bank = None
         if cmd == self._short_delay_code:
-            inst_type = DROInstructionType.DELAY
+            inst_type = DROInstructionType.DELAY_MS
             val = self.data[real_index + 1] + 1
         elif cmd == self._long_delay_code:
-            inst_type = DROInstructionType.DELAY
+            inst_type = DROInstructionType.DELAY_MS
             val = (self.data[real_index + 1] + 1) << 8
         else:
             inst_type = DROInstructionType.REGISTER
@@ -395,7 +395,7 @@ class DeleteInstructionsCommand(UndoableCommand):
         self._deleted_data = []
         for i in self._index_list:
             inst = self._dro_song.data[i]
-            if inst.inst_type == DROInstructionType.DELAY:
+            if inst.inst_type == DROInstructionType.DELAY_MS:
                 self._delay_diff += inst.value
             self._deleted_data.append((i, self._dro_song.data.get_raw(i)))
 
@@ -461,16 +461,16 @@ class AbstractSong(ABC):
         look_for: str | int = s_inst
         if s_inst == "DLYS":
             ct = (
-                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
+                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY_MS
                 and self.data.is_short_delay(datum.command)
             )
         elif s_inst == "DLYL":
             ct = (
-                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
+                lambda datum, inst: datum.inst_type == DROInstructionType.DELAY_MS
                 and self.data.is_long_delay(datum.command)
             )
         elif s_inst == "DALL":
-            ct = lambda datum, inst: datum.inst_type == DROInstructionType.DELAY
+            ct = lambda datum, inst: datum.inst_type == DROInstructionType.DELAY_MS
         elif s_inst == "BANK":
             ct = lambda datum, inst: datum.inst_type == DROInstructionType.BANK_SWITCH
         else:
@@ -495,7 +495,7 @@ class AbstractSong(ABC):
 
     def get_register_display(self, item: int) -> str:
         inst = self.data[item]
-        if inst.inst_type == DROInstructionType.DELAY:
+        if inst.inst_type == DROInstructionType.DELAY_MS:
             if self.data.is_short_delay(inst.command):
                 return "DLYS"
             elif self.data.is_long_delay(inst.command):
@@ -509,7 +509,7 @@ class AbstractSong(ABC):
 
     def get_value_display(self, item: int) -> str:
         inst = self.data[item]
-        if inst.inst_type == DROInstructionType.DELAY:
+        if inst.inst_type == DROInstructionType.DELAY_MS:
             return "%d ms" % (inst.value,)
         elif inst.inst_type == DROInstructionType.BANK_SWITCH:
             return ("low", "high")[inst.value]
@@ -518,7 +518,7 @@ class AbstractSong(ABC):
 
     def get_instruction_description(self, item: int) -> str:
         inst = self.data[item]
-        if inst.inst_type == DROInstructionType.DELAY:
+        if inst.inst_type == DROInstructionType.DELAY_MS:
             if self.data.is_short_delay(inst.command):
                 return "Delay (short)"
             elif self.data.is_long_delay(inst.command):

@@ -204,7 +204,7 @@ class TestDRODataV2(TestCase):
         self.assertEqual(
             dro_data[5],
             DROInstruction(
-                DROInstructionType.DELAY, dro_data._short_delay_code, 0xB0 + 1, None
+                DROInstructionType.DELAY_MS, dro_data._short_delay_code, 0xB0 + 1, None
             ),
         )
         self._compare_dro_data_v2(
@@ -230,7 +230,7 @@ class TestDRODataV2(TestCase):
         self.assertEqual(
             dro_data._interpret_data(10),
             DROInstruction(
-                DROInstructionType.DELAY, dro_data._short_delay_code, 0xB0 + 1, None
+                DROInstructionType.DELAY_MS, dro_data._short_delay_code, 0xB0 + 1, None
             ),
         )
 

@@ -42,7 +42,7 @@ class DROTotalDelayCalculator(object):
         # Bleh
         calc_delay = 0
         for inst in dro_song.data:
-            if inst.inst_type == dro_data.DROInstructionType.DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 calc_delay += inst.value
         return calc_delay
 
@@ -56,7 +56,7 @@ class DROTotalDelayWithWriteDelayCalculator(object):
         calc_delay: float = 0.0  # milliseconds
         total_write_delay: float = 0.0  # microseconds
         for inst in dro_song.data:
-            if inst.inst_type == dro_data.DROInstructionType.DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 calc_delay += inst.value
             elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
                 total_write_delay += self.chip_write_delay
@@ -72,7 +72,7 @@ class DROFirstDelayAnalyzer(object):
         if not len(dro_song.data):
             return
         inst = dro_song.data[0]
-        if inst.inst_type == dro_data.DROInstructionType.DELAY:
+        if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
             self.result = True
 
 
@@ -264,7 +264,7 @@ class DROLoopAnalyzer(object):
         MIN_DELAY_TO_INCLUDE = 2  # skip delays of 1 ms
         for i, inst in enumerate(dro_song.data):
             should_include = False
-            if inst.inst_type == dro_data.DROInstructionType.DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 if inst.value >= MIN_DELAY_TO_INCLUDE:
                     should_include = True
             elif inst.inst_type == dro_data.DROInstructionType.REGISTER:
@@ -290,7 +290,7 @@ class DROLoopAnalyzer(object):
         note_on_found = False
         start_pos = 0
         for i, inst in enumerate(dro_song.data):
-            if inst.inst_type == dro_data.DROInstructionType.DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 if note_on_found:
                     # This is where we want to start, the first delay after the first "note on" instruction
                     start_pos = i
@@ -391,7 +391,7 @@ class DROLoopAnalyzer(object):
         sections = []
         curr_section = self.Match()
         for i, inst in enumerate(dro_song.data):
-            if inst.inst_type != dro_data.DROInstructionType.DELAY:
+            if inst.inst_type != dro_data.DROInstructionType.DELAY_MS:
                 if curr_section.start is None:
                     curr_section.start = i
                 curr_section.length += 1
@@ -478,7 +478,7 @@ class DROLoopAnalyzer(object):
 
         # Now search for the first delay
         for i, inst in enumerate(dro_song.data):
-            if inst.inst_type == dro_data.DROInstructionType.DELAY:
+            if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                 result_str += "First delay at pos = " + str(i) + "\n"
                 break
 
@@ -514,7 +514,7 @@ class DRODetailedRegisterAnalyzer(object):
         with dro_song.data_lock:
             total_delay = 0
             for inst in dro_song.data:
-                if inst.inst_type == dro_data.DROInstructionType.DELAY:
+                if inst.inst_type == dro_data.DROInstructionType.DELAY_MS:
                     yield (
                         self.current_bank,
                         "Delay: %s ms" % (inst.value,),

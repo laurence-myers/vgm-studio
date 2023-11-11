@@ -120,7 +120,7 @@ class TestVgmData(TestCase):
         self.assertEqual(
             dro_data[5],
             DROInstruction(
-                DROInstructionType.DELAY, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
+                DROInstructionType.DELAY_MS, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
             ),
         )
         self._compare_vgm_data(
@@ -146,7 +146,7 @@ class TestVgmData(TestCase):
         self.assertEqual(
             dro_data._interpret_data(5 * 3),
             DROInstruction(
-                DROInstructionType.DELAY, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
+                DROInstructionType.DELAY_MS, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
             ),
         )
 
