@@ -1,5 +1,4 @@
 import math
-from typing import Any
 
 import wx
 
@@ -38,9 +37,9 @@ class PlaybackPositionPanel(wx.Panel):
         # 4. Select the rendering sample rate by default
         sample_rate_str = "44.1 khz"
         sample_rate_choices = [sample_rate_str]
-        self._rendering_sample_rate = get_config().audio.frequency
-        if self._rendering_sample_rate != 44100:
-            sample_rate_str = f"{(self._rendering_sample_rate / 1000):.1f} khz"
+        self._audio_config = get_config().audio
+        if self._audio_config.frequency != 44100:
+            sample_rate_str = f"{(self._audio_config.frequency / 1000):.1f} khz"
             sample_rate_choices.append(sample_rate_str)
         sample_rate_choices.sort()
         self._listbox_sample_rate = wx.ComboBox(
@@ -89,6 +88,9 @@ class PlaybackPositionPanel(wx.Panel):
             wx.EVT_COMBOBOX, self._on_choose_sample_rate, self._listbox_sample_rate
         )
 
+    def _calculate_samples(self, in_samples: int) -> int:
+        return math.floor(in_samples / self._audio_config.frequency * 44100 + 0.5)
+
     def _on_choose_sample_rate(self, _event: wx.CommandEvent) -> None:
         self._use_rendering_sample_rate = (
             self._listbox_sample_rate.GetValue() != "44.1 khz"
@@ -111,9 +113,13 @@ class PlaybackPositionPanel(wx.Panel):
                 f"{self.playback_position_ms} / {self.playback_length_ms} ms"
             )
         if self._text_position_samples:
-            pos = self.playback_position_samples
-            length = self.playback_length_samples
+            pos = self.playback_position_samples // (
+                2 + self._audio_config.bit_depth // 8
+            )
+            length = self.playback_length_samples // (
+                2 + self._audio_config.bit_depth // 8
+            )
             if not self._use_rendering_sample_rate:
-                pos = math.floor(pos / self._rendering_sample_rate * 44100 + 0.5)
-                length = math.floor(length / self._rendering_sample_rate * 44100 + 0.5)
+                pos = self._calculate_samples(pos)
+                length = self._calculate_samples(length)
             self._text_position_samples.SetLabelText(f"{pos} / {length} samples")

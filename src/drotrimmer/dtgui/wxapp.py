@@ -30,6 +30,7 @@ from typing import Any, cast
 
 import wx
 
+from .vgm_metadata_dialog import VgmMetadataDialog
 from ..dro_data import SongFileType
 from ..vgm.vgm_data import VGMSong
 from .. import (
@@ -133,6 +134,11 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_MENU, self.menu_delete, id=gui_id("MENU_DELETE"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_dro_info, id=gui_id("MENU_DROINFO"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_edit_tag, id=gui_id("MENU_EDIT_TAG"))
+        self.mainframe.Bind(
+            wx.EVT_MENU,
+            self.menu_edit_vgm_metadata,
+            id=gui_id("MENU_EDIT_VGM_METADATA"),
+        )
         self.mainframe.Bind(
             wx.EVT_MENU, self.menu_convert_to_vgm, id=gui_id("MENU_CONVERT_TO_VGM")
         )
@@ -342,7 +348,15 @@ class DTApp(wx.App):
             return
         tag_edit_dialog = GD3TagDialog(self.mainframe, cast(VGMSong, self.drosong))
         tag_edit_dialog.Show()
-        # tag_edit_dialog.Destroy()
+
+    @catch_unhandled_exceptions
+    @requires_dro_loaded
+    def menu_edit_vgm_metadata(self, _event: Any) -> None:
+        if self.drosong and self.drosong.file_type != SongFileType.VGM:
+            self.set_status_text("Songs is not a VGM")
+            return
+        metadata_dialog = VgmMetadataDialog(self.mainframe, cast(VGMSong, self.drosong))
+        metadata_dialog.Show()
 
     @catch_unhandled_exceptions
     @requires_dro_loaded
