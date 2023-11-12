@@ -84,12 +84,6 @@ class DTMainMenuBar(wx.MenuBar):
             wx.ITEM_NORMAL,
         )
         self.menu_edit.Append(
-            gui_id("MENU_LOOPANALYSIS"),
-            "&Loop Analysis...\tCtrl-L",
-            "Attempts to find sections of data that indicate a loop point.",
-            wx.ITEM_NORMAL,
-        )
-        self.menu_edit.Append(
             gui_id("MENU_DROINFO"),
             "DRO &Info...\tCtrl-I",
             "View or edit the DRO file info (song length, hardware type)",

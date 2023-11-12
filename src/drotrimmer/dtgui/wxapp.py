@@ -44,7 +44,7 @@ from .. import (
     file_io,
 )
 from .containers import DTMainFrame, EVT_FILE_DROP, FileDropEvent
-from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog, LoopAnalysisDialog
+from .dialogs import DTDialogGoto, DTDialogFindReg, DROInfoDialog
 from .gd3_tag_dialog import GD3TagDialog, EVT_TAG_UPDATE, TagUpdateEvent
 from .tables import EVT_FIRST_SELECTED_ITEM_CHANGED, FirstSelectedItemChangedEvent
 from .ui_util import (
@@ -82,7 +82,6 @@ class DTApp(wx.App):
     frdialog: DTDialogFindReg | None
     goto_dialog: DTDialogGoto | None
     log: dro_logging.Logger = dro_logging.get_logger("DTApp")
-    loop_analysis_dialog: LoopAnalysisDialog | None
     mainframe: DTMainFrame
     _playback_position_timer: wx.Timer
     playback_position_update_interval_ms: int = 10
@@ -99,9 +98,6 @@ class DTApp(wx.App):
         self.tail_length = config.ui.tail_length
         self.goto_dialog: DTDialogGoto | None = None  # Goto diaog
         self.frdialog: DTDialogFindReg | None = None  # Find Register dialog
-        self.loop_analysis_dialog: LoopAnalysisDialog | None = (
-            None  # Loop Analysis Dialog
-        )
         self.task_master: tasks.TaskMaster = tasks.TaskMaster()
 
         playback_position_timer_id = gui_id("TIMER_PLAYBACK_POSITION")
@@ -137,9 +133,6 @@ class DTApp(wx.App):
         self.mainframe.Bind(wx.EVT_MENU, self.menu_delete, id=gui_id("MENU_DELETE"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_dro_info, id=gui_id("MENU_DROINFO"))
         self.mainframe.Bind(wx.EVT_MENU, self.menu_edit_tag, id=gui_id("MENU_EDIT_TAG"))
-        self.mainframe.Bind(
-            wx.EVT_MENU, self.menu_loop_analysis, id=gui_id("MENU_LOOPANALYSIS")
-        )
         self.mainframe.Bind(
             wx.EVT_MENU, self.menu_convert_to_vgm, id=gui_id("MENU_CONVERT_TO_VGM")
         )
@@ -282,9 +275,6 @@ class DTApp(wx.App):
             # Reset the Goto dialog, if it exists.
             if self.goto_dialog is not None:
                 self.goto_dialog.reset(len(self.drosong.data) - 1)
-            # Reset the loop analysis dialog, if it exists.
-            if self.loop_analysis_dialog is not None:
-                self.loop_analysis_dialog.load_results(None)
         except dro_util.DROFileException as e:
             error_alert(self.mainframe, str(e), "Failed to load file")
         except FileNotFoundError as e:
@@ -333,16 +323,6 @@ class DTApp(wx.App):
             self.frdialog.Destroy()  # TODO: destroy the dialog when it closes normally! (bit of a memory leak)
         self.frdialog = DTDialogFindReg(self, self.mainframe, self.drosong.file_version)
         self.frdialog.Show()
-
-    @catch_unhandled_exceptions
-    @requires_dro_loaded
-    def menu_loop_analysis(self, _event):
-        if self.loop_analysis_dialog is not None:
-            self.loop_analysis_dialog.Destroy()
-        # Create a dummy analyzer so we know how many result pages we need to create.
-        analyzer = dro_analysis.DROLoopAnalyzer()
-        self.loop_analysis_dialog = LoopAnalysisDialog(self, analyzer, self.mainframe)
-        self.loop_analysis_dialog.Show()
 
     def menu_delete(self, _event):
         self.button_delete(None)
@@ -578,20 +558,6 @@ class DTApp(wx.App):
 
     def button_previous_delay(self, event):
         self.button_next_delay(event, look_backwards=True)
-
-    @catch_unhandled_exceptions
-    @requires_dro_loaded
-    def button_analyze_loop(self, _event):
-        if self.loop_analysis_dialog is None:
-            error_alert(
-                self.mainframe,
-                "Loop analysis requires the Loop Analysis dialog to be open, but none found.",
-            )
-            return
-        analyzer = dro_analysis.DROLoopAnalyzer()
-        results = analyzer.analyze_dro(self.drosong)
-        self.loop_analysis_dialog.load_results(results)
-        self.set_status_text("Loop analysis finished.")
 
     # ____________________
     # Start Misc Event Handlers

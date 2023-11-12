@@ -27,9 +27,7 @@ from typing import Any
 import wx
 
 from .. import dro_analysis, dro_config, dro_data
-from .containers import TextPanel
 from .ui_util import gui_id, error_alert
-from ..dro_analysis import DROLoopAnalyzer
 
 
 class DTDialogGoto(wx.Dialog):
@@ -258,73 +256,3 @@ class DROInfoDialog(wx.Dialog):
         )
         md.ShowModal()
         md.Destroy()
-
-
-class LoopAnalysisDialog(wx.Dialog):
-    def __init__(
-        self, wx_app: Any, loop_analyzer: DROLoopAnalyzer, parent: wx.Window
-    ) -> None:
-        super().__init__(
-            parent,
-            style=wx.DEFAULT_DIALOG_STYLE
-            | wx.RESIZE_BORDER
-            | wx.MAXIMIZE_BOX
-            | wx.MINIMIZE_BOX,
-        )
-        self.notebook = wx.Notebook(self, size=self.FromDIP((400, 300)))
-
-        # Create buttons
-        self.btn_analyze = wx.Button(self, gui_id("BUTTON_ANALYZE"), "Analyze")
-        self.btn_close = wx.Button(self, wx.ID_CANCEL, "Close")
-
-        # Create first page
-        info_text = (
-            "This is the loop analysis dialog.\n\n"
-            "It provides multiple analyses to determine interesting parts of the song data, "
-            "hinting at sections that may be loop points.\n\n"
-            "Some analysis methods will work better than others, depending on the song, "
-            "where the loop occurs, how many times the song loops, how much data exists "
-            "after a loop point, etc.\n\n"
-            "Please refer to the online documentation for more information."
-        )
-
-        page1 = TextPanel(self.notebook, info_text)
-        self.notebook.AddPage(page1, "Info")
-
-        # Create as many tabs as there are analysis methods.
-        self.result_pages = []
-        for i in range(loop_analyzer.num_analyses()):
-            page = TextPanel(self.notebook, "No analysis performed yet.")
-            self.notebook.AddPage(page, "#%d" % (i + 1,))
-            self.result_pages.append(page)
-
-        # Register events
-        self.Bind(
-            wx.EVT_BUTTON, wx_app.button_analyze_loop, id=gui_id("BUTTON_ANALYZE")
-        )
-
-        # Do other UI stuff
-        self.__set_properties()
-        self.__do_layout()
-
-    def __set_properties(self) -> None:
-        self.SetTitle("Loop Analysis")
-
-    def __do_layout(self) -> None:
-        # Lay things out
-        sizer_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        sizer_buttons.Add(self.btn_analyze, 1, wx.ALIGN_BOTTOM, 0)
-        sizer_buttons.Add(self.btn_close, 1, wx.ALIGN_BOTTOM, 0)
-
-        sizer_main = wx.BoxSizer(wx.VERTICAL)
-        sizer_main.Add(self.notebook, 1, wx.EXPAND, 0)
-        sizer_main.Add(sizer_buttons, 0, wx.EXPAND, 0)
-        self.SetSizer(sizer_main)
-        sizer_main.Fit(self)
-        self.Layout()
-
-    def load_results(self, result_list: list[Any] | None) -> None:
-        if result_list is None:
-            result_list = ["No analysis performed yet."] * len(self.result_pages)
-        for loop_analysis_result, page in zip(result_list, self.result_pages):
-            page.set_text(str(loop_analysis_result))
