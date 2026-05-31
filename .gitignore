@@ -3,6 +3,8 @@ docs_src/
 venv/
 *.pyc
 .idea/*
+.claude/
+.junie/
 docs/readme.html
 *.dro
 *.wav

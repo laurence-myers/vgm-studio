@@ -86,7 +86,8 @@ def remove_existing_directory(directory: str) -> None:
 
 
 opts = {
-    "bundle_files": 2,
+    "bundle_files": 3,
+    "destdir": os.path.abspath("dist"),
     "dll_excludes": ["MSVCP90.dll"],
     "excludes": ["tkinter"],
     "includes": [],
