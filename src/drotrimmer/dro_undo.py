@@ -31,12 +31,10 @@ class UndoableCommand(ABC):
         self.description = description
 
     @abstractmethod
-    def apply(self) -> None:
-        ...
+    def apply(self) -> None: ...
 
     @abstractmethod
-    def revert(self) -> None:
-        ...
+    def revert(self) -> None: ...
 
 
 class UndoController(object):

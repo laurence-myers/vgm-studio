@@ -60,7 +60,6 @@ from . import (
     dro_io,
 )
 
-
 _log = dro_logging.get_logger("DRO Player")
 """A generic logger for use by the module"""
 
@@ -261,7 +260,9 @@ class OPLStream(object):
             channels=self.channels,
         )
         self.buffer: bytearray = self.__create_bytearray(buffer_size)
-        self.stop_requested: bool = False  # required so we don't keep rendering obsolete data after stopping playback.
+        self.stop_requested: bool = (
+            False  # required so we don't keep rendering obsolete data after stopping playback.
+        )
         self._bank: Literal[0, 1] = 0
         # OPL2/OPL3 need microsecond delays writing to registers, we need to account for it.
         self.chip_delay_drift: float = 0.0

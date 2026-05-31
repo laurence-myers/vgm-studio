@@ -158,9 +158,9 @@ class TaskMaster:
         self.executor = concurrent.futures.ThreadPoolExecutor(
             max_workers=2
         )  # TODO: catch and log/display errors
-        self.scheduled_tasks: dict[
-            str, tuple[threading.Timer, IncrementalTask]
-        ] = {}  # Store for debouncing
+        self.scheduled_tasks: dict[str, tuple[threading.Timer, IncrementalTask]] = (
+            {}
+        )  # Store for debouncing
         self.task_futures: dict[
             str, tuple[concurrent.futures.Future, IncrementalTask]
         ] = {}  # Store for cancellation

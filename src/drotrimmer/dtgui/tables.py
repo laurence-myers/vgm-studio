@@ -26,7 +26,6 @@ from ..dro_data import AbstractSong
 from .ui_util import custom_event, gui_id
 import wx
 
-
 _type_EVT_FIRST_SELECTED_ITEM_CHANGED, EVT_FIRST_SELECTED_ITEM_CHANGED = custom_event()
 
 

@@ -35,7 +35,6 @@ from .tables import DTSongDataList
 from .ui_util import custom_event, gui_id
 from .waveform import WaveformPanel
 
-
 _type_EVT_FILE_DROP, EVT_FILE_DROP = custom_event()
 
 

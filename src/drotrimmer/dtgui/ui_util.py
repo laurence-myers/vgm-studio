@@ -28,7 +28,7 @@ import wx
 from typing import Any
 from .. import dro_globals
 
-gGUIIDS = {}
+gGUIIDS: dict[str, None] = {}
 
 
 def error_alert(parent: wx.Window, msg: str, title: str = "Error"):

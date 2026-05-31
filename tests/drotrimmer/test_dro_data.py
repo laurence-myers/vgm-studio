@@ -154,9 +154,11 @@ class TestDRODataV2(TestCase):
         self.assertEqual(first._long_delay_code, second._long_delay_code)
         self.assertEqual(
             second.data,
-            array.array("B", expected_second_data)
-            if expected_second_data is not None
-            else first.data,
+            (
+                array.array("B", expected_second_data)
+                if expected_second_data is not None
+                else first.data
+            ),
         )
 
     def test_del(self) -> None:

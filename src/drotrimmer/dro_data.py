@@ -107,20 +107,16 @@ class DROData(ABC):
         self.data = data
 
     @abstractmethod
-    def _translate_index(self, key: int) -> int:
-        ...
+    def _translate_index(self, key: int) -> int: ...
 
     @abstractmethod
-    def _interpret_data(self, real_index: int) -> DROInstruction:
-        ...
+    def _interpret_data(self, real_index: int) -> DROInstruction: ...
 
     @abstractmethod
-    def __len__(self) -> int:
-        ...
+    def __len__(self) -> int: ...
 
     @abstractmethod
-    def _iter_indexes(self):
-        ...
+    def _iter_indexes(self): ...
 
     @abstractmethod
     def shallow_copy(self, new_data: array.array | None = None) -> Self:
@@ -161,12 +157,10 @@ class DROData(ABC):
             del self[i]
 
     @overload
-    def __getitem__(self, key: int) -> DROInstruction:
-        ...
+    def __getitem__(self, key: int) -> DROInstruction: ...
 
     @overload
-    def __getitem__(self, key: slice) -> Self:
-        ...
+    def __getitem__(self, key: slice) -> Self: ...
 
     def __getitem__(self, key: int | slice) -> DROInstruction | Self:
         """Returns the item, translated from the "logical" index
@@ -203,12 +197,10 @@ class DROData(ABC):
             self._insert(i, val)
 
     @abstractmethod
-    def is_long_delay(self, command: int) -> bool:
-        ...
+    def is_long_delay(self, command: int) -> bool: ...
 
     @abstractmethod
-    def is_short_delay(self, command: int) -> bool:
-        ...
+    def is_short_delay(self, command: int) -> bool: ...
 
     def tofile(self, file_handle) -> None:
         self.data.tofile(file_handle)

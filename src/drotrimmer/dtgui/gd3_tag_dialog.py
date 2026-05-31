@@ -3,7 +3,6 @@ import wx
 from .ui_util import gui_id, custom_event
 from ..vgm.vgm_data import VGMSong, GD3Tag
 
-
 _type_EVT_TAG_UPDATE, EVT_TAG_UPDATE = custom_event()
 
 
