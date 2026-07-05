@@ -1,5 +1,4 @@
 import array
-import math
 from unittest import TestCase
 
 from src.drotrimmer.dro_data import DROInstruction, DROInstructionType
@@ -121,9 +120,7 @@ class TestVgmData(TestCase):
         )
         self.assertEqual(
             dro_data[5],
-            DROInstruction(
-                DROInstructionType.DELAY_MS, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
-            ),
+            DROInstruction(DROInstructionType.DELAY_SMP, 0x61, 0xB0, None),
         )
         self._compare_vgm_data(
             dro_data[:2],
@@ -147,9 +144,7 @@ class TestVgmData(TestCase):
         )
         self.assertEqual(
             dro_data._interpret_data(5 * 3),
-            DROInstruction(
-                DROInstructionType.DELAY_MS, 0x61, math.floor(0xB0 / 44.1 + 0.5), None
-            ),
+            DROInstruction(DROInstructionType.DELAY_SMP, 0x61, 0xB0, None),
         )
 
     def test_is_long_delay(self) -> None:
