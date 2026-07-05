@@ -712,7 +712,10 @@ class DTApp(wx.App):
                 self.mainframe.dtlist.deselect()
                 self.mainframe.dtlist.select_item_manual(index)
                 if self.dro_player.is_playing:
+                    self.dro_player.stop()
+                    self.dro_player.reset()
                     self.dro_player.seek_to_pos(index)
+                    self.dro_player.play()
                 self._update_playback_position_info(ms)
 
     def on_waveform_hover(self, event: waveform.WaveformHoverEvent) -> None:

@@ -529,7 +529,7 @@ class DROPlayer(object):
                 break
         return samples_rendered
 
-    def __set_samples_rendered_from_time_elapsed(self):
+    def _set_samples_rendered_from_time_elapsed(self):
         samples_elapsed = dro_util.calculate_playback_samples(
             self.time_elapsed, self.frequency, self.channels, self.bit_depth
         )
@@ -544,16 +544,24 @@ class DROPlayer(object):
         if self.update_thread is not None:
             self.update_thread.stop_request.set()
         self.processing_streams.stop()
+        if (
+            self.update_thread is not None
+            and self.update_thread is not threading.current_thread()
+        ):
+            # Wait for the update thread to finish, so a lingering thread can't
+            #  alter the player's state or stop a subsequent playback (e.g. when
+            #  seeking while playing).
+            self.update_thread.join()
 
     def seek_to_time(self, seek_time):
         seeker = DROSeeker(self)
         seeker.seek_to_time(seek_time)
-        self.__set_samples_rendered_from_time_elapsed()
+        self._set_samples_rendered_from_time_elapsed()
 
     def seek_to_pos(self, seek_pos):
         seeker = DROSeeker(self)
         seeker.seek_to_pos(seek_pos)
-        self.__set_samples_rendered_from_time_elapsed()
+        self._set_samples_rendered_from_time_elapsed()
 
     @property
     def write_delay_elapsed(self):
@@ -711,6 +719,9 @@ class DROPlayerUpdateThread(threading.Thread):
             self.dro_player.pos += 1
             if self.dro_player.pos >= len(self.current_song.data):
                 self.dro_player.is_playing = False
+                # Rendering truncates fractional samples, so sync the rendered
+                #  samples count with the value calculated from the time elapsed.
+                self.dro_player._set_samples_rendered_from_time_elapsed()
         self.dro_player.stop()
 
 
