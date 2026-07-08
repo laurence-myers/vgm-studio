@@ -1,0 +1,62 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "5.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Laurence Dougal Myers"]
+repository = "https://github.com/laurence-myers/dro-trimmer"
+
+[workspace.dependencies]
+dro-core = { path = "crates/dro-core" }
+dro-synth = { path = "crates/dro-synth" }
+
+log = "0.4"
+# Pure Rust port of Nuked-OPL3. Bit-identical to the C reference and free of the
+# `cc` build step, so it compiles to wasm32-unknown-unknown with no C toolchain.
+nuked-opl3 = "0.1"
+# Bindings to the original Nuked-OPL3 *C* sources. Used only as a parity oracle
+# behind dro-synth's off-by-default `c-parity` feature: it needs a C compiler and
+# libclang, and it cannot target wasm32-unknown-unknown (no sysroot).
+opl3-rs = "0.2"
+# Package `rust-ini`, library `ini`. Default features are empty, which matches
+# Python's configparser: no inline comments, no case-insensitive sections.
+# Only `load_from_str` is used, so this stays wasm-clean.
+rust-ini = { version = "0.21", default-features = false }
+thiserror = "2"
+
+# `fork`/`timeout` are on by default and pull in process spawning (rusty-fork,
+# tempfile), which is neither needed nor wasm-friendly.
+proptest = { version = "1", default-features = false, features = ["std"] }
+sha2 = { version = "0.10", default-features = false }
+
+# `nuked-opl3` 0.1.0's `decoded_slot()` is:
+#
+#     let decoded = AD_SLOT[(regm & 0x1f) as usize];       // i8, -1 == "no such slot"
+#     (decoded >= 0).then_some(18 * high + decoded as usize)
+#
+# `bool::then_some` evaluates its argument eagerly, so an invalid operator slot
+# computes `18 * high + usize::MAX` before the `None` is returned. Nuke.YKT's C
+# relies on exactly that wraparound and release builds reproduce it bit for bit --
+# but Rust's debug overflow checks turn it into a panic, on 70 register numbers,
+# 20 of which a real DRO capture can legitimately contain (0x26, 0x27, 0x2E, ...).
+#
+# Disable overflow checks for that one dependency until upstream takes a fix
+# (`.then(|| ...)` instead of `.then_some(...)`). `dro-synth`'s
+# `writing_a_gap_register_does_not_panic` test fails the moment this is removed.
+[profile.dev.package.nuked-opl3]
+overflow-checks = false
+
+[workspace.lints.rust]
+# "deny", not "forbid": `dro-synth-worklet` must override this for its
+# `#[unsafe(no_mangle)]` exports.
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

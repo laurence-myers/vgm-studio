@@ -1,3 +1,31 @@
+## Rust rewrite (in progress)
+
+The `rust` branch is porting DRO Trimmer to Rust; the Python sources under `src/`
+stay put during the transition, for parity comparison. Both suites run.
+
+Install the toolchain (Windows; MSVC build tools are already a pre-requisite below):
+
+```PowerShell
+scoop install main/rustup
+```
+
+`rust-toolchain.toml` pins the channel, components and the `wasm32-unknown-unknown`
+target, so the first `cargo` command installs whatever is missing.
+
+```PowerShell
+cargo test --workspace                                       # unit + integration tests
+cargo fmt --all                                              # format
+cargo clippy --workspace --all-targets -- -D warnings        # lint
+cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth   # wasm stays clean
+```
+
+Optional: prove the pure-Rust OPL core is still bit-identical to Nuked-OPL3's C
+sources. Needs a C compiler and libclang (`scoop install main/llvm`):
+
+```PowerShell
+cargo test -p dro-synth --features c-parity
+```
+
 ## Pre-requisites
 
 On Windows, Microsoft Visual C++ 14.0 or greater is required.

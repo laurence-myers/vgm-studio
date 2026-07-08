@@ -8,3 +8,6 @@ venv/
 docs/readme.html
 *.dro
 *.wav
+
+# Rust
+/target/
