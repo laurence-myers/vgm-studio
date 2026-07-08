@@ -9,12 +9,18 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+flate2.workspace = true
 log.workspace = true
 rust-ini.workspace = true
 thiserror.workspace = true
 
-[dev-dependencies]
+# `proptest` shells out to spawn processes for its `fork` feature and, even with
+# that off, is not worth compiling for the wasm test target.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
 
 [lints]
 workspace = true

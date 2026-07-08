@@ -4,16 +4,128 @@ pub mod dro_data;
 #[cfg(test)]
 pub(crate) mod fixtures;
 pub mod instruction;
+pub(crate) mod splice;
 
 use core::fmt;
 
-pub use dro_data::{DroData, DroDataV1, DroDataV2, InsertEntry};
+pub use dro_data::{DroDataV1, DroDataV2};
 pub use instruction::{Bank, DelayKind, DroInstruction, FindTarget, ParseFindTargetError};
+pub use splice::InsertEntry;
 
 use crate::regdata;
+use crate::util::{VGM_SAMPLE_RATE, smp_to_ms};
+use crate::vgm::{VgmData, VgmMeta};
 
-pub const DRO_FILE_V1: u16 = 1;
-pub const DRO_FILE_V2: u16 = 2;
+pub const DRO_FILE_V1: u32 = 1;
+pub const DRO_FILE_V2: u32 = 2;
+
+/// The instruction stream, in whichever encoding it was read.
+///
+/// The Python modelled this as an abstract base class with three subclasses. A
+/// closed enum is a better fit: there are exactly three encodings, and dispatch on
+/// the table-paint path becomes a jump rather than a vtable call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SongData {
+    V1(DroDataV1),
+    V2(DroDataV2),
+    Vgm(VgmData),
+}
+
+impl SongData {
+    /// The number of instructions.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        match self {
+            Self::V1(data) => data.len(),
+            Self::V2(data) => data.len(),
+            Self::Vgm(data) => data.len(),
+        }
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Self::V1(data) => data.is_empty(),
+            Self::V2(data) => data.is_empty(),
+            Self::Vgm(data) => data.is_empty(),
+        }
+    }
+
+    /// Decodes the instruction at `index`, or `None` if out of range.
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<DroInstruction> {
+        match self {
+            Self::V1(data) => data.get(index),
+            Self::V2(data) => data.get(index),
+            Self::Vgm(data) => data.get(index),
+        }
+    }
+
+    /// Iterates the decoded instructions. Allocates nothing.
+    pub fn iter(&self) -> impl Iterator<Item = DroInstruction> + '_ {
+        (0..self.len()).map(move |index| {
+            self.get(index)
+                .expect("the index map and the raw bytes agree by construction")
+        })
+    }
+
+    /// The whole instruction stream, exactly as it sits in the file.
+    #[must_use]
+    pub fn raw(&self) -> &[u8] {
+        match self {
+            Self::V1(data) => data.raw(),
+            Self::V2(data) => data.raw(),
+            Self::Vgm(data) => data.raw(),
+        }
+    }
+
+    #[must_use]
+    pub fn raw_len(&self) -> usize {
+        self.raw().len()
+    }
+
+    /// The raw bytes of one instruction. This is what undo captures.
+    #[must_use]
+    pub fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
+        match self {
+            Self::V1(data) => data.raw_instruction(index),
+            Self::V2(data) => data.raw_instruction(index),
+            Self::Vgm(data) => data.raw_instruction(index),
+        }
+    }
+
+    /// Removes the instructions at `indices` in a single compaction pass.
+    ///
+    /// `indices` need not be sorted or unique. Where the Python did one `del` per
+    /// contiguous range -- `O(k*n)` for `k` ranges -- this is `O(n)` regardless of
+    /// how fragmented the selection is.
+    pub fn delete_many(&mut self, indices: &[usize]) {
+        match self {
+            Self::V1(data) => data.delete_many(indices),
+            Self::V2(data) => data.delete_many(indices),
+            Self::Vgm(data) => data.delete_many(indices),
+        }
+    }
+
+    /// Re-inserts previously deleted instructions at their original indices.
+    ///
+    /// `entries` must be sorted ascending by index, as [`Self::delete_many`]
+    /// captured them. This is the exact inverse of a `delete_many` with the same
+    /// indices.
+    pub fn insert_many(&mut self, entries: &[InsertEntry]) {
+        match self {
+            Self::V1(data) => data.insert_many(entries),
+            Self::V2(data) => data.insert_many(entries),
+            Self::Vgm(data) => data.insert_many(entries),
+        }
+    }
+
+    /// Whether delays in this stream are counted in samples rather than milliseconds.
+    #[must_use]
+    pub const fn delays_in_samples(&self) -> bool {
+        matches!(self, Self::Vgm(_))
+    }
+}
 
 /// Which container the song was read from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -124,29 +236,65 @@ impl fmt::Display for OplType {
 /// The Python derived these offsets as a byproduct of the *detailed register
 /// analysis*, which meant clicking the waveform did nothing until a background
 /// task finished. Here the prefix is built at load, in one cheap pass.
+///
+/// VGM counts its delays in samples, not milliseconds. Those are accumulated in
+/// samples and converted once per entry, so the per-instruction rounding the
+/// Python did (`smp_to_ms(inst.value)` inside the seeker) cannot drift over a
+/// long song.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Song {
     pub file_type: SongFileType,
-    pub file_version: u16,
+    /// `1` or `2` for DRO; the BCD version for VGM, e.g. `0x151`.
+    pub file_version: u32,
     pub name: String,
     pub opl_type: OplType,
     /// The length recorded in the file header. Not necessarily equal to
     /// [`Song::total_delay_ms`] -- a mismatch is what the trim warning reports.
+    ///
+    /// VGM files carry a sample count instead, so this is derived for them and
+    /// the two always agree.
     pub ms_length: u32,
-    data: DroData,
+    data: SongData,
     delay_prefix: Vec<u32>,
+    /// `Some` exactly when `data` is [`SongData::Vgm`].
+    vgm: Option<Box<VgmMeta>>,
 }
 
 impl Song {
     #[must_use]
     pub fn new(
         file_type: SongFileType,
-        file_version: u16,
+        file_version: u32,
         name: String,
-        data: DroData,
+        data: SongData,
         ms_length: u32,
         opl_type: OplType,
     ) -> Self {
+        Self::with_vgm_meta(
+            file_type,
+            file_version,
+            name,
+            data,
+            ms_length,
+            opl_type,
+            None,
+        )
+    }
+
+    fn with_vgm_meta(
+        file_type: SongFileType,
+        file_version: u32,
+        name: String,
+        data: SongData,
+        ms_length: u32,
+        opl_type: OplType,
+        vgm: Option<Box<VgmMeta>>,
+    ) -> Self {
+        debug_assert_eq!(
+            data.delays_in_samples(),
+            vgm.is_some(),
+            "VGM metadata must accompany a VGM stream, and only a VGM stream"
+        );
         let mut song = Self {
             file_type,
             file_version,
@@ -155,6 +303,7 @@ impl Song {
             ms_length,
             data,
             delay_prefix: Vec::new(),
+            vgm,
         };
         song.rebuild_delay_prefix();
         song
@@ -166,7 +315,7 @@ impl Song {
             SongFileType::Dro,
             DRO_FILE_V1,
             name,
-            DroData::V1(data),
+            SongData::V1(data),
             ms_length,
             opl_type,
         )
@@ -178,15 +327,52 @@ impl Song {
             SongFileType::Dro,
             DRO_FILE_V2,
             name,
-            DroData::V2(data),
+            SongData::V2(data),
             ms_length,
             opl_type,
         )
     }
 
+    /// A VGM song. `ms_length` is derived from the command stream, so the header's
+    /// sample count is only ever a cross-check.
     #[must_use]
-    pub fn data(&self) -> &DroData {
+    pub fn vgm(
+        name: String,
+        file_version: u32,
+        data: VgmData,
+        opl_type: OplType,
+        meta: VgmMeta,
+    ) -> Self {
+        Self::with_vgm_meta(
+            SongFileType::Vgm,
+            file_version,
+            name,
+            SongData::Vgm(data),
+            0, // replaced by `rebuild_delay_prefix`
+            opl_type,
+            Some(Box::new(meta)),
+        )
+    }
+
+    #[must_use]
+    pub fn data(&self) -> &SongData {
         &self.data
+    }
+
+    /// The VGM-only header fields, or `None` for a DRO song.
+    #[must_use]
+    pub fn vgm_meta(&self) -> Option<&VgmMeta> {
+        self.vgm.as_deref()
+    }
+
+    /// The VGM-only header fields, for the metadata dialog to edit.
+    pub fn vgm_meta_mut(&mut self) -> Option<&mut VgmMeta> {
+        self.vgm.as_deref_mut()
+    }
+
+    #[must_use]
+    pub const fn is_vgm(&self) -> bool {
+        self.vgm.is_some()
     }
 
     /// The number of instructions. (Python: `get_length_data`.)
@@ -217,6 +403,38 @@ impl Song {
             .delay_prefix
             .last()
             .expect("the prefix always has len() + 1 entries")
+    }
+
+    /// The summed delay of every instruction, in samples at 44100 Hz.
+    ///
+    /// Only VGM streams carry sample delays, so this is `0` for a DRO song. It is
+    /// what the VGM header's `total # samples` field must say. (Python:
+    /// `DROTotalSamplesCalculator`.)
+    #[must_use]
+    pub fn total_delay_samples(&self) -> u32 {
+        self.samples_before(self.len())
+    }
+
+    /// The summed delay of instructions `[0, index)`, in samples at 44100 Hz.
+    #[must_use]
+    pub fn samples_before(&self, index: usize) -> u32 {
+        self.data
+            .iter()
+            .take(index)
+            .map(DroInstruction::delay_samples)
+            .fold(0u32, u32::saturating_add)
+    }
+
+    /// The number of samples in one loop: from the loop point to the end of the
+    /// song. `None` for a DRO song, or a VGM that does not loop.
+    ///
+    /// This is the VGM header's `loop # samples`. Deriving it, rather than carrying
+    /// the header's copy, is what stops a trim inside the loop from leaving it
+    /// stale.
+    #[must_use]
+    pub fn loop_num_samples(&self) -> Option<u32> {
+        let loop_point = self.vgm.as_deref()?.loop_point?;
+        Some(self.total_delay_samples() - self.samples_before(loop_point))
     }
 
     /// The time at which instruction `index` is executed, in milliseconds.
@@ -301,17 +519,22 @@ impl Song {
     #[must_use]
     pub fn register_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
-            DroInstruction::DelayMs { kind, .. } => kind.token().to_owned(),
             DroInstruction::BankSwitch(_) => "BANK".to_owned(),
             DroInstruction::Register { reg, .. } => format!("0x{reg:02X}"),
+            // Python fell through to the register branch for VGM's sample delays,
+            // rendering a `0x61` wait as though it were a write to register 0x61.
+            DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
+                kind.token().to_owned()
+            }
         })
     }
 
-    /// The value column: `"177 ms"`, `"low"` / `"high"`, or `"0x2A (42)"`.
+    /// The value column: `"177 ms"`, `"176 smp"`, `"low"` / `"high"`, or `"0x2A (42)"`.
     #[must_use]
     pub fn value_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
             DroInstruction::DelayMs { ms, .. } => format!("{ms} ms"),
+            DroInstruction::DelaySamples { samples, .. } => format!("{samples} smp"),
             DroInstruction::BankSwitch(bank) => bank.name().to_owned(),
             DroInstruction::Register { value, .. } => format!("0x{value:02X} ({value})"),
         })
@@ -323,7 +546,9 @@ impl Song {
     #[must_use]
     pub fn instruction_description(&self, index: usize) -> Option<&'static str> {
         Some(match self.data.get(index)? {
-            DroInstruction::DelayMs { kind, .. } => kind.description(),
+            DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
+                kind.description()
+            }
             DroInstruction::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
             DroInstruction::BankSwitch(Bank::High) => {
                 "Switch to high registers (Dual OPL-2 / OPL-3)"
@@ -343,7 +568,16 @@ impl Song {
     // -- mutation (drive this through `UndoController`) ---------------------
 
     pub(crate) fn delete_instructions(&mut self, indices: &[usize]) {
-        self.data.delete_many(indices);
+        let mut sorted: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|&i| i < self.len())
+            .collect();
+        sorted.sort_unstable();
+        sorted.dedup();
+
+        self.move_loop_point_past_deletion(&sorted);
+        self.data.delete_many(&sorted);
         self.rebuild_delay_prefix();
     }
 
@@ -352,14 +586,59 @@ impl Song {
         self.rebuild_delay_prefix();
     }
 
+    /// Slides a VGM's loop point left by however many instructions before it are
+    /// about to be deleted.
+    ///
+    /// If the loop instruction itself is deleted, the loop point lands on whatever
+    /// now occupies its slot -- the next surviving instruction. If nothing survives
+    /// at or after it, the file no longer loops.
+    ///
+    /// `sorted` must be ascending, unique and in range.
+    fn move_loop_point_past_deletion(&mut self, sorted: &[usize]) {
+        let surviving = self.len() - sorted.len();
+        let Some(meta) = self.vgm.as_deref_mut() else {
+            return;
+        };
+        let Some(loop_point) = meta.loop_point else {
+            return;
+        };
+
+        let deleted_before = sorted.partition_point(|&index| index < loop_point);
+        let moved = loop_point - deleted_before;
+        meta.loop_point = (moved < surviving).then_some(moved);
+        if meta.loop_point.is_none() {
+            log::warn!(
+                "the VGM loop point, and everything after it, was deleted; the song no longer loops"
+            );
+        }
+    }
+
+    /// Rebuilds the exclusive prefix sum of delays, in milliseconds.
+    ///
+    /// For a VGM, also refreshes [`Song::ms_length`], which is derived rather than
+    /// stored: its header records samples, not milliseconds.
     fn rebuild_delay_prefix(&mut self) {
         self.delay_prefix.clear();
         self.delay_prefix.reserve(self.data.len() + 1);
         self.delay_prefix.push(0);
-        let mut elapsed = 0u32;
-        for instruction in self.data.iter() {
-            elapsed = elapsed.saturating_add(instruction.delay_ms());
-            self.delay_prefix.push(elapsed);
+
+        if self.data.delays_in_samples() {
+            // Accumulate in samples and convert each running total once, so the
+            // rounding cannot compound. Converting each delay separately, as the
+            // Python seeker did, drifts by up to half a millisecond per delay.
+            let mut samples = 0u64;
+            for instruction in self.data.iter() {
+                samples += u64::from(instruction.delay_samples());
+                let clamped = u32::try_from(samples).unwrap_or(u32::MAX);
+                self.delay_prefix.push(smp_to_ms(clamped, VGM_SAMPLE_RATE));
+            }
+            self.ms_length = self.total_delay_ms();
+        } else {
+            let mut elapsed = 0u32;
+            for instruction in self.data.iter() {
+                elapsed = elapsed.saturating_add(instruction.delay_ms());
+                self.delay_prefix.push(elapsed);
+            }
         }
     }
 }

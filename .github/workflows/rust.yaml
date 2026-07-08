@@ -52,6 +52,17 @@ jobs:
       - name: Check wasm-clean crates
         run: cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth
 
+      # The CLI's version must match the `wasm-bindgen` version Cargo.lock
+      # resolves, or the generated glue will not load. Bump both together.
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+
+      # The web build writes the files users keep, so byte parity with the native
+      # build is a tested property, not an assumption. `.cargo/config.toml` points
+      # the wasm32 target at `wasm-bindgen-test-runner`, which runs these in Node.
+      - name: File-format round trips, as wasm
+        run: cargo test -p dro-core --target wasm32-unknown-unknown
+
   c-parity:
     name: pure-Rust OPL core == C reference
     runs-on: ubuntu-latest

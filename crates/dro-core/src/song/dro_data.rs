@@ -4,14 +4,9 @@
 //! so writing is a memcpy and round-trips are byte-exact. Instructions are
 //! decoded on access (see [`DroInstruction`]); nothing is materialised.
 
-use core::ops::Range;
-
 use crate::error::{Error, Result};
 use crate::song::instruction::{Bank, DelayKind, DroInstruction};
-use crate::util::condense_ranges;
-
-/// A restored instruction: its logical index, and its raw bytes.
-pub type InsertEntry = (usize, Box<[u8]>);
+use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
 /// The DRO v1 delay opcodes, which double as its register-escape opcodes.
 mod v1_opcode {
@@ -22,97 +17,6 @@ mod v1_opcode {
     /// Escape: the next byte is a register number that would otherwise collide
     /// with one of the opcodes above.
     pub(super) const ESCAPE: u8 = 0x04;
-}
-
-/// The DRO instruction stream, in whichever version's encoding it was read.
-///
-/// The Python original modelled this as an abstract base class with two
-/// subclasses. A closed enum is a better fit: there are exactly two encodings,
-/// and dispatch on the table-paint path becomes a jump rather than a vtable call.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DroData {
-    V1(DroDataV1),
-    V2(DroDataV2),
-}
-
-impl DroData {
-    /// The number of instructions.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        match self {
-            Self::V1(data) => data.len(),
-            Self::V2(data) => data.len(),
-        }
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Decodes the instruction at `index`, or `None` if out of range.
-    #[must_use]
-    pub fn get(&self, index: usize) -> Option<DroInstruction> {
-        match self {
-            Self::V1(data) => data.get(index),
-            Self::V2(data) => data.get(index),
-        }
-    }
-
-    /// Iterates the decoded instructions. Allocates nothing.
-    pub fn iter(&self) -> impl Iterator<Item = DroInstruction> + '_ {
-        (0..self.len()).map(move |index| {
-            self.get(index)
-                .expect("index map and raw bytes agree by construction")
-        })
-    }
-
-    /// The whole instruction stream, exactly as it sits in the file.
-    #[must_use]
-    pub fn raw(&self) -> &[u8] {
-        match self {
-            Self::V1(data) => &data.data,
-            Self::V2(data) => &data.data,
-        }
-    }
-
-    #[must_use]
-    pub fn raw_len(&self) -> usize {
-        self.raw().len()
-    }
-
-    /// The raw bytes of one instruction. This is what undo captures.
-    #[must_use]
-    pub fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
-        match self {
-            Self::V1(data) => data.raw_instruction(index),
-            Self::V2(data) => data.raw_instruction(index),
-        }
-    }
-
-    /// Removes the instructions at `indices` in a single compaction pass.
-    ///
-    /// `indices` need not be sorted or unique. Where the Python did one `del` per
-    /// contiguous range -- `O(k*n)` for `k` ranges -- this is `O(n)` regardless of
-    /// how fragmented the selection is.
-    pub fn delete_many(&mut self, indices: &[usize]) {
-        match self {
-            Self::V1(data) => data.delete_many(indices),
-            Self::V2(data) => data.delete_many(indices),
-        }
-    }
-
-    /// Re-inserts previously deleted instructions at their original indices.
-    ///
-    /// `entries` must be sorted ascending by index, as [`Self::delete_many`]
-    /// captured them. This is the exact inverse of a `delete_many` with the same
-    /// indices.
-    pub fn insert_many(&mut self, entries: &[InsertEntry]) {
-        match self {
-            Self::V1(data) => data.insert_many(entries),
-            Self::V2(data) => data.insert_many(entries),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,23 +40,43 @@ impl DroDataV1 {
     /// If the stream ends in the middle of an instruction. The Python original
     /// silently produced an index-map entry pointing at the truncated tail, and
     /// then raised `IndexError` the first time anything read it.
+    ///
+    /// The file reader uses [`Self::new_truncating`] instead, so a real-world
+    /// malformed capture still opens.
     pub fn new(data: Vec<u8>) -> Result<Self> {
-        let index_map = Self::build_index_map(&data)?;
+        let (index_map, consumed) = Self::scan_index_map(&data)?;
+        if consumed != data.len() {
+            return Err(Error::file(format!(
+                "DRO v1 data ends mid-instruction: opcode {:#04X} at byte {consumed} needs more \
+                 bytes than the {} that remain",
+                data[consumed],
+                data.len() - consumed,
+            )));
+        }
         Ok(Self { data, index_map })
     }
 
-    fn build_index_map(data: &[u8]) -> Result<Vec<u32>> {
+    /// As [`Self::new`], but drops a trailing partial instruction rather than
+    /// failing. Returns the number of bytes dropped, for the caller to warn about.
+    ///
+    /// # Errors
+    /// Only if the stream is larger than 4 GiB.
+    pub fn new_truncating(mut data: Vec<u8>) -> Result<(Self, usize)> {
+        let (index_map, consumed) = Self::scan_index_map(&data)?;
+        let dropped = data.len() - consumed;
+        data.truncate(consumed);
+        Ok((Self { data, index_map }, dropped))
+    }
+
+    /// Walks the instruction stream, returning the index map and how many bytes
+    /// it accounted for. A shortfall means the last instruction is truncated.
+    fn scan_index_map(data: &[u8]) -> Result<(Vec<u32>, usize)> {
         let mut index_map = Vec::new();
         let mut offset = 0usize;
         while offset < data.len() {
             let size = Self::instruction_size(data[offset]);
             if offset + size > data.len() {
-                return Err(Error::file(format!(
-                    "DRO v1 data ends mid-instruction: opcode {:#04X} at byte {offset} needs \
-                     {size} bytes but only {} remain",
-                    data[offset],
-                    data.len() - offset,
-                )));
+                break;
             }
             index_map.push(
                 u32::try_from(offset)
@@ -160,7 +84,11 @@ impl DroDataV1 {
             );
             offset += size;
         }
-        Ok(index_map)
+        Ok((index_map, offset))
+    }
+
+    fn build_index_map(data: &[u8]) -> Result<Vec<u32>> {
+        Self::scan_index_map(data).map(|(index_map, _)| index_map)
     }
 
     const fn instruction_size(opcode: u8) -> usize {
@@ -173,12 +101,24 @@ impl DroDataV1 {
         }
     }
 
-    fn len(&self) -> usize {
+    /// The instruction stream, exactly as it sits in the file.
+    #[must_use]
+    pub fn raw(&self) -> &[u8] {
+        &self.data
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
         self.index_map.len()
     }
 
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.index_map.is_empty()
+    }
+
     /// The byte offset of instruction `index`. `index == len()` yields the end.
-    fn byte_offset(&self, index: usize) -> usize {
+    pub(crate) fn byte_offset(&self, index: usize) -> usize {
         match self.index_map.get(index) {
             Some(&offset) => offset as usize,
             None if index == self.len() => self.data.len(),
@@ -189,7 +129,8 @@ impl DroDataV1 {
         }
     }
 
-    fn get(&self, index: usize) -> Option<DroInstruction> {
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<DroInstruction> {
         let start = *self.index_map.get(index)? as usize;
         let opcode = self.data[start];
         let byte = |offset: usize| self.data[start + offset];
@@ -217,14 +158,15 @@ impl DroDataV1 {
         })
     }
 
-    fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
+    #[must_use]
+    pub fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
         if index >= self.len() {
             return None;
         }
         Some(&self.data[self.byte_offset(index)..self.byte_offset(index + 1)])
     }
 
-    fn delete_many(&mut self, indices: &[usize]) {
+    pub(crate) fn delete_many(&mut self, indices: &[usize]) {
         let Some(byte_ranges) = byte_ranges_to_delete(indices, self.len(), |i| self.byte_offset(i))
         else {
             return;
@@ -234,7 +176,7 @@ impl DroDataV1 {
             .expect("deleting whole instructions cannot truncate one");
     }
 
-    fn insert_many(&mut self, entries: &[InsertEntry]) {
+    pub(crate) fn insert_many(&mut self, entries: &[InsertEntry]) {
         if entries.is_empty() {
             return;
         }
@@ -307,6 +249,12 @@ impl DroDataV2 {
         })
     }
 
+    /// The instruction stream, exactly as it sits in the file.
+    #[must_use]
+    pub fn raw(&self) -> &[u8] {
+        &self.data
+    }
+
     /// The register number each 7-bit code stands for.
     #[must_use]
     pub fn codemap(&self) -> &[u8] {
@@ -323,15 +271,22 @@ impl DroDataV2 {
         self.long_delay_code
     }
 
-    fn len(&self) -> usize {
+    #[must_use]
+    pub fn len(&self) -> usize {
         self.data.len() / 2
     }
 
-    const fn byte_offset(index: usize) -> usize {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub(crate) const fn byte_offset(index: usize) -> usize {
         index * 2
     }
 
-    fn get(&self, index: usize) -> Option<DroInstruction> {
+    #[must_use]
+    pub fn get(&self, index: usize) -> Option<DroInstruction> {
         if index >= self.len() {
             return None;
         }
@@ -358,7 +313,8 @@ impl DroDataV2 {
         })
     }
 
-    fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
+    #[must_use]
+    pub fn raw_instruction(&self, index: usize) -> Option<&[u8]> {
         if index >= self.len() {
             return None;
         }
@@ -366,7 +322,7 @@ impl DroDataV2 {
         Some(&self.data[start..start + 2])
     }
 
-    fn delete_many(&mut self, indices: &[usize]) {
+    pub(crate) fn delete_many(&mut self, indices: &[usize]) {
         let Some(byte_ranges) = byte_ranges_to_delete(indices, self.len(), Self::byte_offset)
         else {
             return;
@@ -374,7 +330,7 @@ impl DroDataV2 {
         splice_out(&mut self.data, &byte_ranges);
     }
 
-    fn insert_many(&mut self, entries: &[InsertEntry]) {
+    pub(crate) fn insert_many(&mut self, entries: &[InsertEntry]) {
         if entries.is_empty() {
             return;
         }
@@ -383,92 +339,10 @@ impl DroDataV2 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Shared splice machinery
-// ---------------------------------------------------------------------------
-
-/// Turns an arbitrary selection into the byte ranges to remove.
-///
-/// Sorts and de-duplicates defensively: the Python `DRODataV1.insert_multiple`
-/// silently produced garbage when handed an unsorted list, and the only reason
-/// that never fired was that the wx list control happened to yield indices in
-/// ascending order.
-fn byte_ranges_to_delete(
-    indices: &[usize],
-    len: usize,
-    byte_offset: impl Fn(usize) -> usize,
-) -> Option<Vec<Range<usize>>> {
-    let mut sorted: Vec<usize> = indices.iter().copied().filter(|&i| i < len).collect();
-    sorted.sort_unstable();
-    sorted.dedup();
-    if sorted.is_empty() {
-        return None;
-    }
-    Some(
-        condense_ranges(&sorted)
-            .into_iter()
-            .map(|range| byte_offset(*range.start())..byte_offset(*range.end() + 1))
-            .collect(),
-    )
-}
-
-/// Removes `byte_ranges` (ascending, disjoint) from `data` in one forward pass.
-fn splice_out(data: &mut Vec<u8>, byte_ranges: &[Range<usize>]) {
-    let Some(first) = byte_ranges.first() else {
-        return;
-    };
-    let mut write = first.start;
-    for (i, range) in byte_ranges.iter().enumerate() {
-        let next_start = byte_ranges.get(i + 1).map_or(data.len(), |next| next.start);
-        let survivors = range.end..next_start;
-        let count = survivors.len();
-        data.copy_within(survivors, write);
-        write += count;
-    }
-    data.truncate(write);
-}
-
-/// Rebuilds `data` with `entries` re-inserted at their logical indices, in one
-/// forward pass and one allocation.
-fn splice_in(
-    data: &[u8],
-    entries: &[InsertEntry],
-    byte_offset: impl Fn(usize) -> usize,
-) -> Vec<u8> {
-    debug_assert!(
-        entries.windows(2).all(|w| w[0].0 < w[1].0),
-        "insert entries must be sorted ascending by index and de-duplicated"
-    );
-
-    let extra: usize = entries.iter().map(|(_, bytes)| bytes.len()).sum();
-    let mut out = Vec::with_capacity(data.len() + extra);
-
-    // `emitted` counts instructions already written to `out`, so the next entry
-    // needs `target - emitted` of the surviving instructions copied before it.
-    let mut emitted = 0usize;
-    let mut src_logical = 0usize;
-    let mut src_byte = 0usize;
-
-    for (target, bytes) in entries {
-        let need = target
-            .checked_sub(emitted)
-            .expect("insert entries must be sorted ascending");
-        let end_byte = byte_offset(src_logical + need);
-        out.extend_from_slice(&data[src_byte..end_byte]);
-        src_logical += need;
-        src_byte = end_byte;
-        emitted += need;
-
-        out.extend_from_slice(bytes);
-        emitted += 1;
-    }
-    out.extend_from_slice(&data[src_byte..]);
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::song::SongData;
     use crate::song::fixtures::{dro_data_v1 as v1_fixture, dro_data_v2 as v2_fixture};
 
     #[test]
@@ -540,7 +414,7 @@ mod tests {
 
     #[test]
     fn v2_iter_yields_every_instruction() {
-        let data = DroData::V2(v2_fixture());
+        let data = SongData::V2(v2_fixture());
         let instructions: Vec<_> = data.iter().collect();
         assert_eq!(instructions.len(), 14);
         assert_eq!(instructions[0], data.get(0).unwrap());
@@ -695,7 +569,7 @@ mod tests {
 
     /// The reference implementation: delete one index at a time, back to front.
     /// Whatever the fast path does, it must agree with this.
-    fn naive_delete(data: &DroData, indices: &[usize]) -> Vec<u8> {
+    fn naive_delete(data: &SongData, indices: &[usize]) -> Vec<u8> {
         let mut sorted: Vec<usize> = indices
             .iter()
             .copied()
@@ -707,8 +581,9 @@ mod tests {
         let mut raw = data.raw().to_vec();
         for &index in sorted.iter().rev() {
             let span = match data {
-                DroData::V1(v1) => v1.byte_offset(index)..v1.byte_offset(index + 1),
-                DroData::V2(_) => DroDataV2::byte_offset(index)..DroDataV2::byte_offset(index + 1),
+                SongData::V1(v1) => v1.byte_offset(index)..v1.byte_offset(index + 1),
+                SongData::V2(_) => DroDataV2::byte_offset(index)..DroDataV2::byte_offset(index + 1),
+                SongData::Vgm(vgm) => vgm.byte_offset(index)..vgm.byte_offset(index + 1),
             };
             raw.drain(span);
         }
@@ -717,7 +592,7 @@ mod tests {
 
     #[test]
     fn v2_delete_single() {
-        let mut data = DroData::V2(v2_fixture());
+        let mut data = SongData::V2(v2_fixture());
         data.delete_many(&[0]);
         assert_eq!(data.len(), 13);
         assert_eq!(data.raw_len(), 26);
@@ -726,7 +601,7 @@ mod tests {
 
     #[test]
     fn v2_delete_contiguous_range() {
-        let mut data = DroData::V2(v2_fixture());
+        let mut data = SongData::V2(v2_fixture());
         data.delete_many(&[0]);
         // Python's `del dro_data[1:2]` removed logical indices 1 AND 2.
         data.delete_many(&[1, 2]);
@@ -751,7 +626,7 @@ mod tests {
             &[5, 99],      // partially out of range
         ];
         for selection in selections {
-            let v2 = DroData::V2(v2_fixture());
+            let v2 = SongData::V2(v2_fixture());
             let expected = naive_delete(&v2, selection);
             let mut actual = v2.clone();
             actual.delete_many(selection);
@@ -763,7 +638,7 @@ mod tests {
 
             // Out-of-range indices are ignored on both sides, so the same
             // selections exercise the shorter v1 fixture too.
-            let v1 = DroData::V1(v1_fixture());
+            let v1 = SongData::V1(v1_fixture());
             let expected = naive_delete(&v1, selection);
             let mut actual = v1.clone();
             actual.delete_many(selection);
@@ -777,9 +652,9 @@ mod tests {
 
     #[test]
     fn v1_delete_rebuilds_the_index_map() {
-        let mut data = DroData::V1(v1_fixture());
+        let mut data = SongData::V1(v1_fixture());
         data.delete_many(&[1, 2]); // the short and long delays
-        let DroData::V1(v1) = &data else {
+        let SongData::V1(v1) = &data else {
             unreachable!()
         };
         assert_eq!(v1.index_map, vec![0, 2, 3, 4, 7]);
@@ -797,7 +672,7 @@ mod tests {
 
     #[test]
     fn delete_all_leaves_nothing() {
-        for mut data in [DroData::V2(v2_fixture()), DroData::V1(v1_fixture())] {
+        for mut data in [SongData::V2(v2_fixture()), SongData::V1(v1_fixture())] {
             let all: Vec<usize> = (0..data.len()).collect();
             data.delete_many(&all);
             assert_eq!(data.len(), 0);
@@ -808,7 +683,7 @@ mod tests {
 
     // -- insertion (undo) --------------------------------------------------
 
-    fn capture(data: &DroData, indices: &[usize]) -> Vec<InsertEntry> {
+    fn capture(data: &SongData, indices: &[usize]) -> Vec<InsertEntry> {
         let mut sorted = indices.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -834,14 +709,14 @@ mod tests {
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
         ];
         for selection in selections {
-            let original = DroData::V2(v2_fixture());
+            let original = SongData::V2(v2_fixture());
             let entries = capture(&original, selection);
             let mut data = original.clone();
             data.delete_many(selection);
             data.insert_many(&entries);
             assert_eq!(data, original, "v2 selection {selection:?}");
 
-            let original = DroData::V1(v1_fixture());
+            let original = SongData::V1(v1_fixture());
             let selection: Vec<usize> = selection.iter().copied().filter(|&i| i < 7).collect();
             let entries = capture(&original, &selection);
             let mut data = original.clone();
@@ -853,16 +728,17 @@ mod tests {
 
     #[test]
     fn insert_many_is_a_no_op_for_no_entries() {
-        let mut data = DroData::V2(v2_fixture());
+        let mut data = SongData::V2(v2_fixture());
         let before = data.clone();
         data.insert_many(&[]);
         assert_eq!(data, before);
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod proptests {
     use super::*;
+    use crate::song::SongData;
     use crate::song::fixtures::{dro_data_v1 as v1_fixture, dro_data_v2 as v2_fixture};
     use proptest::prelude::*;
 
@@ -875,7 +751,7 @@ mod proptests {
         /// selection -- fragmented, duplicated, or in any order.
         #[test]
         fn v2_delete_then_insert_restores_the_original(selection in arbitrary_selection(14)) {
-            let original = DroData::V2(v2_fixture());
+            let original = SongData::V2(v2_fixture());
             let mut sorted = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
@@ -894,7 +770,7 @@ mod proptests {
 
         #[test]
         fn v1_delete_then_insert_restores_the_original(selection in arbitrary_selection(7)) {
-            let original = DroData::V1(v1_fixture());
+            let original = SongData::V1(v1_fixture());
             let mut sorted = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
@@ -915,13 +791,13 @@ mod proptests {
         /// index at a time, back to front.
         #[test]
         fn v1_single_pass_delete_matches_a_naive_reference(selection in arbitrary_selection(7)) {
-            let original = DroData::V1(v1_fixture());
+            let original = SongData::V1(v1_fixture());
 
             let mut sorted: Vec<usize> = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
             let mut expected = original.raw().to_vec();
-            let DroData::V1(v1) = &original else { unreachable!() };
+            let SongData::V1(v1) = &original else { unreachable!() };
             for &index in sorted.iter().rev() {
                 expected.drain(v1.byte_offset(index)..v1.byte_offset(index + 1));
             }

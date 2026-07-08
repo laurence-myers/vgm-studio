@@ -7,15 +7,19 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod convert;
 pub mod error;
+pub mod io;
 pub mod regdata;
 pub mod song;
 pub mod undo;
 pub mod util;
+pub mod vgm;
 
 pub use error::{Error, Result};
 pub use song::{
-    Bank, DelayKind, DroData, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song,
+    Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
     SongFileType,
 };
 pub use undo::{UndoController, UndoableCommand};
+pub use vgm::{Gd3Tag, VgmData, VgmMeta};

@@ -1,0 +1,8 @@
+# Lets `cargo test --target wasm32-unknown-unknown -p dro-core` run under Node.
+#
+#     cargo install wasm-bindgen-cli --locked
+#
+# Deliberately no `[build] rustflags` here: setting a linker globally would clobber
+# the wasm target's bundled `rust-lld`.
+[target.wasm32-unknown-unknown]
+runner = "wasm-bindgen-test-runner"

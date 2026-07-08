@@ -56,13 +56,16 @@ impl fmt::Display for Bank {
     }
 }
 
-/// Whether a delay was encoded with the one-byte or two-byte opcode.
+/// Whether a delay was encoded with the compact or the wide opcode.
 ///
 /// The Python original carried the raw delay opcode in `DROInstruction.command`
 /// and asked the enclosing `DROData` whether it was short or long. Since a
 /// `DELAY_MS` instruction is only ever produced *because* the opcode matched one
 /// of the two delay codes, the third `"???"` branch was unreachable; encoding the
 /// answer here removes it.
+///
+/// VGM uses the same distinction: `0x61 nn nn` is long; `0x62`, `0x63` and
+/// `0x70..=0x7F` are short.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DelayKind {
     Short,
@@ -89,14 +92,14 @@ impl DelayKind {
     }
 }
 
-/// One decoded DRO instruction.
+/// One decoded instruction, from a DRO or a VGM stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DroInstruction {
     /// Write `value` to `reg`.
     ///
-    /// `bank` is `Some` only for DRO v2, which encodes the bank in the high bit
-    /// of every register code. DRO v1 tracks the bank with [`Self::BankSwitch`]
-    /// instructions instead, so its register writes carry `None`.
+    /// `bank` is `None` only for DRO v1, which tracks the bank with separate
+    /// [`Self::BankSwitch`] instructions. DRO v2 encodes the bank in the high bit
+    /// of every register code, and VGM in the choice of write opcode.
     Register {
         reg: u8,
         value: u8,
@@ -104,12 +107,15 @@ pub enum DroInstruction {
     },
     /// Select a register bank (DRO v1 only).
     BankSwitch(Bank),
-    /// Wait `ms` milliseconds.
+    /// Wait `ms` milliseconds (DRO).
     DelayMs { kind: DelayKind, ms: u32 },
+    /// Wait `samples` samples at 44100 Hz (VGM).
+    DelaySamples { kind: DelayKind, samples: u32 },
 }
 
 impl DroInstruction {
-    /// The delay in milliseconds, or `0` for anything that is not a delay.
+    /// The delay in milliseconds, or `0` for anything that is not a *millisecond*
+    /// delay. VGM's sample delays report `0` here -- see [`Self::delay_samples`].
     #[must_use]
     pub const fn delay_ms(self) -> u32 {
         match self {
@@ -118,16 +124,40 @@ impl DroInstruction {
         }
     }
 
+    /// The delay in samples, or `0` for anything that is not a *sample* delay.
+    #[must_use]
+    pub const fn delay_samples(self) -> u32 {
+        match self {
+            Self::DelaySamples { samples, .. } => samples,
+            _ => 0,
+        }
+    }
+
+    /// Whether this instruction advances the clock at all.
+    #[must_use]
+    pub const fn is_delay(self) -> bool {
+        matches!(self, Self::DelayMs { .. } | Self::DelaySamples { .. })
+    }
+
+    /// How the delay was encoded, if this is a delay.
+    #[must_use]
+    pub const fn delay_kind(self) -> Option<DelayKind> {
+        match self {
+            Self::DelayMs { kind, .. } | Self::DelaySamples { kind, .. } => Some(kind),
+            _ => None,
+        }
+    }
+
     /// The bank this instruction *selects*, if any.
     ///
-    /// A v2 register write selects its own bank; a v1 bank switch selects one
-    /// explicitly. Delays never do.
+    /// A v2 or VGM register write selects its own bank; a v1 bank switch selects
+    /// one explicitly. Delays never do.
     #[must_use]
     pub const fn selected_bank(self) -> Option<Bank> {
         match self {
             Self::Register { bank, .. } => bank,
             Self::BankSwitch(bank) => Some(bank),
-            Self::DelayMs { .. } => None,
+            Self::DelayMs { .. } | Self::DelaySamples { .. } => None,
         }
     }
 }
@@ -147,26 +177,17 @@ pub enum FindTarget {
 
 impl FindTarget {
     #[must_use]
+    /// Delay tokens match on the *kind*, so they work the same on DRO's
+    /// millisecond delays and VGM's sample delays.
     pub fn matches(self, instruction: DroInstruction) -> bool {
-        match (self, instruction) {
-            (Self::Register(wanted), DroInstruction::Register { reg, .. }) => reg == wanted,
-            (
-                Self::ShortDelay,
-                DroInstruction::DelayMs {
-                    kind: DelayKind::Short,
-                    ..
-                },
-            ) => true,
-            (
-                Self::LongDelay,
-                DroInstruction::DelayMs {
-                    kind: DelayKind::Long,
-                    ..
-                },
-            ) => true,
-            (Self::AnyDelay, DroInstruction::DelayMs { .. }) => true,
-            (Self::BankSwitch, DroInstruction::BankSwitch(_)) => true,
-            _ => false,
+        match self {
+            Self::Register(wanted) => {
+                matches!(instruction, DroInstruction::Register { reg, .. } if reg == wanted)
+            }
+            Self::ShortDelay => instruction.delay_kind() == Some(DelayKind::Short),
+            Self::LongDelay => instruction.delay_kind() == Some(DelayKind::Long),
+            Self::AnyDelay => instruction.is_delay(),
+            Self::BankSwitch => matches!(instruction, DroInstruction::BankSwitch(_)),
         }
     }
 }
@@ -229,25 +250,65 @@ mod tests {
     }
 
     #[test]
-    fn delay_ms_is_zero_for_non_delays() {
-        assert_eq!(DroInstruction::BankSwitch(Bank::High).delay_ms(), 0);
+    fn delay_accessors_report_only_their_own_unit() {
+        let register = DroInstruction::Register {
+            reg: 1,
+            value: 2,
+            bank: None,
+        };
+        let bank = DroInstruction::BankSwitch(Bank::High);
+        let ms = DroInstruction::DelayMs {
+            kind: DelayKind::Long,
+            ms: 49_408,
+        };
+        let samples = DroInstruction::DelaySamples {
+            kind: DelayKind::Long,
+            samples: 176,
+        };
+
+        assert_eq!(register.delay_ms(), 0);
+        assert_eq!(bank.delay_ms(), 0);
+        assert_eq!(ms.delay_ms(), 49_408);
         assert_eq!(
-            DroInstruction::Register {
-                reg: 1,
-                value: 2,
-                bank: None
-            }
-            .delay_ms(),
-            0
+            samples.delay_ms(),
+            0,
+            "sample delays are not millisecond delays"
         );
-        assert_eq!(
-            DroInstruction::DelayMs {
-                kind: DelayKind::Long,
-                ms: 49_408
-            }
-            .delay_ms(),
-            49_408
-        );
+
+        assert_eq!(register.delay_samples(), 0);
+        assert_eq!(ms.delay_samples(), 0);
+        assert_eq!(samples.delay_samples(), 176);
+
+        assert!(!register.is_delay());
+        assert!(!bank.is_delay());
+        assert!(ms.is_delay());
+        assert!(samples.is_delay());
+
+        assert_eq!(register.delay_kind(), None);
+        assert_eq!(ms.delay_kind(), Some(DelayKind::Long));
+        assert_eq!(samples.delay_kind(), Some(DelayKind::Long));
+    }
+
+    /// Find Register works the same on a VGM's sample delays.
+    #[test]
+    fn find_target_matching_on_sample_delays() {
+        let short = DroInstruction::DelaySamples {
+            kind: DelayKind::Short,
+            samples: 1,
+        };
+        let long = DroInstruction::DelaySamples {
+            kind: DelayKind::Long,
+            samples: 176,
+        };
+
+        assert!(FindTarget::ShortDelay.matches(short));
+        assert!(!FindTarget::ShortDelay.matches(long));
+        assert!(FindTarget::LongDelay.matches(long));
+        assert!(!FindTarget::LongDelay.matches(short));
+        assert!(FindTarget::AnyDelay.matches(short));
+        assert!(FindTarget::AnyDelay.matches(long));
+        assert!(!FindTarget::BankSwitch.matches(long));
+        assert!(!FindTarget::Register(0x61).matches(long));
     }
 
     #[test]

@@ -156,8 +156,12 @@ pub struct DeleteInstructions {
     indices: Vec<usize>,
     /// The removed instructions, ascending by index. Captured on `apply`.
     deleted: Vec<InsertEntry>,
-    /// The total delay removed, subtracted from the song's header length.
-    delay_diff: u32,
+    /// The song's header length before the delete, restored verbatim on revert.
+    /// The Python added the removed delay back, which is only the same thing when
+    /// the arithmetic did not saturate.
+    previous_ms_length: u32,
+    /// A VGM's loop point before the delete, likewise restored verbatim.
+    previous_loop_point: Option<usize>,
 }
 
 impl DeleteInstructions {
@@ -169,7 +173,8 @@ impl DeleteInstructions {
         Self {
             indices,
             deleted: Vec::new(),
-            delay_diff: 0,
+            previous_ms_length: 0,
+            previous_loop_point: None,
         }
     }
 
@@ -187,31 +192,42 @@ impl UndoableCommand<Song> for DeleteInstructions {
 
     fn apply(&mut self, song: &mut Song) {
         self.indices.retain(|&index| index < song.len());
+        self.previous_ms_length = song.ms_length;
+        self.previous_loop_point = song.vgm_meta().and_then(|meta| meta.loop_point);
 
-        let mut delay_diff = 0u32;
+        let mut removed_ms = 0u32;
         let mut deleted = Vec::with_capacity(self.indices.len());
         for &index in &self.indices {
             let instruction = song
                 .instruction(index)
                 .expect("index was just bounds-checked");
-            delay_diff += instruction.delay_ms();
+            removed_ms = removed_ms.saturating_add(instruction.delay_ms());
             let bytes = song
                 .data()
                 .raw_instruction(index)
                 .expect("index was just bounds-checked");
             deleted.push((index, bytes.to_vec().into_boxed_slice()));
         }
-        self.delay_diff = delay_diff;
         self.deleted = deleted;
 
         song.delete_instructions(&self.indices);
-        // Python let this go negative; a header length cannot be.
-        song.ms_length = song.ms_length.saturating_sub(self.delay_diff);
+
+        // A VGM's `ms_length` is derived from its sample delays, and
+        // `delete_instructions` has already refreshed it. A DRO's is a header
+        // field, adjusted by what we removed. (Python let it go negative.)
+        if !song.is_vgm() {
+            song.ms_length = self.previous_ms_length.saturating_sub(removed_ms);
+        }
     }
 
     fn revert(&mut self, song: &mut Song) {
         song.insert_instructions(&self.deleted);
-        song.ms_length = song.ms_length.saturating_add(self.delay_diff);
+        // Restore the header verbatim rather than adding the delay back: exact,
+        // and it survives a `saturating_sub` that clamped at zero.
+        song.ms_length = self.previous_ms_length;
+        if let Some(meta) = song.vgm_meta_mut() {
+            meta.loop_point = self.previous_loop_point;
+        }
     }
 }
 

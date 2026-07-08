@@ -24,6 +24,14 @@ cargo clippy --workspace --all-targets -- -D warnings        # lint
 cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth   # wasm stays clean
 ```
 
+Run the file-format round trips as real wasm, under Node. The CLI version must
+match the `wasm-bindgen` version in `Cargo.lock`:
+
+```PowerShell
+cargo install wasm-bindgen-cli --version 0.2.126 --locked
+cargo test -p dro-core --target wasm32-unknown-unknown
+```
+
 Optional: prove the pure-Rust OPL core is still bit-identical to Nuked-OPL3's C
 sources. Needs a C compiler and libclang (`scoop install main/llvm`):
 

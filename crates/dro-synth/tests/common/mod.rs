@@ -2,7 +2,7 @@
 
 #![allow(dead_code)] // Each integration test uses a different subset.
 
-use dro_core::{DroData, DroDataV2, DroInstruction};
+use dro_core::{DroDataV2, DroInstruction, SongData};
 use dro_synth::OplChip;
 
 /// `tests/lsl3_score_up_dro2.dro`, the fixture the Python suite uses.
@@ -58,7 +58,7 @@ pub(crate) fn decode_fixture() -> Vec<Op> {
     assert_eq!(length_ms, FIXTURE_MS);
     assert_eq!(length_pairs, 299);
 
-    let data = DroData::V2(
+    let data = SongData::V2(
         DroDataV2::new(data, codemap, short_delay_code, long_delay_code)
             .expect("the fixture is a valid DRO v2 file"),
     );
@@ -73,7 +73,9 @@ pub(crate) fn decode_fixture() -> Vec<Op> {
                     | u16::from(reg),
                 value,
             ),
-            DroInstruction::BankSwitch(_) => unreachable!("DRO v2 has no bank switches"),
+            DroInstruction::BankSwitch(_) | DroInstruction::DelaySamples { .. } => {
+                unreachable!("DRO v2 has neither bank switches nor sample delays")
+            }
         })
         .collect();
 
