@@ -142,8 +142,12 @@ class DroFileIOv1(object):
         dro_data.generate_index_map()
 
         # If we haven't reached the EOF we must have an error somewhere in the code.
+        # NOTE: `drof` is opened in binary mode, so `read` returns `bytes`, and at
+        #  EOF that is `b""`. Comparing it against the *str* `""` is always True in
+        #  Python 3, which made this reject every DRO v1 file ever opened. Test the
+        #  truthiness of the bytes instead.
         m = drof.read(1)
-        if m != "":
+        if m:
             raise DROFileException(
                 "Tried to read the specified number of bytes in the data stream, but there were some bytes left over!"
             )
@@ -246,13 +250,18 @@ class DroFileIOv2(object):
         )
 
     def write_data(self, drof: BinaryIO, dro_song: DROSongV2) -> None:
-        # Write the header
+        # Write the header.
+        # NOTE: `opl_type` is an `OPLType`, which is a plain `Enum` and so has no
+        #  `__index__`. Passing the member itself to `struct.pack` raised
+        #  "required argument is not an integer", which made saving any DRO v2 file
+        #  impossible - and, because `DroFileIO.write` has already opened the source
+        #  file for writing by then, truncated it to 12 bytes in the process.
         drof.write(
             struct.pack(
                 "<2L6B",
                 len(dro_song.data),  # length in reg/val pairs
                 dro_song.ms_length,  # length in MS
-                dro_song.opl_type,  # hardware type
+                dro_song.opl_type.value,  # hardware type
                 0,  # format
                 0,  # compression
                 dro_song.short_delay_code,

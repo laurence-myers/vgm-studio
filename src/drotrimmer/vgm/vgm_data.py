@@ -182,26 +182,35 @@ class VGMSong(AbstractSong):
         data = array.array("B")
         bank = 0
         total_samples = 0
+        cumulative_ms = 0
         for inst in dro_song.data:
             match inst.inst_type:
                 case DROInstructionType.BANK_SWITCH:
                     bank = inst.value  # DRO v1
                 case DROInstructionType.DELAY_MS:
-                    if inst.value <= 0x0F:
-                        command = 0x70 | inst.value
-                        data.append(command)
-                        total_samples += inst.value
-                    else:
-                        command = 0x61
-                        data.append(command)
-                        samples = math.ceil(inst.value * 44.1)
-                        total_samples += samples
-                        while samples > 0xFFFF:
-                            data.append(0xFF)
-                            data.append(0xFF)
-                            samples -= 0xFFFF
-                        data.append(samples & 0xFF)
-                        data.append((samples & 0xFF00) >> 8)
+                    # Convert the *running total* of milliseconds to samples,
+                    #  rounding half up, and emit the difference. Rounding each
+                    #  delay on its own drifts: dro2vgm turns two identical 16 ms
+                    #  delays into 706 and 705 samples, which no per-delay rounding
+                    #  can produce.
+                    # NOTE: this used to emit delays of 15 ms or less as
+                    #  "0x70 | ms", which waits ms + 1 *samples* (about a 300th of
+                    #  the intended time), and counted those milliseconds as samples
+                    #  in the total. It also dropped the repeated 0x61 opcode when a
+                    #  wait exceeded 65535 samples, so the extra pair was decoded as
+                    #  commands and corrupted the stream.
+                    cumulative_ms += inst.value
+                    new_total = (cumulative_ms * 44100 + 500) // 1000
+                    samples = new_total - total_samples
+                    total_samples = new_total
+                    while True:
+                        chunk = min(samples, 0xFFFF)
+                        data.append(0x61)
+                        data.append(chunk & 0xFF)
+                        data.append((chunk & 0xFF00) >> 8)
+                        samples -= chunk
+                        if samples == 0:
+                            break
                 case DROInstructionType.REGISTER:
                     # Support both DRO v1 (separate bank switch commands)
                     # and DRO v2 (bank is interpreted by DROInstruction)

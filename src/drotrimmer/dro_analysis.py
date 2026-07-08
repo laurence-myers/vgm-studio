@@ -308,17 +308,27 @@ class DROSimpleNoteAnalyser(object):
         ]
         output = [[] for _ in range(DROSimpleNoteAnalyser.CHANNELS_PER_BANK * 2)]
         with dro_song.data_lock:
+            # Track the bank the way DRORegisterUsageAnalyzer does. DRO v2 and VGM
+            #  carry the bank on every register write, but DRO v1 tracks it with
+            #  separate bank switch instructions and leaves `inst.bank` as None.
+            #  Multiplying that None by CHANNELS_PER_BANK raised a TypeError on
+            #  every DRO v1 file.
+            bank = 0
             for inst in dro_song.data:
+                if inst.bank is not None:
+                    bank = inst.bank
+                if inst.inst_type == dro_data.DROInstructionType.BANK_SWITCH:
+                    bank = inst.value
                 # Ignore non-register stuff.
                 if inst.inst_type != dro_data.DROInstructionType.REGISTER:
                     continue
                 # If it's A0 - A8, update the pitch
                 elif inst.command in DROSimpleNoteAnalyser.PITCH_REGISTERS:
-                    note_status = self.get_channel_status(channel_notes, inst)
+                    note_status = self.get_channel_status(channel_notes, bank, inst)
                     note_status.pitch = (note_status.pitch & 0xFF00) | inst.value
                 # If it's B0 - B8, update the pitch and note on/off
                 elif inst.command in DROSimpleNoteAnalyser.KEY_ON_REGISTERS:
-                    note_status = self.get_channel_status(channel_notes, inst)
+                    note_status = self.get_channel_status(channel_notes, bank, inst)
                     note_status.pitch = (note_status.pitch & 0x00FF) | (
                         (inst.value & 0x03) << 8
                     )
@@ -334,8 +344,8 @@ class DROSimpleNoteAnalyser(object):
                         )
         return output
 
-    def get_channel_status(self, channel_notes, inst):
+    def get_channel_status(self, channel_notes, bank, inst):
         channel_index = (inst.command & 0x0F) + (
-            inst.bank * DROSimpleNoteAnalyser.CHANNELS_PER_BANK
+            bank * DROSimpleNoteAnalyser.CHANNELS_PER_BANK
         )
         return channel_notes[channel_index]
