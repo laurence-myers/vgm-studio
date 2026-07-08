@@ -3,6 +3,11 @@
 The `rust` branch is porting DRO Trimmer to Rust; the Python sources under `src/`
 stay put during the transition, for parity comparison. Both suites run.
 
+The Rust workspace is **LGPL-2.1-or-later**, because the OPL emulation core it
+statically links (`nuked-opl3`, a port of Nuke.YKT's Nuked-OPL3) is. The Python
+sources stay MIT until they are removed; they already depend on PyOPL, which is
+GPL-3.0-only, so the effective licence of what that tree builds is unchanged.
+
 Install the toolchain (Windows; MSVC build tools are already a pre-requisite below):
 
 ```PowerShell
