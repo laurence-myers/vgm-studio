@@ -140,6 +140,26 @@ impl Muting {
         self.percussion[usize::from(bank.index())] = mask;
     }
 
+    /// The value to write for register `reg` on `bank`, or `None` if muting drops
+    /// it: a muted melodic channel (`0xB0..=0xB8`) is dropped, `0xBD` is AND-masked
+    /// per bank, and every other register passes unchanged.
+    ///
+    /// Shared by the playback engine and the DRO capture so their muting decisions
+    /// cannot diverge.
+    #[must_use]
+    pub fn gate(&self, bank: Bank, reg: u8, value: u8) -> Option<u8> {
+        if reg == PERCUSSION_REGISTER {
+            Some(value & self.percussion[usize::from(bank.index())])
+        } else if !CHANNEL_REGISTERS.contains(&reg) || self.channel_allowed(bank, reg) {
+            // A non-channel register always passes; a channel register passes only
+            // if audible. The `||` short-circuits before `channel_allowed` (whose
+            // debug assert requires a channel register) for non-channel writes.
+            Some(value)
+        } else {
+            None
+        }
+    }
+
     #[must_use]
     fn channel_allowed(&self, bank: Bank, channel: u8) -> bool {
         self.channels & Self::channel_bit(bank, channel) != 0
@@ -370,7 +390,12 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 if let Some(bank) = instruction.selected_bank() {
                     self.bank = bank; // DRO v2 / VGM carry the bank per write.
                 }
-                if let Some(value) = self.gate_write(reg, value, apply_muting) {
+                let gated = if apply_muting {
+                    self.muting.gate(self.bank, reg, value)
+                } else {
+                    Some(value) // Seeking replays every write, as the Python seeker did.
+                };
+                if let Some(value) = gated {
                     self.chip
                         .write_reg(self.bank.register_offset() | u16::from(reg), value);
                 }
@@ -382,23 +407,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             }
             DroInstruction::DelayMs { ms, .. } => self.clock.frames_for(ms),
             DroInstruction::DelaySamples { samples, .. } => self.clock.frames_for(samples),
-        }
-    }
-
-    /// The value to actually write for a register, or `None` if muting drops it.
-    fn gate_write(&self, reg: u8, value: u8, apply_muting: bool) -> Option<u8> {
-        if !apply_muting {
-            return Some(value);
-        }
-        if reg == PERCUSSION_REGISTER {
-            Some(value & self.muting.percussion[usize::from(self.bank.index())])
-        } else if !CHANNEL_REGISTERS.contains(&reg) || self.muting.channel_allowed(self.bank, reg) {
-            // A non-channel register always passes; a channel register passes only
-            // if audible. The `||` short-circuits before `channel_allowed` (whose
-            // debug assert requires a channel register) for non-channel writes.
-            Some(value)
-        } else {
-            None
         }
     }
 

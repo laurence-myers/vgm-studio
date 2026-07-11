@@ -11,7 +11,7 @@ use std::io::Cursor;
 use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
-use crate::engine::PlayerEngine;
+use crate::engine::{Muting, PlayerEngine};
 
 /// Renders `song` to a stereo WAV file held in memory.
 ///
@@ -29,16 +29,24 @@ pub fn render_wav(
     bit_depth: u16,
     chip_write_delay: f64,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_from(song, sample_rate, bit_depth, chip_write_delay)
+    render_wav_muted(
+        song,
+        Muting::all(),
+        sample_rate,
+        bit_depth,
+        chip_write_delay,
+    )
 }
 
-/// As [`render_wav`], but generic over the song container so the audio thread can
-/// pass an `Arc<Song>` without cloning.
+/// As [`render_wav`], but with channel/percussion muting applied -- what
+/// `dro_split` uses to render one isolated voice. Generic over the song
+/// container so the audio thread can pass an `Arc<Song>` without cloning.
 ///
 /// # Errors
 /// See [`render_wav`].
-pub fn render_wav_from<B: Borrow<Song>>(
+pub fn render_wav_muted<B: Borrow<Song>>(
     song: B,
+    muting: Muting,
     sample_rate: u32,
     bit_depth: u16,
     chip_write_delay: f64,
@@ -53,6 +61,7 @@ pub fn render_wav_from<B: Borrow<Song>>(
     let mut writer = WavWriter::new(&mut cursor, spec)?;
 
     let mut engine = PlayerEngine::new(song, sample_rate, chip_write_delay);
+    engine.set_muting(muting);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         let frames = engine.render(&mut buffer);

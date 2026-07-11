@@ -17,7 +17,7 @@ pub mod undo;
 pub mod util;
 pub mod vgm;
 
-pub use analysis::{RegisterAnalyzer, RowAnalysis};
+pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, total_delay_with_write_delay_ms};
 pub use error::{Error, Result};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,

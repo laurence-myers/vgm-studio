@@ -20,6 +20,7 @@
 //! need them.)
 
 use std::borrow::Cow;
+use std::collections::BTreeMap;
 use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
@@ -224,6 +225,82 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
         Bank::High => regdata::register_kind(0x100 | reg).or_else(|| regdata::register_kind(reg)),
         Bank::Low => regdata::register_kind(reg),
     }
+}
+
+/// Which registers, and which percussion voices, a song writes (Python
+/// `DRORegisterUsageAnalyzer`).
+///
+/// `dro_split` uses this to skip channels a song never touches. Keys are
+/// `(bank << 8) | reg`; the bank is tracked across DRO v1 bank switches and DRO
+/// v2 / VGM per-write banks.
+#[derive(Debug, Clone, Default)]
+pub struct RegisterUsage {
+    counts: BTreeMap<u16, u32>,
+    percussion: BTreeMap<u16, bool>,
+}
+
+impl RegisterUsage {
+    /// Counts every register write, keyed by `(bank << 8) | reg`.
+    ///
+    /// With `detailed_percussion`, also records which percussion bits were ever
+    /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask` -- the map
+    /// `dro_split`'s `--isolate-percussion` needs. The count is what matters to
+    /// the splitter (it only tests for zero), but it is kept exact so the ported
+    /// Python tests (`usage[0x020] == 2`) still pin it.
+    #[must_use]
+    pub fn analyze(song: &Song, detailed_percussion: bool) -> Self {
+        let mut usage = Self::default();
+        let mut bank = Bank::Low;
+        for instruction in song.data().iter() {
+            if let Some(selected) = instruction.selected_bank() {
+                bank = selected;
+            }
+            if let DroInstruction::Register { reg, value, .. } = instruction {
+                let key = (u16::from(bank.index()) << 8) | u16::from(reg);
+                *usage.counts.entry(key).or_default() += 1;
+                if detailed_percussion && reg == regdata::PERCUSSION_REGISTER {
+                    for bitmask in RegisterKind::PercussionControl.bitmasks() {
+                        if value & bitmask.mask != 0 {
+                            let perc_key = (u16::from(bank.index()) << 8) | u16::from(bitmask.mask);
+                            usage.percussion.insert(perc_key, true);
+                        }
+                    }
+                }
+            }
+        }
+        usage
+    }
+
+    /// How many times register `key` (`(bank << 8) | reg`) was written.
+    #[must_use]
+    pub fn count(&self, key: u16) -> u32 {
+        self.counts.get(&key).copied().unwrap_or(0)
+    }
+
+    /// Whether percussion bit `key` (`(bank << 8) | bitmask`) was ever set in a
+    /// `0xBD` write.
+    #[must_use]
+    pub fn percussion_used(&self, key: u16) -> bool {
+        self.percussion.get(&key).copied().unwrap_or(false)
+    }
+}
+
+/// The song's playing time in milliseconds, including the configured per-write
+/// chip delay (Python `DROTotalDelayWithWriteDelayCalculator`).
+///
+/// `total_delay_ms` plus `floor(register_writes * chip_write_delay_us / 1000)`.
+/// The CLI player shows this as the true length when `chip_write_delay` is set;
+/// with the default `0.0` it equals [`Song::total_delay_ms`]. Sample delays
+/// (VGM) do not count here, matching the Python, which summed only `DELAY_MS`.
+#[must_use]
+pub fn total_delay_with_write_delay_ms(song: &Song, chip_write_delay_us: f64) -> u32 {
+    let writes = song
+        .data()
+        .iter()
+        .filter(|instruction| matches!(instruction, DroInstruction::Register { .. }))
+        .count();
+    let extra_ms = (writes as f64 * chip_write_delay_us / 1000.0) as u32;
+    song.total_delay_ms().saturating_add(extra_ms)
 }
 
 #[cfg(test)]
@@ -461,5 +538,67 @@ mod tests {
     fn delay_sums_match_the_fixture_header() {
         let song = io::read_song("lsl3_score_up_dro2.dro", DRO_V2_FIXTURE).unwrap();
         assert_eq!(song.total_delay_ms(), song.ms_length);
+    }
+
+    // -- register usage (port of TestDRORegisterUsageAnalyzer) --------------
+
+    #[test]
+    fn register_usage_tracks_the_bank_across_switches() {
+        // reg 0x20 written twice on the low bank, once on the high bank.
+        let song = Song::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x01, 0x03, 0x20, 0x02, 0x02, 0x20, 0x03]).unwrap(),
+            0,
+            OplType::Opl3,
+        );
+        let usage = RegisterUsage::analyze(&song, false);
+        assert_eq!(usage.count(0x020), 2, "low bank, twice");
+        assert_eq!(usage.count(0x120), 1, "high bank, once");
+        assert_eq!(usage.count(0x040), 0, "never written");
+    }
+
+    #[test]
+    fn detailed_percussion_records_only_set_bits() {
+        // 0xBD = 0x31 = percussion mode (0x20) | BD (0x10) | HH (0x01).
+        let song = Song::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0xBD, 0x31]).unwrap(),
+            0,
+            OplType::Opl3,
+        );
+        let usage = RegisterUsage::analyze(&song, true);
+        assert!(usage.percussion_used(0x20));
+        assert!(usage.percussion_used(0x10));
+        assert!(usage.percussion_used(0x01));
+        assert!(!usage.percussion_used(0x08), "SD was not set");
+        // Without the detailed pass, no percussion is recorded at all.
+        assert!(!RegisterUsage::analyze(&song, false).percussion_used(0x20));
+    }
+
+    #[test]
+    fn write_delay_length_adds_floor_of_write_microseconds() {
+        let song = dro_song_v2();
+        let writes = song
+            .data()
+            .iter()
+            .filter(|i| matches!(i, DroInstruction::Register { .. }))
+            .count() as u32;
+        assert_eq!(writes, 10, "the v2 fixture writes ten registers");
+
+        // With no chip write delay it is just the summed delays.
+        assert_eq!(
+            total_delay_with_write_delay_ms(&song, 0.0),
+            song.total_delay_ms()
+        );
+        // 1000 us per write over ten writes is exactly 10 ms extra.
+        assert_eq!(
+            total_delay_with_write_delay_ms(&song, 1000.0),
+            song.total_delay_ms() + 10
+        );
+        // Floors: 26.6 us * 10 = 266 us -> 0 whole ms.
+        assert_eq!(
+            total_delay_with_write_delay_ms(&song, 26.6),
+            song.total_delay_ms()
+        );
     }
 }

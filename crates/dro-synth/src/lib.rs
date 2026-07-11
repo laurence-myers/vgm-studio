@@ -7,16 +7,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod capture;
 pub mod engine;
 pub mod opl;
 pub mod wav;
 pub mod waveform;
 
+pub use capture::capture;
 pub use engine::{FrameClock, Muting, PlayerEngine, Position};
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
-pub use wav::render_wav;
+pub use wav::{render_wav, render_wav_muted};
 pub use waveform::{WaveformBucket, WaveformBucketer, render_waveform};
 
 /// The OPL3's native sample rate. Rendering here avoids the chip's resampler.

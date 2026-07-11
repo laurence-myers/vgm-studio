@@ -9,6 +9,13 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+dro-core.workspace = true
+dro-synth.workspace = true
+dro-audio-native.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
 
 [lints]
 workspace = true

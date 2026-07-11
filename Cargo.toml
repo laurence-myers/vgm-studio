@@ -25,6 +25,7 @@ repository = "https://github.com/laurence-myers/dro-trimmer"
 [workspace.dependencies]
 dro-core = { path = "crates/dro-core" }
 dro-synth = { path = "crates/dro-synth" }
+dro-audio-native = { path = "crates/dro-audio-native" }
 
 # `rust_backend` is the pure-Rust inflate/deflate. Any crate enabling a `zlib*`
 # feature would unify into it and break the wasm build, so pin it explicitly.
@@ -51,6 +52,11 @@ thiserror = "2"
 # commands into the audio callback lock-free.
 cpal = "0.18"
 rtrb = "0.3"
+
+# CLI tooling for the `dro-trimmer` bins (native only).
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
 
 # `fork`/`timeout` are on by default and pull in process spawning (rusty-fork,
 # tempfile), which is neither needed nor wasm-friendly.
