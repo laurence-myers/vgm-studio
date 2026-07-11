@@ -24,15 +24,11 @@ struct Args {
     /// Render each drum on the percussion channel to its own file.
     #[arg(short = 'i', long = "isolate-percussion")]
     isolate_percussion: bool,
-    /// Accepted for compatibility; the OPL core is stereo, so output always is.
-    #[arg(short = 'p', long = "preserve-panning")]
-    preserve_panning: bool,
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
-    let _ = args.preserve_panning; // always stereo; see the flag's help
 
     let bytes =
         std::fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
