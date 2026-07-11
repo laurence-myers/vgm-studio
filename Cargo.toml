@@ -29,6 +29,9 @@ dro-synth = { path = "crates/dro-synth" }
 # `rust_backend` is the pure-Rust inflate/deflate. Any crate enabling a `zlib*`
 # feature would unify into it and break the wasm build, so pin it explicitly.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Pure-Rust WAV reader/writer. Writes to any `io::Write + Seek`, so a `Cursor`
+# gives an in-memory render on native and web alike. wasm-clean (no `std::fs`).
+hound = "3.5"
 log = "0.4"
 # Pure Rust port of Nuked-OPL3. Bit-identical to the C reference and free of the
 # `cc` build step, so it compiles to wasm32-unknown-unknown with no C toolchain.
@@ -42,6 +45,12 @@ opl3-rs = "0.2"
 # Only `load_from_str` is used, so this stays wasm-clean.
 rust-ini = { version = "0.21", default-features = false }
 thiserror = "2"
+
+# Native audio output. Only `dro-audio-native` (never wasm) depends on these: a
+# cpal stream driven by the pull engine, with an rtrb SPSC queue carrying control
+# commands into the audio callback lock-free.
+cpal = "0.18"
+rtrb = "0.3"
 
 # `fork`/`timeout` are on by default and pull in process spawning (rusty-fork,
 # tempfile), which is neither needed nor wasm-friendly.

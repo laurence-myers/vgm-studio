@@ -9,6 +9,12 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+dro-core.workspace = true
+dro-synth.workspace = true
+cpal.workspace = true
+rtrb.workspace = true
+log.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
