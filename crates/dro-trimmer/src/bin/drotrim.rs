@@ -46,6 +46,8 @@ fn main() -> eframe::Result {
         "drotrim",
         options,
         Box::new(move |cc| {
+            // The DOS-tracker look: fonts, palette and square bevelled chrome.
+            dro_ui::theme::install(&cc.egui_ctx, config.ui.theme);
             // The task service pokes the event loop when a background render
             // finishes, so the result is picked up without waiting for input.
             let repaint = {

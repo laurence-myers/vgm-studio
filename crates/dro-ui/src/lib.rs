@@ -21,6 +21,7 @@ pub mod selection;
 pub mod tasks;
 #[cfg(test)]
 mod test_song;
+pub mod theme;
 pub mod widgets;
 
 pub use app::DroApp;

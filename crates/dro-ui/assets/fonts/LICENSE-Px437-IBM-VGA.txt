@@ -1,0 +1,22 @@
+Px437_IBM_VGA_8x16.ttf
+======================
+
+This font is "Px437 IBM VGA 8x16", from The Ultimate Oldschool PC Font
+Pack (v2.2), a faithful reproduction of the IBM VGA 8x16 text-mode ROM
+font.
+
+    (c) 2016-2020 VileR
+    https://int10h.org/oldschool-pc-fonts/
+
+Licensed under the Creative Commons Attribution-ShareAlike 4.0
+International License (CC BY-SA 4.0). The full license text is in
+CC-BY-SA-4.0.txt in this directory, and online at:
+
+    https://creativecommons.org/licenses/by-sa/4.0/
+
+This license applies to the bundled font file only. It does NOT apply to
+the DRO Trimmer source code, which is licensed under the
+LGPL-2.1-or-later (see the repository's licensing).
+
+The font file is embedded verbatim (via include_bytes!) in the dro-ui
+crate; it has not been modified.
