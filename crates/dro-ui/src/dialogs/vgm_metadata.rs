@@ -12,6 +12,7 @@
 use dro_core::Song;
 
 use crate::action::Action;
+use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
 pub struct VgmMetadataDialog {
@@ -42,7 +43,12 @@ impl VgmMetadataDialog {
     }
 
     /// Draws the window. Returns `false` once closed.
-    pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        actions: &mut Vec<Action>,
+    ) -> bool {
         let mut open = true;
         let mut close = false;
         egui::Window::new("VGM Metadata")
@@ -58,6 +64,7 @@ impl VgmMetadataDialog {
                         ui.add(
                             egui::TextEdit::singleline(&mut self.loop_point)
                                 .hint_text("empty = no loop")
+                                .text_color(palette.data_text)
                                 .desired_width(160.0),
                         );
                         ui.end_row();
@@ -66,6 +73,7 @@ impl VgmMetadataDialog {
                         ui.add_enabled(
                             false,
                             egui::TextEdit::singleline(&mut self.loop_samples_display)
+                                .text_color(palette.data_text)
                                 .desired_width(160.0),
                         );
                         ui.end_row();
@@ -76,16 +84,21 @@ impl VgmMetadataDialog {
                             ("Volume modifier:", &mut self.volume_modifier),
                         ] {
                             ui.label(label);
-                            ui.add(egui::TextEdit::singleline(value).desired_width(160.0));
+                            ui.add(
+                                egui::TextEdit::singleline(value)
+                                    .text_color(palette.data_text)
+                                    .desired_width(160.0),
+                            );
                             ui.end_row();
                         }
                     });
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() && self.save(actions) {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if bevel::button(ui, palette, "Close").clicked() {
                         close = true;
                     }
-                    if ui.button("Close").clicked() {
+                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
                         close = true;
                     }
                 });

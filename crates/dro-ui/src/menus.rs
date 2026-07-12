@@ -3,6 +3,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::action::Action;
+use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
 pub const SAVE: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::S);
@@ -31,24 +32,24 @@ pub struct MenuState {
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
-pub fn bar(ui: &mut egui::Ui, state: &MenuState, actions: &mut Vec<Action>) {
+pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mut Vec<Action>) {
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if item(ui, "Open DRO...", Some(&OPEN)) {
+            if item(ui, "Open...", Some(&OPEN)) {
                 actions.push(Action::OpenFile);
             }
-            if item(ui, "Save DRO", Some(&SAVE)) {
+            if item(ui, "Save", Some(&SAVE)) {
                 actions.push(Action::Save);
             }
-            if item(ui, "Save DRO As...", Some(&SAVE_AS)) {
+            if item(ui, "Save As...", Some(&SAVE_AS)) {
                 actions.push(Action::SaveAs);
             }
-            ui.separator();
+            crate::theme::separator(ui, palette);
             // New in the Rust port: the Python read drotrim.ini only.
             if item(ui, "Settings...", None) {
                 actions.push(Action::OpenSettings);
             }
-            ui.separator();
+            crate::theme::separator(ui, palette);
             if item(ui, "Exit", None) {
                 actions.push(Action::Exit);
             }
@@ -69,7 +70,7 @@ pub fn bar(ui: &mut egui::Ui, state: &MenuState, actions: &mut Vec<Action>) {
             if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
                 actions.push(Action::Redo);
             }
-            ui.separator();
+            crate::theme::separator(ui, palette);
             if item(ui, "Goto...", Some(&GOTO)) {
                 actions.push(Action::OpenGoto);
             }
@@ -88,7 +89,7 @@ pub fn bar(ui: &mut egui::Ui, state: &MenuState, actions: &mut Vec<Action>) {
             if item(ui, "Convert to VGM", None) {
                 actions.push(Action::ConvertToVgm);
             }
-            ui.separator();
+            crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint
             // matches the Python label "&Delete Instruction(s)\tDEL".
             if ui

@@ -6,13 +6,19 @@
 //! synchronously from the replay cursor, so there is no "`?` until the
 //! analysis task finishes" phase.
 
-use egui::Sense;
+use egui::{Color32, Sense};
 use egui_extras::{Column, TableBuilder};
 
 use crate::editor::Editor;
 use crate::selection::ClickModifiers;
+use crate::theme::Palette;
 
-pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>) {
+pub fn show(
+    ui: &mut egui::Ui,
+    editor: &mut Editor,
+    scroll_to: Option<usize>,
+    palette: &Palette,
+) {
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
     let len = editor.len();
 
@@ -24,8 +30,7 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>) {
         .column(Column::auto().at_least(40.0)) // Bank
         .column(Column::auto().at_least(45.0)) // Reg.
         .column(Column::auto().at_least(80.0)) // Value
-        .column(Column::remainder().at_least(120.0)) // Description
-        .column(Column::remainder().at_least(120.0)) // Description (all register options)
+        .column(Column::remainder().at_least(120.0)) // Description (all options on hover)
         .min_scrolled_height(0.0);
 
     if let Some(row) = scroll_to {
@@ -34,48 +39,64 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>) {
 
     builder
         .header(row_height + 2.0, |mut header| {
-            for title in [
-                "Pos.",
-                "Bank",
-                "Reg.",
-                "Value",
-                "Description",
-                "Description (all register options)",
-            ] {
+            for title in ["Pos.", "Bank", "Reg.", "Value", "Description"] {
                 header.col(|ui| {
-                    ui.strong(title);
+                    ui.label(
+                        egui::RichText::new(title)
+                            .monospace()
+                            .color(palette.data_text),
+                    );
                 });
             }
         })
         .body(|body| {
             body.rows(row_height, len, |mut row| {
                 let index = row.index();
-                row.set_selected(editor.selection.contains(index));
+                let selected = editor.selection.contains(index);
+                row.set_selected(selected);
+
+                // A selected row paints `selection.stroke` over its cells via
+                // `override_text_color`; an explicit per-cell colour would beat
+                // that and clash with the accent bar, so drop it when selected.
+                let tint = |color: Color32| (!selected).then_some(color);
 
                 let analysis = editor.row_analysis(index);
                 let song = editor
                     .song()
                     .expect("rows are only built while a song is loaded");
 
-                cell(&mut row, format!("{index:04}>"));
+                cell(&mut row, format!("{index:04X}"), tint(palette.data_text));
                 cell(
                     &mut row,
                     analysis
                         .as_ref()
                         .map_or_else(String::new, |a| a.bank.index().to_string()),
-                );
-                cell(&mut row, song.register_display(index).unwrap_or_default());
-                cell(&mut row, song.value_display(index).unwrap_or_default());
-                cell(
-                    &mut row,
-                    analysis.map_or_else(String::new, |a| a.description.into_owned()),
+                    tint(palette.muted),
                 );
                 cell(
                     &mut row,
-                    song.instruction_description(index)
-                        .unwrap_or_default()
-                        .to_owned(),
+                    song.register_display(index).unwrap_or_default(),
+                    tint(palette.data_text),
                 );
+                cell(
+                    &mut row,
+                    song.value_display(index).unwrap_or_default(),
+                    tint(palette.data_text),
+                );
+                // The Description cell, with the full "all register options" text
+                // (formerly its own column) shown on hover.
+                let description = analysis.map_or_else(String::new, |a| a.description.into_owned());
+                let all_options = song.instruction_description(index).unwrap_or_default();
+                row.col(|ui| {
+                    let mut rich = egui::RichText::new(description).monospace();
+                    if let Some(color) = tint(palette.data_label) {
+                        rich = rich.color(color);
+                    }
+                    let response = ui.add(egui::Label::new(rich).selectable(false));
+                    if !all_options.is_empty() {
+                        response.on_hover_text(all_options);
+                    }
+                });
 
                 let response = row.response();
                 if response.clicked() {
@@ -92,8 +113,12 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>) {
         });
 }
 
-fn cell(row: &mut egui_extras::TableRow<'_, '_>, text: String) {
+fn cell(row: &mut egui_extras::TableRow<'_, '_>, text: String, color: Option<Color32>) {
     row.col(|ui| {
-        ui.add(egui::Label::new(egui::RichText::new(text).monospace()).selectable(false));
+        let mut rich = egui::RichText::new(text).monospace();
+        if let Some(color) = color {
+            rich = rich.color(color);
+        }
+        ui.add(egui::Label::new(rich).selectable(false));
     });
 }

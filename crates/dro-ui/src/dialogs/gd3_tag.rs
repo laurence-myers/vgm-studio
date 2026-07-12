@@ -4,6 +4,7 @@
 use dro_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
 use crate::action::Action;
+use crate::theme::{Palette, bevel};
 
 /// Labels in `Gd3Tag` field order; "orig" is GD3's original-language variant.
 const LABELS: [&str; GD3_FIELD_COUNT] = [
@@ -36,7 +37,12 @@ impl Gd3TagDialog {
     }
 
     /// Draws the window. Returns `false` once closed.
-    pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        actions: &mut Vec<Action>,
+    ) -> bool {
         let mut open = true;
         let mut close = false;
         egui::Window::new("GD3 Tag")
@@ -54,12 +60,14 @@ impl Gd3TagDialog {
                             if is_notes {
                                 ui.add(
                                     egui::TextEdit::multiline(&mut self.fields[index])
+                                        .text_color(palette.data_text)
                                         .desired_width(250.0)
                                         .desired_rows(4),
                                 );
                             } else {
                                 ui.add(
                                     egui::TextEdit::singleline(&mut self.fields[index])
+                                        .text_color(palette.data_text)
                                         .desired_width(250.0),
                                 );
                             }
@@ -67,14 +75,15 @@ impl Gd3TagDialog {
                         }
                     });
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close = true;
+                    }
+                    if bevel::button(ui, palette, "Save").clicked() {
                         actions.push(Action::SaveGd3(Box::new(Gd3Tag::from_fields(
                             self.fields.clone(),
                         ))));
-                        close = true;
-                    }
-                    if ui.button("Close").clicked() {
                         close = true;
                     }
                 });

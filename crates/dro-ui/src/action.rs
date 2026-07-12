@@ -37,6 +37,8 @@ pub enum Action {
     Stop,
     PlayTail,
     TogglePlayback,
+    /// Jump the play position back to the very start.
+    RewindToStart,
 
     // Table navigation
     NextDelay,

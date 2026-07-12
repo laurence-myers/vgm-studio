@@ -8,6 +8,8 @@
 
 use dro_synth::Position;
 
+use crate::theme::Palette;
+
 /// Round-half-up rescale to 44100 Hz, as the Python's
 /// `floor(n / frequency * 44100 + 0.5)`.
 fn rescale_to_44100(frames: u64, frequency: u32) -> u64 {
@@ -65,7 +67,7 @@ impl PositionPanel {
         self.position_frames = position.frames_rendered;
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) {
+    pub fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         let (position_frames, length_frames) = if self.show_at_44100 && self.frequency != 44_100 {
             (
                 rescale_to_44100(self.position_frames, self.frequency),
@@ -82,13 +84,16 @@ impl PositionPanel {
             columns[1].centered_and_justified(|ui| {
                 ui.label(format!("{position_frames} / {length_frames} samples"));
             });
-            columns[2].centered_and_justified(|ui| {
-                self.rate_picker(ui);
-            });
+            columns[2].with_layout(
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    self.rate_picker(ui, palette);
+                },
+            );
         });
     }
 
-    fn rate_picker(&mut self, ui: &mut egui::Ui) {
+    fn rate_picker(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         // The Python built ["44.1 khz", "<config> khz"], lexicographically
         // sorted, defaulting to the rendering rate.
         let rendering = format!("{:.1} khz", f64::from(self.frequency) / 1000.0);
@@ -103,9 +108,11 @@ impl PositionPanel {
         } else {
             rendering.clone()
         };
-        egui::ComboBox::from_id_salt("sample-rate")
-            .selected_text(selected)
-            .show_ui(ui, |ui| {
+        let mut combo = egui::ComboBox::from_id_salt("sample-rate");
+        combo = combo.selected_text(selected);
+        ui.scope(|ui| {
+            crate::theme::style_dropdown(ui, palette);
+            combo.show_ui(ui, |ui| {
                 for choice in &choices {
                     let is_44100 = choice == "44.1 khz";
                     let checked = if is_44100 {
@@ -118,6 +125,7 @@ impl PositionPanel {
                     }
                 }
             });
+        });
     }
 }
 

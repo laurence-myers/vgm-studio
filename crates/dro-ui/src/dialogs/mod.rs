@@ -35,13 +35,18 @@ pub struct Dialogs {
 
 impl Dialogs {
     /// Draws every open dialog, dropping the ones that closed.
-    pub fn show_all(&mut self, ctx: &egui::Context, actions: &mut Vec<crate::action::Action>) {
-        retain(&mut self.goto, |d| d.show(ctx, actions));
-        retain(&mut self.find_reg, |d| d.show(ctx, actions));
-        retain(&mut self.dro_info, |d| d.show(ctx, actions));
-        retain(&mut self.gd3_tag, |d| d.show(ctx, actions));
-        retain(&mut self.vgm_metadata, |d| d.show(ctx, actions));
-        retain(&mut self.settings, |d| d.show(ctx, actions));
+    pub fn show_all(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &crate::theme::Palette,
+        actions: &mut Vec<crate::action::Action>,
+    ) {
+        retain(&mut self.goto, |d| d.show(ctx, palette, actions));
+        retain(&mut self.find_reg, |d| d.show(ctx, palette, actions));
+        retain(&mut self.dro_info, |d| d.show(ctx, palette, actions));
+        retain(&mut self.gd3_tag, |d| d.show(ctx, palette, actions));
+        retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
+        retain(&mut self.settings, |d| d.show(ctx, palette, actions));
     }
 }
 

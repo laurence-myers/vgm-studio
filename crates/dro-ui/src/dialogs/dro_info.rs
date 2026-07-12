@@ -8,6 +8,7 @@
 use dro_core::{OplType, Song};
 
 use crate::action::Action;
+use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
 pub struct DroInfoDialog {
@@ -33,7 +34,12 @@ impl DroInfoDialog {
     }
 
     /// Draws the modal. Returns `false` once closed.
-    pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        actions: &mut Vec<Action>,
+    ) -> bool {
         let mut keep_open = true;
         let modal = egui::Modal::new(egui::Id::new("dro-info-modal")).show(ctx, |ui| {
             ui.heading("DRO Info");
@@ -46,12 +52,14 @@ impl DroInfoDialog {
                     ui.label("DRO Version");
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut self.file_version.to_string()),
+                        egui::TextEdit::singleline(&mut self.file_version.to_string())
+                            .text_color(palette.data_text),
                     );
                     ui.end_row();
 
                     ui.label("Hardware Type");
                     ui.add_enabled_ui(self.edit_mode, |ui| {
+                        crate::theme::style_dropdown(ui, palette);
                         egui::ComboBox::from_id_salt("dro-info-hardware")
                             .selected_text(self.opl_type.name())
                             .show_ui(ui, |ui| {
@@ -69,23 +77,30 @@ impl DroInfoDialog {
                     ui.label("Length (MS)");
                     ui.add_enabled(
                         self.edit_mode,
-                        egui::TextEdit::singleline(&mut self.length_text),
+                        egui::TextEdit::singleline(&mut self.length_text)
+                            .text_color(palette.data_text),
                     );
                     ui.end_row();
 
                     ui.label("Calculated Length (MS)");
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut self.calculated_ms.to_string()),
+                        egui::TextEdit::singleline(&mut self.calculated_ms.to_string())
+                            .text_color(palette.data_text),
                     );
                     ui.end_row();
                 });
 
             ui.add_space(8.0);
-            ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                let close_label = if self.edit_mode { "Cancel" } else { "Close" };
+                if bevel::button(ui, palette, close_label).clicked() {
+                    keep_open = false;
+                }
                 if self.edit_allowed {
                     let label = if self.edit_mode { "Save" } else { "Edit" };
-                    if ui.button(label).clicked() {
+                    if bevel::button(ui, palette, label).clicked() {
                         if self.edit_mode {
                             self.save(actions);
                         } else {
@@ -93,10 +108,6 @@ impl DroInfoDialog {
                             actions.push(Action::Status("DRO Info edit mode enabled.".to_owned()));
                         }
                     }
-                }
-                let close_label = if self.edit_mode { "Cancel" } else { "Close" };
-                if ui.button(close_label).clicked() {
-                    keep_open = false;
                 }
             });
         });

@@ -2,9 +2,10 @@
 //! `drotrim.ini`. The web build (Step 8) has no ini file at all, so the same
 //! dialog writes through whatever `ConfigStore` the platform injected.
 
-use dro_core::config::AppConfig;
+use dro_core::config::{AppConfig, ThemeChoice};
 
 use crate::action::Action;
+use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
 pub struct SettingsDialog {
@@ -15,6 +16,7 @@ pub struct SettingsDialog {
     tail_length: String,
     maximize_window: bool,
     dro_info_edit_enabled: bool,
+    theme: ThemeChoice,
 }
 
 impl SettingsDialog {
@@ -28,11 +30,17 @@ impl SettingsDialog {
             tail_length: config.ui.tail_length.to_string(),
             maximize_window: config.ui.maximize_window,
             dro_info_edit_enabled: config.ui.dro_info_edit_enabled,
+            theme: config.ui.theme,
         }
     }
 
     /// Draws the window. Returns `false` once closed.
-    pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        actions: &mut Vec<Action>,
+    ) -> bool {
         let mut open = true;
         let mut close = false;
         egui::Window::new("Settings")
@@ -47,23 +55,30 @@ impl SettingsDialog {
                         ui.label("Frequency (Hz)")
                             .on_hover_text("49716 is the OPL3's native rate");
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.frequency).desired_width(100.0),
+                            egui::TextEdit::singleline(&mut self.frequency)
+                                .text_color(palette.data_text)
+                                .desired_width(100.0),
                         );
                         ui.end_row();
 
                         ui.label("Buffer size");
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.buffer_size).desired_width(100.0),
+                            egui::TextEdit::singleline(&mut self.buffer_size)
+                                .text_color(palette.data_text)
+                                .desired_width(100.0),
                         );
                         ui.end_row();
 
                         ui.label("Bit depth").on_hover_text("WAV export only");
-                        egui::ComboBox::from_id_salt("settings-bit-depth")
-                            .selected_text(self.bit_depth.to_string())
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.bit_depth, 8, "8");
-                                ui.selectable_value(&mut self.bit_depth, 16, "16");
-                            });
+                        ui.scope(|ui| {
+                            crate::theme::style_dropdown(ui, palette);
+                            egui::ComboBox::from_id_salt("settings-bit-depth")
+                                .selected_text(self.bit_depth.to_string())
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.bit_depth, 8, "8");
+                                    ui.selectable_value(&mut self.bit_depth, 16, "16");
+                                });
+                        });
                         ui.end_row();
 
                         ui.label("Chip write delay (\u{00b5}s)").on_hover_text(
@@ -72,6 +87,7 @@ impl SettingsDialog {
                         );
                         ui.add(
                             egui::TextEdit::singleline(&mut self.chip_write_delay)
+                                .text_color(palette.data_text)
                                 .desired_width(100.0),
                         );
                         ui.end_row();
@@ -79,8 +95,27 @@ impl SettingsDialog {
                         ui.label("Tail length (ms)")
                             .on_hover_text("How much the \"play last X seconds\" button plays");
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.tail_length).desired_width(100.0),
+                            egui::TextEdit::singleline(&mut self.tail_length)
+                                .text_color(palette.data_text)
+                                .desired_width(100.0),
                         );
+                        ui.end_row();
+
+                        ui.label("Theme").on_hover_text("Takes effect immediately");
+                        egui::ComboBox::from_id_salt("settings-theme")
+                            .selected_text(theme_label(self.theme))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.theme,
+                                    ThemeChoice::CloneDark,
+                                    theme_label(ThemeChoice::CloneDark),
+                                );
+                                ui.selectable_value(
+                                    &mut self.theme,
+                                    ThemeChoice::Ft2Classic,
+                                    theme_label(ThemeChoice::Ft2Classic),
+                                );
+                            });
                         ui.end_row();
 
                         ui.label("Maximize window at launch");
@@ -92,11 +127,12 @@ impl SettingsDialog {
                         ui.end_row();
                     });
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() && self.save(actions) {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 10.0;
+                    if bevel::button(ui, palette, "Close").clicked() {
                         close = true;
                     }
-                    if ui.button("Close").clicked() {
+                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
                         close = true;
                     }
                 });
@@ -128,6 +164,9 @@ impl SettingsDialog {
         config.ui.tail_length = tail_length;
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
+        // `config` started from `AppConfig::default()`, so every field must be
+        // copied back or it silently resets on save -- the theme included.
+        config.ui.theme = self.theme;
 
         if let Err(error) = config.validate() {
             actions.push(Action::Alert {
@@ -138,5 +177,13 @@ impl SettingsDialog {
         }
         actions.push(Action::ApplySettings(Box::new(config)));
         true
+    }
+}
+
+/// The dropdown label for a theme.
+fn theme_label(theme: ThemeChoice) -> &'static str {
+    match theme {
+        ThemeChoice::CloneDark => "Clone (dark)",
+        ThemeChoice::Ft2Classic => "FastTracker II (classic)",
     }
 }

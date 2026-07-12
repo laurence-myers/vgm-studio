@@ -19,6 +19,7 @@ use crate::editor::{Editor, LoadReport};
 use crate::menus::{self, MenuState};
 use crate::platform::{AudioService, FileService, PickedFile, SaveOutcome, SaveRequest};
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
+use crate::theme::{self, Palette};
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::waveform::WaveformState;
 use crate::widgets::{channels::ChannelPanel, table, waveform};
@@ -153,6 +154,11 @@ impl DroApp {
         }
     }
 
+    /// The active colour scheme.
+    fn palette(&self) -> &'static Palette {
+        theme::palette(self.config.ui.theme)
+    }
+
     fn update_impl(&mut self, ctx: &egui::Context) {
         if let Some(file) = self.pending_open.take() {
             self.load_file(file);
@@ -163,68 +169,165 @@ impl DroApp {
         let mut actions: Vec<Action> = Vec::new();
         self.gather_key_input(ctx, &mut actions);
 
-        egui::TopBottomPanel::top("menu-bar").show(ctx, |ui| {
-            menus::bar(ui, &self.menu_state(), &mut actions);
-        });
-        egui::TopBottomPanel::top("waveform")
+        let p = self.palette();
+        // Chrome panels sit on the face colour; the waveform is a data well, so
+        // its margins take the main dark background rather than the chrome tint.
+        let chrome = egui::Frame::side_top_panel(&ctx.style()).fill(p.face);
+        // No side margins: the reset button owns the left edge and the waveform
+        // runs flush to the right edge.
+        let well = egui::Frame::side_top_panel(&ctx.style())
+            .fill(p.data_bg)
+            .inner_margin(egui::Margin {
+                left: 0,
+                right: 0,
+                top: 2,
+                bottom: 2,
+            });
+
+        let menu = egui::TopBottomPanel::top("menu-bar")
+            .frame(chrome)
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                menus::bar(ui, p, &self.menu_state(), &mut actions);
+            });
+        let waveform = egui::TopBottomPanel::top("waveform")
+            .frame(well)
             .resizable(true)
             .default_height(150.0)
             .min_height(80.0)
+            .show_separator_line(false)
             .show(ctx, |ui| {
-                let response = waveform::show(ui, &self.waveform, self.editor.song());
-                if let Some((index, ms)) = response.clicked {
-                    actions.push(Action::WaveformClicked { index, ms });
-                }
-            });
-        egui::TopBottomPanel::bottom("status-bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(&self.status);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if self.tasks.is_busy() {
-                        ui.label("Rendering waveform...");
+                let height = ui.available_height();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    // A full-height "skip to start" transport button on the left.
+                    if theme::bevel::button_sized(ui, p, "\u{23EE}", egui::vec2(34.0, height))
+                        .on_hover_text("Rewind to the start")
+                        .clicked()
+                    {
+                        actions.push(Action::RewindToStart);
+                    }
+                    let response = waveform::show(ui, &self.waveform, self.editor.song(), p);
+                    if let Some((index, ms)) = response.clicked {
+                        actions.push(Action::WaveformClicked { index, ms });
                     }
                 });
             });
-        });
-        egui::TopBottomPanel::bottom("position-panel").show(ctx, |ui| {
-            self.position.show(ui);
-        });
-        egui::TopBottomPanel::bottom("controls").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Delete instruction").clicked() {
-                    actions.push(Action::DeleteSelection);
+        let status = egui::TopBottomPanel::bottom("status-bar")
+            .frame(chrome)
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(&self.status);
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.tasks.is_busy() {
+                            ui.label("Rendering waveform...");
+                        }
+                    });
+                });
+            });
+        let position = egui::TopBottomPanel::bottom("position-panel")
+            .frame(chrome)
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                self.position.show(ui, p);
+            });
+        // The controls own their vertical spacing (equal padding above and below
+        // each row band), so drop the frame's vertical margin and item spacing.
+        let controls_frame = egui::Frame::side_top_panel(&ctx.style())
+            .fill(p.face)
+            .inner_margin(egui::Margin {
+                left: 8,
+                right: 8,
+                top: 0,
+                bottom: 0,
+            });
+        let controls = egui::TopBottomPanel::bottom("controls")
+            .frame(controls_frame)
+            .show_separator_line(false)
+            .show(ctx, |ui| {
+                const PAD: f32 = 6.0;
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.add_space(PAD);
+                ui.horizontal(|ui| {
+                    ui.set_min_height(ui.spacing().interact_size.y);
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if theme::bevel::button(ui, p, "Del.")
+                        .on_hover_text("Delete the selected instruction(s)")
+                        .clicked()
+                    {
+                        actions.push(Action::DeleteSelection);
+                    }
+                    if theme::bevel::button(ui, p, "Play")
+                        .on_hover_text("Play the song from the current position")
+                        .clicked()
+                    {
+                        actions.push(Action::Play);
+                    }
+                    if theme::bevel::button(ui, p, "Stop")
+                        .on_hover_text("Stop playback")
+                        .clicked()
+                    {
+                        actions.push(Action::Stop);
+                    }
+                    if theme::bevel::button(ui, p, "Tail")
+                        .on_hover_text(self.play_tail_label())
+                        .clicked()
+                    {
+                        actions.push(Action::PlayTail);
+                    }
+                });
+                ui.add_space(PAD);
+                theme::separator_full(ui, p);
+                ui.add_space(PAD);
+                // A plain OPL2 song has only one bank; hide the high-bank toggles.
+                let show_high_bank = self
+                    .editor
+                    .song()
+                    .is_none_or(|song| song.opl_type != dro_core::OplType::Opl2);
+                if self.channels.show(ui, p, show_high_bank) {
+                    actions.push(Action::MutingChanged);
                 }
-                if ui.button("Play song from current pos.").clicked() {
-                    actions.push(Action::Play);
-                }
-                if ui.button("Stop song").clicked() {
-                    actions.push(Action::Stop);
-                }
-                if ui.button(self.play_tail_label()).clicked() {
-                    actions.push(Action::PlayTail);
+                ui.add_space(PAD);
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).fill(p.data_bg))
+            .show(ctx, |ui| {
+                if self.editor.has_song() {
+                    // Row hover reads `widgets.hovered.bg_fill`, which is the
+                    // bright face colour; scope it to the data-well tone so it
+                    // does not flash teal under the yellow text.
+                    ui.visuals_mut().widgets.hovered.bg_fill = p.data_hover;
+                    table::show(ui, &mut self.editor, self.scroll_to.take(), p);
+                } else {
+                    ui.visuals_mut().override_text_color = Some(p.data_label);
+                    ui.centered_and_justified(|ui| {
+                        ui.label(
+                            "Open a DRO, VGM or VGZ file (File > Open..., or drop it here).",
+                        );
+                    });
                 }
             });
-            // A plain OPL2 song has only one bank; hide the high-bank toggles.
-            let show_high_bank = self
-                .editor
-                .song()
-                .is_none_or(|song| song.opl_type != dro_core::OplType::Opl2);
-            if self.channels.show(ui, show_high_bank) {
-                actions.push(Action::MutingChanged);
-            }
-        });
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if self.editor.has_song() {
-                table::show(ui, &mut self.editor, self.scroll_to.take());
-            } else {
-                ui.centered_and_justified(|ui| {
-                    ui.label("Open a DRO, VGM or VGZ file (File > Open DRO..., or drop it here).");
-                });
-            }
-        });
 
-        self.dialogs.show_all(ctx, &mut actions);
-        alert::show_front(ctx, &mut self.alerts);
+        // 2px beveled grooves at the seams between the stacked panels. Painted
+        // into the shared background layer *after* the panels, so they sit over
+        // the panel content but below every Window/menu/popup (which live in
+        // higher orders) -- an ad-hoc Middle layer would draw over dialogs. The
+        // waveform panel is resizable, so the seams are recomputed each frame.
+        let divider = ctx.layer_painter(egui::LayerId::background());
+        let x_range = ctx.screen_rect().x_range();
+        for seam in [
+            menu.response.rect.bottom(),
+            waveform.response.rect.bottom(),
+            controls.response.rect.top(),
+            position.response.rect.top(),
+            status.response.rect.top(),
+        ] {
+            theme::bevel::groove_h(&divider, x_range, seam - 1.0, p);
+        }
+
+        self.dialogs.show_all(ctx, p, &mut actions);
+        alert::show_front(ctx, p, &mut self.alerts);
 
         for action in actions {
             self.handle_action(ctx, action);
@@ -424,7 +527,19 @@ impl DroApp {
         // on the exact final position instead of freezing a buffer short of
         // it. (The Python's timer kept firing after the song finished.)
         if playing || self.was_playing {
-            if let Some(position) = self.audio.position() {
+            // A song that reached its end lands ~1 ms short of its length,
+            // because the frame counter and the ms readout each floor at a rate
+            // that need not divide evenly. Snap to the exact end so the ms and
+            // sample counters agree. A manual Stop is not `is_finished`, so its
+            // position is left exactly where playback paused.
+            let ended = !playing && self.was_playing && self.audio.is_finished();
+            if let Some(end) = ended
+                .then(|| self.editor.song().map(|song| song.total_delay_ms()))
+                .flatten()
+            {
+                self.waveform.cursor_ms = end;
+                self.position.set_position_ms(end);
+            } else if let Some(position) = self.audio.position() {
                 self.waveform.cursor_ms = position.elapsed_ms;
                 self.position.set_position(position);
             }
@@ -580,6 +695,17 @@ impl DroApp {
                 }
                 self.position.set_position_ms(ms);
             }
+            Action::RewindToStart => {
+                // Restart live playback from the top; snap the cursor and the
+                // readout to zero whether or not anything is playing.
+                self.audio.rewind();
+                self.waveform.cursor_ms = 0;
+                self.editor.selection.select_only(0);
+                if self.audio.is_playing() {
+                    self.audio.seek_pos(0);
+                }
+                self.position.set_position_ms(0);
+            }
 
             Action::ToggleChannel(channel) => {
                 self.channels.toggle_channel(channel);
@@ -608,7 +734,7 @@ impl DroApp {
                 self.editor
                     .set_vgm_metadata(loop_point, loop_base, loop_modifier, volume_modifier)
             }
-            Action::ApplySettings(config) => self.apply_settings(*config),
+            Action::ApplySettings(config) => self.apply_settings(ctx, *config),
         }
     }
 
@@ -775,20 +901,32 @@ impl DroApp {
         }
     }
 
-    fn apply_settings(&mut self, config: AppConfig) {
+    fn apply_settings(&mut self, ctx: &egui::Context, config: AppConfig) {
         if let Err(error) = self.config_store.save(&config) {
             self.alerts
                 .push_back(Alert::error(format!("Could not save settings: {error}")));
         }
+        // Repaint the whole UI in the new scheme before anything else reads it.
+        if config.ui.theme != self.config.ui.theme {
+            theme::apply_palette(ctx, config.ui.theme);
+        }
+        // Only an audio change needs an output reload or a fresh waveform; a
+        // theme-only change keeps the existing buckets and just recolours them.
+        let audio_changed = config.audio != self.config.audio;
+        let waveform_changed = config.audio.frequency != self.config.audio.frequency
+            || config.audio.chip_write_delay != self.config.audio.chip_write_delay;
         self.config = config;
         self.position.set_frequency(config.audio.frequency);
         if let Some(song) = self.editor.song() {
             self.position.set_length_ms(song.total_delay_ms());
         }
-        // The frequency and chip-write-delay feed both outputs: re-render the
-        // waveform now, reload audio lazily on the next play.
-        self.audio_revision = None;
-        self.submit_waveform(None);
+        if audio_changed {
+            // Reload the audio output lazily on the next play.
+            self.audio_revision = None;
+        }
+        if waveform_changed {
+            self.submit_waveform(None);
+        }
         self.status = "Settings saved.".to_owned();
     }
 

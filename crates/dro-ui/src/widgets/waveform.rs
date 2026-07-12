@@ -1,9 +1,10 @@
 //! The waveform panel (`waveform.py`).
 //!
-//! Same visual language as the Python: navy background, green waveform,
-//! white playback-start line, yellow playback cursor, pale-cyan hover line
-//! that snaps to instruction offsets, and a half-black dim over everything
-//! left of the start line. Differences, both deliberate:
+//! Same visual language as the Python -- a dark well, a bright wave, a white
+//! playback-start line, a bright playback cursor, a pale hover line that snaps
+//! to instruction offsets, and a half-black dim over everything left of the
+//! start line -- but the exact colours now come from the active [`Palette`], so
+//! each theme tints it. Differences from the Python, both deliberate:
 //!
 //! - The buckets are true min/max (the Python tracked only the positive
 //!   peak), so the wave is drawn symmetrically around a centre line rather
@@ -18,18 +19,16 @@
 use dro_core::Song;
 use dro_core::util::ms_to_timestr;
 use dro_synth::WaveformBucket;
-use egui::{Color32, Pos2, Rect, Sense, Stroke, pos2};
+use egui::epaint::Mesh;
+use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
+
+use crate::theme::Palette;
+use crate::theme::bevel::{self, Bevel};
 
 /// The fixed bucket count, as the Python's `x_resolution`. The painted panel
 /// stretches these to its width.
 pub const NUM_BUCKETS: usize = 768;
 
-const BACKGROUND: Color32 = Color32::from_rgb(0x11, 0x22, 0x55);
-const WAVE: Color32 = Color32::from_rgb(0x22, 0xFF, 0x22);
-const HOVER: Color32 = Color32::from_rgb(0xAA, 0xCC, 0xCC);
-const START: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-const CURSOR: Color32 = Color32::from_rgb(0xFF, 0xFF, 0x00);
-const DIM: Color32 = Color32::from_rgba_premultiplied(0, 0, 0, 0x7F);
 /// Headroom above the tallest bucket, as the Python's fixed 10px gap.
 const HEADROOM: f32 = 5.0;
 
@@ -51,18 +50,25 @@ pub struct WaveformResponse {
     pub clicked: Option<(usize, u32)>,
 }
 
-pub fn show(ui: &mut egui::Ui, state: &WaveformState, song: Option<&Song>) -> WaveformResponse {
+pub fn show(
+    ui: &mut egui::Ui,
+    state: &WaveformState,
+    song: Option<&Song>,
+    palette: &Palette,
+) -> WaveformResponse {
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click());
     let rect = response.rect;
-    painter.rect_filled(rect, 0.0, BACKGROUND);
+    paint_background(&painter, rect, palette);
 
     let mut out = WaveformResponse::default();
     let Some(song) = song else {
+        // Still frame the empty well, so the panel reads as a sunken area.
+        bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
         return out;
     };
     let total_ms = song.total_delay_ms();
 
-    draw_buckets(&painter, rect, &state.buckets);
+    draw_buckets(&painter, rect, &state.buckets, palette);
 
     // Pen width scales with the panel, as the Python's `width // 768 + 1`.
     let pen = (rect.width() / NUM_BUCKETS as f32 + 1.0).floor();
@@ -79,24 +85,27 @@ pub fn show(ui: &mut egui::Ui, state: &WaveformState, song: Option<&Song>) -> Wa
         }
     }
     if let Some(x) = hover_x {
-        vertical_line(&painter, rect, x, pen, HOVER);
+        vertical_line(&painter, rect, x, pen, palette.wf_hover);
     }
 
     let start_x = x_for_ms(rect, state.start_ms, total_ms);
-    vertical_line(&painter, rect, start_x, pen, START);
+    vertical_line(&painter, rect, start_x, pen, palette.wf_start);
     vertical_line(
         &painter,
         rect,
         x_for_ms(rect, state.cursor_ms, total_ms),
         pen,
-        CURSOR,
+        palette.wf_cursor,
     );
 
     // Dim everything left of the start indicator, over the lines too.
     if start_x > rect.left() {
         let dimmed = Rect::from_min_max(rect.min, pos2(start_x, rect.bottom()));
-        painter.rect_filled(dimmed, 0.0, DIM);
+        painter.rect_filled(dimmed, 0.0, palette.wf_dim);
     }
+
+    // The sunken well frame, on top of the dim so the bevel is never buried.
+    bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
 
     if response.clicked() {
         if let Some(pointer) = response.interact_pointer_pos() {
@@ -107,7 +116,7 @@ pub fn show(ui: &mut egui::Ui, state: &WaveformState, song: Option<&Song>) -> Wa
     out
 }
 
-fn draw_buckets(painter: &egui::Painter, rect: Rect, buckets: &[WaveformBucket]) {
+fn draw_buckets(painter: &egui::Painter, rect: Rect, buckets: &[WaveformBucket], palette: &Palette) {
     if buckets.is_empty() {
         return;
     }
@@ -123,15 +132,51 @@ fn draw_buckets(painter: &egui::Painter, rect: Rect, buckets: &[WaveformBucket])
 
     let step = rect.width() / buckets.len() as f32;
     let width = step.ceil().max(1.0);
+    let half = width * 0.5;
+    let bright = palette.wf_wave;
+    // A very subtle fade toward the background near the centre line.
+    let dim = lerp_color(palette.wf_wave, palette.wf_bg, 0.30);
+
+    let mut mesh = Mesh::default();
     for (i, bucket) in buckets.iter().enumerate() {
         let x = rect.left() + (i as f32 + 0.5) * step;
         let top = centre - f32::from(bucket.max) * scale;
-        let bottom = centre - f32::from(bucket.min) * scale;
-        painter.line_segment(
-            [pos2(x, top), pos2(x, bottom.max(top + 1.0))],
-            Stroke::new(width, WAVE),
-        );
+        let bottom = (centre - f32::from(bucket.min) * scale).max(top + 1.0);
+        let split = centre.clamp(top, bottom);
+        // Bright at the peaks, dim where the wave crosses the centre line.
+        gradient_quad(&mut mesh, x - half, x + half, top, split, bright, dim);
+        gradient_quad(&mut mesh, x - half, x + half, split, bottom, dim, bright);
     }
+    painter.add(Shape::mesh(mesh));
+}
+
+/// The sunken-screen background: a subtle vertical gradient, a touch lighter
+/// along the centre line and darker toward the top and bottom edges.
+fn paint_background(painter: &egui::Painter, rect: Rect, palette: &Palette) {
+    let edge = palette.wf_bg;
+    let centre_colour = lerp_color(palette.wf_bg, Color32::WHITE, 0.07);
+    let centre = rect.center().y;
+    let mut mesh = Mesh::default();
+    gradient_quad(&mut mesh, rect.left(), rect.right(), rect.top(), centre, edge, centre_colour);
+    gradient_quad(&mut mesh, rect.left(), rect.right(), centre, rect.bottom(), centre_colour, edge);
+    painter.add(Shape::mesh(mesh));
+}
+
+/// A vertical-gradient rectangle: `top` colour at `y_top`, `bottom` at `y_bottom`.
+fn gradient_quad(mesh: &mut Mesh, x0: f32, x1: f32, y_top: f32, y_bottom: f32, top: Color32, bottom: Color32) {
+    let base = mesh.vertices.len() as u32;
+    mesh.colored_vertex(pos2(x0, y_top), top);
+    mesh.colored_vertex(pos2(x1, y_top), top);
+    mesh.colored_vertex(pos2(x1, y_bottom), bottom);
+    mesh.colored_vertex(pos2(x0, y_bottom), bottom);
+    mesh.add_triangle(base, base + 1, base + 2);
+    mesh.add_triangle(base, base + 2, base + 3);
+}
+
+/// Componentwise colour interpolation, `t` of the way from `a` to `b`.
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let mix = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t) as u8;
+    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
 }
 
 fn x_for_ms(rect: Rect, ms: u32, total_ms: u32) -> f32 {

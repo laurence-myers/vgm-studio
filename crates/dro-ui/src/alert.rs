@@ -5,6 +5,8 @@
 
 use std::collections::VecDeque;
 
+use crate::theme::{Palette, bevel};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alert {
     pub title: String,
@@ -28,7 +30,7 @@ impl Alert {
 }
 
 /// Renders the front of the queue as a modal, popping it when dismissed.
-pub fn show_front(ctx: &egui::Context, alerts: &mut VecDeque<Alert>) {
+pub fn show_front(ctx: &egui::Context, palette: &Palette, alerts: &mut VecDeque<Alert>) {
     let Some(alert) = alerts.front() else {
         return;
     };
@@ -39,8 +41,8 @@ pub fn show_front(ctx: &egui::Context, alerts: &mut VecDeque<Alert>) {
         ui.separator();
         ui.label(&alert.message);
         ui.add_space(8.0);
-        ui.vertical_centered(|ui| {
-            if ui.button("OK").clicked() {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if bevel::button(ui, palette, "OK").clicked() {
                 dismissed = true;
             }
         });
