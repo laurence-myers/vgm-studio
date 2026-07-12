@@ -7,7 +7,7 @@
 
 use core::fmt;
 
-use crate::song::{InsertEntry, Song};
+use crate::song::{InsertEntry, OplType, Song};
 
 /// A reversible edit.
 ///
@@ -228,6 +228,54 @@ impl UndoableCommand<Song> for DeleteInstructions {
         if let Some(meta) = song.vgm_meta_mut() {
             meta.loop_point = self.previous_loop_point;
         }
+    }
+}
+
+/// Edits the header fields the DRO Info dialog exposes: the OPL type and the
+/// declared length. (Python: `UpdateHeaderCommand`.)
+///
+/// The Python's revert had a bug -- it captured the *new* length as the
+/// "original", so undo never restored `ms_length`; this one captures on
+/// `apply`. Only meaningful for DRO songs: a VGM's `ms_length` is derived
+/// from its sample delays and would be overwritten by the next edit's rebuild.
+#[derive(Debug)]
+pub struct UpdateHeader {
+    new_opl_type: OplType,
+    new_ms_length: u32,
+    /// The header before `apply`, restored verbatim on `revert`.
+    previous: Option<(OplType, u32)>,
+}
+
+impl UpdateHeader {
+    #[must_use]
+    pub fn new(opl_type: OplType, ms_length: u32) -> Self {
+        Self {
+            new_opl_type: opl_type,
+            new_ms_length: ms_length,
+            previous: None,
+        }
+    }
+}
+
+impl UndoableCommand<Song> for UpdateHeader {
+    fn description(&self) -> &str {
+        // The Python `UpdateHeaderCommand`'s description, so the status bar
+        // says "Undone: DRO Header Changes" exactly as before.
+        "DRO Header Changes"
+    }
+
+    fn apply(&mut self, song: &mut Song) {
+        self.previous = Some((song.opl_type, song.ms_length));
+        song.opl_type = self.new_opl_type;
+        song.ms_length = self.new_ms_length;
+    }
+
+    fn revert(&mut self, song: &mut Song) {
+        let (opl_type, ms_length) = self
+            .previous
+            .expect("the controller only reverts a command it has applied");
+        song.opl_type = opl_type;
+        song.ms_length = ms_length;
     }
 }
 
@@ -483,6 +531,54 @@ mod tests {
         let mut undo = UndoController::new();
         undo.execute(Box::new(DeleteInstructions::new([99, 5, 1000])), &mut song);
         assert_eq!(song.len(), 13);
+        undo.undo(&mut song);
+        assert_eq!(song, original);
+    }
+
+    // -- UpdateHeader --------------------------------------------------------
+
+    #[test]
+    fn update_header_applies_and_reverts_exactly() {
+        let original = dro_song_v2();
+        assert_eq!(original.opl_type, OplType::Opl3);
+
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(
+            Box::new(UpdateHeader::new(OplType::Opl2, 12_345)),
+            &mut song,
+        );
+        assert_eq!(song.opl_type, OplType::Opl2);
+        assert_eq!(song.ms_length, 12_345);
+        // The instruction stream is untouched: only the header changed.
+        assert_eq!(song.data(), original.data());
+        assert_eq!(song.total_delay_ms(), original.total_delay_ms());
+
+        assert_eq!(undo.undo(&mut song), Some("DRO Header Changes"));
+        assert_eq!(song, original);
+
+        undo.redo(&mut song);
+        assert_eq!(song.opl_type, OplType::Opl2);
+        assert_eq!(song.ms_length, 12_345);
+    }
+
+    #[test]
+    fn update_header_interleaves_with_deletes() {
+        let original = dro_song_v2();
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+
+        undo.execute(
+            Box::new(UpdateHeader::new(OplType::DualOpl2, 777)),
+            &mut song,
+        );
+        undo.execute(Box::new(DeleteInstructions::new([0])), &mut song);
+        assert_eq!(undo.undo_description(), Some("Delete Instruction(s)"));
+
+        undo.undo(&mut song);
+        assert_eq!(undo.undo_description(), Some("DRO Header Changes"));
+        assert_eq!(song.ms_length, 777);
+
         undo.undo(&mut song);
         assert_eq!(song, original);
     }
