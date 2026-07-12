@@ -1,0 +1,301 @@
+//! The native `TaskService`: one `std::thread` per task, with the Python
+//! `TaskMaster`'s semantics -- keyed by task kind, cancel-on-resubmit, and an
+//! optional debounce so rapid resubmissions (key-repeat deletes) only run the
+//! last request.
+//!
+//! Cancellation is cooperative (an `AtomicBool` the shared task runner checks
+//! between render chunks), and results carry a generation number so a task
+//! that slips past its cancel flag can never overwrite a newer task's result.
+
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
+use std::thread;
+use std::time::Instant;
+
+use core::time::Duration;
+
+use dro_ui::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
+
+#[derive(Debug)]
+struct Pending {
+    due: Instant,
+    request: TaskRequest,
+    generation: u64,
+}
+
+pub struct ThreadTaskService {
+    sender: Sender<(u64, TaskResult)>,
+    receiver: Receiver<(u64, TaskResult)>,
+    /// Debounced submissions waiting for their deadline.
+    pending: HashMap<TaskKind, Pending>,
+    /// Cancel flags of spawned tasks.
+    running: HashMap<TaskKind, Arc<AtomicBool>>,
+    /// Spawned-and-not-yet-exited threads, for `is_busy`.
+    live: Arc<AtomicUsize>,
+    /// Bumped per submission; stale results are dropped by generation.
+    generation: u64,
+    /// Called after a worker posts its result. The GUI passes
+    /// `Context::request_repaint`, closing the race where a task finishes
+    /// between a frame's poll and its `is_busy` check -- without this, the
+    /// result would sit undelivered until the next input event.
+    notify: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl Default for ThreadTaskService {
+    fn default() -> Self {
+        let (sender, receiver) = channel();
+        Self {
+            sender,
+            receiver,
+            pending: HashMap::new(),
+            running: HashMap::new(),
+            live: Arc::new(AtomicUsize::new(0)),
+            generation: 0,
+            notify: None,
+        }
+    }
+}
+
+impl fmt::Debug for ThreadTaskService {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ThreadTaskService")
+            .field("pending", &self.pending)
+            .field("generation", &self.generation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ThreadTaskService {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// As [`Self::new`], with `notify` called whenever a result is posted.
+    #[must_use]
+    pub fn with_notifier(notify: impl Fn() + Send + Sync + 'static) -> Self {
+        Self {
+            notify: Some(Arc::new(notify)),
+            ..Self::default()
+        }
+    }
+
+    fn spawn(&mut self, request: TaskRequest, generation: u64) {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        self.running.insert(request.kind(), Arc::clone(&cancelled));
+
+        let sender = self.sender.clone();
+        let live = Arc::clone(&self.live);
+        let notify = self.notify.clone();
+        live.fetch_add(1, Ordering::Relaxed);
+        thread::spawn(move || {
+            // A task may emit several times (the waveform render streams
+            // progressive snapshots); forward each to the channel, tagged with
+            // this run's generation so `poll` can drop a superseded run's tail.
+            let is_cancelled = || cancelled.load(Ordering::Relaxed);
+            run_task(&request, &is_cancelled, &mut |result| {
+                if !cancelled.load(Ordering::Relaxed) {
+                    // A closed channel just means the app shut down.
+                    let _ = sender.send((generation, result));
+                    if let Some(notify) = &notify {
+                        notify();
+                    }
+                }
+            });
+            live.fetch_sub(1, Ordering::Relaxed);
+        });
+    }
+
+    /// Starts any debounced submission whose deadline has passed. Driven by
+    /// `poll`, which the app calls every frame (and it keeps frames coming
+    /// while `is_busy`).
+    fn promote_due(&mut self) {
+        let now = Instant::now();
+        let due: Vec<TaskKind> = self
+            .pending
+            .iter()
+            .filter(|(_, pending)| pending.due <= now)
+            .map(|(&kind, _)| kind)
+            .collect();
+        for kind in due {
+            let pending = self.pending.remove(&kind).expect("key just listed");
+            self.spawn(pending.request, pending.generation);
+        }
+    }
+}
+
+impl TaskService for ThreadTaskService {
+    fn submit(&mut self, request: TaskRequest, debounce: Option<Duration>) {
+        let kind = request.kind();
+        self.cancel(kind);
+        self.generation += 1;
+        let generation = self.generation;
+        match debounce {
+            Some(delay) => {
+                self.pending.insert(
+                    kind,
+                    Pending {
+                        due: Instant::now() + delay,
+                        request,
+                        generation,
+                    },
+                );
+            }
+            None => self.spawn(request, generation),
+        }
+    }
+
+    fn cancel(&mut self, kind: TaskKind) {
+        self.pending.remove(&kind);
+        if let Some(cancelled) = self.running.remove(&kind) {
+            cancelled.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn poll(&mut self) -> Vec<TaskResult> {
+        self.promote_due();
+        let latest = self.generation;
+        let mut results = Vec::new();
+        while let Ok((generation, result)) = self.receiver.try_recv() {
+            if generation == latest {
+                results.push(result);
+            }
+        }
+        results
+    }
+
+    fn is_busy(&self) -> bool {
+        !self.pending.is_empty() || self.live.load(Ordering::Relaxed) > 0
+    }
+
+    fn shutdown(&mut self) {
+        let kinds: Vec<TaskKind> = self.running.keys().copied().collect();
+        for kind in kinds {
+            self.cancel(kind);
+        }
+        self.pending.clear();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dro_core::{DroDataV1, OplType, Song};
+
+    fn request(ms_length: u32) -> TaskRequest {
+        // A trivially short song; the delay's length labels the request so a
+        // test can tell whose result arrived.
+        let song = Song::dro_v1(
+            "task.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x01, 0x00, (ms_length - 1) as u8]).unwrap(),
+            ms_length,
+            OplType::Opl2,
+        );
+        TaskRequest::RenderWaveform {
+            song: Arc::new(song),
+            num_buckets: 4,
+            sample_rate: 48_000,
+            chip_write_delay: 0.0,
+        }
+    }
+
+    /// Polls until the run finishes, returning every result it produced.
+    ///
+    /// A render emits several progressive snapshots plus a final one, and a
+    /// poll only drains what has arrived so far, so keep polling until the
+    /// service goes idle rather than stopping at the first non-empty batch.
+    fn drain_until_idle(service: &mut ThreadTaskService, timeout: Duration) -> Vec<TaskResult> {
+        let deadline = Instant::now() + timeout;
+        let mut all = Vec::new();
+        loop {
+            all.extend(service.poll());
+            if (!service.is_busy() && !all.is_empty()) || Instant::now() > deadline {
+                all.extend(service.poll());
+                return all;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    fn wait_until_idle(service: &ThreadTaskService, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        while service.is_busy() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn an_undebounced_task_delivers_its_result() {
+        let mut service = ThreadTaskService::new();
+        service.submit(request(10), None);
+        assert!(service.is_busy());
+        let results = drain_until_idle(&mut service, Duration::from_secs(10));
+        // The render streams progressive snapshots then the final buckets.
+        assert!(!results.is_empty());
+        assert!(!service.is_busy());
+    }
+
+    #[test]
+    fn a_debounced_task_waits_out_its_delay() {
+        let mut service = ThreadTaskService::new();
+        service.submit(request(10), Some(Duration::from_millis(80)));
+        // Not yet started -- polling well before the deadline yields nothing.
+        assert!(service.poll().is_empty());
+        assert!(service.is_busy(), "a pending task counts as busy");
+        let results = drain_until_idle(&mut service, Duration::from_secs(10));
+        assert!(!results.is_empty());
+    }
+
+    #[test]
+    fn resubmitting_supersedes_the_pending_task() {
+        let mut service = ThreadTaskService::new();
+        // The first submission never starts: its debounce is far away.
+        service.submit(request(10), Some(Duration::from_secs(600)));
+        service.submit(request(20), None);
+        // Only the replacement ran; poll filters to its generation, so anything
+        // returned is the replacement's.
+        let results = drain_until_idle(&mut service, Duration::from_secs(10));
+        assert!(!results.is_empty(), "the replacement produced results");
+        assert!(
+            service.pending.is_empty(),
+            "the superseded submission is gone"
+        );
+    }
+
+    #[test]
+    fn stale_results_are_dropped_by_generation() {
+        let mut service = ThreadTaskService::new();
+        service.submit(request(10), None);
+        // Give the first task time to finish and queue its result...
+        wait_until_idle(&service, Duration::from_secs(10));
+        // ...then supersede it before polling. The queued result is stale.
+        service.submit(request(20), Some(Duration::from_secs(600)));
+        assert!(service.poll().is_empty(), "the stale result is discarded");
+        service.shutdown();
+    }
+
+    #[test]
+    fn the_notifier_fires_when_a_result_is_posted() {
+        let notified = Arc::new(AtomicBool::new(false));
+        let flag = Arc::clone(&notified);
+        let mut service = ThreadTaskService::with_notifier(move || {
+            flag.store(true, Ordering::Relaxed);
+        });
+        service.submit(request(10), None);
+        let results = drain_until_idle(&mut service, Duration::from_secs(10));
+        assert!(!results.is_empty());
+        assert!(notified.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn cancel_stops_a_pending_task() {
+        let mut service = ThreadTaskService::new();
+        service.submit(request(10), Some(Duration::from_secs(600)));
+        service.cancel(TaskKind::RenderWaveform);
+        assert!(!service.is_busy());
+        assert!(service.poll().is_empty());
+    }
+}

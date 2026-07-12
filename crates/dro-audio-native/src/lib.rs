@@ -157,6 +157,13 @@ impl NativeAudio {
         self.send(Command::SetMuting(muting));
     }
 
+    /// The rate the stream actually renders at: `config.frequency` if the
+    /// device supported it, otherwise the device's default rate.
+    #[must_use]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
     /// The most recent playback position published by the audio callback.
     #[must_use]
     pub fn position(&self) -> Position {

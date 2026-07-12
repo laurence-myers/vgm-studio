@@ -12,10 +12,13 @@ repository.workspace = true
 dro-core.workspace = true
 dro-synth.workspace = true
 dro-audio-native.workspace = true
+dro-ui.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+eframe.workspace = true
 env_logger.workspace = true
 log.workspace = true
+rfd.workspace = true
 
 [lints]
 workspace = true
