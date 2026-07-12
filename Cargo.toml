@@ -26,6 +26,15 @@ repository = "https://github.com/laurence-myers/dro-trimmer"
 dro-core = { path = "crates/dro-core" }
 dro-synth = { path = "crates/dro-synth" }
 dro-audio-native = { path = "crates/dro-audio-native" }
+dro-ui = { path = "crates/dro-ui" }
+
+# The GUI toolkit. 0.32 is the newest line whose MSRV (1.85) matches the
+# workspace's; 0.33+ requires rustc 1.92. All three must move in lock-step.
+eframe = "0.32.3"
+egui = "0.32.3"
+egui_extras = "0.32.3"
+# Native file dialogs (Step 6). The web build uses its own picker (Step 8).
+rfd = "0.17"
 
 # `rust_backend` is the pure-Rust inflate/deflate. Any crate enabling a `zlib*`
 # feature would unify into it and break the wasm build, so pin it explicitly.

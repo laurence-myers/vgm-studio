@@ -11,6 +11,9 @@ repository.workspace = true
 [dependencies]
 dro-core.workspace = true
 dro-synth.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_extras.workspace = true
 log.workspace = true
 
 [lints]

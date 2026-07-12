@@ -48,9 +48,8 @@ jobs:
 
       # Catches an accidental `std::fs`, `std::time::Instant` or native-only
       # dependency at the moment it is introduced, rather than at Step 8.
-      # Extended to `dro-ui` once that crate has code.
       - name: Check wasm-clean crates
-        run: cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth
+        run: cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth -p dro-ui
 
       # The CLI's version must match the `wasm-bindgen` version Cargo.lock
       # resolves, or the generated glue will not load. Bump both together.
