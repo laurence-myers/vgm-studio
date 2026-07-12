@@ -515,12 +515,12 @@ impl Song {
 
     // -- display -----------------------------------------------------------
 
-    /// The register column: `"DLYS"`, `"DLYL"`, `"BANK"`, or `"0x2A"`.
+    /// The register column: `"DLYS"`, `"DLYL"`, `"BANK"`, or bare hex `"2A"`.
     #[must_use]
     pub fn register_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
             DroInstruction::BankSwitch(_) => "BANK".to_owned(),
-            DroInstruction::Register { reg, .. } => format!("0x{reg:02X}"),
+            DroInstruction::Register { reg, .. } => format!("{reg:02X}"),
             // Python fell through to the register branch for VGM's sample delays,
             // rendering a `0x61` wait as though it were a write to register 0x61.
             DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
@@ -529,14 +529,15 @@ impl Song {
         })
     }
 
-    /// The value column: `"177 ms"`, `"176 smp"`, `"low"` / `"high"`, or `"0x2A (42)"`.
+    /// The value column: `"177 ms"`, `"176 smp"`, `"low"` / `"high"`, or bare
+    /// hex with the decimal, `"2A (42)"`.
     #[must_use]
     pub fn value_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
             DroInstruction::DelayMs { ms, .. } => format!("{ms} ms"),
             DroInstruction::DelaySamples { samples, .. } => format!("{samples} smp"),
             DroInstruction::BankSwitch(bank) => bank.name().to_owned(),
-            DroInstruction::Register { value, .. } => format!("0x{value:02X} ({value})"),
+            DroInstruction::Register { value, .. } => format!("{value:02X} ({value})"),
         })
     }
 
@@ -681,9 +682,9 @@ mod tests {
     #[test]
     fn register_display_matches_python() {
         let song = dro_song_v2();
-        assert_eq!(song.register_display(0).unwrap(), "0x10");
-        assert_eq!(song.register_display(1).unwrap(), "0x30");
-        assert_eq!(song.register_display(2).unwrap(), "0x50");
+        assert_eq!(song.register_display(0).unwrap(), "10");
+        assert_eq!(song.register_display(1).unwrap(), "30");
+        assert_eq!(song.register_display(2).unwrap(), "50");
         assert_eq!(song.register_display(5).unwrap(), "DLYS");
         assert_eq!(song.register_display(6).unwrap(), "DLYL");
         assert_eq!(song.register_display(14), None);
@@ -692,9 +693,9 @@ mod tests {
     #[test]
     fn value_display_matches_python() {
         let song = dro_song_v2();
-        assert_eq!(song.value_display(0).unwrap(), "0x01 (1)");
-        assert_eq!(song.value_display(1).unwrap(), "0x03 (3)");
-        assert_eq!(song.value_display(2).unwrap(), "0x05 (5)");
+        assert_eq!(song.value_display(0).unwrap(), "01 (1)");
+        assert_eq!(song.value_display(1).unwrap(), "03 (3)");
+        assert_eq!(song.value_display(2).unwrap(), "05 (5)");
         assert_eq!(song.value_display(5).unwrap(), "177 ms");
         assert_eq!(song.value_display(6).unwrap(), "49408 ms");
         assert_eq!(song.value_display(14), None);
