@@ -80,6 +80,10 @@ wasm-bindgen-test = "0.3"
 # `writing_a_gap_register_does_not_panic` test fails the moment this is removed.
 [profile.dev.package.nuked-opl3]
 overflow-checks = false
+# The chip is the hot loop of playback and the offline waveform render. An
+# unoptimised build emulates at roughly real time, so "render the waveform"
+# took as long as the song; optimised it is two orders of magnitude faster.
+opt-level = 3
 
 [workspace.lints.rust]
 # "deny", not "forbid": `dro-synth-worklet` must override this for its

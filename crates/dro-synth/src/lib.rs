@@ -19,7 +19,10 @@ pub use engine::{FrameClock, Muting, PlayerEngine, Position};
 pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
 pub use wav::{render_wav, render_wav_muted};
-pub use waveform::{WaveformBucket, WaveformBucketer, render_waveform};
+pub use waveform::{
+    WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,
+    render_waveform_progressive,
+};
 
 /// The OPL3's native sample rate. Rendering here avoids the chip's resampler.
 pub const NATIVE_SAMPLE_RATE: u32 = 49_716;

@@ -105,7 +105,33 @@ impl WaveformBucketer {
             .resize(self.num_buckets, WaveformBucket::default());
         self.buckets
     }
+
+    /// The number of buckets finalised so far -- one behind the bucket
+    /// currently being accumulated. Used to pace progressive updates.
+    #[must_use]
+    pub fn completed(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// A `num_buckets`-long snapshot of progress: the finalised leading buckets,
+    /// then silence for the rest. Cheap to call repeatedly; unlike [`Self::finish`]
+    /// it borrows, so bucketing continues afterwards.
+    #[must_use]
+    pub fn snapshot(&self) -> Vec<WaveformBucket> {
+        if self.num_buckets == 0 {
+            return Vec::new();
+        }
+        let mut snapshot = self.buckets.clone();
+        snapshot.resize(self.num_buckets, WaveformBucket::default());
+        snapshot
+    }
 }
+
+/// The number of progressive snapshots [`render_waveform_progressive`] aims to
+/// emit across a whole render, chosen so the fill looks smooth without flooding
+/// the UI. Independent of song length -- a longer song simply renders more
+/// buckets between updates.
+const PROGRESSIVE_UPDATES: usize = 32;
 
 /// Renders `song` and buckets it into `num_buckets` min/max slices for drawing.
 ///
@@ -117,22 +143,82 @@ pub fn render_waveform(
     sample_rate: u32,
     chip_write_delay: f64,
 ) -> Vec<WaveformBucket> {
+    render_waveform_cancellable(song, num_buckets, sample_rate, chip_write_delay, || true)
+        .expect("a render that is never cancelled always completes")
+}
+
+/// As [`render_waveform`], but calling `keep_going` between render chunks so a
+/// background task can abandon a stale render mid-song (the GUI resubmits the
+/// render on every edit). Returns `None` iff `keep_going` returned `false`.
+pub fn render_waveform_cancellable(
+    song: &Song,
+    num_buckets: usize,
+    sample_rate: u32,
+    chip_write_delay: f64,
+    mut keep_going: impl FnMut() -> bool,
+) -> Option<Vec<WaveformBucket>> {
+    // Reuse the progressive loop but keep only the last (final) snapshot.
+    let mut last = None;
+    let completed = render_waveform_progressive(
+        song,
+        num_buckets,
+        sample_rate,
+        chip_write_delay,
+        &mut keep_going,
+        &mut |buckets| last = Some(buckets),
+    );
+    completed.then_some(last).flatten()
+}
+
+/// Renders `song`, calling `on_update` with a `num_buckets`-long snapshot
+/// periodically as the waveform fills in left-to-right, and once more with the
+/// completed buckets. This is what drives the GUI's progressive waveform: the
+/// Python played the song into a growing points list and redrew it ~10 times a
+/// second; here it is [`WaveformBucketer::snapshot`] emitted every
+/// [`PROGRESSIVE_UPDATES`]th of the way through.
+///
+/// `keep_going` is polled between render chunks; returning `false` abandons the
+/// render (a stale render superseded by an edit) with no final `on_update`.
+///
+/// Returns `true` if the render completed, `false` if it was cancelled. Snapshot
+/// pacing is by bucket progress, not wall-clock, so this stays wasm-clean and
+/// deterministic.
+pub fn render_waveform_progressive(
+    song: &Song,
+    num_buckets: usize,
+    sample_rate: u32,
+    chip_write_delay: f64,
+    keep_going: &mut dyn FnMut() -> bool,
+    on_update: &mut dyn FnMut(Vec<WaveformBucket>),
+) -> bool {
     if num_buckets == 0 {
-        return Vec::new();
+        on_update(Vec::new());
+        return true;
     }
     let total = total_output_frames(song, sample_rate, chip_write_delay);
     let mut bucketer = WaveformBucketer::new(total, num_buckets);
 
+    let stride = (num_buckets / PROGRESSIVE_UPDATES).max(1);
+    let mut next_update = stride;
+
     let mut engine = PlayerEngine::new(song, sample_rate, chip_write_delay);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
+        if !keep_going() {
+            return false;
+        }
         let frames = engine.render(&mut buffer);
         bucketer.push(&buffer[..frames * 2]);
+        if bucketer.completed() >= next_update {
+            on_update(bucketer.snapshot());
+            next_update = bucketer.completed() + stride;
+        }
         if frames < buffer.len() / 2 {
             break;
         }
     }
-    bucketer.finish()
+    on_update(bucketer.finish());
+    true
 }
 
 /// The number of output frames [`PlayerEngine`] will render for the whole song,
@@ -235,6 +321,83 @@ mod tests {
         let buckets = bucketer.finish();
         assert_eq!(buckets[0], WaveformBucket { min: -20, max: 10 });
         assert_eq!(buckets[1], WaveformBucket { min: -1, max: 100 });
+    }
+
+    #[test]
+    fn a_cancelled_render_returns_none_and_an_uncancelled_one_matches_the_batch() {
+        let song = tone_song();
+        assert_eq!(
+            render_waveform_cancellable(&song, 30, 48_000, 0.0, || false),
+            None
+        );
+        assert_eq!(
+            render_waveform_cancellable(&song, 30, 48_000, 0.0, || true).unwrap(),
+            render_waveform(&song, 30, 48_000, 0.0)
+        );
+    }
+
+    #[test]
+    fn progressive_updates_fill_left_to_right_and_end_at_the_batch() {
+        let song = tone_song();
+        let batch = render_waveform(&song, 64, 48_000, 0.0);
+
+        let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
+        let completed =
+            render_waveform_progressive(&song, 64, 48_000, 0.0, &mut || true, &mut |buckets| {
+                updates.push(buckets)
+            });
+
+        assert!(completed);
+        // At least one partial before the final, and every snapshot is the full
+        // width so the panel can paint it directly.
+        assert!(
+            updates.len() >= 2,
+            "expected progressive partials + a final"
+        );
+        assert!(updates.iter().all(|u| u.len() == 64));
+
+        // The last snapshot is exactly the batch render.
+        assert_eq!(*updates.last().unwrap(), batch);
+
+        // A finalised (non-silent) bucket never changes in a later snapshot:
+        // the fill only ever grows, left to right.
+        for pair in updates.windows(2) {
+            for (i, bucket) in pair[0].iter().enumerate() {
+                if *bucket != WaveformBucket::default() {
+                    assert_eq!(*bucket, pair[1][i], "bucket {i} changed after finalising");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_cancelled_progressive_render_makes_no_final_update() {
+        let song = tone_song();
+        let mut updates = 0;
+        let completed =
+            render_waveform_progressive(&song, 64, 48_000, 0.0, &mut || false, &mut |_| {
+                updates += 1
+            });
+        assert!(!completed);
+        assert_eq!(
+            updates, 0,
+            "a render cancelled before the first chunk emits nothing"
+        );
+    }
+
+    #[test]
+    fn zero_buckets_still_emits_one_empty_final() {
+        let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
+        let completed = render_waveform_progressive(
+            &tone_song(),
+            0,
+            48_000,
+            0.0,
+            &mut || true,
+            &mut |buckets| updates.push(buckets),
+        );
+        assert!(completed);
+        assert_eq!(updates, vec![Vec::new()]);
     }
 
     #[test]
