@@ -34,6 +34,41 @@ impl Default for AudioConfig {
     }
 }
 
+/// The GUI colour scheme. Both are DOS-tracker looks after FastTracker II; see
+/// the `theme` module in `dro-ui`. Stored as `theme=` in `[ui]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeChoice {
+    /// The ft2-clone dark teal scheme.
+    #[default]
+    CloneDark,
+    /// The original DOS FastTracker II steel-blue scheme.
+    Ft2Classic,
+}
+
+impl core::fmt::Display for ThemeChoice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::CloneDark => "clone-dark",
+            Self::Ft2Classic => "ft2-classic",
+        })
+    }
+}
+
+impl core::str::FromStr for ThemeChoice {
+    type Err = ();
+
+    /// Accepts hyphen or underscore, case-insensitively, matching the tolerant
+    /// spirit of `configparser`. Anything else errors, so a typo in `theme=`
+    /// discards the whole config like every other malformed value here.
+    fn from_str(value: &str) -> core::result::Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "clone-dark" | "clone_dark" | "clonedark" => Ok(Self::CloneDark),
+            "ft2-classic" | "ft2_classic" | "ft2classic" => Ok(Self::Ft2Classic),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Interface settings. `[ui]` in `drotrim.ini`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiConfig {
@@ -44,6 +79,8 @@ pub struct UiConfig {
     pub maximize_window: bool,
     /// How many milliseconds the "play last X seconds" button plays.
     pub tail_length: u32,
+    /// The GUI colour scheme.
+    pub theme: ThemeChoice,
 }
 
 impl Default for UiConfig {
@@ -52,6 +89,7 @@ impl Default for UiConfig {
             dro_info_edit_enabled: false,
             maximize_window: false,
             tail_length: 3000,
+            theme: ThemeChoice::default(),
         }
     }
 }
@@ -160,6 +198,9 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "ui", "tail_length") {
             self.ui.tail_length = parse(value, "ui.tail_length")?;
         }
+        if let Some(value) = lookup(&ini, "ui", "theme") {
+            self.ui.theme = parse(value, "ui.theme")?;
+        }
         Ok(())
     }
 
@@ -191,7 +232,9 @@ impl AppConfig {
              # Set this to true/1/yes/on for the window to be maximized at launch.\n\
              maximize_window={maximize_window}\n\
              # Set this to true/1/yes/on to enable editing the DRO metadata.\n\
-             dro_info_edit_enabled={dro_info_edit_enabled}\n",
+             dro_info_edit_enabled={dro_info_edit_enabled}\n\
+             # Colour scheme: clone-dark or ft2-classic.\n\
+             theme={theme}\n",
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
@@ -199,6 +242,7 @@ impl AppConfig {
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
+            theme = self.ui.theme,
         )
     }
 }
@@ -263,6 +307,7 @@ mod tests {
         assert!(!config.ui.dro_info_edit_enabled);
         assert!(!config.ui.maximize_window);
         assert_eq!(config.ui.tail_length, 3000);
+        assert_eq!(config.ui.theme, ThemeChoice::CloneDark);
     }
 
     #[test]
@@ -276,7 +321,7 @@ mod tests {
     fn values_are_read_from_the_ini() {
         let config = AppConfig::from_ini_sources(&[
             "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nchip_write_delay=26.6\n\
-             [ui]\ntail_length=5000\nmaximize_window=yes\ndro_info_edit_enabled=on\n",
+             [ui]\ntail_length=5000\nmaximize_window=yes\ndro_info_edit_enabled=on\ntheme=ft2-classic\n",
         ]);
         assert_eq!(config.audio.frequency, 49_716);
         assert_eq!(config.audio.bit_depth, 8);
@@ -285,6 +330,7 @@ mod tests {
         assert_eq!(config.ui.tail_length, 5000);
         assert!(config.ui.maximize_window);
         assert!(config.ui.dro_info_edit_enabled);
+        assert_eq!(config.ui.theme, ThemeChoice::Ft2Classic);
     }
 
     #[test]
@@ -348,6 +394,33 @@ mod tests {
         // `configparser` lowercases every key it reads.
         let config = AppConfig::from_ini_sources(&["[audio]\nFREQUENCY=49716\n"]);
         assert_eq!(config.audio.frequency, 49_716);
+    }
+
+    #[test]
+    fn theme_accepts_both_separators_and_cases() {
+        for text in ["clone-dark", "clone_dark", "CloneDark", " CLONE-DARK "] {
+            assert_eq!(text.parse(), Ok(ThemeChoice::CloneDark), "{text}");
+        }
+        for text in ["ft2-classic", "ft2_classic", "FT2Classic", " Ft2-Classic "] {
+            assert_eq!(text.parse(), Ok(ThemeChoice::Ft2Classic), "{text}");
+        }
+        assert_eq!("nonsense".parse::<ThemeChoice>(), Err(()));
+    }
+
+    #[test]
+    fn theme_display_round_trips_through_from_str() {
+        for choice in [ThemeChoice::CloneDark, ThemeChoice::Ft2Classic] {
+            assert_eq!(choice.to_string().parse(), Ok(choice));
+        }
+    }
+
+    #[test]
+    fn an_invalid_theme_discards_the_whole_config() {
+        // As with every malformed value, one bad `theme=` reverts to all defaults.
+        let source = "[ui]\ntheme=magenta\ntail_length=5000\n";
+        assert_eq!(AppConfig::from_ini_sources(&[source]), AppConfig::default());
+        let error = AppConfig::try_from_ini_sources(&[source]).unwrap_err();
+        assert!(error.to_string().contains("ui.theme"));
     }
 
     #[test]
@@ -427,6 +500,7 @@ mod tests {
                 dro_info_edit_enabled: true,
                 maximize_window: true,
                 tail_length: 5000,
+                theme: ThemeChoice::Ft2Classic,
             },
         };
         let rendered = config.to_ini_string();
