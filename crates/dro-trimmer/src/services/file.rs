@@ -42,7 +42,7 @@ impl NativeFileService {
 
 impl FileService for NativeFileService {
     fn pick_open(&mut self) {
-        let mut dialog = rfd::FileDialog::new().set_title("Open DRO");
+        let mut dialog = rfd::FileDialog::new().set_title("Open file");
         for (name, extensions) in FILTERS {
             dialog = dialog.add_filter(name, extensions);
         }
@@ -67,7 +67,7 @@ impl FileService for NativeFileService {
                 bytes,
             } => {
                 let mut dialog = rfd::FileDialog::new()
-                    .set_title("Save DRO file")
+                    .set_title("Save file")
                     .set_file_name(&suggested_name);
                 for (name, extensions) in FILTERS {
                     dialog = dialog.add_filter(name, extensions);
