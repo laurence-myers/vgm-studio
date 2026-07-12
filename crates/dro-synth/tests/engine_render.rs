@@ -9,7 +9,7 @@
 
 mod common;
 
-use common::{Op, render};
+use common::{Op, render_buffered};
 use dro_core::io::read_song;
 use dro_core::{DroInstruction, Song};
 use dro_synth::{
@@ -63,9 +63,11 @@ fn the_engine_matches_the_reference_render_loop() {
     let ops = fixture_ops(&song);
 
     // The reference chip is reset to match the engine, which resets on build.
+    // Buffered writes: the engine uses the write buffer for live playback, so
+    // the reference must too, or their key-edge timing (and thus PCM) diverges.
     let mut chip = NukedOpl3::new(NATIVE_SAMPLE_RATE);
     chip.reset(NATIVE_SAMPLE_RATE);
-    let reference = render(&mut chip, NATIVE_SAMPLE_RATE, &ops, 512);
+    let reference = render_buffered(&mut chip, NATIVE_SAMPLE_RATE, &ops, 512);
 
     let engine = engine_pcm(&song, NATIVE_SAMPLE_RATE, 512);
     assert_eq!(

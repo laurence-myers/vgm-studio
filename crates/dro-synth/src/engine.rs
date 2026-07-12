@@ -381,23 +381,31 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
 
     /// Applies one instruction and returns how many frames it owes the output.
     ///
-    /// With `apply_muting`, a muted channel's write is dropped and `0xBD` is
-    /// AND-masked; without it (seeking) every write lands. Either way the bank and
-    /// the delay clock advance identically, so play and seek can never diverge.
-    fn execute(&mut self, instruction: DroInstruction, apply_muting: bool) -> u64 {
+    /// During `playback` a muted channel's write is dropped and `0xBD` is
+    /// AND-masked, and writes go through the chip's write buffer so key edges are
+    /// observed at generation time (see [`OplChip::write_reg_buffered`]). While
+    /// seeking (`playback` false) every write lands unmuted and immediately --
+    /// only the final register values matter, no samples are rendered. Either way
+    /// the bank and the delay clock advance identically, so play and seek can
+    /// never diverge.
+    fn execute(&mut self, instruction: DroInstruction, playback: bool) -> u64 {
         match instruction {
             DroInstruction::Register { reg, value, .. } => {
                 if let Some(bank) = instruction.selected_bank() {
                     self.bank = bank; // DRO v2 / VGM carry the bank per write.
                 }
-                let gated = if apply_muting {
+                let gated = if playback {
                     self.muting.gate(self.bank, reg, value)
                 } else {
                     Some(value) // Seeking replays every write, as the Python seeker did.
                 };
                 if let Some(value) = gated {
-                    self.chip
-                        .write_reg(self.bank.register_offset() | u16::from(reg), value);
+                    let reg = self.bank.register_offset() | u16::from(reg);
+                    if playback {
+                        self.chip.write_reg_buffered(reg, value);
+                    } else {
+                        self.chip.write_reg(reg, value);
+                    }
                 }
                 self.chip_delay_frames()
             }

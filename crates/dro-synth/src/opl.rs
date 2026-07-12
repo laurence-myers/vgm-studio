@@ -13,8 +13,23 @@ pub trait OplChip {
     /// Discards all chip state and re-initialises at `sample_rate`.
     fn reset(&mut self, sample_rate: u32);
 
-    /// Writes `value` to `reg`. Bit 8 of `reg` selects the high register bank.
+    /// Writes `value` to `reg`, taking effect immediately. Bit 8 of `reg`
+    /// selects the high register bank.
     fn write_reg(&mut self, reg: u16, value: u8);
+
+    /// Writes `value` to `reg` through the chip's write buffer, if it has one.
+    ///
+    /// Nuked-OPL3 resolves key-on/off edges at sample-generation time, so writes
+    /// with no samples rendered between them collapse to their net state and fast
+    /// retriggers are silently dropped. The buffered path spreads queued writes a
+    /// couple of samples apart during generation so every edge is observed --
+    /// matching real hardware (and DOSBox's DBOPL, which the Python used), where
+    /// register writes are inherently spaced in time. Live playback and rendering
+    /// use this; a seek's bulk replay uses [`Self::write_reg`], where only the
+    /// final register *values* matter. The default is an immediate write.
+    fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+        self.write_reg(reg, value);
+    }
 
     /// Fills `buffer` with interleaved stereo samples.
     ///
@@ -65,6 +80,10 @@ impl OplChip for NukedOpl3 {
 
     fn write_reg(&mut self, reg: u16, value: u8) {
         self.chip.write_register(reg, value);
+    }
+
+    fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+        self.chip.write_register_buffered(reg, value);
     }
 
     fn generate_samples(&mut self, buffer: &mut [i16]) {
@@ -205,6 +224,62 @@ mod tests {
         }
         let mut buffer = [0i16; 128];
         chip.generate_samples(&mut buffer);
+    }
+
+    /// The reason `write_reg_buffered` exists: a back-to-back key-off / key-on
+    /// with no samples rendered between them must still retrigger the note.
+    ///
+    /// Nuked resolves the key edge at generation time, so the immediate path
+    /// collapses the off/on to its net state ("still on") and the note is not
+    /// restruck -- the very drop this fixes. The buffered path spreads the two
+    /// writes a couple of samples apart, so the envelope sees the 0->1 edge and
+    /// re-attacks, making the segment right after the retrigger far louder.
+    #[test]
+    fn buffered_writes_retrigger_a_back_to_back_key_on() {
+        // A percussive note (EG-TYP clear): attacks, then decays to silence.
+        const SETUP: [(u16, u8); 9] = [
+            (0x20, 0x01),
+            (0x40, 0x00),
+            (0x60, 0xFA), // modulator: fast attack, medium decay
+            (0x80, 0x0F),
+            (0x23, 0x01),
+            (0x43, 0x00),
+            (0x63, 0xFA), // carrier: fast attack, medium decay
+            (0x83, 0x0F),
+            (0xA0, 0x98),
+        ];
+
+        fn energy(samples: &[i16]) -> u64 {
+            samples.iter().map(|&s| u64::from(s.unsigned_abs())).sum()
+        }
+
+        // Returns the energy of the segment rendered just after a back-to-back
+        // key-off (`0x11`) + key-on (`0x31`) retrigger of a decayed note.
+        fn retrigger_energy(buffered: bool) -> u64 {
+            let mut chip = NukedOpl3::new(NATIVE_SAMPLE_RATE);
+            for (reg, value) in SETUP {
+                chip.write_reg(reg, value);
+            }
+            chip.write_reg(0xB0, 0x31); // key on
+            chip.generate_samples(&mut vec![0i16; 16_000 * 2]); // let it decay to near silence
+            if buffered {
+                chip.write_reg_buffered(0xB0, 0x11); // key off (same block/fnum)
+                chip.write_reg_buffered(0xB0, 0x31); // key on again
+            } else {
+                chip.write_reg(0xB0, 0x11);
+                chip.write_reg(0xB0, 0x31);
+            }
+            let mut segment = vec![0i16; 2000 * 2];
+            chip.generate_samples(&mut segment);
+            energy(&segment)
+        }
+
+        let buffered = retrigger_energy(true);
+        let immediate = retrigger_energy(false);
+        assert!(
+            buffered > immediate * 4,
+            "buffered writes must retrigger the note: buffered={buffered} immediate={immediate}"
+        );
     }
 
     /// Every register a DRO file can name, in both banks, must be writable.

@@ -125,12 +125,34 @@ impl FrameClock {
     }
 }
 
-/// Renders `ops` through `chip`, pulling `chunk_frames` at a time.
+/// Renders `ops` through `chip` with immediate register writes, pulling
+/// `chunk_frames` at a time.
 pub(crate) fn render(
     chip: &mut impl OplChip,
     sample_rate: u32,
     ops: &[Op],
     chunk_frames: usize,
+) -> Vec<i16> {
+    render_inner(chip, sample_rate, ops, chunk_frames, false)
+}
+
+/// As [`render`], but through the chip's write buffer -- the mode the engine
+/// uses for live playback, so the engine can be checked against it.
+pub(crate) fn render_buffered(
+    chip: &mut impl OplChip,
+    sample_rate: u32,
+    ops: &[Op],
+    chunk_frames: usize,
+) -> Vec<i16> {
+    render_inner(chip, sample_rate, ops, chunk_frames, true)
+}
+
+fn render_inner(
+    chip: &mut impl OplChip,
+    sample_rate: u32,
+    ops: &[Op],
+    chunk_frames: usize,
+    buffered: bool,
 ) -> Vec<i16> {
     assert!(chunk_frames > 0);
     let mut clock = FrameClock::new(sample_rate);
@@ -139,7 +161,13 @@ pub(crate) fn render(
 
     for op in ops {
         match *op {
-            Op::Write(reg, value) => chip.write_reg(reg, value),
+            Op::Write(reg, value) => {
+                if buffered {
+                    chip.write_reg_buffered(reg, value);
+                } else {
+                    chip.write_reg(reg, value);
+                }
+            }
             Op::Delay(ms) => {
                 let mut remaining = clock.frames_for_ms(ms);
                 while remaining > 0 {
