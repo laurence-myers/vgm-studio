@@ -20,9 +20,10 @@ use crate::menus::{self, MenuState};
 use crate::platform::{AudioService, FileService, PickedFile, SaveOutcome, SaveRequest};
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
+use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::waveform::WaveformState;
-use crate::widgets::{channels::ChannelPanel, table, waveform};
+use crate::widgets::{channels::ChannelPanel, peak_meter, table, waveform};
 
 const AUTO_TRIM_TITLE: &str = "DRO auto-trimmed";
 const AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
@@ -105,6 +106,8 @@ pub struct DroApp {
     dialogs: Dialogs,
 
     waveform: WaveformState,
+    /// The stereo output peak meter beside the waveform.
+    peak_meter: PeakMeterState,
     position: PositionPanel,
     channels: ChannelPanel,
 
@@ -144,6 +147,7 @@ impl DroApp {
             alerts: VecDeque::new(),
             dialogs: Dialogs::default(),
             waveform: WaveformState::default(),
+            peak_meter: PeakMeterState::default(),
             position: PositionPanel::new(config.audio.frequency),
             channels: ChannelPanel::new(),
             scroll_to: None,
@@ -207,10 +211,17 @@ impl DroApp {
                     {
                         actions.push(Action::RewindToStart);
                     }
-                    let response = waveform::show(ui, &self.waveform, self.editor.song(), p);
-                    if let Some((index, ms)) = response.clicked {
-                        actions.push(Action::WaveformClicked { index, ms });
-                    }
+                    // Reserve the peak meter's width up front: the waveform
+                    // fills whatever space it is given.
+                    let wave_width =
+                        ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x;
+                    ui.allocate_ui(egui::vec2(wave_width, height), |ui| {
+                        let response = waveform::show(ui, &self.waveform, self.editor.song(), p);
+                        if let Some((index, ms)) = response.clicked {
+                            actions.push(Action::WaveformClicked { index, ms });
+                        }
+                    });
+                    peak_meter::show(ui, &self.peak_meter, p);
                 });
             });
         let status = egui::TopBottomPanel::bottom("status-bar")
@@ -612,6 +623,18 @@ impl DroApp {
     }
 
     fn playback_tick(&mut self, ctx: &egui::Context) {
+        // Advance the peak meter with the post-limiter peaks the callback
+        // published. dt is clamped so a stalled frame cannot snap the bars to
+        // zero. Kept separate from the position block below: the meter must
+        // keep repainting through its decay after playback ends, without
+        // re-running the position updates (which would overwrite the exact
+        // end-of-song snap).
+        let dt = ctx.input(|i| i.stable_dt).min(0.1);
+        self.peak_meter.update(self.audio.take_peaks(), dt);
+        if self.peak_meter.is_active() {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
+
         let playing = self.audio.is_playing();
         // One more update after playback ends, so the readout and cursor land
         // on the exact final position instead of freezing a buffer short of
@@ -859,6 +882,7 @@ impl DroApp {
                 // into the fresh cursor/readout via the end-of-playback
                 // update below.
                 self.audio.unload();
+                self.peak_meter = PeakMeterState::default();
                 self.audio_revision = None;
                 self.was_playing = false;
                 let song = self.editor.song().expect("just loaded");

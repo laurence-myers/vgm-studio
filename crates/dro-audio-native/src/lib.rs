@@ -13,7 +13,7 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
@@ -49,6 +49,11 @@ struct SharedState {
     frames_rendered: AtomicU64,
     next_instruction: AtomicUsize,
     finished: AtomicBool,
+    /// Loudest post-limiter |sample| per channel since the UI last took them.
+    /// The callback raises them with `fetch_max`; the UI consumes with
+    /// `swap(0)`, so a transient between two UI polls is never missed.
+    peak_left: AtomicU32,
+    peak_right: AtomicU32,
 }
 
 /// An open output stream playing one song.
@@ -188,6 +193,15 @@ impl NativeAudio {
         }
     }
 
+    /// The loudest post-limiter output peak per channel (left, right) since
+    /// the last call, normalized to `0.0..=1.0` -- what the listener actually
+    /// hears, boost included. A destructive read: each peak is reported once.
+    #[must_use]
+    pub fn take_peaks(&self) -> [f32; 2] {
+        [&self.shared.peak_left, &self.shared.peak_right]
+            .map(|peak| peak.swap(0, Ordering::Relaxed) as f32 / 32_768.0)
+    }
+
     /// Whether the song has played to the end.
     #[must_use]
     pub fn is_finished(&self) -> bool {
@@ -248,6 +262,11 @@ where
             // Boost + limit the i16 frames before conversion, so both device
             // formats (f32 and i16) hear the identical limited signal.
             limiter.process(&mut scratch[..frames * 2]);
+            // Publish the post-limiter peaks for the UI's meter. `fetch_max`,
+            // not `store`: a transient in a buffer between UI polls survives.
+            let (peak_l, peak_r) = channel_peaks(&scratch[..frames * 2]);
+            shared.peak_left.fetch_max(peak_l, Ordering::Relaxed);
+            shared.peak_right.fetch_max(peak_r, Ordering::Relaxed);
             for (dst, &src) in out.iter_mut().zip(&scratch[..frames * 2]) {
                 *dst = convert(src);
             }
@@ -279,4 +298,32 @@ fn supported_rate(device: &cpal::Device, rate: u32) -> Result<Option<u32>, cpal:
         }
     }
     Ok(None)
+}
+
+/// Per-channel maximum absolute sample over interleaved stereo `samples`.
+/// `unsigned_abs` keeps `i16::MIN` exact (32768) instead of overflowing.
+fn channel_peaks(samples: &[i16]) -> (u32, u32) {
+    let mut left = 0u32;
+    let mut right = 0u32;
+    for frame in samples.chunks_exact(2) {
+        left = left.max(u32::from(frame[0].unsigned_abs()));
+        right = right.max(u32::from(frame[1].unsigned_abs()));
+    }
+    (left, right)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channel_peaks_takes_the_max_abs_per_channel() {
+        assert_eq!(channel_peaks(&[]), (0, 0));
+        assert_eq!(channel_peaks(&[100, -50]), (100, 50));
+        // Left peaks on a negative sample; right's i16::MIN does not overflow.
+        assert_eq!(
+            channel_peaks(&[100, -50, -3000, 2000, 5, i16::MIN]),
+            (3000, 32_768)
+        );
+    }
 }

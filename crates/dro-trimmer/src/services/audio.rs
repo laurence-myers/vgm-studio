@@ -177,6 +177,12 @@ impl AudioService for NativeAudioService {
         self.audio.as_ref().map(NativeAudio::position)
     }
 
+    fn take_peaks(&mut self) -> Option<[f32; 2]> {
+        // A paused stream runs no callback, so the peaks it reports are simply
+        // zero and the meter decays -- no deferred handling needed.
+        self.audio.as_ref().map(NativeAudio::take_peaks)
+    }
+
     fn output_rate(&self) -> Option<u32> {
         self.audio.as_ref().map(NativeAudio::sample_rate)
     }

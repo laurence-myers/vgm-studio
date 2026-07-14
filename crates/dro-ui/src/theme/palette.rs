@@ -82,6 +82,18 @@ pub struct Palette {
     pub wf_cursor: Color32,
     /// The half-black overlay left of the start line.
     pub wf_dim: Color32,
+
+    // -- peak meter (the well behind it reuses `wf_bg`) --
+    /// An unlit meter segment.
+    pub meter_off: Color32,
+    /// Lit segments in the lower zone.
+    pub meter_low: Color32,
+    /// Lit segments in the upper-middle zone.
+    pub meter_mid: Color32,
+    /// Lit segments in the top zone.
+    pub meter_high: Color32,
+    /// The peak-hold marker.
+    pub meter_hold: Color32,
 }
 
 /// The ft2-clone dark teal scheme (the default).
@@ -123,6 +135,12 @@ pub(crate) const CLONE_DARK: Palette = Palette {
     // The wave is yellow, so the cursor moves to cyan to stay visible over it.
     wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
+
+    meter_off: Color32::from_rgb(0x1C, 0x28, 0x3C),
+    meter_low: Color32::from_rgb(0x3C, 0xC8, 0x50),
+    meter_mid: Color32::from_rgb(0xE6, 0xC8, 0x46),
+    meter_high: Color32::from_rgb(0xE0, 0x4A, 0x4A),
+    meter_hold: Color32::from_rgb(0xEA, 0xF4, 0xF4),
 };
 
 /// The original DOS FastTracker II steel-blue scheme.
@@ -161,6 +179,13 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
     wf_start: Color32::WHITE,
     wf_cursor: Color32::from_rgb(0xFF, 0xFF, 0x00),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
+
+    // Steel-tinted takes on the classic green/amber/red zones.
+    meter_off: Color32::from_rgb(0x26, 0x30, 0x4A),
+    meter_low: Color32::from_rgb(0x55, 0xC8, 0x6E),
+    meter_mid: Color32::from_rgb(0xE0, 0xC8, 0x55),
+    meter_high: Color32::from_rgb(0xDC, 0x55, 0x55),
+    meter_hold: Color32::from_rgb(0xF0, 0xF2, 0xF8),
 };
 
 /// The palette for a configured theme.

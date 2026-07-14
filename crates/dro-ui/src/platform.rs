@@ -131,6 +131,12 @@ pub trait AudioService {
     /// The current playback position, or `None` when nothing is loaded.
     fn position(&self) -> Option<Position>;
 
+    /// The loudest output peak per channel (left, right) since the last call,
+    /// measured after boost and limiting -- what the listener actually hears.
+    /// `0.0..=1.0`; `None` when nothing is loaded. A destructive read: each
+    /// peak is reported once.
+    fn take_peaks(&mut self) -> Option<[f32; 2]>;
+
     /// The sample rate the output actually runs at, when known. May differ
     /// from the configured frequency if the device rejected it -- positions
     /// report frames at *this* rate.
