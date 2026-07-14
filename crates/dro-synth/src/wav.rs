@@ -12,6 +12,7 @@ use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
 use crate::engine::{Muting, PlayerEngine};
+use crate::limiter::BoostLimiter;
 
 /// Renders `song` to a stereo WAV file held in memory.
 ///
@@ -29,12 +30,13 @@ pub fn render_wav(
     bit_depth: u16,
     chip_write_delay: f64,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_muted(
+    render_wav_impl(
         song,
         Muting::all(),
         sample_rate,
         bit_depth,
         chip_write_delay,
+        1.0,
     )
 }
 
@@ -51,6 +53,46 @@ pub fn render_wav_muted<B: Borrow<Song>>(
     bit_depth: u16,
     chip_write_delay: f64,
 ) -> Result<Vec<u8>, hound::Error> {
+    render_wav_impl(song, muting, sample_rate, bit_depth, chip_write_delay, 1.0)
+}
+
+/// As [`render_wav`], but multiplies the signal by `boost` through the same peak
+/// limiter used for live playback, so a boosted render matches boosted playback
+/// and still cannot clip. `boost == 1.0` is bit-transparent -- identical to
+/// [`render_wav`].
+///
+/// This is the one render path deliberately *not* faithful to the un-boosted
+/// signal; it is opt-in through `dro_player --render --boost`. The `drotrim.ini`
+/// / GUI boost never reaches a render -- only an explicit CLI value does.
+///
+/// # Errors
+/// See [`render_wav`].
+pub fn render_wav_boosted(
+    song: &Song,
+    sample_rate: u32,
+    bit_depth: u16,
+    chip_write_delay: f64,
+    boost: f32,
+) -> Result<Vec<u8>, hound::Error> {
+    render_wav_impl(
+        song,
+        Muting::all(),
+        sample_rate,
+        bit_depth,
+        chip_write_delay,
+        boost,
+    )
+}
+
+/// The shared render loop behind the public `render_wav*` entry points.
+fn render_wav_impl<B: Borrow<Song>>(
+    song: B,
+    muting: Muting,
+    sample_rate: u32,
+    bit_depth: u16,
+    chip_write_delay: f64,
+    boost: f32,
+) -> Result<Vec<u8>, hound::Error> {
     let spec = WavSpec {
         channels: 2,
         sample_rate,
@@ -62,9 +104,14 @@ pub fn render_wav_muted<B: Borrow<Song>>(
 
     let mut engine = PlayerEngine::new(song, sample_rate, chip_write_delay);
     engine.set_muting(muting);
+    let mut limiter = BoostLimiter::new(sample_rate, boost);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         let frames = engine.render(&mut buffer);
+        // Boost and limit exactly as the live audio callback does, so a boosted
+        // render matches boosted playback. Bit-transparent when boost is 1.0, so
+        // the faithful `render_wav` / `render_wav_muted` paths are unchanged.
+        limiter.process(&mut buffer[..frames * 2]);
         for &sample in &buffer[..frames * 2] {
             if bit_depth == 8 {
                 // WAV 8-bit is written through hound's i8 sample; the top byte of
@@ -146,5 +193,37 @@ mod tests {
         assert_eq!(spec.bits_per_sample, 8);
         assert_eq!(samples.len(), 150 * 48 * 2);
         assert!(samples.iter().any(|&s| s != 0));
+    }
+
+    #[test]
+    fn unity_boost_render_is_byte_identical_to_the_plain_render() {
+        // The limiter bypasses at boost 1.0, so an opt-in boosted render with no
+        // actual boost is the same faithful render as `render_wav`.
+        let song = small_song();
+        let plain = render_wav(&song, 48_000, 16, 0.0).unwrap();
+        let unity = render_wav_boosted(&song, 48_000, 16, 0.0, 1.0).unwrap();
+        assert_eq!(plain, unity);
+    }
+
+    #[test]
+    fn a_boosted_render_is_louder_but_never_clips() {
+        let song = small_song();
+        let plain = render_wav(&song, 48_000, 16, 0.0).unwrap();
+        let boosted = render_wav_boosted(&song, 48_000, 16, 0.0, 4.0).unwrap();
+        let (_, plain_s) = read_back(&plain);
+        let (_, boosted_s) = read_back(&boosted);
+        assert_eq!(plain_s.len(), boosted_s.len());
+
+        // Boosting the quiet portions raises the overall level...
+        let energy = |s: &[i32]| s.iter().map(|&v| i64::from(v.abs())).sum::<i64>();
+        assert!(
+            energy(&boosted_s) > energy(&plain_s),
+            "boost should raise the overall level"
+        );
+        // ...while the limiter keeps every sample inside full scale.
+        assert!(
+            boosted_s.iter().all(|&s| s.abs() <= 32_767),
+            "the limiter must prevent clipping"
+        );
     }
 }

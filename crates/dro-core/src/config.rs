@@ -13,6 +13,10 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioConfig {
     pub bit_depth: u16,
+    /// Playback volume multiplier, applied through a peak limiter so a boosted
+    /// signal cannot clip. Live playback only -- never the WAV render or the
+    /// waveform display.
+    pub boost: f32,
     pub buffer_size: u32,
     /// Microseconds to wait after each write to the emulated chip, to imitate a
     /// real one. `0` means perfect, unrealistic timing. OPL2 wants at least 26.6;
@@ -27,6 +31,7 @@ impl Default for AudioConfig {
     fn default() -> Self {
         Self {
             bit_depth: 16,
+            boost: 1.0,
             buffer_size: 512,
             chip_write_delay: 0.0,
             frequency: 48_000,
@@ -165,6 +170,12 @@ impl AppConfig {
                 self.audio.chip_write_delay
             )));
         }
+        if !self.audio.boost.is_finite() || !(1.0..=16.0).contains(&self.audio.boost) {
+            return Err(Error::config(format!(
+                "Invalid value for audio.boost: {} (expected a number from 1 to 16)",
+                self.audio.boost
+            )));
+        }
         Ok(())
     }
 
@@ -178,6 +189,9 @@ impl AppConfig {
 
         if let Some(value) = lookup(&ini, "audio", "bit_depth") {
             self.audio.bit_depth = parse(value, "audio.bit_depth")?;
+        }
+        if let Some(value) = lookup(&ini, "audio", "boost") {
+            self.audio.boost = parse(value, "audio.boost")?;
         }
         if let Some(value) = lookup(&ini, "audio", "buffer_size") {
             self.audio.buffer_size = parse(value, "audio.buffer_size")?;
@@ -224,6 +238,10 @@ impl AppConfig {
              # OPL2 uses a minimum value of 26.6.\n\
              # OPL3 uses maybe 4.47?\n\
              chip_write_delay={chip_write_delay}\n\
+             # Volume boost multiplier for live playback: 1 = no boost. A peak\n\
+             # limiter keeps louder values from clipping, so higher numbers just\n\
+             # get louder. Never affects the WAV render or the waveform display.\n\
+             boost={boost}\n\
              \n\
              [ui]\n\
              # Tail length is the value for the \"Play last X seconds\" button,\n\
@@ -239,6 +257,7 @@ impl AppConfig {
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
             chip_write_delay = self.audio.chip_write_delay,
+            boost = self.audio.boost,
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
@@ -301,6 +320,7 @@ mod tests {
     fn defaults_match_the_python_dataclasses() {
         let config = AppConfig::default();
         assert_eq!(config.audio.bit_depth, 16);
+        assert_eq!(config.audio.boost, 1.0);
         assert_eq!(config.audio.buffer_size, 512);
         assert_eq!(config.audio.chip_write_delay, 0.0);
         assert_eq!(config.audio.frequency, 48_000);
@@ -320,11 +340,12 @@ mod tests {
     #[test]
     fn values_are_read_from_the_ini() {
         let config = AppConfig::from_ini_sources(&[
-            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nchip_write_delay=26.6\n\
+            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nchip_write_delay=26.6\nboost=2.5\n\
              [ui]\ntail_length=5000\nmaximize_window=yes\ndro_info_edit_enabled=on\ntheme=ft2-classic\n",
         ]);
         assert_eq!(config.audio.frequency, 49_716);
         assert_eq!(config.audio.bit_depth, 8);
+        assert_eq!(config.audio.boost, 2.5);
         assert_eq!(config.audio.buffer_size, 2048);
         assert_eq!(config.audio.chip_write_delay, 26.6);
         assert_eq!(config.ui.tail_length, 5000);
@@ -457,6 +478,11 @@ mod tests {
             "[audio]\nchip_write_delay=-1.0\n",
             "[audio]\nchip_write_delay=nan\n",
             "[audio]\nchip_write_delay=inf\n",
+            "[audio]\nboost=0\n",   // below the 1.0 floor
+            "[audio]\nboost=0.5\n", // below the 1.0 floor
+            "[audio]\nboost=100\n", // above the 16.0 ceiling
+            "[audio]\nboost=nan\n",
+            "[audio]\nboost=inf\n",
         ] {
             assert_eq!(
                 AppConfig::from_ini_sources(&[source]),
@@ -492,6 +518,7 @@ mod tests {
         let config = AppConfig {
             audio: AudioConfig {
                 bit_depth: 8,
+                boost: 2.5,
                 buffer_size: 2048,
                 chip_write_delay: 26.6,
                 frequency: 49_716,

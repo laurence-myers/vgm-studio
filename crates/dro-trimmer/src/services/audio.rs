@@ -35,6 +35,8 @@ pub struct NativeAudioService {
     playing: bool,
     /// The latest requested muting, flushed on every play.
     muting: Muting,
+    /// The latest requested boost, flushed on every play.
+    boost: f32,
     /// The seek to apply on the next play, when one arrived while paused.
     pending_seek: Option<PendingSeek>,
 }
@@ -45,6 +47,7 @@ impl Default for NativeAudioService {
             audio: None,
             playing: false,
             muting: Muting::all(),
+            boost: 1.0,
             pending_seek: None,
         }
     }
@@ -69,6 +72,9 @@ impl AudioService for NativeAudioService {
         // over each other.
         self.unload();
         self.audio = Some(NativeAudio::new(song, config).map_err(|e| e.to_string())?);
+        // Adopt the config's boost, or the play-time flush below would clobber a
+        // config-loaded boost with the service's stale value.
+        self.boost = config.boost;
         Ok(())
     }
 
@@ -90,6 +96,7 @@ impl AudioService for NativeAudioService {
             None => {}
         }
         audio.set_muting(self.muting);
+        audio.set_boost(self.boost);
         audio.play().map_err(|e| e.to_string())?;
         self.playing = true;
         Ok(())
@@ -141,6 +148,16 @@ impl AudioService for NativeAudioService {
                 .as_mut()
                 .expect("stream_live checked")
                 .set_muting(muting);
+        }
+    }
+
+    fn set_boost(&mut self, boost: f32) {
+        self.boost = boost;
+        if self.stream_live() {
+            self.audio
+                .as_mut()
+                .expect("stream_live checked")
+                .set_boost(boost);
         }
     }
 

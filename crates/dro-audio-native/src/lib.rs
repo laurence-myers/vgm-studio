@@ -20,7 +20,7 @@ use cpal::{SampleFormat, StreamConfig};
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{Muting, PlayerEngine, Position};
+use dro_synth::{BoostLimiter, Muting, PlayerEngine, Position};
 
 /// What can go wrong opening or driving the audio device.
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +39,7 @@ enum Command {
     SeekMs(u32),
     SeekPos(usize),
     SetMuting(Muting),
+    SetBoost(f32),
     Rewind,
 }
 
@@ -88,6 +89,9 @@ impl NativeAudio {
         };
 
         let engine = PlayerEngine::new(Arc::clone(&song), sample_rate, config.chip_write_delay);
+        // Boost rides the existing `&AudioConfig`, and the limiter's release is
+        // derived from the *actual* negotiated rate, not the configured one.
+        let limiter = BoostLimiter::new(sample_rate, config.boost);
         let (commands, consumer) = rtrb::RingBuffer::<Command>::new(64);
         let shared = Arc::new(SharedState::default());
 
@@ -98,6 +102,7 @@ impl NativeAudio {
                 engine,
                 consumer,
                 Arc::clone(&shared),
+                limiter,
                 |sample| f32::from(sample) / 32768.0,
             )?,
             SampleFormat::I16 => build_stream(
@@ -106,6 +111,7 @@ impl NativeAudio {
                 engine,
                 consumer,
                 Arc::clone(&shared),
+                limiter,
                 |sample| sample,
             )?,
             other => return Err(AudioError::UnsupportedFormat(format!("{other:?}"))),
@@ -157,6 +163,12 @@ impl NativeAudio {
         self.send(Command::SetMuting(muting));
     }
 
+    /// Changes the live playback volume boost. The limiter keeps the boosted
+    /// signal from clipping; this never touches a WAV render.
+    pub fn set_boost(&mut self, boost: f32) {
+        self.send(Command::SetBoost(boost));
+    }
+
     /// The rate the stream actually renders at: `config.frequency` if the
     /// device supported it, otherwise the device's default rate.
     #[must_use]
@@ -205,6 +217,7 @@ fn build_stream<T, F>(
     mut engine: PlayerEngine<Arc<Song>>,
     mut commands: rtrb::Consumer<Command>,
     shared: Arc<SharedState>,
+    mut limiter: BoostLimiter,
     convert: F,
 ) -> Result<cpal::Stream, cpal::Error>
 where
@@ -220,6 +233,7 @@ where
                     Command::SeekMs(ms) => engine.seek_to_ms(ms),
                     Command::SeekPos(pos) => engine.seek_to_pos(pos),
                     Command::SetMuting(muting) => engine.set_muting(muting),
+                    Command::SetBoost(boost) => limiter.set_boost(boost),
                     Command::Rewind => engine.rewind(),
                 }
             }
@@ -231,6 +245,9 @@ where
             // `render` zeroes its own tail once the song ends, so the whole slice
             // is valid to convert.
             engine.render(&mut scratch[..frames * 2]);
+            // Boost + limit the i16 frames before conversion, so both device
+            // formats (f32 and i16) hear the identical limited signal.
+            limiter.process(&mut scratch[..frames * 2]);
             for (dst, &src) in out.iter_mut().zip(&scratch[..frames * 2]) {
                 *dst = convert(src);
             }

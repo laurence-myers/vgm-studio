@@ -119,6 +119,10 @@ pub trait AudioService {
     /// Replaces the channel/percussion muting, live.
     fn set_muting(&mut self, muting: Muting);
 
+    /// Sets the live playback volume boost. A limiter keeps the boosted signal
+    /// from clipping. Never affects a WAV render or the waveform.
+    fn set_boost(&mut self, boost: f32);
+
     fn is_playing(&self) -> bool;
 
     /// Whether the loaded song has played to its end.

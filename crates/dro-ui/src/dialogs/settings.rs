@@ -9,6 +9,10 @@ use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
 pub struct SettingsDialog {
+    /// The config the dialog opened from. `save` starts here, not from the
+    /// defaults, so fields the dialog does not expose (e.g. `audio.boost`) are
+    /// preserved rather than silently reset.
+    original: AppConfig,
     frequency: String,
     buffer_size: String,
     bit_depth: u16,
@@ -23,6 +27,7 @@ impl SettingsDialog {
     #[must_use]
     pub fn new(config: &AppConfig) -> Self {
         Self {
+            original: *config,
             frequency: config.audio.frequency.to_string(),
             buffer_size: config.audio.buffer_size.to_string(),
             bit_depth: config.audio.bit_depth,
@@ -143,7 +148,9 @@ impl SettingsDialog {
     /// Parses, validates and emits the new settings; `false` (with an error
     /// box queued) if anything is invalid.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
-        let mut config = AppConfig::default();
+        // Start from the config the dialog opened with, so fields it does not
+        // edit (like `audio.boost`, driven by the transport slider) survive.
+        let mut config = self.original;
         let parsed = (
             self.frequency.trim().parse::<u32>(),
             self.buffer_size.trim().parse::<u32>(),
@@ -164,8 +171,6 @@ impl SettingsDialog {
         config.ui.tail_length = tail_length;
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
-        // `config` started from `AppConfig::default()`, so every field must be
-        // copied back or it silently resets on save -- the theme included.
         config.ui.theme = self.theme;
 
         if let Err(error) = config.validate() {

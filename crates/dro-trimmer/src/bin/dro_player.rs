@@ -35,6 +35,11 @@ struct Args {
     /// Render to a WAV file instead of playing through the speakers.
     #[arg(short = 'r', long = "render")]
     render: bool,
+    /// Volume boost multiplier, applied through a limiter that prevents
+    /// clipping. Overrides drotrim.ini for playback; with --render it boosts the
+    /// WAV, which is otherwise rendered at the un-boosted level.
+    #[arg(short = 'b', long = "boost")]
+    boost: Option<f32>,
 }
 
 fn main() -> Result<()> {
@@ -51,23 +56,39 @@ fn main() -> Result<()> {
     let song = read_song(name, &bytes)?;
     println!("{}", song.pretty_string());
 
-    let config = load_config();
+    let mut config = load_config();
+    if let Some(boost) = args.boost {
+        config.audio.boost = boost;
+        // Reuse the config's 1..=16 range check for the CLI override.
+        config
+            .validate()
+            .with_context(|| format!("invalid --boost {boost}"))?;
+    }
     let total_ms = total_delay_with_write_delay_ms(&song, config.audio.chip_write_delay);
 
     if args.render {
-        let wav = dro_synth::render_wav(
+        // A render is faithful to the source unless an explicit --boost is given;
+        // the drotrim.ini / GUI boost never affects it, so default to 1.0 here
+        // rather than reading `config.audio.boost`.
+        let boost = args.boost.unwrap_or(1.0);
+        let wav = dro_synth::render_wav_boosted(
             &song,
             config.audio.frequency,
             config.audio.bit_depth,
             config.audio.chip_write_delay,
+            boost,
         )?;
         let output = append_extension(&args.input, "wav");
         std::fs::write(&output, wav).with_context(|| format!("writing {}", output.display()))?;
-        println!(
-            "Rendered {} ({})",
-            output.display(),
-            ms_to_timestr(total_ms)
-        );
+        if boost == 1.0 {
+            println!("Rendered {} ({})", output.display(), ms_to_timestr(total_ms));
+        } else {
+            println!(
+                "Rendered {} ({}) at boost {boost}x",
+                output.display(),
+                ms_to_timestr(total_ms)
+            );
+        }
     } else {
         play(song, &config.audio, total_ms)?;
     }

@@ -39,6 +39,12 @@ pub enum Action {
     TogglePlayback,
     /// Jump the play position back to the very start.
     RewindToStart,
+    /// The boost slider moved. `persist` is set once the interaction ends,
+    /// so drotrim.ini is written once per adjustment, not per frame.
+    SetBoost {
+        value: f32,
+        persist: bool,
+    },
 
     // Table navigation
     NextDelay,

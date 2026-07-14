@@ -9,16 +9,18 @@
 
 pub mod capture;
 pub mod engine;
+pub mod limiter;
 pub mod opl;
 pub mod wav;
 pub mod waveform;
 
 pub use capture::capture;
 pub use engine::{FrameClock, Muting, PlayerEngine, Position};
+pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
-pub use wav::{render_wav, render_wav_muted};
+pub use wav::{render_wav, render_wav_boosted, render_wav_muted};
 pub use waveform::{
     WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,
     render_waveform_progressive,
