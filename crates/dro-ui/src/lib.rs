@@ -21,6 +21,8 @@ pub mod selection;
 pub mod tasks;
 #[cfg(test)]
 mod test_song;
+#[cfg(test)]
+mod test_support;
 pub mod theme;
 pub mod widgets;
 

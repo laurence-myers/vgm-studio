@@ -1170,6 +1170,12 @@ impl eframe::App for DroApp {
     }
 }
 
+// The headless GUI tests live in their own file but mount here, as a child
+// module of `app`, so they can read `DroApp`'s private fields directly.
+#[cfg(test)]
+#[path = "app_gui_tests.rs"]
+mod gui_tests;
+
 impl fmt::Debug for DroApp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DroApp")

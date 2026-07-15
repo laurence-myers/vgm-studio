@@ -33,6 +33,11 @@ dro-ui = { path = "crates/dro-ui" }
 eframe = "0.32.3"
 egui = "0.32.3"
 egui_extras = "0.32.3"
+# Headless GUI test harness (dev-only, consumed by dro-ui's dev-dependencies).
+# Moves in lock-step with egui/eframe above -- same 0.32 line, same MSRV. The
+# `eframe` feature drives DroApp through `Harness`; `snapshot` + `wgpu` add
+# PNG visual-regression rendering (via the DX12 WARP adapter on headless Windows).
+egui_kittest = { version = "0.32.3", features = ["eframe", "snapshot", "wgpu"] }
 # Native file dialogs (Step 6). The web build uses its own picker (Step 8).
 rfd = "0.17"
 

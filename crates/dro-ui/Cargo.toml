@@ -16,5 +16,10 @@ egui.workspace = true
 egui_extras.workspace = true
 log.workspace = true
 
+[dev-dependencies]
+# Headless GUI tests (interaction + snapshot). See the workspace manifest for
+# why this is pinned to the 0.32 line.
+egui_kittest.workspace = true
+
 [lints]
 workspace = true

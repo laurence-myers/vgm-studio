@@ -11,3 +11,8 @@ docs/readme.html
 
 # Rust
 /target/
+
+# egui_kittest snapshot diffs (the committed baselines are the *.png without a
+# suffix; these are regenerated on every failing run).
+crates/dro-ui/tests/snapshots/*.new.png
+crates/dro-ui/tests/snapshots/*.diff.png
