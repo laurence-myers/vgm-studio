@@ -1,0 +1,44 @@
+***********************************************
+* VGM music package                           *
+* http://vgmrips.net/                         *
+***********************************************
+Game name:           Game-With-Cool-Music
+System:              IBM PC/AT
+OS:                  DOS
+Music hardware:      Soundcard Name/OPL?
+                     (YM????)
+
+Music author:        I.P. Freely, another one,
+                     next author
+Game developer:      AM2; Sonic Team
+Game publisher:      Sega / Co-Publisher
+Game release date:   YYYY-MM-DD
+
+Package created by:  Al Koholic
+Package version:     1.00
+
+Song list, in approximate game order:
+Song name                           Length:
+                                    Total  Loop
+01 Example looping track            9:52   1:34
+02 Example non-looping track        0:16   -
+03 Example track with a very long
+   title that goes over multiple
+   lines                            1:30   -
+
+Total Length                       10:08  11:42
+
+
+Notes:
+Feel free to write comments about anything
+related to this pack.
+
+
+Package history:
+1.00 1999-12-31 Al Koholic: Initial release.
+1.01 2000-01-01 Al Koholic: Tags corrected.
+1.10 2001-06-66 Al Koholic: Songs retrimmed.
+2.00 2009-08-08 You: Description and
+ cover added.
+3.00 3168-02-30 LastManOnEarth: Added lost 
+ song.

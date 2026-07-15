@@ -397,6 +397,12 @@ fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
     if fields.last().is_some_and(String::is_empty) {
         fields.pop();
     }
+    // Some real encoders append further empty fields (a doubled final terminator,
+    // seen on the Doom rips); drop those extras rather than reject an otherwise
+    // valid eleven-field tag. A tag that is genuinely short is still an error.
+    while fields.len() > GD3_FIELD_COUNT && fields.last().is_some_and(String::is_empty) {
+        fields.pop();
+    }
     let count = fields.len();
     let fields: [String; GD3_FIELD_COUNT] = fields.try_into().map_err(|_| {
         Error::file(format!(
@@ -883,6 +889,18 @@ mod tests {
         bytes[8..12].copy_from_slice(&(length as u32).to_le_bytes());
         let error = parse_gd3_tag(&bytes, 0).unwrap_err().to_string();
         assert!(error.contains("expected 11"), "{error}");
+    }
+
+    #[test]
+    fn gd3_tolerates_extra_trailing_empty_fields() {
+        // Some encoders (the Doom rips among them) append a doubled final
+        // terminator, leaving a twelfth empty field. It parses as the real eleven.
+        let original = tag();
+        let mut bytes = write_gd3_tag(&original);
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // one extra empty field
+        let length = bytes.len() - 12;
+        bytes[8..12].copy_from_slice(&(length as u32).to_le_bytes());
+        assert_eq!(parse_gd3_tag(&bytes, 0).unwrap(), original);
     }
 
     #[test]

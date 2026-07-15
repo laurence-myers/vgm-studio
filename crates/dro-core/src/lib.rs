@@ -12,6 +12,7 @@ pub mod convert;
 pub mod error;
 pub mod io;
 pub mod regdata;
+pub mod rip;
 pub mod song;
 pub mod undo;
 pub mod util;
@@ -19,6 +20,7 @@ pub mod vgm;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, total_delay_with_write_delay_ms};
 pub use error::{Error, Result};
+pub use rip::{RipMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
     SongFileType,

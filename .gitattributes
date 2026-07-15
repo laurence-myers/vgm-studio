@@ -1,0 +1,4 @@
+# The VGMRips description template is a golden fixture: its LF line endings and
+# trailing whitespace are load-bearing for the rip-module parse test. Keep it
+# byte-for-byte on checkout regardless of the platform's autocrlf setting.
+tests/description_vgm151_PC.txt -text
