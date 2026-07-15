@@ -878,6 +878,9 @@ impl DroApp {
                 self.close_song_dialogs();
                 self.waveform = WaveformState::default();
                 self.submit_waveform(None);
+                // A fresh song starts with every channel audible; stale
+                // mute/solo state from the previous song must not carry over.
+                self.channels = ChannelPanel::new();
                 // Unload, not pause: the old stream's position must not leak
                 // into the fresh cursor/readout via the end-of-playback
                 // update below.
