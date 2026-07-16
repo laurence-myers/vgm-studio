@@ -72,6 +72,22 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 
+# Rip-mode packaging (native only; never dro-core/dro-ui/wasm).
+# zip 7.2 is the newest non-yanked release whose MSRV (1.83) fits the workspace's
+# 1.85 (7.3.0 is yanked; 7.4+/8.x need rustc 1.88). `deflate-flate2` only: the
+# default `deflate` feature pulls zopfli and flips flate2 to its zlib-rs backend,
+# which would unify across the workspace and break dro-core's VGZ byte parity.
+# With deflate-flate2 the backend comes solely from the flate2 `rust_backend` pin.
+zip = { version = "7.2", default-features = false, features = ["deflate-flate2"] }
+# PNG optimiser for the pack screenshots. 10.x declares rust-version 1.85.1, a
+# patch above the workspace MSRV, so the resolver would reject it. Drop the CLI
+# (`binary`), `filetime` and `zopfli`; keep `parallel` (rayon). Pulls libdeflater,
+# which builds the C libdeflate via `cc` -- native only, MSVC is already required.
+oxipng = { version = "9.1", default-features = false, features = ["parallel"] }
+# Local-timezone "today" for the prefilled package-history line. `clock` enables
+# `Local::now()`; no default features (no oldtime, no wasm bindings).
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
 # `fork`/`timeout` are on by default and pull in process spawning (rusty-fork,
 # tempfile), which is neither needed nor wasm-friendly.
 proptest = { version = "1", default-features = false, features = ["std"] }

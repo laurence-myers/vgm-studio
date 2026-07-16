@@ -2,8 +2,10 @@
 //! `dro_split` CLI tools, and the platform services behind the `drotrim` GUI.
 
 pub mod config;
+pub mod rip_zip;
 pub mod services;
 pub mod split;
 
 pub use config::load_config;
+pub use rip_zip::{RipZipOutput, build_rip_zip};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split};

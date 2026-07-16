@@ -17,7 +17,9 @@ use dro_core::Song;
 use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
 use dro_synth::Muting;
 
-use crate::platform::{AudioService, FileService, PickedFile, SaveOutcome, SaveRequest};
+use crate::platform::{
+    AudioService, FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+};
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
 // -- files -------------------------------------------------------------------
@@ -33,6 +35,13 @@ pub(crate) struct FileLog {
     pub pick_open_calls: usize,
     pub opened_paths: Vec<PathBuf>,
     pub save_requests: Vec<SaveRequest>,
+    /// Fed to `poll_folder`, front first (rip mode).
+    pub picked_folders: VecDeque<Result<PickedFolder, String>>,
+    pub pick_folder_calls: usize,
+    pub opened_folder_paths: Vec<PathBuf>,
+    /// Fed to `poll_renamed`, front first.
+    pub rename_outcomes: VecDeque<Result<(), String>>,
+    pub rename_requests: Vec<(PathBuf, String)>,
 }
 
 #[derive(Debug)]
@@ -57,6 +66,26 @@ impl FileService for FakeFileService {
 
     fn poll_saved(&mut self) -> Option<SaveOutcome> {
         self.0.borrow_mut().save_outcomes.pop_front()
+    }
+
+    fn pick_folder(&mut self) {
+        self.0.borrow_mut().pick_folder_calls += 1;
+    }
+
+    fn open_folder_path(&mut self, path: PathBuf) {
+        self.0.borrow_mut().opened_folder_paths.push(path);
+    }
+
+    fn poll_folder(&mut self) -> Option<Result<PickedFolder, String>> {
+        self.0.borrow_mut().picked_folders.pop_front()
+    }
+
+    fn rename(&mut self, from: PathBuf, to_name: String) {
+        self.0.borrow_mut().rename_requests.push((from, to_name));
+    }
+
+    fn poll_renamed(&mut self) -> Option<Result<(), String>> {
+        self.0.borrow_mut().rename_outcomes.pop_front()
     }
 }
 
@@ -176,7 +205,10 @@ pub(crate) struct NoopTaskService(pub(crate) Rc<RefCell<TaskLog>>);
 
 impl TaskService for NoopTaskService {
     fn submit(&mut self, request: TaskRequest, debounce: Option<Duration>) {
-        self.0.borrow_mut().submitted.push((request.kind(), debounce));
+        self.0
+            .borrow_mut()
+            .submitted
+            .push((request.kind(), debounce));
     }
 
     fn cancel(&mut self, kind: TaskKind) {

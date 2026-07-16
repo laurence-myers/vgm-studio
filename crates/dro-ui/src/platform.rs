@@ -29,6 +29,21 @@ pub struct PickedFile {
     pub bytes: Vec<u8>,
 }
 
+/// A folder the user opened as a rip project: its name, path (native only), and
+/// the relevant files it holds, each with bytes already read.
+///
+/// The native scan is non-recursive and keeps only `.vgm`/`.vgz`/`.png`/`.txt`,
+/// sorted case-insensitively by name -- everything rip mode needs to show a track
+/// list, the screenshots, and any existing description.
+#[derive(Debug, Clone)]
+pub struct PickedFolder {
+    /// The folder's own name, without any parent directory.
+    pub name: String,
+    /// The full path, for saving the description/playlist back. `None` on the web.
+    pub path: Option<PathBuf>,
+    pub files: Vec<PickedFile>,
+}
+
 /// Where a save should go.
 #[derive(Debug, Clone)]
 pub enum SaveRequest {
@@ -73,10 +88,34 @@ pub trait FileService {
     fn poll_picked(&mut self) -> Option<Result<PickedFile, String>>;
 
     /// Starts a save.
+    ///
+    /// Saves are honoured in order, one [`SaveOutcome`] per call: rip mode fires
+    /// the description and the playlist back to back and correlates the outcomes
+    /// by that FIFO order, so an implementation must not coalesce or drop a
+    /// pending outcome when a second save arrives before the first is polled.
     fn save(&mut self, request: SaveRequest);
 
-    /// The outcome of the most recent [`Self::save`].
+    /// The next save outcome, oldest first. `None` when none is waiting.
     fn poll_saved(&mut self) -> Option<SaveOutcome>;
+
+    /// Opens the platform's folder picker (rip mode).
+    fn pick_folder(&mut self);
+
+    /// Scans the folder at `path` -- the drag-and-drop / command-line case, where
+    /// a directory is handed over instead of a file.
+    fn open_folder_path(&mut self, path: PathBuf);
+
+    /// The folder from the most recent [`Self::pick_folder`] /
+    /// [`Self::open_folder_path`], or an error to show. `None` until one arrives.
+    fn poll_folder(&mut self) -> Option<Result<PickedFolder, String>>;
+
+    /// Renames the file at `from` to the bare name `to_name`, in the same
+    /// directory (rip mode's quick-edit). Must fail rather than overwrite an
+    /// existing file.
+    fn rename(&mut self, from: PathBuf, to_name: String);
+
+    /// The outcome of the most recent [`Self::rename`]. `None` until it arrives.
+    fn poll_renamed(&mut self) -> Option<Result<(), String>>;
 }
 
 /// Owns the platform's audio output and the `PlayerEngine` behind it.
@@ -141,4 +180,71 @@ pub trait AudioService {
     /// from the configured frequency if the device rejected it -- positions
     /// report frames at *this* rate.
     fn output_rate(&self) -> Option<u32>;
+}
+
+/// What a [`RipEntry`] is, which decides how the export job treats its bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RipEntryKind {
+    /// A `.vgm`/`.vgz` song. Gzipped to `.vgz` when the job asks for it.
+    Song,
+    /// A `.png` screenshot. Optimised with oxipng.
+    Image,
+    /// A generated `.txt`/`.m3u` document. Stored verbatim.
+    Doc,
+}
+
+/// One file bound for the release zip.
+#[derive(Debug, Clone)]
+pub struct RipEntry {
+    /// The name inside the zip (flat -- no directories).
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub kind: RipEntryKind,
+}
+
+/// A request to build a release zip. The entries are already in final order.
+#[derive(Debug, Clone)]
+pub struct RipJobRequest {
+    /// The suggested file name for the finished archive, e.g. `"Game Name.zip"`.
+    pub zip_name: String,
+    pub entries: Vec<RipEntry>,
+    /// Whether to gzip `.vgm` songs to `.vgz` (renaming the entry).
+    pub gzip_vgms: bool,
+}
+
+/// What became of a [`RipJobRequest`].
+#[derive(Debug, Clone)]
+pub enum RipJobOutcome {
+    Done {
+        zip_name: String,
+        bytes: Vec<u8>,
+        /// Human-readable notes (per-PNG savings, counts) for the status line.
+        log: Vec<String>,
+    },
+    Failed(String),
+}
+
+/// Runs the rip export off the UI thread: optimise PNGs, optionally gzip songs,
+/// and build the zip. Kept separate from [`crate::tasks::TaskService`] because
+/// its job body needs native-only crates (zip, oxipng) that must not reach the
+/// wasm-clean `run_task`.
+pub trait RipService {
+    /// Starts building a release zip, superseding any job already running.
+    fn submit(&mut self, request: RipJobRequest);
+
+    /// The finished archive (or a failure), once ready. `None` until then.
+    fn poll(&mut self) -> Option<RipJobOutcome>;
+
+    /// Whether a job is in flight, for the status line.
+    fn is_busy(&self) -> bool;
+
+    /// Cancels the running job, if any.
+    fn cancel(&mut self);
+
+    /// Today's local date as `(year, month, day)`, for the prefilled history
+    /// line. The default returns `None`, keeping the wasm-clean UI free of a
+    /// clock; native shells override it.
+    fn today(&self) -> Option<(i32, u8, u8)> {
+        None
+    }
 }

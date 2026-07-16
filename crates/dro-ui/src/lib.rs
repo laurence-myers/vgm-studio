@@ -27,5 +27,8 @@ pub mod theme;
 pub mod widgets;
 
 pub use app::DroApp;
-pub use platform::{AudioService, ConfigStore, FileService, PickedFile, SaveOutcome, SaveRequest};
+pub use platform::{
+    AudioService, ConfigStore, FileService, PickedFile, PickedFolder, RipEntry, RipEntryKind,
+    RipJobOutcome, RipJobRequest, RipService, SaveOutcome, SaveRequest,
+};
 pub use tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
