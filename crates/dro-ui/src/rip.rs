@@ -16,7 +16,7 @@ use dro_core::rip::{
     DEFAULT_OS, DEFAULT_SYSTEM, RipMeta, TrackEntry, doc_file_stem, format_track_time,
     generate_description, generate_m3u, music_hardware_suggestion, parse_description,
 };
-use dro_core::{OplType, Song};
+use dro_core::{Gd3Tag, OplType, Song};
 use egui_extras::{Column, TableBuilder};
 
 use crate::action::Action;
@@ -348,9 +348,21 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
         }
 
         crate::theme::separator_full(ui, palette);
-        track_table(ui, state, palette);
+        track_table(ui, state, palette, actions);
         screenshots(ui, state, palette);
     });
+}
+
+/// Re-serialises `song` under `new_name` with `tag` applied. The name drives the
+/// output format, so a `.vgm` -> `.vgz` rename gzips the result. Used by the
+/// quick-edit dialog to rewrite a track without loading it into the editor.
+pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8>, String> {
+    let mut song = song.clone();
+    song.name = new_name.to_owned();
+    if let Some(meta) = song.vgm_meta_mut() {
+        meta.tag = Some(tag);
+    }
+    dro_core::io::write_song(&song).map_err(|error| error.to_string())
 }
 
 /// A labelled single-line field. Returns whether it changed.
@@ -377,24 +389,26 @@ fn multiline(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut Stri
     response.changed()
 }
 
-fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
+fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: &mut Vec<Action>) {
     ui.label(
-        egui::RichText::new("Tracks")
+        egui::RichText::new("Tracks (double-click to open in the editor)")
             .color(palette.data_label)
             .strong(),
     );
-    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
     TableBuilder::new(ui)
         .striped(true)
+        .sense(egui::Sense::click())
         .column(Column::auto().at_least(30.0)) // #
-        .column(Column::remainder().at_least(160.0)) // File
-        .column(Column::remainder().at_least(160.0)) // Title (GD3)
+        .column(Column::remainder().at_least(140.0)) // File
+        .column(Column::remainder().at_least(140.0)) // Title (GD3)
         .column(Column::auto().at_least(55.0)) // Total
         .column(Column::auto().at_least(55.0)) // Loop
+        .column(Column::auto().at_least(80.0)) // actions
         .min_scrolled_height(0.0)
-        .max_scroll_height(320.0)
+        .max_scroll_height(300.0)
         .header(row_height + 2.0, |mut header| {
-            for title in ["#", "File", "Title (GD3)", "Total", "Loop"] {
+            for title in ["#", "File", "Title (GD3)", "Total", "Loop", ""] {
                 header.col(|ui| {
                     ui.label(
                         egui::RichText::new(title)
@@ -448,6 +462,30 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
                                         .color(palette.muted),
                                 );
                             });
+                            row.col(|ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 3.0;
+                                    let previewing = state.preview == Some(index);
+                                    // U+25A0 stop / U+25B6 play.
+                                    let symbol = if previewing { "\u{25A0}" } else { "\u{25B6}" };
+                                    if bevel::button(ui, palette, symbol)
+                                        .on_hover_text("Preview")
+                                        .clicked()
+                                    {
+                                        actions.push(if previewing {
+                                            Action::RipStopPreview
+                                        } else {
+                                            Action::RipTrackPreview(index)
+                                        });
+                                    }
+                                    if bevel::button(ui, palette, "Edit\u{2026}")
+                                        .on_hover_text("Rename and edit the GD3 tag")
+                                        .clicked()
+                                    {
+                                        actions.push(Action::OpenTrackQuickEdit(index));
+                                    }
+                                });
+                            });
                         }
                         Err(error) => {
                             row.col(|ui| {
@@ -456,7 +494,12 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
                             });
                             row.col(|_ui| {});
                             row.col(|_ui| {});
+                            row.col(|_ui| {});
                         }
+                    }
+
+                    if row.response().double_clicked() {
+                        actions.push(Action::RipTrackOpen(index));
                     }
                 });
             }
@@ -588,6 +631,41 @@ mod tests {
         let state = RipState::from_folder(folder("Pack", files), Some((2026, 7, 16)));
         assert!(state.parse_warning.is_some());
         assert_eq!(state.meta.game_name, "GD3 Game", "prefilled from GD3");
+    }
+
+    #[test]
+    fn retagged_bytes_applies_the_tag_and_follows_the_new_extension() {
+        let song = dro_core::io::read_song("01 Old.vgm", VGM_FIXTURE).unwrap();
+        let new_tag = Gd3Tag {
+            track_name_en: "Renamed Track".to_owned(),
+            ..Gd3Tag::default()
+        };
+
+        // Same extension: uncompressed VGM bytes carrying the new tag.
+        let vgm = retagged_bytes(&song, "01 New.vgm", new_tag.clone()).unwrap();
+        assert!(
+            !dro_core::vgm::io::is_gzipped(&vgm),
+            "a .vgm stays uncompressed"
+        );
+        let reparsed = dro_core::io::read_song("01 New.vgm", &vgm).unwrap();
+        assert_eq!(
+            reparsed
+                .vgm_meta()
+                .unwrap()
+                .tag
+                .as_ref()
+                .unwrap()
+                .track_name_en,
+            "Renamed Track"
+        );
+
+        // A .vgz name gzips the same bytes.
+        let vgz = retagged_bytes(&song, "01 New.vgz", new_tag).unwrap();
+        assert!(dro_core::vgm::io::is_gzipped(&vgz), "a .vgz is gzipped");
+        assert_eq!(
+            dro_core::io::read_song("01 New.vgz", &vgz).unwrap().name,
+            "01 New.vgz"
+        );
     }
 
     #[test]

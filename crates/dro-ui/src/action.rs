@@ -50,6 +50,20 @@ pub enum Action {
     ConfirmCloseRip,
     /// Write the generated Game Name.txt and Game Name.m3u into the folder.
     RipSaveDocs,
+    /// Open a track in the editor (double-click / button in the track list).
+    RipTrackOpen(usize),
+    /// Preview a track through the audio output.
+    RipTrackPreview(usize),
+    /// Stop the track preview.
+    RipStopPreview,
+    /// Open the quick-edit dialog (rename + GD3) for a track.
+    OpenTrackQuickEdit(usize),
+    /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
+    QuickEditSubmitted {
+        index: usize,
+        file_name: String,
+        tag: Box<Gd3Tag>,
+    },
 
     // Help
     Help,

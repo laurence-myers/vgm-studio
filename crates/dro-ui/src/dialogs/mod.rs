@@ -12,6 +12,7 @@ pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
 pub mod settings;
+pub mod track_edit;
 pub mod vgm_metadata;
 
 pub use dro_info::DroInfoDialog;
@@ -19,6 +20,7 @@ pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use settings::SettingsDialog;
+pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
 /// The open dialogs. One of each at most -- reopening replaces the instance,
@@ -31,6 +33,8 @@ pub struct Dialogs {
     pub gd3_tag: Option<Gd3TagDialog>,
     pub vgm_metadata: Option<VgmMetadataDialog>,
     pub settings: Option<SettingsDialog>,
+    /// Rip mode's per-track quick edit (rename + GD3).
+    pub track_edit: Option<TrackEditDialog>,
 }
 
 impl Dialogs {
@@ -47,6 +51,7 @@ impl Dialogs {
         retain(&mut self.gd3_tag, |d| d.show(ctx, palette, actions));
         retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
         retain(&mut self.settings, |d| d.show(ctx, palette, actions));
+        retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
     }
 }
 

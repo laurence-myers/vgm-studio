@@ -606,10 +606,107 @@ fn editor_keys_are_ignored_on_the_rip_tab() {
     );
 }
 
+/// A one-track folder, so the per-row ▶/Edit buttons are unambiguous.
+fn single_track_folder() -> PickedFolder {
+    rip_folder(
+        "Cool Game",
+        vec![tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper")],
+    )
+}
+
+#[test]
+fn previewing_a_track_plays_it_and_stop_halts_it() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+
+    // U+25B6 play.
+    harness.get_by_label("\u{25B6}").click();
+    harness.run_steps(3); // playback requests repaints; `run` would spin.
+    {
+        let audio = handles.audio.borrow();
+        assert!(audio.load_count >= 1, "the track is loaded into the output");
+        assert_eq!(audio.play_calls, 1);
+        assert!(audio.playing);
+    }
+    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(0));
+
+    // The button now shows U+25A0 stop.
+    harness.get_by_label("\u{25A0}").click();
+    harness.run_steps(3);
+    assert!(!handles.audio.borrow().playing);
+    assert_eq!(harness.state().rip.as_ref().unwrap().preview, None);
+}
+
+#[test]
+fn opening_a_track_loads_it_into_the_editor() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+
+    // A row double-click emits RipTrackOpen; kittest cannot double-click, so
+    // drive the handler directly (the row-sense wiring is trivial UI code).
+    harness.state_mut().open_track_in_editor(0);
+    harness.run();
+
+    assert_eq!(harness.state().active_tab, AppTab::Editor);
+    assert!(
+        harness.state().editor.has_song(),
+        "the track loaded into the editor"
+    );
+    assert!(harness.state().rip.is_some(), "the rip project is retained");
+}
+
+#[test]
+fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+
+    harness.get_by_label("Edit\u{2026}").click();
+    harness.run();
+    assert!(
+        harness.state().dialogs.track_edit.is_some(),
+        "the quick-edit dialog opens"
+    );
+
+    // Save without changing the name: an in-place rewrite, no rename.
+    harness.get_by_label("Save").click();
+    harness.run();
+
+    let files = handles.files.borrow();
+    assert_eq!(
+        files.save_requests.len(),
+        1,
+        "the track is rewritten in place"
+    );
+    match &files.save_requests[0] {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(path.to_string_lossy().ends_with("01 Intro.vgz"));
+            assert!(
+                dro_core::io::read_song("01 Intro.vgz", bytes).is_ok(),
+                "the rewritten bytes are a valid VGZ"
+            );
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+    assert!(
+        files.rename_requests.is_empty(),
+        "an unchanged name is not renamed"
+    );
+}
+
 #[test]
 fn snapshot_rip_view() {
     let (mut harness, handles) = build(None, false, true);
     open_folder(&mut harness, &handles, cool_game_folder());
     harness.run();
     harness.snapshot("rip_view");
+}
+
+#[test]
+fn snapshot_track_edit_dialog() {
+    let (mut harness, handles) = build(None, false, true);
+    open_folder(&mut harness, &handles, single_track_folder());
+    harness.get_by_label("Edit\u{2026}").click();
+    harness.run();
+    harness.snapshot("track_edit_dialog");
 }

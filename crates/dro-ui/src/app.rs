@@ -5,15 +5,15 @@ use core::fmt;
 use core::time::Duration;
 use std::collections::VecDeque;
 
-use dro_core::FindTarget;
 use dro_core::config::{AppConfig, ConfigStore};
+use dro_core::{FindTarget, Gd3Tag};
 use egui::Key;
 
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, SettingsDialog,
-    VgmMetadataDialog,
+    TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::menus::{self, MenuState};
@@ -105,6 +105,8 @@ enum SavePurpose {
     Song,
     /// A rip project's description or playlist.
     RipDoc,
+    /// A track rewritten in place by the quick-edit dialog.
+    TrackRewrite,
 }
 
 pub struct DroApp {
@@ -527,6 +529,15 @@ impl DroApp {
                     .push_back(Alert::new("Failed to open folder", message)),
             }
         }
+        if let Some(result) = self.files.poll_renamed() {
+            match result {
+                Ok(()) => {
+                    self.rescan_rip_folder();
+                    self.status = "Renamed track; rip folder rescanned.".to_owned();
+                }
+                Err(message) => self.alerts.push_back(Alert::new("Rename failed", message)),
+            }
+        }
         if let Some(outcome) = self.files.poll_saved() {
             // Outcomes arrive in the order the saves were made, so a FIFO of
             // purposes routes each one to the editor or the rip project.
@@ -577,6 +588,12 @@ impl DroApp {
                             .map_or_else(String::new, RipState::doc_stem);
                         self.status = format!("Saved {stem}.txt and {stem}.m3u.");
                     }
+                }
+                SavePurpose::TrackRewrite => {
+                    // The file's bytes were rewritten; rescan so the list shows
+                    // the new tag. A rename, if any, rescans on its own outcome
+                    // too -- both refresh in place, harmlessly.
+                    self.rescan_rip_folder();
                 }
             },
             SaveOutcome::Cancelled => {}
@@ -756,27 +773,37 @@ impl DroApp {
         }
 
         let playing = self.audio.is_playing();
-        // One more update after playback ends, so the readout and cursor land
-        // on the exact final position instead of freezing a buffer short of
-        // it. (The Python's timer kept firing after the song finished.)
-        if playing || self.was_playing {
-            // A song that reached its end lands ~1 ms short of its length,
-            // because the frame counter and the ms readout each floor at a rate
-            // that need not divide evenly. Snap to the exact end so the ms and
-            // sample counters agree. A manual Stop is not `is_finished`, so its
-            // position is left exactly where playback paused.
-            let ended = !playing && self.was_playing && self.audio.is_finished();
-            if let Some(end) = ended
-                .then(|| self.editor.song().map(|song| song.total_delay_ms()))
-                .flatten()
-            {
-                self.waveform.cursor_ms = end;
-                self.position.set_position_ms(end);
-            } else if let Some(position) = self.audio.position() {
-                self.waveform.cursor_ms = position.elapsed_ms;
-                self.position.set_position(position);
+        if self.active_tab == AppTab::Editor {
+            // One more update after playback ends, so the readout and cursor land
+            // on the exact final position instead of freezing a buffer short of
+            // it. (The Python's timer kept firing after the song finished.)
+            if playing || self.was_playing {
+                // A song that reached its end lands ~1 ms short of its length,
+                // because the frame counter and the ms readout each floor at a
+                // rate that need not divide evenly. Snap to the exact end so the
+                // ms and sample counters agree. A manual Stop is not `is_finished`,
+                // so its position is left exactly where playback paused.
+                let ended = !playing && self.was_playing && self.audio.is_finished();
+                if let Some(end) = ended
+                    .then(|| self.editor.song().map(|song| song.total_delay_ms()))
+                    .flatten()
+                {
+                    self.waveform.cursor_ms = end;
+                    self.position.set_position_ms(end);
+                } else if let Some(position) = self.audio.position() {
+                    self.waveform.cursor_ms = position.elapsed_ms;
+                    self.position.set_position(position);
+                }
+                ctx.request_repaint_after(Duration::from_millis(16));
             }
-            ctx.request_repaint_after(Duration::from_millis(16));
+        } else if self.rip.as_ref().is_some_and(|rip| rip.preview.is_some()) {
+            // A rip preview: clear it once it finishes, and keep the frames
+            // coming while it plays (the rip view has no position readout).
+            if self.audio.is_finished() {
+                self.stop_preview();
+            } else if playing {
+                ctx.request_repaint_after(Duration::from_millis(100));
+            }
         }
         self.was_playing = playing;
         if self.tasks.is_busy() {
@@ -918,6 +945,15 @@ impl DroApp {
             }
             Action::ConfirmCloseRip => self.close_rip(),
             Action::RipSaveDocs => self.save_rip_docs(),
+            Action::RipTrackOpen(index) => self.open_track_in_editor(index),
+            Action::RipTrackPreview(index) => self.preview_track(index),
+            Action::RipStopPreview => self.stop_preview(),
+            Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
+            Action::QuickEditSubmitted {
+                index,
+                file_name,
+                tag,
+            } => self.quick_edit_submitted(index, file_name, *tag),
 
             Action::Help => self.alerts.push_back(Alert::new(HELP_TITLE, HELP_TEXT)),
             Action::About => self.alerts.push_back(Alert::new("About", about_text())),
@@ -1100,11 +1136,13 @@ impl DroApp {
             .as_ref()
             .is_some_and(|rip| rip.folder_path.is_some() && rip.folder_path == folder.path);
         if same {
+            self.stop_preview();
             if let Some(rip) = self.rip.as_mut() {
                 rip.refresh_files(folder);
             }
             return;
         }
+        self.stop_preview();
         let today = self.rip_service.today();
         let state = RipState::from_folder(folder, today);
         let warning = state.parse_warning.clone();
@@ -1112,6 +1150,7 @@ impl DroApp {
         self.rip = Some(state);
         self.active_tab = AppTab::Rip;
         self.close_song_dialogs();
+        self.close_rip_dialogs();
         // The editor's audio must not keep playing under the rip view.
         self.audio.unload();
         self.audio_revision = None;
@@ -1132,6 +1171,7 @@ impl DroApp {
         if self.active_tab == tab {
             return;
         }
+        self.stop_preview();
         self.active_tab = tab;
         // Returning to the rip tab re-scans the folder so edits made in the
         // editor (or renames) are reflected.
@@ -1143,6 +1183,8 @@ impl DroApp {
     }
 
     fn close_rip(&mut self) {
+        self.stop_preview();
+        self.close_rip_dialogs();
         self.rip = None;
         self.active_tab = AppTab::Editor;
         self.status = "Closed the rip project.".to_owned();
@@ -1181,6 +1223,128 @@ impl DroApp {
             };
             self.files.save(request);
         }
+    }
+
+    /// Previews a track through the audio output.
+    fn preview_track(&mut self, index: usize) {
+        let song = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.tracks.get(index))
+            .and_then(|track| track.song().cloned());
+        let Some(song) = song else {
+            return;
+        };
+        self.audio.pause();
+        if let Err(message) = self.audio.load(song, &self.config.audio) {
+            self.alerts.push_back(Alert::error(message));
+            return;
+        }
+        if let Err(message) = self.audio.play() {
+            self.alerts.push_back(Alert::error(message));
+            return;
+        }
+        if let Some(rip) = self.rip.as_mut() {
+            rip.preview = Some(index);
+        }
+        // The editor's audio snapshot is now this preview; force a reload before
+        // the editor's next play so it does not resume the wrong song.
+        self.audio_revision = None;
+    }
+
+    fn stop_preview(&mut self) {
+        if self.rip.as_ref().is_some_and(|rip| rip.preview.is_some()) {
+            self.audio.pause();
+            self.audio.rewind();
+            if let Some(rip) = self.rip.as_mut() {
+                rip.preview = None;
+            }
+            self.audio_revision = None;
+        }
+    }
+
+    /// Loads a track into the editor and switches to the editor tab. The rip
+    /// project is retained; returning to it rescans the folder.
+    fn open_track_in_editor(&mut self, index: usize) {
+        self.stop_preview();
+        let file = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.tracks.get(index))
+            .map(|track| PickedFile {
+                name: track.file_name.clone(),
+                path: track.path.clone(),
+                bytes: track.bytes.clone(),
+            });
+        let Some(file) = file else {
+            return;
+        };
+        self.load_file(file);
+        self.active_tab = AppTab::Editor;
+    }
+
+    fn open_track_quick_edit(&mut self, index: usize) {
+        let dialog = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.tracks.get(index))
+            .and_then(|track| {
+                let song = track.song()?;
+                let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
+                Some(TrackEditDialog::new(index, track.file_name.clone(), tag))
+            });
+        if let Some(dialog) = dialog {
+            self.dialogs.track_edit = Some(dialog);
+        }
+    }
+
+    /// Applies a quick edit: rewrite the track's bytes with the new tag (and, if
+    /// the name changed, rename the file). The list rescans on the outcomes.
+    fn quick_edit_submitted(&mut self, index: usize, new_name: String, tag: Gd3Tag) {
+        self.stop_preview();
+        let Some(track) = self.rip.as_ref().and_then(|rip| rip.tracks.get(index)) else {
+            return;
+        };
+        let old_name = track.file_name.clone();
+        let old_path = track.path.clone();
+        let bytes = match track.song() {
+            Some(song) => crate::rip::retagged_bytes(song, &new_name, tag),
+            None => return,
+        };
+        let bytes = match bytes {
+            Ok(bytes) => bytes,
+            Err(message) => {
+                self.alerts.push_back(Alert::error(message));
+                return;
+            }
+        };
+        if let Some(path) = old_path.clone() {
+            self.pending_saves.push_back(SavePurpose::TrackRewrite);
+            self.files.save(SaveRequest::InPlace { path, bytes });
+        }
+        if new_name != old_name {
+            if let Some(path) = old_path.clone() {
+                self.files.rename(path, new_name.clone());
+            }
+            // If the renamed file is the one open in the editor, drop its stale
+            // path so a later Ctrl+S does not resurrect the old name.
+            if self.editor.path == old_path {
+                self.editor.path = None;
+            }
+        }
+        self.status = format!("Updated {new_name}.");
+    }
+
+    fn rescan_rip_folder(&mut self) {
+        if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
+            self.files.open_folder_path(path);
+        }
+    }
+
+    /// Closes rip-bound dialogs (the quick-edit dialog), analogous to
+    /// [`Self::close_song_dialogs`].
+    fn close_rip_dialogs(&mut self) {
+        self.dialogs.track_edit = None;
     }
 
     fn do_play(&mut self) {
