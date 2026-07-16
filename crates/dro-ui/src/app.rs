@@ -18,7 +18,8 @@ use crate::dialogs::{
 use crate::editor::{Editor, LoadReport};
 use crate::menus::{self, MenuState};
 use crate::platform::{
-    AudioService, FileService, PickedFile, PickedFolder, RipService, SaveOutcome, SaveRequest,
+    AudioService, FileService, PickedFile, PickedFolder, RipJobOutcome, RipService, SaveOutcome,
+    SaveRequest,
 };
 use crate::rip::RipState;
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
@@ -107,6 +108,8 @@ enum SavePurpose {
     RipDoc,
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
+    /// The exported release zip (a Save-As dialog).
+    ExportZip,
 }
 
 pub struct DroApp {
@@ -283,6 +286,9 @@ impl DroApp {
                 ui.horizontal(|ui| {
                     ui.label(&self.status);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if self.rip_service.is_busy() {
+                            ui.label("Building rip zip...");
+                        }
                         if self.tasks.is_busy() {
                             ui.label("Rendering waveform...");
                         }
@@ -544,6 +550,29 @@ impl DroApp {
             let purpose = self.pending_saves.pop_front().unwrap_or(SavePurpose::Song);
             self.handle_save_outcome(purpose, outcome);
         }
+        if let Some(outcome) = self.rip_service.poll() {
+            match outcome {
+                RipJobOutcome::Done {
+                    zip_name,
+                    bytes,
+                    log,
+                } => {
+                    self.pending_saves.push_back(SavePurpose::ExportZip);
+                    self.files.save(SaveRequest::Dialog {
+                        suggested_name: zip_name,
+                        bytes,
+                    });
+                    self.status = if log.is_empty() {
+                        "Built the rip zip.".to_owned()
+                    } else {
+                        format!("Built the rip zip. {}", log.join(" "))
+                    };
+                }
+                RipJobOutcome::Failed(message) => self
+                    .alerts
+                    .push_back(Alert::new("Rip export failed", message)),
+            }
+        }
         for result in self.tasks.poll() {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
@@ -595,6 +624,12 @@ impl DroApp {
                     // too -- both refresh in place, harmlessly.
                     self.rescan_rip_folder();
                 }
+                SavePurpose::ExportZip => {
+                    let shown = path
+                        .as_ref()
+                        .map_or_else(|| name.clone(), |p| p.display().to_string());
+                    self.status = format!("Exported {shown}.");
+                }
             },
             SaveOutcome::Cancelled => {}
             SaveOutcome::Failed(message) => self
@@ -617,20 +652,25 @@ impl DroApp {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| file.name.clone());
         let lower = name.to_ascii_lowercase();
-        // Divergence: the Python accepted only .dro drops; every format the
-        // open dialog supports is accepted here.
-        if !(lower.ends_with(".dro") || lower.ends_with(".vgm") || lower.ends_with(".vgz")) {
-            return;
-        }
+        let is_song = lower.ends_with(".dro") || lower.ends_with(".vgm") || lower.ends_with(".vgz");
         if let Some(bytes) = file.bytes {
-            // The web path: eframe delivers the dropped file's contents.
-            self.load_file(PickedFile {
-                name,
-                path: None,
-                bytes: bytes.to_vec(),
-            });
+            // The web path: eframe delivers the dropped file's contents. Only
+            // songs are handled here (a dropped folder has no bytes).
+            if is_song {
+                self.load_file(PickedFile {
+                    name,
+                    path: None,
+                    bytes: bytes.to_vec(),
+                });
+            }
         } else if let Some(path) = file.path {
-            self.files.open_path(path);
+            // Native: a song opens in the editor; anything else (a folder, which
+            // has no extension) is handed to the file service, which routes a
+            // directory into rip mode. A junk file surfaces the usual "bad
+            // format" alert.
+            if is_song || path.extension().is_none() {
+                self.files.open_path(path);
+            }
         }
     }
 
@@ -806,7 +846,7 @@ impl DroApp {
             }
         }
         self.was_playing = playing;
-        if self.tasks.is_busy() {
+        if self.tasks.is_busy() || self.rip_service.is_busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
     }
@@ -945,6 +985,8 @@ impl DroApp {
             }
             Action::ConfirmCloseRip => self.close_rip(),
             Action::RipSaveDocs => self.save_rip_docs(),
+            Action::RipExportZip => self.export_rip_zip(false),
+            Action::ConfirmExportZip => self.export_rip_zip(true),
             Action::RipTrackOpen(index) => self.open_track_in_editor(index),
             Action::RipTrackPreview(index) => self.preview_track(index),
             Action::RipStopPreview => self.stop_preview(),
@@ -1223,6 +1265,36 @@ impl DroApp {
             };
             self.files.save(request);
         }
+    }
+
+    /// Builds and saves the release zip. Blocking validation errors abort;
+    /// non-blocking warnings prompt first unless `confirmed`.
+    fn export_rip_zip(&mut self, confirmed: bool) {
+        let Some(rip) = self.rip.as_ref() else {
+            return;
+        };
+        let validations = rip.validations();
+        let request = rip.export_request();
+        // The `rip` borrow ends here (validations and request are owned).
+        if !validations.errors.is_empty() {
+            self.alerts
+                .push_back(Alert::error(validations.errors.join("\n")));
+            return;
+        }
+        if !validations.warnings.is_empty() && !confirmed {
+            self.alerts.push_back(Alert::confirm(
+                "Export anyway?",
+                format!("{}\n\nExport anyway?", validations.warnings.join("\n")),
+                Action::ConfirmExportZip,
+            ));
+            return;
+        }
+        // Keep the folder's own docs in step with the zip's.
+        if self.rip.as_ref().is_some_and(|rip| rip.dirty) {
+            self.save_rip_docs();
+        }
+        self.rip_service.submit(request);
+        self.status = "Building rip zip...".to_owned();
     }
 
     /// Previews a track through the audio output.

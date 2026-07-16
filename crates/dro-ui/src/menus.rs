@@ -117,6 +117,9 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, state.has_rip, "Save Package Files", None) {
                 actions.push(Action::RipSaveDocs);
             }
+            if enabled_item(ui, state.has_rip, "Export Zip...", None) {
+                actions.push(Action::RipExportZip);
+            }
             crate::theme::separator(ui, palette);
             if enabled_item(ui, state.has_rip, "Close Rip", None) {
                 actions.push(Action::CloseRip);

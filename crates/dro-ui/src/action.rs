@@ -50,6 +50,10 @@ pub enum Action {
     ConfirmCloseRip,
     /// Write the generated Game Name.txt and Game Name.m3u into the folder.
     RipSaveDocs,
+    /// Build the release zip and save it (prompts first on soft warnings).
+    RipExportZip,
+    /// Build the release zip after the user accepted the warnings.
+    ConfirmExportZip,
     /// Open a track in the editor (double-click / button in the track list).
     RipTrackOpen(usize),
     /// Preview a track through the audio output.

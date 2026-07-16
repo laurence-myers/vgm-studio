@@ -20,7 +20,7 @@ use dro_core::{Gd3Tag, OplType, Song};
 use egui_extras::{Column, TableBuilder};
 
 use crate::action::Action;
-use crate::platform::{PickedFile, PickedFolder};
+use crate::platform::{PickedFile, PickedFolder, RipEntry, RipEntryKind, RipJobRequest};
 use crate::theme::{Palette, bevel};
 
 /// One song file in the rip: its bytes (kept for export and opening in the
@@ -177,6 +177,109 @@ impl RipState {
     pub fn can_save(&self) -> bool {
         !self.meta.game_name.trim().is_empty()
     }
+
+    /// Blocking errors and non-blocking warnings for an export.
+    #[must_use]
+    pub fn validations(&self) -> RipValidations {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+
+        if self.meta.game_name.trim().is_empty() {
+            errors.push("Enter a game name (it names every file in the pack).".to_owned());
+        }
+        let readable = self
+            .tracks
+            .iter()
+            .filter(|track| track.song().is_some())
+            .count();
+        if readable == 0 {
+            errors.push("There are no readable songs to export.".to_owned());
+        }
+
+        if self.tracks.iter().any(|track| track.song().is_none()) {
+            warnings.push(
+                "Some files could not be read; they ship as-is, without a track-list entry."
+                    .to_owned(),
+            );
+        }
+        if self.images.is_empty() {
+            warnings.push("There is no screenshot (.png) in the folder.".to_owned());
+        }
+
+        let numbers: Vec<u32> = self
+            .tracks
+            .iter()
+            .filter_map(|track| track_number(&track.file_name))
+            .collect();
+        if numbers.len() != self.tracks.len() {
+            warnings.push("Some files are not named \"NN Title.ext\".".to_owned());
+        }
+        let mut unique = numbers.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        if unique.len() != numbers.len() {
+            warnings.push("Some track numbers are duplicated.".to_owned());
+        } else if !numbers.is_empty() && unique != (1..=numbers.len() as u32).collect::<Vec<_>>() {
+            warnings.push("Track numbers are not a contiguous 01, 02, 03... sequence.".to_owned());
+        }
+
+        RipValidations { errors, warnings }
+    }
+
+    /// Builds the export job: every song, every screenshot, and freshly
+    /// generated docs whose names reflect the final (post-gzip) song names.
+    #[must_use]
+    pub fn export_request(&self) -> RipJobRequest {
+        let stem = self.doc_stem();
+        let mut entries: Vec<RipEntry> = Vec::new();
+        for track in &self.tracks {
+            entries.push(RipEntry {
+                name: track.file_name.clone(),
+                bytes: track.bytes.clone(),
+                kind: RipEntryKind::Song,
+            });
+        }
+        for image in &self.images {
+            entries.push(RipEntry {
+                name: image.name.clone(),
+                bytes: image.bytes.clone(),
+                kind: RipEntryKind::Image,
+            });
+        }
+        entries.push(RipEntry {
+            name: format!("{stem}.txt"),
+            bytes: self.description_text().into_bytes(),
+            kind: RipEntryKind::Doc,
+        });
+        entries.push(RipEntry {
+            name: format!("{stem}.m3u"),
+            bytes: self.m3u_text(true).into_bytes(),
+            kind: RipEntryKind::Doc,
+        });
+        RipJobRequest {
+            zip_name: format!("{stem}.zip"),
+            entries,
+            gzip_vgms: self.gzip_on_export,
+        }
+    }
+}
+
+/// The result of [`RipState::validations`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RipValidations {
+    /// Problems that block an export.
+    pub errors: Vec<String>,
+    /// Advisories the user may choose to ignore.
+    pub warnings: Vec<String>,
+}
+
+/// The `NN` from a `NN Title.ext` file name, if present.
+fn track_number(file_name: &str) -> Option<u32> {
+    let digits: String = file_name.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() || !file_name[digits.len()..].starts_with(' ') {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 enum FileClass {
@@ -298,6 +401,14 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
         ui.visuals_mut().override_text_color = Some(palette.data_label);
         ui.label(egui::RichText::new(&state.folder_name).strong());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if bevel::button(ui, palette, "Export Zip\u{2026}")
+                .on_hover_text(
+                    "Build the submission zip (songs, screenshot, description, playlist)",
+                )
+                .clicked()
+            {
+                actions.push(Action::RipExportZip);
+            }
             if bevel::button(ui, palette, "Save Package Files")
                 .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
                 .clicked()
@@ -666,6 +777,58 @@ mod tests {
             dro_core::io::read_song("01 New.vgz", &vgz).unwrap().name,
             "01 New.vgz"
         );
+    }
+
+    #[test]
+    fn validations_report_hard_errors_and_soft_warnings() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
+        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+
+        // A named, single-track pack: no hard errors, but no screenshot is a
+        // soft warning.
+        let checks = state.validations();
+        assert!(checks.errors.is_empty());
+        assert!(checks.warnings.iter().any(|w| w.contains("screenshot")));
+
+        // An empty game name is a hard error.
+        state.meta.game_name.clear();
+        assert!(!state.validations().errors.is_empty());
+    }
+
+    #[test]
+    fn export_request_lists_songs_then_docs_with_final_names() {
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("Cool Game", "A", "R")),
+            tagged_song("02 Boss.vgm", tag("Cool Game", "A", "R")),
+        ];
+        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+
+        let request = state.export_request();
+        assert_eq!(request.zip_name, "Cool Game.zip");
+        assert!(request.gzip_vgms);
+        let names: Vec<&str> = request
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "01 Intro.vgz",
+                "02 Boss.vgm",
+                "Cool Game.txt",
+                "Cool Game.m3u"
+            ]
+        );
+
+        // The playlist inside the zip names the post-gzip .vgz file.
+        let m3u = request
+            .entries
+            .iter()
+            .find(|entry| entry.name.ends_with(".m3u"))
+            .unwrap();
+        let text = String::from_utf8(m3u.bytes.clone()).unwrap();
+        assert!(text.contains("02 Boss.vgz"));
     }
 
     #[test]

@@ -32,6 +32,19 @@ cargo install wasm-bindgen-cli --version 0.2.126 --locked
 cargo test -p dro-core --target wasm32-unknown-unknown
 ```
 
+`dro-ui` has headless GUI tests (`egui_kittest`). The interaction tests run on
+CPU; the visual-regression tests compare against PNG baselines under
+`crates/dro-ui/tests/snapshots/` rendered via wgpu, so they are machine- and
+GPU-specific. Regenerate them after an intentional UI change:
+
+```PowerShell
+$env:UPDATE_SNAPSHOTS='1'; cargo test -p dro-ui; Remove-Item Env:\UPDATE_SNAPSHOTS
+```
+
+Rip mode's zip export pulls native-only crates: `zip`, `oxipng` (which builds
+the C `libdeflate` via `cc`) and `chrono`. The MSVC build tools below already
+satisfy the C toolchain; `dro-core`/`dro-synth` stay free of them and wasm-clean.
+
 Optional: prove the pure-Rust OPL core is still bit-identical to Nuked-OPL3's C
 sources. Needs a C compiler and libclang (`scoop install main/llvm`):
 

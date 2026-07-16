@@ -21,7 +21,7 @@ use dro_core::config::{AppConfig, ThemeChoice};
 
 use super::DroApp;
 use crate::action::AppTab;
-use crate::platform::{PickedFile, PickedFolder, SaveOutcome, SaveRequest};
+use crate::platform::{PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest};
 use crate::tasks::TaskKind;
 use crate::test_song::{bogus_leading_delay_song, tone_song};
 use crate::test_support::{
@@ -34,9 +34,6 @@ struct Handles {
     files: Rc<RefCell<FileLog>>,
     audio: Rc<RefCell<AudioLog>>,
     tasks: Rc<RefCell<TaskLog>>,
-    // Shared with the app's FakeRipService (it reads a fixed `today`); the
-    // export-job scripting that inspects it lands with rip mode's export stage.
-    #[allow(dead_code)]
     rip: Rc<RefCell<RipLog>>,
     saved_configs: Rc<RefCell<Vec<AppConfig>>>,
 }
@@ -691,6 +688,118 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     assert!(
         files.rename_requests.is_empty(),
         "an unchanged name is not renamed"
+    );
+}
+
+/// A folder that passes every export validation (named, numbered, with a png).
+fn complete_folder() -> PickedFolder {
+    rip_folder(
+        "Cool Game",
+        vec![
+            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            PickedFile {
+                name: "Cool Game.png".to_owned(),
+                path: Some(PathBuf::from("C:/Cool Game/Cool Game.png")),
+                bytes: b"\x89PNG\r\n\x1a\n fake".to_vec(),
+            },
+        ],
+    )
+}
+
+#[test]
+fn exporting_submits_a_job_and_saves_the_returned_zip() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+
+    harness.get_by_label("Export Zip\u{2026}").click();
+    harness.run();
+
+    {
+        let rip = handles.rip.borrow();
+        assert_eq!(rip.submitted.len(), 1, "a build job was submitted");
+        let job = &rip.submitted[0];
+        assert_eq!(job.zip_name, "Cool Game.zip");
+        assert!(job.gzip_vgms);
+        let names: Vec<&str> = job
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        for expected in [
+            "01 Intro.vgz",
+            "Cool Game.png",
+            "Cool Game.txt",
+            "Cool Game.m3u",
+        ] {
+            assert!(names.contains(&expected), "missing {expected} in {names:?}");
+        }
+    }
+
+    // The service returns the finished zip; the app saves it via a dialog.
+    handles
+        .rip
+        .borrow_mut()
+        .outcomes
+        .push_back(RipJobOutcome::Done {
+            zip_name: "Cool Game.zip".to_owned(),
+            bytes: b"PK\x03\x04".to_vec(),
+            log: vec!["Cool Game.png: 100 -> 80 bytes".to_owned()],
+        });
+    harness.run();
+
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a save request") {
+        SaveRequest::Dialog { suggested_name, .. } => assert_eq!(suggested_name, "Cool Game.zip"),
+        other => panic!("expected a save dialog, got {other:?}"),
+    }
+}
+
+#[test]
+fn exporting_without_a_screenshot_prompts_first() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder()); // no .png
+
+    harness.get_by_label("Export Zip\u{2026}").click();
+    harness.run();
+    assert!(
+        handles.rip.borrow().submitted.is_empty(),
+        "no job until confirmed"
+    );
+    assert!(
+        !harness.state().alerts.is_empty(),
+        "a warning prompt is shown"
+    );
+
+    harness.get_by_label("OK").click();
+    harness.run();
+    assert_eq!(
+        handles.rip.borrow().submitted.len(),
+        1,
+        "confirming submits the job"
+    );
+}
+
+#[test]
+fn a_failed_export_shows_an_alert() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+
+    harness.get_by_label("Export Zip\u{2026}").click();
+    harness.run();
+    handles
+        .rip
+        .borrow_mut()
+        .outcomes
+        .push_back(RipJobOutcome::Failed("disk full".to_owned()));
+    harness.run();
+
+    assert!(
+        harness
+            .state()
+            .alerts
+            .iter()
+            .any(|alert| alert.title == "Rip export failed"),
+        "the failure is surfaced as an alert"
     );
 }
 
