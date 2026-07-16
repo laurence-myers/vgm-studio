@@ -197,23 +197,26 @@ impl DroApp {
         theme::palette(self.config.ui.theme)
     }
 
-    fn update_impl(&mut self, ctx: &egui::Context) {
+    fn update_impl(&mut self, ui: &mut egui::Ui) {
+        // The panels carve up `ui`; everything context-wide (input, dialogs,
+        // repaint scheduling) still wants a `Context`, which is cheaply Arc-cloned.
+        let ctx = ui.ctx().clone();
         if let Some(file) = self.pending_open.take() {
             self.load_file(file);
         }
         self.poll_services();
-        self.handle_drops(ctx);
+        self.handle_drops(&ctx);
 
         let mut actions: Vec<Action> = Vec::new();
-        self.gather_key_input(ctx, &mut actions);
+        self.gather_key_input(&ctx, &mut actions);
 
         let p = self.palette();
         // Chrome panels sit on the face colour; the waveform is a data well, so
         // its margins take the main dark background rather than the chrome tint.
-        let chrome = egui::Frame::side_top_panel(&ctx.style()).fill(p.face);
+        let chrome = egui::Frame::side_top_panel(ui.style()).fill(p.face);
         // No side margins: the reset button owns the left edge and the waveform
         // runs flush to the right edge.
-        let well = egui::Frame::side_top_panel(&ctx.style())
+        let well = egui::Frame::side_top_panel(ui.style())
             .fill(p.data_bg)
             .inner_margin(egui::Margin {
                 left: 0,
@@ -222,19 +225,19 @@ impl DroApp {
                 bottom: 2,
             });
 
-        let menu = egui::TopBottomPanel::top("menu-bar")
+        let menu = egui::Panel::top("menu-bar")
             .frame(chrome)
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 menus::bar(ui, p, &self.menu_state(), &mut actions);
             });
         // The tab strip switches the editor and rip views; shown only while a
         // rip project is open (otherwise the app is always the editor).
         let tabs = self.rip.is_some().then(|| {
-            egui::TopBottomPanel::top("tab-strip")
+            egui::Panel::top("tab-strip")
                 .frame(chrome)
                 .show_separator_line(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
                         for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Rip, "Rip")] {
@@ -249,13 +252,13 @@ impl DroApp {
         // on the rip tab, which owns the whole central area.
         let editor_tab = self.active_tab == AppTab::Editor;
         let waveform = editor_tab.then(|| {
-            egui::TopBottomPanel::top("waveform")
+            egui::Panel::top("waveform")
                 .frame(well)
                 .resizable(true)
-                .default_height(150.0)
-                .min_height(80.0)
+                .default_size(150.0)
+                .min_size(80.0)
                 .show_separator_line(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     let height = ui.available_height();
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 2.0;
@@ -281,10 +284,10 @@ impl DroApp {
                     });
                 })
         });
-        let status = egui::TopBottomPanel::bottom("status-bar")
+        let status = egui::Panel::bottom("status-bar")
             .frame(chrome)
             .show_separator_line(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(&self.status);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -300,17 +303,17 @@ impl DroApp {
                 });
             });
         let position = editor_tab.then(|| {
-            egui::TopBottomPanel::bottom("position-panel")
+            egui::Panel::bottom("position-panel")
                 .frame(chrome)
                 .show_separator_line(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     self.position.show(ui, p);
                 })
         });
         let controls = editor_tab.then(|| {
             // The controls own their vertical spacing (equal padding above and
             // below each row band), so drop the frame's vertical margin/spacing.
-            let controls_frame = egui::Frame::side_top_panel(&ctx.style())
+            let controls_frame = egui::Frame::side_top_panel(ui.style())
                 .fill(p.face)
                 .inner_margin(egui::Margin {
                     left: 8,
@@ -318,10 +321,10 @@ impl DroApp {
                     top: 0,
                     bottom: 0,
                 });
-            egui::TopBottomPanel::bottom("controls")
+            egui::Panel::bottom("controls")
                 .frame(controls_frame)
                 .show_separator_line(false)
-                .show(ctx, |ui| {
+                .show(ui, |ui| {
                     const PAD: f32 = 6.0;
                     ui.spacing_mut().item_spacing.y = 0.0;
                     ui.add_space(PAD);
@@ -461,8 +464,8 @@ impl DroApp {
         // the FT2 desktop tint, with its own sunken wells inside.
         let central_fill = if editor_tab { p.data_bg } else { p.desktop };
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).fill(central_fill))
-            .show(ctx, |ui| match self.active_tab {
+            .frame(egui::Frame::central_panel(ui.style()).fill(central_fill))
+            .show(ui, |ui| match self.active_tab {
                 AppTab::Editor => {
                     if self.editor.has_song() {
                         // Row hover reads `widgets.hovered.bg_fill`, which is the
@@ -492,7 +495,7 @@ impl DroApp {
         // higher orders) -- an ad-hoc Middle layer would draw over dialogs. The
         // waveform panel is resizable, so the seams are recomputed each frame.
         let divider = ctx.layer_painter(egui::LayerId::background());
-        let x_range = ctx.screen_rect().x_range();
+        let x_range = ctx.viewport_rect().x_range();
         // Only the panels actually drawn this frame contribute a seam.
         let mut seams = vec![menu.response.rect.bottom()];
         if let Some(tabs) = &tabs {
@@ -512,15 +515,25 @@ impl DroApp {
             theme::bevel::groove_h(&divider, x_range, seam - 1.0, p);
         }
 
-        self.dialogs.show_all(ctx, p, &mut actions);
-        alert::show_front(ctx, p, &mut self.alerts, &mut actions);
+        // Keep the modeless dialogs off the menu bar and tab strip: since
+        // egui 0.35 the panels above no longer reserve context space, so an
+        // unconstrained window auto-places at the top of the viewport.
+        let chrome_bottom = tabs
+            .as_ref()
+            .map_or(menu.response.rect.bottom(), |t| t.response.rect.bottom());
+        let dialog_area = egui::Rect::from_min_max(
+            egui::pos2(ctx.content_rect().left(), chrome_bottom),
+            ctx.content_rect().max,
+        );
+        self.dialogs.show_all(&ctx, p, dialog_area, &mut actions);
+        alert::show_front(&ctx, p, &mut self.alerts, &mut actions);
 
         for action in actions {
-            self.handle_action(ctx, action);
+            self.handle_action(&ctx, action);
         }
 
         self.sync_selection_indicator();
-        self.playback_tick(ctx);
+        self.playback_tick(&ctx);
     }
 
     // -- frame plumbing ------------------------------------------------------
@@ -699,7 +712,7 @@ impl DroApp {
         // A focused widget owns the keyboard: Ctrl+Z in a tag field must undo
         // the *text*, not the song. (The wx accelerators likewise never fired
         // inside the dialogs' own text fields.)
-        if ctx.wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input() {
             return;
         }
         // The rip tab hides the editor, so the editor's keys (Del, Space, arrows,
@@ -1705,11 +1718,11 @@ impl DroApp {
 }
 
 impl eframe::App for DroApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update_impl(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.update_impl(ui);
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         self.audio.unload();
         self.tasks.shutdown();
     }

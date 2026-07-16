@@ -16,3 +16,4 @@ docs/readme.html
 # suffix; these are regenerated on every failing run).
 crates/dro-ui/tests/snapshots/*.new.png
 crates/dro-ui/tests/snapshots/*.diff.png
+crates/dro-ui/tests/snapshots/*.old.png

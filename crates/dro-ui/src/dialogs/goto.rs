@@ -22,6 +22,7 @@ impl GotoDialog {
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
+        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut open = true;
@@ -30,6 +31,7 @@ impl GotoDialog {
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
+            .constrain_to(area)
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 ui.add_space(2.0);

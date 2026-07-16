@@ -47,6 +47,7 @@ impl VgmMetadataDialog {
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
+        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut open = true;
@@ -55,6 +56,7 @@ impl VgmMetadataDialog {
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
+            .constrain_to(area)
             .show(ctx, |ui| {
                 egui::Grid::new("vgm-meta-grid")
                     .num_columns(2)

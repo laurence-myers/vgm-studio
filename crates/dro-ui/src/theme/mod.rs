@@ -64,7 +64,7 @@ pub fn separator_full(ui: &mut egui::Ui, palette: &Palette) {
     let painter = ui.ctx().layer_painter(egui::LayerId::background());
     bevel::groove_h(
         &painter,
-        ui.ctx().screen_rect().x_range(),
+        ui.ctx().viewport_rect().x_range(),
         rect.center().y - 1.0,
         palette,
     );

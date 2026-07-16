@@ -41,6 +41,7 @@ impl Gd3TagDialog {
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
+        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut open = true;
@@ -49,6 +50,7 @@ impl Gd3TagDialog {
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
+            .constrain_to(area)
             .show(ctx, |ui| {
                 egui::Grid::new("gd3-grid")
                     .num_columns(2)

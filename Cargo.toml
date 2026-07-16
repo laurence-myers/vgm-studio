@@ -28,21 +28,22 @@ dro-synth = { path = "crates/dro-synth" }
 dro-audio-native = { path = "crates/dro-audio-native" }
 dro-ui = { path = "crates/dro-ui" }
 
-# The GUI toolkit. 0.32 is the newest line whose MSRV (1.85) matches the
-# workspace's; 0.33+ requires rustc 1.92. All three must move in lock-step.
-eframe = "0.32.3"
-egui = "0.32.3"
+# The GUI toolkit. All three move in lock-step (with egui_kittest below).
+# Since 0.34, eframe's default renderer is wgpu -- glow left the default
+# feature set, so drotrim renders via DX12/Vulkan on Windows.
+eframe = "0.35"
+egui = "0.35"
 # `image` enables the byte-image loader for rip mode's inline screenshots; the
 # codecs come from the `image` crate below (png only), so this stays wasm-clean.
-egui_extras = { version = "0.32.3", features = ["image"] }
+egui_extras = { version = "0.35", features = ["image"] }
 # PNG decoding for the screenshot previews. egui_extras declares `image` with no
 # default features; enabling just `png` here keeps it pure Rust.
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Headless GUI test harness (dev-only, consumed by dro-ui's dev-dependencies).
-# Moves in lock-step with egui/eframe above -- same 0.32 line, same MSRV. The
+# Moves in lock-step with egui/eframe above -- same line, same MSRV. The
 # `eframe` feature drives DroApp through `Harness`; `snapshot` + `wgpu` add
 # PNG visual-regression rendering (via the DX12 WARP adapter on headless Windows).
-egui_kittest = { version = "0.32.3", features = ["eframe", "snapshot", "wgpu"] }
+egui_kittest = { version = "0.35", features = ["eframe", "snapshot", "wgpu"] }
 # Native file dialogs (Step 6). The web build uses its own picker (Step 8).
 rfd = "0.17"
 

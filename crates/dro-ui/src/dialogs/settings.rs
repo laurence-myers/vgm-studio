@@ -44,6 +44,7 @@ impl SettingsDialog {
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
+        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut open = true;
@@ -52,6 +53,7 @@ impl SettingsDialog {
             .open(&mut open)
             .resizable(false)
             .collapsible(false)
+            .constrain_to(area)
             .show(ctx, |ui| {
                 egui::Grid::new("settings-grid")
                     .num_columns(2)

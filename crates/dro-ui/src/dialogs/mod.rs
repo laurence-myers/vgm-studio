@@ -39,19 +39,29 @@ pub struct Dialogs {
 
 impl Dialogs {
     /// Draws every open dialog, dropping the ones that closed.
+    ///
+    /// `area`: where the modeless windows may live. Since egui 0.35, panels
+    /// drawn into the app's `Ui` no longer reserve space, so windows would
+    /// otherwise auto-place at the top of the viewport, over the menu bar.
+    /// (DRO Info is a centred modal and ignores it, like the alerts.)
     pub fn show_all(
         &mut self,
         ctx: &egui::Context,
         palette: &crate::theme::Palette,
+        area: egui::Rect,
         actions: &mut Vec<crate::action::Action>,
     ) {
-        retain(&mut self.goto, |d| d.show(ctx, palette, actions));
-        retain(&mut self.find_reg, |d| d.show(ctx, palette, actions));
+        retain(&mut self.goto, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.find_reg, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.dro_info, |d| d.show(ctx, palette, actions));
-        retain(&mut self.gd3_tag, |d| d.show(ctx, palette, actions));
-        retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
-        retain(&mut self.settings, |d| d.show(ctx, palette, actions));
-        retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
+        retain(&mut self.gd3_tag, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.vgm_metadata, |d| {
+            d.show(ctx, palette, area, actions)
+        });
+        retain(&mut self.settings, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.track_edit, |d| {
+            d.show(ctx, palette, area, actions)
+        });
     }
 }
 

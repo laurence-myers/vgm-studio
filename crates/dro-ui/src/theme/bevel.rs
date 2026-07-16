@@ -123,7 +123,8 @@ fn button_impl(
     size: impl FnOnce(Vec2) -> Vec2,
 ) -> Response {
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let galley = ui.fonts(|fonts| fonts.layout_no_wrap(text.to_owned(), font, palette.button_text));
+    let galley =
+        ui.fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font, palette.button_text));
 
     let desired = size(galley.size());
     let (rect, response) = ui.allocate_exact_size(desired, Sense::click());

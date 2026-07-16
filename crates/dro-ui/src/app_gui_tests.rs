@@ -396,10 +396,20 @@ fn ctrl_s_saves_in_place_and_reports_the_path() {
 // headless Windows) and are inherently machine/GPU-specific; regenerate with
 // UPDATE_SNAPSHOTS=1 on the machine that runs them if they drift.
 
+/// Settle the pointer out of the frame, then snapshot. Since 0.34, kittest
+/// paints a synthetic mouse cursor whenever a pointer position is live (e.g.
+/// after a click), which would bake a cursor triangle and hover state into
+/// the baselines.
+fn settled_snapshot(harness: &mut Harness<'static, DroApp>, name: &str) {
+    harness.remove_cursor();
+    harness.run();
+    harness.snapshot(name);
+}
+
 #[test]
 fn snapshot_empty_app() {
     let (mut harness, _handles) = build(None, false, true);
-    harness.snapshot("empty_app");
+    settled_snapshot(&mut harness, "empty_app");
 }
 
 #[test]
@@ -408,7 +418,7 @@ fn snapshot_loaded_song() {
     let (mut harness, _handles) = build(Some(picked(&tone_song())), true, true);
     harness.state_mut().editor.selection.select_only(0);
     harness.run();
-    harness.snapshot("loaded_tone_song");
+    settled_snapshot(&mut harness, "loaded_tone_song");
 }
 
 #[test]
@@ -416,13 +426,13 @@ fn snapshot_dro_info_dialog() {
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     harness.key_press_modifiers(Modifiers::COMMAND, Key::I);
     harness.run();
-    harness.snapshot("dro_info_dialog");
+    settled_snapshot(&mut harness, "dro_info_dialog");
 }
 
 #[test]
 fn snapshot_auto_trim_alert() {
     let (mut harness, _handles) = build(Some(picked(&bogus_leading_delay_song())), false, true);
-    harness.snapshot("auto_trim_alert");
+    settled_snapshot(&mut harness, "auto_trim_alert");
 }
 
 // -- rip mode ----------------------------------------------------------------
@@ -912,7 +922,7 @@ fn snapshot_rip_view() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
-    harness.snapshot("rip_view");
+    settled_snapshot(&mut harness, "rip_view");
 }
 
 #[test]
@@ -921,5 +931,5 @@ fn snapshot_track_edit_dialog() {
     open_folder(&mut harness, &handles, single_track_folder());
     harness.get_by_label("Edit\u{2026}").click();
     harness.run();
-    harness.snapshot("track_edit_dialog");
+    settled_snapshot(&mut harness, "track_edit_dialog");
 }
