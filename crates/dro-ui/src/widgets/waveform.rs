@@ -107,11 +107,11 @@ pub fn show(
     // The sunken well frame, on top of the dim so the bevel is never buried.
     bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
 
-    if response.clicked() {
-        if let Some(pointer) = response.interact_pointer_pos() {
-            let pct = f64::from((pointer.x - rect.left()) / rect.width());
-            out.clicked = song.index_and_ms_offset_at_pct(pct);
-        }
+    if response.clicked()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let pct = f64::from((pointer.x - rect.left()) / rect.width());
+        out.clicked = song.index_and_ms_offset_at_pct(pct);
     }
     out
 }

@@ -361,10 +361,10 @@ pub fn parse_description(text: &str) -> Result<RipMeta> {
         matched_known = true;
     }
 
-    if let Some(idx) = song_list_idx {
-        if let Some(colon) = lines[idx].find(':') {
-            meta.song_list_heading = lines[idx][..=colon].trim_start().to_owned();
-        }
+    if let Some(idx) = song_list_idx
+        && let Some(colon) = lines[idx].find(':')
+    {
+        meta.song_list_heading = lines[idx][..=colon].trim_start().to_owned();
     }
 
     if let Some(idx) = notes_idx {

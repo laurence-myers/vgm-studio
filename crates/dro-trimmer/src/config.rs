@@ -20,10 +20,9 @@ pub fn load_config() -> AppConfig {
     if let Some(dir) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf))
+        && let Ok(text) = fs::read_to_string(dir.join("drotrim.ini"))
     {
-        if let Ok(text) = fs::read_to_string(dir.join("drotrim.ini")) {
-            sources.push(text);
-        }
+        sources.push(text);
     }
     let sources: Vec<&str> = sources.iter().map(String::as_str).collect();
     AppConfig::from_ini_sources(&sources)

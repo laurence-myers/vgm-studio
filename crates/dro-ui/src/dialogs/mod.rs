@@ -56,9 +56,9 @@ impl Dialogs {
 }
 
 fn retain<T>(slot: &mut Option<T>, mut show: impl FnMut(&mut T) -> bool) {
-    if let Some(dialog) = slot.as_mut() {
-        if !show(dialog) {
-            *slot = None;
-        }
+    if let Some(dialog) = slot.as_mut()
+        && !show(dialog)
+    {
+        *slot = None;
     }
 }

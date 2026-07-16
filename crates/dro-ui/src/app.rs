@@ -605,13 +605,12 @@ impl DroApp {
                     // Save As can change the .vgm/.vgz extension after the
                     // bytes were serialised; re-save once so the compression
                     // matches the chosen name.
-                    if self.editor.record_saved(name, path) {
-                        if let (Ok(bytes), Some(path)) =
+                    if self.editor.record_saved(name, path)
+                        && let (Ok(bytes), Some(path)) =
                             (self.editor.save_bytes(), self.editor.path.clone())
-                        {
-                            self.pending_saves.push_back(SavePurpose::Song);
-                            self.files.save(SaveRequest::InPlace { path, bytes });
-                        }
+                    {
+                        self.pending_saves.push_back(SavePurpose::Song);
+                        self.files.save(SaveRequest::InPlace { path, bytes });
                     }
                     self.status = format!("File saved to {shown}.");
                 }
@@ -1073,11 +1072,9 @@ impl DroApp {
                 // unloaded one picks it up from `config.audio` on the next load,
                 // so this deliberately does not force an audio reload.
                 self.audio.set_boost(value);
-                if persist {
-                    if let Err(error) = self.config_store.save(&self.config) {
-                        self.alerts
-                            .push_back(Alert::error(format!("Could not save settings: {error}")));
-                    }
+                if persist && let Err(error) = self.config_store.save(&self.config) {
+                    self.alerts
+                        .push_back(Alert::error(format!("Could not save settings: {error}")));
                 }
             }
 
@@ -1234,10 +1231,10 @@ impl DroApp {
         self.active_tab = tab;
         // Returning to the rip tab re-scans the folder so edits made in the
         // editor (or renames) are reflected.
-        if tab == AppTab::Rip {
-            if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
-                self.files.open_folder_path(path);
-            }
+        if tab == AppTab::Rip
+            && let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone())
+        {
+            self.files.open_folder_path(path);
         }
     }
 
@@ -1697,7 +1694,7 @@ impl DroApp {
     /// decimals only for fractional lengths, singular for exactly one second.
     fn play_tail_label(&self) -> String {
         let ms = self.config.ui.tail_length;
-        let value = if ms % 1000 == 0 {
+        let value = if ms.is_multiple_of(1000) {
             (ms / 1000).to_string()
         } else {
             format!("{:.2}", f64::from(ms) / 1000.0)

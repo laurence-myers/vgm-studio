@@ -87,7 +87,10 @@ impl OplChip for NukedOpl3 {
     }
 
     fn generate_samples(&mut self, buffer: &mut [i16]) {
-        debug_assert!(buffer.len() % 2 == 0, "stereo buffers hold whole frames");
+        debug_assert!(
+            buffer.len().is_multiple_of(2),
+            "stereo buffers hold whole frames"
+        );
         if buffer.len() < 2 {
             return;
         }

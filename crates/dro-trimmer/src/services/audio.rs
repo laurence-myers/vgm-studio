@@ -103,10 +103,10 @@ impl AudioService for NativeAudioService {
     }
 
     fn pause(&mut self) {
-        if let Some(audio) = &self.audio {
-            if let Err(error) = audio.pause() {
-                log::warn!("could not pause the audio stream: {error}");
-            }
+        if let Some(audio) = &self.audio
+            && let Err(error) = audio.pause()
+        {
+            log::warn!("could not pause the audio stream: {error}");
         }
         self.playing = false;
     }

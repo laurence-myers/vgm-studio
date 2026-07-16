@@ -79,10 +79,10 @@ pub fn show_front(
         });
     });
     if confirmed {
-        if let Some(alert) = alerts.pop_front() {
-            if let Some(action) = alert.confirm {
-                actions.push(*action);
-            }
+        if let Some(alert) = alerts.pop_front()
+            && let Some(action) = alert.confirm
+        {
+            actions.push(*action);
         }
     } else if dismissed || modal.should_close() {
         // Esc or a backdrop click cancels a confirm box (no action runs).

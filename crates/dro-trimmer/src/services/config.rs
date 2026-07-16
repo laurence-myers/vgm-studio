@@ -35,10 +35,10 @@ impl ConfigStore for IniConfigStore {
     fn save(&self, config: &AppConfig) -> Result<()> {
         let text = config.to_ini_string();
         let exe_ini = Self::exe_ini();
-        if let Some(path) = &exe_ini {
-            if fs::write(path, &text).is_ok() {
-                return Ok(());
-            }
+        if let Some(path) = &exe_ini
+            && fs::write(path, &text).is_ok()
+        {
+            return Ok(());
         }
         // The exe directory is not writable. The working-directory copy only
         // takes effect if no exe-dir ini exists to shadow it.

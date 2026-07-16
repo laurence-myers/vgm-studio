@@ -214,7 +214,7 @@ impl DroDataV2 {
         short_delay_code: u8,
         long_delay_code: u8,
     ) -> Result<Self> {
-        if data.len() % 2 != 0 {
+        if !data.len().is_multiple_of(2) {
             return Err(Error::file(format!(
                 "DRO v2 data must be register/value pairs, found {} bytes",
                 data.len()

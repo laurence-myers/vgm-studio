@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "5.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97"
 # The OPL core (`nuked-opl3`, a port of Nuke.YKT's Nuked-OPL3) is
 # LGPL-2.1-or-later, and it is statically linked into every artifact this
 # workspace produces -- native binary and .wasm alike. The Rust workspace adopts

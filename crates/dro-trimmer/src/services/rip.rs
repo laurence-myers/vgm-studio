@@ -92,13 +92,13 @@ impl NativeRipService {
             };
             // A superseded job's cancel flag is set; drop its late result rather
             // than deliver it (the generation filter in `poll` is the backstop).
-            if let Some(outcome) = outcome {
-                if !cancelled.load(Ordering::Relaxed) {
-                    // A closed channel just means the app shut down.
-                    let _ = sender.send((generation, outcome));
-                    if let Some(notify) = &notify {
-                        notify();
-                    }
+            if let Some(outcome) = outcome
+                && !cancelled.load(Ordering::Relaxed)
+            {
+                // A closed channel just means the app shut down.
+                let _ = sender.send((generation, outcome));
+                if let Some(notify) = &notify {
+                    notify();
                 }
             }
             live.fetch_sub(1, Ordering::Relaxed);
