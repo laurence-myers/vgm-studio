@@ -62,6 +62,8 @@ pub enum Action {
     RipStopPreview,
     /// Open the quick-edit dialog (rename + GD3) for a track.
     OpenTrackQuickEdit(usize),
+    /// Losslessly recompress a screenshot and save it in place.
+    OptimizeImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
     QuickEditSubmitted {
         index: usize,

@@ -32,7 +32,12 @@ dro-ui = { path = "crates/dro-ui" }
 # workspace's; 0.33+ requires rustc 1.92. All three must move in lock-step.
 eframe = "0.32.3"
 egui = "0.32.3"
-egui_extras = "0.32.3"
+# `image` enables the byte-image loader for rip mode's inline screenshots; the
+# codecs come from the `image` crate below (png only), so this stays wasm-clean.
+egui_extras = { version = "0.32.3", features = ["image"] }
+# PNG decoding for the screenshot previews. egui_extras declares `image` with no
+# default features; enabling just `png` here keeps it pure Rust.
+image = { version = "0.25", default-features = false, features = ["png"] }
 # Headless GUI test harness (dev-only, consumed by dro-ui's dev-dependencies).
 # Moves in lock-step with egui/eframe above -- same 0.32 line, same MSRV. The
 # `eframe` feature drives DroApp through `Harness`; `snapshot` + `wgpu` add

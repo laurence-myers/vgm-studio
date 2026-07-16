@@ -14,6 +14,8 @@ dro-synth.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui_extras.workspace = true
+# Feature-unifies png decoding into egui_extras' image loader (see workspace).
+image.workspace = true
 log.workspace = true
 
 [dev-dependencies]

@@ -175,14 +175,53 @@ pub fn format_track_time(samples: u64) -> String {
     }
 }
 
+/// A one-click fill for the System / OS / Music hardware fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RipPreset {
+    /// The button label, e.g. `"OPL-2"`.
+    pub name: &'static str,
+    pub system: &'static str,
+    pub os: &'static str,
+    pub music_hardware: &'static str,
+}
+
+/// The chip presets, in OPL order. All PC rips share the system and OS; the
+/// hardware line names the chip.
+pub const PRESETS: [RipPreset; 3] = [
+    RipPreset {
+        name: "OPL-2",
+        system: DEFAULT_SYSTEM,
+        os: DEFAULT_OS,
+        music_hardware: "AdLib/Sound Blaster (YM3812)",
+    },
+    RipPreset {
+        name: "Dual OPL-2",
+        system: DEFAULT_SYSTEM,
+        os: DEFAULT_OS,
+        music_hardware: "Dual OPL2 (2x YM3812)",
+    },
+    RipPreset {
+        name: "OPL-3",
+        system: DEFAULT_SYSTEM,
+        os: DEFAULT_OS,
+        music_hardware: "Sound Blaster Pro 2 (YMF262)",
+    },
+];
+
+/// The preset matching a chip type.
+#[must_use]
+pub const fn preset_for(opl: OplType) -> &'static RipPreset {
+    match opl {
+        OplType::Opl2 => &PRESETS[0],
+        OplType::DualOpl2 => &PRESETS[1],
+        OplType::Opl3 => &PRESETS[2],
+    }
+}
+
 /// A suggested (editable) `Music hardware:` value for the chip a rip targets.
 #[must_use]
 pub fn music_hardware_suggestion(opl: OplType) -> &'static str {
-    match opl {
-        OplType::Opl2 => "AdLib/Sound Blaster (YM3812)",
-        OplType::DualOpl2 => "Dual OPL2 (2x YM3812)",
-        OplType::Opl3 => "Sound Blaster Pro 2 (YMF262)",
-    }
+    preset_for(opl).music_hardware
 }
 
 /// A file-name-safe stem for the `.txt`/`.m3u`/`.zip`, from the game name.
@@ -256,15 +295,17 @@ pub fn generate_description(meta: &RipMeta, tracks: &[TrackEntry]) -> String {
     lines.push(String::new());
     push_total_row(&mut lines, tracks);
 
-    // Notes and history, verbatim.
+    // Notes and history: lines that fit pass through byte-exact; anything longer
+    // (a paragraph typed without manual newlines) is wrapped to the file width.
     lines.push(String::new());
     lines.push(String::new());
     lines.push("Notes:".to_owned());
-    lines.extend(meta.notes.split('\n').map(str::to_owned));
+    push_wrapped_block(&mut lines, &meta.notes, "");
     lines.push(String::new());
     lines.push(String::new());
     lines.push("Package history:".to_owned());
-    lines.extend(meta.history.split('\n').map(str::to_owned));
+    // The history convention indents continuation lines by one space.
+    push_wrapped_block(&mut lines, &meta.history, " ");
 
     let mut out = lines.join("\r\n");
     out.push_str("\r\n");
@@ -362,6 +403,61 @@ fn push_field(lines: &mut Vec<String>, label: &str, value: &str) {
             format!("{:<width$}{chunk}", "", width = LABEL_WIDTH)
         };
         lines.push(line.trim_end().to_owned());
+    }
+}
+
+/// Emits a Notes/Package-history block. A line already within the file width is
+/// kept byte-exact (existing packs stay verbatim, trailing spaces and all); a
+/// longer one -- prose typed without manual newlines -- is greedily word-wrapped,
+/// with continuation lines prefixed (the history convention is one space).
+fn push_wrapped_block(lines: &mut Vec<String>, text: &str, continuation_prefix: &str) {
+    let continuation_width = LINE_WIDTH - continuation_prefix.chars().count();
+    for line in text.split('\n') {
+        if line.chars().count() <= LINE_WIDTH {
+            lines.push(line.to_owned());
+            continue;
+        }
+        let mut first = true;
+        let mut current: Vec<char> = Vec::new();
+        let flush = |current: &mut Vec<char>, first: &mut bool, lines: &mut Vec<String>| {
+            let content: String = current.drain(..).collect();
+            if *first {
+                lines.push(content);
+                *first = false;
+            } else {
+                lines.push(format!("{continuation_prefix}{content}"));
+            }
+        };
+        for word in line.split_whitespace() {
+            let mut chars: Vec<char> = word.chars().collect();
+            loop {
+                let width = if first {
+                    LINE_WIDTH
+                } else {
+                    continuation_width
+                };
+                if current.is_empty() {
+                    if chars.len() <= width {
+                        current = chars;
+                        break;
+                    }
+                    // A word longer than a whole line (a URL): hard-split it.
+                    let rest = chars.split_off(width);
+                    current = chars;
+                    flush(&mut current, &mut first, lines);
+                    chars = rest;
+                } else if current.len() + 1 + chars.len() <= width {
+                    current.push(' ');
+                    current.extend(chars);
+                    break;
+                } else {
+                    flush(&mut current, &mut first, lines);
+                }
+            }
+        }
+        if !current.is_empty() {
+            flush(&mut current, &mut first, lines);
+        }
     }
 }
 
@@ -863,6 +959,70 @@ mod tests {
         );
         // Continuation lines indent by num_width + 1 == 4 spaces.
         assert!(out.contains("\r\n    "), "four-space continuation indent");
+    }
+
+    #[test]
+    fn long_notes_and_history_lines_wrap_at_the_file_width() {
+        let meta = RipMeta {
+            game_name: "G".to_owned(),
+            notes: "This pack was made using DOSBox and a whole lot of patience, because \
+                    the game only plays each song once per boot and refuses to loop."
+                .to_owned(),
+            history: "1.00 2026-07-16 Someone: Initial release, with a remark long enough \
+                      that it has to wrap onto a continuation line."
+                .to_owned(),
+            ..RipMeta::default()
+        };
+        let text = generate_description(&meta, &[]);
+        let lines: Vec<&str> = text.split("\r\n").collect();
+
+        // Nothing emitted exceeds the file width.
+        for line in &lines {
+            assert!(line.chars().count() <= 47, "line too long: {line:?}");
+        }
+        // History continuations carry the conventional one-space indent.
+        let history_idx = lines.iter().position(|l| *l == "Package history:").unwrap();
+        let continuation = lines[history_idx + 2];
+        assert!(
+            continuation.starts_with(' ') && !continuation.starts_with("  "),
+            "one-space continuation, got {continuation:?}"
+        );
+        // Notes continuations do not.
+        let notes_idx = lines.iter().position(|l| *l == "Notes:").unwrap();
+        assert!(!lines[notes_idx + 2].starts_with(' '));
+
+        // The wrap is a fixed point: saving again changes nothing further.
+        let once = parse_description(&text).unwrap();
+        let twice = parse_description(&generate_description(&once, &[])).unwrap();
+        assert_eq!(twice, once);
+    }
+
+    #[test]
+    fn an_unbreakable_word_is_hard_split_rather_than_overflowing() {
+        let meta = RipMeta {
+            game_name: "G".to_owned(),
+            notes: format!("See {}", "x".repeat(60)),
+            ..RipMeta::default()
+        };
+        let text = generate_description(&meta, &[]);
+        for line in text.split("\r\n") {
+            assert!(line.chars().count() <= 47, "line too long: {line:?}");
+        }
+    }
+
+    #[test]
+    fn presets_cover_the_three_chips_and_match_the_suggestions() {
+        assert_eq!(PRESETS.len(), 3);
+        for (opl, preset) in [
+            (OplType::Opl2, &PRESETS[0]),
+            (OplType::DualOpl2, &PRESETS[1]),
+            (OplType::Opl3, &PRESETS[2]),
+        ] {
+            assert_eq!(preset_for(opl), preset);
+            assert_eq!(music_hardware_suggestion(opl), preset.music_hardware);
+            assert_eq!(preset.system, DEFAULT_SYSTEM);
+            assert_eq!(preset.os, DEFAULT_OS);
+        }
     }
 
     #[test]

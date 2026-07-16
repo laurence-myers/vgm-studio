@@ -30,8 +30,8 @@ pub mod widgets;
 pub use action::AppTab;
 pub use app::DroApp;
 pub use platform::{
-    AudioService, ConfigStore, FileService, PickedFile, PickedFolder, RipEntry, RipEntryKind,
-    RipJobOutcome, RipJobRequest, RipService, SaveOutcome, SaveRequest,
+    AudioService, ConfigStore, FileService, OptimizedImage, PickedFile, PickedFolder, RipEntry,
+    RipEntryKind, RipJobOutcome, RipJobRequest, RipService, SaveOutcome, SaveRequest,
 };
 pub use rip::RipState;
 pub use tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};

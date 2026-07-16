@@ -18,8 +18,8 @@ use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
 use dro_synth::Muting;
 
 use crate::platform::{
-    AudioService, FileService, PickedFile, PickedFolder, RipJobOutcome, RipJobRequest, RipService,
-    SaveOutcome, SaveRequest,
+    AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome,
+    RipJobRequest, RipService, SaveOutcome, SaveRequest,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
@@ -298,6 +298,10 @@ pub(crate) struct RipLog {
     pub submitted: Vec<RipJobRequest>,
     /// Fed to `poll`, front first.
     pub outcomes: VecDeque<RipJobOutcome>,
+    /// Screenshot optimisations requested, as `(name, byte length)`.
+    pub optimize_requests: Vec<(String, usize)>,
+    /// Fed to `poll_optimized`, front first.
+    pub optimized_outcomes: VecDeque<Result<OptimizedImage, String>>,
     pub busy: bool,
     /// A fixed date, so prefilled history lines and snapshots are deterministic.
     pub today: Option<(i32, u8, u8)>,
@@ -308,6 +312,8 @@ impl Default for RipLog {
         Self {
             submitted: Vec::new(),
             outcomes: VecDeque::new(),
+            optimize_requests: Vec::new(),
+            optimized_outcomes: VecDeque::new(),
             busy: false,
             today: Some((2026, 7, 16)),
         }
@@ -331,6 +337,17 @@ impl RipService for FakeRipService {
     }
 
     fn cancel(&mut self) {}
+
+    fn optimize(&mut self, name: String, bytes: Vec<u8>) {
+        self.0
+            .borrow_mut()
+            .optimize_requests
+            .push((name, bytes.len()));
+    }
+
+    fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>> {
+        self.0.borrow_mut().optimized_outcomes.pop_front()
+    }
 
     fn today(&self) -> Option<(i32, u8, u8)> {
         self.0.borrow().today

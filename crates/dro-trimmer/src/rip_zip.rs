@@ -103,7 +103,9 @@ fn process_entry(
     }
 }
 
-fn png_options() -> oxipng::Options {
+/// The oxipng settings shared by the export job and the explicit
+/// optimise-in-place action.
+pub(crate) fn png_options() -> oxipng::Options {
     let mut options = oxipng::Options::from_preset(2);
     // Drop non-critical chunks that do not affect rendering (comments, etc.).
     options.strip = oxipng::StripChunks::Safe;

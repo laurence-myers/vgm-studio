@@ -21,7 +21,9 @@ use dro_core::config::{AppConfig, ThemeChoice};
 
 use super::DroApp;
 use crate::action::AppTab;
-use crate::platform::{PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest};
+use crate::platform::{
+    OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
+};
 use crate::tasks::TaskKind;
 use crate::test_song::{bogus_leading_delay_song, tone_song};
 use crate::test_support::{
@@ -58,6 +60,16 @@ fn build(
     inline_tasks: bool,
     wgpu: bool,
 ) -> (Harness<'static, DroApp>, Handles) {
+    // Tall enough for the five stacked panels plus table rows.
+    build_sized(initial, inline_tasks, wgpu, egui::vec2(1000.0, 720.0))
+}
+
+fn build_sized(
+    initial: Option<PickedFile>,
+    inline_tasks: bool,
+    wgpu: bool,
+    size: egui::Vec2,
+) -> (Harness<'static, DroApp>, Handles) {
     let files = Rc::new(RefCell::new(FileLog::default()));
     let audio = Rc::new(RefCell::new(AudioLog::default()));
     let tasks = Rc::new(RefCell::new(TaskLog::default()));
@@ -93,11 +105,9 @@ fn build(
         )
     };
 
-    // Tall enough for the five stacked panels plus table rows. `max_steps` well
-    // above the default 4 gives settling room; playback tests still avoid `run`.
-    let builder = Harness::builder()
-        .with_size(egui::vec2(1000.0, 720.0))
-        .with_max_steps(64);
+    // `max_steps` well above the default 4 gives settling room; playback tests
+    // still avoid `run`.
+    let builder = Harness::builder().with_size(size).with_max_steps(64);
     let mut harness = if wgpu {
         builder.wgpu().build_eframe(app_builder)
     } else {
@@ -467,6 +477,12 @@ fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder
     harness.run();
 }
 
+/// The rip view scrolls as one page, so the track-row and screenshot buttons sit
+/// well below a 720px viewport; a tall harness keeps them clickable.
+fn tall_rip_harness() -> (Harness<'static, DroApp>, Handles) {
+    build_sized(None, false, false, egui::vec2(1000.0, 1700.0))
+}
+
 #[test]
 fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
     let (mut harness, handles) = empty_harness();
@@ -613,7 +629,7 @@ fn single_track_folder() -> PickedFolder {
 
 #[test]
 fn previewing_a_track_plays_it_and_stop_halts_it() {
-    let (mut harness, handles) = empty_harness();
+    let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     // U+25B6 play.
@@ -655,7 +671,7 @@ fn opening_a_track_loads_it_into_the_editor() {
 
 #[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
-    let (mut harness, handles) = empty_harness();
+    let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     harness.get_by_label("Edit\u{2026}").click();
@@ -691,7 +707,10 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     );
 }
 
+const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
+
 /// A folder that passes every export validation (named, numbered, with a png).
+/// The png is a real (decodable) image so the inline preview renders.
 fn complete_folder() -> PickedFolder {
     rip_folder(
         "Cool Game",
@@ -700,10 +719,94 @@ fn complete_folder() -> PickedFolder {
             PickedFile {
                 name: "Cool Game.png".to_owned(),
                 path: Some(PathBuf::from("C:/Cool Game/Cool Game.png")),
-                bytes: b"\x89PNG\r\n\x1a\n fake".to_vec(),
+                bytes: PNG_FIXTURE.to_vec(),
             },
         ],
     )
+}
+
+#[test]
+fn a_chip_preset_fills_system_os_and_hardware() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    {
+        // Blank the fields so the preset's effect is unambiguous.
+        let rip = harness.state_mut().rip.as_mut().unwrap();
+        rip.meta.system.clear();
+        rip.meta.os.clear();
+        rip.meta.music_hardware.clear();
+        rip.dirty = false;
+    }
+
+    harness.get_by_label("OPL-3").click();
+    harness.run();
+
+    let state = harness.state();
+    let rip = state.rip.as_ref().unwrap();
+    assert_eq!(rip.meta.system, "IBM PC/AT");
+    assert_eq!(rip.meta.os, "DOS");
+    assert_eq!(rip.meta.music_hardware, "Sound Blaster Pro 2 (YMF262)");
+    assert!(rip.dirty, "a preset counts as an edit");
+}
+
+#[test]
+fn optimize_saves_a_smaller_screenshot_in_place() {
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+
+    harness.get_by_label("Optimize").click();
+    harness.run();
+    {
+        let rip = handles.rip.borrow();
+        assert_eq!(rip.optimize_requests.len(), 1);
+        assert_eq!(rip.optimize_requests[0].0, "Cool Game.png");
+    }
+
+    // The service returns smaller bytes: they are saved over the original.
+    handles
+        .rip
+        .borrow_mut()
+        .optimized_outcomes
+        .push_back(Ok(OptimizedImage {
+            name: "Cool Game.png".to_owned(),
+            original_len: PNG_FIXTURE.len(),
+            bytes: b"\x89PNG smaller".to_vec(),
+        }));
+    harness.run();
+
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a save request") {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(path.to_string_lossy().ends_with("Cool Game.png"));
+            assert_eq!(bytes, b"\x89PNG smaller");
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_already_optimal_screenshot_is_not_rewritten() {
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+
+    harness.get_by_label("Optimize").click();
+    harness.run();
+    handles
+        .rip
+        .borrow_mut()
+        .optimized_outcomes
+        .push_back(Ok(OptimizedImage {
+            name: "Cool Game.png".to_owned(),
+            original_len: PNG_FIXTURE.len(),
+            bytes: PNG_FIXTURE.to_vec(), // no smaller
+        }));
+    harness.run();
+
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "nothing to save"
+    );
+    assert!(harness.state().status.contains("already optimal"));
 }
 
 #[test]
@@ -805,15 +908,16 @@ fn a_failed_export_shows_an_alert() {
 
 #[test]
 fn snapshot_rip_view() {
-    let (mut harness, handles) = build(None, false, true);
-    open_folder(&mut harness, &handles, cool_game_folder());
+    // Tall, so the form, track list and inline screenshot are all captured.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
+    open_folder(&mut harness, &handles, complete_folder());
     harness.run();
     harness.snapshot("rip_view");
 }
 
 #[test]
 fn snapshot_track_edit_dialog() {
-    let (mut harness, handles) = build(None, false, true);
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, single_track_folder());
     harness.get_by_label("Edit\u{2026}").click();
     harness.run();

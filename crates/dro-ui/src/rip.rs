@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use dro_core::rip::{
-    DEFAULT_OS, DEFAULT_SYSTEM, RipMeta, TrackEntry, doc_file_stem, format_track_time,
+    DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, TrackEntry, doc_file_stem, format_track_time,
     generate_description, generate_m3u, music_hardware_suggestion, parse_description,
 };
 use dro_core::{Gd3Tag, OplType, Song};
@@ -438,6 +438,26 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                     "Music hardware:",
                     &mut state.meta.music_hardware,
                 );
+                // One-click chip presets for the three fields above.
+                ui.label("Presets:");
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    for preset in &PRESETS {
+                        if bevel::button(ui, palette, preset.name)
+                            .on_hover_text(format!(
+                                "{} / {} / {}",
+                                preset.system, preset.os, preset.music_hardware
+                            ))
+                            .clicked()
+                        {
+                            state.meta.system = preset.system.to_owned();
+                            state.meta.os = preset.os.to_owned();
+                            state.meta.music_hardware = preset.music_hardware.to_owned();
+                            dirty = true;
+                        }
+                    }
+                });
+                ui.end_row();
                 dirty |= field(ui, palette, "Music author:", &mut state.meta.music_authors);
                 dirty |= field(ui, palette, "Game developer:", &mut state.meta.developer);
                 dirty |= field(ui, palette, "Game publisher:", &mut state.meta.publisher);
@@ -460,7 +480,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
 
         crate::theme::separator_full(ui, palette);
         track_table(ui, state, palette, actions);
-        screenshots(ui, state, palette);
+        screenshots(ui, state, palette, actions);
     });
 }
 
@@ -507,130 +527,160 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .strong(),
     );
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
-    TableBuilder::new(ui)
-        .striped(true)
-        .sense(egui::Sense::click())
-        .column(Column::auto().at_least(30.0)) // #
-        .column(Column::remainder().at_least(140.0)) // File
-        .column(Column::remainder().at_least(140.0)) // Title (GD3)
-        .column(Column::auto().at_least(55.0)) // Total
-        .column(Column::auto().at_least(55.0)) // Loop
-        .column(Column::auto().at_least(80.0)) // actions
-        .min_scrolled_height(0.0)
-        .max_scroll_height(300.0)
-        .header(row_height + 2.0, |mut header| {
-            for title in ["#", "File", "Title (GD3)", "Total", "Loop", ""] {
-                header.col(|ui| {
-                    ui.label(
-                        egui::RichText::new(title)
-                            .monospace()
-                            .color(palette.data_text),
-                    );
-                });
-            }
-        })
-        .body(|mut body| {
-            for (index, track) in state.tracks.iter().enumerate() {
-                body.row(row_height, |mut row| {
-                    row.col(|ui| {
+    // A sunken data well on the desktop, like the editor's table. The table's
+    // own vertical scrolling is off so the whole view scrolls as one.
+    let frame = egui::Frame::new()
+        .fill(palette.data_bg)
+        .inner_margin(egui::Margin::same(4));
+    frame.show(ui, |ui| {
+        TableBuilder::new(ui)
+            .striped(true)
+            .sense(egui::Sense::click())
+            .vscroll(false)
+            .column(Column::auto().at_least(30.0)) // #
+            .column(Column::remainder().at_least(140.0)) // File
+            .column(Column::remainder().at_least(140.0)) // Title (GD3)
+            .column(Column::auto().at_least(55.0)) // Total
+            .column(Column::auto().at_least(55.0)) // Loop
+            .column(Column::auto().at_least(80.0)) // actions
+            .header(row_height + 2.0, |mut header| {
+                for title in ["#", "File", "Title (GD3)", "Total", "Loop", ""] {
+                    header.col(|ui| {
                         ui.label(
-                            egui::RichText::new(format!("{:02}", index + 1))
-                                .monospace()
-                                .color(palette.muted),
-                        );
-                    });
-                    row.col(|ui| {
-                        ui.label(
-                            egui::RichText::new(&track.file_name)
+                            egui::RichText::new(title)
                                 .monospace()
                                 .color(palette.data_text),
                         );
                     });
-                    match &track.song {
-                        Ok(song) => {
-                            let entry = TrackEntry::from_song(song, &track.file_name);
-                            row.col(|ui| {
-                                ui.label(
-                                    egui::RichText::new(&entry.title)
-                                        .monospace()
-                                        .color(palette.data_text),
-                                );
-                            });
-                            row.col(|ui| {
-                                ui.label(
-                                    egui::RichText::new(format_track_time(entry.total_samples))
-                                        .monospace()
-                                        .color(palette.data_text),
-                                );
-                            });
-                            row.col(|ui| {
-                                let loop_str = entry
-                                    .loop_samples
-                                    .map_or_else(|| "-".to_owned(), format_track_time);
-                                ui.label(
-                                    egui::RichText::new(loop_str)
-                                        .monospace()
-                                        .color(palette.muted),
-                                );
-                            });
-                            row.col(|ui| {
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 3.0;
-                                    let previewing = state.preview == Some(index);
-                                    // U+25A0 stop / U+25B6 play.
-                                    let symbol = if previewing { "\u{25A0}" } else { "\u{25B6}" };
-                                    if bevel::button(ui, palette, symbol)
-                                        .on_hover_text("Preview")
-                                        .clicked()
-                                    {
-                                        actions.push(if previewing {
-                                            Action::RipStopPreview
-                                        } else {
-                                            Action::RipTrackPreview(index)
-                                        });
-                                    }
-                                    if bevel::button(ui, palette, "Edit\u{2026}")
-                                        .on_hover_text("Rename and edit the GD3 tag")
-                                        .clicked()
-                                    {
-                                        actions.push(Action::OpenTrackQuickEdit(index));
-                                    }
+                }
+            })
+            .body(|mut body| {
+                for (index, track) in state.tracks.iter().enumerate() {
+                    body.row(row_height, |mut row| {
+                        row.col(|ui| {
+                            ui.label(
+                                egui::RichText::new(format!("{:02}", index + 1))
+                                    .monospace()
+                                    .color(palette.muted),
+                            );
+                        });
+                        row.col(|ui| {
+                            ui.label(
+                                egui::RichText::new(&track.file_name)
+                                    .monospace()
+                                    .color(palette.data_text),
+                            );
+                        });
+                        match &track.song {
+                            Ok(song) => {
+                                let entry = TrackEntry::from_song(song, &track.file_name);
+                                row.col(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(&entry.title)
+                                            .monospace()
+                                            .color(palette.data_text),
+                                    );
                                 });
-                            });
+                                row.col(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(format_track_time(entry.total_samples))
+                                            .monospace()
+                                            .color(palette.data_text),
+                                    );
+                                });
+                                row.col(|ui| {
+                                    let loop_str = entry
+                                        .loop_samples
+                                        .map_or_else(|| "-".to_owned(), format_track_time);
+                                    ui.label(
+                                        egui::RichText::new(loop_str)
+                                            .monospace()
+                                            .color(palette.muted),
+                                    );
+                                });
+                                row.col(|ui| {
+                                    ui.horizontal(|ui| {
+                                        ui.spacing_mut().item_spacing.x = 3.0;
+                                        let previewing = state.preview == Some(index);
+                                        // U+25A0 stop / U+25B6 play.
+                                        let symbol =
+                                            if previewing { "\u{25A0}" } else { "\u{25B6}" };
+                                        if bevel::button(ui, palette, symbol)
+                                            .on_hover_text("Preview")
+                                            .clicked()
+                                        {
+                                            actions.push(if previewing {
+                                                Action::RipStopPreview
+                                            } else {
+                                                Action::RipTrackPreview(index)
+                                            });
+                                        }
+                                        if bevel::button(ui, palette, "Edit\u{2026}")
+                                            .on_hover_text("Rename and edit the GD3 tag")
+                                            .clicked()
+                                        {
+                                            actions.push(Action::OpenTrackQuickEdit(index));
+                                        }
+                                    });
+                                });
+                            }
+                            Err(error) => {
+                                row.col(|ui| {
+                                    ui.colored_label(palette.muted, "unreadable")
+                                        .on_hover_text(error);
+                                });
+                                row.col(|_ui| {});
+                                row.col(|_ui| {});
+                                row.col(|_ui| {});
+                            }
                         }
-                        Err(error) => {
-                            row.col(|ui| {
-                                ui.colored_label(palette.muted, "unreadable")
-                                    .on_hover_text(error);
-                            });
-                            row.col(|_ui| {});
-                            row.col(|_ui| {});
-                            row.col(|_ui| {});
-                        }
-                    }
 
-                    if row.response().double_clicked() {
-                        actions.push(Action::RipTrackOpen(index));
-                    }
-                });
-            }
-        });
+                        if row.response().double_clicked() {
+                            actions.push(Action::RipTrackOpen(index));
+                        }
+                    });
+                }
+            });
+    });
 }
 
-fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
-    ui.add_space(4.0);
+fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: &mut Vec<Action>) {
+    ui.add_space(6.0);
     if state.images.is_empty() {
         ui.colored_label(palette.muted, "No screenshot (.png) in the folder.");
-    } else {
-        let names: Vec<&str> = state
-            .images
-            .iter()
-            .map(|image| image.name.as_str())
-            .collect();
-        ui.label(
-            egui::RichText::new(format!("Screenshots: {}", names.join(", ")))
-                .color(palette.data_label),
+        return;
+    }
+    ui.label(
+        egui::RichText::new("Screenshots")
+            .color(palette.data_label)
+            .strong(),
+    );
+    for (index, image) in state.images.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(&image.name)
+                    .monospace()
+                    .color(palette.data_text),
+            );
+            ui.label(
+                egui::RichText::new(format!("({} bytes)", image.bytes.len())).color(palette.muted),
+            );
+            if bevel::button(ui, palette, "Optimize")
+                .on_hover_text("Losslessly recompress with oxipng and save in place")
+                .clicked()
+            {
+                actions.push(Action::OptimizeImage(index));
+            }
+        });
+        // Inline preview at natural size (capped). The URI carries the byte
+        // length, so a freshly optimised file busts the texture cache.
+        let uri = format!("bytes://rip/{}/{}", image.bytes.len(), image.name);
+        ui.add(
+            egui::Image::from_bytes(uri, image.bytes.clone())
+                .fit_to_original_size(1.0)
+                .max_width(480.0),
         );
+        ui.add_space(6.0);
     }
 }
 

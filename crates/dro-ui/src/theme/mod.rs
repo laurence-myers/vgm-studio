@@ -79,6 +79,9 @@ pub fn install(ctx: &egui::Context, choice: ThemeChoice) {
     ctx.set_theme(egui::ThemePreference::Dark);
     ctx.set_fonts(fonts::font_definitions());
     ctx.tessellation_options_mut(|options| options.feathering = false);
+    // Rip mode shows the pack's screenshots inline; the loader decodes the PNG
+    // bytes. Installed here because every shell already calls `install`.
+    egui_extras::install_image_loaders(ctx);
     apply_palette(ctx, choice);
 }
 

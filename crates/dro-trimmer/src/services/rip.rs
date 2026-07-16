@@ -11,13 +11,17 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use chrono::{Datelike as _, Local};
-use dro_ui::{RipJobOutcome, RipJobRequest, RipService};
+use dro_ui::{OptimizedImage, RipJobOutcome, RipJobRequest, RipService};
 
-use crate::rip_zip::build_rip_zip;
+use crate::rip_zip::{build_rip_zip, png_options};
 
 pub struct NativeRipService {
     sender: Sender<(u64, RipJobOutcome)>,
     receiver: Receiver<(u64, RipJobOutcome)>,
+    /// Screenshot optimisations report on their own channel; they never
+    /// supersede one another, so no generation is needed.
+    optimize_sender: Sender<Result<OptimizedImage, String>>,
+    optimize_receiver: Receiver<Result<OptimizedImage, String>>,
     /// The running job's cancel flag, if any.
     cancelled: Option<Arc<AtomicBool>>,
     /// Spawned-and-not-yet-exited threads, for `is_busy`.
@@ -30,9 +34,12 @@ pub struct NativeRipService {
 impl Default for NativeRipService {
     fn default() -> Self {
         let (sender, receiver) = channel();
+        let (optimize_sender, optimize_receiver) = channel();
         Self {
             sender,
             receiver,
+            optimize_sender,
+            optimize_receiver,
             cancelled: None,
             live: Arc::new(AtomicUsize::new(0)),
             generation: 0,
@@ -128,6 +135,33 @@ impl RipService for NativeRipService {
         }
     }
 
+    fn optimize(&mut self, name: String, bytes: Vec<u8>) {
+        let sender = self.optimize_sender.clone();
+        let notify = self.notify.clone();
+        let live = Arc::clone(&self.live);
+        live.fetch_add(1, Ordering::Relaxed);
+        thread::spawn(move || {
+            let result = match oxipng::optimize_from_memory(&bytes, &png_options()) {
+                Ok(optimised) => Ok(OptimizedImage {
+                    name,
+                    original_len: bytes.len(),
+                    bytes: optimised,
+                }),
+                Err(error) => Err(format!("{name}: {error}")),
+            };
+            // A closed channel just means the app shut down.
+            let _ = sender.send(result);
+            if let Some(notify) = &notify {
+                notify();
+            }
+            live.fetch_sub(1, Ordering::Relaxed);
+        });
+    }
+
+    fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>> {
+        self.optimize_receiver.try_recv().ok()
+    }
+
     fn today(&self) -> Option<(i32, u8, u8)> {
         let today = Local::now().date_naive();
         Some((
@@ -213,5 +247,42 @@ mod tests {
         assert!(year >= 2024, "year was {year}");
         assert!((1..=12).contains(&month), "month was {month}");
         assert!((1..=31).contains(&day), "day was {day}");
+    }
+
+    /// Polls until an optimisation result arrives or the deadline passes.
+    fn wait_for_optimized(
+        service: &mut NativeRipService,
+        timeout: Duration,
+    ) -> Result<OptimizedImage, String> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if let Some(result) = service.poll_optimized() {
+                return result;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for the optimiser"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn optimize_shrinks_the_deliberately_suboptimal_fixture() {
+        const PNG: &[u8] = include_bytes!("../../../../tests/screenshot.png");
+        let mut service = NativeRipService::new();
+        service.optimize("shot.png".to_owned(), PNG.to_vec());
+        let optimized = wait_for_optimized(&mut service, Duration::from_secs(30)).unwrap();
+        assert_eq!(optimized.name, "shot.png");
+        assert_eq!(optimized.original_len, PNG.len());
+        assert!(optimized.bytes.len() < PNG.len(), "the fixture shrinks");
+        assert_eq!(&optimized.bytes[..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    #[test]
+    fn optimize_reports_a_corrupt_png_as_an_error() {
+        let mut service = NativeRipService::new();
+        service.optimize("bad.png".to_owned(), b"not a png".to_vec());
+        assert!(wait_for_optimized(&mut service, Duration::from_secs(30)).is_err());
     }
 }

@@ -18,8 +18,8 @@ use crate::dialogs::{
 use crate::editor::{Editor, LoadReport};
 use crate::menus::{self, MenuState};
 use crate::platform::{
-    AudioService, FileService, PickedFile, PickedFolder, RipJobOutcome, RipService, SaveOutcome,
-    SaveRequest,
+    AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, RipService,
+    SaveOutcome, SaveRequest,
 };
 use crate::rip::RipState;
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
@@ -108,6 +108,8 @@ enum SavePurpose {
     RipDoc,
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
+    /// A screenshot rewritten in place after an explicit optimise.
+    ImageOptimised,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
 }
@@ -287,7 +289,9 @@ impl DroApp {
                     ui.label(&self.status);
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if self.rip_service.is_busy() {
-                            ui.label("Building rip zip...");
+                            // The status text names the operation (export or a
+                            // screenshot optimise); this just shows liveness.
+                            ui.label("Working...");
                         }
                         if self.tasks.is_busy() {
                             ui.label("Rendering waveform...");
@@ -453,8 +457,11 @@ impl DroApp {
                     ui.add_space(PAD);
                 })
         });
+        // The editor's central panel is one big data well; the rip view sits on
+        // the FT2 desktop tint, with its own sunken wells inside.
+        let central_fill = if editor_tab { p.data_bg } else { p.desktop };
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()).fill(p.data_bg))
+            .frame(egui::Frame::central_panel(&ctx.style()).fill(central_fill))
             .show(ctx, |ui| match self.active_tab {
                 AppTab::Editor => {
                     if self.editor.has_song() {
@@ -573,6 +580,14 @@ impl DroApp {
                     .push_back(Alert::new("Rip export failed", message)),
             }
         }
+        if let Some(result) = self.rip_service.poll_optimized() {
+            match result {
+                Ok(optimized) => self.image_optimized(optimized),
+                Err(message) => self
+                    .alerts
+                    .push_back(Alert::new("Optimise failed", message)),
+            }
+        }
         for result in self.tasks.poll() {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
@@ -618,10 +633,11 @@ impl DroApp {
                         self.status = format!("Saved {stem}.txt and {stem}.m3u.");
                     }
                 }
-                SavePurpose::TrackRewrite => {
-                    // The file's bytes were rewritten; rescan so the list shows
-                    // the new tag. A rename, if any, rescans on its own outcome
-                    // too -- both refresh in place, harmlessly.
+                SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
+                    // The file's bytes were rewritten; rescan so the list (or
+                    // the inline screenshot and its size) reflects the change. A
+                    // rename, if any, rescans on its own outcome too -- both
+                    // refresh in place, harmlessly.
                     self.rescan_rip_folder();
                 }
                 SavePurpose::ExportZip => {
@@ -991,6 +1007,7 @@ impl DroApp {
             Action::RipTrackPreview(index) => self.preview_track(index),
             Action::RipStopPreview => self.stop_preview(),
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
+            Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
                 index,
                 file_name,
@@ -1405,6 +1422,53 @@ impl DroApp {
             }
         }
         self.status = format!("Updated {new_name}.");
+    }
+
+    /// Kicks off an explicit lossless recompression of a screenshot.
+    fn optimize_image(&mut self, index: usize) {
+        let image = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.images.get(index))
+            .cloned();
+        let Some(image) = image else {
+            return;
+        };
+        self.status = format!("Optimising {}...", image.name);
+        self.rip_service.optimize(image.name, image.bytes);
+    }
+
+    /// Routes a finished optimisation: save a smaller file in place, or report
+    /// that the original was already optimal.
+    fn image_optimized(&mut self, optimized: OptimizedImage) {
+        if optimized.bytes.len() >= optimized.original_len {
+            self.status = format!(
+                "{} is already optimal ({} bytes).",
+                optimized.name, optimized.original_len
+            );
+            return;
+        }
+        let path = self.rip.as_ref().and_then(|rip| {
+            rip.images
+                .iter()
+                .find(|image| image.name == optimized.name)
+                .and_then(|image| image.path.clone())
+        });
+        let Some(path) = path else {
+            self.status = format!("{}: no file path to save to.", optimized.name);
+            return;
+        };
+        self.status = format!(
+            "{}: {} -> {} bytes.",
+            optimized.name,
+            optimized.original_len,
+            optimized.bytes.len()
+        );
+        self.pending_saves.push_back(SavePurpose::ImageOptimised);
+        self.files.save(SaveRequest::InPlace {
+            path,
+            bytes: optimized.bytes,
+        });
     }
 
     fn rescan_rip_folder(&mut self) {

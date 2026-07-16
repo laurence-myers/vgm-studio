@@ -224,6 +224,17 @@ pub enum RipJobOutcome {
     Failed(String),
 }
 
+/// The result of an explicit screenshot optimisation ([`RipService::optimize`]).
+#[derive(Debug, Clone)]
+pub struct OptimizedImage {
+    /// The file name the request carried.
+    pub name: String,
+    /// The size before optimisation, for the savings report.
+    pub original_len: usize,
+    /// The optimised bytes (not necessarily smaller; the caller compares).
+    pub bytes: Vec<u8>,
+}
+
 /// Runs the rip export off the UI thread: optimise PNGs, optionally gzip songs,
 /// and build the zip. Kept separate from [`crate::tasks::TaskService`] because
 /// its job body needs native-only crates (zip, oxipng) that must not reach the
@@ -240,6 +251,13 @@ pub trait RipService {
 
     /// Cancels the running job, if any.
     fn cancel(&mut self);
+
+    /// Losslessly recompresses a screenshot's bytes off the UI thread (oxipng
+    /// natively). The result arrives via [`Self::poll_optimized`].
+    fn optimize(&mut self, name: String, bytes: Vec<u8>);
+
+    /// The next optimisation result. `None` until one arrives.
+    fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>>;
 
     /// Today's local date as `(year, month, day)`, for the prefilled history
     /// line. The default returns `None`, keeping the wasm-clean UI free of a
