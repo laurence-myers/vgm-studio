@@ -8,6 +8,14 @@
 use dro_core::config::AppConfig;
 use dro_core::{Gd3Tag, OplType};
 
+/// Which top-level view is showing. The tab strip appears only while a rip is
+/// open; otherwise the app is always on [`AppTab::Editor`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AppTab {
+    Editor,
+    Rip,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     // File
@@ -27,6 +35,21 @@ pub enum Action {
     OpenVgmMetadata,
     ConvertToVgm,
     DeleteSelection,
+
+    // Rip mode
+    /// Open the folder picker for a rip project (prompts first if the current
+    /// rip has unsaved edits).
+    OpenRipFolder,
+    /// Open the folder picker after the user confirmed discarding a dirty rip.
+    ConfirmOpenRipFolder,
+    /// Switch the active tab (only meaningful while a rip is open).
+    SelectTab(AppTab),
+    /// Close the rip project (prompts first if it has unsaved edits).
+    CloseRip,
+    /// Close the rip project after the user confirmed discarding it.
+    ConfirmCloseRip,
+    /// Write the generated Game Name.txt and Game Name.m3u into the folder.
+    RipSaveDocs,
 
     // Help
     Help,

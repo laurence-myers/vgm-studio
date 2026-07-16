@@ -9,7 +9,7 @@ use dro_core::FindTarget;
 use dro_core::config::{AppConfig, ConfigStore};
 use egui::Key;
 
-use crate::action::Action;
+use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, SettingsDialog,
@@ -17,7 +17,10 @@ use crate::dialogs::{
 };
 use crate::editor::{Editor, LoadReport};
 use crate::menus::{self, MenuState};
-use crate::platform::{AudioService, FileService, PickedFile, SaveOutcome, SaveRequest};
+use crate::platform::{
+    AudioService, FileService, PickedFile, PickedFolder, RipService, SaveOutcome, SaveRequest,
+};
+use crate::rip::RipState;
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
@@ -93,17 +96,36 @@ fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
     )
 }
 
+/// Why a save was issued, so its outcome is routed to the right place. Save
+/// outcomes arrive in the order the saves were made (the FIFO `FileService`
+/// contract), so a queue of these correlates one-to-one with them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SavePurpose {
+    /// The editor's song (File > Save / Save As).
+    Song,
+    /// A rip project's description or playlist.
+    RipDoc,
+}
+
 pub struct DroApp {
     editor: Editor,
     files: Box<dyn FileService>,
     audio: Box<dyn AudioService>,
     tasks: Box<dyn TaskService>,
+    rip_service: Box<dyn RipService>,
     config_store: Box<dyn ConfigStore>,
     config: AppConfig,
 
     status: String,
     alerts: VecDeque<Alert>,
     dialogs: Dialogs,
+
+    /// The open rip project, if any.
+    rip: Option<RipState>,
+    /// The visible tab. Forced to `Editor` whenever no rip is open.
+    active_tab: AppTab,
+    /// One entry per outstanding `files.save`, in order, to route its outcome.
+    pending_saves: VecDeque<SavePurpose>,
 
     waveform: WaveformState,
     /// The stereo output peak meter beside the waveform.
@@ -132,6 +154,7 @@ impl DroApp {
         files: Box<dyn FileService>,
         audio: Box<dyn AudioService>,
         tasks: Box<dyn TaskService>,
+        rip_service: Box<dyn RipService>,
         config_store: Box<dyn ConfigStore>,
         initial_file: Option<PickedFile>,
     ) -> Self {
@@ -141,11 +164,15 @@ impl DroApp {
             files,
             audio,
             tasks,
+            rip_service,
             config_store,
             config,
             status: String::new(),
             alerts: VecDeque::new(),
             dialogs: Dialogs::default(),
+            rip: None,
+            active_tab: AppTab::Editor,
+            pending_saves: VecDeque::new(),
             waveform: WaveformState::default(),
             peak_meter: PeakMeterState::default(),
             position: PositionPanel::new(config.audio.frequency),
@@ -194,36 +221,59 @@ impl DroApp {
             .show(ctx, |ui| {
                 menus::bar(ui, p, &self.menu_state(), &mut actions);
             });
-        let waveform = egui::TopBottomPanel::top("waveform")
-            .frame(well)
-            .resizable(true)
-            .default_height(150.0)
-            .min_height(80.0)
-            .show_separator_line(false)
-            .show(ctx, |ui| {
-                let height = ui.available_height();
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    // A full-height "skip to start" transport button on the left.
-                    if theme::bevel::button_sized(ui, p, "\u{23EE}", egui::vec2(34.0, height))
-                        .on_hover_text("Rewind to the start")
-                        .clicked()
-                    {
-                        actions.push(Action::RewindToStart);
-                    }
-                    // Reserve the peak meter's width up front: the waveform
-                    // fills whatever space it is given.
-                    let wave_width =
-                        ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x;
-                    ui.allocate_ui(egui::vec2(wave_width, height), |ui| {
-                        let response = waveform::show(ui, &self.waveform, self.editor.song(), p);
-                        if let Some((index, ms)) = response.clicked {
-                            actions.push(Action::WaveformClicked { index, ms });
+        // The tab strip switches the editor and rip views; shown only while a
+        // rip project is open (otherwise the app is always the editor).
+        let tabs = self.rip.is_some().then(|| {
+            egui::TopBottomPanel::top("tab-strip")
+                .frame(chrome)
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Rip, "Rip")] {
+                            if ui.selectable_label(self.active_tab == tab, label).clicked() {
+                                actions.push(Action::SelectTab(tab));
+                            }
                         }
                     });
-                    peak_meter::show(ui, &self.peak_meter, p);
-                });
-            });
+                })
+        });
+        // The editor-only panels (waveform, transport/boost, position) are hidden
+        // on the rip tab, which owns the whole central area.
+        let editor_tab = self.active_tab == AppTab::Editor;
+        let waveform = editor_tab.then(|| {
+            egui::TopBottomPanel::top("waveform")
+                .frame(well)
+                .resizable(true)
+                .default_height(150.0)
+                .min_height(80.0)
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    let height = ui.available_height();
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        // A full-height "skip to start" transport button on the left.
+                        if theme::bevel::button_sized(ui, p, "\u{23EE}", egui::vec2(34.0, height))
+                            .on_hover_text("Rewind to the start")
+                            .clicked()
+                        {
+                            actions.push(Action::RewindToStart);
+                        }
+                        // Reserve the peak meter's width up front: the waveform
+                        // fills whatever space it is given.
+                        let wave_width =
+                            ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x;
+                        ui.allocate_ui(egui::vec2(wave_width, height), |ui| {
+                            let response =
+                                waveform::show(ui, &self.waveform, self.editor.song(), p);
+                            if let Some((index, ms)) = response.clicked {
+                                actions.push(Action::WaveformClicked { index, ms });
+                            }
+                        });
+                        peak_meter::show(ui, &self.peak_meter, p);
+                    });
+                })
+        });
         let status = egui::TopBottomPanel::bottom("status-bar")
             .frame(chrome)
             .show_separator_line(false)
@@ -237,176 +287,187 @@ impl DroApp {
                     });
                 });
             });
-        let position = egui::TopBottomPanel::bottom("position-panel")
-            .frame(chrome)
-            .show_separator_line(false)
-            .show(ctx, |ui| {
-                self.position.show(ui, p);
-            });
-        // The controls own their vertical spacing (equal padding above and below
-        // each row band), so drop the frame's vertical margin and item spacing.
-        let controls_frame = egui::Frame::side_top_panel(&ctx.style())
-            .fill(p.face)
-            .inner_margin(egui::Margin {
-                left: 8,
-                right: 8,
-                top: 0,
-                bottom: 0,
-            });
-        let controls = egui::TopBottomPanel::bottom("controls")
-            .frame(controls_frame)
-            .show_separator_line(false)
-            .show(ctx, |ui| {
-                const PAD: f32 = 6.0;
-                ui.spacing_mut().item_spacing.y = 0.0;
-                ui.add_space(PAD);
-                ui.horizontal(|ui| {
-                    ui.set_min_height(ui.spacing().interact_size.y);
-                    ui.spacing_mut().item_spacing.x = 12.0;
-                    if theme::bevel::button(ui, p, "Del.")
-                        .on_hover_text("Delete the selected instruction(s)")
-                        .clicked()
-                    {
-                        actions.push(Action::DeleteSelection);
-                    }
-                    if theme::bevel::button(ui, p, "Play")
-                        .on_hover_text("Play the song from the current position")
-                        .clicked()
-                    {
-                        actions.push(Action::Play);
-                    }
-                    if theme::bevel::button(ui, p, "Stop")
-                        .on_hover_text("Stop playback")
-                        .clicked()
-                    {
-                        actions.push(Action::Stop);
-                    }
-                    if theme::bevel::button(ui, p, "Tail")
-                        .on_hover_text(self.play_tail_label())
-                        .clicked()
-                    {
-                        actions.push(Action::PlayTail);
-                    }
-                    // Live playback boost, right-aligned in the row. A limiter
-                    // behind it prevents clipping; the WAV render and the waveform
-                    // stay at the un-boosted level. Built right-to-left: the
-                    // up/down arrows, the editable value, the "Boost" label, then a
-                    // full-height groove dividing it from the transport buttons.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        let row_h = ui.spacing().interact_size.y;
-                        // The control runs boost in integer steps 1..=5; a
-                        // hand-edited ini may hold a fractional value, floored here.
-                        let current = self.config.audio.boost.floor().clamp(1.0, 5.0) as i32;
-
-                        // Up/down arrows, snug together (rightmost in the row).
-                        // A nested `ui.horizontal` inherits the enclosing
-                        // right-to-left layout, so add down first and up second and
-                        // they come out up-on-the-left, down-on-the-right, like a
-                        // stepper. (Forcing left-to-right here corrupts the parent.)
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 1.0;
-                            let arrow = egui::vec2(20.0, row_h);
-                            if theme::bevel::button_sized(ui, p, "\u{25BC}", arrow)
-                                .on_hover_text("Quieter")
-                                .clicked()
-                                && current > 1
-                            {
-                                actions.push(Action::SetBoost {
-                                    value: (current - 1) as f32,
-                                    persist: true,
-                                });
-                            }
-                            if theme::bevel::button_sized(ui, p, "\u{25B2}", arrow)
-                                .on_hover_text("Louder")
-                                .clicked()
-                                && current < 5
-                            {
-                                actions.push(Action::SetBoost {
-                                    value: (current + 1) as f32,
-                                    persist: true,
-                                });
-                            }
-                        });
-
-                        // The value: a dark well with the tracker-yellow digit,
-                        // click to type. Typed input floors to an integer 1..=5.
-                        ui.scope(|ui| {
-                            let widgets = &mut ui.visuals_mut().widgets;
-                            for w in [
-                                &mut widgets.inactive,
-                                &mut widgets.hovered,
-                                &mut widgets.active,
-                            ] {
-                                w.weak_bg_fill = p.data_bg;
-                                w.bg_fill = p.data_bg;
-                                w.fg_stroke.color = p.data_text;
-                            }
-                            let mut value = self.config.audio.boost;
-                            let db = 20.0 * (current as f32).log10();
-                            let response = ui
-                                .add(
-                                    egui::DragValue::new(&mut value)
-                                        .speed(0.0)
-                                        .update_while_editing(false)
-                                        .custom_formatter(|n, _| {
-                                            format!("{}", n.floor().clamp(1.0, 5.0) as i64)
-                                        })
-                                        .custom_parser(|s| {
-                                            s.trim()
-                                                .parse::<f64>()
-                                                .ok()
-                                                .map(|v| v.floor().clamp(1.0, 5.0))
-                                        }),
-                                )
-                                .on_hover_text(format!("{current}\u{00d7} ({db:+.1} dB)"));
-                            // No continuous drag (speed 0), so a change is always a
-                            // committed edit -- persist it once, like an arrow click.
-                            if response.changed() {
-                                actions.push(Action::SetBoost {
-                                    value,
-                                    persist: true,
-                                });
-                            }
-                        });
-
-                        // The label sits left of the value...
-                        ui.label("Boost");
-                        // ...and a 2px beveled groove at full row height separates
-                        // the boost section from the transport buttons, matching the
-                        // grooves between the stacked panels.
-                        theme::separator(ui, p);
-                    });
+        let position = editor_tab.then(|| {
+            egui::TopBottomPanel::bottom("position-panel")
+                .frame(chrome)
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    self.position.show(ui, p);
+                })
+        });
+        let controls = editor_tab.then(|| {
+            // The controls own their vertical spacing (equal padding above and
+            // below each row band), so drop the frame's vertical margin/spacing.
+            let controls_frame = egui::Frame::side_top_panel(&ctx.style())
+                .fill(p.face)
+                .inner_margin(egui::Margin {
+                    left: 8,
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
                 });
-                ui.add_space(PAD);
-                theme::separator_full(ui, p);
-                ui.add_space(PAD);
-                // A plain OPL2 song has only one bank; hide the high-bank toggles.
-                let show_high_bank = self
-                    .editor
-                    .song()
-                    .is_none_or(|song| song.opl_type != dro_core::OplType::Opl2);
-                if self.channels.show(ui, p, show_high_bank) {
-                    actions.push(Action::MutingChanged);
-                }
-                ui.add_space(PAD);
-            });
+            egui::TopBottomPanel::bottom("controls")
+                .frame(controls_frame)
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    const PAD: f32 = 6.0;
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    ui.add_space(PAD);
+                    ui.horizontal(|ui| {
+                        ui.set_min_height(ui.spacing().interact_size.y);
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        if theme::bevel::button(ui, p, "Del.")
+                            .on_hover_text("Delete the selected instruction(s)")
+                            .clicked()
+                        {
+                            actions.push(Action::DeleteSelection);
+                        }
+                        if theme::bevel::button(ui, p, "Play")
+                            .on_hover_text("Play the song from the current position")
+                            .clicked()
+                        {
+                            actions.push(Action::Play);
+                        }
+                        if theme::bevel::button(ui, p, "Stop")
+                            .on_hover_text("Stop playback")
+                            .clicked()
+                        {
+                            actions.push(Action::Stop);
+                        }
+                        if theme::bevel::button(ui, p, "Tail")
+                            .on_hover_text(self.play_tail_label())
+                            .clicked()
+                        {
+                            actions.push(Action::PlayTail);
+                        }
+                        // Live playback boost, right-aligned in the row. A limiter
+                        // behind it prevents clipping; the WAV render and the waveform
+                        // stay at the un-boosted level. Built right-to-left: the
+                        // up/down arrows, the editable value, the "Boost" label, then a
+                        // full-height groove dividing it from the transport buttons.
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            let row_h = ui.spacing().interact_size.y;
+                            // The control runs boost in integer steps 1..=5; a
+                            // hand-edited ini may hold a fractional value, floored here.
+                            let current = self.config.audio.boost.floor().clamp(1.0, 5.0) as i32;
+
+                            // Up/down arrows, snug together (rightmost in the row).
+                            // A nested `ui.horizontal` inherits the enclosing
+                            // right-to-left layout, so add down first and up second and
+                            // they come out up-on-the-left, down-on-the-right, like a
+                            // stepper. (Forcing left-to-right here corrupts the parent.)
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 1.0;
+                                let arrow = egui::vec2(20.0, row_h);
+                                if theme::bevel::button_sized(ui, p, "\u{25BC}", arrow)
+                                    .on_hover_text("Quieter")
+                                    .clicked()
+                                    && current > 1
+                                {
+                                    actions.push(Action::SetBoost {
+                                        value: (current - 1) as f32,
+                                        persist: true,
+                                    });
+                                }
+                                if theme::bevel::button_sized(ui, p, "\u{25B2}", arrow)
+                                    .on_hover_text("Louder")
+                                    .clicked()
+                                    && current < 5
+                                {
+                                    actions.push(Action::SetBoost {
+                                        value: (current + 1) as f32,
+                                        persist: true,
+                                    });
+                                }
+                            });
+
+                            // The value: a dark well with the tracker-yellow digit,
+                            // click to type. Typed input floors to an integer 1..=5.
+                            ui.scope(|ui| {
+                                let widgets = &mut ui.visuals_mut().widgets;
+                                for w in [
+                                    &mut widgets.inactive,
+                                    &mut widgets.hovered,
+                                    &mut widgets.active,
+                                ] {
+                                    w.weak_bg_fill = p.data_bg;
+                                    w.bg_fill = p.data_bg;
+                                    w.fg_stroke.color = p.data_text;
+                                }
+                                let mut value = self.config.audio.boost;
+                                let db = 20.0 * (current as f32).log10();
+                                let response = ui
+                                    .add(
+                                        egui::DragValue::new(&mut value)
+                                            .speed(0.0)
+                                            .update_while_editing(false)
+                                            .custom_formatter(|n, _| {
+                                                format!("{}", n.floor().clamp(1.0, 5.0) as i64)
+                                            })
+                                            .custom_parser(|s| {
+                                                s.trim()
+                                                    .parse::<f64>()
+                                                    .ok()
+                                                    .map(|v| v.floor().clamp(1.0, 5.0))
+                                            }),
+                                    )
+                                    .on_hover_text(format!("{current}\u{00d7} ({db:+.1} dB)"));
+                                // No continuous drag (speed 0), so a change is always a
+                                // committed edit -- persist it once, like an arrow click.
+                                if response.changed() {
+                                    actions.push(Action::SetBoost {
+                                        value,
+                                        persist: true,
+                                    });
+                                }
+                            });
+
+                            // The label sits left of the value...
+                            ui.label("Boost");
+                            // ...and a 2px beveled groove at full row height separates
+                            // the boost section from the transport buttons, matching the
+                            // grooves between the stacked panels.
+                            theme::separator(ui, p);
+                        });
+                    });
+                    ui.add_space(PAD);
+                    theme::separator_full(ui, p);
+                    ui.add_space(PAD);
+                    // A plain OPL2 song has only one bank; hide the high-bank toggles.
+                    let show_high_bank = self
+                        .editor
+                        .song()
+                        .is_none_or(|song| song.opl_type != dro_core::OplType::Opl2);
+                    if self.channels.show(ui, p, show_high_bank) {
+                        actions.push(Action::MutingChanged);
+                    }
+                    ui.add_space(PAD);
+                })
+        });
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(&ctx.style()).fill(p.data_bg))
-            .show(ctx, |ui| {
-                if self.editor.has_song() {
-                    // Row hover reads `widgets.hovered.bg_fill`, which is the
-                    // bright face colour; scope it to the data-well tone so it
-                    // does not flash teal under the yellow text.
-                    ui.visuals_mut().widgets.hovered.bg_fill = p.data_hover;
-                    table::show(ui, &mut self.editor, self.scroll_to.take(), p);
-                } else {
-                    ui.visuals_mut().override_text_color = Some(p.data_label);
-                    ui.centered_and_justified(|ui| {
-                        ui.label(
-                            "Open a DRO, VGM or VGZ file (File > Open..., or drop it here).",
-                        );
-                    });
+            .show(ctx, |ui| match self.active_tab {
+                AppTab::Editor => {
+                    if self.editor.has_song() {
+                        // Row hover reads `widgets.hovered.bg_fill`, which is the
+                        // bright face colour; scope it to the data-well tone so it
+                        // does not flash teal under the yellow text.
+                        ui.visuals_mut().widgets.hovered.bg_fill = p.data_hover;
+                        table::show(ui, &mut self.editor, self.scroll_to.take(), p);
+                    } else {
+                        ui.visuals_mut().override_text_color = Some(p.data_label);
+                        ui.centered_and_justified(|ui| {
+                            ui.label(
+                                "Open a DRO, VGM or VGZ file (File > Open..., or drop it here).",
+                            );
+                        });
+                    }
+                }
+                AppTab::Rip => {
+                    if let Some(rip) = self.rip.as_mut() {
+                        crate::rip::show(ui, rip, p, &mut actions);
+                    }
                 }
             });
 
@@ -417,18 +478,27 @@ impl DroApp {
         // waveform panel is resizable, so the seams are recomputed each frame.
         let divider = ctx.layer_painter(egui::LayerId::background());
         let x_range = ctx.screen_rect().x_range();
-        for seam in [
-            menu.response.rect.bottom(),
-            waveform.response.rect.bottom(),
-            controls.response.rect.top(),
-            position.response.rect.top(),
-            status.response.rect.top(),
-        ] {
+        // Only the panels actually drawn this frame contribute a seam.
+        let mut seams = vec![menu.response.rect.bottom()];
+        if let Some(tabs) = &tabs {
+            seams.push(tabs.response.rect.bottom());
+        }
+        if let Some(waveform) = &waveform {
+            seams.push(waveform.response.rect.bottom());
+        }
+        if let Some(controls) = &controls {
+            seams.push(controls.response.rect.top());
+        }
+        if let Some(position) = &position {
+            seams.push(position.response.rect.top());
+        }
+        seams.push(status.response.rect.top());
+        for seam in seams {
             theme::bevel::groove_h(&divider, x_range, seam - 1.0, p);
         }
 
         self.dialogs.show_all(ctx, p, &mut actions);
-        alert::show_front(ctx, p, &mut self.alerts);
+        alert::show_front(ctx, p, &mut self.alerts, &mut actions);
 
         for action in actions {
             self.handle_action(ctx, action);
@@ -449,9 +519,31 @@ impl DroApp {
                     .push_back(Alert::new("Failed to open file", message)),
             }
         }
+        if let Some(result) = self.files.poll_folder() {
+            match result {
+                Ok(folder) => self.open_folder(folder),
+                Err(message) => self
+                    .alerts
+                    .push_back(Alert::new("Failed to open folder", message)),
+            }
+        }
         if let Some(outcome) = self.files.poll_saved() {
-            match outcome {
-                SaveOutcome::Saved { name, path } => {
+            // Outcomes arrive in the order the saves were made, so a FIFO of
+            // purposes routes each one to the editor or the rip project.
+            let purpose = self.pending_saves.pop_front().unwrap_or(SavePurpose::Song);
+            self.handle_save_outcome(purpose, outcome);
+        }
+        for result in self.tasks.poll() {
+            match result {
+                TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
+            }
+        }
+    }
+
+    fn handle_save_outcome(&mut self, purpose: SavePurpose, outcome: SaveOutcome) {
+        match outcome {
+            SaveOutcome::Saved { name, path } => match purpose {
+                SavePurpose::Song => {
                     let shown = path
                         .as_ref()
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
@@ -462,21 +554,35 @@ impl DroApp {
                         if let (Ok(bytes), Some(path)) =
                             (self.editor.save_bytes(), self.editor.path.clone())
                         {
+                            self.pending_saves.push_back(SavePurpose::Song);
                             self.files.save(SaveRequest::InPlace { path, bytes });
                         }
                     }
                     self.status = format!("File saved to {shown}.");
                 }
-                SaveOutcome::Cancelled => {}
-                SaveOutcome::Failed(message) => self
-                    .alerts
-                    .push_back(Alert::new("Failed to save file", message)),
-            }
-        }
-        for result in self.tasks.poll() {
-            match result {
-                TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
-            }
+                SavePurpose::RipDoc => {
+                    // The description and playlist save back to back; report and
+                    // clear the dirty flag once the last of them lands.
+                    let more = self
+                        .pending_saves
+                        .iter()
+                        .any(|purpose| *purpose == SavePurpose::RipDoc);
+                    if !more {
+                        if let Some(rip) = self.rip.as_mut() {
+                            rip.dirty = false;
+                        }
+                        let stem = self
+                            .rip
+                            .as_ref()
+                            .map_or_else(String::new, RipState::doc_stem);
+                        self.status = format!("Saved {stem}.txt and {stem}.m3u.");
+                    }
+                }
+            },
+            SaveOutcome::Cancelled => {}
+            SaveOutcome::Failed(message) => self
+                .alerts
+                .push_back(Alert::new("Failed to save file", message)),
         }
     }
 
@@ -522,6 +628,20 @@ impl DroApp {
         // the *text*, not the song. (The wx accelerators likewise never fired
         // inside the dialogs' own text fields.)
         if ctx.wants_keyboard_input() {
+            return;
+        }
+        // The rip tab hides the editor, so the editor's keys (Del, Space, arrows,
+        // Undo, ...) must not fire there. Only Save (the package files) and Help
+        // remain.
+        if self.active_tab == AppTab::Rip {
+            ctx.input_mut(|input| {
+                if input.consume_shortcut(&menus::SAVE) {
+                    actions.push(Action::RipSaveDocs);
+                }
+                if input.consume_shortcut(&menus::HELP) {
+                    actions.push(Action::Help);
+                }
+            });
             return;
         }
         ctx.input_mut(|input| {
@@ -772,6 +892,33 @@ impl DroApp {
                 }
             }
 
+            Action::OpenRipFolder => {
+                if self.rip_is_dirty() {
+                    self.alerts.push_back(Alert::confirm(
+                        "Discard unsaved package details?",
+                        "This rip has unsaved changes. Open a different folder anyway?",
+                        Action::ConfirmOpenRipFolder,
+                    ));
+                } else {
+                    self.files.pick_folder();
+                }
+            }
+            Action::ConfirmOpenRipFolder => self.files.pick_folder(),
+            Action::SelectTab(tab) => self.select_tab(tab),
+            Action::CloseRip => {
+                if self.rip_is_dirty() {
+                    self.alerts.push_back(Alert::confirm(
+                        "Discard unsaved package details?",
+                        "This rip has unsaved changes. Close it anyway?",
+                        Action::ConfirmCloseRip,
+                    ));
+                } else {
+                    self.close_rip();
+                }
+            }
+            Action::ConfirmCloseRip => self.close_rip(),
+            Action::RipSaveDocs => self.save_rip_docs(),
+
             Action::Help => self.alerts.push_back(Alert::new(HELP_TITLE, HELP_TEXT)),
             Action::About => self.alerts.push_back(Alert::new("About", about_text())),
 
@@ -934,7 +1081,106 @@ impl DroApp {
                 bytes,
             },
         };
+        self.pending_saves.push_back(SavePurpose::Song);
         self.files.save(request);
+    }
+
+    // -- rip mode ----------------------------------------------------------
+
+    fn rip_is_dirty(&self) -> bool {
+        self.rip.as_ref().is_some_and(|rip| rip.dirty)
+    }
+
+    /// Installs a freshly scanned folder as the rip project, or -- when it is a
+    /// redelivery of the folder already open -- rescans in place, keeping the
+    /// edited metadata.
+    fn open_folder(&mut self, folder: PickedFolder) {
+        let same = self
+            .rip
+            .as_ref()
+            .is_some_and(|rip| rip.folder_path.is_some() && rip.folder_path == folder.path);
+        if same {
+            if let Some(rip) = self.rip.as_mut() {
+                rip.refresh_files(folder);
+            }
+            return;
+        }
+        let today = self.rip_service.today();
+        let state = RipState::from_folder(folder, today);
+        let warning = state.parse_warning.clone();
+        let name = state.folder_name.clone();
+        self.rip = Some(state);
+        self.active_tab = AppTab::Rip;
+        self.close_song_dialogs();
+        // The editor's audio must not keep playing under the rip view.
+        self.audio.unload();
+        self.audio_revision = None;
+        self.status = format!("Opened rip project: {name}.");
+        if let Some(warning) = warning {
+            self.alerts.push_back(Alert::new(
+                "Description not parsed",
+                format!("{warning}\n\nSaving the package files will overwrite it."),
+            ));
+        }
+    }
+
+    fn select_tab(&mut self, tab: AppTab) {
+        if self.rip.is_none() {
+            self.active_tab = AppTab::Editor;
+            return;
+        }
+        if self.active_tab == tab {
+            return;
+        }
+        self.active_tab = tab;
+        // Returning to the rip tab re-scans the folder so edits made in the
+        // editor (or renames) are reflected.
+        if tab == AppTab::Rip {
+            if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
+                self.files.open_folder_path(path);
+            }
+        }
+    }
+
+    fn close_rip(&mut self) {
+        self.rip = None;
+        self.active_tab = AppTab::Editor;
+        self.status = "Closed the rip project.".to_owned();
+    }
+
+    /// Saves `Game Name.txt` and `Game Name.m3u` into the folder.
+    fn save_rip_docs(&mut self) {
+        if !self.rip.as_ref().is_some_and(RipState::can_save) {
+            if self.rip.is_some() {
+                self.alerts.push_back(Alert::error(
+                    "Enter a game name before saving the package files.",
+                ));
+            }
+            return;
+        }
+        let rip = self.rip.as_ref().expect("checked");
+        let stem = rip.doc_stem();
+        let description = rip.description_text().into_bytes();
+        let m3u = rip.m3u_text(false).into_bytes();
+        let folder = rip.folder_path.clone();
+        let docs = [
+            (format!("{stem}.txt"), description),
+            (format!("{stem}.m3u"), m3u),
+        ];
+        for (name, bytes) in docs {
+            self.pending_saves.push_back(SavePurpose::RipDoc);
+            let request = match &folder {
+                Some(folder) => SaveRequest::InPlace {
+                    path: folder.join(&name),
+                    bytes,
+                },
+                None => SaveRequest::Dialog {
+                    suggested_name: name,
+                    bytes,
+                },
+            };
+            self.files.save(request);
+        }
     }
 
     fn do_play(&mut self) {
@@ -1142,6 +1388,8 @@ impl DroApp {
             can_redo: self.editor.can_redo(),
             undo_description: self.editor.undo_description().map(str::to_owned),
             redo_description: self.editor.redo_description().map(str::to_owned),
+            has_rip: self.rip.is_some(),
+            on_rip_tab: self.active_tab == AppTab::Rip,
         }
     }
 

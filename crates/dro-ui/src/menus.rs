@@ -29,19 +29,26 @@ pub struct MenuState {
     /// The command the next Undo would revert, for the item label.
     pub undo_description: Option<String>,
     pub redo_description: Option<String>,
+    /// Whether a rip project is open (enables the Rip menu's project items).
+    pub has_rip: bool,
+    /// Whether the Rip tab is showing (disables the song-bound File/Edit items).
+    pub on_rip_tab: bool,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
 pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mut Vec<Action>) {
+    // The song-bound File and Edit items act on the editor's song, which the
+    // Rip tab hides; disable them there so they cannot edit an unseen song.
+    let editor = !state.on_rip_tab;
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
             if item(ui, "Open...", Some(&OPEN)) {
                 actions.push(Action::OpenFile);
             }
-            if item(ui, "Save", Some(&SAVE)) {
+            if enabled_item(ui, editor, "Save", Some(&SAVE)) {
                 actions.push(Action::Save);
             }
-            if item(ui, "Save As...", Some(&SAVE_AS)) {
+            if enabled_item(ui, editor, "Save As...", Some(&SAVE_AS)) {
                 actions.push(Action::SaveAs);
             }
             crate::theme::separator(ui, palette);
@@ -64,39 +71,55 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 Some(description) => format!("Redo {description}"),
                 None => "Redo".to_owned(),
             };
-            if enabled_item(ui, state.can_undo, &undo_label, Some(&UNDO)) {
+            if enabled_item(ui, editor && state.can_undo, &undo_label, Some(&UNDO)) {
                 actions.push(Action::Undo);
             }
-            if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
+            if enabled_item(ui, editor && state.can_redo, &redo_label, Some(&REDO)) {
                 actions.push(Action::Redo);
             }
             crate::theme::separator(ui, palette);
-            if item(ui, "Goto...", Some(&GOTO)) {
+            if enabled_item(ui, editor, "Goto...", Some(&GOTO)) {
                 actions.push(Action::OpenGoto);
             }
-            if item(ui, "Find Register...", Some(&FIND_REGISTER)) {
+            if enabled_item(ui, editor, "Find Register...", Some(&FIND_REGISTER)) {
                 actions.push(Action::OpenFindRegister);
             }
-            if item(ui, "DRO Info...", Some(&DRO_INFO)) {
+            if enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
                 actions.push(Action::OpenDroInfo);
             }
-            if item(ui, "Edit Tag", None) {
+            if enabled_item(ui, editor, "Edit Tag", None) {
                 actions.push(Action::OpenEditTag);
             }
-            if item(ui, "Edit VGM Metadata", None) {
+            if enabled_item(ui, editor, "Edit VGM Metadata", None) {
                 actions.push(Action::OpenVgmMetadata);
             }
-            if item(ui, "Convert to VGM", None) {
+            if enabled_item(ui, editor, "Convert to VGM", None) {
                 actions.push(Action::ConvertToVgm);
             }
             crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint
             // matches the Python label "&Delete Instruction(s)\tDEL".
             if ui
-                .add(egui::Button::new("Delete Instruction(s)").shortcut_text("Del"))
+                .add_enabled(
+                    editor,
+                    egui::Button::new("Delete Instruction(s)").shortcut_text("Del"),
+                )
                 .clicked()
             {
                 actions.push(Action::DeleteSelection);
+            }
+        });
+
+        ui.menu_button("Rip", |ui| {
+            if item(ui, "Open Rip Folder...", None) {
+                actions.push(Action::OpenRipFolder);
+            }
+            if enabled_item(ui, state.has_rip, "Save Package Files", None) {
+                actions.push(Action::RipSaveDocs);
+            }
+            crate::theme::separator(ui, palette);
+            if enabled_item(ui, state.has_rip, "Close Rip", None) {
+                actions.push(Action::CloseRip);
             }
         });
 

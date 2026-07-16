@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use dro_trimmer::services::{
-    IniConfigStore, NativeAudioService, NativeFileService, ThreadTaskService,
+    IniConfigStore, NativeAudioService, NativeFileService, NativeRipService, ThreadTaskService,
 };
 use dro_ui::DroApp;
 use dro_ui::platform::FileService;
@@ -48,16 +48,22 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             // The DOS-tracker look: fonts, palette and square bevelled chrome.
             dro_ui::theme::install(&cc.egui_ctx, config.ui.theme);
-            // The task service pokes the event loop when a background render
-            // finishes, so the result is picked up without waiting for input.
-            let repaint = {
+            // The background services poke the event loop when a render or a
+            // rip export finishes, so the result is picked up without waiting
+            // for input.
+            let repaint_tasks = {
+                let ctx = cc.egui_ctx.clone();
+                move || ctx.request_repaint()
+            };
+            let repaint_rip = {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             };
             Ok(Box::new(DroApp::new(
                 Box::new(files),
                 Box::new(NativeAudioService::new()),
-                Box::new(ThreadTaskService::with_notifier(repaint)),
+                Box::new(ThreadTaskService::with_notifier(repaint_tasks)),
+                Box::new(NativeRipService::with_notifier(repaint_rip)),
                 Box::new(IniConfigStore::new()),
                 None,
             )))

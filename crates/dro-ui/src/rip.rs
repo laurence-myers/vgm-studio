@@ -1,0 +1,637 @@
+//! Rip mode: preparing a VGMRips submission from a folder of songs.
+//!
+//! [`RipState`] is the headless core -- the loaded folder, the editable package
+//! metadata, and the derived track list -- with no egui, so it is testable
+//! without a window (like [`crate::editor::Editor`]). [`show`] draws the view.
+//!
+//! The description file *is* the project: opening a folder re-parses any
+//! `Game Name.txt` back into the form, so a pack can be reopened and updated.
+//! When there is no description (a fresh rip), the fields are prefilled from the
+//! songs' GD3 tags.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use dro_core::rip::{
+    DEFAULT_OS, DEFAULT_SYSTEM, RipMeta, TrackEntry, doc_file_stem, format_track_time,
+    generate_description, generate_m3u, music_hardware_suggestion, parse_description,
+};
+use dro_core::{OplType, Song};
+use egui_extras::{Column, TableBuilder};
+
+use crate::action::Action;
+use crate::platform::{PickedFile, PickedFolder};
+use crate::theme::{Palette, bevel};
+
+/// One song file in the rip: its bytes (kept for export and opening in the
+/// editor) and the parse result (an error shows inline rather than aborting).
+#[derive(Debug, Clone)]
+pub struct RipTrack {
+    pub file_name: String,
+    pub path: Option<PathBuf>,
+    pub bytes: Vec<u8>,
+    pub song: Result<Arc<Song>, String>,
+}
+
+impl RipTrack {
+    /// The parsed song, if it loaded.
+    #[must_use]
+    pub fn song(&self) -> Option<&Arc<Song>> {
+        self.song.as_ref().ok()
+    }
+}
+
+/// The whole rip project: what a folder scan produced, plus the editable
+/// package metadata.
+#[derive(Debug)]
+pub struct RipState {
+    pub folder_name: String,
+    pub folder_path: Option<PathBuf>,
+    pub meta: RipMeta,
+    pub tracks: Vec<RipTrack>,
+    pub images: Vec<PickedFile>,
+    /// The description file that was parsed, if any.
+    pub description_file: Option<String>,
+    /// Set when an existing description could not be parsed; saving overwrites it.
+    pub parse_warning: Option<String>,
+    /// Unsaved edits to the package metadata.
+    pub dirty: bool,
+    /// Gzip `.vgm` songs to `.vgz` on export (the VGMRips convention).
+    pub gzip_on_export: bool,
+    /// The row currently previewing through the audio output (rip mode playback).
+    pub preview: Option<usize>,
+}
+
+impl RipState {
+    /// Builds the state from a scanned folder. `today` prefills the initial
+    /// package-history line when there is no description to parse.
+    #[must_use]
+    pub fn from_folder(folder: PickedFolder, today: Option<(i32, u8, u8)>) -> Self {
+        let mut tracks = Vec::new();
+        let mut images = Vec::new();
+        let mut texts: Vec<PickedFile> = Vec::new();
+        for file in folder.files {
+            match classify(&file.name) {
+                FileClass::Song => {
+                    let song = dro_core::io::read_song(&file.name, &file.bytes)
+                        .map(Arc::new)
+                        .map_err(|error| error.to_string());
+                    tracks.push(RipTrack {
+                        file_name: file.name,
+                        path: file.path,
+                        bytes: file.bytes,
+                        song,
+                    });
+                }
+                FileClass::Image => images.push(file),
+                FileClass::Doc => texts.push(file),
+                FileClass::Other => {}
+            }
+        }
+
+        let chosen = choose_description(&texts, &folder.name);
+        let (meta, description_file, parse_warning) = match chosen {
+            Some(file) => {
+                let text = String::from_utf8_lossy(&file.bytes);
+                match parse_description(&text) {
+                    Ok(meta) => (meta, Some(file.name.clone()), None),
+                    Err(error) => (
+                        prefilled(&tracks, today),
+                        Some(file.name.clone()),
+                        Some(format!("{} could not be parsed: {error}", file.name)),
+                    ),
+                }
+            }
+            None => (prefilled(&tracks, today), None, None),
+        };
+
+        Self {
+            folder_name: folder.name,
+            folder_path: folder.path,
+            meta,
+            tracks,
+            images,
+            description_file,
+            parse_warning,
+            dirty: false,
+            gzip_on_export: true,
+            preview: None,
+        }
+    }
+
+    /// Re-scans the folder's files, keeping the edited metadata and dirty flag.
+    /// Used after returning from the editor or renaming a track.
+    pub fn refresh_files(&mut self, folder: PickedFolder) {
+        let rescanned = Self::from_folder(folder, None);
+        self.tracks = rescanned.tracks;
+        self.images = rescanned.images;
+        self.preview = None;
+    }
+
+    /// The track list for the description, skipping songs that failed to parse.
+    #[must_use]
+    pub fn track_entries(&self) -> Vec<TrackEntry> {
+        self.tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .song()
+                    .map(|song| TrackEntry::from_song(song, &track.file_name))
+            })
+            .collect()
+    }
+
+    /// The file-name stem for the `.txt`/`.m3u`/`.zip`, from the game name.
+    #[must_use]
+    pub fn doc_stem(&self) -> String {
+        doc_file_stem(&self.meta.game_name)
+    }
+
+    /// The generated description file text.
+    #[must_use]
+    pub fn description_text(&self) -> String {
+        generate_description(&self.meta, &self.track_entries())
+    }
+
+    /// The generated playlist. `final_names` swaps `.vgm` for `.vgz` when the
+    /// export gzips songs, so the zip's playlist names its actual entries.
+    #[must_use]
+    pub fn m3u_text(&self, final_names: bool) -> String {
+        let names: Vec<String> = self
+            .tracks
+            .iter()
+            .map(|track| {
+                if final_names && self.gzip_on_export {
+                    to_vgz_name(&track.file_name)
+                } else {
+                    track.file_name.clone()
+                }
+            })
+            .collect();
+        generate_m3u(&names)
+    }
+
+    /// Whether the metadata is ready to save (a game name is required, since it
+    /// names every output file).
+    #[must_use]
+    pub fn can_save(&self) -> bool {
+        !self.meta.game_name.trim().is_empty()
+    }
+}
+
+enum FileClass {
+    Song,
+    Image,
+    Doc,
+    Other,
+}
+
+fn classify(name: &str) -> FileClass {
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".vgm") || lower.ends_with(".vgz") {
+        FileClass::Song
+    } else if lower.ends_with(".png") {
+        FileClass::Image
+    } else if lower.ends_with(".txt") {
+        FileClass::Doc
+    } else {
+        FileClass::Other
+    }
+}
+
+/// Prefers a description whose stem matches the folder name, else the first.
+fn choose_description<'a>(texts: &'a [PickedFile], folder_name: &str) -> Option<&'a PickedFile> {
+    texts
+        .iter()
+        .find(|file| {
+            let stem = file
+                .name
+                .rsplit_once('.')
+                .map_or(file.name.as_str(), |(stem, _)| stem);
+            stem.eq_ignore_ascii_case(folder_name)
+        })
+        .or_else(|| texts.first())
+}
+
+/// Default metadata for a fresh rip, seeded from the songs' GD3 tags.
+fn prefilled(tracks: &[RipTrack], today: Option<(i32, u8, u8)>) -> RipMeta {
+    let songs: Vec<&Arc<Song>> = tracks.iter().filter_map(RipTrack::song).collect();
+
+    let mut meta = RipMeta {
+        system: DEFAULT_SYSTEM.to_owned(),
+        os: DEFAULT_OS.to_owned(),
+        version: "1.00".to_owned(),
+        ..RipMeta::default()
+    };
+    if let Some(opl) = highest_opl(&songs) {
+        meta.music_hardware = music_hardware_suggestion(opl).to_owned();
+    }
+    for song in &songs {
+        if let Some(tag) = song.vgm_meta().and_then(|meta| meta.tag.as_ref()) {
+            fill_if_empty(&mut meta.game_name, &tag.game_name_en);
+            fill_if_empty(&mut meta.creator, &tag.creator);
+            fill_if_empty(&mut meta.release_date, &tag.release_date);
+        }
+    }
+    meta.music_authors = unique_authors(&songs);
+
+    let date = today.map_or_else(
+        || "<date>".to_owned(),
+        |(year, month, day)| format!("{year:04}-{month:02}-{day:02}"),
+    );
+    let creator = if meta.creator.is_empty() {
+        "<creator>"
+    } else {
+        &meta.creator
+    };
+    meta.history = format!("1.00 {date} {creator}: Initial release.");
+    meta
+}
+
+fn fill_if_empty(slot: &mut String, value: &str) {
+    if slot.is_empty() && !value.trim().is_empty() {
+        *slot = value.trim().to_owned();
+    }
+}
+
+/// The most capable chip across the songs (OPL3 > dual OPL2 > OPL2).
+fn highest_opl(songs: &[&Arc<Song>]) -> Option<OplType> {
+    songs
+        .iter()
+        .map(|song| song.opl_type)
+        .max_by_key(|opl| match opl {
+            OplType::Opl2 => 0,
+            OplType::DualOpl2 => 1,
+            OplType::Opl3 => 2,
+        })
+}
+
+/// Distinct GD3 track authors, in track order, comma-joined.
+fn unique_authors(songs: &[&Arc<Song>]) -> String {
+    let mut authors: Vec<String> = Vec::new();
+    for song in songs {
+        if let Some(tag) = song.vgm_meta().and_then(|meta| meta.tag.as_ref()) {
+            let author = tag.track_author_en.trim();
+            if !author.is_empty() && !authors.iter().any(|a| a == author) {
+                authors.push(author.to_owned());
+            }
+        }
+    }
+    authors.join(", ")
+}
+
+fn to_vgz_name(name: &str) -> String {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if ext.eq_ignore_ascii_case("vgm") => format!("{stem}.vgz"),
+        _ => name.to_owned(),
+    }
+}
+
+// -- view --------------------------------------------------------------------
+
+/// Draws the rip view: the package-metadata form and the track list.
+pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions: &mut Vec<Action>) {
+    ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
+
+    // Header strip: folder name, save, and the gzip-on-export toggle.
+    ui.horizontal(|ui| {
+        ui.visuals_mut().override_text_color = Some(palette.data_label);
+        ui.label(egui::RichText::new(&state.folder_name).strong());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if bevel::button(ui, palette, "Save Package Files")
+                .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
+                .clicked()
+            {
+                actions.push(Action::RipSaveDocs);
+            }
+            ui.checkbox(&mut state.gzip_on_export, "Gzip to .vgz on export");
+        });
+    });
+    if let Some(warning) = &state.parse_warning {
+        ui.colored_label(palette.muted, warning);
+    }
+    crate::theme::separator_full(ui, palette);
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        let mut dirty = false;
+        egui::Grid::new("rip-meta")
+            .num_columns(2)
+            .spacing([10.0, 6.0])
+            .show(ui, |ui| {
+                dirty |= field(ui, palette, "Game name:", &mut state.meta.game_name);
+                dirty |= field(ui, palette, "System:", &mut state.meta.system);
+                dirty |= field(ui, palette, "OS:", &mut state.meta.os);
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Music hardware:",
+                    &mut state.meta.music_hardware,
+                );
+                dirty |= field(ui, palette, "Music author:", &mut state.meta.music_authors);
+                dirty |= field(ui, palette, "Game developer:", &mut state.meta.developer);
+                dirty |= field(ui, palette, "Game publisher:", &mut state.meta.publisher);
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Game release date:",
+                    &mut state.meta.release_date,
+                );
+                dirty |= field(ui, palette, "Package created by:", &mut state.meta.creator);
+                dirty |= field(ui, palette, "Package version:", &mut state.meta.version);
+            });
+
+        ui.add_space(4.0);
+        dirty |= multiline(ui, palette, "Notes:", &mut state.meta.notes);
+        dirty |= multiline(ui, palette, "Package history:", &mut state.meta.history);
+        if dirty {
+            state.dirty = true;
+        }
+
+        crate::theme::separator_full(ui, palette);
+        track_table(ui, state, palette);
+        screenshots(ui, state, palette);
+    });
+}
+
+/// A labelled single-line field. Returns whether it changed.
+fn field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) -> bool {
+    ui.label(label);
+    let response = ui.add(
+        egui::TextEdit::singleline(value)
+            .desired_width(340.0)
+            .text_color(palette.data_text),
+    );
+    ui.end_row();
+    response.changed()
+}
+
+fn multiline(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) -> bool {
+    ui.label(label);
+    let response = ui.add(
+        egui::TextEdit::multiline(value)
+            .desired_rows(3)
+            .desired_width(f32::INFINITY)
+            .font(egui::TextStyle::Monospace)
+            .text_color(palette.data_text),
+    );
+    response.changed()
+}
+
+fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
+    ui.label(
+        egui::RichText::new("Tracks")
+            .color(palette.data_label)
+            .strong(),
+    );
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
+    TableBuilder::new(ui)
+        .striped(true)
+        .column(Column::auto().at_least(30.0)) // #
+        .column(Column::remainder().at_least(160.0)) // File
+        .column(Column::remainder().at_least(160.0)) // Title (GD3)
+        .column(Column::auto().at_least(55.0)) // Total
+        .column(Column::auto().at_least(55.0)) // Loop
+        .min_scrolled_height(0.0)
+        .max_scroll_height(320.0)
+        .header(row_height + 2.0, |mut header| {
+            for title in ["#", "File", "Title (GD3)", "Total", "Loop"] {
+                header.col(|ui| {
+                    ui.label(
+                        egui::RichText::new(title)
+                            .monospace()
+                            .color(palette.data_text),
+                    );
+                });
+            }
+        })
+        .body(|mut body| {
+            for (index, track) in state.tracks.iter().enumerate() {
+                body.row(row_height, |mut row| {
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{:02}", index + 1))
+                                .monospace()
+                                .color(palette.muted),
+                        );
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(&track.file_name)
+                                .monospace()
+                                .color(palette.data_text),
+                        );
+                    });
+                    match &track.song {
+                        Ok(song) => {
+                            let entry = TrackEntry::from_song(song, &track.file_name);
+                            row.col(|ui| {
+                                ui.label(
+                                    egui::RichText::new(&entry.title)
+                                        .monospace()
+                                        .color(palette.data_text),
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format_track_time(entry.total_samples))
+                                        .monospace()
+                                        .color(palette.data_text),
+                                );
+                            });
+                            row.col(|ui| {
+                                let loop_str = entry
+                                    .loop_samples
+                                    .map_or_else(|| "-".to_owned(), format_track_time);
+                                ui.label(
+                                    egui::RichText::new(loop_str)
+                                        .monospace()
+                                        .color(palette.muted),
+                                );
+                            });
+                        }
+                        Err(error) => {
+                            row.col(|ui| {
+                                ui.colored_label(palette.muted, "unreadable")
+                                    .on_hover_text(error);
+                            });
+                            row.col(|_ui| {});
+                            row.col(|_ui| {});
+                        }
+                    }
+                });
+            }
+        });
+}
+
+fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette) {
+    ui.add_space(4.0);
+    if state.images.is_empty() {
+        ui.colored_label(palette.muted, "No screenshot (.png) in the folder.");
+    } else {
+        let names: Vec<&str> = state
+            .images
+            .iter()
+            .map(|image| image.name.as_str())
+            .collect();
+        ui.label(
+            egui::RichText::new(format!("Screenshots: {}", names.join(", ")))
+                .color(palette.data_label),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dro_core::vgm::data::Gd3Tag;
+
+    const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+
+    /// A VGM fixture re-serialised with a given file name and GD3 tag, wrapped as
+    /// a picked file -- the same trick the editor's tests use.
+    fn tagged_song(name: &str, tag: Gd3Tag) -> PickedFile {
+        let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
+        if let Some(meta) = song.vgm_meta_mut() {
+            meta.tag = Some(tag);
+        }
+        PickedFile {
+            name: name.to_owned(),
+            path: Some(PathBuf::from(format!("C:/pack/{name}"))),
+            bytes: dro_core::io::write_song(&song).unwrap(),
+        }
+    }
+
+    fn folder(name: &str, files: Vec<PickedFile>) -> PickedFolder {
+        PickedFolder {
+            name: name.to_owned(),
+            path: Some(PathBuf::from(format!("C:/{name}"))),
+            files,
+        }
+    }
+
+    fn tag(game: &str, author: &str, creator: &str) -> Gd3Tag {
+        Gd3Tag {
+            game_name_en: game.to_owned(),
+            track_author_en: author.to_owned(),
+            creator: creator.to_owned(),
+            release_date: "1994".to_owned(),
+            ..Gd3Tag::default()
+        }
+    }
+
+    #[test]
+    fn prefills_from_gd3_when_there_is_no_description() {
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("Cool Game", "Ada", "Ripper")),
+            tagged_song("02 Level.vgz", tag("Cool Game", "Bob", "Ripper")),
+        ];
+        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+
+        assert_eq!(state.meta.game_name, "Cool Game");
+        assert_eq!(state.meta.creator, "Ripper");
+        assert_eq!(state.meta.system, "IBM PC/AT");
+        assert_eq!(state.meta.os, "DOS");
+        assert_eq!(state.meta.music_authors, "Ada, Bob");
+        assert_eq!(state.meta.version, "1.00");
+        assert_eq!(
+            state.meta.history,
+            "1.00 2026-07-16 Ripper: Initial release."
+        );
+        assert!(state.description_file.is_none());
+        assert!(!state.dirty);
+    }
+
+    #[test]
+    fn prefill_history_uses_a_placeholder_date_without_a_clock() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "Rip"))];
+        let state = RipState::from_folder(folder("G", files), None);
+        assert_eq!(state.meta.history, "1.00 <date> Rip: Initial release.");
+    }
+
+    #[test]
+    fn parses_an_existing_description_verbatim_over_prefilling() {
+        let description = "Game name:           Existing Pack\r\n\
+            \r\n\
+            Notes:\r\n\
+            Handwritten note.\r\n\
+            \r\n\
+            Package history:\r\n\
+            1.00 2015-01-01 Someone: Initial release.\r\n";
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("Ignored GD3 Game", "A", "R")),
+            PickedFile {
+                name: "Existing Pack.txt".to_owned(),
+                path: Some(PathBuf::from("C:/p/Existing Pack.txt")),
+                bytes: description.as_bytes().to_vec(),
+            },
+        ];
+        let state = RipState::from_folder(folder("Existing Pack", files), Some((2026, 7, 16)));
+        assert_eq!(
+            state.meta.game_name, "Existing Pack",
+            "the .txt wins over GD3"
+        );
+        assert_eq!(state.meta.notes, "Handwritten note.");
+        assert_eq!(state.description_file.as_deref(), Some("Existing Pack.txt"));
+        assert!(state.parse_warning.is_none());
+    }
+
+    #[test]
+    fn a_garbage_description_warns_and_falls_back_to_prefill() {
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("GD3 Game", "A", "R")),
+            PickedFile {
+                name: "notes.txt".to_owned(),
+                path: None,
+                bytes: b"total garbage\r\nnot a description".to_vec(),
+            },
+        ];
+        let state = RipState::from_folder(folder("Pack", files), Some((2026, 7, 16)));
+        assert!(state.parse_warning.is_some());
+        assert_eq!(state.meta.game_name, "GD3 Game", "prefilled from GD3");
+    }
+
+    #[test]
+    fn refresh_keeps_edited_metadata_but_re_reads_files() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "R"))];
+        let mut state = RipState::from_folder(folder("G", files), Some((2026, 7, 16)));
+        state.meta.game_name = "Edited Name".to_owned();
+        state.dirty = true;
+
+        let more = vec![
+            tagged_song("01 Intro.vgz", tag("G", "A", "R")),
+            tagged_song("02 New.vgz", tag("G", "B", "R")),
+        ];
+        state.refresh_files(folder("G", more));
+        assert_eq!(state.tracks.len(), 2, "the new file is picked up");
+        assert_eq!(state.meta.game_name, "Edited Name", "the edit survives");
+        assert!(state.dirty, "and so does the dirty flag");
+    }
+
+    #[test]
+    fn description_and_m3u_reflect_the_tracks() {
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("Cool Game", "Ada", "Rip")),
+            tagged_song("02 Boss.vgm", tag("Cool Game", "Ada", "Rip")),
+        ];
+        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+
+        let description = state.description_text();
+        assert!(description.contains("Game name:           Cool Game"));
+        assert!(description.contains("01 Intro"));
+
+        // The folder playlist keeps real names; the export flips .vgm -> .vgz.
+        assert_eq!(state.m3u_text(false), "01 Intro.vgz\r\n02 Boss.vgm\r\n");
+        assert_eq!(state.m3u_text(true), "01 Intro.vgz\r\n02 Boss.vgz\r\n");
+        assert_eq!(state.doc_stem(), "Cool Game");
+    }
+
+    #[test]
+    fn can_save_requires_a_game_name() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("", "A", "R"))];
+        let mut state = RipState::from_folder(folder("Untitled", files), None);
+        state.meta.game_name = String::new();
+        assert!(!state.can_save());
+        state.meta.game_name = "Named".to_owned();
+        assert!(state.can_save());
+    }
+}

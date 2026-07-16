@@ -18,7 +18,8 @@ use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
 use dro_synth::Muting;
 
 use crate::platform::{
-    AudioService, FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+    AudioService, FileService, PickedFile, PickedFolder, RipJobOutcome, RipJobRequest, RipService,
+    SaveOutcome, SaveRequest,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
@@ -285,5 +286,53 @@ impl ConfigStore for MemoryConfigStore {
     fn save(&self, config: &AppConfig) -> dro_core::Result<()> {
         self.saved.borrow_mut().push(*config);
         Ok(())
+    }
+}
+
+// -- rip ---------------------------------------------------------------------
+
+/// Export jobs submitted to a [`FakeRipService`], the outcomes it will hand
+/// back, and the scriptable `today`/`busy` state the app reads.
+#[derive(Debug)]
+pub(crate) struct RipLog {
+    pub submitted: Vec<RipJobRequest>,
+    /// Fed to `poll`, front first.
+    pub outcomes: VecDeque<RipJobOutcome>,
+    pub busy: bool,
+    /// A fixed date, so prefilled history lines and snapshots are deterministic.
+    pub today: Option<(i32, u8, u8)>,
+}
+
+impl Default for RipLog {
+    fn default() -> Self {
+        Self {
+            submitted: Vec::new(),
+            outcomes: VecDeque::new(),
+            busy: false,
+            today: Some((2026, 7, 16)),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct FakeRipService(pub(crate) Rc<RefCell<RipLog>>);
+
+impl RipService for FakeRipService {
+    fn submit(&mut self, request: RipJobRequest) {
+        self.0.borrow_mut().submitted.push(request);
+    }
+
+    fn poll(&mut self) -> Option<RipJobOutcome> {
+        self.0.borrow_mut().outcomes.pop_front()
+    }
+
+    fn is_busy(&self) -> bool {
+        self.0.borrow().busy
+    }
+
+    fn cancel(&mut self) {}
+
+    fn today(&self) -> Option<(i32, u8, u8)> {
+        self.0.borrow().today
     }
 }

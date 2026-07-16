@@ -20,12 +20,13 @@ use dro_core::Song;
 use dro_core::config::{AppConfig, ThemeChoice};
 
 use super::DroApp;
-use crate::platform::{PickedFile, SaveOutcome, SaveRequest};
+use crate::action::AppTab;
+use crate::platform::{PickedFile, PickedFolder, SaveOutcome, SaveRequest};
 use crate::tasks::TaskKind;
 use crate::test_song::{bogus_leading_delay_song, tone_song};
 use crate::test_support::{
-    AudioLog, FakeAudioService, FakeFileService, FileLog, InlineTaskService, MemoryConfigStore,
-    NoopTaskService, TaskLog,
+    AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
+    MemoryConfigStore, NoopTaskService, RipLog, TaskLog,
 };
 
 /// Shared handles onto the fake services, for scripting and inspection.
@@ -33,6 +34,10 @@ struct Handles {
     files: Rc<RefCell<FileLog>>,
     audio: Rc<RefCell<AudioLog>>,
     tasks: Rc<RefCell<TaskLog>>,
+    // Shared with the app's FakeRipService (it reads a fixed `today`); the
+    // export-job scripting that inspects it lands with rip mode's export stage.
+    #[allow(dead_code)]
+    rip: Rc<RefCell<RipLog>>,
     saved_configs: Rc<RefCell<Vec<AppConfig>>>,
 }
 
@@ -59,12 +64,14 @@ fn build(
     let files = Rc::new(RefCell::new(FileLog::default()));
     let audio = Rc::new(RefCell::new(AudioLog::default()));
     let tasks = Rc::new(RefCell::new(TaskLog::default()));
+    let rip = Rc::new(RefCell::new(RipLog::default()));
     let saved_configs = Rc::new(RefCell::new(Vec::new()));
 
     let handles = Handles {
         files: files.clone(),
         audio: audio.clone(),
         tasks: tasks.clone(),
+        rip: rip.clone(),
         saved_configs: saved_configs.clone(),
     };
 
@@ -80,6 +87,7 @@ fn build(
             } else {
                 Box::new(NoopTaskService(tasks))
             },
+            Box::new(FakeRipService(rip)),
             Box::new(MemoryConfigStore {
                 initial: AppConfig::default(),
                 saved: saved_configs,
@@ -157,7 +165,10 @@ fn play_button_loads_once_and_starts_playback() {
 
     {
         let audio = handles.audio.borrow();
-        assert_eq!(audio.load_count, 1, "the song is loaded into the output once");
+        assert_eq!(
+            audio.load_count, 1,
+            "the song is loaded into the output once"
+        );
         assert!(audio.rewind_calls >= 1);
         assert_eq!(audio.play_calls, 1);
         assert!(audio.playing);
@@ -201,13 +212,20 @@ fn delete_key_removes_the_selected_row_and_ctrl_z_restores_it() {
     assert!(handles.audio.borrow().pause_calls >= 1);
     assert_eq!(
         handles.tasks.borrow().submitted.last().copied(),
-        Some((TaskKind::RenderWaveform, Some(std::time::Duration::from_secs(1))))
+        Some((
+            TaskKind::RenderWaveform,
+            Some(std::time::Duration::from_secs(1))
+        ))
     );
 
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     harness.run();
 
-    assert_eq!(harness.state().editor.len(), full_len, "undo restores the row");
+    assert_eq!(
+        harness.state().editor.len(),
+        full_len,
+        "undo restores the row"
+    );
     assert!(harness.state().status.starts_with("Undone:"));
 }
 
@@ -220,7 +238,10 @@ fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
     harness.get_by_label_contains("Goto").click();
     harness.run();
 
-    assert!(harness.state().dialogs.goto.is_some(), "Goto dialog should open");
+    assert!(
+        harness.state().dialogs.goto.is_some(),
+        "Goto dialog should open"
+    );
     assert!(harness.query_by_label("Go to instruction:").is_some());
 
     // Type a position into the dialog's field and submit it.
@@ -246,7 +267,10 @@ fn dro_info_shortcut_opens_modal_and_blocks_playback_keys() {
     harness.run();
 
     assert!(harness.state().dialogs.dro_info.is_some());
-    assert!(harness.query_by_label("DRO Info").is_some(), "heading should render");
+    assert!(
+        harness.query_by_label("DRO Info").is_some(),
+        "heading should render"
+    );
 
     // Space would normally start playback; the modal must swallow it.
     harness.key_press(Key::Space);
@@ -343,10 +367,14 @@ fn ctrl_s_saves_in_place_and_reports_the_path() {
     }
 
     // The service reporting success updates the status bar.
-    handles.files.borrow_mut().save_outcomes.push_back(SaveOutcome::Saved {
-        name: "tone.dro".to_owned(),
-        path: Some(expected_path.clone()),
-    });
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Saved {
+            name: "tone.dro".to_owned(),
+            path: Some(expected_path.clone()),
+        });
     harness.run();
     assert!(
         harness.state().status.starts_with("File saved to"),
@@ -388,4 +416,200 @@ fn snapshot_dro_info_dialog() {
 fn snapshot_auto_trim_alert() {
     let (mut harness, _handles) = build(Some(picked(&bogus_leading_delay_song())), false, true);
     harness.snapshot("auto_trim_alert");
+}
+
+// -- rip mode ----------------------------------------------------------------
+
+const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+
+/// A VGM fixture re-serialised with a file name and GD3 tag, wrapped as a picked
+/// file for a rip folder.
+fn tagged_vgm(name: &str, game: &str, author: &str, creator: &str) -> PickedFile {
+    let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
+    if let Some(meta) = song.vgm_meta_mut() {
+        meta.tag = Some(dro_core::Gd3Tag {
+            game_name_en: game.to_owned(),
+            track_author_en: author.to_owned(),
+            creator: creator.to_owned(),
+            ..dro_core::Gd3Tag::default()
+        });
+    }
+    PickedFile {
+        name: name.to_owned(),
+        path: Some(PathBuf::from(format!("C:/pack/{name}"))),
+        bytes: dro_core::io::write_song(&song).unwrap(),
+    }
+}
+
+fn rip_folder(name: &str, files: Vec<PickedFile>) -> PickedFolder {
+    PickedFolder {
+        name: name.to_owned(),
+        path: Some(PathBuf::from(format!("C:/{name}"))),
+        files,
+    }
+}
+
+/// A two-track "Cool Game" folder.
+fn cool_game_folder() -> PickedFolder {
+    rip_folder(
+        "Cool Game",
+        vec![
+            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+        ],
+    )
+}
+
+/// Queues a folder and runs a frame so `poll_folder` installs it.
+fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder: PickedFolder) {
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(folder));
+    harness.run();
+}
+
+#[test]
+fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    {
+        let state = harness.state();
+        let meta = &state.rip.as_ref().expect("a rip is open").meta;
+        assert_eq!(meta.game_name, "Cool Game");
+        assert_eq!(meta.creator, "Ripper");
+        assert_eq!(meta.music_authors, "Ada, Bob");
+        // The fake reports a fixed "today", so the history line is deterministic.
+        assert_eq!(meta.history, "1.00 2026-07-16 Ripper: Initial release.");
+    }
+    // The tab strip is now shown ("Editor" is unique to it).
+    assert!(
+        harness.query_by_label("Editor").is_some(),
+        "tab strip appears"
+    );
+    assert!(harness.state().status.contains("Cool Game"));
+}
+
+#[test]
+fn clicking_the_editor_tab_returns_to_the_editor() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+
+    harness.get_by_label("Editor").click();
+    harness.run();
+
+    assert_eq!(harness.state().active_tab, AppTab::Editor);
+    assert!(harness.state().rip.is_some(), "the rip project is retained");
+    // The editor's empty-state placeholder is back.
+    assert!(harness.query_by_label_contains("Open a DRO").is_some());
+}
+
+#[test]
+fn editing_a_field_marks_the_rip_dirty() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    assert!(!harness.state().rip.as_ref().unwrap().dirty);
+
+    // Type into the first form field (Game name); any edit sets the dirty flag.
+    let field = harness
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .next()
+        .expect("a metadata field");
+    field.focus();
+    harness.run();
+    harness
+        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .next()
+        .unwrap()
+        .type_text("!");
+    harness.run();
+
+    assert!(harness.state().rip.as_ref().unwrap().dirty);
+}
+
+#[test]
+fn save_package_files_writes_the_txt_and_m3u() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    harness.get_by_label("Save Package Files").click();
+    harness.run();
+
+    let files = handles.files.borrow();
+    assert_eq!(
+        files.save_requests.len(),
+        2,
+        "the description and the playlist"
+    );
+    let mut names = Vec::new();
+    for request in &files.save_requests {
+        match request {
+            SaveRequest::InPlace { path, bytes } => {
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if name.ends_with(".txt") {
+                    let text = String::from_utf8(bytes.clone()).unwrap();
+                    assert!(text.contains("Game name:           Cool Game"));
+                    assert!(text.contains("\r\n"), "CRLF line endings");
+                }
+                names.push(name);
+            }
+            other => panic!("expected an in-place save, got {other:?}"),
+        }
+    }
+    assert_eq!(names, ["Cool Game.txt", "Cool Game.m3u"]);
+}
+
+#[test]
+fn saving_without_a_game_name_shows_an_alert() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    harness
+        .state_mut()
+        .rip
+        .as_mut()
+        .unwrap()
+        .meta
+        .game_name
+        .clear();
+
+    harness.get_by_label("Save Package Files").click();
+    harness.run();
+
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "nothing was saved"
+    );
+    assert!(!harness.state().alerts.is_empty(), "an alert explains why");
+}
+
+#[test]
+fn editor_keys_are_ignored_on_the_rip_tab() {
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    let full_len = song.len();
+    harness.state_mut().editor.selection.select_only(0);
+    open_folder(&mut harness, &handles, cool_game_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+
+    // Delete would remove the selected editor row on the editor tab; here it
+    // must do nothing, since the editor is hidden.
+    harness.key_press(Key::Delete);
+    harness.run();
+    assert_eq!(
+        harness.state().editor.len(),
+        full_len,
+        "the hidden song is untouched"
+    );
+}
+
+#[test]
+fn snapshot_rip_view() {
+    let (mut harness, handles) = build(None, false, true);
+    open_folder(&mut harness, &handles, cool_game_folder());
+    harness.run();
+    harness.snapshot("rip_view");
 }
