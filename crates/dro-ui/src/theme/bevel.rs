@@ -25,36 +25,60 @@ pub fn paint_bevel(painter: &Painter, rect: Rect, palette: &Palette, bevel: Beve
         Bevel::Sunken => (palette.bevel_dark, palette.bevel_light),
     };
     // Top and left catch the light...
-    painter.hline(rect.x_range(), rect.top() + 0.5, Stroke::new(1.0, lit));
-    painter.vline(rect.left() + 0.5, rect.y_range(), Stroke::new(1.0, lit));
+    painter.hline(rect.x_range(), rect.top() + 0.5, Stroke::new(1.0_f32, lit));
+    painter.vline(rect.left() + 0.5, rect.y_range(), Stroke::new(1.0_f32, lit));
     // ...bottom and right fall into shadow.
-    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, shadow));
-    painter.vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, shadow));
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0_f32, shadow),
+    );
+    painter.vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        Stroke::new(1.0_f32, shadow),
+    );
 }
 
 /// A horizontal 2px groove between two raised surfaces: a shadow line with a
 /// highlight line just below it, both on the pixel grid.
 pub fn groove_h(painter: &Painter, x_range: egui::Rangef, y: f32, palette: &Palette) {
-    painter.hline(x_range, y + 0.5, Stroke::new(1.0, palette.bevel_dark));
-    painter.hline(x_range, y + 1.5, Stroke::new(1.0, palette.bevel_light));
+    painter.hline(x_range, y + 0.5, Stroke::new(1.0_f32, palette.bevel_dark));
+    painter.hline(x_range, y + 1.5, Stroke::new(1.0_f32, palette.bevel_light));
 }
 
 /// A vertical 2px groove: a shadow line with a highlight line just to its right.
 pub fn groove_v(painter: &Painter, x: f32, y_range: egui::Rangef, palette: &Palette) {
-    painter.vline(x + 0.5, y_range, Stroke::new(1.0, palette.bevel_dark));
-    painter.vline(x + 1.5, y_range, Stroke::new(1.0, palette.bevel_light));
+    painter.vline(x + 0.5, y_range, Stroke::new(1.0_f32, palette.bevel_dark));
+    painter.vline(x + 1.5, y_range, Stroke::new(1.0_f32, palette.bevel_light));
 }
 
 /// The lit L along `rect`'s top and left edges.
 fn top_left(painter: &Painter, rect: Rect, color: egui::Color32) {
-    painter.hline(rect.x_range(), rect.top() + 0.5, Stroke::new(1.0, color));
-    painter.vline(rect.left() + 0.5, rect.y_range(), Stroke::new(1.0, color));
+    painter.hline(
+        rect.x_range(),
+        rect.top() + 0.5,
+        Stroke::new(1.0_f32, color),
+    );
+    painter.vline(
+        rect.left() + 0.5,
+        rect.y_range(),
+        Stroke::new(1.0_f32, color),
+    );
 }
 
 /// The shadowed L along `rect`'s bottom and right edges.
 fn bottom_right(painter: &Painter, rect: Rect, color: egui::Color32) {
-    painter.hline(rect.x_range(), rect.bottom() - 0.5, Stroke::new(1.0, color));
-    painter.vline(rect.right() - 0.5, rect.y_range(), Stroke::new(1.0, color));
+    painter.hline(
+        rect.x_range(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0_f32, color),
+    );
+    painter.vline(
+        rect.right() - 0.5,
+        rect.y_range(),
+        Stroke::new(1.0_f32, color),
+    );
 }
 
 /// A button's FT2 bevel: a near-black keyline framing the whole button, then a
@@ -81,7 +105,9 @@ fn paint_button_bevel(painter: &Painter, rect: Rect, palette: &Palette, pressed:
 pub fn button(ui: &mut Ui, palette: &Palette, text: &str) -> Response {
     let padding = ui.spacing().button_padding;
     let min = ui.spacing().interact_size;
-    button_impl(ui, palette, text, |galley| (galley + padding * 2.0).max(min))
+    button_impl(ui, palette, text, |galley| {
+        (galley + padding * 2.0).max(min)
+    })
 }
 
 /// As [`button`] but allocated at exactly `size` (e.g. a full-height transport
@@ -101,9 +127,8 @@ fn button_impl(
 
     let desired = size(galley.size());
     let (rect, response) = ui.allocate_exact_size(desired, Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), text)
-    });
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), text));
 
     if ui.is_rect_visible(rect) {
         let pressed = response.is_pointer_button_down_on();
@@ -117,7 +142,11 @@ fn button_impl(
         let painter = ui.painter();
         painter.rect_filled(rect, egui::CornerRadius::ZERO, fill);
         paint_button_bevel(painter, rect, palette, pressed);
-        let offset = if pressed { Vec2::splat(1.0) } else { Vec2::ZERO };
+        let offset = if pressed {
+            Vec2::splat(1.0)
+        } else {
+            Vec2::ZERO
+        };
         let text_pos = rect.center() - galley.size() * 0.5 + offset;
         painter.galley(text_pos, galley, palette.button_text);
     }

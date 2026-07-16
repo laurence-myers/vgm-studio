@@ -150,8 +150,15 @@ mod tests {
         let quiet: i16 = 100;
         let mut buffer = vec![quiet; 2 * RATE as usize];
         limiter.process(&mut buffer);
-        assert!(buffer[0] < quiet * 2, "gain should still be ducked at the start");
-        assert_eq!(*buffer.last().unwrap(), quiet * 2, "gain should have recovered");
+        assert!(
+            buffer[0] < quiet * 2,
+            "gain should still be ducked at the start"
+        );
+        assert_eq!(
+            *buffer.last().unwrap(),
+            quiet * 2,
+            "gain should have recovered"
+        );
     }
 
     #[test]
@@ -165,7 +172,10 @@ mod tests {
         let gain = THRESHOLD / (30_000.0 * 4.0);
         let expected_right = (1_000.0 * 4.0 * gain).round() as i16;
         assert_eq!(samples[1], expected_right);
-        assert!(samples[1] < 4_000, "linked gain should pull the quiet channel down");
+        assert!(
+            samples[1] < 4_000,
+            "linked gain should pull the quiet channel down"
+        );
     }
 
     #[test]

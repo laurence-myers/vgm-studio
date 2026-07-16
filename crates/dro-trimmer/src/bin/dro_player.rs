@@ -81,7 +81,11 @@ fn main() -> Result<()> {
         let output = append_extension(&args.input, "wav");
         std::fs::write(&output, wav).with_context(|| format!("writing {}", output.display()))?;
         if boost == 1.0 {
-            println!("Rendered {} ({})", output.display(), ms_to_timestr(total_ms));
+            println!(
+                "Rendered {} ({})",
+                output.display(),
+                ms_to_timestr(total_ms)
+            );
         } else {
             println!(
                 "Rendered {} ({}) at boost {boost}x",

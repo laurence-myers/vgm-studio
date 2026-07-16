@@ -42,11 +42,26 @@ pub(crate) fn font_definitions() -> FontDefinitions {
 #[must_use]
 pub(crate) fn text_styles() -> BTreeMap<TextStyle, FontId> {
     [
-        (TextStyle::Small, FontId::new(DOS_FONT_SIZE, FontFamily::Proportional)),
-        (TextStyle::Body, FontId::new(DOS_FONT_SIZE, FontFamily::Proportional)),
-        (TextStyle::Button, FontId::new(DOS_FONT_SIZE, FontFamily::Proportional)),
-        (TextStyle::Heading, FontId::new(DOS_FONT_SIZE, FontFamily::Proportional)),
-        (TextStyle::Monospace, FontId::new(DOS_FONT_SIZE, FontFamily::Monospace)),
+        (
+            TextStyle::Small,
+            FontId::new(DOS_FONT_SIZE, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Body,
+            FontId::new(DOS_FONT_SIZE, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Button,
+            FontId::new(DOS_FONT_SIZE, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Heading,
+            FontId::new(DOS_FONT_SIZE, FontFamily::Proportional),
+        ),
+        (
+            TextStyle::Monospace,
+            FontId::new(DOS_FONT_SIZE, FontFamily::Monospace),
+        ),
     ]
     .into()
 }

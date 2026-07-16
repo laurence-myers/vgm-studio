@@ -84,12 +84,9 @@ impl PositionPanel {
             columns[1].centered_and_justified(|ui| {
                 ui.label(format!("{position_frames} / {length_frames} samples"));
             });
-            columns[2].with_layout(
-                egui::Layout::right_to_left(egui::Align::Center),
-                |ui| {
-                    self.rate_picker(ui, palette);
-                },
-            );
+            columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.rate_picker(ui, palette);
+            });
         });
     }
 

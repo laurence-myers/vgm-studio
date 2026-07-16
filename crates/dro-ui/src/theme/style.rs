@@ -16,9 +16,9 @@ fn widget(fill: Color32, bevel: Color32, text: Color32) -> WidgetVisuals {
     WidgetVisuals {
         bg_fill: fill,
         weak_bg_fill: fill,
-        bg_stroke: Stroke::new(1.0, bevel),
+        bg_stroke: Stroke::new(1.0_f32, bevel),
         corner_radius: CornerRadius::ZERO,
-        fg_stroke: Stroke::new(1.0, text),
+        fg_stroke: Stroke::new(1.0_f32, text),
         expansion: 0.0,
     }
 }
@@ -62,7 +62,7 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
     visuals.widgets = widgets;
     visuals.selection = Selection {
         bg_fill: accent,
-        stroke: Stroke::new(1.0, selection_text),
+        stroke: Stroke::new(1.0_f32, selection_text),
     };
     visuals.weak_text_color = Some(muted);
     visuals.faint_bg_color = data_stripe; // table / grid stripes
@@ -72,14 +72,14 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
     visuals.hyperlink_color = bevel_light;
 
     visuals.window_fill = face; // windows, menus, popups, tooltips
-    visuals.window_stroke = Stroke::new(1.0, bevel_dark);
+    visuals.window_stroke = Stroke::new(1.0_f32, bevel_dark);
     visuals.window_corner_radius = CornerRadius::ZERO;
     visuals.menu_corner_radius = CornerRadius::ZERO;
     visuals.window_shadow = Shadow::NONE;
     visuals.popup_shadow = Shadow::NONE;
     visuals.window_highlight_topmost = false;
     visuals.panel_fill = desktop;
-    visuals.text_cursor.stroke = Stroke::new(2.0, data_text);
+    visuals.text_cursor.stroke = Stroke::new(2.0_f32, data_text);
     // Dialog grids opt in per-instance; keep the global default off.
     visuals.striped = false;
 

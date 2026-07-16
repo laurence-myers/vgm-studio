@@ -13,12 +13,7 @@ use crate::editor::Editor;
 use crate::selection::ClickModifiers;
 use crate::theme::Palette;
 
-pub fn show(
-    ui: &mut egui::Ui,
-    editor: &mut Editor,
-    scroll_to: Option<usize>,
-    palette: &Palette,
-) {
+pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, palette: &Palette) {
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
     let len = editor.len();
 

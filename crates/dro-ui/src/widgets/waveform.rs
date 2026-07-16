@@ -116,7 +116,12 @@ pub fn show(
     out
 }
 
-fn draw_buckets(painter: &egui::Painter, rect: Rect, buckets: &[WaveformBucket], palette: &Palette) {
+fn draw_buckets(
+    painter: &egui::Painter,
+    rect: Rect,
+    buckets: &[WaveformBucket],
+    palette: &Palette,
+) {
     if buckets.is_empty() {
         return;
     }
@@ -157,13 +162,37 @@ fn paint_background(painter: &egui::Painter, rect: Rect, palette: &Palette) {
     let centre_colour = lerp_color(palette.wf_bg, Color32::WHITE, 0.07);
     let centre = rect.center().y;
     let mut mesh = Mesh::default();
-    gradient_quad(&mut mesh, rect.left(), rect.right(), rect.top(), centre, edge, centre_colour);
-    gradient_quad(&mut mesh, rect.left(), rect.right(), centre, rect.bottom(), centre_colour, edge);
+    gradient_quad(
+        &mut mesh,
+        rect.left(),
+        rect.right(),
+        rect.top(),
+        centre,
+        edge,
+        centre_colour,
+    );
+    gradient_quad(
+        &mut mesh,
+        rect.left(),
+        rect.right(),
+        centre,
+        rect.bottom(),
+        centre_colour,
+        edge,
+    );
     painter.add(Shape::mesh(mesh));
 }
 
 /// A vertical-gradient rectangle: `top` colour at `y_top`, `bottom` at `y_bottom`.
-fn gradient_quad(mesh: &mut Mesh, x0: f32, x1: f32, y_top: f32, y_bottom: f32, top: Color32, bottom: Color32) {
+fn gradient_quad(
+    mesh: &mut Mesh,
+    x0: f32,
+    x1: f32,
+    y_top: f32,
+    y_bottom: f32,
+    top: Color32,
+    bottom: Color32,
+) {
     let base = mesh.vertices.len() as u32;
     mesh.colored_vertex(pos2(x0, y_top), top);
     mesh.colored_vertex(pos2(x1, y_top), top);

@@ -91,13 +91,20 @@ impl ChannelPanel {
     }
 
     fn is_soloed_channel(&self, index: usize) -> bool {
-        self.channels.iter().enumerate().all(|(i, &on)| on == (i == index))
+        self.channels
+            .iter()
+            .enumerate()
+            .all(|(i, &on)| on == (i == index))
             && self.percussion.iter().all(|&on| !on)
     }
 
     fn is_soloed_percussion(&self, bank: usize) -> bool {
         self.channels.iter().all(|&on| !on)
-            && self.percussion.iter().enumerate().all(|(i, &on)| on == (i == bank))
+            && self
+                .percussion
+                .iter()
+                .enumerate()
+                .all(|(i, &on)| on == (i == bank))
     }
 
     /// Draws the strip. Low bank (channels 1-9, Drums, All) on the first row;
@@ -167,7 +174,13 @@ impl ChannelPanel {
     }
 
     /// One drums toggle: left-click mutes, right-click solos.
-    fn percussion_toggle(&mut self, ui: &mut egui::Ui, bank: usize, label: &str, hover: &str) -> bool {
+    fn percussion_toggle(
+        &mut self,
+        ui: &mut egui::Ui,
+        bank: usize,
+        label: &str,
+        hover: &str,
+    ) -> bool {
         let response = ui
             .toggle_value(&mut self.percussion[bank], label)
             .on_hover_text(format!("{hover}. Left-click mutes, right-click solos."));
