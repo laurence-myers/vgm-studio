@@ -671,12 +671,12 @@ mod tests {
         assert_eq!(pans[1], 0xFF, "right only");
         assert_eq!(pans[2], 0x80, "both speakers -> centre");
         assert_eq!(pans[3], 0x80, "neither -> centre");
-        for slot in 4..9 {
-            assert_eq!(pans[slot], 0x80, "unwritten low-bank slot {slot} centred");
-        }
         assert_eq!(pans[9], 0xFF, "high-bank ch0, right only");
-        for slot in 10..18 {
-            assert_eq!(pans[slot], 0x80, "unwritten high-bank slot {slot} centred");
+        // Every channel the song never wrote 0xC0 for stays centred.
+        for (slot, &pan) in pans.iter().enumerate() {
+            if matches!(slot, 4..=8 | 10..=17) {
+                assert_eq!(pan, 0x80, "unwritten slot {slot} stays centred");
+            }
         }
     }
 
