@@ -285,6 +285,48 @@ impl RegisterUsage {
     }
 }
 
+/// The per-channel pan byte each melodic channel's **first** `0xC0..=0xC8` write
+/// implies, for seeding the GUI's Custom-pan defaults on an OPL3 song.
+///
+/// Register `0xC0+n` carries the OPL3 speaker-enable bits: bit 4 (`0x10`) routes
+/// the channel to the left output, bit 5 (`0x20`) to the right. These map onto the
+/// `0x00` (hard left) .. `0x80` (centre) .. `0xFF` (hard right) scale the
+/// `stereo-ext` panpots use:
+///
+/// - left only  -> `0x00`
+/// - right only -> `0xFF`
+/// - both set, or neither -> `0x80` (centre)
+///
+/// Indexed `bank.index() * 9 + (reg - 0xC0)` -- slots `0..=8` are the low bank,
+/// `9..=17` the high. A channel the song never writes `0xC0` for stays centred
+/// (`0x80`), and only the **first** write to each slot is honoured, capturing the
+/// song's initial stereo image rather than a later repan.
+#[must_use]
+pub fn initial_channel_pans(song: &Song) -> [u8; 18] {
+    let mut pans = [0x80u8; 18];
+    let mut seen = [false; 18];
+    let mut bank = Bank::Low;
+    for instruction in song.data().iter() {
+        if let Some(selected) = instruction.selected_bank() {
+            bank = selected;
+        }
+        if let DroInstruction::Register { reg, value, .. } = instruction
+            && (0xC0..=0xC8).contains(&reg)
+        {
+            let slot = usize::from(bank.index()) * 9 + usize::from(reg - 0xC0);
+            if !seen[slot] {
+                seen[slot] = true;
+                pans[slot] = match (value & 0x10 != 0, value & 0x20 != 0) {
+                    (true, false) => 0x00,
+                    (false, true) => 0xFF,
+                    _ => 0x80,
+                };
+            }
+        }
+    }
+    pans
+}
+
 /// The song's playing time in milliseconds, including the configured per-write
 /// chip delay (Python `DROTotalDelayWithWriteDelayCalculator`).
 ///
@@ -600,5 +642,53 @@ mod tests {
             total_delay_with_write_delay_ms(&song, 26.6),
             song.total_delay_ms()
         );
+    }
+
+    // -- initial_channel_pans ------------------------------------------------
+
+    #[test]
+    fn initial_channel_pans_map_speaker_bits_and_track_the_bank() {
+        // Low bank: left-only, right-only, both, neither; a repan of ch0 that must
+        // be ignored (first write wins); then a high-bank ch0 right-only write.
+        let song = Song::dro_v1(
+            "pans.dro".to_owned(),
+            DroDataV1::new(vec![
+                0xC0, 0x10, // ch0 low: left only  -> 0x00
+                0xC1, 0x20, // ch1 low: right only -> 0xFF
+                0xC2, 0x30, // ch2 low: both       -> 0x80
+                0xC3, 0x00, // ch3 low: neither    -> 0x80
+                0xC0, 0x20, // ch0 low again: first-write-wins, ignored
+                0x03, // bank switch high
+                0xC0, 0x20, // ch0 high: right only -> slot 9 = 0xFF
+            ])
+            .unwrap(),
+            0,
+            OplType::Opl3,
+        );
+
+        let pans = initial_channel_pans(&song);
+        assert_eq!(pans[0], 0x00, "left only");
+        assert_eq!(pans[1], 0xFF, "right only");
+        assert_eq!(pans[2], 0x80, "both speakers -> centre");
+        assert_eq!(pans[3], 0x80, "neither -> centre");
+        for slot in 4..9 {
+            assert_eq!(pans[slot], 0x80, "unwritten low-bank slot {slot} centred");
+        }
+        assert_eq!(pans[9], 0xFF, "high-bank ch0, right only");
+        for slot in 10..18 {
+            assert_eq!(pans[slot], 0x80, "unwritten high-bank slot {slot} centred");
+        }
+    }
+
+    #[test]
+    fn initial_channel_pans_default_to_centre_without_c0_writes() {
+        // A song that writes no 0xC0..=0xC8 leaves every channel centred.
+        let song = Song::dro_v1(
+            "nopan.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x01, 0xB0, 0x31]).unwrap(),
+            0,
+            OplType::Opl2,
+        );
+        assert_eq!(initial_channel_pans(&song), [0x80; 18]);
     }
 }
