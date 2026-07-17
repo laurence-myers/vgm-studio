@@ -1,0 +1,34 @@
+[package]
+name = "nuked-opl3"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.62"
+authors = ["Tony Gies", "Nuke.YKT", "Daniel Balsom"]
+description = "Pure Rust port of the Nuked-OPL3 Yamaha YMF262 (OPL3) FM synthesis chip emulator"
+license = "LGPL-2.1-or-later"
+repository = "https://github.com/tgies/nuked-opl3-rs"
+readme = "README.md"
+keywords = ["OPL", "emulation", "audio", "synthesizer", "retro"]
+categories = ["multimedia::audio", "emulators"]
+build = "build.rs"
+exclude = [
+    "tests/",
+    "tools/",
+    "examples/",
+    ".claude/",
+    ".github/",
+]
+
+[features]
+c-reference-tests = ["dep:cc"]
+stereo-ext = []
+
+[dependencies]
+
+[build-dependencies]
+cc = { version = "1.2", optional = true }
+
+[workspace]
+members = [
+    "examples/*",
+]

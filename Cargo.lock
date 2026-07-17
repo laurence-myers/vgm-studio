@@ -2675,8 +2675,6 @@ dependencies = [
 [[package]]
 name = "nuked-opl3"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe763ce652db623a34372b1628588faaee86af83195175acee070d92d1fe27b7"
 
 [[package]]
 name = "num-derive"

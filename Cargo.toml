@@ -1,6 +1,17 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The vendored `nuked-opl3` is a patch target, not a workspace member; keep it out
+# of the `crates/*` glob's world so cargo never treats it as a member.
+exclude = ["vendor/nuked-opl3"]
+
+# Serve `nuked-opl3` from a locally patched copy (two upstream-PR-material fixes to
+# the `stereo-ext` path; see vendor/nuked-opl3/README.dro-trimmer.md). The version
+# and API are identical to 0.1.0, so `nuked-opl3 = "0.1"` above still resolves and
+# the `[profile.dev.package.nuked-opl3]` tuning below still matches by name. Remove
+# this and the vendor/ dir once a release carrying the fixes reaches crates.io.
+[patch.crates-io]
+nuked-opl3 = { path = "vendor/nuked-opl3" }
 
 [workspace.package]
 version = "5.1.0"
@@ -56,7 +67,9 @@ hound = "3.5"
 log = "0.4"
 # Pure Rust port of Nuked-OPL3. Bit-identical to the C reference and free of the
 # `cc` build step, so it compiles to wasm32-unknown-unknown with no C toolchain.
-nuked-opl3 = "0.1"
+# `stereo-ext` enables the per-channel constant-power panpots (register 0xD0+ch)
+# the GUI's channel panning drives; it is served by the patched vendor copy below.
+nuked-opl3 = { version = "0.1", features = ["stereo-ext"] }
 # Bindings to the original Nuked-OPL3 *C* sources. Used only as a parity oracle
 # behind dro-synth's off-by-default `c-parity` feature: it needs a C compiler and
 # libclang, and it cannot target wasm32-unknown-unknown (no sysroot).

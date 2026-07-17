@@ -108,7 +108,16 @@ fn random_register_traffic_renders_identically() {
     for operation in 0..20_000u32 {
         let random = next();
         let reg = (random & 0x1FF) as u16; // both banks
-        let value = ((random >> 16) & 0xFF) as u8;
+        let mut value = ((random >> 16) & 0xFF) as u8;
+        // `nuked-opl3` is built with `stereo-ext`, but the C oracle (opl3-rs) is
+        // not compiled with OPL_ENABLE_STEREOEXT, so a random write that sets the
+        // stereo-ext enable (0x105 bit 1) would engage the Rust panpots while the C
+        // side ignores it, and the two diverge by construction. Clear that one bit
+        // here; the newm bit (0x105 bit 0) and every other register still vary. The
+        // engaged panpot path is covered by dro-synth's own tests/panning.rs.
+        if reg == 0x105 {
+            value &= !0x02;
+        }
         rust_chip.write_reg(reg, value);
         reference_chip.write_reg(reg, value);
 
