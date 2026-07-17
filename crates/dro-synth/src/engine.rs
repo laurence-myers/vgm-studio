@@ -172,6 +172,23 @@ impl Default for Muting {
     }
 }
 
+/// How the 18 melodic channels are panned: the song's own stereo image, or an
+/// explicit constant-power pan per channel.
+///
+/// `Custom` holds one pan byte per channel, indexed `bank * 9 + ch`, on the scale
+/// `0x00` (hard left) .. `0x80` (centre) .. `0xFF` (hard right) -- the OPL core's
+/// `stereo-ext` panpots (register `0xD0+ch`). The engine is policy-free: what a
+/// given song type's `Custom` image should be is the app layer's decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Panning {
+    /// The song's own `0xC0` speaker-enable bits rule; stereo-ext stays disengaged
+    /// and output is bit-identical to a build without the feature.
+    #[default]
+    Original,
+    /// A static per-channel pan override, engaging the stereo-ext panpots.
+    Custom([u8; 18]),
+}
+
 /// Where playback currently is. Position is tracked as a `u64` frame count; the
 /// milliseconds and instruction index are derived from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,6 +221,17 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
     /// The fractional-frame remainder of the chip-write-delay accumulator.
     chip_frame_carry: f64,
     muting: Muting,
+    /// The song's own stereo image, or an explicit per-channel pan override.
+    panning: Panning,
+    /// The last value written to each channel's `0xC0` register (pre-gate),
+    /// indexed `bank * 9 + ch`. Initialised to the chip's reset channel state
+    /// (`0x30`: both speakers on, rear off, feedback/connection 0), so disengaging
+    /// `Custom` cannot silence a channel the song never wrote `0xC0` for; replayed
+    /// to resync the chip's pan bits when returning to `Original`.
+    c0_shadow: [u8; 18],
+    /// The song's current OPL3 `newm` bit (`0x105` bit 0). Tracked so that toggling
+    /// the stereo-ext enable (`0x105` bit 1) never disturbs OPL3 mode.
+    newm_bit: u8,
 
     /// The bank subsequent register writes address (Python's `_bank`).
     bank: Bank,
@@ -246,6 +274,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             clock: FrameClock::new(sample_rate, delay_unit),
             chip_frame_carry: 0.0,
             muting: Muting::all(),
+            panning: Panning::Original,
+            c0_shadow: [0x30; 18],
+            newm_bit: 0,
             bank: Bank::Low,
             pos: 0,
             pending_frames: 0,
@@ -287,6 +318,53 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             }
         }
         self.muting = muting;
+    }
+
+    /// The current panning configuration.
+    #[must_use]
+    pub fn panning(&self) -> Panning {
+        self.panning
+    }
+
+    /// Replaces the panning configuration, applied to the chip immediately.
+    ///
+    /// `Custom` engages the stereo-ext panpots: write `0x105` (keeping the song's
+    /// `newm`, setting the stereo-ext enable) **first**, since `0xD0+ch` writes are
+    /// no-ops until it lands, then the 18 panpots. `Original` disengages -- write
+    /// `0x105` with the enable cleared, then replay every shadowed `0xC0` so the
+    /// chip resyncs each channel's `leftpan`/`rightpan` from its `cha`/`chb`
+    /// speaker bits (which, disengaged, is what drives the panning again).
+    pub fn set_panning(&mut self, panning: Panning) {
+        self.panning = panning;
+        match panning {
+            Panning::Custom(pans) => {
+                self.chip.write_reg(0x105, self.newm_bit | 0x02);
+                self.write_panpots(&pans);
+            }
+            Panning::Original => {
+                self.chip.write_reg(0x105, self.newm_bit);
+                self.replay_c0_shadow();
+            }
+        }
+    }
+
+    /// Writes the 18 constant-power panpots (`0x0D0+ch` low bank, `0x1D0+ch` high)
+    /// from `pans`. Inert on the chip until stereo-ext is enabled via `0x105`.
+    fn write_panpots(&mut self, pans: &[u8; 18]) {
+        for (slot, &pan) in pans.iter().enumerate() {
+            let base: u16 = if slot < 9 { 0x0D0 } else { 0x1D0 };
+            self.chip.write_reg(base + (slot % 9) as u16, pan);
+        }
+    }
+
+    /// Replays every shadowed `0xC0..=0xC8` write, per bank, so a disengaged chip
+    /// resyncs its pan bits from the song's own speaker-enable state.
+    fn replay_c0_shadow(&mut self) {
+        for slot in 0..18 {
+            let base: u16 = if slot < 9 { 0x0C0 } else { 0x1C0 };
+            self.chip
+                .write_reg(base + (slot % 9) as u16, self.c0_shadow[slot]);
+        }
     }
 
     /// Whether the song has played to the end.
@@ -394,6 +472,24 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 if let Some(bank) = instruction.selected_bank() {
                     self.bank = bank; // DRO v2 / VGM carry the bank per write.
                 }
+                let mut value = value;
+                // The engine owns the stereo-ext enable (`0x105` bit 1): force it
+                // to match whether `Custom` panning is engaged, and remember the
+                // song's `newm` bit so `set_panning` can rewrite `0x105` without
+                // flipping OPL3 mode. On the seek path too, so a seek never leaves
+                // the chip's mode diverged from the engine's idea of it.
+                if self.bank == Bank::High && reg == 0x05 {
+                    let engaged = matches!(self.panning, Panning::Custom(_));
+                    value = (value & 0x01) | if engaged { 0x02 } else { 0x00 };
+                    self.newm_bit = value & 0x01;
+                }
+                // Shadow every `0xC0..=0xC8` write (pre-gate) so `Original` can
+                // resync the chip's pan bits after disengaging. Muting never gates
+                // `0xC0`, so the shadow equals what the chip would see anyway.
+                if (0xC0..=0xC8).contains(&reg) {
+                    let slot = usize::from(self.bank.index()) * 9 + usize::from(reg - 0xC0);
+                    self.c0_shadow[slot] = value;
+                }
                 let gated = if playback {
                     self.muting.gate(self.bank, reg, value)
                 } else {
@@ -445,6 +541,16 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         if song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V1 {
             self.chip.write_reg(0x01, 0x20);
         }
+        // A chip reset clears stereo-ext and the panpots, and the newm/shadow go
+        // back to the chip's reset channel state. Re-apply `Custom` so panning
+        // survives a seek (which is reset + replay); `newm` is 0 here, and the
+        // seek's replay will restore it if the song sets it before the mark.
+        self.c0_shadow = [0x30; 18];
+        self.newm_bit = 0;
+        if let Panning::Custom(pans) = self.panning {
+            self.chip.write_reg(0x105, 0x02);
+            self.write_panpots(&pans);
+        }
     }
 }
 
@@ -488,6 +594,25 @@ mod tests {
             .unwrap(),
             177 + 0x1234 + 1,
             OplType::Opl2,
+        )
+    }
+
+    /// A v1 stream that turns on OPL3 new mode (`0x105 = 0x01`) and pans channel
+    /// 0's `0xC0` to the right speaker only, so the newm tracking and the `0xC0`
+    /// shadow can be asserted through the panning paths.
+    fn panning_probe_song() -> Song {
+        Song::dro_v1(
+            "pan.dro".to_owned(),
+            DroDataV1::new(vec![
+                0x03, // bank switch high
+                0x05, 0x01, // 0x105 = 0x01 (OPL3 new mode on)
+                0x02, // bank switch low
+                0xC0, 0x20, // ch0 low C0: right speaker only, fb/con 0
+                0x00, 0x00, // 1 ms delay, so a render has a frame to produce
+            ])
+            .unwrap(),
+            1,
+            OplType::Opl3,
         )
     }
 
@@ -695,6 +820,133 @@ mod tests {
         assert_eq!(recording_engine(&v1).chip.writes, vec![(0x01, 0x20)]);
         let v2 = dro_song_v2();
         assert!(recording_engine(&v2).chip.writes.is_empty());
+    }
+
+    // -- panning -------------------------------------------------------------
+
+    #[test]
+    fn a_fresh_original_engine_emits_no_stereo_ext_traffic() {
+        // The disengaged default must be byte-identical to a build without the
+        // feature: no 0x105 enable, no 0xD0/0x1D0 panpot writes.
+        let song = dro_song_v2();
+        let engine = recording_engine(&song);
+        assert!(
+            engine.chip.writes.is_empty(),
+            "a fresh Original v2 engine wrote {:?}",
+            engine.chip.writes
+        );
+    }
+
+    #[test]
+    fn custom_panning_writes_the_stereo_ext_enable_before_the_panpots() {
+        let song = dro_song_v2();
+        let mut engine = recording_engine(&song);
+        engine.chip.writes.clear();
+        engine.set_panning(Panning::Custom([0x40; 18]));
+
+        let writes = &engine.chip.writes;
+        // 0x105 first (newm still 0), enabling stereo-ext, since 0xD0 writes are
+        // no-ops until it lands...
+        assert_eq!(writes[0], (0x105, 0x02));
+        // ...then 18 panpots: low bank 0x0D0..=0x0D8, then high 0x1D0..=0x1D8.
+        assert_eq!(writes[1], (0x0D0, 0x40));
+        assert_eq!(writes[9], (0x0D8, 0x40));
+        assert_eq!(writes[10], (0x1D0, 0x40));
+        assert_eq!(writes[18], (0x1D8, 0x40));
+        assert_eq!(writes.len(), 19);
+    }
+
+    #[test]
+    fn original_panning_disengages_then_replays_the_c0_shadow() {
+        // A song that never wrote 0xC0: every replayed C0 carries the chip's reset
+        // channel state (0x30), so disengaging cannot silence an unpanned channel.
+        let song = dro_song_v2();
+        let mut engine = recording_engine(&song);
+        engine.set_panning(Panning::Custom([0x40; 18]));
+        engine.chip.writes.clear();
+        engine.set_panning(Panning::Original);
+
+        let writes = &engine.chip.writes;
+        assert_eq!(writes[0], (0x105, 0x00), "stereo-ext disabled, newm kept 0");
+        assert_eq!(writes[1], (0x0C0, 0x30));
+        assert_eq!(writes[9], (0x0C8, 0x30));
+        assert_eq!(writes[10], (0x1C0, 0x30));
+        assert_eq!(writes[18], (0x1C8, 0x30));
+        assert_eq!(writes.len(), 19);
+    }
+
+    #[test]
+    fn set_panning_preserves_the_song_newm_bit() {
+        let song = panning_probe_song();
+        let mut engine = recording_engine(&song);
+        // Render so the song's 0x105 = 0x01 sets newm on the engine's shadow.
+        engine.render(&mut [0i16; 8]);
+        engine.chip.writes.clear();
+
+        // Custom keeps newm: 0x105 = newm(1) | stereo-ext(2) = 0x03.
+        engine.set_panning(Panning::Custom([0x80; 18]));
+        assert_eq!(engine.chip.writes[0], (0x105, 0x03));
+
+        // Original keeps newm, clears stereo-ext: 0x105 = 0x01.
+        engine.chip.writes.clear();
+        engine.set_panning(Panning::Original);
+        assert_eq!(engine.chip.writes[0], (0x105, 0x01));
+    }
+
+    #[test]
+    fn the_c0_shadow_captures_the_songs_own_pan_bits() {
+        let song = panning_probe_song(); // ch0 low writes 0xC0 = 0x20
+        let mut engine = recording_engine(&song);
+        engine.render(&mut [0i16; 8]);
+        engine.set_panning(Panning::Custom([0x80; 18]));
+        engine.chip.writes.clear();
+        engine.set_panning(Panning::Original);
+
+        // The replayed ch0 carries the song's 0x20; its siblings carry 0x30.
+        assert!(
+            engine.chip.writes.contains(&(0x0C0, 0x20)),
+            "song pan replayed"
+        );
+        assert!(
+            engine.chip.writes.contains(&(0x0C1, 0x30)),
+            "sibling untouched"
+        );
+    }
+
+    #[test]
+    fn song_0x105_writes_are_forced_to_the_engaged_state_on_playback_and_seek() {
+        let song = panning_probe_song();
+        let mut engine = recording_engine(&song);
+        engine.set_panning(Panning::Custom([0x80; 18]));
+
+        // Playback: the song's 0x105 = 0x01 must reach the chip as 0x03 (newm kept,
+        // stereo-ext forced on), so a Custom pan is never dropped mid-song.
+        engine.chip.writes.clear();
+        engine.render(&mut [0i16; 8]);
+        assert!(engine.chip.writes.contains(&(0x105, 0x03)), "playback path");
+
+        // Seek replays writes immediately; same forcing on that path.
+        engine.chip.writes.clear();
+        engine.seek_to_pos(song.len());
+        assert!(engine.chip.writes.contains(&(0x105, 0x03)), "seek path");
+    }
+
+    #[test]
+    fn seek_reapplies_custom_panning_after_the_reset() {
+        let song = dro_song_v2();
+        let mut engine = recording_engine(&song);
+        engine.set_panning(Panning::Custom([0x00; 18]));
+        engine.seek_to_pos(0); // reset + nothing to replay
+
+        // reset_chip cleared the log; the Custom re-apply is all that remains.
+        let writes = &engine.chip.writes;
+        assert_eq!(
+            writes[0],
+            (0x105, 0x02),
+            "stereo-ext re-enabled after reset"
+        );
+        assert_eq!(writes[1], (0x0D0, 0x00), "panpots re-applied");
+        assert_eq!(writes.len(), 19);
     }
 
     #[test]
