@@ -25,6 +25,8 @@ mod test_song;
 #[cfg(test)]
 mod test_support;
 pub mod theme;
+#[cfg(test)]
+mod theme_showcase;
 pub mod widgets;
 
 pub use action::AppTab;

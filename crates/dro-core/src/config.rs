@@ -50,6 +50,13 @@ pub enum ThemeChoice {
     Ft2Classic,
 }
 
+impl ThemeChoice {
+    /// Every theme, in dropdown order. Lets exhaustive consumers (the theme
+    /// showcase snapshot test) iterate all themes; a new variant added here
+    /// then fails that test with a missing baseline until one is generated.
+    pub const ALL: [Self; 2] = [Self::CloneDark, Self::Ft2Classic];
+}
+
 impl core::fmt::Display for ThemeChoice {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
