@@ -89,6 +89,26 @@ fn center_pan_feeds_both_channels() {
 }
 
 #[test]
+fn center_custom_pan_matches_the_disengaged_level() {
+    // With the balance pan law, a centred Custom pan holds both speakers at unity,
+    // so engaging it must not change the level of any channel -- the render is
+    // bit-identical to the disengaged output. (Regression guard: the upstream
+    // constant-power law dropped the centre ~3 dB.)
+    let song = sustained_tone();
+    let mut original = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE, 0.0);
+    let expected = render(&mut original, 8192);
+
+    let mut custom = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE, 0.0);
+    custom.set_panning(Panning::Custom([0x80; 18])); // centre
+    let actual = render(&mut custom, 8192);
+
+    assert_eq!(
+        actual, expected,
+        "a centred Custom pan must not change the level"
+    );
+}
+
+#[test]
 fn custom_then_original_round_trip_is_bit_identical() {
     let song = sustained_tone();
 

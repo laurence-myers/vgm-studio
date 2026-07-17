@@ -1419,7 +1419,17 @@ fn pan_from_channel_mask(mask: u16) -> i32 {
 }
 
 fn panpot(value: u8) -> i32 {
-    ((value as f64 * std::f64::consts::PI / 512.0).sin() * 65536.0) as i32
+    // dro-trimmer local change (vendored): upstream uses a constant-power law
+    // (sin(v*PI/512)*65536), which places a centre pan ~3 dB down per side. Because
+    // an OPL2/disengaged channel plays both speakers at unity, toggling Custom
+    // panning on then audibly drops the level of every centred channel. Use a
+    // linear *balance* law instead: the active side holds unity from the centre
+    // outward and only the opposite side attenuates, so a centred Custom pan
+    // matches the song's original level. leftpan = panpot(v ^ 0xff),
+    // rightpan = panpot(v): both reach unity at the centre (v = 0x80 -> 127/128,
+    // which /127 clamps to unity). Deliberate deviation from upstream, not a bug
+    // fix -- see vendor/nuked-opl3/README.dro-trimmer.md.
+    ((value as i32 * 0x10000) / 127).min(0x10000)
 }
 
 fn envelope_calc_exp(mut level: u32) -> i16 {
