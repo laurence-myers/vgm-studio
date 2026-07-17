@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use dro_core::Song;
 use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
-use dro_synth::Muting;
+use dro_synth::{Muting, Panning};
 
 use crate::platform::{
     AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome,
@@ -105,6 +105,7 @@ pub(crate) struct AudioLog {
     pub seeks_ms: Vec<u32>,
     pub seeks_pos: Vec<usize>,
     pub mutings: Vec<Muting>,
+    pub pannings: Vec<Panning>,
     pub boosts: Vec<f32>,
     /// Toggled by `play`/`pause`; also directly settable by a test.
     pub playing: bool,
@@ -160,6 +161,10 @@ impl AudioService for FakeAudioService {
 
     fn set_muting(&mut self, muting: Muting) {
         self.0.borrow_mut().mutings.push(muting);
+    }
+
+    fn set_panning(&mut self, panning: Panning) {
+        self.0.borrow_mut().pannings.push(panning);
     }
 
     fn set_boost(&mut self, boost: f32) {

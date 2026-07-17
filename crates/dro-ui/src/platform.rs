@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{Muting, Position};
+use dro_synth::{Muting, Panning, Position};
 
 pub use dro_core::config::ConfigStore;
 
@@ -157,6 +157,9 @@ pub trait AudioService {
 
     /// Replaces the channel/percussion muting, live.
     fn set_muting(&mut self, muting: Muting);
+
+    /// Replaces the per-channel panning, live.
+    fn set_panning(&mut self, panning: Panning);
 
     /// Sets the live playback volume boost. A limiter keeps the boosted signal
     /// from clipping. Never affects a WAV render or the waveform.

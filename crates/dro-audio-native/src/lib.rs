@@ -20,7 +20,7 @@ use cpal::{SampleFormat, StreamConfig};
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{BoostLimiter, Muting, PlayerEngine, Position};
+use dro_synth::{BoostLimiter, Muting, Panning, PlayerEngine, Position};
 
 /// What can go wrong opening or driving the audio device.
 #[derive(Debug, thiserror::Error)]
@@ -39,6 +39,7 @@ enum Command {
     SeekMs(u32),
     SeekPos(usize),
     SetMuting(Muting),
+    SetPanning(Panning),
     SetBoost(f32),
     Rewind,
 }
@@ -168,6 +169,11 @@ impl NativeAudio {
         self.send(Command::SetMuting(muting));
     }
 
+    /// Replaces the per-channel panning.
+    pub fn set_panning(&mut self, panning: Panning) {
+        self.send(Command::SetPanning(panning));
+    }
+
     /// Changes the live playback volume boost. The limiter keeps the boosted
     /// signal from clipping; this never touches a WAV render.
     pub fn set_boost(&mut self, boost: f32) {
@@ -247,6 +253,7 @@ where
                     Command::SeekMs(ms) => engine.seek_to_ms(ms),
                     Command::SeekPos(pos) => engine.seek_to_pos(pos),
                     Command::SetMuting(muting) => engine.set_muting(muting),
+                    Command::SetPanning(panning) => engine.set_panning(panning),
                     Command::SetBoost(boost) => limiter.set_boost(boost),
                     Command::Rewind => engine.rewind(),
                 }
