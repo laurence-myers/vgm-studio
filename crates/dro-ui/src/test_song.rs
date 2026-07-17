@@ -22,6 +22,26 @@ pub(crate) fn tone_song() -> Song {
     )
 }
 
+/// The tone song as a dual-OPL2 file, so the strip's fixed hard-L/R Original
+/// panning image can be exercised. The instruction stream is identical to
+/// [`tone_song`]; only the declared chip type differs.
+pub(crate) fn dual_tone_song() -> Song {
+    Song::dro_v1(
+        "dual.dro".to_owned(),
+        DroDataV1::new(vec![
+            0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)
+            0x23, 0x01, 0x43, 0x00, 0x63, 0xF0, 0x83, 0x7F, // carrier (fast release)
+            0xA0, 0x98, 0xB0, 0x31, // frequency, key on
+            0x00, 0xC7, // 200 ms of tone
+            0xB0, 0x11, // key off
+            0x00, 0x63, // 100 ms of silence
+        ])
+        .unwrap(),
+        300,
+        OplType::DualOpl2,
+    )
+}
+
 /// The `dro-core` v2 fixture rebuilt via public constructors: five register
 /// writes, a short delay (177 ms), a long delay (49408 ms), then the same
 /// fourteen instructions again. Total delay 99170 ms.

@@ -76,11 +76,18 @@ impl ShowcaseState {
         position.set_length_ms(300_000);
         position.set_position_ms(123_456);
 
-        // A mix of muted and audible toggles across both banks.
+        // A mix of muted and audible toggles across both banks, and Custom
+        // panning engaged with a spread of positions so the pan knobs render at
+        // varied angles (hard left, left, centre, right, hard right).
         let mut channels = ChannelPanel::new();
         channels.toggle_channel(2);
         channels.toggle_channel(4);
         channels.toggle_channel(12);
+        let mut pans = [0x80u8; 18];
+        for (slot, pan) in pans.iter_mut().enumerate() {
+            *pan = [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5];
+        }
+        channels.set_showcase_pans(pans);
 
         Self {
             editor,
@@ -142,7 +149,7 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             scroll_sample(ui);
 
             section(ui, p, "Channel panel");
-            state.channels.show(ui, p, true);
+            state.channels.show(ui, p);
 
             section(ui, p, "Position panel");
             // `PositionPanel::show` centres-and-justifies within its columns,

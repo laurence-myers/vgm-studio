@@ -25,7 +25,7 @@ use crate::platform::{
     OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
 };
 use crate::tasks::TaskKind;
-use crate::test_song::{bogus_leading_delay_song, tone_song};
+use crate::test_song::{bogus_leading_delay_song, dual_tone_song, tone_song};
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
     MemoryConfigStore, NoopTaskService, RipLog, TaskLog,
@@ -334,6 +334,152 @@ fn number_key_toggles_channel_muting() {
     );
 }
 
+// -- channel panning ---------------------------------------------------------
+
+#[test]
+fn custom_toggle_engages_and_disengages_panning() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    assert!(
+        handles.audio.borrow().pannings.is_empty(),
+        "loading a song pushes no panning"
+    );
+
+    harness.get_by_label("Custom").click();
+    harness.run();
+    assert_eq!(
+        handles.audio.borrow().pannings.last(),
+        Some(&dro_synth::Panning::Custom([0x80; 18])),
+        "engaging Custom pushes the centred pans"
+    );
+
+    harness.get_by_label("Custom").click();
+    harness.run();
+    assert_eq!(
+        handles.audio.borrow().pannings.last(),
+        Some(&dro_synth::Panning::Original),
+        "disengaging returns to Original"
+    );
+}
+
+#[test]
+fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.get_by_label("Custom").click();
+    harness.run();
+    let mutings_before = handles.audio.borrow().mutings.len();
+
+    // Drag channel 1's knob far to the left: the relative mapping clamps it hard
+    // left regardless of the exact per-frame split.
+    let center = harness.get_by_label("Pan 1 (low bank)").rect().center();
+    harness.drag_at(center);
+    harness.run();
+    harness.hover_at(center - egui::vec2(200.0, 0.0));
+    harness.run();
+    harness.drop_at(center - egui::vec2(200.0, 0.0));
+    harness.run();
+
+    let audio = handles.audio.borrow();
+    match audio.pannings.last().expect("a panning was pushed") {
+        dro_synth::Panning::Custom(pans) => {
+            assert_eq!(pans[0], 0x00, "channel 1 dragged hard left");
+            assert_eq!(pans[1], 0x80, "channel 2 stays centred");
+        }
+        other => panic!("expected Custom panning, got {other:?}"),
+    }
+    assert_eq!(
+        audio.mutings.len(),
+        mutings_before,
+        "a pan drag must not resend muting"
+    );
+}
+
+#[test]
+fn right_clicking_a_pan_knob_recenters_it() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    // Custom mode with channel 1 hard left, the rest centred.
+    let mut pans = [0x80u8; 18];
+    pans[0] = 0x00;
+    harness.state_mut().channels.set_showcase_pans(pans);
+    harness.run();
+
+    harness.get_by_label("Pan 1 (low bank)").click_secondary();
+    harness.run();
+
+    assert_eq!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom([0x80; 18]),
+        "right-click recentres the knob"
+    );
+}
+
+#[test]
+fn dual_opl2_original_pans_hard_left_and_right() {
+    let (mut harness, handles) = harness_with_song(&dual_tone_song());
+    harness.get_by_label("Play").click();
+    harness.run_steps(3); // playback requests repaints; `run` would spin.
+
+    let mut image = [0x00u8; 18];
+    image[9..].fill(0xFF);
+    assert_eq!(
+        handles.audio.borrow().pannings.last(),
+        Some(&dro_synth::Panning::Custom(image)),
+        "dual-OPL2 Original plays chip 1 left, chip 2 right"
+    );
+    assert_eq!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom(image),
+        "the panel reports the fixed image while still in Original mode"
+    );
+}
+
+#[test]
+fn all_button_resets_pans_and_mutes() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    // Custom mode with off-centre pans, plus a muted channel.
+    harness.state_mut().channels.set_showcase_pans([0x10; 18]);
+    harness.key_press(Key::Num3);
+    harness.run();
+
+    harness.get_by_label("All").click();
+    harness.run();
+
+    let audio = handles.audio.borrow();
+    assert_eq!(
+        audio.mutings.last(),
+        Some(&dro_synth::Muting::all()),
+        "All unmutes everything"
+    );
+    assert_eq!(
+        audio.pannings.last(),
+        Some(&dro_synth::Panning::Custom([0x80; 18])),
+        "All recentres the pans to the type defaults"
+    );
+}
+
+#[test]
+fn loading_a_song_resets_pan_mode_to_original() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.state_mut().channels.set_showcase_pans([0x00; 18]);
+    assert!(matches!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom(_)
+    ));
+
+    // Loading another song rebuilds the panel: Original mode, fresh defaults.
+    handles
+        .files
+        .borrow_mut()
+        .picked
+        .push_back(Ok(picked(&tone_song())));
+    harness.run();
+
+    assert_eq!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Original,
+        "a fresh load returns to Original mode"
+    );
+}
+
 #[test]
 fn boost_up_arrow_sets_boost_and_persists_it() {
     let (mut harness, handles) = harness_with_song(&tone_song());
@@ -433,6 +579,19 @@ fn snapshot_dro_info_dialog() {
 fn snapshot_auto_trim_alert() {
     let (mut harness, _handles) = build(Some(picked(&bogus_leading_delay_song())), false, true);
     settled_snapshot(&mut harness, "auto_trim_alert");
+}
+
+#[test]
+fn snapshot_pan_strip_custom() {
+    // A dual-OPL2 song shows both bank pan rows; engage Custom with a spread of
+    // pans so the knobs render at distinct angles in the app's controls panel.
+    let (mut harness, _handles) = build(Some(picked(&dual_tone_song())), false, true);
+    let mut pans = [0x80u8; 18];
+    for (slot, pan) in pans.iter_mut().enumerate() {
+        *pan = [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5];
+    }
+    harness.state_mut().channels.set_showcase_pans(pans);
+    settled_snapshot(&mut harness, "pan_strip_custom");
 }
 
 // -- rip mode ----------------------------------------------------------------

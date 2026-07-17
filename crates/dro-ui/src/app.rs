@@ -449,13 +449,13 @@ impl DroApp {
                     ui.add_space(PAD);
                     theme::separator_full(ui, p);
                     ui.add_space(PAD);
-                    // A plain OPL2 song has only one bank; hide the high-bank toggles.
-                    let show_high_bank = self
-                        .editor
-                        .song()
-                        .is_none_or(|song| song.opl_type != dro_core::OplType::Opl2);
-                    if self.channels.show(ui, p, show_high_bank) {
+                    // The panel hides its own high bank for a plain OPL2 song.
+                    let channels = self.channels.show(ui, p);
+                    if channels.muting_changed {
                         actions.push(Action::MutingChanged);
+                    }
+                    if channels.panning_changed {
+                        actions.push(Action::PanningChanged);
                     }
                     ui.add_space(PAD);
                 })
@@ -1079,6 +1079,7 @@ impl DroApp {
                 self.audio.set_muting(self.channels.muting());
             }
             Action::MutingChanged => self.audio.set_muting(self.channels.muting()),
+            Action::PanningChanged => self.audio.set_panning(self.channels.panning()),
             Action::SetBoost { value, persist } => {
                 self.config.audio.boost = value;
                 // A loaded stream gets the boost live via the command queue; an
@@ -1100,6 +1101,10 @@ impl DroApp {
                 ms_length,
             } => {
                 self.editor.update_header(opl_type, ms_length);
+                // The chip type may have changed the high-bank visibility and the
+                // Original pan policy; after_edit invalidates the audio revision,
+                // so the next ensure_audio pushes the fresh panning.
+                self.channels.set_opl_type(opl_type, self.editor.song());
                 self.after_edit();
             }
             Action::SaveGd3(tag) => self.editor.set_gd3_tag(*tag),
@@ -1130,9 +1135,6 @@ impl DroApp {
                 self.close_song_dialogs();
                 self.waveform = WaveformState::default();
                 self.submit_waveform(None);
-                // A fresh song starts with every channel audible; stale
-                // mute/solo state from the previous song must not carry over.
-                self.channels = ChannelPanel::new();
                 // Unload, not pause: the old stream's position must not leak
                 // into the fresh cursor/readout via the end-of-playback
                 // update below.
@@ -1141,6 +1143,10 @@ impl DroApp {
                 self.audio_revision = None;
                 self.was_playing = false;
                 let song = self.editor.song().expect("just loaded");
+                // A fresh song starts with every channel audible and panning reset
+                // to Original (pans seeded from the song type); stale mute/pan
+                // state from the previous song must not carry over.
+                self.channels = ChannelPanel::for_song(song);
                 let file_version = song.file_version;
                 self.position.set_length_ms(song.total_delay_ms());
                 self.position.set_position_ms(0);
@@ -1680,6 +1686,7 @@ impl DroApp {
             .ok_or_else(|| "No song is loaded.".to_owned())?;
         self.audio.load(snapshot, &self.config.audio)?;
         self.audio.set_muting(self.channels.muting());
+        self.audio.set_panning(self.channels.panning());
         self.audio_revision = Some(self.editor.revision());
         // The device may have rejected the configured frequency; positions
         // report frames at the stream's real rate, so the panel must too.

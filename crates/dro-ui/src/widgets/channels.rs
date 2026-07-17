@@ -1,14 +1,29 @@
-//! Channel and percussion soloing.
+//! Channel and percussion muting, soloing, and per-channel panning.
 //!
 //! New in the Rust port: the Python CLI player's interactive soloing was
 //! deliberately dropped in Step 5 because its home is the GUI. Eighteen
-//! melodic-channel toggles (nine per bank) plus a drums toggle per bank, all
-//! applied live through `AudioService::set_muting`.
+//! melodic-channel toggles (nine per bank) plus a drums toggle per bank, applied
+//! live through `AudioService::set_muting`; and, above each toggle, a pan knob
+//! applied through `AudioService::set_panning` when the panel is in Custom mode.
 
-use dro_core::Bank;
-use dro_synth::Muting;
+use dro_core::{Bank, OplType, Song};
+use dro_synth::{Muting, Panning};
 
 use crate::theme::{Palette, bevel};
+use crate::widgets::pan_knob;
+
+/// The centred pan byte (`0x80`), and the hard-left / hard-right extremes.
+const PAN_CENTER: u8 = 0x80;
+const PAN_LEFT: u8 = 0x00;
+const PAN_RIGHT: u8 = 0xFF;
+
+/// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
+/// resends muting mid-note and a mute toggle never resends panning.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ChannelsResponse {
+    pub muting_changed: bool,
+    pub panning_changed: bool,
+}
 
 #[derive(Debug)]
 pub struct ChannelPanel {
@@ -16,6 +31,18 @@ pub struct ChannelPanel {
     channels: [bool; 18],
     /// Drums audible, per bank.
     percussion: [bool; 2],
+    /// The per-channel pan bytes edited under Custom mode, indexed `bank * 9 + n`
+    /// (`0x00` hard left .. `0x80` centre .. `0xFF` hard right).
+    pans: [u8; 18],
+    /// The pans the current song type implies, shown (greyed) under Original and
+    /// restored by "All".
+    default_pans: [u8; 18],
+    /// Whether the pan knobs drive the output (Custom) or the song's own image
+    /// does (Original).
+    custom: bool,
+    /// The loaded song's chip type, or `None` before any song. Decides the high
+    /// bank's visibility and the Original panning policy.
+    opl_type: Option<OplType>,
 }
 
 impl Default for ChannelPanel {
@@ -23,14 +50,63 @@ impl Default for ChannelPanel {
         Self {
             channels: [true; 18],
             percussion: [true; 2],
+            pans: [PAN_CENTER; 18],
+            default_pans: [PAN_CENTER; 18],
+            custom: false,
+            opl_type: None,
         }
     }
 }
 
+/// The pan image a song type implies at load: OPL2 centres everything, dual-OPL2
+/// puts chip 1 (bank 0) hard left and chip 2 (bank 1) hard right (the authentic
+/// SB Pro 1 image), and OPL3 mirrors the song's own first `0xC0` writes.
+fn default_pans_for(opl_type: OplType, song: &Song) -> [u8; 18] {
+    match opl_type {
+        OplType::Opl2 => [PAN_CENTER; 18],
+        OplType::DualOpl2 => {
+            let mut pans = [PAN_LEFT; 18];
+            pans[9..].fill(PAN_RIGHT);
+            pans
+        }
+        OplType::Opl3 => dro_core::initial_channel_pans(song),
+    }
+}
+
 impl ChannelPanel {
+    /// A panel with no song: everything audible, centred, Original mode.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// A panel seeded for `song`: audible, mode Original, pans defaulted to the
+    /// song type's image.
+    #[must_use]
+    pub fn for_song(song: &Song) -> Self {
+        let opl_type = song.opl_type;
+        let default_pans = default_pans_for(opl_type, song);
+        Self {
+            channels: [true; 18],
+            percussion: [true; 2],
+            pans: default_pans,
+            default_pans,
+            custom: false,
+            opl_type: Some(opl_type),
+        }
+    }
+
+    /// Adopts a new chip type after a live DRO Info edit, recomputing the pan
+    /// defaults (and, while Original, the shown pans) from `song`.
+    pub fn set_opl_type(&mut self, opl_type: OplType, song: Option<&Song>) {
+        self.opl_type = Some(opl_type);
+        self.default_pans = match song {
+            Some(song) => default_pans_for(opl_type, song),
+            None => [PAN_CENTER; 18],
+        };
+        if !self.custom {
+            self.pans = self.default_pans;
+        }
     }
 
     /// The muting the current toggles describe.
@@ -54,6 +130,26 @@ impl ChannelPanel {
         muting
     }
 
+    /// The panning the current mode and song type describe.
+    ///
+    /// Custom always uses the edited pans. Original is policy-driven: a dual-OPL2
+    /// song plays the fixed hard-L/R chip image (ignoring the knobs), while OPL2
+    /// and OPL3 defer to the song's own output (`Panning::Original`).
+    #[must_use]
+    pub fn panning(&self) -> Panning {
+        if self.custom {
+            return Panning::Custom(self.pans);
+        }
+        match self.opl_type {
+            Some(OplType::DualOpl2) => {
+                let mut image = [PAN_LEFT; 18];
+                image[9..].fill(PAN_RIGHT);
+                Panning::Custom(image)
+            }
+            _ => Panning::Original,
+        }
+    }
+
     /// Toggles melodic channel `index` (`0..18`). The number keys use this.
     pub fn toggle_channel(&mut self, index: usize) {
         if let Some(channel) = self.channels.get_mut(index) {
@@ -62,13 +158,14 @@ impl ChannelPanel {
     }
 
     /// Right-click solo for melodic channel `index`: makes it the only audible
-    /// voice, or restores everything if it already is the only one.
+    /// voice, or restores everything if it already is the only one. Pans are left
+    /// untouched -- soloing is a muting concern.
     pub fn toggle_solo_channel(&mut self, index: usize) {
         if index >= self.channels.len() {
             return;
         }
         if self.is_soloed_channel(index) {
-            *self = Self::default();
+            self.unmute_all();
         } else {
             self.channels = [false; 18];
             self.percussion = [false; 2];
@@ -82,12 +179,18 @@ impl ChannelPanel {
             return;
         }
         if self.is_soloed_percussion(bank) {
-            *self = Self::default();
+            self.unmute_all();
         } else {
             self.channels = [false; 18];
             self.percussion = [false; 2];
             self.percussion[bank] = true;
         }
+    }
+
+    /// Restores every melodic channel and drum to audible (pans untouched).
+    fn unmute_all(&mut self) {
+        self.channels = [true; 18];
+        self.percussion = [true; 2];
     }
 
     fn is_soloed_channel(&self, index: usize) -> bool {
@@ -107,51 +210,109 @@ impl ChannelPanel {
                 .all(|(i, &on)| on == (i == bank))
     }
 
-    /// Draws the strip. Low bank (channels 1-9, Drums, All) on the first row;
-    /// with `show_high_bank` the high bank (1-9, Drums) follows on a second row.
-    /// Hidden high-bank state survives for the next two-bank song.
+    /// Draws the strip. Each bank is a pan row (nine knobs) directly above its
+    /// toggle row (channels 1-9, Drums), so a knob sits over its channel's digit.
+    /// The low bank always shows; the high bank shows for dual-OPL2 and OPL3. The
+    /// Original/Custom mode toggle sits above "All".
     ///
-    /// A grid keeps the two banks column-aligned: channel `1` sits directly above
-    /// channel `1`, and so on. Left-click a toggle to mute it; right-click to solo
-    /// it. Returns `true` if anything changed.
-    pub fn show(&mut self, ui: &mut egui::Ui, palette: &Palette, show_high_bank: bool) -> bool {
-        let mut changed = false;
+    /// Left-click a toggle to mute it; right-click to solo it. Knobs are live only
+    /// under Custom; under Original they show the policy pan, greyed. Returns which
+    /// of muting/panning changed this frame.
+    pub fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) -> ChannelsResponse {
+        let show_high_bank = self.opl_type != Some(OplType::Opl2);
+        let mut response = ChannelsResponse::default();
         let row_height = ui.spacing().interact_size.y;
         egui::Grid::new("channel-grid")
             .min_row_height(row_height)
-            // Fit every column to its content (egui defaults to interact_size),
-            // so the narrow digit toggles don't leave slack that widens their
-            // gaps -- every column gap is then the uniform 6px spacing.
+            // Fit every column to its content (egui defaults to interact_size), so
+            // the narrow digit toggles and knobs don't leave slack that widens
+            // their gaps -- every column gap is then the uniform 6px spacing.
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // Perc. and All are ordinary grid columns, so the gap on either
-                // side of Perc. matches the gap between the channel toggles.
+                // Low bank: pan row, then the toggle row with Perc. and All.
+                response.panning_changed |= self.pan_row(ui, palette, 0, true);
+                ui.end_row();
+
                 ui.label("Channels:");
                 for index in 0..9 {
-                    changed |= self.channel_toggle(ui, index);
+                    response.muting_changed |= self.channel_toggle(ui, index);
                 }
-                changed |= self.percussion_toggle(ui, 0, "Perc.", "Percussion (low bank)");
+                response.muting_changed |=
+                    self.percussion_toggle(ui, 0, "Perc.", "Percussion (low bank)");
                 if bevel::button(ui, palette, "All")
-                    .on_hover_text("Unmute everything")
+                    .on_hover_text("Unmute everything and recentre pans")
                     .clicked()
                 {
-                    let all_on = Self::default();
-                    changed |=
-                        self.channels != all_on.channels || self.percussion != all_on.percussion;
-                    *self = all_on;
+                    response.muting_changed |=
+                        self.channels != [true; 18] || self.percussion != [true; 2];
+                    self.unmute_all();
+                    response.panning_changed |= self.pans != self.default_pans;
+                    self.pans = self.default_pans;
                 }
                 ui.end_row();
 
                 if show_high_bank {
+                    response.panning_changed |= self.pan_row(ui, palette, 1, false);
+                    ui.end_row();
+
                     ui.label("High bank:");
                     for index in 9..18 {
-                        changed |= self.channel_toggle(ui, index);
+                        response.muting_changed |= self.channel_toggle(ui, index);
                     }
-                    changed |= self.percussion_toggle(ui, 1, "Perc.", "Percussion (high bank)");
+                    response.muting_changed |=
+                        self.percussion_toggle(ui, 1, "Perc.", "Percussion (high bank)");
                     ui.end_row();
                 }
             });
+        response
+    }
+
+    /// One bank's pan row: a label, nine pan knobs (over the toggle digits), an
+    /// empty cell in the Perc. column, and -- on the low bank -- the
+    /// Original/Custom mode toggle under "All". Returns whether panning changed.
+    fn pan_row(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &Palette,
+        bank: usize,
+        with_mode_toggle: bool,
+    ) -> bool {
+        let mut changed = false;
+        ui.label(if bank == 0 { "Pan:" } else { "" });
+        let bank_name = if bank == 0 { "low" } else { "high" };
+        for channel in 0..9 {
+            let slot = bank * 9 + channel;
+            let label = format!("Pan {} ({bank_name} bank)", channel + 1);
+            if self.custom {
+                changed |=
+                    pan_knob::show(ui, palette, &mut self.pans[slot], true, &label).changed();
+            } else {
+                // Original: show the policy pan, inert and greyed. The knob does
+                // not mutate a disabled value, so a throwaway copy is safe.
+                let mut shown = self.default_pans[slot];
+                pan_knob::show(ui, palette, &mut shown, false, &label);
+            }
+        }
+        // The Perc. column has no pan knob (drums pan through channels 7-9).
+        ui.label("");
+        if with_mode_toggle {
+            let hint = match self.opl_type {
+                Some(OplType::DualOpl2) => "Original: chip 1 left, chip 2 right",
+                Some(OplType::Opl3) => "Original: the song's own panning",
+                _ => "Original: mono",
+            };
+            let mut custom = self.custom;
+            if ui
+                .toggle_value(&mut custom, "Custom")
+                .on_hover_text(hint)
+                .changed()
+            {
+                self.custom = custom;
+                // Switching mode changes the effective panning.
+                changed = true;
+            }
+        }
         changed
     }
 
@@ -183,7 +344,10 @@ impl ChannelPanel {
     ) -> bool {
         let response = ui
             .toggle_value(&mut self.percussion[bank], label)
-            .on_hover_text(format!("{hover}. Left-click mutes, right-click solos."));
+            .on_hover_text(format!(
+                "{hover}. Drums sound through channels 7-9's pans. \
+                 Left-click mutes, right-click solos."
+            ));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_percussion(bank);
@@ -191,11 +355,52 @@ impl ChannelPanel {
         }
         changed
     }
+
+    /// Test-only: engage Custom mode with `pans`, for the theme showcase.
+    #[cfg(test)]
+    pub(crate) fn set_showcase_pans(&mut self, pans: [u8; 18]) {
+        self.custom = true;
+        self.pans = pans;
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dro_core::{DroDataV1, Song};
+
+    fn opl2_song() -> Song {
+        Song::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x01]).unwrap(),
+            0,
+            OplType::Opl2,
+        )
+    }
+
+    fn dual_opl2_song() -> Song {
+        Song::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x01]).unwrap(),
+            0,
+            OplType::DualOpl2,
+        )
+    }
+
+    fn opl3_song_panned() -> Song {
+        // ch0 low hard-left (0xC0 bit4), ch0 high hard-right (0xC0 bit5).
+        Song::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![
+                0xC0, 0x10, // ch0 low: left only
+                0x03, // bank high
+                0xC0, 0x20, // ch0 high: right only
+            ])
+            .unwrap(),
+            0,
+            OplType::Opl3,
+        )
+    }
 
     #[test]
     fn everything_on_is_muting_all() {
@@ -276,5 +481,75 @@ mod tests {
         assert_eq!(muting.gate(Bank::Low, 0xBD, 0xFF), Some(0xFF));
         assert_eq!(muting.gate(Bank::High, 0xBD, 0xFF), Some(0xE0));
         assert_eq!(muting.gate(Bank::Low, 0xB0, 0xFF), None);
+    }
+
+    #[test]
+    fn soloing_leaves_pans_untouched() {
+        let mut panel = ChannelPanel::for_song(&opl3_song_panned());
+        panel.set_showcase_pans([0x10; 18]);
+        panel.toggle_solo_channel(3);
+        panel.toggle_solo_channel(3); // un-solo
+        // The pans (and Custom mode) survive a solo round-trip.
+        assert_eq!(panel.panning(), Panning::Custom([0x10; 18]));
+    }
+
+    #[test]
+    fn for_song_defaults_pans_per_type() {
+        assert_eq!(
+            ChannelPanel::for_song(&opl2_song()).default_pans,
+            [0x80; 18]
+        );
+
+        let dual = ChannelPanel::for_song(&dual_opl2_song());
+        assert_eq!(&dual.default_pans[..9], &[0x00; 9]);
+        assert_eq!(&dual.default_pans[9..], &[0xFF; 9]);
+
+        let opl3 = ChannelPanel::for_song(&opl3_song_panned());
+        assert_eq!(opl3.default_pans[0], 0x00, "ch0 low left");
+        assert_eq!(opl3.default_pans[9], 0xFF, "ch0 high right");
+        assert_eq!(opl3.default_pans[1], 0x80, "unwritten channel centred");
+    }
+
+    #[test]
+    fn panning_policy_matches_the_song_type() {
+        // OPL2 Original -> the song's own (mono) output.
+        assert_eq!(
+            ChannelPanel::for_song(&opl2_song()).panning(),
+            Panning::Original
+        );
+        // OPL3 Original -> the song's own C0 panning.
+        assert_eq!(
+            ChannelPanel::for_song(&opl3_song_panned()).panning(),
+            Panning::Original
+        );
+        // Dual-OPL2 Original -> the fixed hard-L/R image, ignoring the knobs.
+        let mut expected = [0x00u8; 18];
+        expected[9..].fill(0xFF);
+        assert_eq!(
+            ChannelPanel::for_song(&dual_opl2_song()).panning(),
+            Panning::Custom(expected)
+        );
+    }
+
+    #[test]
+    fn custom_mode_uses_the_edited_pans() {
+        let mut panel = ChannelPanel::for_song(&dual_opl2_song());
+        panel.set_showcase_pans([0x55; 18]);
+        assert_eq!(panel.panning(), Panning::Custom([0x55; 18]));
+    }
+
+    #[test]
+    fn set_opl_type_snaps_pans_while_original() {
+        let mut panel = ChannelPanel::for_song(&opl2_song()); // all centred
+        panel.set_opl_type(OplType::DualOpl2, Some(&dual_opl2_song()));
+        // Original mode: the shown pans snap to the new type's defaults.
+        assert_eq!(&panel.default_pans[9..], &[0xFF; 9]);
+        assert_eq!(&panel.pans[9..], &[0xFF; 9]);
+
+        // Under Custom, an opl_type change updates defaults but not the edited pans.
+        panel.set_showcase_pans([0x11; 18]);
+        panel.set_opl_type(OplType::Opl2, Some(&opl2_song()));
+        assert_eq!(panel.default_pans, [0x80; 18]);
+        assert_eq!(panel.pans, [0x11; 18], "Custom pans are preserved");
     }
 }

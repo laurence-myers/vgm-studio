@@ -106,6 +106,8 @@ pub enum Action {
     // Channel soloing
     ToggleChannel(usize),
     MutingChanged,
+    /// A pan knob or the Original/Custom mode toggle moved.
+    PanningChanged,
 
     // Dialog submissions
     /// Queue a modal message box.
