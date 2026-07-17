@@ -1,21 +1,22 @@
-//! A rotary pan knob: a circle with a position dot, for per-channel panning.
+//! A rotary pan knob: a beveled cap with a pointer, for per-channel panning.
 //!
-//! Hand-painted in the DOS style of the peak meter and bevel buttons -- a
-//! `button_face` disc with the near-black keyline, a reference tick at 12
-//! o'clock, and a bright dot orbiting the centre across a 270-degree sweep (hard
-//! left at 7:30, centre at 12:00, hard right at 4:30). It reports itself as a
-//! slider to accessibility and egui_kittest, so the GUI tests can find and drag
-//! it. Pans are bytes: `0x00` hard left, `0x80` centre, `0xFF` hard right.
+//! Hand-painted in the chunky FT2/demoscene-tracker style of the bevel buttons --
+//! a raised `button_face` cap with a black keyline and a two-tone bevel ring (lit
+//! upper-left, shadowed lower-right), a dark centre hub, and a bright
+//! tracker-yellow pointer sweeping 270 degrees (hard left at 7:30, centre at
+//! 12:00, hard right at 4:30). It reports itself as a slider to accessibility and
+//! egui_kittest, so the GUI tests can find and drag it. Pans are bytes: `0x00`
+//! hard left, `0x80` centre, `0xFF` hard right.
 
 use core::cmp::Ordering;
 
-use egui::{Response, Sense, Stroke, Ui, vec2};
+use egui::{Pos2, Response, Sense, Shape, Stroke, Ui, vec2};
 
 use crate::theme::Palette;
 
-/// The knob's square side, in points -- no wider than a digit toggle, so the
-/// channel grid's columns stay snug.
-const SIZE: f32 = 18.0;
+/// The knob's square side, in points. Shared with the channel grid so each digit
+/// toggle sits in a cell of exactly this width, centred under its knob.
+pub const SIZE: f32 = 20.0;
 /// The centred pan value.
 const CENTER: u8 = 0x80;
 /// Half-width of the snap-to-centre band, in pan units. At [`DRAG_UNITS_PER_POINT`]
@@ -133,44 +134,61 @@ pub fn show(
     response.on_hover_text(readout(*value))
 }
 
-/// Paints the disc, keyline, 12 o'clock tick, and position dot.
+/// A circular arc as a stroked polyline, for the two-tone bevel ring. Angles are
+/// in degrees, clockwise from 3 o'clock in egui's y-down space.
+fn arc(center: Pos2, radius: f32, from_deg: f32, to_deg: f32, stroke: Stroke) -> Shape {
+    const SEGMENTS: usize = 20;
+    let points = (0..=SEGMENTS)
+        .map(|i| {
+            let t = (from_deg + (to_deg - from_deg) * (i as f32 / SEGMENTS as f32)).to_radians();
+            center + vec2(t.cos() * radius, t.sin() * radius)
+        })
+        .collect();
+    Shape::line(points, stroke)
+}
+
+/// Paints the raised beveled cap, centre hub, and pointer.
 fn paint(ui: &Ui, rect: egui::Rect, palette: &Palette, value: u8, enabled: bool) {
     let painter = ui.painter();
-    let center = rect.center();
-    let radius = rect.width().min(rect.height()) / 2.0 - 1.0;
+    let c = rect.center();
+    let r = rect.width().min(rect.height()) / 2.0 - 1.0;
 
-    let face = if enabled {
+    // The cap body and its black keyline.
+    let body = if enabled {
         palette.button_face
     } else {
         palette.face
     };
-    painter.circle_filled(center, radius, face);
-    painter.circle_stroke(center, radius, Stroke::new(1.0, palette.bevel_border));
+    painter.circle_filled(c, r, body);
+    painter.circle_stroke(c, r, Stroke::new(1.0, palette.bevel_border));
 
-    // The 12 o'clock reference tick on the rim.
-    let tick = if enabled {
-        palette.bevel_dark
+    // The two-tone bevel ring just inside the keyline: lit on the upper-left half
+    // (135 deg -> 315 deg through the top), shadowed on the lower-right. y is down,
+    // so 270 deg is the top of the circle and 180 deg the left.
+    let (lit, shadow) = if enabled {
+        (palette.bevel_light, palette.bevel_dark)
     } else {
-        palette.muted
+        (palette.muted, palette.bevel_dark)
     };
-    painter.line_segment(
-        [
-            center + vec2(0.0, -radius),
-            center + vec2(0.0, -radius + 3.0),
-        ],
-        Stroke::new(1.0, tick),
-    );
+    let ring = r - 1.0;
+    painter.add(arc(c, ring, 135.0, 315.0, Stroke::new(1.5, lit)));
+    painter.add(arc(c, ring, -45.0, 135.0, Stroke::new(1.5, shadow)));
 
-    // The position dot, orbiting just inside the rim.
+    // The pointer: a bold radial line from the hub to the rim, capped with a bright
+    // dot, in the tracker-yellow data colour (dimmed when disabled).
     let theta = dot_angle(value);
-    let orbit = radius - 3.0;
-    let dot = center + vec2(theta.sin() * orbit, -theta.cos() * orbit);
-    let dot_color = if enabled {
+    let dir = vec2(theta.sin(), -theta.cos());
+    let ink = if enabled {
         palette.data_text
     } else {
         palette.muted
     };
-    painter.circle_filled(dot, 1.8, dot_color);
+    let tip = c + dir * (r - 2.0);
+    painter.line_segment([c + dir * 2.5, tip], Stroke::new(2.0, ink));
+    painter.circle_filled(tip, 1.7, ink);
+
+    // A small dark hub anchoring the pointer.
+    painter.circle_filled(c, 2.0, palette.bevel_dark);
 }
 
 #[cfg(test)]

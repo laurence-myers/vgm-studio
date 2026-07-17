@@ -224,12 +224,20 @@ impl ChannelPanel {
         let row_height = ui.spacing().interact_size.y;
         egui::Grid::new("channel-grid")
             .min_row_height(row_height)
-            // Fit every column to its content (egui defaults to interact_size), so
-            // the narrow digit toggles and knobs don't leave slack that widens
-            // their gaps -- every column gap is then the uniform 6px spacing.
+            // Label/Perc./All columns fit their content; the nine channel columns
+            // are each pinned to the knob width (see `channel_toggle`), so a knob
+            // sits centred over its digit and the columns never shift.
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
+                // Kill the hover/active rect expansion so a toggle does not grow
+                // (and jostle its neighbours) when pointed at or held.
+                let widgets = &mut ui.visuals_mut().widgets;
+                widgets.inactive.expansion = 0.0;
+                widgets.hovered.expansion = 0.0;
+                widgets.active.expansion = 0.0;
+                widgets.open.expansion = 0.0;
+
                 // Low bank: pan row, then the toggle row with Perc. and All.
                 response.panning_changed |= self.pan_row(ui, palette, 0, true);
                 ui.end_row();
@@ -317,10 +325,19 @@ impl ChannelPanel {
     }
 
     /// One melodic-channel toggle: left-click mutes, right-click solos.
+    ///
+    /// Allocated at a fixed cell size (the knob width above it) so the digit stays
+    /// centred under its knob and the column never resizes with the button state.
     fn channel_toggle(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
         let label = (index % 9 + 1).to_string();
+        let row_h = ui.spacing().interact_size.y;
         let response = ui
-            .toggle_value(&mut self.channels[index], label)
+            .allocate_ui_with_layout(
+                egui::vec2(pan_knob::SIZE, row_h),
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| ui.toggle_value(&mut self.channels[index], label),
+            )
+            .inner
             .on_hover_text(format!(
                 "Channel {} ({} bank). Left-click mutes, right-click solos.",
                 index % 9 + 1,
