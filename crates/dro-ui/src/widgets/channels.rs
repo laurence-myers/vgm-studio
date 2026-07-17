@@ -17,6 +17,11 @@ const PAN_CENTER: u8 = 0x80;
 const PAN_LEFT: u8 = 0x00;
 const PAN_RIGHT: u8 = 0xFF;
 
+/// Auto-pan: the gentlest nudge off centre, and how much each successive channel
+/// widens (within a repeating group of five), so neighbours never share a value.
+const AUTO_PAN_BASE: u8 = 0x10;
+const AUTO_PAN_STEP: u8 = 6;
+
 /// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
 /// resends muting mid-note and a mute toggle never resends panning.
 #[derive(Debug, Clone, Copy, Default)]
@@ -71,6 +76,23 @@ fn default_pans_for(opl_type: OplType, song: &Song) -> [u8; 18] {
         }
         OplType::Opl3 => dro_core::initial_channel_pans(song),
     }
+}
+
+/// A subtle alternating left/right pan image for the auto-pan preset: even
+/// channels lean left, odd channels lean right, and the amount widens gently
+/// across each group of five so no two neighbours share a value -- a wide-but-
+/// subtle stereo spread rather than a hard split.
+fn auto_pan_image() -> [u8; 18] {
+    let mut pans = [PAN_CENTER; 18];
+    for (slot, pan) in pans.iter_mut().enumerate() {
+        let amount = AUTO_PAN_BASE + (slot % 5) as u8 * AUTO_PAN_STEP;
+        *pan = if slot % 2 == 0 {
+            PAN_CENTER - amount // even channels lean left
+        } else {
+            PAN_CENTER + amount // odd channels lean right
+        };
+    }
+    pans
 }
 
 impl ChannelPanel {
@@ -191,6 +213,12 @@ impl ChannelPanel {
     fn unmute_all(&mut self) {
         self.channels = [true; 18];
         self.percussion = [true; 2];
+    }
+
+    /// Applies the auto-pan spread and engages Custom mode so it takes effect.
+    fn apply_auto_pan(&mut self) {
+        self.pans = auto_pan_image();
+        self.custom = true;
     }
 
     fn is_soloed_channel(&self, index: usize) -> bool {
@@ -318,6 +346,15 @@ impl ChannelPanel {
             {
                 self.custom = custom;
                 // Switching mode changes the effective panning.
+                changed = true;
+            }
+            // A one-click preset: a subtle alternating L/R spread that also
+            // engages Custom so it is heard immediately.
+            if bevel::button(ui, palette, "Auto")
+                .on_hover_text("Auto-pan: a subtle alternating left/right spread")
+                .clicked()
+            {
+                self.apply_auto_pan();
                 changed = true;
             }
         }
@@ -568,5 +605,29 @@ mod tests {
         panel.set_opl_type(OplType::Opl2, Some(&opl2_song()));
         assert_eq!(panel.default_pans, [0x80; 18]);
         assert_eq!(panel.pans, [0x11; 18], "Custom pans are preserved");
+    }
+
+    #[test]
+    fn auto_pan_image_is_a_subtle_alternating_spread() {
+        let pans = auto_pan_image();
+        for (slot, &pan) in pans.iter().enumerate() {
+            if slot % 2 == 0 {
+                assert!(pan < PAN_CENTER, "slot {slot} leans left");
+            } else {
+                assert!(pan > PAN_CENTER, "slot {slot} leans right");
+            }
+            assert!(pan.abs_diff(PAN_CENTER) <= 0x28, "slot {slot} stays subtle");
+        }
+        // Alternating sides means every neighbour differs.
+        for slot in 0..17 {
+            assert_ne!(pans[slot], pans[slot + 1], "slots {slot}/{}", slot + 1);
+        }
+    }
+
+    #[test]
+    fn auto_pan_engages_custom_with_the_spread() {
+        let mut panel = ChannelPanel::for_song(&opl2_song());
+        panel.apply_auto_pan();
+        assert_eq!(panel.panning(), Panning::Custom(auto_pan_image()));
     }
 }

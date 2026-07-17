@@ -433,6 +433,33 @@ fn dual_opl2_original_pans_hard_left_and_right() {
 }
 
 #[test]
+fn auto_pan_button_applies_a_subtle_spread_and_engages_custom() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.get_by_label("Auto").click();
+    harness.run();
+
+    match handles
+        .audio
+        .borrow()
+        .pannings
+        .last()
+        .expect("a panning was pushed")
+    {
+        dro_synth::Panning::Custom(pans) => {
+            assert!(pans[0] < 0x80, "channel 1 leans left");
+            assert!(pans[1] > 0x80, "channel 2 leans right");
+            assert_ne!(pans[0], pans[2], "channels get slightly different values");
+        }
+        other => panic!("expected Custom panning, got {other:?}"),
+    }
+    // Auto-pan engaged Custom, so the knobs are now live.
+    assert!(matches!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom(_)
+    ));
+}
+
+#[test]
 fn all_button_resets_pans_and_mutes() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Custom mode with off-centre pans, plus a muted channel.
