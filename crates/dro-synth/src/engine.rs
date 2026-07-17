@@ -473,15 +473,22 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                     self.bank = bank; // DRO v2 / VGM carry the bank per write.
                 }
                 let mut value = value;
+                let engaged = matches!(self.panning, Panning::Custom(_));
                 // The engine owns the stereo-ext enable (`0x105` bit 1): force it
                 // to match whether `Custom` panning is engaged, and remember the
                 // song's `newm` bit so `set_panning` can rewrite `0x105` without
                 // flipping OPL3 mode. On the seek path too, so a seek never leaves
                 // the chip's mode diverged from the engine's idea of it.
                 if self.bank == Bank::High && reg == 0x05 {
-                    let engaged = matches!(self.panning, Panning::Custom(_));
                     value = (value & 0x01) | if engaged { 0x02 } else { 0x00 };
                     self.newm_bit = value & 0x01;
+                }
+                // While Custom is engaged the chip repurposes `0xD0..=0xD8` as the
+                // per-channel pan registers. A song's own writes there (unused on a
+                // real OPL3, so no-ops when disengaged) would clobber the applied
+                // pan, so drop them while engaged -- the write's time still counts.
+                if engaged && (0xD0..=0xD8).contains(&reg) {
+                    return self.chip_delay_frames();
                 }
                 // Shadow every `0xC0..=0xC8` write (pre-gate) so `Original` can
                 // resync the chip's pan bits after disengaging. Muting never gates
