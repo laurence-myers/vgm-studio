@@ -1340,11 +1340,19 @@ impl DroApp {
         let Some(song) = song else {
             return;
         };
+        // Preview with the track's own default panning and no channel mutes: the
+        // editor's channel panel is for a different song, and its stored
+        // panning/muting would otherwise leak into the preview (e.g. a dual-OPL2
+        // editor song's fixed hard-L/R image applied to a mono track plays it
+        // hard left).
+        let preview_panning = ChannelPanel::for_song(&song).panning();
         self.audio.pause();
         if let Err(message) = self.audio.load(song, &self.config.audio) {
             self.alerts.push_back(Alert::error(message));
             return;
         }
+        self.audio.set_muting(dro_synth::Muting::all());
+        self.audio.set_panning(preview_panning);
         if let Err(message) = self.audio.play() {
             self.alerts.push_back(Alert::error(message));
             return;

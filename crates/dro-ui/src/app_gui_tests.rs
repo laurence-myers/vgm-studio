@@ -847,6 +847,48 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
 }
 
 #[test]
+fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
+    // Editor song is dual-OPL2, so its panning is the fixed hard-L/R chip image;
+    // the rip track is a mono OPL2 song, whose panning is Original. Previewing the
+    // track must use the track's own panning -- leaking the editor's hard-L/R
+    // image onto a mono track plays it hard left (the reported bug).
+    let (mut harness, handles) = build_sized(
+        Some(picked(&dual_tone_song())),
+        false,
+        false,
+        egui::vec2(1000.0, 1700.0),
+    );
+
+    // Play the editor song so its hard-L/R panning is the last one sent.
+    harness.get_by_label("Play").click();
+    harness.run_steps(3);
+    let mut dual_image = [0x00u8; 18];
+    dual_image[9..].fill(0xFF);
+    assert_eq!(
+        handles.audio.borrow().pannings.last(),
+        Some(&dro_synth::Panning::Custom(dual_image)),
+        "the dual-OPL2 editor song sent the hard-L/R image"
+    );
+
+    // Open a rip folder and preview its OPL2 track.
+    open_folder(&mut harness, &handles, single_track_folder());
+    harness.get_by_label("\u{25B6}").click();
+    harness.run_steps(3);
+
+    let audio = handles.audio.borrow();
+    assert_eq!(
+        audio.pannings.last(),
+        Some(&dro_synth::Panning::Original),
+        "preview uses the mono track's own Original panning, not the editor's hard-L/R"
+    );
+    assert_eq!(
+        audio.mutings.last(),
+        Some(&dro_synth::Muting::all()),
+        "preview clears channel mutes"
+    );
+}
+
+#[test]
 fn opening_a_track_loads_it_into_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
