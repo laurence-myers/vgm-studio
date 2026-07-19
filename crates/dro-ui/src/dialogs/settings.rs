@@ -47,103 +47,96 @@ impl SettingsDialog {
         area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut open = true;
         let mut close = false;
-        egui::Window::new("Settings")
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .constrain_to(area)
-            .show(ctx, |ui| {
-                egui::Grid::new("settings-grid")
-                    .num_columns(2)
-                    .spacing([10.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label("Frequency (Hz)")
-                            .on_hover_text("49716 is the OPL3's native rate");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.frequency)
-                                .text_color(palette.data_text)
-                                .desired_width(100.0),
-                        );
-                        ui.end_row();
+        let open = super::dialog_window(ctx, "Settings", area, |ui| {
+            egui::Grid::new("settings-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Frequency (Hz)")
+                        .on_hover_text("49716 is the OPL3's native rate");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.frequency)
+                            .text_color(palette.data_text)
+                            .desired_width(100.0),
+                    );
+                    ui.end_row();
 
-                        ui.label("Buffer size");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.buffer_size)
-                                .text_color(palette.data_text)
-                                .desired_width(100.0),
-                        );
-                        ui.end_row();
+                    ui.label("Buffer size");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.buffer_size)
+                            .text_color(palette.data_text)
+                            .desired_width(100.0),
+                    );
+                    ui.end_row();
 
-                        ui.label("Bit depth").on_hover_text("WAV export only");
-                        ui.scope(|ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-bit-depth")
-                                .selected_text(self.bit_depth.to_string())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.bit_depth, 8, "8");
-                                    ui.selectable_value(&mut self.bit_depth, 16, "16");
-                                });
-                        });
-                        ui.end_row();
-
-                        ui.label("Chip write delay (\u{00b5}s)").on_hover_text(
-                            "Microseconds after each chip write, to imitate real hardware. \
-                             0 = perfect timing; OPL2 wants at least 26.6.",
-                        );
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.chip_write_delay)
-                                .text_color(palette.data_text)
-                                .desired_width(100.0),
-                        );
-                        ui.end_row();
-
-                        ui.label("Tail length (ms)")
-                            .on_hover_text("How much the \"play last X seconds\" button plays");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.tail_length)
-                                .text_color(palette.data_text)
-                                .desired_width(100.0),
-                        );
-                        ui.end_row();
-
-                        ui.label("Theme").on_hover_text("Takes effect immediately");
-                        egui::ComboBox::from_id_salt("settings-theme")
-                            .selected_text(theme_label(self.theme))
+                    ui.label("Bit depth").on_hover_text("WAV export only");
+                    ui.scope(|ui| {
+                        crate::theme::style_dropdown(ui, palette);
+                        egui::ComboBox::from_id_salt("settings-bit-depth")
+                            .selected_text(self.bit_depth.to_string())
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.theme,
-                                    ThemeChoice::CloneDark,
-                                    theme_label(ThemeChoice::CloneDark),
-                                );
-                                ui.selectable_value(
-                                    &mut self.theme,
-                                    ThemeChoice::Ft2Classic,
-                                    theme_label(ThemeChoice::Ft2Classic),
-                                );
+                                ui.selectable_value(&mut self.bit_depth, 8, "8");
+                                ui.selectable_value(&mut self.bit_depth, 16, "16");
                             });
-                        ui.end_row();
-
-                        ui.label("Maximize window at launch");
-                        ui.checkbox(&mut self.maximize_window, "");
-                        ui.end_row();
-
-                        ui.label("Allow editing in DRO Info");
-                        ui.checkbox(&mut self.dro_info_edit_enabled, "");
-                        ui.end_row();
                     });
-                ui.add_space(8.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                        close = true;
-                    }
+                    ui.end_row();
+
+                    ui.label("Chip write delay (\u{00b5}s)").on_hover_text(
+                        "Microseconds after each chip write, to imitate real hardware. \
+                             0 = perfect timing; OPL2 wants at least 26.6.",
+                    );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.chip_write_delay)
+                            .text_color(palette.data_text)
+                            .desired_width(100.0),
+                    );
+                    ui.end_row();
+
+                    ui.label("Tail length (ms)")
+                        .on_hover_text("How much the \"play last X seconds\" button plays");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.tail_length)
+                            .text_color(palette.data_text)
+                            .desired_width(100.0),
+                    );
+                    ui.end_row();
+
+                    ui.label("Theme").on_hover_text("Takes effect immediately");
+                    egui::ComboBox::from_id_salt("settings-theme")
+                        .selected_text(theme_label(self.theme))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::CloneDark,
+                                theme_label(ThemeChoice::CloneDark),
+                            );
+                            ui.selectable_value(
+                                &mut self.theme,
+                                ThemeChoice::Ft2Classic,
+                                theme_label(ThemeChoice::Ft2Classic),
+                            );
+                        });
+                    ui.end_row();
+
+                    ui.label("Maximize window at launch");
+                    ui.checkbox(&mut self.maximize_window, "");
+                    ui.end_row();
+
+                    ui.label("Allow editing in DRO Info");
+                    ui.checkbox(&mut self.dro_info_edit_enabled, "");
+                    ui.end_row();
                 });
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
+                    close = true;
+                }
             });
+        });
         open && !close
     }
 

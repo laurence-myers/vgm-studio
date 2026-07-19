@@ -50,61 +50,54 @@ impl VgmMetadataDialog {
         area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut open = true;
         let mut close = false;
-        egui::Window::new("VGM Metadata")
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .constrain_to(area)
-            .show(ctx, |ui| {
-                egui::Grid::new("vgm-meta-grid")
-                    .num_columns(2)
-                    .spacing([10.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label("Loop start (instruction):");
+        let open = super::dialog_window(ctx, "VGM Metadata", area, |ui| {
+            egui::Grid::new("vgm-meta-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("Loop start (instruction):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.loop_point)
+                            .hint_text("empty = no loop")
+                            .text_color(palette.data_text)
+                            .desired_width(160.0),
+                    );
+                    ui.end_row();
+
+                    ui.label("Loop length (samples):");
+                    ui.add_enabled(
+                        false,
+                        egui::TextEdit::singleline(&mut self.loop_samples_display)
+                            .text_color(palette.data_text)
+                            .desired_width(160.0),
+                    );
+                    ui.end_row();
+
+                    for (label, value) in [
+                        ("Loop base:", &mut self.loop_base),
+                        ("Loop modifier:", &mut self.loop_modifier),
+                        ("Volume modifier:", &mut self.volume_modifier),
+                    ] {
+                        ui.label(label);
                         ui.add(
-                            egui::TextEdit::singleline(&mut self.loop_point)
-                                .hint_text("empty = no loop")
+                            egui::TextEdit::singleline(value)
                                 .text_color(palette.data_text)
                                 .desired_width(160.0),
                         );
                         ui.end_row();
-
-                        ui.label("Loop length (samples):");
-                        ui.add_enabled(
-                            false,
-                            egui::TextEdit::singleline(&mut self.loop_samples_display)
-                                .text_color(palette.data_text)
-                                .desired_width(160.0),
-                        );
-                        ui.end_row();
-
-                        for (label, value) in [
-                            ("Loop base:", &mut self.loop_base),
-                            ("Loop modifier:", &mut self.loop_modifier),
-                            ("Volume modifier:", &mut self.volume_modifier),
-                        ] {
-                            ui.label(label);
-                            ui.add(
-                                egui::TextEdit::singleline(value)
-                                    .text_color(palette.data_text)
-                                    .desired_width(160.0),
-                            );
-                            ui.end_row();
-                        }
-                    });
-                ui.add_space(8.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                        close = true;
                     }
                 });
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
+                    close = true;
+                }
             });
+        });
         open && !close
     }
 

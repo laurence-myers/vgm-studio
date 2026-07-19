@@ -47,56 +47,49 @@ impl FindRegDialog {
         area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut open = true;
         let mut close_clicked = false;
-        egui::Window::new("Find Register")
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .constrain_to(area)
-            .show(ctx, |ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-                ui.add_space(2.0);
-                ui.horizontal(|ui| {
-                    ui.label("Instruction:");
-                    ui.scope(|ui| {
-                        crate::theme::style_dropdown(ui, palette);
-                        egui::ComboBox::from_id_salt("find-reg-choice")
-                            .selected_text(&self.selected)
-                            .width(120.0)
-                            .height(300.0)
-                            .show_ui(ui, |ui| {
-                                for choice in &self.choices {
-                                    if ui
-                                        .selectable_label(*choice == self.selected, choice)
-                                        .clicked()
-                                    {
-                                        self.selected = choice.clone();
-                                    }
+        let open = super::dialog_window(ctx, "Find Register", area, |ui| {
+            ui.spacing_mut().item_spacing.y = 8.0;
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.label("Instruction:");
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("find-reg-choice")
+                        .selected_text(&self.selected)
+                        .width(120.0)
+                        .height(300.0)
+                        .show_ui(ui, |ui| {
+                            for choice in &self.choices {
+                                if ui
+                                    .selectable_label(*choice == self.selected, choice)
+                                    .clicked()
+                                {
+                                    self.selected = choice.clone();
                                 }
-                            });
-                    });
-                });
-                crate::theme::separator(ui, palette);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close_clicked = true;
-                    }
-                    if bevel::button(ui, palette, "Find Next").clicked() {
-                        actions.push(Action::FindRegister {
-                            target: self.selected.clone(),
-                            backwards: false,
+                            }
                         });
-                    }
-                    if bevel::button(ui, palette, "Find Previous").clicked() {
-                        actions.push(Action::FindRegister {
-                            target: self.selected.clone(),
-                            backwards: true,
-                        });
-                    }
                 });
             });
+            crate::theme::separator(ui, palette);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close_clicked = true;
+                }
+                if bevel::button(ui, palette, "Find Next").clicked() {
+                    actions.push(Action::FindRegister {
+                        target: self.selected.clone(),
+                        backwards: false,
+                    });
+                }
+                if bevel::button(ui, palette, "Find Previous").clicked() {
+                    actions.push(Action::FindRegister {
+                        target: self.selected.clone(),
+                        backwards: true,
+                    });
+                }
+            });
+        });
         open && !close_clicked
     }
 }

@@ -52,62 +52,55 @@ impl TrackEditDialog {
         area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut open = true;
         let mut close = false;
-        egui::Window::new("Quick Edit Track")
-            .open(&mut open)
-            .resizable(false)
-            .collapsible(false)
-            .constrain_to(area)
-            .show(ctx, |ui| {
-                egui::Grid::new("track-edit-grid")
-                    .num_columns(2)
-                    .spacing([10.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label("File name:");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.file_name)
-                                .text_color(palette.data_text)
-                                .desired_width(250.0),
-                        );
-                        ui.end_row();
+        let open = super::dialog_window(ctx, "Quick Edit Track", area, |ui| {
+            egui::Grid::new("track-edit-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    ui.label("File name:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.file_name)
+                            .text_color(palette.data_text)
+                            .desired_width(250.0),
+                    );
+                    ui.end_row();
 
-                        for (index, label) in LABELS.iter().enumerate() {
-                            ui.label(*label);
-                            let is_notes = index == GD3_FIELD_COUNT - 1;
-                            if is_notes {
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.fields[index])
-                                        .text_color(palette.data_text)
-                                        .desired_width(250.0)
-                                        .desired_rows(4),
-                                );
-                            } else {
-                                ui.add(
-                                    egui::TextEdit::singleline(&mut self.fields[index])
-                                        .text_color(palette.data_text)
-                                        .desired_width(250.0),
-                                );
-                            }
-                            ui.end_row();
+                    for (index, label) in LABELS.iter().enumerate() {
+                        ui.label(*label);
+                        let is_notes = index == GD3_FIELD_COUNT - 1;
+                        if is_notes {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.fields[index])
+                                    .text_color(palette.data_text)
+                                    .desired_width(250.0)
+                                    .desired_rows(4),
+                            );
+                        } else {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.fields[index])
+                                    .text_color(palette.data_text)
+                                    .desired_width(250.0),
+                            );
                         }
-                    });
-                ui.add_space(8.0);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing.x = 10.0;
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() {
-                        actions.push(Action::QuickEditSubmitted {
-                            index: self.index,
-                            file_name: self.file_name.clone(),
-                            tag: Box::new(Gd3Tag::from_fields(self.fields.clone())),
-                        });
-                        close = true;
+                        ui.end_row();
                     }
                 });
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                if bevel::button(ui, palette, "Save").clicked() {
+                    actions.push(Action::QuickEditSubmitted {
+                        index: self.index,
+                        file_name: self.file_name.clone(),
+                        tag: Box::new(Gd3Tag::from_fields(self.fields.clone())),
+                    });
+                    close = true;
+                }
             });
+        });
         open && !close
     }
 }

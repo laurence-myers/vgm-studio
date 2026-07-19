@@ -23,6 +23,35 @@ pub use settings::SettingsDialog;
 pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
+/// Shared modeless-dialog chrome: a non-resizable, non-collapsible egui window
+/// with a native close (✕) button, constrained to `area`. Runs `body`, then
+/// returns whether the window is still open (its ✕ was not clicked). Each
+/// dialog ANDs this with its own Close-button flag: `dialog_window(..) && !close`.
+pub(crate) fn dialog_window(
+    ctx: &egui::Context,
+    title: &str,
+    area: egui::Rect,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let mut open = true;
+    egui::Window::new(title)
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        .constrain_to(area)
+        .show(ctx, body);
+    open
+}
+
+/// The shared right-aligned footer button row: laid out right-to-left (so the
+/// first button drawn sits rightmost) with 10px between buttons.
+pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::Ui)) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.spacing_mut().item_spacing.x = 10.0;
+        buttons(ui);
+    });
+}
+
 /// The open dialogs. One of each at most -- reopening replaces the instance,
 /// as the Python did for Goto and Find Register.
 #[derive(Debug, Default)]
