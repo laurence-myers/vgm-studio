@@ -20,7 +20,9 @@ pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
-pub use wav::{render_wav, render_wav_boosted, render_wav_muted};
+pub use wav::{
+    render_wav, render_wav_boosted, render_wav_boosted_with_progress, render_wav_muted,
+};
 pub use waveform::{
     WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,
     render_waveform_progressive,

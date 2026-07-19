@@ -37,6 +37,7 @@ pub fn render_wav(
         bit_depth,
         chip_write_delay,
         1.0,
+        &mut |_| {},
     )
 }
 
@@ -53,7 +54,15 @@ pub fn render_wav_muted<B: Borrow<Song>>(
     bit_depth: u16,
     chip_write_delay: f64,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(song, muting, sample_rate, bit_depth, chip_write_delay, 1.0)
+    render_wav_impl(
+        song,
+        muting,
+        sample_rate,
+        bit_depth,
+        chip_write_delay,
+        1.0,
+        &mut |_| {},
+    )
 }
 
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
@@ -81,6 +90,32 @@ pub fn render_wav_boosted(
         bit_depth,
         chip_write_delay,
         boost,
+        &mut |_| {},
+    )
+}
+
+/// As [`render_wav_boosted`], reporting the running rendered-frame count to
+/// `on_progress` after each chunk so a CLI can show live progress on a long
+/// render. The rendered bytes are identical to [`render_wav_boosted`].
+///
+/// # Errors
+/// See [`render_wav`].
+pub fn render_wav_boosted_with_progress(
+    song: &Song,
+    sample_rate: u32,
+    bit_depth: u16,
+    chip_write_delay: f64,
+    boost: f32,
+    on_progress: &mut dyn FnMut(u64),
+) -> Result<Vec<u8>, hound::Error> {
+    render_wav_impl(
+        song,
+        Muting::all(),
+        sample_rate,
+        bit_depth,
+        chip_write_delay,
+        boost,
+        on_progress,
     )
 }
 
@@ -92,6 +127,7 @@ fn render_wav_impl<B: Borrow<Song>>(
     bit_depth: u16,
     chip_write_delay: f64,
     boost: f32,
+    on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
     let spec = WavSpec {
         channels: 2,
@@ -121,6 +157,7 @@ fn render_wav_impl<B: Borrow<Song>>(
                 writer.write_sample(sample)?;
             }
         }
+        on_progress(engine.position().frames_rendered);
         if frames < buffer.len() / 2 {
             break;
         }
@@ -172,6 +209,24 @@ mod tests {
         assert_eq!(spec.bits_per_sample, 16);
         // 150 ms at 48 kHz is 7200 frames, two samples each.
         assert_eq!(samples.len(), 150 * 48 * 2);
+    }
+
+    #[test]
+    fn progress_is_reported_without_changing_the_render() {
+        let song = small_song();
+        let plain = render_wav_boosted(&song, 48_000, 16, 0.0, 1.0).unwrap();
+        let mut frames = Vec::new();
+        let tracked = render_wav_boosted_with_progress(&song, 48_000, 16, 0.0, 1.0, &mut |rendered| {
+            frames.push(rendered);
+        })
+        .unwrap();
+        assert_eq!(tracked, plain, "progress reporting must not change the bytes");
+        assert!(!frames.is_empty(), "progress was reported");
+        assert!(
+            frames.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the reported frame count only grows"
+        );
+        assert!(*frames.last().unwrap() > 0);
     }
 
     #[test]

@@ -72,13 +72,25 @@ fn main() -> Result<()> {
         // the drotrim.ini / GUI boost never affects it, so default to 1.0 here
         // rather than reading `config.audio.boost`.
         let boost = args.boost.unwrap_or(1.0);
-        let wav = dro_synth::render_wav_boosted(
+        let freq = config.audio.frequency;
+        // A live progress line for a long render, refreshed once a second (parity-5).
+        let mut last_sec: Option<u32> = None;
+        let wav = dro_synth::render_wav_boosted_with_progress(
             &song,
-            config.audio.frequency,
+            freq,
             config.audio.bit_depth,
             config.audio.chip_write_delay,
             boost,
+            &mut |frames| {
+                let ms = u32::try_from(frames * 1000 / u64::from(freq)).unwrap_or(u32::MAX);
+                if last_sec != Some(ms / 1000) {
+                    last_sec = Some(ms / 1000);
+                    print!("\rRendering {} / {}", ms_to_timestr(ms), ms_to_timestr(total_ms));
+                    let _ = std::io::stdout().flush();
+                }
+            },
         )?;
+        println!(); // end the progress line
         let output = append_extension(&args.input, "wav");
         std::fs::write(&output, wav).with_context(|| format!("writing {}", output.display()))?;
         if boost == 1.0 {
