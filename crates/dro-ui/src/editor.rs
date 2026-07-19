@@ -40,6 +40,11 @@ pub struct Editor {
     /// Bumped on every change to the song. Consumers (the waveform render, the
     /// audio snapshot) compare it to decide staleness.
     revision: u64,
+    /// The revision at the last load / convert / successful save. The song is
+    /// "clean" while `revision` still equals it. Revision is monotonic, so a
+    /// simple equality check suffices (an undo back to the saved point reads
+    /// dirty -- a safe over-prompt, never a missed one).
+    saved_revision: Option<u64>,
 }
 
 impl Editor {
@@ -72,6 +77,14 @@ impl Editor {
     #[must_use]
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Whether the song has unsaved edits (drives the discard-changes prompts).
+    /// A pure metadata edit (GD3 tag, VGM loop point) does not bump the revision,
+    /// so -- as in the Python -- it is not tracked as dirty here.
+    #[must_use]
+    pub fn is_dirty(&self) -> bool {
+        self.has_song() && self.saved_revision != Some(self.revision)
     }
 
     /// An immutable snapshot of the current song, for the audio output and
@@ -111,6 +124,7 @@ impl Editor {
         self.selection.clear();
         self.analysis.invalidate();
         self.revision += 1;
+        self.saved_revision = Some(self.revision);
         Ok(report)
     }
 
@@ -140,6 +154,12 @@ impl Editor {
             self.path = path;
         }
         song.is_vgm() && was_vgz != is_vgz
+    }
+
+    /// Marks the current revision as the saved point, clearing the dirty flag
+    /// (the discard-changes prompts key off [`Self::is_dirty`]).
+    pub fn mark_saved(&mut self) {
+        self.saved_revision = Some(self.revision);
     }
 
     // -- editing -------------------------------------------------------------
@@ -216,6 +236,7 @@ impl Editor {
         self.selection.clear();
         self.analysis.invalidate();
         self.revision += 1;
+        self.saved_revision = Some(self.revision);
         Ok(())
     }
 
@@ -521,6 +542,25 @@ mod tests {
             (1, 2, 3)
         );
         editor.save_bytes().unwrap();
+    }
+
+    #[test]
+    fn is_dirty_tracks_edits_and_saves() {
+        assert!(!Editor::new().is_dirty(), "no song is never dirty");
+
+        let (mut editor, _) = loaded(&dro_song_v2());
+        assert!(!editor.is_dirty(), "a freshly loaded song is clean");
+
+        editor.selection.select_only(0);
+        assert!(editor.delete_selection(), "a row was deleted");
+        assert!(editor.is_dirty(), "an edit dirties it");
+
+        editor.mark_saved();
+        assert!(!editor.is_dirty(), "saving cleans it");
+
+        editor.selection.select_only(0);
+        editor.delete_selection();
+        assert!(editor.is_dirty(), "a further edit dirties it again");
     }
 
     #[test]

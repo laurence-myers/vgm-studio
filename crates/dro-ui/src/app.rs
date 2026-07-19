@@ -153,6 +153,11 @@ pub struct DroApp {
     was_playing: bool,
     /// A file passed on the command line, loaded on the first frame.
     pending_open: Option<PickedFile>,
+    /// A file waiting behind the discard-changes prompt; loaded if confirmed.
+    pending_load: Option<PickedFile>,
+    /// Set once the user confirms quitting past unsaved changes, so the
+    /// close interception lets the next close request through.
+    quitting: bool,
 }
 
 impl DroApp {
@@ -189,6 +194,8 @@ impl DroApp {
             audio_revision: None,
             was_playing: false,
             pending_open: initial_file,
+            pending_load: None,
+            quitting: false,
         }
     }
 
@@ -201,6 +208,7 @@ impl DroApp {
         // The panels carve up `ui`; everything context-wide (input, dialogs,
         // repaint scheduling) still wants a `Context`, which is cheaply Arc-cloned.
         let ctx = ui.ctx().clone();
+        self.intercept_close(&ctx);
         if let Some(file) = self.pending_open.take() {
             self.load_file(file);
         }
@@ -541,7 +549,7 @@ impl DroApp {
     fn poll_services(&mut self) {
         if let Some(result) = self.files.poll_picked() {
             match result {
-                Ok(file) => self.load_file(file),
+                Ok(file) => self.load_or_confirm(file),
                 Err(message) => self
                     .alerts
                     .push_back(Alert::new("Failed to open file", message)),
@@ -625,6 +633,9 @@ impl DroApp {
                         self.pending_saves.push_back(SavePurpose::Song);
                         self.files.save(SaveRequest::InPlace { path, bytes });
                     }
+                    // The song on disk now matches the editor: mark it clean so
+                    // the discard-changes prompts stop firing.
+                    self.editor.mark_saved();
                     self.status = format!("File saved to {shown}.");
                 }
                 SavePurpose::RipDoc => {
@@ -699,6 +710,44 @@ impl DroApp {
             if is_song || path.extension().is_none() {
                 self.files.open_path(path);
             }
+        }
+    }
+
+    /// Cancels a window-close request while there are unsaved changes, raising a
+    /// discard-changes confirm instead. A confirmed quit (`quitting`) is let
+    /// straight through.
+    fn intercept_close(&mut self, ctx: &egui::Context) {
+        if self.quitting || !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.editor.is_dirty() || self.rip_is_dirty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            let already_asking = self
+                .alerts
+                .iter()
+                .any(|alert| alert.confirm.as_deref() == Some(&Action::ConfirmExit));
+            if !already_asking {
+                self.alerts.push_back(Alert::confirm(
+                    "Discard unsaved changes?",
+                    "You have unsaved changes. Quit anyway?",
+                    Action::ConfirmExit,
+                ));
+            }
+        }
+    }
+
+    /// Loads `file` into the editor, or -- if the current song has unsaved edits
+    /// -- stashes it behind a discard-changes confirm first.
+    fn load_or_confirm(&mut self, file: PickedFile) {
+        if self.editor.is_dirty() {
+            self.pending_load = Some(file);
+            self.alerts.push_back(Alert::confirm(
+                "Discard unsaved changes?",
+                "The current song has unsaved changes. Open a different file anyway?",
+                Action::ConfirmDiscardAndLoad,
+            ));
+        } else {
+            self.load_file(file);
         }
     }
 
@@ -889,7 +938,26 @@ impl DroApp {
             Action::OpenSettings => {
                 self.dialogs.settings = Some(SettingsDialog::new(&self.config));
             }
-            Action::Exit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+            Action::Exit => {
+                if self.editor.is_dirty() || self.rip_is_dirty() {
+                    self.alerts.push_back(Alert::confirm(
+                        "Discard unsaved changes?",
+                        "You have unsaved changes. Quit anyway?",
+                        Action::ConfirmExit,
+                    ));
+                } else {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+            }
+            Action::ConfirmExit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Action::ConfirmDiscardAndLoad => {
+                if let Some(file) = self.pending_load.take() {
+                    self.load_file(file);
+                }
+            }
 
             Action::Undo => {
                 if !self.require_song() {
@@ -1435,7 +1503,6 @@ impl DroApp {
     /// Loads a track into the editor and switches to the editor tab. The rip
     /// project is retained; returning to it rescans the folder.
     fn open_track_in_editor(&mut self, index: usize) {
-        self.stop_preview();
         let file = self
             .rip
             .as_ref()
@@ -1448,8 +1515,10 @@ impl DroApp {
         let Some(file) = file else {
             return;
         };
-        self.load_file(file);
-        self.active_tab = AppTab::Editor;
+        // load_file stops any preview and switches to the editor tab; the
+        // discard-changes prompt (if the editor is dirty) defers both until the
+        // load is confirmed.
+        self.load_or_confirm(file);
     }
 
     fn open_track_quick_edit(&mut self, index: usize) {

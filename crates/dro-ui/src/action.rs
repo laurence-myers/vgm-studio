@@ -24,6 +24,10 @@ pub enum Action {
     SaveAs,
     OpenSettings,
     Exit,
+    /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).
+    ConfirmExit,
+    /// Load the file stashed in `pending_load`, discarding the current song.
+    ConfirmDiscardAndLoad,
 
     // Edit
     Undo,

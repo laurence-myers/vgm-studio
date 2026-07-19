@@ -621,6 +621,82 @@ fn snapshot_pan_strip_custom() {
     settled_snapshot(&mut harness, "pan_strip_custom");
 }
 
+#[test]
+fn opening_a_file_over_unsaved_changes_prompts_first() {
+    // H2: opening a file while the editor has unsaved edits holds it behind a
+    // discard-changes confirm instead of clobbering the song.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.selection.select_only(0);
+    harness.state_mut().editor.delete_selection();
+    assert!(harness.state().editor.is_dirty());
+
+    let other_name = dual_tone_song().name.clone();
+    handles
+        .files
+        .borrow_mut()
+        .picked
+        .push_back(Ok(picked(&dual_tone_song())));
+    harness.run();
+    assert!(
+        harness.state().editor.is_dirty(),
+        "the dirty song is untouched while the prompt is up"
+    );
+    assert!(harness.state().pending_load.is_some());
+    assert!(harness.query_by_label("OK").is_some(), "a confirm is shown");
+
+    // Confirming loads the pending file, replacing the editor song.
+    harness.get_by_label("OK").click();
+    harness.run();
+    assert!(harness.state().pending_load.is_none());
+    assert_eq!(harness.state().editor.song().unwrap().name, other_name);
+    assert!(!harness.state().editor.is_dirty(), "freshly loaded = clean");
+}
+
+#[test]
+fn opening_a_file_with_no_unsaved_changes_loads_immediately() {
+    // H2: the guard must not prompt when there is nothing to lose.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    assert!(!harness.state().editor.is_dirty());
+    let other_name = dual_tone_song().name.clone();
+    handles
+        .files
+        .borrow_mut()
+        .picked
+        .push_back(Ok(picked(&dual_tone_song())));
+    harness.run();
+    assert!(
+        harness.state().pending_load.is_none(),
+        "loaded directly, nothing stashed"
+    );
+    assert_eq!(harness.state().editor.song().unwrap().name, other_name);
+}
+
+#[test]
+fn exiting_with_unsaved_changes_prompts_then_sets_quitting_on_confirm() {
+    // H2: File > Exit raises the discard-changes confirm rather than quitting;
+    // confirming sets the quitting flag (and sends a Close to the viewport).
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.selection.select_only(0);
+    harness.state_mut().editor.delete_selection();
+    assert!(harness.state().editor.is_dirty());
+
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label("Exit").click();
+    harness.run();
+    assert!(
+        harness
+            .query_by_label_contains("Discard unsaved changes")
+            .is_some(),
+        "the discard-changes confirm is shown"
+    );
+    assert!(!harness.state().quitting, "the app has not quit yet");
+
+    harness.get_by_label("OK").click();
+    harness.run();
+    assert!(harness.state().quitting, "confirming sets the quitting flag");
+}
+
 // -- rip mode ----------------------------------------------------------------
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
