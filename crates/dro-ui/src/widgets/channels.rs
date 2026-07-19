@@ -17,10 +17,12 @@ const PAN_CENTER: u8 = 0x80;
 const PAN_LEFT: u8 = 0x00;
 const PAN_RIGHT: u8 = 0xFF;
 
-/// Auto-pan: the gentlest nudge off centre, and how much each successive channel
-/// widens (within a repeating group of five), so neighbours never share a value.
-const AUTO_PAN_BASE: u8 = 0x10;
-const AUTO_PAN_STEP: u8 = 6;
+/// The auto-spread template (scaled by the Spread knob's strength): how far the
+/// first channel of each group of five leans off centre at full strength, and how
+/// much each successive channel widens, so neighbours never share a value. Wide,
+/// but short of a hard split -- `84 + 4*9 = 120`, so `centre +/- 120` never clips.
+const SPREAD_BASE: f32 = 84.0;
+const SPREAD_STEP: f32 = 9.0;
 
 /// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
 /// resends muting mid-note and a mute toggle never resends panning.
@@ -40,8 +42,12 @@ pub struct ChannelPanel {
     /// (`0x00` hard left .. `0x80` centre .. `0xFF` hard right).
     pans: [u8; 18],
     /// The pans the current song type implies, shown (greyed) under Original and
-    /// restored by "All".
+    /// restored by "Reset".
     default_pans: [u8; 18],
+    /// The last strength applied via the Spread knob (`-1.0..=1.0`, `0.0` mono).
+    /// Drives all the pans through [`spread_pans`]; kept so the knob shows where
+    /// it was left.
+    spread: f32,
     /// Whether the pan knobs drive the output (Custom) or the song's own image
     /// does (Original).
     custom: bool,
@@ -57,6 +63,7 @@ impl Default for ChannelPanel {
             percussion: [true; 2],
             pans: [PAN_CENTER; 18],
             default_pans: [PAN_CENTER; 18],
+            spread: 0.0,
             custom: false,
             opl_type: None,
         }
@@ -84,19 +91,23 @@ fn dual_opl2_image() -> [u8; 18] {
     pans
 }
 
-/// A subtle alternating left/right pan image for the auto-pan preset: even
-/// channels lean left, odd channels lean right, and the amount widens gently
-/// across each group of five so no two neighbours share a value -- a wide-but-
-/// subtle stereo spread rather than a hard split.
-fn auto_pan_image() -> [u8; 18] {
+/// One channel's signed distance from centre in the auto-spread template, before
+/// the Spread knob's strength scales it: even channels lean left (negative), odd
+/// lean right (positive), widening gently across each group of five.
+fn spread_delta(slot: usize) -> f32 {
+    let amount = SPREAD_BASE + (slot % 5) as f32 * SPREAD_STEP;
+    if slot % 2 == 0 { -amount } else { amount }
+}
+
+/// The pan image for a spread `strength` in `-1.0..=1.0`: `centre + strength *
+/// template_delta`, clamped to a byte. `0.0` is mono (everything centred); the
+/// extremes give a wide stereo image, its sign mirroring which side each channel
+/// leans.
+fn spread_pans(strength: f32) -> [u8; 18] {
     let mut pans = [PAN_CENTER; 18];
     for (slot, pan) in pans.iter_mut().enumerate() {
-        let amount = AUTO_PAN_BASE + (slot % 5) as u8 * AUTO_PAN_STEP;
-        *pan = if slot % 2 == 0 {
-            PAN_CENTER - amount // even channels lean left
-        } else {
-            PAN_CENTER + amount // odd channels lean right
-        };
+        let value = f32::from(PAN_CENTER) + strength * spread_delta(slot);
+        *pan = value.round().clamp(0.0, 255.0) as u8;
     }
     pans
 }
@@ -119,6 +130,7 @@ impl ChannelPanel {
             percussion: [true; 2],
             pans: default_pans,
             default_pans,
+            spread: 0.0,
             custom: false,
             opl_type: Some(opl_type),
         }
@@ -217,9 +229,11 @@ impl ChannelPanel {
         self.percussion = [true; 2];
     }
 
-    /// Applies the auto-pan spread and engages Custom mode so it takes effect.
-    fn apply_auto_pan(&mut self) {
-        self.pans = auto_pan_image();
+    /// Applies a stereo-spread `strength` (`-1.0..=1.0`) to the pans and engages
+    /// Custom mode so it takes effect. Remembers the strength for the knob.
+    fn set_spread(&mut self, strength: f32) {
+        self.spread = strength.clamp(-1.0, 1.0);
+        self.pans = spread_pans(self.spread);
         self.custom = true;
     }
 
@@ -343,15 +357,20 @@ impl ChannelPanel {
                 // Switching mode changes the effective panning.
                 changed = true;
             }
-            // A one-click preset: a subtle alternating L/R spread that also
-            // engages Custom so it is heard immediately.
-            if bevel::button(ui, palette, "Auto")
-                .on_hover_text("Auto-pan: a subtle alternating left/right spread")
-                .clicked()
-            {
-                self.apply_auto_pan();
-                changed = true;
-            }
+            // The Spread knob: one global stereo-width control, -1..+1. 0 is mono,
+            // the extremes a wide image. Live, and engages Custom so it is heard
+            // at once.
+            ui.horizontal(|ui| {
+                ui.label("Spread:");
+                let mut spread = self.spread;
+                if pan_knob::show_spread(ui, palette, &mut spread, "Spread")
+                    .on_hover_text("Stereo spread: mono at centre, wide at the extremes")
+                    .changed()
+                {
+                    self.set_spread(spread);
+                    changed = true;
+                }
+            });
         }
         changed
     }
@@ -604,26 +623,48 @@ mod tests {
     }
 
     #[test]
-    fn auto_pan_image_is_a_subtle_alternating_spread() {
-        let pans = auto_pan_image();
-        for (slot, &pan) in pans.iter().enumerate() {
+    fn spread_pans_is_mono_at_zero_and_wide_at_the_extremes() {
+        // Mono: everything dead centre.
+        assert_eq!(spread_pans(0.0), [PAN_CENTER; 18]);
+
+        // Full strength: even channels lean left, odd right, neighbours differ,
+        // and it is genuinely wide (well past the old subtle range) without
+        // clipping at the byte extremes.
+        let wide = spread_pans(1.0);
+        for (slot, &pan) in wide.iter().enumerate() {
             if slot % 2 == 0 {
                 assert!(pan < PAN_CENTER, "slot {slot} leans left");
             } else {
                 assert!(pan > PAN_CENTER, "slot {slot} leans right");
             }
-            assert!(pan.abs_diff(PAN_CENTER) <= 0x28, "slot {slot} stays subtle");
+            assert!(pan > PAN_LEFT && pan < PAN_RIGHT, "slot {slot} never clips");
         }
-        // Alternating sides means every neighbour differs.
+        assert!(
+            wide.iter().any(|&pan| pan.abs_diff(PAN_CENTER) >= 0x50),
+            "the extreme is genuinely wide"
+        );
         for slot in 0..17 {
-            assert_ne!(pans[slot], pans[slot + 1], "slots {slot}/{}", slot + 1);
+            assert_ne!(wide[slot], wide[slot + 1], "slots {slot}/{}", slot + 1);
+        }
+
+        // The sign mirrors the image: -1 is +1 reflected about centre.
+        let mirror = spread_pans(-1.0);
+        for slot in 0..18 {
+            assert_eq!(
+                i16::from(mirror[slot]) - 128,
+                128 - i16::from(wide[slot]),
+                "slot {slot} mirrors"
+            );
         }
     }
 
     #[test]
-    fn auto_pan_engages_custom_with_the_spread() {
+    fn set_spread_engages_custom_with_the_spread_image() {
         let mut panel = ChannelPanel::for_song(&opl2_song());
-        panel.apply_auto_pan();
-        assert_eq!(panel.panning(), Panning::Custom(auto_pan_image()));
+        panel.set_spread(1.0);
+        assert_eq!(panel.panning(), Panning::Custom(spread_pans(1.0)));
+        // Dialling back to mono is still Custom (centred), not Original.
+        panel.set_spread(0.0);
+        assert_eq!(panel.panning(), Panning::Custom([PAN_CENTER; 18]));
     }
 }

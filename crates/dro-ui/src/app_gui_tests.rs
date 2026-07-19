@@ -559,9 +559,17 @@ fn dual_opl2_original_pans_hard_left_and_right() {
 }
 
 #[test]
-fn auto_pan_button_applies_a_subtle_spread_and_engages_custom() {
+fn spread_knob_spreads_the_pans_and_engages_custom() {
     let (mut harness, handles) = harness_with_song(&tone_song());
-    harness.get_by_label("Auto").click();
+
+    // Drag the Spread knob to the right: a positive spread leans even channels
+    // left, odd channels right, and engages Custom so the knobs go live (wd-4).
+    let center = harness.get_by_label("Spread").rect().center();
+    harness.drag_at(center);
+    harness.run();
+    harness.hover_at(center + egui::vec2(200.0, 0.0));
+    harness.run();
+    harness.drop_at(center + egui::vec2(200.0, 0.0));
     harness.run();
 
     match handles
@@ -578,7 +586,7 @@ fn auto_pan_button_applies_a_subtle_spread_and_engages_custom() {
         }
         other => panic!("expected Custom panning, got {other:?}"),
     }
-    // Auto-pan engaged Custom, so the knobs are now live.
+    // The spread engaged Custom, so the knobs are now live.
     assert!(matches!(
         harness.state().channels.panning(),
         dro_synth::Panning::Custom(_)

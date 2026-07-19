@@ -1,12 +1,14 @@
-//! A rotary pan knob: a beveled cap with a pointer, for per-channel panning.
+//! Rotary knobs: a beveled cap with a pointer. A per-channel pan knob, and a
+//! bipolar stereo-spread knob that drives all the pans at once.
 //!
 //! Hand-painted in the chunky FT2/demoscene-tracker style of the bevel buttons --
 //! a raised `button_face` cap with a black keyline and a two-tone bevel ring (lit
 //! upper-left, shadowed lower-right), a dark centre hub, and a bright
 //! tracker-yellow pointer sweeping 270 degrees (hard left at 7:30, centre at
-//! 12:00, hard right at 4:30). It reports itself as a slider to accessibility and
-//! egui_kittest, so the GUI tests can find and drag it. Pans are bytes: `0x00`
-//! hard left, `0x80` centre, `0xFF` hard right.
+//! 12:00, hard right at 4:30). They report themselves as sliders to accessibility
+//! and egui_kittest, so the GUI tests can find and drag them. Pans are bytes:
+//! `0x00` hard left, `0x80` centre, `0xFF` hard right. Spread is `-1.0..=1.0`:
+//! `0.0` mono, the extremes a wide image (its sign mirrors the sides).
 
 use core::cmp::Ordering;
 
@@ -27,6 +29,11 @@ const SNAP_BAND: u8 = 8;
 const DRAG_UNITS_PER_POINT: f32 = 4.0;
 /// The dot's angular sweep from hard left to hard right (270 degrees).
 const SWEEP: f32 = 1.5 * std::f32::consts::PI;
+
+/// Spread units moved per point of drag: ~128 points spans the full `-1..=1`.
+const SPREAD_UNITS_PER_POINT: f32 = 1.0 / 64.0;
+/// Half-width of the snap-to-mono band, in spread units.
+const SPREAD_SNAP: f32 = 0.06;
 
 /// The new raw pan after a drag of `dx` (rightward) and `dy` (downward) points
 /// from `raw`, clamped to `0..=255`. Right and down both pan right; left and up
@@ -136,6 +143,63 @@ pub fn show(
     response.on_hover_text(readout(*value))
 }
 
+/// The spread readout: `"Mono"` at centre, else a signed percentage.
+fn spread_readout(spread: f32) -> String {
+    let pct = (spread.abs() * 100.0).round() as i32;
+    if pct == 0 {
+        "Mono".to_owned()
+    } else {
+        format!("{}{pct}%", if spread < 0.0 { "-" } else { "+" })
+    }
+}
+
+/// Draws the bipolar stereo-spread knob for `spread` (`-1.0` .. `0.0` mono ..
+/// `+1.0`). Dragging right or up widens one way, left or down the other (the
+/// axes add, like the pan knob); double-click or right-click returns to mono.
+/// `label` names it for accessibility and the headless tests. Always live -- a
+/// drag engages Custom panning in the caller. Returns the [`Response`];
+/// `response.changed()` is true on the frames the spread moved.
+pub fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str) -> Response {
+    let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
+
+    // A continuous raw value in per-widget memory, so the snap-to-mono detent can
+    // hold the output at 0 without the drag sticking there (as the pan knob does).
+    if response.drag_started() {
+        ui.data_mut(|d| d.insert_temp(response.id, *spread));
+    }
+    if response.dragged() {
+        let delta = response.drag_delta();
+        let raw = ui.data_mut(|d| {
+            let seed = d.get_temp::<f32>(response.id).unwrap_or(*spread);
+            let raw =
+                (seed + (delta.x - delta.y) * SPREAD_UNITS_PER_POINT).clamp(-1.0, 1.0);
+            d.insert_temp(response.id, raw);
+            raw
+        });
+        let snapped = if raw.abs() <= SPREAD_SNAP { 0.0 } else { raw };
+        if snapped != *spread {
+            *spread = snapped;
+            response.mark_changed();
+        }
+    }
+    if response.drag_stopped() {
+        ui.data_mut(|d| d.remove::<f32>(response.id));
+    }
+    if (response.double_clicked() || response.secondary_clicked()) && *spread != 0.0 {
+        *spread = 0.0;
+        response.mark_changed();
+    }
+
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*spread), label));
+
+    if ui.is_rect_visible(rect) {
+        // Reuse the pan dial: 0 points straight up, the extremes reach the same
+        // 135-degree corners as hard left / hard right.
+        paint_dial(ui, rect, palette, *spread * (SWEEP / 2.0), true);
+    }
+    response.on_hover_text(spread_readout(*spread))
+}
+
 /// A circular arc as a stroked polyline, for the two-tone bevel ring. Angles are
 /// in degrees, clockwise from 3 o'clock in egui's y-down space.
 fn arc(center: Pos2, radius: f32, from_deg: f32, to_deg: f32, stroke: Stroke) -> Shape {
@@ -149,8 +213,14 @@ fn arc(center: Pos2, radius: f32, from_deg: f32, to_deg: f32, stroke: Stroke) ->
     Shape::line(points, stroke)
 }
 
-/// Paints the raised beveled cap, centre hub, and pointer.
+/// Paints the raised beveled cap, centre hub, and pointer for a pan `value`.
 fn paint(ui: &Ui, rect: egui::Rect, palette: &Palette, value: u8, enabled: bool) {
+    paint_dial(ui, rect, palette, dot_angle(value), enabled);
+}
+
+/// Paints the knob with its pointer at `theta` radians clockwise from straight
+/// up. Shared by the pan knob ([`dot_angle`]) and the spread knob.
+fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled: bool) {
     let painter = ui.painter();
     let c = rect.center();
     let r = rect.width().min(rect.height()) / 2.0 - 1.0;
@@ -178,7 +248,6 @@ fn paint(ui: &Ui, rect: egui::Rect, palette: &Palette, value: u8, enabled: bool)
 
     // The pointer: a bold radial line from the hub to the rim, capped with a bright
     // dot, in the tracker-yellow data colour (dimmed when disabled).
-    let theta = dot_angle(value);
     let dir = vec2(theta.sin(), -theta.cos());
     let ink = if enabled {
         palette.data_text
@@ -246,5 +315,14 @@ mod tests {
         assert_eq!(readout(0xFF), "R100");
         assert_eq!(readout(0x40), "L50");
         assert_eq!(readout(0xC0), "R50");
+    }
+
+    #[test]
+    fn spread_readout_labels_the_width() {
+        assert_eq!(spread_readout(0.0), "Mono");
+        assert_eq!(spread_readout(1.0), "+100%");
+        assert_eq!(spread_readout(-1.0), "-100%");
+        assert_eq!(spread_readout(0.5), "+50%");
+        assert_eq!(spread_readout(-0.25), "-25%");
     }
 }
