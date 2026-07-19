@@ -9,7 +9,7 @@ use anyhow::Result;
 
 use dro_core::config::AudioConfig;
 use dro_core::{Bank, OplType, RegisterUsage, Song};
-use dro_synth::{Muting, capture, render_wav_muted};
+use dro_synth::{Muting, capture, render_wav_muted_with_progress};
 
 /// Output format for a split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,16 +55,28 @@ const DRUMS: [(u8, &str); 5] = [
 
 /// Splits `song` into one output per channel it actually uses.
 ///
+/// `on_skip` is called with each channel register (`0xB0..=0xB8`, `0xBD`, and
+/// their high-bank `0x1xx` forms) the song never writes, so the CLI can report
+/// it. `on_progress` is called during each WAV render with the output's base name
+/// and the running rendered-frame count, for a live progress line. Both are no-ops
+/// for a headless caller.
+///
 /// # Errors
 /// If a channel cannot be captured -- a VGM input, or more distinct registers
 /// than the DRO codemap can hold.
-pub fn split(song: &Song, options: &SplitOptions) -> Result<Vec<SplitOutput>> {
+pub fn split(
+    song: &Song,
+    options: &SplitOptions,
+    on_skip: &mut dyn FnMut(u16),
+    on_progress: &mut dyn FnMut(&str, u64),
+) -> Result<Vec<SplitOutput>> {
     let usage = RegisterUsage::analyze(song, options.isolate_percussion);
     let mut outputs = Vec::new();
 
     for channel in channels_to_render(song.opl_type) {
         if usage.count(channel) == 0 {
-            continue; // never written -> nothing to render
+            on_skip(channel); // never written -> nothing to render
+            continue;
         }
         let bank = if channel & 0x100 != 0 {
             Bank::High
@@ -75,7 +87,15 @@ pub fn split(song: &Song, options: &SplitOptions) -> Result<Vec<SplitOutput>> {
         let channel_num = (channel & 0xFF) - 0xAF; // 0xB0 -> 1, 0xB8 -> 9, 0xBD -> 14
 
         if options.isolate_percussion && (channel & 0xFF) == 0xBD {
-            split_percussion(song, options, &usage, bank, bank_num, &mut outputs)?;
+            split_percussion(
+                song,
+                options,
+                &usage,
+                bank,
+                bank_num,
+                &mut outputs,
+                on_progress,
+            )?;
         } else {
             let mut muting = Muting::silent();
             if (channel & 0xFF) == 0xBD {
@@ -84,7 +104,7 @@ pub fn split(song: &Song, options: &SplitOptions) -> Result<Vec<SplitOutput>> {
                 muting.allow_channel(bank, (channel & 0xFF) as u8);
             }
             let base = format!("{}.{}.{:02}", song.name, bank_num, channel_num);
-            outputs.push(render_one(song, muting, options, base)?);
+            outputs.push(render_one(song, muting, options, base, on_progress)?);
         }
     }
     Ok(outputs)
@@ -101,6 +121,7 @@ fn split_percussion(
     bank: Bank,
     bank_num: u16,
     outputs: &mut Vec<SplitOutput>,
+    on_progress: &mut dyn FnMut(&str, u64),
 ) -> Result<()> {
     for (mask, name) in DRUMS {
         let key = (u16::from(bank.index()) << 8) | u16::from(mask);
@@ -110,27 +131,31 @@ fn split_percussion(
         let mut muting = Muting::silent();
         muting.set_percussion(bank, 0xE0 | mask); // keep control bits, one drum
         let base = format!("{}.{}.14.{}", song.name, bank_num, name);
-        outputs.push(render_one(song, muting, options, base)?);
+        outputs.push(render_one(song, muting, options, base, on_progress)?);
     }
     Ok(())
 }
 
-/// Renders one muted view of `song` into the configured format.
+/// Renders one muted view of `song` into the configured format. A WAV render
+/// reports progress as `(base, frames_rendered)`; a DRO capture is not
+/// frame-progressive, so it reports nothing.
 fn render_one(
     song: &Song,
     muting: Muting,
     options: &SplitOptions,
     base: String,
+    on_progress: &mut dyn FnMut(&str, u64),
 ) -> Result<SplitOutput> {
     Ok(match options.format {
         SplitFormat::Wav => SplitOutput {
             name: format!("{base}.wav"),
-            data: SplitData::Wav(render_wav_muted(
+            data: SplitData::Wav(render_wav_muted_with_progress(
                 song,
                 muting,
                 options.audio.frequency,
                 options.audio.bit_depth,
                 options.audio.chip_write_delay,
+                &mut |frames| on_progress(&base, frames),
             )?),
         },
         SplitFormat::Dro => {
@@ -191,7 +216,13 @@ mod tests {
 
     #[test]
     fn splits_only_the_used_channels() {
-        let outputs = split(&small_song(), &options(SplitFormat::Dro, false)).unwrap();
+        let outputs = split(
+            &small_song(),
+            &options(SplitFormat::Dro, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
         // Channels 0 and 1 (0xB0, 0xB1) and percussion (0xBD) were written; the
         // other seven melodic channels were not.
         assert_eq!(outputs.len(), 3);
@@ -203,7 +234,13 @@ mod tests {
     #[test]
     fn each_dro_split_parses_and_keeps_the_length() {
         let song = small_song();
-        let outputs = split(&song, &options(SplitFormat::Dro, false)).unwrap();
+        let outputs = split(
+            &song,
+            &options(SplitFormat::Dro, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
         for output in &outputs {
             assert!(output.name.ends_with(".out.dro"));
             let SplitData::Dro(dro) = &output.data else {
@@ -217,7 +254,13 @@ mod tests {
 
     #[test]
     fn each_wav_split_is_a_full_length_wav() {
-        let outputs = split(&small_song(), &options(SplitFormat::Wav, false)).unwrap();
+        let outputs = split(
+            &small_song(),
+            &options(SplitFormat::Wav, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
         assert!(!outputs.is_empty());
         for output in &outputs {
             assert!(output.name.ends_with(".wav"));
@@ -231,7 +274,13 @@ mod tests {
     #[test]
     fn isolating_percussion_names_each_used_drum() {
         // The song's 0xBD = 0x31 sets BD (0x10) and HH (0x01).
-        let outputs = split(&small_song(), &options(SplitFormat::Dro, true)).unwrap();
+        let outputs = split(
+            &small_song(),
+            &options(SplitFormat::Dro, true),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
         let names: Vec<&str> = outputs.iter().map(|o| o.name.as_str()).collect();
         assert!(names.iter().any(|n| n.contains(".14.BD.")), "{names:?}");
         assert!(names.iter().any(|n| n.contains(".14.HH.")), "{names:?}");

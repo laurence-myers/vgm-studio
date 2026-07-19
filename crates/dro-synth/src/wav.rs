@@ -65,6 +65,32 @@ pub fn render_wav_muted<B: Borrow<Song>>(
     )
 }
 
+/// As [`render_wav_muted`], reporting the running rendered-frame count to
+/// `on_progress` after each chunk so `dro_split` can show live progress per
+/// channel on a long render. The rendered bytes are identical to
+/// [`render_wav_muted`].
+///
+/// # Errors
+/// See [`render_wav`].
+pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
+    song: B,
+    muting: Muting,
+    sample_rate: u32,
+    bit_depth: u16,
+    chip_write_delay: f64,
+    on_progress: &mut dyn FnMut(u64),
+) -> Result<Vec<u8>, hound::Error> {
+    render_wav_impl(
+        song,
+        muting,
+        sample_rate,
+        bit_depth,
+        chip_write_delay,
+        1.0,
+        on_progress,
+    )
+}
+
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
 /// limiter used for live playback, so a boosted render matches boosted playback
 /// and still cannot clip. `boost == 1.0` is bit-transparent -- identical to
@@ -221,6 +247,32 @@ mod tests {
                 frames.push(rendered);
             })
             .unwrap();
+        assert_eq!(
+            tracked, plain,
+            "progress reporting must not change the bytes"
+        );
+        assert!(!frames.is_empty(), "progress was reported");
+        assert!(
+            frames.windows(2).all(|pair| pair[0] <= pair[1]),
+            "the reported frame count only grows"
+        );
+        assert!(*frames.last().unwrap() > 0);
+    }
+
+    #[test]
+    fn muted_progress_is_reported_without_changing_the_render() {
+        let song = small_song();
+        let plain = render_wav_muted(&song, Muting::all(), 48_000, 16, 0.0).unwrap();
+        let mut frames = Vec::new();
+        let tracked = render_wav_muted_with_progress(
+            &song,
+            Muting::all(),
+            48_000,
+            16,
+            0.0,
+            &mut |rendered| frames.push(rendered),
+        )
+        .unwrap();
         assert_eq!(
             tracked, plain,
             "progress reporting must not change the bytes"
