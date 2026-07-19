@@ -573,7 +573,7 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .column(Column::remainder().at_least(180.0)) // Title (GD3)
             .column(Column::auto().at_least(55.0)) // Total
             .column(Column::auto().at_least(55.0)) // Loop
-            .column(Column::auto().at_least(80.0)) // actions
+            .column(Column::auto().at_least(130.0)) // actions
             .header(row_height + 2.0, |mut header| {
                 for title in ["#", "Title (GD3)", "Total", "Loop", ""] {
                     header.col(|ui| {
@@ -642,6 +642,12 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                             } else {
                                                 Action::RipTrackPreview(index)
                                             });
+                                        }
+                                        if bevel::button(ui, palette, "Open")
+                                            .on_hover_text("Open the track in the editor")
+                                            .clicked()
+                                        {
+                                            actions.push(Action::RipTrackOpen(index));
                                         }
                                         if bevel::button(ui, palette, "Tags")
                                             .on_hover_text("Edit the track's GD3 tags")

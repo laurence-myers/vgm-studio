@@ -1456,6 +1456,27 @@ fn opening_a_track_loads_it_into_the_editor() {
 }
 
 #[test]
+fn open_button_loads_the_track_into_the_editor() {
+    // A tall harness so the track row (and its Open button) is on-screen and
+    // hit-testable, as the quick-edit test needs too.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+
+    // The per-row Open button is the discoverable path to the same handler the
+    // double-click drives (wd-9).
+    harness.get_by_label("Open").click();
+    harness.run();
+
+    assert_eq!(harness.state().active_tab, AppTab::Editor);
+    assert!(
+        harness.state().editor.has_song(),
+        "the Open button loaded the track"
+    );
+    assert!(harness.state().rip.is_some(), "the rip project is retained");
+}
+
+#[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
