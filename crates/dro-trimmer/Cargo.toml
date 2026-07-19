@@ -25,5 +25,10 @@ oxipng.workspace = true
 rfd.workspace = true
 zip.workspace = true
 
+# Windows-only: compiles src/dt.ico into the executable's resource table (see
+# build.rs) so Explorer shows the app icon. Never pulled on other targets.
+[target.'cfg(windows)'.build-dependencies]
+winresource.workspace = true
+
 [lints]
 workspace = true
