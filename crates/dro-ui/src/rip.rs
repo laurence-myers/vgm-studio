@@ -560,6 +560,11 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
         .fill(palette.data_bg)
         .inner_margin(egui::Margin::same(4));
     frame.show(ui, |ui| {
+        // The rows are click / double-click targets; a selectable label inside a
+        // cell would otherwise capture the drag as a text selection -- showing an
+        // I-beam and swallowing the double-click -- so turn label selection off
+        // for the whole table. The row stays highlighted on hover instead.
+        ui.style_mut().interaction.selectable_labels = false;
         TableBuilder::new(ui)
             .striped(true)
             .sense(egui::Sense::click())
