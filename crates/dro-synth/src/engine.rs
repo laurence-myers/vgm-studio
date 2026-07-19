@@ -312,8 +312,13 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 if self.muting.channel_allowed(bank, channel)
                     && !muting.channel_allowed(bank, channel)
                 {
+                    // Buffered, not immediate: a playback burst that outlived the
+                    // callback can leave a queued key-on for this channel still
+                    // pending. An immediate key-off would be overtaken by that
+                    // key-on when it drains (a stuck note); routing the key-off
+                    // through the same write buffer keeps it after the key-on.
                     self.chip
-                        .write_reg(bank.register_offset() | u16::from(channel), 0x00);
+                        .write_reg_buffered(bank.register_offset() | u16::from(channel), 0x00);
                 }
             }
         }
@@ -669,6 +674,36 @@ mod tests {
         PlayerEngine::with_chip(song, RecordingChip::default(), 48_000, 0.0)
     }
 
+    /// Like [`RecordingChip`], but models the real chip's *deferred* write buffer:
+    /// `write_reg_buffered` queues, and queued writes are applied (in order) only
+    /// when samples are generated. `applied` is thus the true application order, so
+    /// an ordering bug between an immediate and a buffered write is observable.
+    #[derive(Debug, Default)]
+    struct BufferingChip {
+        applied: Vec<(u16, u8)>,
+        pending: Vec<(u16, u8)>,
+    }
+
+    impl OplChip for BufferingChip {
+        fn reset(&mut self, _sample_rate: u32) {
+            self.applied.clear();
+            self.pending.clear();
+        }
+
+        fn write_reg(&mut self, reg: u16, value: u8) {
+            self.applied.push((reg, value));
+        }
+
+        fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+            self.pending.push((reg, value));
+        }
+
+        fn generate_samples(&mut self, buffer: &mut [i16]) {
+            self.applied.append(&mut self.pending);
+            buffer.fill(0);
+        }
+    }
+
     /// Renders an engine to the end and returns the total frames rendered.
     fn render_to_end<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
         let mut out = vec![0i16; 65_536 * 2];
@@ -817,6 +852,33 @@ mod tests {
         engine.set_muting(muting);
         // The transition wrote a 0x00 key-off to the muted channel, on its bank.
         assert!(engine.chip.writes.contains(&(0x1B3, 0x00)));
+    }
+
+    #[test]
+    fn muting_a_channel_wins_the_race_with_a_pending_key_on() {
+        // Callback-boundary race (M8): a playback burst left a buffered key-on for
+        // this channel still pending. Muting must key it off AFTER that key-on
+        // drains -- by routing the key-off through the same write buffer -- not
+        // before, or the queued key-on wins and the note sticks.
+        let song = dro_song_v1();
+        let mut engine = PlayerEngine::with_chip(&song, BufferingChip::default(), 48_000, 0.0);
+        // A pending (not-yet-drained) playback key-on for low-bank channel 0xB0.
+        engine.chip.write_reg_buffered(0xB0, 0x31);
+
+        let mut muting = Muting::all();
+        muting.mute_channel(Bank::Low, 0xB0);
+        engine.set_muting(muting);
+
+        // Drain the buffer as the next generation would.
+        let mut out = [0i16; 4];
+        engine.chip.generate_samples(&mut out);
+
+        let last_b0 = engine.chip.applied.iter().rev().find(|(reg, _)| *reg == 0xB0);
+        assert_eq!(
+            last_b0,
+            Some(&(0xB0, 0x00)),
+            "the channel ends keyed off, not stuck on"
+        );
     }
 
     #[test]
