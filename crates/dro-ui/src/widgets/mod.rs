@@ -1,5 +1,6 @@
 //! The main window's custom widgets.
 
+pub mod boost_stepper;
 pub mod channels;
 pub mod pan_knob;
 pub mod peak_meter;
