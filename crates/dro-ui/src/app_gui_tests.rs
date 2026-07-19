@@ -489,6 +489,37 @@ fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
 }
 
 #[test]
+fn pan_knob_drag_up_pans_left_like_dragging_left() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.get_by_label("Custom").click();
+    harness.run();
+
+    // Dragging a knob straight up pans it hard left, exactly as dragging left
+    // does: the vertical axis feeds the same relative mapping (wd-2).
+    let center = harness.get_by_label("Pan 1 (low bank)").rect().center();
+    harness.drag_at(center);
+    harness.run();
+    harness.hover_at(center - egui::vec2(0.0, 200.0));
+    harness.run();
+    harness.drop_at(center - egui::vec2(0.0, 200.0));
+    harness.run();
+
+    match handles
+        .audio
+        .borrow()
+        .pannings
+        .last()
+        .expect("a panning was pushed")
+    {
+        dro_synth::Panning::Custom(pans) => {
+            assert_eq!(pans[0], 0x00, "channel 1 dragged straight up = hard left");
+            assert_eq!(pans[1], 0x80, "channel 2 stays centred");
+        }
+        other => panic!("expected Custom panning, got {other:?}"),
+    }
+}
+
+#[test]
 fn right_clicking_a_pan_knob_recenters_it() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     // Custom mode with channel 1 hard left, the rest centred.

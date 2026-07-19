@@ -28,9 +28,11 @@ const DRAG_UNITS_PER_POINT: f32 = 4.0;
 /// The dot's angular sweep from hard left to hard right (270 degrees).
 const SWEEP: f32 = 1.5 * std::f32::consts::PI;
 
-/// The new raw pan after dragging `dx` points from `raw`, clamped to `0..=255`.
-fn drag_value(raw: f32, dx: f32) -> f32 {
-    (raw + dx * DRAG_UNITS_PER_POINT).clamp(0.0, 255.0)
+/// The new raw pan after a drag of `dx` (rightward) and `dy` (downward) points
+/// from `raw`, clamped to `0..=255`. Right and down both pan right; left and up
+/// both pan left -- the two axes add, so the knob answers whichever way you drag.
+fn drag_value(raw: f32, dx: f32, dy: f32) -> f32 {
+    (raw + (dx + dy) * DRAG_UNITS_PER_POINT).clamp(0.0, 255.0)
 }
 
 /// Snaps a pan within [`SNAP_BAND`] of centre to exactly centre.
@@ -76,9 +78,9 @@ fn readout(value: u8) -> String {
 
 /// Draws a pan knob for `value` (`0x00` left .. `0x80` centre .. `0xFF` right).
 ///
-/// When `enabled`, dragging left/right repositions the pan (relative, ~64 points
-/// for the full range, with a snap-to-centre detent); double-click or right-click
-/// recentres. When disabled it is inert and dimmed, showing the pan the policy
+/// When `enabled`, dragging repositions the pan (relative, ~64 points for the
+/// full range, with a snap-to-centre detent): left or up pans left, right or down
+/// pans right. Double-click or right-click recentres. When disabled it is inert and dimmed, showing the pan the policy
 /// implies. `label` names it for accessibility and the headless tests. Returns the
 /// [`Response`]; `response.changed()` is true on the frames the pan moved.
 pub fn show(
@@ -104,10 +106,10 @@ pub fn show(
             ui.data_mut(|d| d.insert_temp(response.id, f32::from(*value)));
         }
         if response.dragged() {
-            let dx = response.drag_delta().x;
+            let delta = response.drag_delta();
             let raw = ui.data_mut(|d| {
                 let seed = d.get_temp::<f32>(response.id).unwrap_or(f32::from(*value));
-                let raw = drag_value(seed, dx);
+                let raw = drag_value(seed, delta.x, delta.y);
                 d.insert_temp(response.id, raw);
                 raw
             });
@@ -197,10 +199,15 @@ mod tests {
 
     #[test]
     fn drag_value_scales_and_clamps() {
-        assert_eq!(drag_value(128.0, 0.0), 128.0);
-        assert_eq!(drag_value(128.0, 10.0), 128.0 + 40.0); // 4 units per point
-        assert_eq!(drag_value(0.0, -5.0), 0.0, "clamps at the left");
-        assert_eq!(drag_value(255.0, 5.0), 255.0, "clamps at the right");
+        assert_eq!(drag_value(128.0, 0.0, 0.0), 128.0);
+        assert_eq!(drag_value(128.0, 10.0, 0.0), 128.0 + 40.0); // right: 4 units/point
+        assert_eq!(drag_value(128.0, 0.0, 10.0), 128.0 + 40.0, "down pans right");
+        assert_eq!(drag_value(128.0, -5.0, 0.0), 128.0 - 20.0, "left pans left");
+        assert_eq!(drag_value(128.0, 0.0, -5.0), 128.0 - 20.0, "up pans left");
+        // The axes add, so a diagonal that cancels leaves the pan put.
+        assert_eq!(drag_value(128.0, 8.0, -8.0), 128.0, "opposed axes cancel");
+        assert_eq!(drag_value(0.0, -5.0, 0.0), 0.0, "clamps at the left");
+        assert_eq!(drag_value(255.0, 5.0, 5.0), 255.0, "clamps at the right");
     }
 
     #[test]
