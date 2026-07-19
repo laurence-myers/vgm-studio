@@ -159,7 +159,10 @@ fn scan_folder(path: &Path) -> Result<PickedFolder, String> {
                 path: Some(file_path),
                 bytes,
             }),
-            Err(error) => return Err(format!("{}: {error}", file_path.display())),
+            // One unreadable file must not abort the whole folder open -- skip it
+            // with a warning, the way a song that fails to parse becomes an
+            // "unreadable" row rather than an error (ux-19).
+            Err(error) => log::warn!("skipping unreadable {}: {error}", file_path.display()),
         }
     }
     files.sort_by_key(|file| file.name.to_lowercase());
@@ -411,6 +414,33 @@ mod tests {
             "the on-disk name took the new case, got {names:?}"
         );
         assert_eq!(fs::read(dir.join("01 Intro.vgz")).unwrap(), b"song");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_unreadable_file_is_skipped_not_fatal() {
+        // ux-19: one unreadable file must not abort the whole folder scan.
+        use std::os::windows::fs::OpenOptionsExt as _;
+        let dir = temp_dir("scan-unreadable");
+        write_file(&dir, "01 Good.vgz", b"good");
+        let locked = write_file(&dir, "02 Locked.vgz", b"locked");
+        // Hold the file with no sharing, so scan_folder's fs::read fails on it.
+        let _lock = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(&locked)
+            .unwrap();
+
+        let folder = scan_folder(&dir).expect("the folder still scans");
+        let names: Vec<&str> = folder.files.iter().map(|file| file.name.as_str()).collect();
+        assert!(
+            names.contains(&"01 Good.vgz"),
+            "the readable file is kept, got {names:?}"
+        );
+        assert!(
+            !names.contains(&"02 Locked.vgz"),
+            "the locked file is skipped, not fatal"
+        );
     }
 
     #[test]
