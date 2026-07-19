@@ -276,7 +276,7 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
         )));
     }
     let header = bytes[..data_offset].to_vec();
-    let data = VgmData::new(read_commands(&bytes[data_offset..])?)?;
+    let data = VgmData::read_from_stream(&bytes[data_offset..])?;
     let loop_point = resolve_loop_point(loop_offset, data_offset, &data);
 
     let tag = gd3_offset
@@ -343,26 +343,6 @@ fn resolve_loop_point(relative: u32, data_offset: usize, data: &VgmData) -> Opti
             None
         }
     }
-}
-
-/// Copies commands up to the `0x66` end marker, validating as it goes.
-fn read_commands(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut offset = 0usize;
-    while offset < bytes.len() {
-        if bytes[offset] == command::END {
-            return Ok(bytes[..offset].to_vec());
-        }
-        let size = VgmData::command_size(bytes[offset])?;
-        if offset + size > bytes.len() {
-            return Err(Error::file(format!(
-                "VGM data ends mid-command: {:#04X} at byte {offset}",
-                bytes[offset]
-            )));
-        }
-        offset += size;
-    }
-    log::warn!("VGM data has no 0x66 end-of-data marker");
-    Ok(bytes.to_vec())
 }
 
 fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {

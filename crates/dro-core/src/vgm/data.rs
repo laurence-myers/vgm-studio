@@ -77,6 +77,44 @@ impl VgmData {
         Ok(offsets)
     }
 
+    /// Reads a raw file stream up to its `0x66` end marker, indexing it in the same
+    /// pass. This is the file read path: [`io::read`](crate::vgm::io) hands over the
+    /// bytes from the data offset onward and gets back the stored stream (the end
+    /// marker dropped) already indexed -- one walk, where copying the commands and
+    /// then re-deriving their offsets used to be two.
+    ///
+    /// # Errors
+    /// If a command is unrecognised or its operands run past the end of the stream.
+    pub(crate) fn read_from_stream(bytes: &[u8]) -> Result<Self> {
+        let mut offsets = Vec::new();
+        let mut offset = 0usize;
+        let end = loop {
+            if offset >= bytes.len() {
+                log::warn!("VGM data has no 0x66 end-of-data marker");
+                break bytes.len();
+            }
+            if bytes[offset] == command::END {
+                break offset;
+            }
+            let size = Self::command_size(bytes[offset])?;
+            if offset + size > bytes.len() {
+                return Err(Error::file(format!(
+                    "VGM data ends mid-command: {:#04X} at byte {offset}",
+                    bytes[offset]
+                )));
+            }
+            offsets.push(
+                u32::try_from(offset)
+                    .map_err(|_| Error::file("VGM data is larger than 4 GiB".to_owned()))?,
+            );
+            offset += size;
+        };
+        Ok(Self {
+            data: bytes[..end].to_vec(),
+            offsets,
+        })
+    }
+
     /// The total length of the command at `opcode`, operands included.
     ///
     /// # Errors
