@@ -334,6 +334,42 @@ fn number_key_toggles_channel_muting() {
     );
 }
 
+#[test]
+fn a_held_modifier_suppresses_plain_editor_keys() {
+    // ux-14: a plain editor key must not fire with Command/Alt held.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::Space);
+    harness.run_steps(3);
+    assert_eq!(
+        handles.audio.borrow().play_calls,
+        0,
+        "Cmd+Space does not toggle playback"
+    );
+    harness.key_press(Key::Space);
+    harness.run_steps(3);
+    assert!(
+        handles.audio.borrow().play_calls >= 1,
+        "a plain Space still plays"
+    );
+}
+
+#[test]
+fn shift_number_keys_toggle_the_high_channel_bank() {
+    // ux-14: Shift+1..9 reach channels 9..17. Muting channel 0 (plain 1) then
+    // Shift+1 must NOT restore all-audible -- if Shift+1 hit channel 0 again it
+    // would. So two distinct channels end up muted.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.key_press(Key::Num1);
+    harness.run();
+    harness.key_press_modifiers(Modifiers::SHIFT, Key::Num1);
+    harness.run();
+    assert_ne!(
+        *handles.audio.borrow().mutings.last().unwrap(),
+        dro_synth::Muting::all(),
+        "Shift+1 targets channel 9, so channels 0 and 9 are both muted"
+    );
+}
+
 // -- channel panning ---------------------------------------------------------
 
 #[test]

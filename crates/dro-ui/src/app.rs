@@ -816,6 +816,14 @@ impl DroApp {
         });
 
         ctx.input(|input| {
+            let mods = input.modifiers;
+            // Plain editor keys must not fire with Command/Alt held (those form
+            // menu shortcuts, handled above). Shift stays meaningful: extend the
+            // selection on the arrows, and select the high channel bank on the
+            // number row.
+            if mods.command || mods.alt {
+                return;
+            }
             if input.key_pressed(Key::Delete) || input.key_pressed(Key::Backspace) {
                 actions.push(Action::DeleteSelection);
             }
@@ -831,15 +839,16 @@ impl DroApp {
             if input.key_pressed(Key::ArrowUp) {
                 actions.push(Action::SelectionMove {
                     delta: -1,
-                    extend: input.modifiers.shift,
+                    extend: mods.shift,
                 });
             }
             if input.key_pressed(Key::ArrowDown) {
                 actions.push(Action::SelectionMove {
                     delta: 1,
-                    extend: input.modifiers.shift,
+                    extend: mods.shift,
                 });
             }
+            // 1..9 toggle channels 0..8; Shift+1..9 the high bank, channels 9..17.
             const NUMBER_KEYS: [Key; 9] = [
                 Key::Num1,
                 Key::Num2,
@@ -851,9 +860,10 @@ impl DroApp {
                 Key::Num8,
                 Key::Num9,
             ];
-            for (channel, key) in NUMBER_KEYS.into_iter().enumerate() {
+            let bank = if mods.shift { 9 } else { 0 };
+            for (offset, key) in NUMBER_KEYS.into_iter().enumerate() {
                 if input.key_pressed(key) {
-                    actions.push(Action::ToggleChannel(channel));
+                    actions.push(Action::ToggleChannel(bank + offset));
                 }
             }
         });
