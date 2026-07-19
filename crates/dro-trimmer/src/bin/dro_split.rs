@@ -13,6 +13,7 @@ use dro_trimmer::{SplitData, SplitFormat, SplitOptions, load_config, split};
 #[derive(Parser)]
 #[command(
     name = "dro_split",
+    version,
     about = "Split a DRO song into one WAV (or DRO) file per channel used."
 )]
 struct Args {

@@ -11,7 +11,7 @@ use dro_core::convert::dro2_to_dro1;
 use dro_core::io::{read_song, write_song};
 
 #[derive(Parser)]
-#[command(name = "dro2to1", about = "Convert a DRO v2 file to DRO v1.")]
+#[command(name = "dro2to1", version, about = "Convert a DRO v2 file to DRO v1.")]
 struct Args {
     /// The DRO v2 file to convert.
     input: PathBuf,

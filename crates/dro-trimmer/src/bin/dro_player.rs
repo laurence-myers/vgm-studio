@@ -27,6 +27,7 @@ use dro_trimmer::load_config;
 #[derive(Parser)]
 #[command(
     name = "dro_player",
+    version,
     about = "Play a DRO or VGM song, or render it to a WAV file."
 )]
 struct Args {
