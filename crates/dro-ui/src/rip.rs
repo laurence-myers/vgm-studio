@@ -159,6 +159,30 @@ impl RipState {
             .and_then(|name| self.tracks.iter().position(|track| track.file_name == name));
     }
 
+    /// The transaction that moves the track at `from` to `to`, renumbering the
+    /// affected files' names. `None` when nothing would change or the folder has
+    /// no path (the web has none, and rip mode is native-only anyway).
+    #[must_use]
+    pub fn reorder_transaction(&self, from: usize, to: usize) -> Option<RipTransaction> {
+        let folder = self.folder_path.as_ref()?;
+        let names: Vec<String> = self
+            .tracks
+            .iter()
+            .map(|track| track.file_name.clone())
+            .collect();
+        let pairs = reorder_renames(&names, from, to);
+        if pairs.is_empty() {
+            return None;
+        }
+        let inverse_pairs: Vec<(String, String)> =
+            pairs.iter().map(|(a, b)| (b.clone(), a.clone())).collect();
+        Some(RipTransaction {
+            label: "Reorder tracks".to_owned(),
+            forward: rename_batch_mutations(folder, &pairs),
+            inverse: rename_batch_mutations(folder, &inverse_pairs),
+        })
+    }
+
     /// The track list for the description, skipping songs that failed to parse.
     #[must_use]
     pub fn track_entries(&self) -> Vec<TrackEntry> {
@@ -307,6 +331,82 @@ fn track_number(file_name: &str) -> Option<u32> {
         return None;
     }
     digits.parse().ok()
+}
+
+/// Replaces a `NN Title.ext` file name's leading track number with `number`,
+/// keeping the title and extension. A name with no `NN ` prefix just gains one.
+fn renumber(file_name: &str, number: usize) -> String {
+    let rest = match file_name.split_once(' ') {
+        Some((prefix, rest))
+            if !prefix.is_empty() && prefix.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            rest
+        }
+        _ => file_name,
+    };
+    format!("{number:02} {rest}")
+}
+
+/// The renames needed to move the track at `from` to `to`: every track whose
+/// position changes is renumbered to its new 1-based slot, keeping its title and
+/// extension. Returns `(old_name, new_name)` pairs, omitting tracks that keep
+/// their name. An out-of-range or no-op move yields nothing.
+#[must_use]
+pub fn reorder_renames(names: &[String], from: usize, to: usize) -> Vec<(String, String)> {
+    if from >= names.len() || to >= names.len() || from == to {
+        return Vec::new();
+    }
+    let mut order: Vec<usize> = (0..names.len()).collect();
+    let moved = order.remove(from);
+    order.insert(to, moved);
+    order
+        .iter()
+        .enumerate()
+        .filter_map(|(new_pos, &old)| {
+            let new_name = renumber(&names[old], new_pos + 1);
+            (new_name != names[old]).then_some((names[old].clone(), new_name))
+        })
+        .collect()
+}
+
+/// One reversible file operation on the rip folder, the unit the app's file-op
+/// executor runs. `Rename`'s `to` is a bare name in the same directory; `Write`
+/// overwrites `path` outright.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RipMutation {
+    Rename { from: PathBuf, to: String },
+    Write { path: PathBuf, bytes: Vec<u8> },
+}
+
+/// A user edit as an ordered list of file mutations, with the exact `inverse`
+/// that undoes it. Applying `forward` then `inverse` returns the folder to its
+/// starting state; the app replays whichever list an undo or redo needs.
+#[derive(Debug, Clone)]
+pub struct RipTransaction {
+    pub label: String,
+    pub forward: Vec<RipMutation>,
+    pub inverse: Vec<RipMutation>,
+}
+
+/// The mutations that apply a set of `(src, dst)` renames without a transient
+/// collision: rename every source to a unique temp name first, then each temp to
+/// its destination. Safe for any permutation (including cycles and swaps).
+fn rename_batch_mutations(folder: &std::path::Path, pairs: &[(String, String)]) -> Vec<RipMutation> {
+    let temp = |i: usize| format!(".drotrim-reorder-{i}");
+    let mut muts = Vec::with_capacity(pairs.len() * 2);
+    for (i, (src, _)) in pairs.iter().enumerate() {
+        muts.push(RipMutation::Rename {
+            from: folder.join(src),
+            to: temp(i),
+        });
+    }
+    for (i, (_, dst)) in pairs.iter().enumerate() {
+        muts.push(RipMutation::Rename {
+            from: folder.join(temp(i)),
+            to: dst.clone(),
+        });
+    }
+    muts
 }
 
 enum FileClass {
@@ -588,7 +688,7 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .column(Column::remainder().at_least(180.0)) // Title (GD3)
             .column(Column::auto().at_least(55.0)) // Total
             .column(Column::auto().at_least(55.0)) // Loop
-            .column(Column::auto().at_least(130.0)) // actions
+            .column(Column::auto().at_least(200.0)) // actions (reorder + preview + open + tags)
             .header(row_height + 2.0, |mut header| {
                 for title in ["#", "Title (GD3)", "Total", "Loop", ""] {
                     header.col(|ui| {
@@ -644,6 +744,24 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                 row.col(|ui| {
                                     ui.horizontal(|ui| {
                                         ui.spacing_mut().item_spacing.x = 3.0;
+                                        // Reorder: up/down move the track one slot,
+                                        // renumbering the affected files. The move
+                                        // is a no-op (ignored) at the list's ends.
+                                        if bevel::button(ui, palette, "\u{25B2}")
+                                            .on_hover_text("Move up")
+                                            .clicked()
+                                        {
+                                            actions.push(Action::RipMoveTrack {
+                                                index,
+                                                delta: -1,
+                                            });
+                                        }
+                                        if bevel::button(ui, palette, "\u{25BC}")
+                                            .on_hover_text("Move down")
+                                            .clicked()
+                                        {
+                                            actions.push(Action::RipMoveTrack { index, delta: 1 });
+                                        }
                                         let previewing = state.preview == Some(index);
                                         // U+25A0 stop / U+25B6 play.
                                         let symbol =
@@ -976,5 +1094,90 @@ mod tests {
         assert!(!state.can_save());
         state.meta.game_name = "Named".to_owned();
         assert!(state.can_save());
+    }
+
+    #[test]
+    fn renumber_replaces_the_prefix() {
+        assert_eq!(renumber("03 Boss.vgz", 1), "01 Boss.vgz");
+        assert_eq!(renumber("10 Long Title.vgm", 4), "04 Long Title.vgm");
+        // No prefix -> gains one.
+        assert_eq!(renumber("Intro.vgz", 2), "02 Intro.vgz");
+    }
+
+    #[test]
+    fn reorder_renumbers_every_moved_track() {
+        let names = vec![
+            "01 A.vgz".to_owned(),
+            "02 B.vgz".to_owned(),
+            "03 C.vgz".to_owned(),
+        ];
+        // Move C (index 2) to the front: new order C, A, B.
+        assert_eq!(
+            reorder_renames(&names, 2, 0),
+            vec![
+                ("03 C.vgz".to_owned(), "01 C.vgz".to_owned()),
+                ("01 A.vgz".to_owned(), "02 A.vgz".to_owned()),
+                ("02 B.vgz".to_owned(), "03 B.vgz".to_owned()),
+            ]
+        );
+        // A no-op or out-of-range move renames nothing.
+        assert!(reorder_renames(&names, 1, 1).is_empty());
+        assert!(reorder_renames(&names, 5, 0).is_empty());
+    }
+
+    #[test]
+    fn reorder_only_renames_the_tracks_that_actually_moved() {
+        let names = vec![
+            "01 A.vgz".to_owned(),
+            "02 B.vgz".to_owned(),
+            "03 C.vgz".to_owned(),
+        ];
+        // Swap the last two (move index 1 to 2): A keeps 01, only B and C move.
+        assert_eq!(
+            reorder_renames(&names, 1, 2),
+            vec![
+                ("03 C.vgz".to_owned(), "02 C.vgz".to_owned()),
+                ("02 B.vgz".to_owned(), "03 B.vgz".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn reorder_transaction_is_temp_safe_and_reversible() {
+        let files = vec![
+            tagged_song("01 Intro.vgz", tag("G", "A", "R")),
+            tagged_song("02 Boss.vgm", tag("G", "B", "R")),
+        ];
+        let state = RipState::from_folder(folder("G", files), None);
+
+        // Swap the two tracks: both move, so 2 renames -> a 4-step temp-then-final
+        // batch, forward and inverse alike.
+        let txn = state
+            .reorder_transaction(0, 1)
+            .expect("a real move builds a transaction");
+        assert_eq!(txn.forward.len(), 4);
+        assert_eq!(txn.inverse.len(), 4);
+
+        let finals = |muts: &[RipMutation]| -> Vec<String> {
+            muts.iter()
+                .filter_map(|m| match m {
+                    RipMutation::Rename { to, .. } if !to.starts_with(".drotrim") => {
+                        Some(to.clone())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        // Forward renumbers to the new order; inverse restores the original names.
+        let fwd = finals(&txn.forward);
+        assert!(fwd.contains(&"01 Boss.vgm".to_owned()));
+        assert!(fwd.contains(&"02 Intro.vgz".to_owned()));
+        let inv = finals(&txn.inverse);
+        assert!(inv.contains(&"01 Intro.vgz".to_owned()));
+        assert!(inv.contains(&"02 Boss.vgm".to_owned()));
+
+        // A no-op or out-of-range move builds nothing.
+        assert!(state.reorder_transaction(0, 0).is_none());
+        assert!(state.reorder_transaction(0, 9).is_none());
     }
 }

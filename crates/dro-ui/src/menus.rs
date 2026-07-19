@@ -71,10 +71,12 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 Some(description) => format!("Redo {description}"),
                 None => "Redo".to_owned(),
             };
-            if enabled_item(ui, editor && state.can_undo, &undo_label, Some(&UNDO)) {
+            // Undo/Redo work on both tabs: the app fills can_undo/can_redo from
+            // the editor's song history or the rip file-edit history to match.
+            if enabled_item(ui, state.can_undo, &undo_label, Some(&UNDO)) {
                 actions.push(Action::Undo);
             }
-            if enabled_item(ui, editor && state.can_redo, &redo_label, Some(&REDO)) {
+            if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
                 actions.push(Action::Redo);
             }
             crate::theme::separator(ui, palette);

@@ -22,7 +22,7 @@ use crate::platform::{
     AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, RipService,
     SaveOutcome, SaveRequest,
 };
-use crate::rip::RipState;
+use crate::rip::{RipMutation, RipState, RipTransaction};
 use crate::tasks::{TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
@@ -113,6 +113,32 @@ enum SavePurpose {
     ImageOptimised,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
+    /// A `Write` step of the rip file-op executor (reorder / undo / redo).
+    RipOp,
+}
+
+/// Whether the running file-op sequence is a fresh edit, a redo, or an undo --
+/// deciding which stack its transaction lands on when the sequence completes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RipRunKind {
+    /// A brand-new edit (reorder): push to undo, clear the redo stack.
+    NewEdit,
+    /// Re-applying a previously undone edit: push back to undo.
+    Redo,
+    /// Reverting an edit: push to redo.
+    Undo,
+}
+
+/// A rip file-op sequence in flight: the mutations still to run, the transaction
+/// they belong to, and where it lands on completion. Runs one mutation at a time,
+/// advancing as each rename/write outcome arrives.
+struct RipRun {
+    queue: VecDeque<RipMutation>,
+    transaction: RipTransaction,
+    kind: RipRunKind,
+    /// Set while a `Rename` mutation is awaiting its `poll_renamed`, so that
+    /// outcome advances the run rather than the quick-edit rename path.
+    rename_in_flight: bool,
 }
 
 pub struct DroApp {
@@ -165,6 +191,17 @@ pub struct DroApp {
     /// Set if any package-doc save in the current batch failed or was cancelled,
     /// so the rip's dirty flag is kept rather than cleared once the batch ends.
     rip_docs_failed: bool,
+    /// The rip file-op sequence currently executing (reorder / undo / redo), if
+    /// any. Only one runs at a time; edits are ignored while it is `Some`.
+    rip_run: Option<RipRun>,
+    /// Applied rip edits available to undo, oldest first.
+    rip_undo: Vec<RipTransaction>,
+    /// Undone rip edits available to redo.
+    rip_redo: Vec<RipTransaction>,
+    /// A quick-edit / optimise transaction whose forward ran through the bespoke
+    /// save path; committed to the undo stack once that save succeeds (and
+    /// dropped if it fails), so undo only ever reverses edits that landed.
+    pending_rip_undo: Option<RipTransaction>,
 }
 
 impl DroApp {
@@ -205,6 +242,10 @@ impl DroApp {
             quitting: false,
             pending_rewrite: None,
             rip_docs_failed: false,
+            rip_run: None,
+            rip_undo: Vec::new(),
+            rip_redo: Vec::new(),
+            pending_rip_undo: None,
         }
     }
 
@@ -484,7 +525,14 @@ impl DroApp {
             }
         }
         if let Some(result) = self.files.poll_renamed() {
+            let is_rip_op = self.rip_run.as_ref().is_some_and(|run| run.rename_in_flight);
             match result {
+                Ok(()) if is_rip_op => {
+                    if let Some(run) = self.rip_run.as_mut() {
+                        run.rename_in_flight = false;
+                    }
+                    self.advance_rip_run();
+                }
                 Ok(()) => {
                     // A quick-edit rename paired with a byte rewrite: now that the
                     // file has its new name, write the target-format bytes to it
@@ -497,6 +545,7 @@ impl DroApp {
                         self.status = "Renamed track; rip folder rescanned.".to_owned();
                     }
                 }
+                Err(message) if is_rip_op => self.abort_rip_run(message),
                 Err(message) => {
                     self.pending_rewrite = None;
                     self.alerts.push_back(Alert::new("Rename failed", message));
@@ -602,9 +651,15 @@ impl DroApp {
                     // The file's bytes were rewritten; rescan so the list (or
                     // the inline screenshot and its size) reflects the change. A
                     // rename, if any, rescans on its own outcome too -- both
-                    // refresh in place, harmlessly.
+                    // refresh in place, harmlessly. The edit landed, so its undo
+                    // transaction (stashed at submit) becomes reversible.
+                    if let Some(transaction) = self.pending_rip_undo.take() {
+                        self.rip_undo.push(transaction);
+                        self.rip_redo.clear();
+                    }
                     self.rescan_rip_folder();
                 }
+                SavePurpose::RipOp => self.advance_rip_run(),
                 SavePurpose::ExportZip => {
                     let shown = path
                         .as_ref()
@@ -612,18 +667,30 @@ impl DroApp {
                     self.status = format!("Exported {shown}.");
                 }
             },
-            SaveOutcome::Cancelled => {
-                if purpose == SavePurpose::RipDoc {
-                    self.rip_docs_failed = true;
+            SaveOutcome::Cancelled => match purpose {
+                SavePurpose::RipDoc => self.rip_docs_failed = true,
+                SavePurpose::RipOp => self.abort_rip_run("The save was cancelled.".to_owned()),
+                SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
+                    self.pending_rip_undo = None;
                 }
-            }
-            SaveOutcome::Failed(message) => {
-                if purpose == SavePurpose::RipDoc {
-                    self.rip_docs_failed = true;
+                _ => {}
+            },
+            SaveOutcome::Failed(message) => match purpose {
+                SavePurpose::RipOp => self.abort_rip_run(message),
+                other => {
+                    if other == SavePurpose::RipDoc {
+                        self.rip_docs_failed = true;
+                    }
+                    if matches!(
+                        other,
+                        SavePurpose::TrackRewrite | SavePurpose::ImageOptimised
+                    ) {
+                        self.pending_rip_undo = None;
+                    }
+                    self.alerts
+                        .push_back(Alert::new("Failed to save file", message));
                 }
-                self.alerts
-                    .push_back(Alert::new("Failed to save file", message));
-            }
+            },
         }
     }
 
@@ -720,13 +787,23 @@ impl DroApp {
         if !self.alerts.is_empty() || self.dialogs.any_open() {
             return;
         }
-        // The rip tab hides the editor, so the editor's keys (Del, Space, arrows,
-        // Undo, ...) must not fire there. Only Save (the package files) and Help
-        // remain.
+        // The rip tab hides the editor, so the editor's playback/navigation keys
+        // must not fire there. Save (the package files), Undo/Redo (the file
+        // edits) and Help remain.
         if self.active_tab == AppTab::Rip {
             ctx.input_mut(|input| {
                 if input.consume_shortcut(&menus::SAVE) {
                     actions.push(Action::RipSaveDocs);
+                }
+                // Shifted variants first (egui ignores a surplus Shift).
+                if input.consume_shortcut(&menus::REDO_ALT) {
+                    actions.push(Action::Redo);
+                }
+                if input.consume_shortcut(&menus::UNDO) {
+                    actions.push(Action::Undo);
+                }
+                if input.consume_shortcut(&menus::REDO) {
+                    actions.push(Action::Redo);
                 }
                 if input.consume_shortcut(&menus::HELP) {
                     actions.push(Action::Help);
@@ -931,27 +1008,31 @@ impl DroApp {
             }
 
             Action::Undo => {
-                if !self.require_song() {
-                    return;
-                }
-                match self.editor.undo() {
-                    Some(description) => {
-                        self.status = format!("Undone: {description}");
-                        self.after_edit();
+                // On the rip tab, Undo reverses the last file edit; on the editor
+                // tab it reverses the last song edit.
+                if self.active_tab == AppTab::Rip {
+                    self.undo_rip_edit();
+                } else if self.require_song() {
+                    match self.editor.undo() {
+                        Some(description) => {
+                            self.status = format!("Undone: {description}");
+                            self.after_edit();
+                        }
+                        None => self.status = "Nothing to undo.".to_owned(),
                     }
-                    None => self.status = "Nothing to undo.".to_owned(),
                 }
             }
             Action::Redo => {
-                if !self.require_song() {
-                    return;
-                }
-                match self.editor.redo() {
-                    Some(description) => {
-                        self.status = format!("Redone: {description}");
-                        self.after_edit();
+                if self.active_tab == AppTab::Rip {
+                    self.redo_rip_edit();
+                } else if self.require_song() {
+                    match self.editor.redo() {
+                        Some(description) => {
+                            self.status = format!("Redone: {description}");
+                            self.after_edit();
+                        }
+                        None => self.status = "Nothing to redo.".to_owned(),
                     }
-                    None => self.status = "Nothing to redo.".to_owned(),
                 }
             }
             Action::OpenGoto => {
@@ -1058,6 +1139,7 @@ impl DroApp {
             Action::RipTrackPreview(index) => self.preview_track(index),
             Action::RipStopPreview => self.stop_preview(),
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
+            Action::RipMoveTrack { index, delta } => self.move_rip_track(index, delta),
             Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
                 original_name,
@@ -1260,6 +1342,142 @@ impl DroApp {
         self.rip.as_ref().is_some_and(|rip| rip.dirty)
     }
 
+    /// Whether any rip file mutation is in flight (a reorder/undo/redo sequence,
+    /// or a quick-edit rewrite/rename), so a new one is deferred rather than
+    /// interleaved with it.
+    fn rip_busy(&self) -> bool {
+        self.rip_run.is_some()
+            || self.pending_rip_undo.is_some()
+            || self.pending_rewrite.is_some()
+            || self.rip_service.is_busy()
+    }
+
+    /// Starts running `transaction` -- its `forward` mutations, or (for `Undo`)
+    /// its `inverse` -- one at a time through the file service.
+    fn start_rip_run(&mut self, transaction: RipTransaction, kind: RipRunKind) {
+        self.stop_preview();
+        let mutations = if kind == RipRunKind::Undo {
+            transaction.inverse.clone()
+        } else {
+            transaction.forward.clone()
+        };
+        self.rip_run = Some(RipRun {
+            queue: mutations.into(),
+            transaction,
+            kind,
+            rename_in_flight: false,
+        });
+        self.advance_rip_run();
+    }
+
+    /// Runs the next mutation of the in-flight sequence, or -- once the queue
+    /// drains -- lands its transaction on the right stack and rescans the folder.
+    fn advance_rip_run(&mut self) {
+        let next = match self.rip_run.as_mut() {
+            Some(run) => run.queue.pop_front(),
+            None => return,
+        };
+        match next {
+            Some(RipMutation::Rename { from, to }) => {
+                if let Some(run) = self.rip_run.as_mut() {
+                    run.rename_in_flight = true;
+                }
+                self.files.rename(from, to);
+            }
+            Some(RipMutation::Write { path, bytes }) => {
+                self.pending_saves.push_back(SavePurpose::RipOp);
+                self.files.save(SaveRequest::InPlace { path, bytes });
+            }
+            None => {
+                let Some(run) = self.rip_run.take() else {
+                    return;
+                };
+                let RipRun {
+                    transaction, kind, ..
+                } = run;
+                let label = transaction.label.clone();
+                match kind {
+                    RipRunKind::NewEdit => {
+                        self.rip_undo.push(transaction);
+                        self.rip_redo.clear();
+                    }
+                    RipRunKind::Redo => self.rip_undo.push(transaction),
+                    RipRunKind::Undo => self.rip_redo.push(transaction),
+                }
+                self.rescan_rip_folder();
+                self.status = match kind {
+                    RipRunKind::Undo => format!("Undone: {label}."),
+                    RipRunKind::Redo => format!("Redone: {label}."),
+                    RipRunKind::NewEdit => format!("{label}."),
+                };
+            }
+        }
+    }
+
+    /// Aborts the in-flight sequence after a failed rename/write, resyncing the
+    /// folder to whatever actually landed. The transaction is discarded (not
+    /// stacked), since it did not fully apply.
+    fn abort_rip_run(&mut self, message: String) {
+        self.rip_run = None;
+        self.alerts
+            .push_back(Alert::new("Track operation failed", message));
+        self.rescan_rip_folder();
+    }
+
+    /// Drops the rip undo/redo history and any in-flight sequence -- for opening
+    /// a new project or closing the current one. (A same-folder rescan keeps it.)
+    fn clear_rip_edits(&mut self) {
+        self.rip_run = None;
+        self.rip_undo.clear();
+        self.rip_redo.clear();
+        self.pending_rip_undo = None;
+    }
+
+    /// Moves the track at `index` by `delta` (`-1` up, `+1` down), renumbering the
+    /// affected files. Ignored while another sequence runs or the move is a no-op.
+    fn move_rip_track(&mut self, index: usize, delta: isize) {
+        if self.rip_busy() {
+            return;
+        }
+        let Some(to) = index.checked_add_signed(delta) else {
+            return;
+        };
+        let transaction = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.reorder_transaction(index, to));
+        if let Some(transaction) = transaction {
+            self.start_rip_run(transaction, RipRunKind::NewEdit);
+        }
+    }
+
+    /// Undo the most recent rip edit, running its inverse. Ignored while busy.
+    fn undo_rip_edit(&mut self) {
+        if self.rip_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        if let Some(transaction) = self.rip_undo.pop() {
+            self.start_rip_run(transaction, RipRunKind::Undo);
+        } else {
+            self.status = "Nothing to undo.".to_owned();
+        }
+    }
+
+    /// Redo the most recently undone rip edit, re-running its forward. Ignored
+    /// while busy.
+    fn redo_rip_edit(&mut self) {
+        if self.rip_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        if let Some(transaction) = self.rip_redo.pop() {
+            self.start_rip_run(transaction, RipRunKind::Redo);
+        } else {
+            self.status = "Nothing to redo.".to_owned();
+        }
+    }
+
     /// Installs a freshly scanned folder as the rip project, or -- when it is a
     /// redelivery of the folder already open -- rescans in place, keeping the
     /// edited metadata.
@@ -1290,6 +1508,8 @@ impl DroApp {
             return;
         }
         self.stop_preview();
+        // A brand-new project starts with an empty edit history.
+        self.clear_rip_edits();
         let today = self.rip_service.today();
         let state = RipState::from_folder(folder, today);
         let warning = state.parse_warning.clone();
@@ -1344,6 +1564,7 @@ impl DroApp {
     fn close_rip(&mut self) {
         self.stop_preview();
         self.close_rip_dialogs();
+        self.clear_rip_edits();
         self.rip = None;
         self.active_tab = AppTab::Editor;
         self.status = "Closed the rip project.".to_owned();
@@ -1519,8 +1740,12 @@ impl DroApp {
     }
 
     /// Applies a quick edit: rewrite the track's bytes with the new tag (and, if
-    /// the name changed, rename the file). The list rescans on the outcomes.
+    /// the name changed, rename the file). The list rescans on the outcomes, and
+    /// the edit's inverse is stashed so it becomes undoable once it lands.
     fn quick_edit_submitted(&mut self, original_name: String, new_name: String, tag: Gd3Tag) {
+        if self.rip_busy() {
+            return;
+        }
         self.stop_preview();
         // Re-resolve the target by the name the dialog opened on: a rescan may
         // have reordered the list since, so the original index is unreliable.
@@ -1536,11 +1761,13 @@ impl DroApp {
         };
         let old_name = track.file_name.clone();
         let old_path = track.path.clone();
-        let bytes = match track.song() {
+        // The bytes before this edit, for the undo transaction's inverse write.
+        let old_bytes = track.bytes.clone();
+        let new_bytes = match track.song() {
             Some(song) => crate::rip::retagged_bytes(song, &new_name, tag),
             None => return,
         };
-        let bytes = match bytes {
+        let new_bytes = match new_bytes {
             Ok(bytes) => bytes,
             Err(message) => {
                 self.alerts.push_back(Alert::error(message));
@@ -1550,20 +1777,65 @@ impl DroApp {
         let Some(old_path) = old_path else {
             return;
         };
+        let new_path = old_path.with_file_name(&new_name);
+
+        // Stash the reversible transaction: its forward matches what the bespoke
+        // save path does below (so redo can replay it), its inverse restores the
+        // old name and bytes. Committed to the undo stack when the save lands.
+        let (forward, inverse) = if new_name == old_name {
+            (
+                vec![RipMutation::Write {
+                    path: old_path.clone(),
+                    bytes: new_bytes.clone(),
+                }],
+                vec![RipMutation::Write {
+                    path: old_path.clone(),
+                    bytes: old_bytes,
+                }],
+            )
+        } else {
+            (
+                vec![
+                    RipMutation::Rename {
+                        from: old_path.clone(),
+                        to: new_name.clone(),
+                    },
+                    RipMutation::Write {
+                        path: new_path.clone(),
+                        bytes: new_bytes.clone(),
+                    },
+                ],
+                vec![
+                    RipMutation::Rename {
+                        from: new_path.clone(),
+                        to: old_name.clone(),
+                    },
+                    RipMutation::Write {
+                        path: old_path.clone(),
+                        bytes: old_bytes,
+                    },
+                ],
+            )
+        };
+        self.pending_rip_undo = Some(RipTransaction {
+            label: format!("Edit {new_name}"),
+            forward,
+            inverse,
+        });
+
         if new_name == old_name {
             // No rename: rewrite the bytes in place, in the unchanged format.
             self.pending_saves.push_back(SavePurpose::TrackRewrite);
             self.files.save(SaveRequest::InPlace {
                 path: old_path,
-                bytes,
+                bytes: new_bytes,
             });
         } else {
             // Rename first, then rewrite the target-format bytes to the new path
             // once the rename lands (see poll_renamed) -- so a failed rename
             // can't strand the old file holding bytes its extension no longer
             // matches.
-            let new_path = old_path.with_file_name(&new_name);
-            self.pending_rewrite = Some((new_path, bytes));
+            self.pending_rewrite = Some((new_path, new_bytes));
             self.files.rename(old_path.clone(), new_name.clone());
             // If the renamed file is the one open in the editor, drop its stale
             // path so a later Ctrl+S does not resurrect the old name.
@@ -1576,6 +1848,9 @@ impl DroApp {
 
     /// Kicks off an explicit lossless recompression of a screenshot.
     fn optimize_image(&mut self, index: usize) {
+        if self.rip_busy() {
+            return;
+        }
         let image = self
             .rip
             .as_ref()
@@ -1598,13 +1873,14 @@ impl DroApp {
             );
             return;
         }
-        let path = self.rip.as_ref().and_then(|rip| {
+        // The path and the pre-optimise bytes (for the undo transaction's inverse).
+        let found = self.rip.as_ref().and_then(|rip| {
             rip.images
                 .iter()
                 .find(|image| image.name == optimized.name)
-                .and_then(|image| image.path.clone())
+                .and_then(|image| image.path.clone().map(|path| (path, image.bytes.to_vec())))
         });
-        let Some(path) = path else {
+        let Some((path, old_bytes)) = found else {
             self.status = format!("{}: no file path to save to.", optimized.name);
             return;
         };
@@ -1614,6 +1890,17 @@ impl DroApp {
             optimized.original_len,
             optimized.bytes.len()
         );
+        self.pending_rip_undo = Some(RipTransaction {
+            label: format!("Optimise {}", optimized.name),
+            forward: vec![RipMutation::Write {
+                path: path.clone(),
+                bytes: optimized.bytes.clone(),
+            }],
+            inverse: vec![RipMutation::Write {
+                path: path.clone(),
+                bytes: old_bytes,
+            }],
+        });
         self.pending_saves.push_back(SavePurpose::ImageOptimised);
         self.files.save(SaveRequest::InPlace {
             path,
@@ -1850,13 +2137,33 @@ impl DroApp {
     }
 
     fn menu_state(&self) -> MenuState {
+        let on_rip_tab = self.active_tab == AppTab::Rip;
+        // Undo/Redo act on whichever tab shows: the rip file-edit stacks on the
+        // rip tab, the editor's song-undo stack otherwise. On the rip tab they are
+        // held off while a sequence is still running.
+        let (can_undo, can_redo, undo_description, redo_description) = if on_rip_tab {
+            let idle = !self.rip_busy();
+            (
+                idle && !self.rip_undo.is_empty(),
+                idle && !self.rip_redo.is_empty(),
+                self.rip_undo.last().map(|txn| txn.label.clone()),
+                self.rip_redo.last().map(|txn| txn.label.clone()),
+            )
+        } else {
+            (
+                self.editor.can_undo(),
+                self.editor.can_redo(),
+                self.editor.undo_description().map(str::to_owned),
+                self.editor.redo_description().map(str::to_owned),
+            )
+        };
         MenuState {
-            can_undo: self.editor.can_undo(),
-            can_redo: self.editor.can_redo(),
-            undo_description: self.editor.undo_description().map(str::to_owned),
-            redo_description: self.editor.redo_description().map(str::to_owned),
+            can_undo,
+            can_redo,
+            undo_description,
+            redo_description,
             has_rip: self.rip.is_some(),
-            on_rip_tab: self.active_tab == AppTab::Rip,
+            on_rip_tab,
         }
     }
 

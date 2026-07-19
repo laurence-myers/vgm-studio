@@ -66,6 +66,8 @@ pub enum Action {
     RipStopPreview,
     /// Open the quick-edit dialog (rename + GD3) for a track.
     OpenTrackQuickEdit(usize),
+    /// Move a track up (`-1`) or down (`+1`) one slot, renumbering the files.
+    RipMoveTrack { index: usize, delta: isize },
     /// Losslessly recompress a screenshot and save it in place.
     OptimizeImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.

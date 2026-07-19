@@ -1477,6 +1477,72 @@ fn open_button_loads_the_track_into_the_editor() {
 }
 
 #[test]
+fn reordering_renumbers_files_and_is_undoable_and_redoable() {
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    // Feed Ok outcomes for every rename the batch issues, and the reordered
+    // folder the follow-up rescan installs.
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..8 {
+            files.rename_outcomes.push_back(Ok(()));
+        }
+        files.picked_folders.push_back(Ok(rip_folder(
+            "Cool Game",
+            vec![
+                tagged_vgm("01 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+                tagged_vgm("02 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            ],
+        )));
+    }
+
+    // Move 01 Intro down a slot; both tracks renumber.
+    harness.state_mut().move_rip_track(0, 1);
+    harness.run_steps(16);
+
+    {
+        let files = handles.files.borrow();
+        assert_eq!(files.rename_requests.len(), 4, "a temp-then-final batch");
+        let finals: Vec<&String> = files
+            .rename_requests
+            .iter()
+            .map(|(_, to)| to)
+            .filter(|to| !to.starts_with(".drotrim"))
+            .collect();
+        assert!(finals.iter().any(|to| *to == "01 Boss.vgm"));
+        assert!(finals.iter().any(|to| *to == "02 Intro.vgz"));
+    }
+    assert_eq!(harness.state().rip_undo.len(), 1, "the reorder is undoable");
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().tracks[0].file_name,
+        "01 Boss.vgm",
+        "the rescan installed the new order"
+    );
+
+    // Undo: the inverse batch restores the original order.
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..8 {
+            files.rename_outcomes.push_back(Ok(()));
+        }
+        files.picked_folders.push_back(Ok(cool_game_folder()));
+    }
+    harness.state_mut().undo_rip_edit();
+    harness.run_steps(16);
+    assert!(
+        harness.state().rip_undo.is_empty(),
+        "undo cleared the undo stack"
+    );
+    assert_eq!(harness.state().rip_redo.len(), 1, "and left a redo");
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().tracks[0].file_name,
+        "01 Intro.vgz",
+        "the original order is back"
+    );
+}
+
+#[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
