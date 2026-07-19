@@ -1777,7 +1777,11 @@ impl DroApp {
         }
     }
 
-    fn apply_settings(&mut self, ctx: &egui::Context, config: AppConfig) {
+    fn apply_settings(&mut self, ctx: &egui::Context, mut config: AppConfig) {
+        // The Settings dialog snapshots the config at open and doesn't expose the
+        // boost, so a boost changed via the transport slider meanwhile would be
+        // reverted on Save. Keep the live value (M4/ux-15).
+        config.audio.boost = self.config.audio.boost;
         if let Err(error) = self.config_store.save(&config) {
             self.alerts
                 .push_back(Alert::error(format!("Could not save settings: {error}")));

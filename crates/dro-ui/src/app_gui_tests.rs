@@ -600,6 +600,30 @@ fn boost_up_arrow_sets_boost_and_persists_it() {
 }
 
 #[test]
+fn settings_save_preserves_a_live_changed_boost() {
+    // M4/ux-15: the Settings dialog snapshots the config at open and doesn't
+    // expose the boost, so a boost changed via the transport meanwhile must not
+    // be reverted on Save.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    let config = harness.state().config;
+    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.run();
+
+    // The transport changes the boost while Settings is open.
+    harness.state_mut().config.audio.boost = 2.0;
+
+    harness.get_by_label("Save").click();
+    harness.run();
+
+    let saved = handles.saved_configs.borrow();
+    assert_eq!(
+        saved.last().unwrap().audio.boost,
+        2.0,
+        "Settings Save kept the live boost, not its stale snapshot"
+    );
+}
+
+#[test]
 fn ctrl_s_saves_in_place_and_reports_the_path() {
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
