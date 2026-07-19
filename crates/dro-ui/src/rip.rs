@@ -681,6 +681,9 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
 }
 
 fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: &mut Vec<Action>) {
+    // A divider sets the screenshots apart from the track list above (clipped,
+    // like the Tracks divider, so it stays inside the scroll well).
+    crate::theme::separator_clipped(ui, palette);
     ui.add_space(6.0);
     if state.images.is_empty() {
         ui.colored_label(palette.muted, "No screenshot (.png) in the folder.");
