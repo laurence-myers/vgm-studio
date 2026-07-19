@@ -248,6 +248,89 @@ pub fn generate_m3u(file_names: &[String]) -> String {
     out
 }
 
+/// One header field: the label [`generate_description`] prints (with its colon),
+/// the lowercased labels [`parse_description`] accepts (canonical first), and typed
+/// access to its [`RipMeta`] slot. One ordered table drives both directions, so the
+/// generated labels and the parsed aliases can never drift apart.
+struct HeaderField {
+    label: &'static str,
+    aliases: &'static [&'static str],
+    get: fn(&RipMeta) -> &str,
+    set: fn(&mut RipMeta) -> &mut String,
+}
+
+/// The header fields in file order, split into the three blank-separated groups the
+/// template uses (identity, credits, packaging). Any unrecognised `Label: value`
+/// lines trail the last group as [`RipMeta::extra_fields`].
+const HEADER_GROUPS: [&[HeaderField]; 3] = [
+    &[
+        HeaderField {
+            label: "Game name:",
+            aliases: &["game name"],
+            get: |m| m.game_name.as_str(),
+            set: |m| &mut m.game_name,
+        },
+        HeaderField {
+            label: "System:",
+            aliases: &["system"],
+            get: |m| m.system.as_str(),
+            set: |m| &mut m.system,
+        },
+        HeaderField {
+            label: "OS:",
+            aliases: &["os"],
+            get: |m| m.os.as_str(),
+            set: |m| &mut m.os,
+        },
+        HeaderField {
+            label: "Music hardware:",
+            aliases: &["music hardware"],
+            get: |m| m.music_hardware.as_str(),
+            set: |m| &mut m.music_hardware,
+        },
+    ],
+    &[
+        HeaderField {
+            label: "Music author:",
+            aliases: &["music author", "music authors"],
+            get: |m| m.music_authors.as_str(),
+            set: |m| &mut m.music_authors,
+        },
+        HeaderField {
+            label: "Game developer:",
+            aliases: &["game developer"],
+            get: |m| m.developer.as_str(),
+            set: |m| &mut m.developer,
+        },
+        HeaderField {
+            label: "Game publisher:",
+            aliases: &["game publisher"],
+            get: |m| m.publisher.as_str(),
+            set: |m| &mut m.publisher,
+        },
+        HeaderField {
+            label: "Game release date:",
+            aliases: &["game release date"],
+            get: |m| m.release_date.as_str(),
+            set: |m| &mut m.release_date,
+        },
+    ],
+    &[
+        HeaderField {
+            label: "Package created by:",
+            aliases: &["package created by"],
+            get: |m| m.creator.as_str(),
+            set: |m| &mut m.creator,
+        },
+        HeaderField {
+            label: "Package version:",
+            aliases: &["package version"],
+            get: |m| m.version.as_str(),
+            set: |m| &mut m.version,
+        },
+    ],
+];
+
 /// Renders the full description file for `meta` and `tracks`.
 ///
 /// Header values are greedily word-wrapped at the value column. A value that a
@@ -266,23 +349,19 @@ pub fn generate_description(meta: &RipMeta, tracks: &[TrackEntry]) -> String {
         "*".repeat(LINE_WIDTH),
     ];
 
-    // Header field groups, blank-separated as in the template.
-    push_field(&mut lines, "Game name:", &meta.game_name);
-    push_field(&mut lines, "System:", &meta.system);
-    push_field(&mut lines, "OS:", &meta.os);
-    push_field(&mut lines, "Music hardware:", &meta.music_hardware);
-    lines.push(String::new());
-    push_field(&mut lines, "Music author:", &meta.music_authors);
-    push_field(&mut lines, "Game developer:", &meta.developer);
-    push_field(&mut lines, "Game publisher:", &meta.publisher);
-    push_field(&mut lines, "Game release date:", &meta.release_date);
-    lines.push(String::new());
-    push_field(&mut lines, "Package created by:", &meta.creator);
-    push_field(&mut lines, "Package version:", &meta.version);
-    for (label, value) in &meta.extra_fields {
-        push_field(&mut lines, &format!("{label}:"), value);
+    // Header field groups, blank-separated as in the template; the unrecognised
+    // extra fields trail the last group, before its blank.
+    for (index, group) in HEADER_GROUPS.iter().enumerate() {
+        for field in *group {
+            push_field(&mut lines, field.label, (field.get)(meta));
+        }
+        if index == HEADER_GROUPS.len() - 1 {
+            for (label, value) in &meta.extra_fields {
+                push_field(&mut lines, &format!("{label}:"), value);
+            }
+        }
+        lines.push(String::new());
     }
-    lines.push(String::new());
 
     // Song list.
     lines.push(meta.song_list_heading.trim_end().to_owned());
@@ -341,24 +420,17 @@ pub fn parse_description(text: &str) -> Result<RipMeta> {
     let mut matched_known = false;
 
     for (label, value) in parse_header_fields(&lines[..header_end]) {
-        let slot = match label.to_ascii_lowercase().as_str() {
-            "game name" => &mut meta.game_name,
-            "system" => &mut meta.system,
-            "os" => &mut meta.os,
-            "music hardware" => &mut meta.music_hardware,
-            "music author" | "music authors" => &mut meta.music_authors,
-            "game developer" => &mut meta.developer,
-            "game publisher" => &mut meta.publisher,
-            "game release date" => &mut meta.release_date,
-            "package created by" => &mut meta.creator,
-            "package version" => &mut meta.version,
-            _ => {
-                meta.extra_fields.push((label, value));
-                continue;
-            }
-        };
-        *slot = value;
-        matched_known = true;
+        let label_lc = label.to_ascii_lowercase();
+        if let Some(field) = HEADER_GROUPS
+            .iter()
+            .flat_map(|group| group.iter())
+            .find(|field| field.aliases.contains(&label_lc.as_str()))
+        {
+            *(field.set)(&mut meta) = value;
+            matched_known = true;
+        } else {
+            meta.extra_fields.push((label, value));
+        }
     }
 
     if let Some(idx) = song_list_idx
