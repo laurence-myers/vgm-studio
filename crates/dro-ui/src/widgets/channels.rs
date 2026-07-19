@@ -96,7 +96,11 @@ fn dual_opl2_image() -> [u8; 18] {
 /// lean right (positive), widening gently across each group of five.
 fn spread_delta(slot: usize) -> f32 {
     let amount = SPREAD_BASE + (slot % 5) as f32 * SPREAD_STEP;
-    if slot % 2 == 0 { -amount } else { amount }
+    if slot.is_multiple_of(2) {
+        -amount // even channels lean left
+    } else {
+        amount // odd channels lean right
+    }
 }
 
 /// The pan image for a spread `strength` in `-1.0..=1.0`: `centre + strength *
