@@ -20,7 +20,7 @@
 //! need them.)
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
@@ -236,7 +236,7 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
 #[derive(Debug, Clone, Default)]
 pub struct RegisterUsage {
     counts: BTreeMap<u16, u32>,
-    percussion: BTreeMap<u16, bool>,
+    percussion: BTreeSet<u16>,
 }
 
 impl RegisterUsage {
@@ -262,7 +262,7 @@ impl RegisterUsage {
                     for bitmask in RegisterKind::PercussionControl.bitmasks() {
                         if value & bitmask.mask != 0 {
                             let perc_key = (u16::from(bank.index()) << 8) | u16::from(bitmask.mask);
-                            usage.percussion.insert(perc_key, true);
+                            usage.percussion.insert(perc_key);
                         }
                     }
                 }
@@ -281,7 +281,7 @@ impl RegisterUsage {
     /// `0xBD` write.
     #[must_use]
     pub fn percussion_used(&self, key: u16) -> bool {
-        self.percussion.get(&key).copied().unwrap_or(false)
+        self.percussion.contains(&key)
     }
 }
 
