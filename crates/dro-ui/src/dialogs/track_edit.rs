@@ -84,8 +84,7 @@ impl TrackEditDialog {
         if name.is_empty() || !ext_ok {
             actions.push(Action::Alert {
                 title: "Invalid file name".to_owned(),
-                message: "The file name must not be empty and must end in .vgm or .vgz."
-                    .to_owned(),
+                message: "The file name must not be empty and must end in .vgm or .vgz.".to_owned(),
             });
             return false;
         }

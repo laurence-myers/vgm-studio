@@ -446,7 +446,11 @@ mod tests {
     #[test]
     fn save_filters_narrow_a_song_to_its_own_format() {
         assert_eq!(save_filters("song.dro")[0].1.to_vec(), ["dro"]);
-        assert_eq!(save_filters("song.dro").len(), 1, "no combined DRO/VGM filter");
+        assert_eq!(
+            save_filters("song.dro").len(),
+            1,
+            "no combined DRO/VGM filter"
+        );
         assert_eq!(save_filters("song.vgm")[0].1.to_vec(), ["vgm", "vgz"]);
         assert_eq!(save_filters("song.vgz")[0].1.to_vec(), ["vgm", "vgz"]);
         assert_eq!(save_filters("Game.zip")[0].1.to_vec(), ["zip"]);

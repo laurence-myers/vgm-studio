@@ -93,24 +93,28 @@ impl NativeAudio {
         // changes only the callback size / latency, never the rendered audio.
         let sample_format = default_config.sample_format();
         let buffer_size = resolve_buffer_size(&device, sample_rate, config.buffer_size);
-        let (stream, commands, shared) =
-            match Self::build(&device, sample_format, sample_rate, &song, config, buffer_size) {
-                Ok(parts) => parts,
-                Err(error) if matches!(buffer_size, cpal::BufferSize::Fixed(_)) => {
-                    log::warn!(
-                        "device rejected a fixed buffer size ({error}); using the host default"
-                    );
-                    Self::build(
-                        &device,
-                        sample_format,
-                        sample_rate,
-                        &song,
-                        config,
-                        cpal::BufferSize::Default,
-                    )?
-                }
-                Err(error) => return Err(error),
-            };
+        let (stream, commands, shared) = match Self::build(
+            &device,
+            sample_format,
+            sample_rate,
+            &song,
+            config,
+            buffer_size,
+        ) {
+            Ok(parts) => parts,
+            Err(error) if matches!(buffer_size, cpal::BufferSize::Fixed(_)) => {
+                log::warn!("device rejected a fixed buffer size ({error}); using the host default");
+                Self::build(
+                    &device,
+                    sample_format,
+                    sample_rate,
+                    &song,
+                    config,
+                    cpal::BufferSize::Default,
+                )?
+            }
+            Err(error) => return Err(error),
+        };
 
         Ok(Self {
             stream,
@@ -420,7 +424,10 @@ mod tests {
 
     #[test]
     fn clamp_buffer_size_honours_the_device_range() {
-        let range = cpal::SupportedBufferSize::Range { min: 128, max: 1024 };
+        let range = cpal::SupportedBufferSize::Range {
+            min: 128,
+            max: 1024,
+        };
         assert!(matches!(
             clamp_buffer_size(range, 512),
             cpal::BufferSize::Fixed(512)
@@ -430,7 +437,10 @@ mod tests {
             "clamped up to the minimum"
         );
         assert!(
-            matches!(clamp_buffer_size(range, 8192), cpal::BufferSize::Fixed(1024)),
+            matches!(
+                clamp_buffer_size(range, 8192),
+                cpal::BufferSize::Fixed(1024)
+            ),
             "clamped down to the maximum"
         );
         assert!(matches!(

@@ -70,7 +70,10 @@ pub fn boost_stepper(ui: &mut egui::Ui, palette: &Palette, boost: f32, actions: 
                         .update_while_editing(false)
                         .custom_formatter(|n, _| format!("{}", n.floor().clamp(1.0, 5.0) as i64))
                         .custom_parser(|s| {
-                            s.trim().parse::<f64>().ok().map(|v| v.floor().clamp(1.0, 5.0))
+                            s.trim()
+                                .parse::<f64>()
+                                .ok()
+                                .map(|v| v.floor().clamp(1.0, 5.0))
                         }),
                 )
                 .on_hover_text(format!("{current}\u{00d7} ({db:+.1} dB)"));

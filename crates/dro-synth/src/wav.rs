@@ -216,11 +216,15 @@ mod tests {
         let song = small_song();
         let plain = render_wav_boosted(&song, 48_000, 16, 0.0, 1.0).unwrap();
         let mut frames = Vec::new();
-        let tracked = render_wav_boosted_with_progress(&song, 48_000, 16, 0.0, 1.0, &mut |rendered| {
-            frames.push(rendered);
-        })
-        .unwrap();
-        assert_eq!(tracked, plain, "progress reporting must not change the bytes");
+        let tracked =
+            render_wav_boosted_with_progress(&song, 48_000, 16, 0.0, 1.0, &mut |rendered| {
+                frames.push(rendered);
+            })
+            .unwrap();
+        assert_eq!(
+            tracked, plain,
+            "progress reporting must not change the bytes"
+        );
         assert!(!frames.is_empty(), "progress was reported");
         assert!(
             frames.windows(2).all(|pair| pair[0] <= pair[1]),

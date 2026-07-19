@@ -85,7 +85,11 @@ fn main() -> Result<()> {
                 let ms = u32::try_from(frames * 1000 / u64::from(freq)).unwrap_or(u32::MAX);
                 if last_sec != Some(ms / 1000) {
                     last_sec = Some(ms / 1000);
-                    print!("\rRendering {} / {}", ms_to_timestr(ms), ms_to_timestr(total_ms));
+                    print!(
+                        "\rRendering {} / {}",
+                        ms_to_timestr(ms),
+                        ms_to_timestr(total_ms)
+                    );
                     let _ = std::io::stdout().flush();
                 }
             },

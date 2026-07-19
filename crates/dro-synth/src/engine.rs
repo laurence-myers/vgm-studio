@@ -856,7 +856,12 @@ mod tests {
         let mut out = [0i16; 4];
         engine.chip.generate_samples(&mut out);
 
-        let last_b0 = engine.chip.applied.iter().rev().find(|(reg, _)| *reg == 0xB0);
+        let last_b0 = engine
+            .chip
+            .applied
+            .iter()
+            .rev()
+            .find(|(reg, _)| *reg == 0xB0);
         assert_eq!(
             last_b0,
             Some(&(0xB0, 0x00)),

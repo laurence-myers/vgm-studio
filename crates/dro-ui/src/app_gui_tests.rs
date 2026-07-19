@@ -407,16 +407,22 @@ fn enter_dismisses_an_info_alert() {
 fn enter_confirms_a_confirm_alert_and_runs_its_action() {
     // ux-12: Enter accepts a confirm box and runs its carried action.
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    harness.state_mut().alerts.push_back(crate::alert::Alert::confirm(
-        "Discard unsaved changes?",
-        "Quit anyway?",
-        crate::action::Action::ConfirmExit,
-    ));
+    harness
+        .state_mut()
+        .alerts
+        .push_back(crate::alert::Alert::confirm(
+            "Discard unsaved changes?",
+            "Quit anyway?",
+            crate::action::Action::ConfirmExit,
+        ));
     harness.run();
 
     harness.key_press(Key::Enter);
     harness.run();
-    assert!(harness.state().alerts.is_empty(), "the confirm was accepted");
+    assert!(
+        harness.state().alerts.is_empty(),
+        "the confirm was accepted"
+    );
     assert!(
         harness.state().quitting,
         "Enter ran the carried ConfirmExit action"
@@ -838,7 +844,10 @@ fn exiting_with_unsaved_changes_prompts_then_sets_quitting_on_confirm() {
 
     harness.get_by_label("OK").click();
     harness.run();
-    assert!(harness.state().quitting, "confirming sets the quitting flag");
+    assert!(
+        harness.state().quitting,
+        "confirming sets the quitting flag"
+    );
 }
 
 #[test]
@@ -994,7 +1003,10 @@ fn a_scanned_track_caches_its_table_entry() {
     open_folder(&mut harness, &handles, single_track_folder());
     let state = harness.state();
     let track = &state.rip.as_ref().unwrap().tracks[0];
-    let cached = track.entry.as_ref().expect("a parsed track caches its entry");
+    let cached = track
+        .entry
+        .as_ref()
+        .expect("a parsed track caches its entry");
     let fresh = dro_core::rip::TrackEntry::from_song(track.song().unwrap(), &track.file_name);
     assert_eq!(*cached, fresh);
 }
@@ -1519,7 +1531,11 @@ fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
     handles.files.borrow_mut().rename_outcomes.push_back(Ok(()));
     harness.run();
     let files = handles.files.borrow();
-    match files.save_requests.last().expect("a rewrite after the rename") {
+    match files
+        .save_requests
+        .last()
+        .expect("a rewrite after the rename")
+    {
         SaveRequest::InPlace { path, .. } => assert!(
             path.to_string_lossy().ends_with("01 Intro.vgm"),
             "rewrote the renamed file, got {path:?}"

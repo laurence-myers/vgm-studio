@@ -242,7 +242,6 @@ fn write_v2(song: &Song, data: &DroDataV2) -> Vec<u8> {
     out
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -554,5 +553,4 @@ mod tests {
         assert!(read("t.dro", &[]).is_err());
         assert!(read("t.dro", MAGIC).is_err());
     }
-
 }

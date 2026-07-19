@@ -540,7 +540,8 @@ impl DroApp {
                 Ok(optimized) => self.image_optimized(optimized),
                 Err(message) => {
                     self.status = "Screenshot optimise failed.".to_owned();
-                    self.alerts.push_back(Alert::new("Optimise failed", message));
+                    self.alerts
+                        .push_back(Alert::new("Optimise failed", message));
                 }
             }
         }
@@ -1518,11 +1519,11 @@ impl DroApp {
         self.stop_preview();
         // Re-resolve the target by the name the dialog opened on: a rescan may
         // have reordered the list since, so the original index is unreliable.
-        let Some(track) = self
-            .rip
-            .as_ref()
-            .and_then(|rip| rip.tracks.iter().find(|track| track.file_name == original_name))
-        else {
+        let Some(track) = self.rip.as_ref().and_then(|rip| {
+            rip.tracks
+                .iter()
+                .find(|track| track.file_name == original_name)
+        }) else {
             self.alerts.push_back(Alert::error(format!(
                 "\"{original_name}\" is no longer in the folder; the edit was not applied."
             )));
