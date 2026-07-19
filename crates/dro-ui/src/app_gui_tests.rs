@@ -973,6 +973,19 @@ fn editing_a_field_marks_the_rip_dirty() {
 }
 
 #[test]
+fn a_scanned_track_caches_its_table_entry() {
+    // uiwidget-3: the table entry is computed once at scan, not per row per
+    // frame, and matches a fresh computation.
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    let state = harness.state();
+    let track = &state.rip.as_ref().unwrap().tracks[0];
+    let cached = track.entry.as_ref().expect("a parsed track caches its entry");
+    let fresh = dro_core::rip::TrackEntry::from_song(track.song().unwrap(), &track.file_name);
+    assert_eq!(*cached, fresh);
+}
+
+#[test]
 fn save_package_files_writes_the_txt_and_m3u() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());

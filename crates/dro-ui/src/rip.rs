@@ -31,6 +31,9 @@ pub struct RipTrack {
     pub path: Option<PathBuf>,
     pub bytes: Vec<u8>,
     pub song: Result<Arc<Song>, String>,
+    /// The table entry (title, durations) computed once at scan, rather than
+    /// re-summing the whole song per row per frame. `Some` iff the song parsed.
+    pub entry: Option<TrackEntry>,
 }
 
 impl RipTrack {
@@ -76,11 +79,16 @@ impl RipState {
                     let song = dro_core::io::read_song(&file.name, &file.bytes)
                         .map(Arc::new)
                         .map_err(|error| error.to_string());
+                    let entry = song
+                        .as_ref()
+                        .ok()
+                        .map(|song| TrackEntry::from_song(song, &file.name));
                     tracks.push(RipTrack {
                         file_name: file.name,
                         path: file.path,
                         bytes: file.bytes,
                         song,
+                        entry,
                     });
                 }
                 FileClass::Image => images.push(file),
@@ -142,11 +150,7 @@ impl RipState {
     pub fn track_entries(&self) -> Vec<TrackEntry> {
         self.tracks
             .iter()
-            .filter_map(|track| {
-                track
-                    .song()
-                    .map(|song| TrackEntry::from_song(song, &track.file_name))
-            })
+            .filter_map(|track| track.entry.clone())
             .collect()
     }
 
@@ -581,8 +585,11 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                             );
                         });
                         match &track.song {
-                            Ok(song) => {
-                                let entry = TrackEntry::from_song(song, &track.file_name);
+                            Ok(_) => {
+                                let entry = track
+                                    .entry
+                                    .as_ref()
+                                    .expect("a parsed song has a cached entry");
                                 row.col(|ui| {
                                     ui.label(
                                         egui::RichText::new(&entry.title)
