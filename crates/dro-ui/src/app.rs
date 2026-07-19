@@ -1247,6 +1247,13 @@ impl DroApp {
             return;
         }
         self.stop_preview();
+        // Leaving the editor: its audio must not keep playing under the rip view
+        // (mirrors open_folder's rule). Resetting the revision makes the next
+        // editor Play reload cleanly.
+        if self.active_tab == AppTab::Editor {
+            self.audio.unload();
+            self.audio_revision = None;
+        }
         self.active_tab = tab;
         // Returning to the rip tab re-scans the folder so edits made in the
         // editor (or renames) are reflected.

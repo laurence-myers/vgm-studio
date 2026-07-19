@@ -824,6 +824,26 @@ fn single_track_folder() -> PickedFolder {
 }
 
 #[test]
+fn switching_to_the_rip_tab_stops_editor_playback() {
+    // Regression (M2): the editor's audio must not keep playing under the rip
+    // view. Leaving the editor tab unloads it.
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    harness.state_mut().select_tab(AppTab::Editor);
+    harness.state_mut().do_play();
+    assert!(handles.audio.borrow().playing);
+
+    harness.state_mut().select_tab(AppTab::Rip);
+    assert!(
+        !handles.audio.borrow().playing,
+        "editor audio stops when the rip tab takes over"
+    );
+    assert!(harness.state().audio_revision.is_none());
+}
+
+#[test]
 fn previewing_a_track_plays_it_and_stop_halts_it() {
     let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
