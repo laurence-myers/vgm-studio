@@ -7,7 +7,7 @@
 //! drops that dead entry.
 
 use dro_core::song::DRO_FILE_V1;
-use dro_core::{Song, SongFileType};
+use dro_core::{FindTarget, Song, SongFileType};
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
@@ -21,13 +21,15 @@ pub struct FindRegDialog {
 impl FindRegDialog {
     #[must_use]
     pub fn new(song: &Song) -> Self {
-        let mut choices: Vec<String> = ["DLYS", "DLYL", "DALL"]
-            .into_iter()
-            .map(str::to_owned)
+        let is_v1 = song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V1;
+        // The tokens come from dro-core (shared with `FindTarget::from_str`), so
+        // the dialog can't offer one the parser rejects. BANK is dropped for
+        // anything but DRO v1, where no instruction could ever match it.
+        let mut choices: Vec<String> = FindTarget::TOKENS
+            .iter()
+            .filter(|(_, target)| *target != FindTarget::BankSwitch || is_v1)
+            .map(|(token, _)| (*token).to_owned())
             .collect();
-        if song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V1 {
-            choices.push("BANK".to_owned());
-        }
         // Bare hex, matching the table's Reg. column; `FindTarget::from_str`
         // accepts it (an optional `0x` is stripped).
         choices.extend((0..=0xFFu16).map(|reg| format!("{reg:02X}")));

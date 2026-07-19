@@ -176,6 +176,17 @@ pub enum FindTarget {
 }
 
 impl FindTarget {
+    /// Every non-register Find token, paired with the target it selects, in the
+    /// order the Find dialog lists them. One source for [`FindTarget::from_str`]
+    /// and the dialog's choice list, so a token can't be added to one and missed
+    /// by the other. `Register` numbers are hex and not enumerated here.
+    pub const TOKENS: &'static [(&'static str, FindTarget)] = &[
+        ("DLYS", FindTarget::ShortDelay),
+        ("DLYL", FindTarget::LongDelay),
+        ("DALL", FindTarget::AnyDelay),
+        ("BANK", FindTarget::BankSwitch),
+    ];
+
     #[must_use]
     /// Delay tokens match on the *kind*, so they work the same on DRO's
     /// millisecond delays and VGM's sample delays.
@@ -203,12 +214,8 @@ impl FromStr for FindTarget {
     /// Accepts the four tokens, or a register number in hex with an optional
     /// `0x` prefix -- Python's `int(s, 16)` took both forms.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "DLYS" => return Ok(Self::ShortDelay),
-            "DLYL" => return Ok(Self::LongDelay),
-            "DALL" => return Ok(Self::AnyDelay),
-            "BANK" => return Ok(Self::BankSwitch),
-            _ => {}
+        if let Some(&(_, target)) = Self::TOKENS.iter().find(|&&(token, _)| token == s) {
+            return Ok(target);
         }
         let digits = s
             .strip_prefix("0x")
