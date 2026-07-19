@@ -162,6 +162,9 @@ pub struct DroApp {
     /// A quick-edit byte rewrite deferred until its rename lands, so a failed
     /// rename can't leave the old file holding bytes in the new format.
     pending_rewrite: Option<(PathBuf, Vec<u8>)>,
+    /// Set if any package-doc save in the current batch failed or was cancelled,
+    /// so the rip's dirty flag is kept rather than cleared once the batch ends.
+    rip_docs_failed: bool,
 }
 
 impl DroApp {
@@ -201,6 +204,7 @@ impl DroApp {
             pending_load: None,
             quitting: false,
             pending_rewrite: None,
+            rip_docs_failed: false,
         }
     }
 
@@ -612,17 +616,21 @@ impl DroApp {
                         format!("Built the rip zip. {}", log.join(" "))
                     };
                 }
-                RipJobOutcome::Failed(message) => self
-                    .alerts
-                    .push_back(Alert::new("Rip export failed", message)),
+                RipJobOutcome::Failed(message) => {
+                    // Replace the stale "Building rip zip..." status (ux-11).
+                    self.status = "Rip export failed.".to_owned();
+                    self.alerts
+                        .push_back(Alert::new("Rip export failed", message));
+                }
             }
         }
         if let Some(result) = self.rip_service.poll_optimized() {
             match result {
                 Ok(optimized) => self.image_optimized(optimized),
-                Err(message) => self
-                    .alerts
-                    .push_back(Alert::new("Optimise failed", message)),
+                Err(message) => {
+                    self.status = "Screenshot optimise failed.".to_owned();
+                    self.alerts.push_back(Alert::new("Optimise failed", message));
+                }
             }
         }
         for result in self.tasks.poll() {
@@ -656,20 +664,26 @@ impl DroApp {
                 }
                 SavePurpose::RipDoc => {
                     // The description and playlist save back to back; report and
-                    // clear the dirty flag once the last of them lands.
+                    // clear the dirty flag once the last of them lands -- but only
+                    // if none of the batch failed, so edits aren't lost (uishell-7).
                     let more = self
                         .pending_saves
                         .iter()
                         .any(|purpose| *purpose == SavePurpose::RipDoc);
                     if !more {
-                        if let Some(rip) = self.rip.as_mut() {
-                            rip.dirty = false;
-                        }
                         let stem = self
                             .rip
                             .as_ref()
                             .map_or_else(String::new, RipState::doc_stem);
-                        self.status = format!("Saved {stem}.txt and {stem}.m3u.");
+                        if self.rip_docs_failed {
+                            self.status =
+                                "Some package files could not be saved; changes kept.".to_owned();
+                        } else {
+                            if let Some(rip) = self.rip.as_mut() {
+                                rip.dirty = false;
+                            }
+                            self.status = format!("Saved {stem}.txt and {stem}.m3u.");
+                        }
                     }
                 }
                 SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
@@ -686,17 +700,30 @@ impl DroApp {
                     self.status = format!("Exported {shown}.");
                 }
             },
-            SaveOutcome::Cancelled => {}
-            SaveOutcome::Failed(message) => self
-                .alerts
-                .push_back(Alert::new("Failed to save file", message)),
+            SaveOutcome::Cancelled => {
+                if purpose == SavePurpose::RipDoc {
+                    self.rip_docs_failed = true;
+                }
+            }
+            SaveOutcome::Failed(message) => {
+                if purpose == SavePurpose::RipDoc {
+                    self.rip_docs_failed = true;
+                }
+                self.alerts
+                    .push_back(Alert::new("Failed to save file", message));
+            }
         }
     }
 
     fn handle_drops(&mut self, ctx: &egui::Context) {
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        // Only single-file drops, as in Python.
-        if dropped.len() != 1 {
+        if dropped.is_empty() {
+            return;
+        }
+        // Only single-file drops, as in Python; say so rather than silently
+        // ignoring a multi-drop (ux-17).
+        if dropped.len() > 1 {
+            self.status = "Drop a single file at a time.".to_owned();
             return;
         }
         let file = dropped.into_iter().next().expect("len checked");
@@ -717,6 +744,8 @@ impl DroApp {
                     path: None,
                     bytes: bytes.to_vec(),
                 });
+            } else {
+                self.status = format!("Can't open {name}: unsupported file type.");
             }
         } else if let Some(path) = file.path {
             // Native: a song opens in the editor; anything else (a folder, which
@@ -725,6 +754,8 @@ impl DroApp {
             // format" alert.
             if is_song || path.extension().is_none() {
                 self.files.open_path(path);
+            } else {
+                self.status = format!("Can't open {name}: unsupported file type.");
             }
         }
     }
@@ -1416,6 +1447,8 @@ impl DroApp {
             }
             return;
         }
+        // Fresh batch: forget any failure from a previous save-docs run.
+        self.rip_docs_failed = false;
         let rip = self.rip.as_ref().expect("checked");
         let stem = rip.doc_stem();
         let description = rip.description_text().into_bytes();

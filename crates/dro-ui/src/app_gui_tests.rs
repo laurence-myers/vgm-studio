@@ -1005,6 +1005,36 @@ fn save_package_files_writes_the_txt_and_m3u() {
 }
 
 #[test]
+fn a_failed_package_doc_save_keeps_the_rip_dirty() {
+    // uishell-7: if a package-doc save fails, the dirty flag must be kept, not
+    // cleared when the batch's last doc lands, so the edits aren't lost.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    harness.state_mut().rip.as_mut().unwrap().dirty = true;
+
+    harness.state_mut().save_rip_docs();
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Failed("disk full".to_owned()));
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Saved {
+            name: "Cool Game.m3u".to_owned(),
+            path: None,
+        });
+    harness.run();
+
+    assert!(
+        harness.state().rip.as_ref().unwrap().dirty,
+        "a failed package-doc save keeps the rip dirty so edits aren't lost"
+    );
+}
+
+#[test]
 fn saving_without_a_game_name_shows_an_alert() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
