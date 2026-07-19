@@ -117,6 +117,15 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
     let gd3_size = gd3.as_ref().map_or(0, Vec::len);
 
     let mut out = meta.header().to_vec();
+    // The fixed-offset field writes below would panic on a header shorter than the
+    // v1.51 minimum. Unreachable with a header that passed the reader's own check,
+    // but guard it so a malformed one errors rather than panics (vgmrip-5).
+    if out.len() < MINIMUM_HEADER_SIZE {
+        return Err(Error::file(format!(
+            "VGM header is {} bytes; the writer needs at least {MINIMUM_HEADER_SIZE:#X}",
+            out.len()
+        )));
+    }
     let data_offset = out.len();
     let data = stream.raw();
     let end_marker_size = 1;
@@ -610,6 +619,15 @@ mod tests {
         assert_eq!(song.vgm_meta().unwrap().loop_point, Some(2));
         assert_eq!(song.loop_num_samples(), Some(20_735));
         assert_eq!(song.total_delay_samples(), LOOPING_TOTAL_SAMPLES);
+    }
+
+    #[test]
+    fn writing_a_short_header_errors_rather_than_panicking() {
+        // vgmrip-5: a header below the v1.51 minimum must be rejected, not panic
+        // on the fixed-offset field writes.
+        let mut song = read("t.vgm", &looping_vgm(6, 20_735)).unwrap();
+        song.vgm_meta_mut().unwrap().header.truncate(0x10);
+        assert!(write(&song).is_err());
     }
 
     #[test]
