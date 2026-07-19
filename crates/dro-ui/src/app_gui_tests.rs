@@ -697,6 +697,32 @@ fn exiting_with_unsaved_changes_prompts_then_sets_quitting_on_confirm() {
     assert!(harness.state().quitting, "confirming sets the quitting flag");
 }
 
+#[test]
+fn a_stray_tab_does_not_disable_the_keyboard() {
+    // Regression (M3): Tab must not move focus onto a chrome button (where the
+    // old egui_wants_keyboard_input gate would swallow every shortcut and Space
+    // would "click" the focused button). Tab is consumed; Space still plays.
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    let len = harness.state().editor.len();
+    harness.state_mut().editor.selection.select_only(0);
+
+    harness.key_press(Key::Tab);
+    harness.run();
+    harness.key_press(Key::Space);
+    harness.run_steps(3);
+
+    assert!(
+        handles.audio.borrow().play_calls >= 1,
+        "Space reached the editor and toggled playback"
+    );
+    assert_eq!(
+        harness.state().editor.len(),
+        len,
+        "Tab+Space did not delete a row"
+    );
+}
+
 // -- rip mode ----------------------------------------------------------------
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");

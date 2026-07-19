@@ -67,6 +67,21 @@ pub struct Dialogs {
 }
 
 impl Dialogs {
+    /// Whether any dialog is open. While one is, the editor's keyboard shortcuts
+    /// are suppressed: its text fields own the keyboard, and -- unlike
+    /// `egui_wants_keyboard_input` -- a chrome button merely holding focus (after
+    /// a stray Tab) must not, since the editor view has no text inputs of its own.
+    #[must_use]
+    pub fn any_open(&self) -> bool {
+        self.goto.is_some()
+            || self.find_reg.is_some()
+            || self.dro_info.is_some()
+            || self.gd3_tag.is_some()
+            || self.vgm_metadata.is_some()
+            || self.settings.is_some()
+            || self.track_edit.is_some()
+    }
+
     /// Draws every open dialog, dropping the ones that closed.
     ///
     /// `area`: where the modeless windows may live. Since egui 0.35, panels

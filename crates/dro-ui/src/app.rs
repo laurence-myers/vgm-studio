@@ -752,16 +752,13 @@ impl DroApp {
     }
 
     fn gather_key_input(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
-        // A modal (an alert box, or the DRO Info dialog) blocks the app, as
-        // wx's modal dialogs did -- without this, Space would start playback
-        // behind the message box.
-        if !self.alerts.is_empty() || self.dialogs.dro_info.is_some() {
-            return;
-        }
-        // A focused widget owns the keyboard: Ctrl+Z in a tag field must undo
-        // the *text*, not the song. (The wx accelerators likewise never fired
-        // inside the dialogs' own text fields.)
-        if ctx.egui_wants_keyboard_input() {
+        // An alert or any open dialog owns the keyboard: the editor's shortcuts
+        // (Space, Delete, ...) must not fire behind it, and Ctrl+Z in a tag field
+        // must undo the *text*, not the song. Unlike egui_wants_keyboard_input(),
+        // this does NOT fire when a chrome button merely holds focus -- the editor
+        // view has no text inputs, so a stray Tab onto a button used to disable
+        // every shortcut and let Space "click" the focused button (e.g. delete).
+        if !self.alerts.is_empty() || self.dialogs.any_open() {
             return;
         }
         // The rip tab hides the editor, so the editor's keys (Del, Space, arrows,
@@ -779,6 +776,11 @@ impl DroApp {
             return;
         }
         ctx.input_mut(|input| {
+            // The editor view has no focusable text, so swallow Tab/Shift+Tab: a
+            // stray Tab would otherwise move focus onto a chrome button, where
+            // Space activates it (e.g. "Del.") instead of toggling playback.
+            input.consume_key(egui::Modifiers::NONE, Key::Tab);
+            input.consume_key(egui::Modifiers::SHIFT, Key::Tab);
             // egui's shortcut matching ignores a surplus Shift, so the
             // shifted variants must be consumed before their plain forms.
             if input.consume_shortcut(&menus::SAVE_AS) {
