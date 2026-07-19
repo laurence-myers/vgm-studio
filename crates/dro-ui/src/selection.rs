@@ -45,11 +45,6 @@ impl Selection {
     }
 
     #[must_use]
-    pub fn len(&self) -> usize {
-        self.selected.len()
-    }
-
-    #[must_use]
     pub fn contains(&self, row: usize) -> bool {
         self.selected.contains(&row)
     }

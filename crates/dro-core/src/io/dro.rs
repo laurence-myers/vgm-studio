@@ -19,7 +19,7 @@
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
 use crate::song::dro_data::{DroDataV1, DroDataV2};
-use crate::song::{DroInstruction, OplType, Song, SongData};
+use crate::song::{OplType, Song, SongData};
 
 /// `DBRAWOPL`.
 pub const MAGIC: &[u8; 8] = b"DBRAWOPL";
@@ -242,21 +242,11 @@ fn write_v2(song: &Song, data: &DroDataV2) -> Vec<u8> {
     out
 }
 
-/// The total delay of a DRO v1 song, as its header records it.
-///
-/// Exposed because `dro2to1` and the v1 writer both need it, and because it makes
-/// the "header length disagrees with the data" warning a subtraction.
-#[must_use]
-pub fn sum_delay_ms(data: &SongData) -> u32 {
-    data.iter()
-        .map(DroInstruction::delay_ms)
-        .fold(0u32, u32::saturating_add)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song::{Bank, DRO_FILE_V1, DRO_FILE_V2, DelayKind};
+    use crate::song::{Bank, DRO_FILE_V1, DRO_FILE_V2, DelayKind, DroInstruction};
     use crate::undo::{DeleteInstructions, UndoController};
 
     const DRO_V2_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up_dro2.dro");
@@ -565,9 +555,4 @@ mod tests {
         assert!(read("t.dro", MAGIC).is_err());
     }
 
-    #[test]
-    fn sum_delay_ms_matches_the_prefix_total() {
-        let song = read("f.dro", DRO_V2_FIXTURE).unwrap();
-        assert_eq!(sum_delay_ms(song.data()), song.total_delay_ms());
-    }
 }

@@ -290,17 +290,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         self.song.borrow()
     }
 
-    #[must_use]
-    pub fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-
-    /// The current muting configuration.
-    #[must_use]
-    pub fn muting(&self) -> Muting {
-        self.muting
-    }
-
     /// Replaces the muting configuration, immediately keying off any melodic
     /// channel that just became muted so a sounding note does not ring on.
     ///
@@ -323,12 +312,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             }
         }
         self.muting = muting;
-    }
-
-    /// The current panning configuration.
-    #[must_use]
-    pub fn panning(&self) -> Panning {
-        self.panning
     }
 
     /// Replaces the panning configuration, applied to the chip immediately.

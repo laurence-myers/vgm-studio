@@ -41,7 +41,7 @@ pub fn ms_to_timestr(ms: u32) -> String {
 
 /// Formats minutes and seconds as `MM:SS`.
 #[must_use]
-pub fn to_timestr(minutes: u32, seconds: u32) -> String {
+fn to_timestr(minutes: u32, seconds: u32) -> String {
     format!("{minutes:02}:{seconds:02}")
 }
 
