@@ -594,7 +594,7 @@ fn spread_knob_spreads_the_pans_and_engages_custom() {
 }
 
 #[test]
-fn all_button_resets_pans_and_mutes() {
+fn all_button_unmutes_but_leaves_panning() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Custom mode with off-centre pans, plus a muted channel.
     harness.state_mut().channels.set_showcase_pans([0x10; 18]);
@@ -604,16 +604,36 @@ fn all_button_resets_pans_and_mutes() {
     harness.get_by_label("All").click();
     harness.run();
 
-    let audio = handles.audio.borrow();
     assert_eq!(
-        audio.mutings.last(),
+        handles.audio.borrow().mutings.last(),
         Some(&dro_synth::Muting::all()),
         "All unmutes everything"
     );
+    // The custom pan image is left untouched -- All is a muting control now (wd-5).
     assert_eq!(
-        audio.pannings.last(),
-        Some(&dro_synth::Panning::Custom([0x80; 18])),
-        "All recentres the pans to the type defaults"
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom([0x10; 18]),
+        "All leaves the pans alone"
+    );
+}
+
+#[test]
+fn reset_button_restores_original_panning() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().channels.set_showcase_pans([0x10; 18]);
+    assert!(matches!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Custom(_)
+    ));
+
+    harness.get_by_label("Reset").click();
+    harness.run();
+
+    // A plain OPL2 song's default is Original (mono).
+    assert_eq!(
+        harness.state().channels.panning(),
+        dro_synth::Panning::Original,
+        "Reset returns panning to the song type's default"
     );
 }
 

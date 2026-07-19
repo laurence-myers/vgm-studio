@@ -237,6 +237,17 @@ impl ChannelPanel {
         self.custom = true;
     }
 
+    /// Resets panning to the song type's default image and returns to Original
+    /// mode, with the spread back to mono. Returns whether the *effective*
+    /// panning changed (so the caller only resends when it must).
+    fn reset_pans(&mut self) -> bool {
+        let before = self.panning();
+        self.pans = self.default_pans;
+        self.spread = 0.0;
+        self.custom = false;
+        before != self.panning()
+    }
+
     fn is_soloed_channel(&self, index: usize) -> bool {
         self.channels
             .iter()
@@ -287,14 +298,12 @@ impl ChannelPanel {
                 response.muting_changed |=
                     self.percussion_toggle(ui, palette, 0, "Perc.", "Percussion (low bank)");
                 if bevel::button(ui, palette, "All")
-                    .on_hover_text("Unmute everything and recentre pans")
+                    .on_hover_text("Unmute every channel and drum (panning is left alone)")
                     .clicked()
                 {
                     response.muting_changed |=
                         self.channels != [true; 18] || self.percussion != [true; 2];
                     self.unmute_all();
-                    response.panning_changed |= self.pans != self.default_pans;
-                    self.pans = self.default_pans;
                 }
                 ui.end_row();
 
@@ -369,6 +378,12 @@ impl ChannelPanel {
                 {
                     self.set_spread(spread);
                     changed = true;
+                }
+                if bevel::button(ui, palette, "Reset")
+                    .on_hover_text("Reset panning to this song type's default (Original mode)")
+                    .clicked()
+                {
+                    changed |= self.reset_pans();
                 }
             });
         }
@@ -666,5 +681,32 @@ mod tests {
         // Dialling back to mono is still Custom (centred), not Original.
         panel.set_spread(0.0);
         assert_eq!(panel.panning(), Panning::Custom([PAN_CENTER; 18]));
+    }
+
+    #[test]
+    fn reset_pans_returns_to_default_and_original() {
+        let mut panel = ChannelPanel::for_song(&opl2_song());
+        panel.set_spread(1.0);
+        assert!(matches!(panel.panning(), Panning::Custom(_)));
+
+        assert!(panel.reset_pans(), "leaving Custom changes the panning");
+        assert_eq!(panel.panning(), Panning::Original);
+        assert_eq!(panel.spread, 0.0, "spread is back to mono");
+        assert!(!panel.custom);
+
+        // Already at the default: a second reset changes nothing.
+        assert!(!panel.reset_pans());
+    }
+
+    #[test]
+    fn unmuting_all_leaves_the_pans_alone() {
+        let mut panel = ChannelPanel::for_song(&opl2_song());
+        panel.set_spread(1.0);
+        let spread_image = panel.panning();
+        panel.toggle_channel(3); // mute one
+
+        panel.unmute_all();
+        assert_eq!(panel.muting(), Muting::all(), "everything audible again");
+        assert_eq!(panel.panning(), spread_image, "panning untouched by unmute");
     }
 }
