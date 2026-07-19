@@ -1668,7 +1668,7 @@ impl DroApp {
             return;
         };
         self.status = format!("Optimising {}...", image.name);
-        self.rip_service.optimize(image.name, image.bytes);
+        self.rip_service.optimize(image.name, image.bytes.to_vec());
     }
 
     /// Routes a finished optimisation: save a smaller file in place, or report

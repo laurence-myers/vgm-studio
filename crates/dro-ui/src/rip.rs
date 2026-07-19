@@ -44,6 +44,16 @@ impl RipTrack {
     }
 }
 
+/// A screenshot in the rip folder. Its bytes are shared (`Arc<[u8]>`) so the
+/// inline preview's per-frame `Image::from_bytes` clone is an Arc bump, not a
+/// full copy of the PNG (uiwidget-9).
+#[derive(Debug, Clone)]
+pub struct RipImage {
+    pub name: String,
+    pub path: Option<PathBuf>,
+    pub bytes: Arc<[u8]>,
+}
+
 /// The whole rip project: what a folder scan produced, plus the editable
 /// package metadata.
 #[derive(Debug)]
@@ -52,7 +62,7 @@ pub struct RipState {
     pub folder_path: Option<PathBuf>,
     pub meta: RipMeta,
     pub tracks: Vec<RipTrack>,
-    pub images: Vec<PickedFile>,
+    pub images: Vec<RipImage>,
     /// The description file that was parsed, if any.
     pub description_file: Option<String>,
     /// Set when an existing description could not be parsed; saving overwrites it.
@@ -91,7 +101,11 @@ impl RipState {
                         entry,
                     });
                 }
-                FileClass::Image => images.push(file),
+                FileClass::Image => images.push(RipImage {
+                    name: file.name,
+                    path: file.path,
+                    bytes: file.bytes.into(),
+                }),
                 FileClass::Doc => texts.push(file),
                 FileClass::Other => {}
             }
@@ -255,7 +269,7 @@ impl RipState {
         for image in &self.images {
             entries.push(RipEntry {
                 name: image.name.clone(),
-                bytes: image.bytes.clone(),
+                bytes: image.bytes.to_vec(),
                 kind: RipEntryKind::Image,
             });
         }
