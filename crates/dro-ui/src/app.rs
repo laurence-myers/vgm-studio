@@ -1114,8 +1114,21 @@ impl DroApp {
                 loop_modifier,
                 volume_modifier,
             } => {
-                self.editor
-                    .set_vgm_metadata(loop_point, loop_base, loop_modifier, volume_modifier)
+                let dropped = self.editor.set_vgm_metadata(
+                    loop_point,
+                    loop_base,
+                    loop_modifier,
+                    volume_modifier,
+                );
+                if dropped {
+                    self.alerts.push_back(Alert::new(
+                        "Loop point cleared",
+                        "The loop start was past the end of the song (shortened since the \
+                         dialog opened) and has been cleared.",
+                    ));
+                } else {
+                    self.status = "Updated VGM metadata.".to_owned();
+                }
             }
             Action::ApplySettings(config) => self.apply_settings(ctx, *config),
         }

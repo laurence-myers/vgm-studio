@@ -233,30 +233,31 @@ impl Editor {
     /// validated against the song it captured, which edits behind its
     /// modeless window may since have shortened -- and the VGM writer panics
     /// on a loop point past the end.
+    /// Applies the edited VGM header fields. Returns `true` if the loop point
+    /// was out of range for the *current* (possibly shortened since the dialog
+    /// opened) song and had to be dropped, so the caller can surface it instead
+    /// of losing it silently.
     pub fn set_vgm_metadata(
         &mut self,
         loop_point: Option<usize>,
         loop_base: u8,
         loop_modifier: u8,
         volume_modifier: u8,
-    ) {
+    ) -> bool {
         let Some(song) = self.song.as_mut() else {
-            return;
+            return false;
         };
         let len = song.len();
         let Some(meta) = song.vgm_meta_mut() else {
-            return;
+            return false;
         };
         let clamped = loop_point.filter(|&index| index < len);
-        if clamped != loop_point {
-            log::warn!(
-                "dropping loop point {loop_point:?}: the song now has only {len} instructions"
-            );
-        }
+        let dropped = clamped != loop_point;
         meta.loop_point = clamped;
         meta.loop_base = loop_base;
         meta.loop_modifier = loop_modifier;
         meta.volume_modifier = volume_modifier;
+        dropped
     }
 
     // -- queries -------------------------------------------------------------
@@ -504,13 +505,15 @@ mod tests {
         let len = editor.len();
 
         // The dialog captured a longer song than the one being edited now.
-        editor.set_vgm_metadata(Some(len + 50), 0, 0, 0);
+        let dropped = editor.set_vgm_metadata(Some(len + 50), 0, 0, 0);
+        assert!(dropped, "the caller is told the loop point was dropped");
         assert_eq!(editor.song().unwrap().vgm_meta().unwrap().loop_point, None);
         // The write path must not panic on what was just stored.
         editor.save_bytes().unwrap();
 
-        // A valid loop point still lands.
-        editor.set_vgm_metadata(Some(len - 1), 1, 2, 3);
+        // A valid loop point still lands, and is not reported as dropped.
+        let dropped = editor.set_vgm_metadata(Some(len - 1), 1, 2, 3);
+        assert!(!dropped);
         let meta = editor.song().unwrap().vgm_meta().unwrap();
         assert_eq!(meta.loop_point, Some(len - 1));
         assert_eq!(

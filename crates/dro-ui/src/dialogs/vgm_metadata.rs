@@ -17,12 +17,15 @@ use crate::theme::{Palette, bevel};
 #[derive(Debug)]
 pub struct VgmMetadataDialog {
     loop_point: String,
-    loop_samples_display: String,
     loop_base: String,
     loop_modifier: String,
     volume_modifier: String,
     /// One past the highest valid loop point.
     song_len: usize,
+    /// Cumulative samples before each instruction (len = `song_len + 1`),
+    /// captured at open so the read-only loop-length readout can be recomputed
+    /// live from the typed loop point.
+    samples_prefix: Vec<u32>,
 }
 
 impl VgmMetadataDialog {
@@ -32,13 +35,11 @@ impl VgmMetadataDialog {
         let meta = song.vgm_meta()?;
         Some(Self {
             loop_point: meta.loop_point.map_or_else(String::new, |i| i.to_string()),
-            loop_samples_display: song
-                .loop_num_samples()
-                .map_or_else(|| "(no loop)".to_owned(), |samples| samples.to_string()),
             loop_base: meta.loop_base.to_string(),
             loop_modifier: meta.loop_modifier.to_string(),
             volume_modifier: meta.volume_modifier.to_string(),
             song_len: song.len(),
+            samples_prefix: song.delay_samples_prefix(),
         })
     }
 
@@ -66,9 +67,10 @@ impl VgmMetadataDialog {
                     ui.end_row();
 
                     ui.label("Loop length (samples):");
+                    let mut samples = self.loop_samples_display();
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut self.loop_samples_display)
+                        egui::TextEdit::singleline(&mut samples)
                             .text_color(palette.data_text)
                             .desired_width(160.0),
                     );
@@ -144,5 +146,60 @@ impl VgmMetadataDialog {
             volume_modifier,
         });
         true
+    }
+
+    /// The loop length in samples for the currently-typed loop point, derived
+    /// live from the prefix captured at open: "(no loop)" when the field is
+    /// empty, "(invalid)" when it isn't a valid instruction index.
+    fn loop_samples_display(&self) -> String {
+        let trimmed = self.loop_point.trim();
+        if trimmed.is_empty() {
+            return "(no loop)".to_owned();
+        }
+        match trimmed.parse::<usize>() {
+            Ok(index) if index < self.song_len => {
+                let total = self.samples_prefix.last().copied().unwrap_or(0);
+                total.saturating_sub(self.samples_prefix[index]).to_string()
+            }
+            _ => "(invalid)".to_owned(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A dialog over a 4-instruction song whose loop length from each index is
+    /// `100 - prefix[index]`.
+    fn dialog() -> VgmMetadataDialog {
+        VgmMetadataDialog {
+            loop_point: String::new(),
+            loop_base: "0".to_owned(),
+            loop_modifier: "0".to_owned(),
+            volume_modifier: "0".to_owned(),
+            song_len: 4,
+            samples_prefix: vec![0, 10, 30, 60, 100],
+        }
+    }
+
+    #[test]
+    fn readout_tracks_the_typed_loop_point() {
+        let mut dialog = dialog();
+        dialog.loop_point = "2".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "70"); // 100 - 30
+        dialog.loop_point = "3".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "40"); // 100 - 60
+    }
+
+    #[test]
+    fn readout_handles_empty_and_out_of_range() {
+        let mut dialog = dialog();
+        dialog.loop_point = "   ".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "(no loop)");
+        dialog.loop_point = "4".to_owned(); // == song_len, out of range
+        assert_eq!(dialog.loop_samples_display(), "(invalid)");
+        dialog.loop_point = "x".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "(invalid)");
     }
 }

@@ -425,6 +425,22 @@ impl Song {
             .fold(0u32, u32::saturating_add)
     }
 
+    /// Cumulative delay in samples: element `i` is the number of samples elapsed
+    /// before instruction `i`, and the last element (index `len`) is the song's
+    /// total. Lets a caller derive a loop length for any candidate loop point
+    /// (`prefix[len] - prefix[loop_point]`) without re-walking the song each time.
+    #[must_use]
+    pub fn delay_samples_prefix(&self) -> Vec<u32> {
+        let mut prefix = Vec::with_capacity(self.len() + 1);
+        let mut acc = 0u32;
+        prefix.push(acc);
+        for instruction in self.data.iter() {
+            acc = acc.saturating_add(instruction.delay_samples());
+            prefix.push(acc);
+        }
+        prefix
+    }
+
     /// The number of samples in one loop: from the loop point to the end of the
     /// song. `None` for a DRO song, or a VGM that does not loop.
     ///
@@ -677,6 +693,18 @@ mod tests {
         assert_eq!(song.len(), 14);
         assert_eq!(song.ms_length, SONG_LENGTH);
         assert!(!song.is_empty());
+    }
+
+    #[test]
+    fn delay_samples_prefix_matches_samples_before() {
+        let song = dro_song_v2();
+        let prefix = song.delay_samples_prefix();
+        assert_eq!(prefix.len(), song.len() + 1);
+        assert_eq!(prefix[0], 0);
+        for (index, &prefixed) in prefix.iter().enumerate() {
+            assert_eq!(prefixed, song.samples_before(index), "at {index}");
+        }
+        assert_eq!(*prefix.last().unwrap(), song.total_delay_samples());
     }
 
     #[test]
