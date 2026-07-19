@@ -3,6 +3,7 @@
 //! Ported from `VGMSong.from_song` and `dro2to1.py`.
 
 use crate::error::{Error, Result};
+use crate::song::dro_data::v1_opcode;
 use crate::song::{Bank, DelayKind, DroDataV1, DroInstruction, OplType, Song, SongData};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
@@ -134,7 +135,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
                 let value = u8::try_from(ms - 1).map_err(|_| {
                     Error::file(format!("Short delay of {ms} ms does not fit DRO v1"))
                 })?;
-                out.extend_from_slice(&[0x00, value]);
+                out.extend_from_slice(&[v1_opcode::SHORT_DELAY, value]);
             }
             DroInstruction::DelayMs {
                 kind: DelayKind::Long,
@@ -143,7 +144,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
                 let value = u16::try_from(ms - 1).map_err(|_| {
                     Error::file(format!("Long delay of {ms} ms does not fit DRO v1"))
                 })?;
-                out.push(0x01);
+                out.push(v1_opcode::LONG_DELAY);
                 out.extend_from_slice(&value.to_le_bytes());
             }
             DroInstruction::Register {
@@ -153,13 +154,16 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
             } => {
                 let effective = own.unwrap_or(bank);
                 if effective != bank {
-                    out.push(0x02 + effective.index());
+                    out.push(match effective {
+                        Bank::Low => v1_opcode::BANK_LOW,
+                        Bank::High => v1_opcode::BANK_HIGH,
+                    });
                     bank = effective;
                 }
-                // Registers 0x00..=0x04 collide with v1's opcodes, so they are
-                // escaped with 0x04.
-                if reg < 0x05 {
-                    out.extend_from_slice(&[0x04, reg, value]);
+                // Registers that collide with v1's opcodes (0x00..=ESCAPE) are
+                // escaped with the ESCAPE opcode.
+                if reg <= v1_opcode::ESCAPE {
+                    out.extend_from_slice(&[v1_opcode::ESCAPE, reg, value]);
                 } else {
                     out.extend_from_slice(&[reg, value]);
                 }

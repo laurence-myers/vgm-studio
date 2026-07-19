@@ -9,14 +9,19 @@ use crate::song::instruction::{Bank, DelayKind, DroInstruction};
 use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
 /// The DRO v1 delay opcodes, which double as its register-escape opcodes.
-mod v1_opcode {
-    pub(super) const SHORT_DELAY: u8 = 0x00;
-    pub(super) const LONG_DELAY: u8 = 0x01;
-    pub(super) const BANK_LOW: u8 = 0x02;
-    pub(super) const BANK_HIGH: u8 = 0x03;
+///
+/// `pub(crate)` so [`convert::dro2_to_dro1`](crate::convert) re-encodes v1 against
+/// the same named opcodes this module decodes, rather than a parallel set of magic
+/// bytes that could drift.
+pub(crate) mod v1_opcode {
+    pub(crate) const SHORT_DELAY: u8 = 0x00;
+    pub(crate) const LONG_DELAY: u8 = 0x01;
+    pub(crate) const BANK_LOW: u8 = 0x02;
+    pub(crate) const BANK_HIGH: u8 = 0x03;
     /// Escape: the next byte is a register number that would otherwise collide
-    /// with one of the opcodes above.
-    pub(super) const ESCAPE: u8 = 0x04;
+    /// with one of the opcodes above. Its value is also the highest colliding
+    /// register, so `reg <= ESCAPE` is exactly the set that must be escaped.
+    pub(crate) const ESCAPE: u8 = 0x04;
 }
 
 // ---------------------------------------------------------------------------
