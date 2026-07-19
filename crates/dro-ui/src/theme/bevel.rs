@@ -154,3 +154,82 @@ fn button_impl(
 
     response
 }
+
+/// A latching toggle drawn as an FT2 button: an identical footprint in every
+/// state, raised while off and sunken with an accent face while on. A primary
+/// click flips `selected` (right-clicks pass through on the [`Response`], for the
+/// channel-solo gesture). Reports itself as a checkbox to accessibility and the
+/// headless tests, so `get_by_label` still finds it. Sized to its label, like
+/// [`button`], so it never grows or shrinks with hover or selection.
+pub fn toggle(ui: &mut Ui, palette: &Palette, selected: &mut bool, text: &str) -> Response {
+    let padding = ui.spacing().button_padding;
+    let min = ui.spacing().interact_size;
+    toggle_impl(ui, palette, selected, text, |galley| {
+        (galley + padding * 2.0).max(min)
+    })
+}
+
+/// As [`toggle`] but allocated at exactly `size` -- e.g. a channel digit pinned
+/// to the pan-knob width so it stays centred under its knob whatever its state.
+pub fn toggle_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    selected: &mut bool,
+    text: &str,
+    size: Vec2,
+) -> Response {
+    toggle_impl(ui, palette, selected, text, |_galley| size)
+}
+
+fn toggle_impl(
+    ui: &mut Ui,
+    palette: &Palette,
+    selected: &mut bool,
+    text: &str,
+    size: impl FnOnce(Vec2) -> Vec2,
+) -> Response {
+    // The label's colour tracks the state, so lay it out with the "recolour me
+    // later" sentinel and pass the real ink to `galley` at paint time.
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = ui.fonts_mut(|fonts| {
+        fonts.layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER)
+    });
+
+    let desired = size(galley.size());
+    let (rect, mut response) = ui.allocate_exact_size(desired, Sense::click());
+    if response.clicked() {
+        *selected = !*selected;
+        response.mark_changed();
+    }
+    let on = *selected;
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), on, text)
+    });
+
+    if ui.is_rect_visible(rect) {
+        let held = response.is_pointer_button_down_on();
+        // On reads as pushed in; a live press deepens the bevel and nudges the
+        // label, exactly as a momentary button does.
+        let sunken = on || held;
+        let fill = if on {
+            palette.accent
+        } else if response.hovered() {
+            palette.button_hover
+        } else {
+            palette.button_face
+        };
+        let ink = if on {
+            palette.selection_text
+        } else {
+            palette.button_text
+        };
+        let painter = ui.painter();
+        painter.rect_filled(rect, egui::CornerRadius::ZERO, fill);
+        paint_button_bevel(painter, rect, palette, sunken);
+        let offset = if held { Vec2::splat(1.0) } else { Vec2::ZERO };
+        let text_pos = rect.center() - galley.size() * 0.5 + offset;
+        painter.galley(text_pos, galley, ink);
+    }
+
+    response
+}

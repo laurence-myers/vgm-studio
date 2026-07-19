@@ -260,24 +260,18 @@ impl ChannelPanel {
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // Kill the hover/active rect expansion so a toggle does not grow
-                // (and jostle its neighbours) when pointed at or held.
-                let widgets = &mut ui.visuals_mut().widgets;
-                widgets.inactive.expansion = 0.0;
-                widgets.hovered.expansion = 0.0;
-                widgets.active.expansion = 0.0;
-                widgets.open.expansion = 0.0;
-
-                // Low bank: pan row, then the toggle row with Perc. and All.
+                // Low bank: pan row, then the toggle row with Perc. and All. The
+                // toggles are `bevel::toggle`s, each pinned to a fixed rect, so
+                // they never grow or jostle their neighbours across states.
                 response.panning_changed |= self.pan_row(ui, palette, 0, true);
                 ui.end_row();
 
                 ui.label("Channels:");
                 for index in 0..9 {
-                    response.muting_changed |= self.channel_toggle(ui, index);
+                    response.muting_changed |= self.channel_toggle(ui, palette, index);
                 }
                 response.muting_changed |=
-                    self.percussion_toggle(ui, 0, "Perc.", "Percussion (low bank)");
+                    self.percussion_toggle(ui, palette, 0, "Perc.", "Percussion (low bank)");
                 if bevel::button(ui, palette, "All")
                     .on_hover_text("Unmute everything and recentre pans")
                     .clicked()
@@ -296,10 +290,10 @@ impl ChannelPanel {
 
                     ui.label("High bank:");
                     for index in 9..18 {
-                        response.muting_changed |= self.channel_toggle(ui, index);
+                        response.muting_changed |= self.channel_toggle(ui, palette, index);
                     }
                     response.muting_changed |=
-                        self.percussion_toggle(ui, 1, "Perc.", "Percussion (high bank)");
+                        self.percussion_toggle(ui, palette, 1, "Perc.", "Percussion (high bank)");
                     ui.end_row();
                 }
             });
@@ -341,8 +335,7 @@ impl ChannelPanel {
                 _ => "Original: mono",
             };
             let mut custom = self.custom;
-            if ui
-                .toggle_value(&mut custom, "Custom")
+            if bevel::toggle(ui, palette, &mut custom, "Custom")
                 .on_hover_text(hint)
                 .changed()
             {
@@ -367,21 +360,21 @@ impl ChannelPanel {
     ///
     /// Allocated at a fixed cell size (the knob width above it) so the digit stays
     /// centred under its knob and the column never resizes with the button state.
-    fn channel_toggle(&mut self, ui: &mut egui::Ui, index: usize) -> bool {
+    fn channel_toggle(&mut self, ui: &mut egui::Ui, palette: &Palette, index: usize) -> bool {
         let label = (index % 9 + 1).to_string();
         let row_h = ui.spacing().interact_size.y;
-        let response = ui
-            .allocate_ui_with_layout(
-                egui::vec2(pan_knob::SIZE, row_h),
-                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-                |ui| ui.toggle_value(&mut self.channels[index], label),
-            )
-            .inner
-            .on_hover_text(format!(
-                "Channel {} ({} bank). Left-click mutes, right-click solos.",
-                index % 9 + 1,
-                if index < 9 { "low" } else { "high" },
-            ));
+        let response = bevel::toggle_sized(
+            ui,
+            palette,
+            &mut self.channels[index],
+            &label,
+            egui::vec2(pan_knob::SIZE, row_h),
+        )
+        .on_hover_text(format!(
+            "Channel {} ({} bank). Left-click mutes, right-click solos.",
+            index % 9 + 1,
+            if index < 9 { "low" } else { "high" },
+        ));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_channel(index);
@@ -394,16 +387,17 @@ impl ChannelPanel {
     fn percussion_toggle(
         &mut self,
         ui: &mut egui::Ui,
+        palette: &Palette,
         bank: usize,
         label: &str,
         hover: &str,
     ) -> bool {
-        let response = ui
-            .toggle_value(&mut self.percussion[bank], label)
-            .on_hover_text(format!(
+        let response = bevel::toggle(ui, palette, &mut self.percussion[bank], label).on_hover_text(
+            format!(
                 "{hover}. Drums sound through channels 7-9's pans. \
                  Left-click mutes, right-click solos."
-            ));
+            ),
+        );
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_percussion(bank);
