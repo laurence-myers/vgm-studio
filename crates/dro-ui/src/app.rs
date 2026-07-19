@@ -1346,6 +1346,16 @@ impl DroApp {
         // editor song's fixed hard-L/R image applied to a mono track plays it
         // hard left).
         let preview_panning = ChannelPanel::for_song(&song).panning();
+        // `load` below tears down the editor's stream the instant it runs --
+        // success or not -- so the editor's audio snapshot is gone regardless.
+        // Invalidate the revision *before* the load so the editor's next Play
+        // reloads its own song instead of wedging on "No song is loaded" or
+        // resuming this preview. Clear any prior preview marker up front too, so
+        // a failure below can't strand a stop button on the old track.
+        self.audio_revision = None;
+        if let Some(rip) = self.rip.as_mut() {
+            rip.preview = None;
+        }
         self.audio.pause();
         if let Err(message) = self.audio.load(song, &self.config.audio) {
             self.alerts.push_back(Alert::error(message));
@@ -1354,15 +1364,16 @@ impl DroApp {
         self.audio.set_muting(dro_synth::Muting::all());
         self.audio.set_panning(preview_panning);
         if let Err(message) = self.audio.play() {
+            // Load succeeded but playback won't start: drop the half-started
+            // preview so the service isn't left holding it (and the editor's
+            // next Play reloads cleanly via the reset revision above).
+            self.audio.unload();
             self.alerts.push_back(Alert::error(message));
             return;
         }
         if let Some(rip) = self.rip.as_mut() {
             rip.preview = Some(index);
         }
-        // The editor's audio snapshot is now this preview; force a reload before
-        // the editor's next play so it does not resume the wrong song.
-        self.audio_revision = None;
     }
 
     fn stop_preview(&mut self) {

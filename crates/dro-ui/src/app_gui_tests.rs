@@ -889,6 +889,79 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
 }
 
 #[test]
+fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
+    // Regression (H3): a failed preview `load` still tears down the editor's
+    // stream, so the editor's audio revision must be invalidated up front --
+    // otherwise `ensure_audio` short-circuits on the next editor Play and calls
+    // `play()` on an empty output (the "No song is loaded" wedge).
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    let editor_name = harness.state().editor.song().unwrap().name.clone();
+    open_folder(&mut harness, &handles, single_track_folder());
+
+    // Make the editor's audio current, as if it had just played.
+    harness.state_mut().active_tab = AppTab::Editor;
+    harness.state_mut().do_play();
+    assert!(handles.audio.borrow().playing);
+
+    // Preview a rip track, but force its load to fail.
+    handles.audio.borrow_mut().fail_next_load = true;
+    harness.state_mut().active_tab = AppTab::Rip;
+    harness.state_mut().preview_track(0);
+    assert!(
+        harness.state().audio_revision.is_none(),
+        "a failed preview load invalidates the editor's audio revision"
+    );
+    assert!(harness.state().rip.as_ref().unwrap().preview.is_none());
+
+    // The editor reloads and plays its own song instead of wedging.
+    harness.state_mut().active_tab = AppTab::Editor;
+    harness.state_mut().do_play();
+    let audio = handles.audio.borrow();
+    assert!(audio.playing, "the editor reloaded and plays, not wedged");
+    assert_eq!(
+        audio.loaded.as_ref().unwrap().name,
+        editor_name,
+        "the editor's own song is what reloaded"
+    );
+}
+
+#[test]
+fn a_failed_preview_play_reloads_the_editor_song_not_the_rip_track() {
+    // Regression (H3): when preview `load` succeeds but `play` fails, the
+    // half-started preview must be unloaded and the revision reset, so the next
+    // editor Play reloads the *editor's* song rather than resuming the rip track
+    // the service still had loaded.
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    let editor_name = harness.state().editor.song().unwrap().name.clone();
+    open_folder(&mut harness, &handles, single_track_folder());
+
+    harness.state_mut().active_tab = AppTab::Editor;
+    harness.state_mut().do_play();
+
+    handles.audio.borrow_mut().fail_next_play = true;
+    harness.state_mut().active_tab = AppTab::Rip;
+    harness.state_mut().preview_track(0);
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().preview,
+        None,
+        "the half-started preview is dropped"
+    );
+    assert!(!handles.audio.borrow().playing);
+
+    harness.state_mut().active_tab = AppTab::Editor;
+    harness.state_mut().do_play();
+    let audio = handles.audio.borrow();
+    assert!(audio.playing);
+    assert_eq!(
+        audio.loaded.as_ref().unwrap().name,
+        editor_name,
+        "the editor's own song reloaded, not the rip track"
+    );
+}
+
+#[test]
 fn opening_a_track_loads_it_into_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
