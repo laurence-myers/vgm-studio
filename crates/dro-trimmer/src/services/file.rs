@@ -88,6 +88,12 @@ impl FileService for NativeFileService {
                     dialog = dialog.add_filter(name, extensions);
                 }
                 match dialog.save_file() {
+                    Some(path) if changes_song_format(&suggested_name, &path) => {
+                        SaveOutcome::Failed(
+                            "Save As can't change the file format. Use Convert to VGM instead."
+                                .to_owned(),
+                        )
+                    }
                     Some(path) => write_outcome(path, &bytes),
                     None => SaveOutcome::Cancelled,
                 }
@@ -221,8 +227,35 @@ fn save_filters(suggested_name: &str) -> &'static [(&'static str, &'static [&'st
         Some("zip") => &[("Zip archive (*.zip)", &["zip"])],
         Some("txt") => &[("Text file (*.txt)", &["txt"])],
         Some("m3u") => &[("Playlist (*.m3u)", &["m3u"])],
+        // A song is offered only its own format, so Save As cannot pick an
+        // extension the already-serialised bytes don't match (M5/ux-2).
+        Some("dro") => &[("DRO files (*.dro)", &["dro"])],
+        Some("vgm" | "vgz") => &[("VGM files (*.vgm;*.vgz)", &["vgm", "vgz"])],
         _ => &FILTERS,
     }
+}
+
+/// The song-format class of an extension, for the Save As guard: `vgm` and `vgz`
+/// are one format (they differ only in compression), `dro` another. `None` for
+/// anything that isn't a song.
+fn song_format_class(extension: Option<&str>) -> Option<&'static str> {
+    match extension {
+        Some(ext) if ext.eq_ignore_ascii_case("dro") => Some("dro"),
+        Some(ext) if ext.eq_ignore_ascii_case("vgm") || ext.eq_ignore_ascii_case("vgz") => {
+            Some("vgm")
+        }
+        _ => None,
+    }
+}
+
+/// Whether saving under `chosen` would change a song's format away from what its
+/// own `suggested` name implies -- e.g. DRO bytes written to a `.vgm`, which the
+/// app then can't reopen. Fires only when both are recognised song formats, so a
+/// `.zip`/`.txt` (or an extension-less) target never trips it.
+fn changes_song_format(suggested: &str, chosen: &Path) -> bool {
+    let suggested = song_format_class(Path::new(suggested).extension().and_then(|e| e.to_str()));
+    let chosen = song_format_class(chosen.extension().and_then(|e| e.to_str()));
+    matches!((suggested, chosen), (Some(s), Some(c)) if s != c)
 }
 
 fn write_outcome(path: PathBuf, bytes: &[u8]) -> SaveOutcome {
@@ -378,5 +411,29 @@ mod tests {
             "the on-disk name took the new case, got {names:?}"
         );
         assert_eq!(fs::read(dir.join("01 Intro.vgz")).unwrap(), b"song");
+    }
+
+    #[test]
+    fn save_filters_narrow_a_song_to_its_own_format() {
+        assert_eq!(save_filters("song.dro")[0].1.to_vec(), ["dro"]);
+        assert_eq!(save_filters("song.dro").len(), 1, "no combined DRO/VGM filter");
+        assert_eq!(save_filters("song.vgm")[0].1.to_vec(), ["vgm", "vgz"]);
+        assert_eq!(save_filters("song.vgz")[0].1.to_vec(), ["vgm", "vgz"]);
+        assert_eq!(save_filters("Game.zip")[0].1.to_vec(), ["zip"]);
+    }
+
+    #[test]
+    fn changes_song_format_flags_cross_format_saves_only() {
+        assert!(changes_song_format("song.dro", Path::new("song.vgm")));
+        assert!(changes_song_format("song.vgm", Path::new("song.dro")));
+        assert!(
+            !changes_song_format("song.vgm", Path::new("song.vgz")),
+            "vgm<->vgz is the same format (compression only)"
+        );
+        assert!(!changes_song_format("song.dro", Path::new("song.dro")));
+        assert!(
+            !changes_song_format("song.dro", Path::new("song")),
+            "an unrecognised target extension is not a format change"
+        );
     }
 }
