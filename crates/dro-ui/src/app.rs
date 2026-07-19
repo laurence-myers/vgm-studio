@@ -1124,6 +1124,12 @@ impl DroApp {
     // -- the workflows -----------------------------------------------------
 
     fn load_file(&mut self, file: PickedFile) {
+        // Loading a song belongs to the editor: stop any rip preview and show
+        // the editor tab so the load isn't invisible (menu Open, drag-and-drop,
+        // and the CLI initial load can all fire while the rip tab is active).
+        // Idempotent with open_track_in_editor, which also sets the tab.
+        self.stop_preview();
+        self.active_tab = AppTab::Editor;
         let name = file.name.clone();
         match self.editor.load(file) {
             Ok(report) => {

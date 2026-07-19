@@ -1007,6 +1007,34 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_rip_track() {
 }
 
 #[test]
+fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
+    // Regression (M7): File>Open (or a drop) while the rip tab is active must
+    // surface the editor tab and stop any preview, not load invisibly behind
+    // the rip view with a stranded play button.
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Rip);
+
+    harness.state_mut().preview_track(0);
+    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(0));
+
+    // Deliver a song the way menu Open / drag-and-drop would.
+    harness.state_mut().load_file(picked(&tone_song()));
+
+    assert_eq!(
+        harness.state().active_tab,
+        AppTab::Editor,
+        "the tab flips to the editor"
+    );
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().preview,
+        None,
+        "the preview is stopped"
+    );
+    assert!(harness.state().editor.has_song());
+}
+
+#[test]
 fn opening_a_track_loads_it_into_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
