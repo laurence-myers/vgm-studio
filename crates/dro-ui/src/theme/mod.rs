@@ -70,6 +70,17 @@ pub fn separator_full(ui: &mut egui::Ui, palette: &Palette) {
     );
 }
 
+/// A horizontal 2px groove spanning the current content width, painted through
+/// the ui's own (clipped) painter. Unlike [`separator_full`] it stays inside a
+/// scroll area's viewport -- it does not bleed over the panels below it or past
+/// the scrollbar beside it -- so it is the divider to use *inside* a scroll area.
+/// Allocates just the 2px; pad around it with `add_space` to taste.
+pub fn separator_clipped(ui: &mut egui::Ui, palette: &Palette) {
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 2.0), egui::Sense::hover());
+    bevel::groove_h(ui.painter(), rect.x_range(), rect.center().y - 1.0, palette);
+}
+
 /// Installs the theme: pins the dark base (so an OS light/dark flip can't swap
 /// it), loads the DOS font, turns off edge feathering for hard pixels, and
 /// applies the chosen palette.

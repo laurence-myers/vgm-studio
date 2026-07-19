@@ -505,7 +505,9 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
             state.dirty = true;
         }
 
-        crate::theme::separator_full(ui, palette);
+        // A clipped divider (not separator_full): inside the scroll area it must
+        // not bleed over the status bar below or past the scrollbar beside it.
+        crate::theme::separator_clipped(ui, palette);
         track_table(ui, state, palette, actions);
         screenshots(ui, state, palette, actions);
     });
