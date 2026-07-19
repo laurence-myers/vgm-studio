@@ -66,7 +66,7 @@ pub enum Action {
     OptimizeImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
     QuickEditSubmitted {
-        index: usize,
+        original_name: String,
         file_name: String,
         tag: Box<Gd3Tag>,
     },

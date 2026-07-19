@@ -1133,6 +1133,76 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     );
 }
 
+#[test]
+fn quick_edit_after_a_reorder_targets_the_track_by_name() {
+    // Regression (H1): a rescan can reorder the name-sorted list while the
+    // quick-edit dialog is open, so the submit re-resolves the track by its
+    // original file name -- never a since-stale index.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    // Reorder: 02 Boss.vgm first, 01 Intro.vgz now at index 1.
+    let reversed = rip_folder(
+        "Cool Game",
+        vec![
+            tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+        ],
+    );
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(reversed));
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().tracks[1].file_name,
+        "01 Intro.vgz",
+        "01 Intro is now at index 1"
+    );
+
+    // A quick edit that opened on 01 Intro.vgz renames it; it must touch 01
+    // Intro's file, not whatever now sits at the old index 0 (02 Boss.vgm).
+    harness.state_mut().quick_edit_submitted(
+        "01 Intro.vgz".to_owned(),
+        "01 Intro Redux.vgz".to_owned(),
+        dro_core::Gd3Tag::default(),
+    );
+
+    let files = handles.files.borrow();
+    let (from, to) = files
+        .rename_requests
+        .last()
+        .expect("a rename was requested");
+    assert!(
+        from.to_string_lossy().ends_with("01 Intro.vgz"),
+        "renamed 01 Intro's file, got {from:?}"
+    );
+    assert_eq!(to, "01 Intro Redux.vgz");
+}
+
+#[test]
+fn a_rescan_closes_the_open_quick_edit_dialog() {
+    // Regression (H1, defensive): the quick-edit dialog is bound to one track,
+    // so a rescan that can reorder or drop tracks must close it.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    harness.state_mut().open_track_quick_edit(0);
+    assert!(harness.state().dialogs.track_edit.is_some());
+
+    // Redeliver the folder (a same-folder rescan).
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(cool_game_folder()));
+    harness.run_steps(3);
+    assert!(
+        harness.state().dialogs.track_edit.is_none(),
+        "the rescan closed the quick-edit dialog"
+    );
+}
+
 const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// A folder that passes every export validation (named, numbered, with a png).

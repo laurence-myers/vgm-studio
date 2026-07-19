@@ -1021,10 +1021,10 @@ impl DroApp {
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
             Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
-                index,
+                original_name,
                 file_name,
                 tag,
-            } => self.quick_edit_submitted(index, file_name, *tag),
+            } => self.quick_edit_submitted(original_name, file_name, *tag),
 
             Action::Help => self.alerts.push_back(Alert::new(HELP_TITLE, HELP_TEXT)),
             Action::About => self.alerts.push_back(Alert::new("About", about_text())),
@@ -1232,6 +1232,9 @@ impl DroApp {
                 self.audio.rewind();
                 self.audio_revision = None;
             }
+            // A rescan can reorder or drop tracks; the quick-edit dialog is bound
+            // to one track, so close it rather than let it act on a stale list (H1).
+            self.close_rip_dialogs();
             return;
         }
         self.stop_preview();
@@ -1437,15 +1440,19 @@ impl DroApp {
     }
 
     fn open_track_quick_edit(&mut self, index: usize) {
-        let dialog = self
-            .rip
-            .as_ref()
-            .and_then(|rip| rip.tracks.get(index))
-            .and_then(|track| {
-                let song = track.song()?;
-                let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
-                Some(TrackEditDialog::new(index, track.file_name.clone(), tag))
-            });
+        let dialog = self.rip.as_ref().and_then(|rip| {
+            let track = rip.tracks.get(index)?;
+            let song = track.song()?;
+            let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
+            // Every other track's name, so a rename can't collide with one.
+            let siblings = rip
+                .tracks
+                .iter()
+                .filter(|other| other.file_name != track.file_name)
+                .map(|other| other.file_name.clone())
+                .collect();
+            Some(TrackEditDialog::new(track.file_name.clone(), tag, siblings))
+        });
         if let Some(dialog) = dialog {
             self.dialogs.track_edit = Some(dialog);
         }
@@ -1453,9 +1460,18 @@ impl DroApp {
 
     /// Applies a quick edit: rewrite the track's bytes with the new tag (and, if
     /// the name changed, rename the file). The list rescans on the outcomes.
-    fn quick_edit_submitted(&mut self, index: usize, new_name: String, tag: Gd3Tag) {
+    fn quick_edit_submitted(&mut self, original_name: String, new_name: String, tag: Gd3Tag) {
         self.stop_preview();
-        let Some(track) = self.rip.as_ref().and_then(|rip| rip.tracks.get(index)) else {
+        // Re-resolve the target by the name the dialog opened on: a rescan may
+        // have reordered the list since, so the original index is unreliable.
+        let Some(track) = self
+            .rip
+            .as_ref()
+            .and_then(|rip| rip.tracks.iter().find(|track| track.file_name == original_name))
+        else {
+            self.alerts.push_back(Alert::error(format!(
+                "\"{original_name}\" is no longer in the folder; the edit was not applied."
+            )));
             return;
         };
         let old_name = track.file_name.clone();
