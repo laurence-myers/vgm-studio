@@ -86,42 +86,31 @@ impl NativeAudio {
 
         let sample_rate = supported_rate(&device, config.frequency)?
             .unwrap_or_else(|| default_config.sample_rate());
-        let stream_config = StreamConfig {
-            channels: 2,
-            sample_rate,
-            // The pull engine is buffer-size agnostic (proven by its chunk-
-            // invariance test), so let cpal pick whatever the device prefers.
-            buffer_size: cpal::BufferSize::Default,
-        };
-
-        let engine = PlayerEngine::new(Arc::clone(&song), sample_rate, config.chip_write_delay);
-        // Boost rides the existing `&AudioConfig`, and the limiter's release is
-        // derived from the *actual* negotiated rate, not the configured one.
-        let limiter = BoostLimiter::new(sample_rate, config.boost);
-        let (commands, consumer) = rtrb::RingBuffer::<Command>::new(64);
-        let shared = Arc::new(SharedState::default());
-
-        let stream = match default_config.sample_format() {
-            SampleFormat::F32 => build_stream(
-                &device,
-                &stream_config,
-                engine,
-                consumer,
-                Arc::clone(&shared),
-                limiter,
-                |sample| f32::from(sample) / 32768.0,
-            )?,
-            SampleFormat::I16 => build_stream(
-                &device,
-                &stream_config,
-                engine,
-                consumer,
-                Arc::clone(&shared),
-                limiter,
-                |sample| sample,
-            )?,
-            other => return Err(AudioError::UnsupportedFormat(format!("{other:?}"))),
-        };
+        // Wire the configured buffer size, clamped to the device's supported
+        // range; fall back to the host default if the device advertises no range
+        // (or later rejects the fixed size -- WASAPI can). The pull engine is
+        // buffer-size agnostic (its chunk-invariance test proves it), so this
+        // changes only the callback size / latency, never the rendered audio.
+        let sample_format = default_config.sample_format();
+        let buffer_size = resolve_buffer_size(&device, sample_rate, config.buffer_size);
+        let (stream, commands, shared) =
+            match Self::build(&device, sample_format, sample_rate, &song, config, buffer_size) {
+                Ok(parts) => parts,
+                Err(error) if matches!(buffer_size, cpal::BufferSize::Fixed(_)) => {
+                    log::warn!(
+                        "device rejected a fixed buffer size ({error}); using the host default"
+                    );
+                    Self::build(
+                        &device,
+                        sample_format,
+                        sample_rate,
+                        &song,
+                        config,
+                        cpal::BufferSize::Default,
+                    )?
+                }
+                Err(error) => return Err(error),
+            };
 
         Ok(Self {
             stream,
@@ -129,6 +118,60 @@ impl NativeAudio {
             shared,
             sample_rate,
         })
+    }
+
+    /// Builds the output stream, its command producer, and shared state for a
+    /// given negotiated rate and buffer size.
+    fn build(
+        device: &cpal::Device,
+        sample_format: SampleFormat,
+        sample_rate: u32,
+        song: &Arc<Song>,
+        config: &AudioConfig,
+        buffer_size: cpal::BufferSize,
+    ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
+        let engine = PlayerEngine::new(Arc::clone(song), sample_rate, config.chip_write_delay);
+        // Boost rides the existing `&AudioConfig`, and the limiter's release is
+        // derived from the *actual* negotiated rate, not the configured one.
+        let limiter = BoostLimiter::new(sample_rate, config.boost);
+        let (commands, consumer) = rtrb::RingBuffer::<Command>::new(64);
+        let shared = Arc::new(SharedState::default());
+        // Pre-size the callback scratch so the real-time path never allocates: a
+        // fixed buffer's frame count, else a generous cap for the host default.
+        // The in-callback resize stays as a never-hit fallback.
+        let scratch_frames = match buffer_size {
+            cpal::BufferSize::Fixed(frames) => frames as usize,
+            cpal::BufferSize::Default => DEFAULT_SCRATCH_FRAMES,
+        };
+        let stream_config = StreamConfig {
+            channels: 2,
+            sample_rate,
+            buffer_size,
+        };
+        let stream = match sample_format {
+            SampleFormat::F32 => build_stream(
+                device,
+                &stream_config,
+                engine,
+                consumer,
+                Arc::clone(&shared),
+                limiter,
+                scratch_frames,
+                |sample| f32::from(sample) / 32768.0,
+            )?,
+            SampleFormat::I16 => build_stream(
+                device,
+                &stream_config,
+                engine,
+                consumer,
+                Arc::clone(&shared),
+                limiter,
+                scratch_frames,
+                |sample| sample,
+            )?,
+            other => return Err(AudioError::UnsupportedFormat(format!("{other:?}"))),
+        };
+        Ok((stream, commands, shared))
     }
 
     /// Starts (or resumes) playback.
@@ -231,6 +274,9 @@ impl fmt::Debug for NativeAudio {
 
 /// Builds the output stream for one sample type, converting the engine's i16
 /// frames with `convert`.
+// A private stream-builder wiring together the callback's owned pieces; bundling
+// them into a struct would only add indirection.
+#[allow(clippy::too_many_arguments)]
 fn build_stream<T, F>(
     device: &cpal::Device,
     config: &StreamConfig,
@@ -238,13 +284,15 @@ fn build_stream<T, F>(
     mut commands: rtrb::Consumer<Command>,
     shared: Arc<SharedState>,
     mut limiter: BoostLimiter,
+    scratch_frames: usize,
     convert: F,
 ) -> Result<cpal::Stream, cpal::Error>
 where
     T: cpal::SizedSample + Send + 'static,
     F: Fn(i16) -> T + Send + 'static,
 {
-    let mut scratch: Vec<i16> = Vec::new();
+    // Pre-sized so the real-time callback never allocates on its first run.
+    let mut scratch: Vec<i16> = vec![0; scratch_frames * 2];
     device.build_output_stream(
         *config,
         move |out: &mut [T], _: &cpal::OutputCallbackInfo| {
@@ -294,6 +342,42 @@ where
     )
 }
 
+/// A generous scratch pre-size for the host-default buffer path, where the exact
+/// callback size isn't known up front. A larger callback still works (the
+/// in-callback resize handles it), it just isn't allocation-free that once.
+const DEFAULT_SCRATCH_FRAMES: usize = 4096;
+
+/// The buffer size to request: the configured `frames` clamped into the device's
+/// supported range for a stereo stream at `sample_rate`, or the host default when
+/// the device advertises no fixed-size range.
+fn resolve_buffer_size(device: &cpal::Device, sample_rate: u32, frames: u32) -> cpal::BufferSize {
+    let supported = device
+        .supported_output_configs()
+        .into_iter()
+        .flatten()
+        .find(|config| {
+            config.channels() == 2
+                && config.min_sample_rate() <= sample_rate
+                && sample_rate <= config.max_sample_rate()
+        })
+        .map(|config| *config.buffer_size());
+    match supported {
+        Some(range) => clamp_buffer_size(range, frames),
+        None => cpal::BufferSize::Default,
+    }
+}
+
+/// Clamps `frames` into a device's supported buffer-size range, or falls back to
+/// the host default when the range is unknown.
+fn clamp_buffer_size(supported: cpal::SupportedBufferSize, frames: u32) -> cpal::BufferSize {
+    match supported {
+        cpal::SupportedBufferSize::Range { min, max } => {
+            cpal::BufferSize::Fixed(frames.clamp(min, max))
+        }
+        cpal::SupportedBufferSize::Unknown => cpal::BufferSize::Default,
+    }
+}
+
 /// Whether `device` supports stereo output at `rate`, returning it if so.
 fn supported_rate(device: &cpal::Device, rate: u32) -> Result<Option<u32>, cpal::Error> {
     for config in device.supported_output_configs()? {
@@ -332,5 +416,26 @@ mod tests {
             channel_peaks(&[100, -50, -3000, 2000, 5, i16::MIN]),
             (3000, 32_768)
         );
+    }
+
+    #[test]
+    fn clamp_buffer_size_honours_the_device_range() {
+        let range = cpal::SupportedBufferSize::Range { min: 128, max: 1024 };
+        assert!(matches!(
+            clamp_buffer_size(range, 512),
+            cpal::BufferSize::Fixed(512)
+        ));
+        assert!(
+            matches!(clamp_buffer_size(range, 16), cpal::BufferSize::Fixed(128)),
+            "clamped up to the minimum"
+        );
+        assert!(
+            matches!(clamp_buffer_size(range, 8192), cpal::BufferSize::Fixed(1024)),
+            "clamped down to the maximum"
+        );
+        assert!(matches!(
+            clamp_buffer_size(cpal::SupportedBufferSize::Unknown, 512),
+            cpal::BufferSize::Default
+        ));
     }
 }
