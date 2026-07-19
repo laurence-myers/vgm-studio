@@ -1255,12 +1255,17 @@ impl DroApp {
             self.audio_revision = None;
         }
         self.active_tab = tab;
-        // Returning to the rip tab re-scans the folder so edits made in the
-        // editor (or renames) are reflected.
-        if tab == AppTab::Rip
-            && let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone())
-        {
-            self.files.open_folder_path(path);
+        if tab == AppTab::Rip {
+            // Song-bound modeless dialogs (Find Register, DRO Info, GD3, VGM
+            // metadata) and Goto don't belong on the rip tab -- mirror the menu
+            // gating that disables them there.
+            self.close_song_dialogs();
+            self.dialogs.goto = None;
+            // Returning to the rip tab re-scans the folder so edits made in the
+            // editor (or renames) are reflected.
+            if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
+                self.files.open_folder_path(path);
+            }
         }
     }
 

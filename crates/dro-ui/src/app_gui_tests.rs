@@ -844,6 +844,31 @@ fn switching_to_the_rip_tab_stops_editor_playback() {
 }
 
 #[test]
+fn entering_the_rip_tab_closes_song_bound_dialogs() {
+    // Regression (ux-13): Goto and the song-bound modeless dialogs are
+    // editor-only (the menu disables them on the rip tab), so entering the rip
+    // tab must close any that are open.
+    use crate::dialogs::{FindRegDialog, GotoDialog};
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    open_folder(&mut harness, &handles, cool_game_folder());
+    harness.state_mut().select_tab(AppTab::Editor);
+
+    harness.state_mut().dialogs.goto = Some(GotoDialog::new());
+    harness.state_mut().dialogs.find_reg = Some(FindRegDialog::new(&song));
+
+    harness.state_mut().select_tab(AppTab::Rip);
+    assert!(
+        harness.state().dialogs.goto.is_none(),
+        "Goto closes on the rip tab"
+    );
+    assert!(
+        harness.state().dialogs.find_reg.is_none(),
+        "song-bound dialogs close on the rip tab"
+    );
+}
+
+#[test]
 fn previewing_a_track_plays_it_and_stop_halts_it() {
     let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
