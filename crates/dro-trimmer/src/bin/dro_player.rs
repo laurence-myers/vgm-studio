@@ -82,7 +82,7 @@ fn main() -> Result<()> {
             config.audio.chip_write_delay,
             boost,
             &mut |frames| {
-                let ms = u32::try_from(frames * 1000 / u64::from(freq)).unwrap_or(u32::MAX);
+                let ms = dro_synth::Position::ms_from_frames(frames, freq);
                 if last_sec != Some(ms / 1000) {
                     last_sec = Some(ms / 1000);
                     print!(

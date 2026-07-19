@@ -238,12 +238,11 @@ impl NativeAudio {
     #[must_use]
     pub fn position(&self) -> Position {
         let frames = self.shared.frames_rendered.load(Ordering::Relaxed);
-        Position {
-            frames_rendered: frames,
-            elapsed_ms: u32::try_from(frames * 1000 / u64::from(self.sample_rate))
-                .unwrap_or(u32::MAX),
-            next_instruction: self.shared.next_instruction.load(Ordering::Relaxed),
-        }
+        Position::from_frames(
+            frames,
+            self.sample_rate,
+            self.shared.next_instruction.load(Ordering::Relaxed),
+        )
     }
 
     /// The loudest post-limiter output peak per channel (left, right) since

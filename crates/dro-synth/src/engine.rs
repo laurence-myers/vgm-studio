@@ -203,6 +203,28 @@ pub struct Position {
     pub next_instruction: usize,
 }
 
+impl Position {
+    /// Elapsed playback milliseconds for `frames` output frames at `sample_rate`
+    /// Hz, saturating rather than wrapping on the (~27-hour) `u32` overflow. This
+    /// is the single frames-to-ms formula the engine, the native audio poll, and
+    /// the CLI render progress all share, so a rounding change cannot desync them.
+    #[must_use]
+    pub fn ms_from_frames(frames: u64, sample_rate: u32) -> u32 {
+        u32::try_from(frames * 1000 / u64::from(sample_rate)).unwrap_or(u32::MAX)
+    }
+
+    /// A position from the authoritative rendered-frame count, deriving
+    /// `elapsed_ms` through [`Position::ms_from_frames`].
+    #[must_use]
+    pub fn from_frames(frames: u64, sample_rate: u32, next_instruction: usize) -> Self {
+        Self {
+            frames_rendered: frames,
+            elapsed_ms: Self::ms_from_frames(frames, sample_rate),
+            next_instruction,
+        }
+    }
+}
+
 /// The pull-based playback state machine.
 ///
 /// Generic over the song container (`&Song` for a one-shot offline render,
@@ -364,16 +386,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// The current playback position.
     #[must_use]
     pub fn position(&self) -> Position {
-        Position {
-            frames_rendered: self.frames_rendered,
-            elapsed_ms: self.elapsed_ms(),
-            next_instruction: self.pos,
-        }
-    }
-
-    fn elapsed_ms(&self) -> u32 {
-        let ms = self.frames_rendered * 1000 / u64::from(self.sample_rate);
-        u32::try_from(ms).unwrap_or(u32::MAX)
+        Position::from_frames(self.frames_rendered, self.sample_rate, self.pos)
     }
 
     /// Fills `out` with interleaved stereo frames, stepping instructions and
