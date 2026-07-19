@@ -50,25 +50,7 @@ impl Gd3TagDialog {
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    for (index, label) in LABELS.iter().enumerate() {
-                        ui.label(*label);
-                        let is_notes = index == GD3_FIELD_COUNT - 1;
-                        if is_notes {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut self.fields[index])
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0)
-                                    .desired_rows(4),
-                            );
-                        } else {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.fields[index])
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0),
-                            );
-                        }
-                        ui.end_row();
-                    }
+                    gd3_fields(ui, palette, &mut self.fields);
                 });
             ui.add_space(8.0);
             super::dialog_footer(ui, |ui| {
@@ -84,5 +66,35 @@ impl Gd3TagDialog {
             });
         });
         open && !close
+    }
+}
+
+/// Draws the GD3 tag fields as label + text-edit rows into an already-open
+/// two-column grid: the Notes field (last) is a 4-row multiline, the rest are
+/// single-line. Shared with the rip quick-edit dialog, which prepends its own
+/// File-name row before calling this.
+pub(crate) fn gd3_fields(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    fields: &mut [String; GD3_FIELD_COUNT],
+) {
+    for (index, label) in LABELS.iter().enumerate() {
+        ui.label(*label);
+        let is_notes = index == GD3_FIELD_COUNT - 1;
+        if is_notes {
+            ui.add(
+                egui::TextEdit::multiline(&mut fields[index])
+                    .text_color(palette.data_text)
+                    .desired_width(250.0)
+                    .desired_rows(4),
+            );
+        } else {
+            ui.add(
+                egui::TextEdit::singleline(&mut fields[index])
+                    .text_color(palette.data_text)
+                    .desired_width(250.0),
+            );
+        }
+        ui.end_row();
     }
 }

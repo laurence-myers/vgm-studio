@@ -8,21 +8,6 @@ use dro_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
-/// GD3 field labels, in file order (matching the GD3 tag dialog).
-const LABELS: [&str; GD3_FIELD_COUNT] = [
-    "Track Name (EN):",
-    "Track Name (orig):",
-    "Game Name (EN):",
-    "Game Name (orig):",
-    "System Name (EN):",
-    "System Name (orig):",
-    "Track Author (EN):",
-    "Track Author (orig):",
-    "Release Date:",
-    "Creator:",
-    "Notes:",
-];
-
 #[derive(Debug)]
 pub struct TrackEditDialog {
     index: usize,
@@ -66,25 +51,7 @@ impl TrackEditDialog {
                     );
                     ui.end_row();
 
-                    for (index, label) in LABELS.iter().enumerate() {
-                        ui.label(*label);
-                        let is_notes = index == GD3_FIELD_COUNT - 1;
-                        if is_notes {
-                            ui.add(
-                                egui::TextEdit::multiline(&mut self.fields[index])
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0)
-                                    .desired_rows(4),
-                            );
-                        } else {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut self.fields[index])
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0),
-                            );
-                        }
-                        ui.end_row();
-                    }
+                    super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
                 });
             ui.add_space(8.0);
             super::dialog_footer(ui, |ui| {
