@@ -122,10 +122,19 @@ impl RipState {
     /// Re-scans the folder's files, keeping the edited metadata and dirty flag.
     /// Used after returning from the editor or renaming a track.
     pub fn refresh_files(&mut self, folder: PickedFolder) {
+        // Remember which file is previewing so the rescan (which can reorder the
+        // track list) keeps the marker on the same track by name rather than
+        // dropping playback on an in-place refresh -- e.g. after a screenshot
+        // optimise redelivers the folder. Cleared if that track is now gone.
+        let previewing = self
+            .preview
+            .and_then(|index| self.tracks.get(index))
+            .map(|track| track.file_name.clone());
         let rescanned = Self::from_folder(folder, None);
         self.tracks = rescanned.tracks;
         self.images = rescanned.images;
-        self.preview = None;
+        self.preview = previewing
+            .and_then(|name| self.tracks.iter().position(|track| track.file_name == name));
     }
 
     /// The track list for the description, skipping songs that failed to parse.

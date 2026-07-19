@@ -1035,6 +1035,48 @@ fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
 }
 
 #[test]
+fn an_in_place_refresh_keeps_a_playing_preview_by_name() {
+    // Regression (ux-18): a same-folder rescan (e.g. after a screenshot optimise
+    // redelivers the folder) must not cut a running preview -- it re-matches the
+    // preview by file name, even when the rescan reorders the track list.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    // Preview the second track (02 Boss.vgm).
+    harness.state_mut().preview_track(1);
+    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(1));
+    assert!(handles.audio.borrow().playing);
+
+    // Redeliver the same folder with the files reversed, as a real rescan can.
+    let reversed = rip_folder(
+        "Cool Game",
+        vec![
+            tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+        ],
+    );
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(reversed));
+    harness.run_steps(3);
+
+    let state = harness.state();
+    let rip = state.rip.as_ref().unwrap();
+    assert_eq!(rip.tracks[0].file_name, "02 Boss.vgm");
+    assert_eq!(
+        rip.preview,
+        Some(0),
+        "the preview follows 02 Boss.vgm to its new index"
+    );
+    assert!(
+        handles.audio.borrow().playing,
+        "the preview keeps playing across the in-place refresh"
+    );
+}
+
+#[test]
 fn opening_a_track_loads_it_into_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());

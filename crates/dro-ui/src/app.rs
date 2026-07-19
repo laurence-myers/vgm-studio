@@ -1217,9 +1217,20 @@ impl DroApp {
             .as_ref()
             .is_some_and(|rip| rip.folder_path.is_some() && rip.folder_path == folder.path);
         if same {
-            self.stop_preview();
-            if let Some(rip) = self.rip.as_mut() {
+            // Keep a running preview alive across an in-place rescan (e.g. after
+            // a screenshot optimise redelivers the folder): refresh_files
+            // re-matches it by name. Only stop the audio if that track vanished.
+            let preview_lost = if let Some(rip) = self.rip.as_mut() {
+                let had_preview = rip.preview.is_some();
                 rip.refresh_files(folder);
+                had_preview && rip.preview.is_none()
+            } else {
+                false
+            };
+            if preview_lost {
+                self.audio.pause();
+                self.audio.rewind();
+                self.audio_revision = None;
             }
             return;
         }
