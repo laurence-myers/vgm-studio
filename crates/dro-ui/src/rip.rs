@@ -570,13 +570,12 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .sense(egui::Sense::click())
             .vscroll(false)
             .column(Column::auto().at_least(30.0)) // #
-            .column(Column::remainder().at_least(140.0)) // File
-            .column(Column::remainder().at_least(140.0)) // Title (GD3)
+            .column(Column::remainder().at_least(180.0)) // Title (GD3)
             .column(Column::auto().at_least(55.0)) // Total
             .column(Column::auto().at_least(55.0)) // Loop
             .column(Column::auto().at_least(80.0)) // actions
             .header(row_height + 2.0, |mut header| {
-                for title in ["#", "File", "Title (GD3)", "Total", "Loop", ""] {
+                for title in ["#", "Title (GD3)", "Total", "Loop", ""] {
                     header.col(|ui| {
                         ui.label(
                             egui::RichText::new(title)
@@ -594,14 +593,8 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                 egui::RichText::new(format!("{:02}", index + 1))
                                     .monospace()
                                     .color(palette.muted),
-                            );
-                        });
-                        row.col(|ui| {
-                            ui.label(
-                                egui::RichText::new(&track.file_name)
-                                    .monospace()
-                                    .color(palette.data_text),
-                            );
+                            )
+                            .on_hover_text(&track.file_name);
                         });
                         match &track.song {
                             Ok(_) => {
