@@ -111,6 +111,12 @@ pub(crate) struct AudioLog {
     pub playing: bool,
     /// Read by `is_finished`; a test sets it to exercise end-of-song handling.
     pub finished: bool,
+    /// When set, the next `load` fails (and clears the flag), letting a test
+    /// exercise the failed-load paths -- e.g. a rip preview that can't decode.
+    pub fail_next_load: bool,
+    /// When set, the next `play` fails (and clears the flag), for the
+    /// load-succeeds-but-playback-won't-start paths (e.g. no audio device).
+    pub fail_next_play: bool,
 }
 
 #[derive(Debug)]
@@ -119,6 +125,14 @@ pub(crate) struct FakeAudioService(pub(crate) Rc<RefCell<AudioLog>>);
 impl AudioService for FakeAudioService {
     fn load(&mut self, song: Arc<Song>, _config: &AudioConfig) -> Result<(), String> {
         let mut log = self.0.borrow_mut();
+        if core::mem::take(&mut log.fail_next_load) {
+            // Mirror `NativeAudioService::load`, which unloads the prior stream
+            // before building the new one -- so a failed build leaves the
+            // service cleanly empty rather than holding a half-loaded song.
+            log.loaded = None;
+            log.playing = false;
+            return Err("fake load failure".to_owned());
+        }
         log.loaded = Some(song);
         log.load_count += 1;
         Ok(())
@@ -133,6 +147,11 @@ impl AudioService for FakeAudioService {
 
     fn play(&mut self) -> Result<(), String> {
         let mut log = self.0.borrow_mut();
+        if core::mem::take(&mut log.fail_next_play) {
+            // Load succeeded but playback won't start (e.g. no output device):
+            // leave `playing` false without touching the loaded song.
+            return Err("fake play failure".to_owned());
+        }
         if log.loaded.is_none() {
             return Err("nothing loaded".to_owned());
         }
