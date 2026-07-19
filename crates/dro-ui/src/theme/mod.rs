@@ -81,6 +81,14 @@ pub fn separator_clipped(ui: &mut egui::Ui, palette: &Palette) {
     bevel::groove_h(ui.painter(), rect.x_range(), rect.center().y - 1.0, palette);
 }
 
+/// Frames a vertical scrollbar's channel with the sunken two-tone bevel used on
+/// every other well, so the bar reads as recessed and flush rather than a flat
+/// strip with gaps around it. `bar` is the rect the scrollbar occupies (the
+/// rightmost `scroll.bar_width` of a scroll viewport).
+pub fn frame_scrollbar(ui: &egui::Ui, palette: &Palette, bar: egui::Rect) {
+    bevel::paint_bevel(ui.painter(), bar, palette, bevel::Bevel::Sunken);
+}
+
 /// Installs the theme: pins the dark base (so an OS light/dark flip can't swap
 /// it), loads the DOS font, turns off edge feathering for hard pixels, and
 /// applies the chosen palette.

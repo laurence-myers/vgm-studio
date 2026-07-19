@@ -450,7 +450,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
     }
     crate::theme::separator_full(ui, palette);
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
+    let scroll_out = egui::ScrollArea::vertical().show(ui, |ui| {
         let mut dirty = false;
         egui::Grid::new("rip-meta")
             .num_columns(2)
@@ -511,6 +511,19 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
         track_table(ui, state, palette, actions);
         screenshots(ui, state, palette, actions);
     });
+
+    // When the page overflows, frame the vertical scrollbar's channel with the
+    // sunken well bevel, flush to the panel edge -- the same treatment the editor
+    // table's bar gets.
+    if scroll_out.content_size.y > scroll_out.inner_rect.height() {
+        let bar_width = ui.spacing().scroll.bar_width;
+        let viewport = scroll_out.inner_rect;
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(viewport.right(), viewport.top()),
+            egui::pos2(viewport.right() + bar_width, viewport.bottom()),
+        );
+        crate::theme::frame_scrollbar(ui, palette, bar);
+    }
 }
 
 /// Re-serialises `song` under `new_name` with `tag` applied. The name drives the

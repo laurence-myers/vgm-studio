@@ -17,6 +17,11 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, pa
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
     let len = editor.len();
 
+    // The area the table fills; used afterwards to frame the scrollbar channel.
+    let area = ui.max_rect();
+    let bar_width = ui.spacing().scroll.bar_width;
+    let header_height = row_height + 2.0;
+
     let mut builder = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
@@ -106,6 +111,19 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, pa
                 }
             });
         });
+
+    // When the body overflows, egui shows a vertical scrollbar down the right of
+    // the body; frame that channel with the sunken well bevel so it is not a flat
+    // strip with gaps around it.
+    let body_top = area.top() + header_height;
+    let overflows = len as f32 * row_height > (area.bottom() - body_top);
+    if overflows {
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(area.right() - bar_width, body_top),
+            area.max,
+        );
+        crate::theme::frame_scrollbar(ui, palette, bar);
+    }
 }
 
 fn cell(row: &mut egui_extras::TableRow<'_, '_>, text: String, color: Option<Color32>) {

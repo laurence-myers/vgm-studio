@@ -1833,6 +1833,16 @@ fn snapshot_rip_view() {
 }
 
 #[test]
+fn snapshot_rip_view_scrolled() {
+    // A short viewport, so the page overflows and the outer scrollbar appears --
+    // framed with the sunken well bevel, flush to the panel edge (wd-13).
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 560.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    harness.run();
+    settled_snapshot(&mut harness, "rip_view_scrolled");
+}
+
+#[test]
 fn snapshot_track_edit_dialog() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, single_track_folder());
