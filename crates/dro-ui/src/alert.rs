@@ -66,25 +66,33 @@ pub fn show_front(
         ui.label(&alert.message);
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if is_confirm {
-                if bevel::button(ui, palette, "Cancel").clicked() {
+            if is_confirm && bevel::button(ui, palette, "Cancel").clicked() {
+                dismissed = true;
+            }
+            // OK is drawn last (rightmost of the pair in this right-to-left row)
+            // and focused on open, so Enter accepts the box, matching wx.
+            let ok = bevel::button(ui, palette, "OK");
+            if ok.clicked() {
+                if is_confirm {
+                    confirmed = true;
+                } else {
                     dismissed = true;
                 }
-                if bevel::button(ui, palette, "OK").clicked() {
-                    confirmed = true;
-                }
-            } else if bevel::button(ui, palette, "OK").clicked() {
-                dismissed = true;
+            }
+            if ui.memory(|memory| memory.focused().is_none()) {
+                ok.request_focus();
             }
         });
     });
-    if confirmed {
+    // Enter is OK: it confirms a confirm box and dismisses an info box.
+    let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    if confirmed || (is_confirm && enter) {
         if let Some(alert) = alerts.pop_front()
             && let Some(action) = alert.confirm
         {
             actions.push(*action);
         }
-    } else if dismissed || modal.should_close() {
+    } else if dismissed || (!is_confirm && enter) || modal.should_close() {
         // Esc or a backdrop click cancels a confirm box (no action runs).
         alerts.pop_front();
     }

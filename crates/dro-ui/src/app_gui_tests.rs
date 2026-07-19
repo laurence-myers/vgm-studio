@@ -370,6 +370,45 @@ fn shift_number_keys_toggle_the_high_channel_bank() {
     );
 }
 
+#[test]
+fn enter_dismisses_an_info_alert() {
+    // ux-12: Enter is OK.
+    let (mut harness, _handles) = empty_harness();
+    harness
+        .state_mut()
+        .alerts
+        .push_back(crate::alert::Alert::new("Heads up", "Something happened."));
+    harness.run();
+    assert!(!harness.state().alerts.is_empty());
+
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert!(
+        harness.state().alerts.is_empty(),
+        "Enter dismissed the info alert"
+    );
+}
+
+#[test]
+fn enter_confirms_a_confirm_alert_and_runs_its_action() {
+    // ux-12: Enter accepts a confirm box and runs its carried action.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().alerts.push_back(crate::alert::Alert::confirm(
+        "Discard unsaved changes?",
+        "Quit anyway?",
+        crate::action::Action::ConfirmExit,
+    ));
+    harness.run();
+
+    harness.key_press(Key::Enter);
+    harness.run();
+    assert!(harness.state().alerts.is_empty(), "the confirm was accepted");
+    assert!(
+        harness.state().quitting,
+        "Enter ran the carried ConfirmExit action"
+    );
+}
+
 // -- channel panning ---------------------------------------------------------
 
 #[test]
