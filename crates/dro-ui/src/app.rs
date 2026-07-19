@@ -1777,17 +1777,23 @@ impl DroApp {
         if !self.require_song() {
             return;
         }
-        let len = self.editor.len() as i64;
-        match text.trim().parse::<i64>() {
+        let len = self.editor.len();
+        // The Pos. column is hex, so Goto reads hex too (an optional 0x is fine),
+        // and the messages echo the position in hex (parity-2).
+        let trimmed = text.trim();
+        let digits = trimmed
+            .strip_prefix("0x")
+            .or_else(|| trimmed.strip_prefix("0X"))
+            .unwrap_or(trimmed);
+        match usize::from_str_radix(digits, 16) {
             Err(_) => self.status = format!("Invalid position for goto: {text}"),
-            Ok(position) if position < 0 || position >= len => {
-                self.status = format!("Position for goto is out of range: {position}");
+            Ok(position) if position >= len => {
+                self.status = format!("Position for goto is out of range: {position:04X}");
             }
             Ok(position) => {
-                let position = usize::try_from(position).expect("bounds checked");
                 self.editor.selection.select_only(position);
                 self.scroll_to = Some(position);
-                self.status = format!("Gone to position: {position}");
+                self.status = format!("Gone to position: {position:04X}");
             }
         }
     }
@@ -1804,7 +1810,7 @@ impl DroApp {
             Some(index) => {
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(index);
-                self.status = format!("Occurrence of {target} found at position {index}.");
+                self.status = format!("Occurrence of {target} found at position {index:04X}.");
             }
             None => self.status = format!("Could not find another occurrence of {target}."),
         }

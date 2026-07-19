@@ -29,7 +29,7 @@ impl GotoDialog {
         let open = super::dialog_window(ctx, "Goto Position", area, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.add_space(2.0);
-            ui.label("Go to instruction:");
+            ui.label("Go to instruction (hex):");
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.input)
                     .hint_text("position")

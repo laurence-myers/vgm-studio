@@ -34,7 +34,7 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, pa
 
     builder
         .header(row_height + 2.0, |mut header| {
-            for title in ["Pos.", "Bank", "Reg.", "Value", "Description"] {
+            for title in ["Pos (hex)", "Bank", "Reg.", "Value", "Description"] {
                 header.col(|ui| {
                     ui.label(
                         egui::RichText::new(title)

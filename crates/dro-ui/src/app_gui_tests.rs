@@ -149,7 +149,7 @@ fn loading_a_dro_shows_table_and_status() {
 
     assert_eq!(harness.state().status, "Successfully opened tone.dro.");
     assert_eq!(harness.state().editor.len(), song.len());
-    for header in ["Pos.", "Bank", "Reg.", "Value", "Description"] {
+    for header in ["Pos (hex)", "Bank", "Reg.", "Value", "Description"] {
         assert!(
             harness.query_by_label(header).is_some(),
             "missing table header {header:?}"
@@ -237,6 +237,20 @@ fn delete_key_removes_the_selected_row_and_ctrl_z_restores_it() {
 }
 
 #[test]
+fn goto_reads_hex_positions() {
+    // parity-2: the Pos. column is hex, so Goto parses hex (and an optional 0x).
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    assert!(
+        harness.state().editor.len() > 10,
+        "fixture long enough for position 0xA"
+    );
+    harness.state_mut().goto_submitted("A"); // hex A = 10
+    assert_eq!(harness.state().editor.selection.first(), Some(10));
+    harness.state_mut().goto_submitted("0x3"); // 0x prefix
+    assert_eq!(harness.state().editor.selection.first(), Some(3));
+}
+
+#[test]
 fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
 
@@ -249,7 +263,7 @@ fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
         harness.state().dialogs.goto.is_some(),
         "Goto dialog should open"
     );
-    assert!(harness.query_by_label("Go to instruction:").is_some());
+    assert!(harness.query_by_label("Go to instruction (hex):").is_some());
 
     // Type a position into the dialog's field and submit it.
     let field = harness.get_by_role(egui::accesskit::Role::TextInput);
@@ -263,7 +277,7 @@ fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
     harness.run();
 
     assert_eq!(harness.state().editor.selection.first(), Some(5));
-    assert_eq!(harness.state().status, "Gone to position: 5");
+    assert_eq!(harness.state().status, "Gone to position: 0005");
 }
 
 #[test]
