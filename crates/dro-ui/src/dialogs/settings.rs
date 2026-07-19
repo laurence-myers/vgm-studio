@@ -102,7 +102,8 @@ impl SettingsDialog {
                     );
                     ui.end_row();
 
-                    ui.label("Theme").on_hover_text("Takes effect immediately");
+                    ui.label("Theme")
+                        .on_hover_text("Applied on Save; no restart needed");
                     egui::ComboBox::from_id_salt("settings-theme")
                         .selected_text(theme_label(self.theme))
                         .show_ui(ui, |ui| {

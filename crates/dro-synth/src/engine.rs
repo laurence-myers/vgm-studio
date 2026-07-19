@@ -79,7 +79,7 @@ impl FrameClock {
 }
 
 /// Which channels and percussion voices are audible, for `dro_split`'s channel
-/// isolation and the CLI player's soloing.
+/// isolation and the GUI channel panel's muting/soloing.
 ///
 /// A muted melodic channel's key-on writes (`0xB0..=0xB8`) are dropped; the
 /// percussion register (`0xBD`) is AND-masked per bank. Every other register --

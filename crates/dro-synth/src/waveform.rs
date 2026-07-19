@@ -58,8 +58,8 @@ impl WaveformBucketer {
         }
     }
 
-    /// Folds a chunk of interleaved stereo PCM into the buckets. Extra samples
-    /// beyond `total_frames` are ignored.
+    /// Folds a chunk of interleaved stereo PCM into the buckets. Frames beyond
+    /// `total_frames` fold into the last bucket rather than being dropped.
     pub fn push(&mut self, pcm: &[i16]) {
         for frame in pcm.chunks_exact(2) {
             if self.num_buckets == 0 {

@@ -114,7 +114,7 @@ impl VgmMetadataDialog {
                 Ok(index) if index < self.song_len => Some(index),
                 _ => {
                     actions.push(Action::Alert {
-                        title: "Error".to_owned(),
+                        title: "Invalid VGM metadata".to_owned(),
                         message: format!(
                             "Loop start must be an instruction index below {}.",
                             self.song_len
@@ -132,7 +132,7 @@ impl VgmMetadataDialog {
         );
         let (Ok(loop_base), Ok(loop_modifier), Ok(volume_modifier)) = parsed else {
             actions.push(Action::Alert {
-                title: "Error".to_owned(),
+                title: "Invalid VGM metadata".to_owned(),
                 message: "Error updating VGM metadata, check that the entered values are correct."
                     .to_owned(),
             });
