@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use clap::Parser;
 use dro_core::convert::dro2_to_dro1;
-use dro_core::io::{read_song, write_song};
+use dro_core::io::write_song;
+use dro_trimmer::read_song_from_path;
 
 #[derive(Parser)]
 #[command(name = "dro2to1", version, about = "Convert a DRO v2 file to DRO v1.")]
@@ -23,10 +24,7 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let bytes =
-        std::fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
-    let name = file_name(&args.input);
-    let song = read_song(&name, &bytes)?;
+    let song = read_song_from_path(&args.input)?;
     let v1 = dro2_to_dro1(&song)?;
 
     let output = args.output.unwrap_or_else(|| default_output(&args.input));
@@ -54,11 +52,4 @@ fn default_output(input: &Path) -> PathBuf {
         None => format!("{stem}_1"),
     };
     input.with_file_name(name)
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("input.dro")
-        .to_owned()
 }

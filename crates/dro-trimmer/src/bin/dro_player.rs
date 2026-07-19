@@ -19,10 +19,9 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use dro_audio_native::NativeAudio;
 use dro_core::config::AudioConfig;
-use dro_core::io::read_song;
 use dro_core::total_delay_with_write_delay_ms;
 use dro_core::util::ms_to_timestr;
-use dro_trimmer::load_config;
+use dro_trimmer::{load_config, read_song_from_path};
 
 #[derive(Parser)]
 #[command(
@@ -47,14 +46,7 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let bytes =
-        std::fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
-    let name = args
-        .input
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("input.dro");
-    let song = read_song(name, &bytes)?;
+    let song = read_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
     let mut config = load_config();

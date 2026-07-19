@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use dro_core::io::{read_song, write_song};
-use dro_trimmer::{SplitData, SplitFormat, SplitOptions, load_config, split};
+use dro_core::io::write_song;
+use dro_trimmer::{SplitData, SplitFormat, SplitOptions, load_config, read_song_from_path, split};
 
 #[derive(Parser)]
 #[command(
@@ -31,14 +31,7 @@ fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let bytes =
-        std::fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
-    let name = args
-        .input
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("input.dro");
-    let song = read_song(name, &bytes)?;
+    let song = read_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
     let options = SplitOptions {
