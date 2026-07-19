@@ -69,13 +69,19 @@ impl Default for ChannelPanel {
 fn default_pans_for(opl_type: OplType, song: &Song) -> [u8; 18] {
     match opl_type {
         OplType::Opl2 => [PAN_CENTER; 18],
-        OplType::DualOpl2 => {
-            let mut pans = [PAN_LEFT; 18];
-            pans[9..].fill(PAN_RIGHT);
-            pans
-        }
+        OplType::DualOpl2 => dual_opl2_image(),
         OplType::Opl3 => dro_core::initial_channel_pans(song),
     }
+}
+
+/// The fixed hard-L/R panning image a dual-OPL2 song plays: chip 1 (bank 0,
+/// channels 0..9) hard left, chip 2 (bank 1, channels 9..18) hard right -- the
+/// authentic SB Pro 1 image. Shared by the load-time default and the live
+/// `Original`-mode panning, so the split lives in one place.
+fn dual_opl2_image() -> [u8; 18] {
+    let mut pans = [PAN_LEFT; 18];
+    pans[9..].fill(PAN_RIGHT);
+    pans
 }
 
 /// A subtle alternating left/right pan image for the auto-pan preset: even
@@ -163,11 +169,7 @@ impl ChannelPanel {
             return Panning::Custom(self.pans);
         }
         match self.opl_type {
-            Some(OplType::DualOpl2) => {
-                let mut image = [PAN_LEFT; 18];
-                image[9..].fill(PAN_RIGHT);
-                Panning::Custom(image)
-            }
+            Some(OplType::DualOpl2) => Panning::Custom(dual_opl2_image()),
             _ => Panning::Original,
         }
     }
