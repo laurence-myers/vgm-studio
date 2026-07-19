@@ -20,6 +20,24 @@ struct Args {
     file: Option<PathBuf>,
 }
 
+/// Decodes the embedded `dt.ico` into the window/taskbar icon (parity-3).
+/// Returns `None` -- no icon, not a failure -- if it can't be decoded, so a bad
+/// icon never blocks startup.
+fn load_icon() -> Option<eframe::egui::IconData> {
+    let image = image::load_from_memory_with_format(
+        include_bytes!("../../../../src/dt.ico"),
+        image::ImageFormat::Ico,
+    )
+    .ok()?
+    .into_rgba8();
+    let (width, height) = image.dimensions();
+    Some(eframe::egui::IconData {
+        rgba: image.into_raw(),
+        width,
+        height,
+    })
+}
+
 fn main() -> eframe::Result {
     env_logger::init();
     let args = Args::parse();
@@ -32,11 +50,14 @@ fn main() -> eframe::Result {
     }
 
     let config = dro_trimmer::load_config();
-    let viewport = eframe::egui::ViewportBuilder::default()
+    let mut viewport = eframe::egui::ViewportBuilder::default()
         .with_title(format!("DRO Trimmer v{}", env!("CARGO_PKG_VERSION")))
         .with_inner_size([800.0, 600.0])
         .with_maximized(config.ui.maximize_window)
         .with_drag_and_drop(true);
+    if let Some(icon) = load_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -69,4 +90,14 @@ fn main() -> eframe::Result {
             )))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_window_icon_decodes_to_rgba() {
+        let icon = super::load_icon().expect("dt.ico decodes");
+        assert!(icon.width > 0 && icon.height > 0);
+        assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
+    }
 }

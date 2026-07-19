@@ -19,6 +19,7 @@ clap.workspace = true
 eframe.workspace = true
 env_logger.workspace = true
 flate2.workspace = true
+image = { workspace = true, features = ["ico"] }
 log.workspace = true
 oxipng.workspace = true
 rfd.workspace = true
