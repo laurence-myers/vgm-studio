@@ -224,10 +224,12 @@ pub fn music_hardware_suggestion(opl: OplType) -> &'static str {
     preset_for(opl).music_hardware
 }
 
-/// A file-name-safe stem for the `.txt`/`.m3u`/`.zip`, from the game name.
+/// Replaces the characters a file name cannot hold (Windows being the strictest
+/// target) with `_`, then trims surrounding whitespace. Shared by the doc stem
+/// and the per-track file names.
 #[must_use]
-pub fn doc_file_stem(game_name: &str) -> String {
-    let sanitised: String = game_name
+pub fn sanitize_file_component(text: &str) -> String {
+    let sanitised: String = text
         .chars()
         .map(|c| match c {
             '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
@@ -235,6 +237,21 @@ pub fn doc_file_stem(game_name: &str) -> String {
         })
         .collect();
     sanitised.trim().to_owned()
+}
+
+/// A file-name-safe stem for the `.txt`/`.m3u`/`.zip`, from the game name.
+#[must_use]
+pub fn doc_file_stem(game_name: &str) -> String {
+    sanitize_file_component(game_name)
+}
+
+/// Builds a VGMRips track file name from its 1-based `number`, `title`, and
+/// `ext` (the extension without the dot, e.g. `"vgz"`): `"NN Title.ext"`, the
+/// title sanitised of characters a file name cannot hold. Shared by the rip
+/// quick-edit dialog (which derives the name from the GD3 tag) and reordering.
+#[must_use]
+pub fn track_file_name(number: usize, title: &str, ext: &str) -> String {
+    format!("{number:02} {}.{ext}", sanitize_file_component(title))
 }
 
 /// Builds an `.m3u` playlist: one file name per line, CRLF-terminated, no header.
@@ -856,6 +873,14 @@ mod tests {
         );
         assert_eq!(lines[0], "Total Length                    1:18:02 2:36:04");
         assert_eq!(lines[0].chars().count(), 47);
+    }
+
+    #[test]
+    fn track_file_name_formats_number_title_and_extension() {
+        assert_eq!(track_file_name(1, "Intro", "vgz"), "01 Intro.vgz");
+        assert_eq!(track_file_name(12, "Boss Battle", "vgm"), "12 Boss Battle.vgm");
+        // Forbidden characters become underscores; the title is trimmed.
+        assert_eq!(track_file_name(3, "  A/B:C  ", "vgz"), "03 A_B_C.vgz");
     }
 
     #[test]

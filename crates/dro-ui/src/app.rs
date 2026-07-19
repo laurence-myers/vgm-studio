@@ -1506,7 +1506,12 @@ impl DroApp {
                 .filter(|other| other.file_name != track.file_name)
                 .map(|other| other.file_name.clone())
                 .collect();
-            Some(TrackEditDialog::new(track.file_name.clone(), tag, siblings))
+            Some(TrackEditDialog::new(
+                index + 1,
+                track.file_name.clone(),
+                tag,
+                siblings,
+            ))
         });
         if let Some(dialog) = dialog {
             self.dialogs.track_edit = Some(dialog);

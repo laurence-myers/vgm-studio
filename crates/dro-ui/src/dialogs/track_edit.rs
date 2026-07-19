@@ -14,7 +14,10 @@ pub struct TrackEditDialog {
     /// rescan can reorder the list, so Save re-resolves the target by this name
     /// rather than a since-stale index.
     original_name: String,
-    file_name: String,
+    /// The track's 1-based position, one half of the derived file name.
+    track_number: usize,
+    /// The original file's extension (without the dot), preserved by the rename.
+    ext: String,
     fields: [String; GD3_FIELD_COUNT],
     /// The other tracks' file names, for the rename-collision check.
     sibling_names: Vec<String>,
@@ -22,17 +25,38 @@ pub struct TrackEditDialog {
 
 impl TrackEditDialog {
     #[must_use]
-    pub fn new(file_name: String, tag: Option<&Gd3Tag>, sibling_names: Vec<String>) -> Self {
-        let fields = match tag {
+    pub fn new(
+        track_number: usize,
+        file_name: String,
+        tag: Option<&Gd3Tag>,
+        sibling_names: Vec<String>,
+    ) -> Self {
+        let ext = file_name
+            .rsplit_once('.')
+            .map_or_else(|| "vgz".to_owned(), |(_, ext)| ext.to_owned());
+        let mut fields = match tag {
             Some(tag) => tag.fields().map(str::to_owned),
             None => core::array::from_fn(|_| String::new()),
         };
+        // The file name derives from the Track Name (EN); if the tag has none,
+        // seed it from the original file name's title so the derived name starts
+        // out matching the file on disk rather than blank.
+        if fields[0].trim().is_empty() {
+            fields[0] = title_from_file_name(&file_name);
+        }
         Self {
-            original_name: file_name.clone(),
-            file_name,
+            original_name: file_name,
+            track_number,
+            ext,
             fields,
             sibling_names,
         }
+    }
+
+    /// The file name derived from the track number and the Track Name (EN)
+    /// field, keeping the original extension. This is what Save writes.
+    fn derived_name(&self) -> String {
+        dro_core::rip::track_file_name(self.track_number, &self.fields[0], &self.ext)
     }
 
     /// Draws the window. Returns `false` once closed.
@@ -50,11 +74,16 @@ impl TrackEditDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     ui.label("File name:");
+                    // Read-only: the name is derived from the track number and
+                    // the Track Name (EN) field below, so it always stays in step.
+                    let mut derived = self.derived_name();
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.file_name)
-                            .text_color(palette.data_text)
+                        egui::TextEdit::singleline(&mut derived)
+                            .interactive(false)
+                            .text_color(palette.muted)
                             .desired_width(250.0),
-                    );
+                    )
+                    .on_hover_text("Derived from the track number and Track Name (EN)");
                     ui.end_row();
 
                     super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
@@ -72,42 +101,54 @@ impl TrackEditDialog {
         open && !close
     }
 
-    /// Validates the file name, then emits the quick edit; returns `false`
-    /// (with an error alert queued, leaving the dialog open) if the name is
-    /// empty, not a `.vgm`/`.vgz`, or collides with another track in the pack.
+    /// Validates the derived name, then emits the quick edit; returns `false`
+    /// (with an error alert queued, leaving the dialog open) if the track name is
+    /// empty (so the derived file name would be blank) or the derived name
+    /// collides with another track in the pack.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
-        let name = self.file_name.trim();
-        let ext_ok = {
-            let lower = name.to_ascii_lowercase();
-            lower.ends_with(".vgm") || lower.ends_with(".vgz")
-        };
-        if name.is_empty() || !ext_ok {
+        // The file name is derived from the Track Name (EN), so require one.
+        if self.fields[0].trim().is_empty() {
             actions.push(Action::Alert {
-                title: "Invalid file name".to_owned(),
-                message: "The file name must not be empty and must end in .vgm or .vgz.".to_owned(),
+                title: "Track name required".to_owned(),
+                message: "Enter a Track Name (EN); the file name is derived from it.".to_owned(),
             });
             return false;
         }
+        let name = self.derived_name();
         // A rename onto another track would clobber it. The case-only rename of
         // *this* file back onto itself is fine -- original_name is not a sibling.
         if !name.eq_ignore_ascii_case(&self.original_name)
             && self
                 .sibling_names
                 .iter()
-                .any(|sibling| sibling.eq_ignore_ascii_case(name))
+                .any(|sibling| sibling.eq_ignore_ascii_case(&name))
         {
             actions.push(Action::Alert {
-                title: "Invalid file name".to_owned(),
+                title: "Duplicate file name".to_owned(),
                 message: format!("Another track in this pack is already named \"{name}\"."),
             });
             return false;
         }
         actions.push(Action::QuickEditSubmitted {
             original_name: self.original_name.clone(),
-            file_name: name.to_owned(),
+            file_name: name,
             tag: Box::new(Gd3Tag::from_fields(self.fields.clone())),
         });
         true
+    }
+}
+
+/// The title embedded in a `"NN Title.ext"` file name: the stem with any leading
+/// run of digits (and the following space) and the extension stripped.
+fn title_from_file_name(name: &str) -> String {
+    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem).trim();
+    match stem.split_once(' ') {
+        Some((number, rest))
+            if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            rest.trim().to_owned()
+        }
+        _ => stem.to_owned(),
     }
 }
 
@@ -115,8 +156,9 @@ impl TrackEditDialog {
 mod tests {
     use super::*;
 
-    fn make(file_name: &str, siblings: &[&str]) -> TrackEditDialog {
+    fn make(number: usize, file_name: &str, siblings: &[&str]) -> TrackEditDialog {
         TrackEditDialog::new(
+            number,
             file_name.to_owned(),
             None,
             siblings.iter().map(|s| (*s).to_owned()).collect(),
@@ -124,18 +166,37 @@ mod tests {
     }
 
     #[test]
-    fn save_rejects_a_non_vgm_extension() {
-        let mut dialog = make("01 Intro.vgz", &[]);
-        dialog.file_name = "01 Intro.txt".to_owned();
-        let mut actions = Vec::new();
-        assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+    fn derives_the_file_name_from_number_and_track_name() {
+        let mut dialog = make(1, "01 Old.vgz", &[]);
+        dialog.fields[0] = "Boss Battle".to_owned();
+        assert_eq!(dialog.derived_name(), "01 Boss Battle.vgz");
+        // The original extension is preserved.
+        let mut vgm = make(9, "09 X.vgm", &[]);
+        vgm.fields[0] = "Ending".to_owned();
+        assert_eq!(vgm.derived_name(), "09 Ending.vgm");
     }
 
     #[test]
-    fn save_rejects_an_empty_name() {
-        let mut dialog = make("01 Intro.vgz", &[]);
-        dialog.file_name = "   ".to_owned();
+    fn seeds_the_track_name_from_the_file_name_when_the_tag_is_empty() {
+        // No tag -> the Track Name (EN) starts from the file name's title, so
+        // the derived name matches the file on disk out of the box.
+        let dialog = make(1, "01 Intro.vgz", &[]);
+        assert_eq!(dialog.fields[0], "Intro");
+        assert_eq!(dialog.derived_name(), "01 Intro.vgz");
+    }
+
+    #[test]
+    fn title_from_file_name_strips_the_number_and_extension() {
+        assert_eq!(title_from_file_name("01 Intro.vgz"), "Intro");
+        assert_eq!(title_from_file_name("12 Boss Battle.vgm"), "Boss Battle");
+        assert_eq!(title_from_file_name("noprefix.vgz"), "noprefix");
+        assert_eq!(title_from_file_name("song"), "song");
+    }
+
+    #[test]
+    fn save_rejects_an_empty_track_name() {
+        let mut dialog = make(1, "01 Intro.vgz", &[]);
+        dialog.fields[0] = "   ".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
         assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
@@ -143,30 +204,33 @@ mod tests {
 
     #[test]
     fn save_rejects_a_collision_with_another_track() {
-        let mut dialog = make("01 Intro.vgz", &["02 Boss.vgm"]);
-        dialog.file_name = "02 Boss.vgm".to_owned();
+        // Number 1 + "Intro" derives "01 Intro.vgz", colliding with the sibling.
+        let mut dialog = make(1, "01 Old.vgz", &["01 Intro.vgz"]);
+        dialog.fields[0] = "Intro".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
         assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
     }
 
     #[test]
-    fn save_accepts_a_valid_rename() {
-        let mut dialog = make("01 Intro.vgz", &["02 Boss.vgm"]);
-        dialog.file_name = "01 Intro Redux.vgm".to_owned();
+    fn save_submits_the_derived_name() {
+        let mut dialog = make(1, "01 Intro.vgz", &["02 Boss.vgm"]);
+        dialog.fields[0] = "Intro Redux".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        assert!(matches!(
-            actions.as_slice(),
-            [Action::QuickEditSubmitted { .. }]
-        ));
+        match actions.as_slice() {
+            [Action::QuickEditSubmitted { file_name, .. }] => {
+                assert_eq!(file_name, "01 Intro Redux.vgz");
+            }
+            other => panic!("expected a submit, got {other:?}"),
+        }
     }
 
     #[test]
     fn save_allows_a_case_only_rename_of_the_same_file() {
         // Same file, different case: must not read as a sibling collision.
-        let mut dialog = make("01 Intro.vgz", &["02 Boss.vgm"]);
-        dialog.file_name = "01 INTRO.vgz".to_owned();
+        let mut dialog = make(1, "01 Intro.vgz", &["02 Boss.vgm"]);
+        dialog.fields[0] = "INTRO".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         assert!(matches!(
