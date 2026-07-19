@@ -1460,7 +1460,7 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_rip_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
-    harness.get_by_label("Edit\u{2026}").click();
+    harness.get_by_label("Tags").click();
     harness.run();
     assert!(
         harness.state().dialogs.track_edit.is_some(),
@@ -1815,7 +1815,7 @@ fn snapshot_rip_view() {
 fn snapshot_track_edit_dialog() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, single_track_folder());
-    harness.get_by_label("Edit\u{2026}").click();
+    harness.get_by_label("Tags").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
 }

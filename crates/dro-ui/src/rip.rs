@@ -645,8 +645,8 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                                 Action::RipTrackPreview(index)
                                             });
                                         }
-                                        if bevel::button(ui, palette, "Edit\u{2026}")
-                                            .on_hover_text("Rename and edit the GD3 tag")
+                                        if bevel::button(ui, palette, "Tags")
+                                            .on_hover_text("Edit the track's GD3 tags")
                                             .clicked()
                                         {
                                             actions.push(Action::OpenTrackQuickEdit(index));
