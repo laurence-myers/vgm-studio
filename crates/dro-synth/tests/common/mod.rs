@@ -3,7 +3,7 @@
 #![allow(dead_code)] // Each integration test uses a different subset.
 
 use dro_core::{DroDataV2, DroInstruction, SongData};
-use dro_synth::OplChip;
+use dro_synth::{FrameClock, OplChip};
 
 /// `tests/lsl3_score_up_dro2.dro`, the fixture the Python suite uses.
 const FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up_dro2.dro");
@@ -101,30 +101,6 @@ pub(crate) fn script() -> Vec<Op> {
     ops
 }
 
-/// Milliseconds to frames, carrying the fractional remainder exactly.
-///
-/// This is `OPLStream.sample_overflow`, done in integers so that native and wasm
-/// cannot diverge.
-pub(crate) struct FrameClock {
-    rate: u64,
-    carry: u64,
-}
-
-impl FrameClock {
-    pub(crate) fn new(rate: u32) -> Self {
-        Self {
-            rate: u64::from(rate),
-            carry: 0,
-        }
-    }
-
-    pub(crate) fn frames_for_ms(&mut self, ms: u32) -> usize {
-        let numerator = u64::from(ms) * self.rate + self.carry;
-        self.carry = numerator % 1000;
-        usize::try_from(numerator / 1000).expect("frame counts fit in usize")
-    }
-}
-
 /// Renders `ops` through `chip` with immediate register writes, pulling
 /// `chunk_frames` at a time.
 pub(crate) fn render(
@@ -155,7 +131,8 @@ fn render_inner(
     buffered: bool,
 ) -> Vec<i16> {
     assert!(chunk_frames > 0);
-    let mut clock = FrameClock::new(sample_rate);
+    // The engine's clock, driven in millisecond units (1000 per second).
+    let mut clock = FrameClock::new(sample_rate, 1000);
     let mut pcm = Vec::new();
     let mut scratch = vec![0i16; chunk_frames * 2];
 
@@ -169,7 +146,8 @@ fn render_inner(
                 }
             }
             Op::Delay(ms) => {
-                let mut remaining = clock.frames_for_ms(ms);
+                let mut remaining =
+                    usize::try_from(clock.frames_for(ms)).expect("frame counts fit in usize");
                 while remaining > 0 {
                     let frames = remaining.min(chunk_frames);
                     let buffer = &mut scratch[..frames * 2];
