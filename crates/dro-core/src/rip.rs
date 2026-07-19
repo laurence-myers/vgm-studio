@@ -489,86 +489,81 @@ fn push_wrapped_block(lines: &mut Vec<String>, text: &str, continuation_prefix: 
             lines.push(line.to_owned());
             continue;
         }
-        let mut first = true;
-        let mut current: Vec<char> = Vec::new();
-        let flush = |current: &mut Vec<char>, first: &mut bool, lines: &mut Vec<String>| {
-            let content: String = current.drain(..).collect();
-            if *first {
-                lines.push(content);
-                *first = false;
+        for (index, chunk) in wrap_line(line, LINE_WIDTH, continuation_width)
+            .into_iter()
+            .enumerate()
+        {
+            if index == 0 {
+                lines.push(chunk);
             } else {
-                lines.push(format!("{continuation_prefix}{content}"));
+                lines.push(format!("{continuation_prefix}{chunk}"));
             }
-        };
-        for word in line.split_whitespace() {
-            let mut chars: Vec<char> = word.chars().collect();
-            loop {
-                let width = if first {
-                    LINE_WIDTH
-                } else {
-                    continuation_width
-                };
-                if current.is_empty() {
-                    if chars.len() <= width {
-                        current = chars;
-                        break;
-                    }
-                    // A word longer than a whole line (a URL): hard-split it.
-                    let rest = chars.split_off(width);
-                    current = chars;
-                    flush(&mut current, &mut first, lines);
-                    chars = rest;
-                } else if current.len() + 1 + chars.len() <= width {
-                    current.push(' ');
-                    current.extend(chars);
-                    break;
-                } else {
-                    flush(&mut current, &mut first, lines);
-                }
-            }
-        }
-        if !current.is_empty() {
-            flush(&mut current, &mut first, lines);
         }
     }
 }
 
-/// Greedy word-wrap for header values: breaks at spaces, hard-splitting any word
-/// longer than `width`. No hyphenation (unlike titles).
-fn wrap_value(value: &str, width: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
+/// Greedily word-wraps a single logical line (no embedded newlines): the first
+/// output chunk fits `first_width`, every continuation chunk `continuation_width`.
+/// Breaks at spaces, hard-splitting any word wider than its line's width; never
+/// hyphenates (unlike titles). Returns one string per output line -- no chunks at
+/// all when the input holds no words, which each caller handles as it needs.
+fn wrap_line(text: &str, first_width: usize, continuation_width: usize) -> Vec<String> {
+    let mut chunks: Vec<String> = Vec::new();
     let mut current: Vec<char> = Vec::new();
-    for word in value.split_whitespace() {
-        let mut chars: Vec<char> = word.chars().collect();
-        while chars.len() > width {
-            if !current.is_empty() {
-                lines.push(current.iter().collect());
-                current.clear();
-            }
-            let rest = chars.split_off(width);
-            lines.push(chars.iter().collect());
-            chars = rest;
-        }
-        if chars.is_empty() {
-            continue;
-        }
-        if current.is_empty() {
-            current = chars;
-        } else if current.len() + 1 + chars.len() <= width {
-            current.push(' ');
-            current.extend(chars);
+    let width_for = |emitted: usize| {
+        if emitted == 0 {
+            first_width
         } else {
-            lines.push(current.iter().collect());
-            current = chars;
+            continuation_width
+        }
+    };
+    for word in text.split_whitespace() {
+        let mut chars: Vec<char> = word.chars().collect();
+        loop {
+            let width = width_for(chunks.len());
+            if current.is_empty() {
+                if chars.len() <= width {
+                    current = chars;
+                    break;
+                }
+                // A word wider than a whole line (a URL): hard-split it.
+                let rest = chars.split_off(width);
+                chunks.push(chars.iter().collect());
+                chars = rest;
+            } else if current.len() + 1 + chars.len() <= width {
+                current.push(' ');
+                current.extend(chars);
+                break;
+            } else {
+                chunks.push(current.drain(..).collect());
+            }
         }
     }
     if !current.is_empty() {
-        lines.push(current.iter().collect());
+        chunks.push(current.iter().collect());
     }
-    if lines.is_empty() {
-        lines.push(String::new());
+    chunks
+}
+
+/// Greedy word-wrap for header values at a uniform width, always yielding at least
+/// one (possibly empty) chunk so an all-whitespace value still emits its label row.
+fn wrap_value(value: &str, width: usize) -> Vec<String> {
+    let mut chunks = wrap_line(value, width, width);
+    if chunks.is_empty() {
+        chunks.push(String::new());
     }
-    lines
+    chunks
+}
+
+/// Pushes a `head`…`block` row with the time `block` right-aligned to end at column
+/// [`LINE_WIDTH`]; the padding between is trimmed off the stored line.
+fn push_aligned_row(lines: &mut Vec<String>, head: &str, block: &str) {
+    let pad = LINE_WIDTH.saturating_sub(head.chars().count() + block.chars().count());
+    lines.push(
+        format!("{head}{}{block}", " ".repeat(pad))
+            .trim_end()
+            .to_owned(),
+    );
 }
 
 /// Emits one track's row(s): the wrapped title, with the time block right-aligned
@@ -589,12 +584,7 @@ fn push_track_rows(lines: &mut Vec<String>, index: usize, num_width: usize, trac
     for (row, chunk) in chunks.iter().enumerate() {
         let head = format!("{}{chunk}", if row == 0 { &prefix } else { &indent });
         if row == last {
-            let pad = LINE_WIDTH.saturating_sub(head.chars().count() + block.chars().count());
-            lines.push(
-                format!("{head}{}{block}", " ".repeat(pad))
-                    .trim_end()
-                    .to_owned(),
-            );
+            push_aligned_row(lines, &head, &block);
         } else {
             lines.push(head.trim_end().to_owned());
         }
@@ -612,13 +602,7 @@ fn push_total_row(lines: &mut Vec<String>, tracks: &[TrackEntry]) {
     let total_str = format_track_time(total);
     let loop_str = format_track_time(total + extra_loops);
     let block = format!("{total_str:>5} {loop_str:>6}");
-    let head = "Total Length";
-    let pad = LINE_WIDTH.saturating_sub(head.chars().count() + block.chars().count());
-    lines.push(
-        format!("{head}{}{block}", " ".repeat(pad))
-            .trim_end()
-            .to_owned(),
-    );
+    push_aligned_row(lines, "Total Length", &block);
 }
 
 /// Splits a title into chunks of at most `avail` chars, following `vgm_stat`:
@@ -1080,6 +1064,18 @@ mod tests {
         for line in text.split("\r\n") {
             assert!(line.chars().count() <= 47, "line too long: {line:?}");
         }
+    }
+
+    #[test]
+    fn wrap_line_honours_first_and_continuation_widths() {
+        // Uniform width, as header values use it.
+        assert_eq!(wrap_line("a b c", 3, 3), vec!["a b", "c"]);
+        // A narrower continuation width breaks the later lines sooner.
+        assert_eq!(wrap_line("aa bb cc dd", 5, 2), vec!["aa bb", "cc", "dd"]);
+        // A word wider than a line is hard-split at each line's own width.
+        assert_eq!(wrap_line("xxxxxxx", 3, 2), vec!["xxx", "xx", "xx"]);
+        // No words -> no chunks; callers supply their own fallback.
+        assert!(wrap_line("   ", 5, 5).is_empty());
     }
 
     #[test]
