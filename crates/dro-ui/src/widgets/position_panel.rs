@@ -49,6 +49,13 @@ impl PositionPanel {
         self.frequency = frequency;
     }
 
+    /// The rate the readout currently renders at (the stream's real rate while
+    /// one is live, else the configured rate).
+    #[must_use]
+    pub fn frequency(&self) -> u32 {
+        self.frequency
+    }
+
     /// The song (or edit) length. Called on load and after every edit.
     pub fn set_length_ms(&mut self, ms: u32) {
         self.length_ms = ms;

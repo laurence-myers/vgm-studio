@@ -117,6 +117,9 @@ pub(crate) struct AudioLog {
     /// When set, the next `play` fails (and clears the flag), for the
     /// load-succeeds-but-playback-won't-start paths (e.g. no audio device).
     pub fail_next_play: bool,
+    /// The stream's real output rate, reported by `output_rate`. `Some` stands
+    /// in for a live stream (e.g. after the device rounded the requested rate).
+    pub output_rate: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -210,7 +213,7 @@ impl AudioService for FakeAudioService {
     }
 
     fn output_rate(&self) -> Option<u32> {
-        None
+        self.0.borrow().output_rate
     }
 }
 

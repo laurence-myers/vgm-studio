@@ -624,6 +624,37 @@ fn settings_save_preserves_a_live_changed_boost() {
 }
 
 #[test]
+fn settings_do_not_retune_the_position_panel_while_a_stream_is_live() {
+    // ux-16: a frequency change must not retune the panel while a stream plays
+    // at the old rate (the readout would mix a new-rate length with old-rate
+    // frames). The panel keeps the live rate until the stream reloads.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    // A live stream reports 48 kHz; playing adopts it into the panel.
+    handles.audio.borrow_mut().output_rate = Some(48_000);
+    harness.state_mut().do_play();
+    harness.run_steps(3);
+    assert_eq!(
+        harness.state().position.frequency(),
+        48_000,
+        "the panel adopts the live stream's rate"
+    );
+
+    // Apply settings with a different configured frequency.
+    let mut config = harness.state().config;
+    config.audio.frequency = 44_100;
+    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.run_steps(3); // the stream is playing, so `run` would spin
+    harness.get_by_label("Save").click();
+    harness.run_steps(3);
+
+    assert_eq!(
+        harness.state().position.frequency(),
+        48_000,
+        "the panel keeps the live rate, not the newly configured 44100"
+    );
+}
+
+#[test]
 fn ctrl_s_saves_in_place_and_reports_the_path() {
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);

@@ -1796,7 +1796,13 @@ impl DroApp {
         let waveform_changed = config.audio.frequency != self.config.audio.frequency
             || config.audio.chip_write_delay != self.config.audio.chip_write_delay;
         self.config = config;
-        self.position.set_frequency(config.audio.frequency);
+        // Don't retune the position panel to the configured rate while a stream
+        // is live: it reports frames at the stream's real (still-old) rate, so
+        // the readout would mix a new-rate length with old-rate frames. On the
+        // next reload, ensure_audio adopts the new rate from output_rate (ux-16).
+        if self.audio.output_rate().is_none() {
+            self.position.set_frequency(config.audio.frequency);
+        }
         if let Some(song) = self.editor.song() {
             self.position.set_length_ms(song.total_delay_ms());
         }
