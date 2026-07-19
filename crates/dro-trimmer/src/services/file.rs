@@ -173,10 +173,41 @@ fn rename_in_place(from: &Path, to_name: &str) -> Result<(), String> {
     if dest == from {
         return Ok(());
     }
+    // A case-only rename ("01 intro" -> "01 Intro"): on NTFS `dest.exists()` is
+    // true (it *is* this file) and a direct rename won't update the stored case,
+    // so it must bounce through a temp name -- but it isn't a clobber.
+    let same_file_case_only = from
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(to_name));
+    if same_file_case_only {
+        return rename_via_temp(from, &dest);
+    }
     if dest.exists() {
         return Err(format!("{to_name} already exists"));
     }
     fs::rename(from, &dest).map_err(|error| format!("{}: {error}", from.display()))
+}
+
+/// Renames `from` to `dest` via a throwaway intermediate name in the same
+/// directory, so a case-only rename actually updates the on-disk case (which a
+/// direct `fs::rename` won't on a case-insensitive volume).
+fn rename_via_temp(from: &Path, dest: &Path) -> Result<(), String> {
+    let parent = from.parent().unwrap_or_else(|| Path::new(""));
+    let base = dest.file_name().and_then(|n| n.to_str()).unwrap_or("track");
+    let mut temp = parent.join(format!("{base}.rename-tmp"));
+    let mut counter = 0u32;
+    while temp.exists() {
+        counter += 1;
+        temp = parent.join(format!("{base}.rename-tmp{counter}"));
+    }
+    fs::rename(from, &temp).map_err(|error| format!("{}: {error}", from.display()))?;
+    fs::rename(&temp, dest).map_err(|error| {
+        // Best effort: undo the first leg so the file isn't stranded under the
+        // temp name if the second fails.
+        let _ = fs::rename(&temp, from);
+        format!("{}: {error}", dest.display())
+    })
 }
 
 /// Save-dialog filters chosen from the suggested name's extension, so the zip
@@ -322,5 +353,30 @@ mod tests {
             b"other",
             "the target is untouched"
         );
+    }
+
+    #[test]
+    fn a_case_only_rename_updates_the_on_disk_case() {
+        // M1/ux-9: "01 intro" -> "01 Intro" must succeed, not fail as a clobber.
+        let dir = temp_dir("rename-case");
+        let from = write_file(&dir, "01 intro.vgz", b"song");
+        let mut service = NativeFileService::new();
+
+        service.rename(from, "01 Intro.vgz".to_owned());
+        assert!(
+            service.poll_renamed().unwrap().is_ok(),
+            "a case-only rename succeeds"
+        );
+
+        let names: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            names.contains(&"01 Intro.vgz".to_owned()),
+            "the on-disk name took the new case, got {names:?}"
+        );
+        assert_eq!(fs::read(dir.join("01 Intro.vgz")).unwrap(), b"song");
     }
 }

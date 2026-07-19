@@ -1380,6 +1380,42 @@ fn a_rescan_closes_the_open_quick_edit_dialog() {
     );
 }
 
+#[test]
+fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
+    // M1/ux-9: a name change must rename first, then rewrite the target-format
+    // bytes to the NEW path -- so a failed rename can't leave the old file
+    // holding bytes its extension no longer matches.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+
+    harness.state_mut().quick_edit_submitted(
+        "01 Intro.vgz".to_owned(),
+        "01 Intro.vgm".to_owned(),
+        dro_core::Gd3Tag::default(),
+    );
+    {
+        let files = handles.files.borrow();
+        assert_eq!(files.rename_requests.len(), 1);
+        assert_eq!(files.rename_requests[0].1, "01 Intro.vgm");
+        assert!(
+            files.save_requests.is_empty(),
+            "no byte rewrite before the rename lands"
+        );
+    }
+
+    // The rename succeeds -> now the bytes are written, to the new path.
+    handles.files.borrow_mut().rename_outcomes.push_back(Ok(()));
+    harness.run();
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a rewrite after the rename") {
+        SaveRequest::InPlace { path, .. } => assert!(
+            path.to_string_lossy().ends_with("01 Intro.vgm"),
+            "rewrote the renamed file, got {path:?}"
+        ),
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+}
+
 const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// A folder that passes every export validation (named, numbered, with a png).

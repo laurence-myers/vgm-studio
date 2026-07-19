@@ -4,6 +4,7 @@
 use core::fmt;
 use core::time::Duration;
 use std::collections::VecDeque;
+use std::path::PathBuf;
 
 use dro_core::config::{AppConfig, ConfigStore};
 use dro_core::{FindTarget, Gd3Tag};
@@ -158,6 +159,9 @@ pub struct DroApp {
     /// Set once the user confirms quitting past unsaved changes, so the
     /// close interception lets the next close request through.
     quitting: bool,
+    /// A quick-edit byte rewrite deferred until its rename lands, so a failed
+    /// rename can't leave the old file holding bytes in the new format.
+    pending_rewrite: Option<(PathBuf, Vec<u8>)>,
 }
 
 impl DroApp {
@@ -196,6 +200,7 @@ impl DroApp {
             pending_open: initial_file,
             pending_load: None,
             quitting: false,
+            pending_rewrite: None,
         }
     }
 
@@ -566,10 +571,21 @@ impl DroApp {
         if let Some(result) = self.files.poll_renamed() {
             match result {
                 Ok(()) => {
-                    self.rescan_rip_folder();
-                    self.status = "Renamed track; rip folder rescanned.".to_owned();
+                    // A quick-edit rename paired with a byte rewrite: now that the
+                    // file has its new name, write the target-format bytes to it
+                    // (its own TrackRewrite outcome then rescans the folder).
+                    if let Some((path, bytes)) = self.pending_rewrite.take() {
+                        self.pending_saves.push_back(SavePurpose::TrackRewrite);
+                        self.files.save(SaveRequest::InPlace { path, bytes });
+                    } else {
+                        self.rescan_rip_folder();
+                        self.status = "Renamed track; rip folder rescanned.".to_owned();
+                    }
                 }
-                Err(message) => self.alerts.push_back(Alert::new("Rename failed", message)),
+                Err(message) => {
+                    self.pending_rewrite = None;
+                    self.alerts.push_back(Alert::new("Rename failed", message));
+                }
             }
         }
         if let Some(outcome) = self.files.poll_saved() {
@@ -1581,17 +1597,27 @@ impl DroApp {
                 return;
             }
         };
-        if let Some(path) = old_path.clone() {
+        let Some(old_path) = old_path else {
+            return;
+        };
+        if new_name == old_name {
+            // No rename: rewrite the bytes in place, in the unchanged format.
             self.pending_saves.push_back(SavePurpose::TrackRewrite);
-            self.files.save(SaveRequest::InPlace { path, bytes });
-        }
-        if new_name != old_name {
-            if let Some(path) = old_path.clone() {
-                self.files.rename(path, new_name.clone());
-            }
+            self.files.save(SaveRequest::InPlace {
+                path: old_path,
+                bytes,
+            });
+        } else {
+            // Rename first, then rewrite the target-format bytes to the new path
+            // once the rename lands (see poll_renamed) -- so a failed rename
+            // can't strand the old file holding bytes its extension no longer
+            // matches.
+            let new_path = old_path.with_file_name(&new_name);
+            self.pending_rewrite = Some((new_path, bytes));
+            self.files.rename(old_path.clone(), new_name.clone());
             // If the renamed file is the one open in the editor, drop its stale
             // path so a later Ctrl+S does not resurrect the old name.
-            if self.editor.path == old_path {
+            if self.editor.path.as_deref() == Some(old_path.as_path()) {
                 self.editor.path = None;
             }
         }
