@@ -7,7 +7,6 @@
 //! between render chunks), and results carry a generation number so a task
 //! that slips past its cancel flag can never overwrite a newer task's result.
 
-use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -29,10 +28,13 @@ struct Pending {
 pub struct ThreadTaskService {
     sender: Sender<(u64, TaskResult)>,
     receiver: Receiver<(u64, TaskResult)>,
-    /// Debounced submissions waiting for their deadline.
-    pending: HashMap<TaskKind, Pending>,
-    /// Cancel flags of spawned tasks.
-    running: HashMap<TaskKind, Arc<AtomicBool>>,
+    /// The debounced submission waiting for its deadline, if any. Only one task
+    /// kind exists (the waveform render), so a single slot replaces the Python's
+    /// per-kind registry -- and the generation below can be global without the
+    /// contradiction a per-kind map would carry.
+    pending: Option<Pending>,
+    /// The cancel flag of the spawned task, if one is running.
+    running: Option<Arc<AtomicBool>>,
     /// Spawned-and-not-yet-exited threads, for `is_busy`.
     live: Arc<AtomicUsize>,
     /// Bumped per submission; stale results are dropped by generation.
@@ -50,8 +52,8 @@ impl Default for ThreadTaskService {
         Self {
             sender,
             receiver,
-            pending: HashMap::new(),
-            running: HashMap::new(),
+            pending: None,
+            running: None,
             live: Arc::new(AtomicUsize::new(0)),
             generation: 0,
             notify: None,
@@ -85,7 +87,7 @@ impl ThreadTaskService {
 
     fn spawn(&mut self, request: TaskRequest, generation: u64) {
         let cancelled = Arc::new(AtomicBool::new(false));
-        self.running.insert(request.kind(), Arc::clone(&cancelled));
+        self.running = Some(Arc::clone(&cancelled));
 
         let sender = self.sender.clone();
         let live = Arc::clone(&self.live);
@@ -114,45 +116,41 @@ impl ThreadTaskService {
     /// while `is_busy`).
     fn promote_due(&mut self) {
         let now = Instant::now();
-        let due: Vec<TaskKind> = self
-            .pending
-            .iter()
-            .filter(|(_, pending)| pending.due <= now)
-            .map(|(&kind, _)| kind)
-            .collect();
-        for kind in due {
-            let pending = self.pending.remove(&kind).expect("key just listed");
+        if let Some(pending) = self.pending.take_if(|pending| pending.due <= now) {
             self.spawn(pending.request, pending.generation);
+        }
+    }
+
+    /// Drops any pending submission and signals the running task to stop -- the
+    /// supersede-on-resubmit and shutdown path.
+    fn cancel_current(&mut self) {
+        self.pending = None;
+        if let Some(cancelled) = self.running.take() {
+            cancelled.store(true, Ordering::Relaxed);
         }
     }
 }
 
 impl TaskService for ThreadTaskService {
     fn submit(&mut self, request: TaskRequest, debounce: Option<Duration>) {
-        let kind = request.kind();
-        self.cancel(kind);
+        self.cancel_current();
         self.generation += 1;
         let generation = self.generation;
         match debounce {
             Some(delay) => {
-                self.pending.insert(
-                    kind,
-                    Pending {
-                        due: Instant::now() + delay,
-                        request,
-                        generation,
-                    },
-                );
+                self.pending = Some(Pending {
+                    due: Instant::now() + delay,
+                    request,
+                    generation,
+                });
             }
             None => self.spawn(request, generation),
         }
     }
 
-    fn cancel(&mut self, kind: TaskKind) {
-        self.pending.remove(&kind);
-        if let Some(cancelled) = self.running.remove(&kind) {
-            cancelled.store(true, Ordering::Relaxed);
-        }
+    fn cancel(&mut self, _kind: TaskKind) {
+        // Only the waveform kind exists, so there is nothing to disambiguate.
+        self.cancel_current();
     }
 
     fn poll(&mut self) -> Vec<TaskResult> {
@@ -168,15 +166,11 @@ impl TaskService for ThreadTaskService {
     }
 
     fn is_busy(&self) -> bool {
-        !self.pending.is_empty() || self.live.load(Ordering::Relaxed) > 0
+        self.pending.is_some() || self.live.load(Ordering::Relaxed) > 0
     }
 
     fn shutdown(&mut self) {
-        let kinds: Vec<TaskKind> = self.running.keys().copied().collect();
-        for kind in kinds {
-            self.cancel(kind);
-        }
-        self.pending.clear();
+        self.cancel_current();
     }
 }
 
@@ -260,7 +254,7 @@ mod tests {
         let results = drain_until_idle(&mut service, Duration::from_secs(10));
         assert!(!results.is_empty(), "the replacement produced results");
         assert!(
-            service.pending.is_empty(),
+            service.pending.is_none(),
             "the superseded submission is gone"
         );
     }
