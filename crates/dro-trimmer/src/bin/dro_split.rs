@@ -52,15 +52,17 @@ fn main() -> Result<()> {
 
     let outputs = split(&song, &options)?;
     let dir = args.input.parent().unwrap_or_else(|| Path::new("."));
-    for output in &outputs {
+    let count = outputs.len();
+    // Consume the outputs so a WAV's bytes move straight into the write.
+    for output in outputs {
         let path = dir.join(&output.name);
-        let bytes = match &output.data {
-            SplitData::Wav(bytes) => bytes.clone(),
-            SplitData::Dro(dro) => write_song(dro)?,
+        let bytes = match output.data {
+            SplitData::Wav(bytes) => bytes,
+            SplitData::Dro(dro) => write_song(&dro)?,
         };
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         println!("Wrote {}", path.display());
     }
-    println!("Done -- {} file(s).", outputs.len());
+    println!("Done -- {} file(s).", count);
     Ok(())
 }
