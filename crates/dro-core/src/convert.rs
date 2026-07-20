@@ -1,4 +1,5 @@
-//! Format conversions: DRO -> VGM, and DRO v2 -> v1.
+//! Format conversions: DRO -> VGM, DRO v2 -> v1, and filtering a VGM's register
+//! writes ([`filter_vgm`], which shares the VGM emitter with the DRO conversion).
 //!
 //! Ported from `VGMSong.from_song` and `dro2to1.py`.
 
@@ -41,6 +42,61 @@ impl SampleClock {
     }
 }
 
+/// Accumulates a VGM command stream: register writes for one chip, and waits
+/// chunked to fit `0x61`'s 16-bit operand.
+///
+/// Shared by [`dro_to_vgm`], whose millisecond delays arrive through a
+/// [`SampleClock`], and [`filter_vgm`], whose delays are already in samples.
+#[derive(Debug)]
+struct VgmStream {
+    opl_type: OplType,
+    out: Vec<u8>,
+    /// Commands emitted so far. A VGM instruction index, which is what
+    /// [`filter_vgm`] remaps loop points onto.
+    count: usize,
+}
+
+impl VgmStream {
+    fn with_capacity(opl_type: OplType, bytes: usize) -> Self {
+        Self {
+            opl_type,
+            out: Vec::with_capacity(bytes),
+            count: 0,
+        }
+    }
+
+    fn write(&mut self, bank: Bank, reg: u8, value: u8) {
+        self.out
+            .extend_from_slice(&[write_command(self.opl_type, bank), reg, value]);
+        self.count += 1;
+    }
+
+    /// Emits `samples` as one or more `0x61` waits. A zero-sample wait still
+    /// emits one command, so a delay never vanishes from the stream.
+    fn wait(&mut self, samples: u64) {
+        let mut remaining = samples;
+        loop {
+            let chunk = remaining.min(MAX_WAIT_SAMPLES);
+            let chunk16 = u16::try_from(chunk).expect("clamped to 0xFFFF");
+            self.out.push(command::WAIT);
+            self.out.extend_from_slice(&chunk16.to_le_bytes());
+            self.count += 1;
+            remaining -= chunk;
+            if remaining == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Indexes the finished stream.
+    ///
+    /// # Errors
+    /// Never in practice -- every command written here is one the indexer knows.
+    fn finish(self) -> Result<VgmData> {
+        VgmData::new(self.out)
+    }
+}
+
 /// Converts a DRO song to a VGM song.
 ///
 /// # Errors
@@ -52,7 +108,7 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
 
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
-    let mut out: Vec<u8> = Vec::with_capacity(song.len() * 3);
+    let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
 
     for instruction in song.data().iter() {
         match instruction {
@@ -63,22 +119,9 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
                 bank: own,
             } => {
                 // DRO v2 carries the bank on the write; v1 tracks it separately.
-                let effective = own.unwrap_or(bank);
-                out.extend_from_slice(&[write_command(song.opl_type, effective), reg, value]);
+                stream.write(own.unwrap_or(bank), reg, value);
             }
-            DroInstruction::DelayMs { ms, .. } => {
-                let mut remaining = clock.samples_for_ms(ms);
-                loop {
-                    let chunk = remaining.min(MAX_WAIT_SAMPLES);
-                    let chunk16 = u16::try_from(chunk).expect("clamped to 0xFFFF");
-                    out.push(command::WAIT);
-                    out.extend_from_slice(&chunk16.to_le_bytes());
-                    remaining -= chunk;
-                    if remaining == 0 {
-                        break;
-                    }
-                }
-            }
+            DroInstruction::DelayMs { ms, .. } => stream.wait(clock.samples_for_ms(ms)),
             DroInstruction::DelaySamples { .. } => {
                 unreachable!("a DRO song has no sample delays")
             }
@@ -91,9 +134,98 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
     Ok(Song::vgm(
         replace_extension(&song.name, "vgm"),
         CONVERSION_VERSION,
-        VgmData::new(out)?,
+        stream.finish()?,
         song.opl_type,
         VgmMeta::new(header),
+    ))
+}
+
+/// Rewrites a VGM's register writes through `gate`, keeping everything else.
+///
+/// Each write is offered to `gate` as `(bank, register, value)`: `None` drops it,
+/// `Some(value)` writes that value instead. That is deliberately the shape of
+/// `dro-synth`'s playback muting gate, which is what splitting a VGM into one
+/// file per channel passes in. Delays are preserved sample for sample, so the
+/// result lines up with the original however much is muted out.
+///
+/// The version, header and GD3 tag come from `song`, so the output is the
+/// original file minus the muted voices. Loop points are instruction indices, so
+/// they are remapped onto the commands that survive: a dropped write takes no
+/// time, so a loop point that lands on one moves to the next surviving command
+/// and still restarts the same moment of music.
+///
+/// Waits are re-encoded canonically as `0x61`: a `0x62`, `0x63` or `0x7n` in the
+/// source becomes an equivalent `0x61`. The timing is identical; the bytes are
+/// not.
+///
+/// # Errors
+/// If `song` is not a VGM.
+pub fn filter_vgm(
+    song: &Song,
+    mut gate: impl FnMut(Bank, u8, u8) -> Option<u8>,
+    name: String,
+) -> Result<Song> {
+    let Some(meta) = song.vgm_meta() else {
+        return Err(Error::file(
+            "Only a VGM song can be filtered into a VGM".to_owned(),
+        ));
+    };
+
+    let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
+    let mut loop_point = None;
+    let mut loop_end = None;
+
+    for (index, instruction) in song.data().iter().enumerate() {
+        // Resolve the boundaries *before* emitting: a loop point on a delay long
+        // enough to need several `0x61`s must land on the first of them.
+        if meta.loop_point == Some(index) {
+            loop_point = Some(stream.count);
+        }
+        if meta.loop_end == Some(index) {
+            loop_end = Some(stream.count);
+        }
+        match instruction {
+            DroInstruction::Register { reg, value, bank } => {
+                let bank = bank.unwrap_or(Bank::Low);
+                if let Some(gated) = gate(bank, reg, value) {
+                    stream.write(bank, reg, gated);
+                }
+            }
+            DroInstruction::DelaySamples { samples, .. } => stream.wait(u64::from(samples)),
+            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {
+                unreachable!("a VGM song has neither bank switches nor millisecond delays")
+            }
+        }
+    }
+    // A loop that runs to the very end carries an index of `len`, which the walk
+    // above never reaches.
+    if meta.loop_point == Some(song.len()) {
+        loop_point = Some(stream.count);
+    }
+    if meta.loop_end == Some(song.len()) {
+        loop_end = Some(stream.count);
+    }
+
+    let mut filtered = meta.clone();
+    // Muting out every command between the loop points leaves a region of no
+    // duration, which nothing can loop. Such a loop was already degenerate in the
+    // source (only a run of register writes, no delay); drop it rather than write
+    // a loop end that is no longer past its start.
+    if let (Some(start), Some(end)) = (loop_point, loop_end)
+        && end <= start
+    {
+        loop_point = None;
+        loop_end = None;
+    }
+    filtered.loop_point = loop_point;
+    filtered.loop_end = loop_end;
+
+    Ok(Song::vgm(
+        name,
+        song.file_version,
+        stream.finish()?,
+        song.opl_type,
+        filtered,
     ))
 }
 
@@ -432,6 +564,217 @@ mod tests {
             ]
         );
         assert_eq!(v1.total_delay_ms(), 257);
+    }
+
+    // -- filter_vgm --------------------------------------------------------
+
+    /// Passes everything through, so only the encoding may change.
+    fn keep_all(_: Bank, _: u8, value: u8) -> Option<u8> {
+        Some(value)
+    }
+
+    #[test]
+    fn filtering_a_vgm_with_an_open_gate_preserves_the_song() {
+        let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
+        let filtered = filter_vgm(&vgm, keep_all, "out.vgm".to_owned()).unwrap();
+
+        assert_eq!(filtered.name, "out.vgm");
+        assert_eq!(filtered.file_version, vgm.file_version);
+        assert_eq!(filtered.opl_type, vgm.opl_type);
+        assert_eq!(filtered.total_delay_samples(), vgm.total_delay_samples());
+        assert_eq!(filtered.len(), vgm.len());
+        // The header and tag come along, so this is still the same file.
+        let (before, after) = (vgm.vgm_meta().unwrap(), filtered.vgm_meta().unwrap());
+        assert_eq!(after.header(), before.header());
+        assert_eq!(after.tag, before.tag);
+
+        // ... and it survives the writer and reader.
+        let written = vgm_io::write(&filtered).unwrap();
+        let reread = vgm_io::read("out.vgm", &written).unwrap();
+        assert_eq!(reread.total_delay_samples(), vgm.total_delay_samples());
+    }
+
+    #[test]
+    fn a_closed_gate_drops_every_write_but_keeps_the_timing() {
+        let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
+        let filtered = filter_vgm(&vgm, |_, _, _| None, "out.vgm".to_owned()).unwrap();
+
+        let delays = vgm
+            .data()
+            .iter()
+            .filter(|i| matches!(i, DroInstruction::DelaySamples { .. }))
+            .count();
+        assert_eq!(filtered.len(), delays, "only the delays should remain");
+        assert_eq!(filtered.total_delay_samples(), vgm.total_delay_samples());
+    }
+
+    #[test]
+    fn a_rewriting_gate_replaces_the_value() {
+        let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
+        let filtered = filter_vgm(&vgm, |_, _, _| Some(0x7F), "out.vgm".to_owned()).unwrap();
+        assert!(
+            filtered
+                .data()
+                .iter()
+                .filter_map(|i| match i {
+                    DroInstruction::Register { value, .. } => Some(value),
+                    _ => None,
+                })
+                .all(|value| value == 0x7F)
+        );
+    }
+
+    /// A source whose waits use every encoding: they all come back as `0x61`,
+    /// with the sample totals untouched.
+    #[test]
+    fn waits_are_re_encoded_canonically() {
+        let data = VgmData::new(vec![
+            command::WAIT_60TH,              // 735 samples
+            command::WAIT_50TH,              // 882 samples
+            command::SHORT_WAIT_BASE | 0x0F, // 16 samples
+            command::WAIT,
+            0x10,
+            0x00, // 16 samples
+        ])
+        .unwrap();
+        let song = Song::vgm(
+            "t.vgm".to_owned(),
+            0x151,
+            data,
+            OplType::Opl2,
+            VgmMeta::new(synthesise_header()),
+        );
+
+        let filtered = filter_vgm(&song, keep_all, "out.vgm".to_owned()).unwrap();
+        assert_eq!(filtered.total_delay_samples(), song.total_delay_samples());
+        assert_eq!(filtered.len(), song.len());
+        assert!(
+            filtered
+                .data()
+                .raw()
+                .chunks_exact(3)
+                .all(|command| command[0] == command::WAIT),
+            "every wait should be a 0x61: {:02X?}",
+            filtered.data().raw()
+        );
+    }
+
+    /// A wait too long for one `0x61` becomes several -- and a loop point sitting
+    /// on it must resolve to the first of them, not the last.
+    #[test]
+    fn a_loop_point_on_a_multi_chunk_wait_lands_on_its_first_command() {
+        let mut bytes = vec![command::YM3812, 0x20, 0x01];
+        bytes.extend_from_slice(&[command::WAIT, 0xFF, 0xFF]); // 65535 samples
+        bytes.extend_from_slice(&[command::YM3812, 0x21, 0x02]);
+        let mut song = Song::vgm(
+            "t.vgm".to_owned(),
+            0x151,
+            VgmData::new(bytes).unwrap(),
+            OplType::Opl2,
+            VgmMeta::new(synthesise_header()),
+        );
+        song.vgm_meta_mut().unwrap().loop_point = Some(1); // the wait
+
+        // Drop the first write, so indices shift by one.
+        let filtered = filter_vgm(
+            &song,
+            |_, reg, value| (reg != 0x20).then_some(value),
+            "out.vgm".to_owned(),
+        )
+        .unwrap();
+        assert_eq!(
+            filtered.vgm_meta().unwrap().loop_point,
+            Some(0),
+            "the loop should follow the wait to its new index"
+        );
+        assert_eq!(filtered.total_delay_samples(), song.total_delay_samples());
+    }
+
+    #[test]
+    fn loop_points_slide_past_dropped_writes() {
+        let bytes = vec![
+            command::YM3812,
+            0x20,
+            0x01, // 0: dropped
+            command::YM3812,
+            0x21,
+            0x02, // 1: kept
+            command::WAIT,
+            0x64,
+            0x00, // 2: 100 samples
+            command::YM3812,
+            0x20,
+            0x03, // 3: dropped
+            command::WAIT,
+            0x64,
+            0x00, // 4: 100 samples
+        ];
+        let mut song = Song::vgm(
+            "t.vgm".to_owned(),
+            0x151,
+            VgmData::new(bytes).unwrap(),
+            OplType::Opl2,
+            VgmMeta::new(synthesise_header()),
+        );
+        {
+            let meta = song.vgm_meta_mut().unwrap();
+            meta.loop_point = Some(2); // the first wait
+            meta.loop_end = Some(4); // exclusive: up to the second wait
+        }
+
+        let filtered = filter_vgm(
+            &song,
+            |_, reg, value| (reg != 0x20).then_some(value),
+            "out.vgm".to_owned(),
+        )
+        .unwrap();
+
+        // Surviving stream: write(0x21), wait, wait -> the loop region is [1, 2).
+        let meta = filtered.vgm_meta().unwrap();
+        assert_eq!(meta.loop_point, Some(1));
+        assert_eq!(meta.loop_end, Some(2));
+        // The loop still covers the same music: one 100-sample wait.
+        assert_eq!(filtered.loop_num_samples(), song.loop_num_samples());
+    }
+
+    /// Muting out a loop region that held only register writes leaves nothing to
+    /// loop, so the loop goes rather than being written back inverted.
+    #[test]
+    fn a_loop_region_emptied_by_the_gate_is_dropped() {
+        let bytes = vec![
+            command::WAIT,
+            0x64,
+            0x00, // 0
+            command::YM3812,
+            0x20,
+            0x01, // 1: the whole loop region, dropped
+            command::WAIT,
+            0x64,
+            0x00, // 2
+        ];
+        let mut song = Song::vgm(
+            "t.vgm".to_owned(),
+            0x151,
+            VgmData::new(bytes).unwrap(),
+            OplType::Opl2,
+            VgmMeta::new(synthesise_header()),
+        );
+        {
+            let meta = song.vgm_meta_mut().unwrap();
+            meta.loop_point = Some(1);
+            meta.loop_end = Some(2);
+        }
+
+        let filtered = filter_vgm(&song, |_, _, _| None, "out.vgm".to_owned()).unwrap();
+        let meta = filtered.vgm_meta().unwrap();
+        assert_eq!(meta.loop_point, None);
+        assert_eq!(meta.loop_end, None);
+    }
+
+    #[test]
+    fn filtering_a_dro_is_rejected() {
+        let dro = build_dro_v1(&[0x20, 0x01]);
+        assert!(filter_vgm(&dro, keep_all, "out.vgm".to_owned()).is_err());
     }
 
     #[test]
