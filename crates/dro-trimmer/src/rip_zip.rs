@@ -1,5 +1,5 @@
 //! Building the release zip: optimise the PNGs, optionally gzip the songs, and
-//! pack it all flat. Pure bytes-in/bytes-out, like [`crate::split`] -- the
+//! pack it all flat. Pure bytes-in/bytes-out, like [`dro_synth::split`] -- the
 //! service layer owns the thread and the disk.
 //!
 //! The native-only crates (`zip`, `oxipng`) live here rather than in `dro-ui`'s

@@ -11,6 +11,7 @@ pub mod capture;
 pub mod engine;
 pub mod limiter;
 pub mod opl;
+pub mod split;
 pub mod wav;
 pub mod waveform;
 
@@ -20,6 +21,7 @@ pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
+pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split};
 pub use wav::{
     render_wav, render_wav_boosted, render_wav_boosted_with_progress, render_wav_muted,
     render_wav_muted_with_progress,

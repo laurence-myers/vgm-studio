@@ -1,8 +1,8 @@
 //! `drotrim split`: split a song into one file per channel (Python
 //! `dro_split.py`).
 //!
-//! The splitting logic is [`crate::split`], tested there; this parses arguments,
-//! loads the config, and writes the outputs next to the input.
+//! The splitting logic is [`dro_synth::split`], tested there; this parses
+//! arguments, loads the config, and writes the outputs next to the input.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -11,9 +11,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use dro_core::io::write_song;
 use dro_core::util::ms_to_timestr;
-use dro_synth::Position;
+use dro_synth::{Position, SplitData, SplitFormat, SplitOptions, split};
 
-use crate::{SplitData, SplitFormat, SplitOptions, load_config, read_song_from_path, split};
+use crate::{load_config, read_song_from_path};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -40,7 +40,7 @@ pub fn run(args: &Args) -> Result<()> {
 
     let options = SplitOptions {
         format: if args.song {
-            SplitFormat::Dro
+            SplitFormat::Song
         } else {
             SplitFormat::Wav
         },
@@ -72,7 +72,7 @@ pub fn run(args: &Args) -> Result<()> {
         let path = dir.join(&output.name);
         let bytes = match output.data {
             SplitData::Wav(bytes) => bytes,
-            SplitData::Dro(dro) => write_song(&dro)?,
+            SplitData::Song(song) => write_song(&song)?,
         };
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         println!("Wrote {}", path.display());

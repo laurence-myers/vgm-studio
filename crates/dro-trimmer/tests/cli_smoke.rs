@@ -162,6 +162,33 @@ fn split_song_writes_dro_files_for_a_dro_input() {
 }
 
 #[test]
+fn split_song_writes_vgm_files_for_a_vgm_input() {
+    let dir = temp_dir("split-vgm");
+    let input = dir.join("small.vgm");
+    // The same music as a VGM. A VGM split captures each channel as a VGM, which
+    // is what `--song` means: the input's own format.
+    let dro = dro_core::io::read_song("small.dro", &small_song_bytes()).unwrap();
+    let vgm = dro_core::convert::dro_to_vgm(&dro).unwrap();
+    std::fs::write(&input, write_song(&vgm).unwrap()).unwrap();
+
+    let output = run(&["split", "--song", input.to_str().unwrap()]);
+    assert!(output.status.success(), "split --song failed: {output:?}");
+
+    let vgms: Vec<String> = file_names(&dir)
+        .into_iter()
+        .filter(|name| name.ends_with(".out.vgm"))
+        .collect();
+    assert_eq!(vgms.len(), 3, "{vgms:?}");
+    assert!(
+        std::fs::read(dir.join(&vgms[0]))
+            .unwrap()
+            .starts_with(b"Vgm "),
+        "{} is not a VGM file",
+        vgms[0]
+    );
+}
+
+#[test]
 fn a_file_argument_is_not_mistaken_for_a_subcommand() {
     // `drotrim <file> <subcommand>` is a mistake, and must be reported as one
     // rather than half-parsed.

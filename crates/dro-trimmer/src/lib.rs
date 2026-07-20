@@ -11,11 +11,9 @@ pub mod cli;
 pub mod config;
 pub mod rip_zip;
 pub mod services;
-pub mod split;
 
 pub use config::load_config;
 pub use rip_zip::{RipZipOutput, build_rip_zip};
-pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split};
 
 /// Reads and parses the song at `path`, naming it after the file (falling back to
 /// `input.dro`) so format detection follows the file's extension. Every

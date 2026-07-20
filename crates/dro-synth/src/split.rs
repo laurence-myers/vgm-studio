@@ -1,30 +1,30 @@
 //! Splitting a song into one file per channel (Python `dro_split.py`).
 //!
-//! Pure: [`split`] returns named outputs (WAV bytes, or a captured DRO song); the
-//! `dro_split` bin writes them. Each channel is rendered (or captured) with all
-//! other channels muted, using the register-usage analysis to skip channels the
-//! song never touches.
-
-use anyhow::Result;
+//! Pure: [`split`] returns named outputs (WAV bytes, or a captured song); the
+//! caller writes them -- `drotrim split` to disk, the GUI to a chosen folder.
+//! Each channel is rendered (or captured) with all other channels muted, using
+//! the register-usage analysis to skip channels the song never touches.
 
 use dro_core::config::AudioConfig;
-use dro_core::{Bank, OplType, RegisterUsage, Song};
-use dro_synth::{Muting, capture, render_wav_muted_with_progress};
+use dro_core::{Bank, Error, OplType, RegisterUsage, Result, Song};
+
+use crate::{Muting, capture, render_wav_muted_with_progress};
 
 /// Output format for a split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitFormat {
     /// One WAV per channel (the default).
     Wav,
-    /// One DRO file per channel.
-    Dro,
+    /// One song file per channel, in the same format as the input: a DRO for a
+    /// DRO, a VGM for a VGM.
+    Song,
 }
 
 /// The contents of one split output.
 #[derive(Debug)]
 pub enum SplitData {
     Wav(Vec<u8>),
-    Dro(Song),
+    Song(Song),
 }
 
 /// One split file: its name and contents.
@@ -62,8 +62,8 @@ const DRUMS: [(u8, &str); 5] = [
 /// for a headless caller.
 ///
 /// # Errors
-/// If a channel cannot be captured -- a VGM input, or more distinct registers
-/// than the DRO codemap can hold.
+/// If a channel cannot be rendered, or cannot be captured -- a DRO capture needing
+/// more distinct registers than its codemap can hold.
 pub fn split(
     song: &Song,
     options: &SplitOptions,
@@ -137,7 +137,7 @@ fn split_percussion(
 }
 
 /// Renders one muted view of `song` into the configured format. A WAV render
-/// reports progress as `(base, frames_rendered)`; a DRO capture is not
+/// reports progress as `(base, frames_rendered)`; a capture is not
 /// frame-progressive, so it reports nothing.
 fn render_one(
     song: &Song,
@@ -149,20 +149,24 @@ fn render_one(
     Ok(match options.format {
         SplitFormat::Wav => SplitOutput {
             name: format!("{base}.wav"),
-            data: SplitData::Wav(render_wav_muted_with_progress(
-                song,
-                muting,
-                options.audio.frequency,
-                options.audio.bit_depth,
-                &mut |frames| on_progress(&base, frames),
-            )?),
+            data: SplitData::Wav(
+                render_wav_muted_with_progress(
+                    song,
+                    muting,
+                    options.audio.frequency,
+                    options.audio.bit_depth,
+                    &mut |frames| on_progress(&base, frames),
+                )
+                .map_err(|e| Error::file(format!("Rendering {base} to WAV failed: {e}")))?,
+            ),
         },
-        SplitFormat::Dro => {
-            let name = format!("{base}.out.dro");
-            let dro = capture(song, muting, name.clone())?;
+        SplitFormat::Song => {
+            // A capture keeps the input's format, so the name must too.
+            let name = format!("{base}.out.{}", if song.is_vgm() { "vgm" } else { "dro" });
+            let captured = capture(song, muting, name.clone())?;
             SplitOutput {
                 name,
-                data: SplitData::Dro(dro),
+                data: SplitData::Song(captured),
             }
         }
     })
@@ -186,7 +190,7 @@ fn channels_to_render(opl_type: OplType) -> Vec<u16> {
 mod tests {
     use super::*;
     use dro_core::io::{read_song, write_song};
-    use dro_core::{DroDataV1, OplType};
+    use dro_core::{DroDataV1, DroInstruction, OplType};
 
     /// A small OPL2 song touching channels 0 and 1 and the percussion register,
     /// so a split produces a few outputs without rendering a 99-second fixture.
@@ -217,7 +221,7 @@ mod tests {
     fn splits_only_the_used_channels() {
         let outputs = split(
             &small_song(),
-            &options(SplitFormat::Dro, false),
+            &options(SplitFormat::Song, false),
             &mut |_| {},
             &mut |_, _| {},
         )
@@ -231,19 +235,19 @@ mod tests {
     }
 
     #[test]
-    fn each_dro_split_parses_and_keeps_the_length() {
+    fn each_song_split_parses_and_keeps_the_length() {
         let song = small_song();
         let outputs = split(
             &song,
-            &options(SplitFormat::Dro, false),
+            &options(SplitFormat::Song, false),
             &mut |_| {},
             &mut |_, _| {},
         )
         .unwrap();
         for output in &outputs {
             assert!(output.name.ends_with(".out.dro"));
-            let SplitData::Dro(dro) = &output.data else {
-                panic!("DRO split produced a WAV")
+            let SplitData::Song(dro) = &output.data else {
+                panic!("song split produced a WAV")
             };
             let bytes = write_song(dro).unwrap();
             let reread = read_song(&output.name, &bytes).unwrap();
@@ -264,9 +268,141 @@ mod tests {
         for output in &outputs {
             assert!(output.name.ends_with(".wav"));
             let SplitData::Wav(bytes) = &output.data else {
-                panic!("WAV split produced a DRO")
+                panic!("WAV split produced a song file")
             };
             assert!(bytes.starts_with(b"RIFF"), "not a WAV: {}", output.name);
+        }
+    }
+
+    // -- what actually lands in each file ----------------------------------
+
+    /// Writes `output` out and reads it back, so the assertions below are made
+    /// against a real file's bytes rather than the in-memory song that produced
+    /// them -- without ever touching the disk.
+    fn round_trip(output: &SplitOutput) -> Song {
+        let SplitData::Song(song) = &output.data else {
+            panic!("{} is not a song file", output.name)
+        };
+        let bytes = write_song(song).unwrap();
+        read_song(&output.name, &bytes).unwrap()
+    }
+
+    fn find<'a>(outputs: &'a [SplitOutput], fragment: &str) -> &'a SplitOutput {
+        outputs
+            .iter()
+            .find(|o| o.name.contains(fragment))
+            .unwrap_or_else(|| {
+                let names: Vec<&str> = outputs.iter().map(|o| o.name.as_str()).collect();
+                panic!("no output matching {fragment:?} in {names:?}")
+            })
+    }
+
+    /// Whether `song` writes `value` to `reg`, on either bank.
+    fn writes(song: &Song, reg: u8, value: u8) -> bool {
+        song.data().iter().any(|i| {
+            matches!(i, DroInstruction::Register { reg: r, value: v, .. } if r == reg && v == value)
+        })
+    }
+
+    /// The heart of a split: each file must carry its own channel's key-on and
+    /// nobody else's.
+    #[test]
+    fn each_dro_channel_file_keeps_only_its_own_key_on() {
+        let song = small_song();
+        let outputs = split(
+            &song,
+            &options(SplitFormat::Song, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        let channel_0 = round_trip(find(&outputs, ".0.01."));
+        assert!(writes(&channel_0, 0xB0, 0x31), "channel 0 kept its key-on");
+        assert!(!writes(&channel_0, 0xB1, 0x31), "channel 1 leaked in");
+
+        let channel_1 = round_trip(find(&outputs, ".0.02."));
+        assert!(writes(&channel_1, 0xB1, 0x31), "channel 1 kept its key-on");
+        assert!(!writes(&channel_1, 0xB0, 0x31), "channel 0 leaked in");
+
+        // Neither melodic file plays the drums: 0xBD is masked to its control
+        // bits (0x20 keeps percussion mode, the five drum bits are cleared).
+        for file in [&channel_0, &channel_1] {
+            assert!(!writes(file, 0xBD, 0x31), "the drums leaked in");
+            assert!(writes(file, 0xBD, 0x20), "0xBD should survive masked");
+        }
+        // The percussion file is the mirror image.
+        let drums = round_trip(find(&outputs, ".0.14."));
+        assert!(writes(&drums, 0xBD, 0x31), "the drum file kept its drums");
+        assert!(!writes(&drums, 0xB0, 0x31), "a melodic channel leaked in");
+
+        // Every file still runs for exactly as long as the original.
+        for output in &outputs {
+            assert_eq!(round_trip(output).total_delay_ms(), song.total_delay_ms());
+        }
+    }
+
+    /// The same split over the same music as a VGM: same channel separation,
+    /// same timing, VGM files out.
+    #[test]
+    fn each_vgm_channel_file_keeps_only_its_own_key_on() {
+        let song = dro_core::convert::dro_to_vgm(&small_song()).unwrap();
+        let outputs = split(
+            &song,
+            &options(SplitFormat::Song, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(outputs.len(), 3);
+
+        for output in &outputs {
+            assert!(output.name.ends_with(".out.vgm"), "{}", output.name);
+            let SplitData::Song(vgm) = &output.data else {
+                panic!("song split produced a WAV")
+            };
+            assert!(write_song(vgm).unwrap().starts_with(b"Vgm "));
+            assert_eq!(
+                round_trip(output).total_delay_samples(),
+                song.total_delay_samples()
+            );
+        }
+
+        let channel_0 = round_trip(find(&outputs, ".0.01."));
+        assert!(writes(&channel_0, 0xB0, 0x31), "channel 0 kept its key-on");
+        assert!(!writes(&channel_0, 0xB1, 0x31), "channel 1 leaked in");
+
+        let channel_1 = round_trip(find(&outputs, ".0.02."));
+        assert!(writes(&channel_1, 0xB1, 0x31), "channel 1 kept its key-on");
+        assert!(!writes(&channel_1, 0xB0, 0x31), "channel 0 leaked in");
+    }
+
+    /// A VGM's loop survives the split, still pointing at the same music.
+    #[test]
+    fn a_vgm_split_keeps_the_loop() {
+        let mut song = dro_core::convert::dro_to_vgm(&small_song()).unwrap();
+        let loop_point = song.len() - 1; // the trailing delay
+        song.vgm_meta_mut().unwrap().loop_point = Some(loop_point);
+
+        let outputs = split(
+            &song,
+            &options(SplitFormat::Song, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        for output in &outputs {
+            let split_song = round_trip(output);
+            let meta = split_song.vgm_meta().unwrap();
+            assert!(meta.loop_point.is_some(), "{} lost its loop", output.name);
+            // The loop covers the same music: everything from that delay on.
+            assert_eq!(
+                split_song.loop_num_samples(),
+                song.loop_num_samples(),
+                "{} looped a different span",
+                output.name
+            );
         }
     }
 
@@ -275,7 +411,7 @@ mod tests {
         // The song's 0xBD = 0x31 sets BD (0x10) and HH (0x01).
         let outputs = split(
             &small_song(),
-            &options(SplitFormat::Dro, true),
+            &options(SplitFormat::Song, true),
             &mut |_| {},
             &mut |_, _| {},
         )
