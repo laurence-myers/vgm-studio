@@ -22,6 +22,7 @@ c-parity = ["dep:opl3-rs"]
 [dependencies]
 dro-core.workspace = true
 hound.workspace = true
+log.workspace = true
 nuked-opl3.workspace = true
 opl3-rs = { workspace = true, optional = true }
 

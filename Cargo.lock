@@ -1205,6 +1205,7 @@ version = "5.1.0"
 dependencies = [
  "dro-core",
  "hound",
+ "log",
  "nuked-opl3",
  "opl3-rs",
  "sha2",

@@ -15,7 +15,7 @@ pub mod wav;
 pub mod waveform;
 
 pub use capture::capture;
-pub use engine::{FrameClock, Muting, Panning, PlayerEngine, Position};
+pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, PlayerEngine, Position};
 pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;

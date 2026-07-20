@@ -189,11 +189,80 @@ pub enum Panning {
     Custom([u8; 18]),
 }
 
+/// How many times a loop region is played before playback carries on past it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LoopCount {
+    /// Repeat until playback is stopped.
+    #[default]
+    Infinite,
+    /// Play the region this many times in total, then continue into whatever
+    /// follows it. `0` and `1` both mean "no repeat": forward playback already
+    /// plays the region once.
+    Times(u32),
+}
+
+impl LoopCount {
+    /// How many times playback jumps back, or `None` for "without end".
+    #[must_use]
+    fn wraps(self) -> Option<u32> {
+        match self {
+            Self::Infinite => None,
+            Self::Times(times) => Some(times.saturating_sub(1)),
+        }
+    }
+}
+
+/// A region to loop over, and how often.
+///
+/// `start_frames` is carried rather than derived because [`PlayerEngine::set_loop`]
+/// runs inside the audio callback, where walking the song to sum its delays would
+/// be real-time work. Build one with [`LoopConfig::for_song`] off the audio thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopConfig {
+    /// The instruction playback jumps back to.
+    pub start: usize,
+    /// One past the last instruction of the loop; `song.len()` loops the tail in.
+    pub end: usize,
+    pub count: LoopCount,
+    /// The frame position of `start`, i.e. what `frames_rendered` rewinds to.
+    pub start_frames: u64,
+}
+
+impl LoopConfig {
+    /// A config for looping `song` over `[start, end)`, computing `start_frames`
+    /// up front so the audio thread never has to.
+    ///
+    /// The frame count matches what [`FrameClock`] accumulates by `start` exactly:
+    /// both floor the same `delays * rate / unit`, so the seam lands on the frame
+    /// forward playback would have been on.
+    #[must_use]
+    pub fn for_song(song: &Song, start: usize, end: usize, count: LoopCount, rate: u32) -> Self {
+        let rate = u64::from(rate);
+        let start_frames = if song.data().delays_in_samples() {
+            u64::from(song.samples_before(start)) * rate / u64::from(VGM_SAMPLE_RATE)
+        } else {
+            // A DRO's delays are milliseconds, and `samples_before` only counts
+            // sample delays, so the millisecond prefix is the honest source here.
+            u64::from(song.ms_offset_at(start).unwrap_or(0)) * rate / 1000
+        };
+        Self {
+            start,
+            end,
+            count,
+            start_frames,
+        }
+    }
+}
+
 /// Where playback currently is. Position is tracked as a `u64` frame count; the
 /// milliseconds and instruction index are derived from it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Position {
     /// Total frames rendered since the last seek or rewind. Authoritative.
+    ///
+    /// This is a position *in the song*, not a count of frames sent to the
+    /// device: a seek restarts it, and so does a loop, which rewinds it to the
+    /// loop start so the readout and cursor wrap with the audio.
     pub frames_rendered: u64,
     /// Elapsed playback time in milliseconds, derived from `frames_rendered`.
     pub elapsed_ms: u32,
@@ -201,6 +270,9 @@ pub struct Position {
     /// this already points *past* that delay; the sounding row is
     /// [`Song::seek_index_for_ms`] of `elapsed_ms`.
     pub next_instruction: usize,
+    /// How many times playback has jumped back to the loop start since the last
+    /// seek. `0` unless a loop is set.
+    pub loop_iteration: u32,
 }
 
 impl Position {
@@ -217,10 +289,23 @@ impl Position {
     /// `elapsed_ms` through [`Position::ms_from_frames`].
     #[must_use]
     pub fn from_frames(frames: u64, sample_rate: u32, next_instruction: usize) -> Self {
+        Self::looping(frames, sample_rate, next_instruction, 0)
+    }
+
+    /// As [`Position::from_frames`], for a stream that has looped
+    /// `loop_iteration` times since the last seek.
+    #[must_use]
+    pub fn looping(
+        frames: u64,
+        sample_rate: u32,
+        next_instruction: usize,
+        loop_iteration: u32,
+    ) -> Self {
         Self {
             frames_rendered: frames,
             elapsed_ms: Self::ms_from_frames(frames, sample_rate),
             next_instruction,
+            loop_iteration,
         }
     }
 }
@@ -263,6 +348,14 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
     /// the mid-delay pause point: it persists across `render` calls.
     pending_frames: u64,
     frames_rendered: u64,
+
+    /// The region to repeat, if any.
+    loop_config: Option<LoopConfig>,
+    /// Jumps still owed. `None` is "without end" -- which is also what a song
+    /// with no `loop_config` carries, since nothing reads it in that case.
+    wraps_remaining: Option<u32>,
+    /// Jumps taken since the last seek, published as [`Position::loop_iteration`].
+    loops_done: u32,
 }
 
 impl<B: Borrow<Song>> PlayerEngine<B, NukedOpl3> {
@@ -303,6 +396,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             pos: 0,
             pending_frames: 0,
             frames_rendered: 0,
+            loop_config: None,
+            wraps_remaining: None,
+            loops_done: 0,
         };
         engine.reset_chip();
         engine
@@ -377,16 +473,85 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         }
     }
 
+    /// Replaces the loop region, live.
+    ///
+    /// A region that is empty or reaches past the song is rejected outright, so
+    /// playback simply does not loop. The repeat count applies *from now*: setting
+    /// one part-way through does not credit repeats already played.
+    pub fn set_loop(&mut self, config: Option<LoopConfig>) {
+        let len = self.song().len();
+        self.loop_config = config.filter(|config| config.start < config.end && config.end <= len);
+        self.restart_loop_count();
+    }
+
+    /// The loop region in force, if any.
+    #[must_use]
+    pub fn loop_config(&self) -> Option<LoopConfig> {
+        self.loop_config
+    }
+
+    /// Re-arms the repeat count from the current config, for a fresh run at it.
+    fn restart_loop_count(&mut self) {
+        self.wraps_remaining = self.loop_config.and_then(|config| config.count.wraps());
+        self.loops_done = 0;
+    }
+
+    /// Jumps back to the loop start when playback has reached the loop end with a
+    /// repeat still owed, reporting whether it did.
+    ///
+    /// Deliberately does **not** reset or replay the chip. A real VGM player
+    /// carries its register state across the seam, and hearing whether that seam
+    /// is clean is the whole point of auditioning a loop; a reset-and-replay would
+    /// paper over exactly the discontinuity the listener is checking for.
+    /// `frames_rendered` rewinds to the loop start, so the position readout and
+    /// the waveform cursor wrap along with the audio.
+    fn wrap_to_loop_start(&mut self) -> bool {
+        let Some(config) = self.loop_config else {
+            return false;
+        };
+        if self.pos != config.end || self.wraps_remaining == Some(0) {
+            return false;
+        }
+        // A region holding no delays renders no audio, so looping it would spin
+        // here forever without ever filling the caller's buffer. It cannot be what
+        // was meant: drop the loop and play on rather than hang.
+        if self.frames_rendered == config.start_frames {
+            log::warn!("the loop region renders no audio; playing on without looping");
+            self.loop_config = None;
+            return false;
+        }
+        if let Some(remaining) = self.wraps_remaining.as_mut() {
+            *remaining -= 1;
+        }
+        self.pos = config.start;
+        self.frames_rendered = config.start_frames;
+        self.loops_done += 1;
+        true
+    }
+
     /// Whether the song has played to the end.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.pending_frames == 0 && self.pos >= self.song().len()
+        self.pending_frames == 0 && self.pos >= self.song().len() && !self.owes_a_wrap()
+    }
+
+    /// Whether the next `render` would jump back rather than stop. Only ever true
+    /// for a loop whose end *is* the end of the song, which is the one case where
+    /// "past the last instruction" does not mean "finished".
+    fn owes_a_wrap(&self) -> bool {
+        self.loop_config
+            .is_some_and(|config| self.pos == config.end && self.wraps_remaining != Some(0))
     }
 
     /// The current playback position.
     #[must_use]
     pub fn position(&self) -> Position {
-        Position::from_frames(self.frames_rendered, self.sample_rate, self.pos)
+        Position::looping(
+            self.frames_rendered,
+            self.sample_rate,
+            self.pos,
+            self.loops_done,
+        )
     }
 
     /// Fills `out` with interleaved stereo frames, stepping instructions and
@@ -408,6 +573,8 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 self.pending_frames -= frames as u64;
                 self.frames_rendered += frames as u64;
                 filled += frames;
+            } else if self.wrap_to_loop_start() {
+                // Jumped back to the loop start; stepping resumes from there.
             } else if self.pos < self.song().len() {
                 let instruction = self
                     .song()
@@ -444,6 +611,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         }
         self.pos = index;
         self.pending_frames = 0;
+        // A seek is a fresh run at the loop: the repeat count starts over rather
+        // than carrying the tally from wherever playback used to be.
+        self.restart_loop_count();
     }
 
     /// Seeks to the instruction playing at `target_ms`, via the song's prefix-sum
@@ -1093,6 +1263,227 @@ mod tests {
         assert_eq!(engine.render(&mut out), 0);
         assert!(engine.is_finished());
         assert!(out.iter().all(|&s| s == 0), "the tail must be zeroed");
+    }
+
+    // -- looping (lp-2) ------------------------------------------------------
+    //
+    // `small_song` is 8 ms: a register write, a 5 ms delay, a register write, a
+    // 3 ms delay. At 48 kHz that is 240 frames then 144, so instruction 2 sits at
+    // frame 240 and the whole song is 384 frames.
+
+    fn looping_engine(
+        song: &Song,
+        start: usize,
+        end: usize,
+        count: LoopCount,
+    ) -> PlayerEngine<&Song, RecordingChip> {
+        let mut engine = recording_engine(song);
+        engine.set_loop(Some(LoopConfig::for_song(song, start, end, count, 48_000)));
+        engine
+    }
+
+    /// Renders to the end and returns the frames actually produced.
+    ///
+    /// A wrap rewinds `frames_rendered`, so unlike [`render_to_end`] this totals
+    /// what each call returned -- the final position of a looped run is only the
+    /// last pass. Never call it on an infinite loop.
+    fn total_rendered<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
+        let mut out = vec![0i16; 4096 * 2];
+        let mut total = 0u64;
+        loop {
+            let frames = engine.render(&mut out);
+            total += frames as u64;
+            if frames < out.len() / 2 {
+                return total;
+            }
+        }
+    }
+
+    /// Renders until the engine reports one more wrap than it has now.
+    fn render_past_one_wrap<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) {
+        let target = engine.position().loop_iteration + 1;
+        let mut out = vec![0i16; 64 * 2];
+        while engine.position().loop_iteration < target {
+            engine.render(&mut out);
+        }
+    }
+
+    #[test]
+    fn for_song_lands_on_the_frame_forward_playback_would_be_on() {
+        let song = small_song();
+        // Seeking there accumulates the same frames the clock would have, so the
+        // seam cannot land a frame off from where the engine actually is.
+        for index in 0..=song.len() {
+            let config =
+                LoopConfig::for_song(&song, index, song.len(), LoopCount::Infinite, 48_000);
+            let mut engine = recording_engine(&song);
+            engine.seek_to_pos(index);
+            assert_eq!(
+                config.start_frames,
+                engine.position().frames_rendered,
+                "at instruction {index}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_finite_loop_repeats_the_region_then_plays_the_tail() {
+        // Loop just the 5 ms delay (instructions 1..2), twice, then the rest.
+        let song = small_song();
+        let mut engine = looping_engine(&song, 1, 2, LoopCount::Times(2));
+        // The whole song, plus one extra pass over the 240-frame region.
+        assert_eq!(total_rendered(&mut engine), 384 + 240);
+        assert!(engine.is_finished(), "the tail still plays out");
+        assert_eq!(engine.position().loop_iteration, 1);
+    }
+
+    #[test]
+    fn times_one_and_zero_do_not_repeat() {
+        let song = small_song();
+        for count in [LoopCount::Times(1), LoopCount::Times(0)] {
+            let mut engine = looping_engine(&song, 1, 2, count);
+            assert_eq!(total_rendered(&mut engine), 384, "{count:?}");
+            assert_eq!(engine.position().loop_iteration, 0);
+        }
+    }
+
+    #[test]
+    fn an_infinite_loop_never_finishes() {
+        let song = small_song();
+        let mut engine = looping_engine(&song, 1, 2, LoopCount::Infinite);
+        let mut out = vec![0i16; 1024 * 2];
+        for _ in 0..20 {
+            assert_eq!(engine.render(&mut out), 1024, "the buffer always fills");
+            assert!(!engine.is_finished());
+        }
+        assert!(engine.position().loop_iteration >= 2);
+    }
+
+    /// A loop ending at the song's end is the ordinary VGM case, and the one
+    /// where "past the last instruction" must not read as finished.
+    #[test]
+    fn a_loop_over_the_whole_song_wraps_instead_of_finishing() {
+        let song = small_song();
+        let mut engine = looping_engine(&song, 0, song.len(), LoopCount::Times(3));
+        assert_eq!(total_rendered(&mut engine), 384 * 3);
+        assert_eq!(engine.position().loop_iteration, 2);
+    }
+
+    /// The whole point of the seam: a wrap re-executes the region and nothing
+    /// else. Resetting or replaying from the top would hide exactly the
+    /// discontinuity the listener is auditioning for.
+    #[test]
+    fn a_wrap_replays_the_region_and_nothing_else() {
+        // Instructions 2..4: the 0xA0 register write, then the 3 ms delay.
+        let song = small_song();
+        let mut engine = looping_engine(&song, 2, 4, LoopCount::Infinite);
+        render_past_one_wrap(&mut engine);
+        engine.chip.writes.clear();
+        render_past_one_wrap(&mut engine);
+
+        // A chip reset would have cleared the log and re-primed the v1 waveform
+        // hack (0x01 = 0x20); a replay would carry instruction 0's write too.
+        assert_eq!(engine.chip.writes, vec![(0xA0, 0x98)]);
+    }
+
+    #[test]
+    fn the_position_rewinds_to_the_loop_start_on_each_wrap() {
+        let song = small_song();
+        let mut engine = looping_engine(&song, 2, 4, LoopCount::Infinite);
+        let start_frames =
+            LoopConfig::for_song(&song, 2, 4, LoopCount::Infinite, 48_000).start_frames;
+        assert_eq!(start_frames, 240);
+
+        let mut out = vec![0i16; 64 * 2];
+        let mut wrapped = false;
+        for _ in 0..40 {
+            let before = engine.position().loop_iteration;
+            engine.render(&mut out);
+            if engine.position().loop_iteration > before {
+                wrapped = true;
+                // Rewound to the loop start, plus whatever this call rendered past it.
+                assert!(engine.position().frames_rendered >= start_frames);
+                assert!(engine.position().frames_rendered < 384);
+            }
+        }
+        assert!(wrapped, "the region is short enough to have wrapped");
+    }
+
+    #[test]
+    fn output_is_independent_of_the_pull_size_across_a_wrap() {
+        let song = small_song();
+        let reference = total_rendered(&mut looping_engine(&song, 1, 2, LoopCount::Times(3)));
+        assert_eq!(reference, 384 + 240 * 2, "two repeats of the region");
+
+        for chunk in [1usize, 2, 3, 127, 512] {
+            let mut engine = looping_engine(&song, 1, 2, LoopCount::Times(3));
+            let mut out = vec![0i16; chunk * 2];
+            let mut total = 0u64;
+            loop {
+                let frames = engine.render(&mut out);
+                total += frames as u64;
+                if frames < chunk {
+                    break;
+                }
+            }
+            assert_eq!(total, reference, "chunk {chunk}");
+        }
+    }
+
+    #[test]
+    fn an_empty_or_out_of_range_region_is_refused() {
+        let song = small_song();
+        let mut engine = recording_engine(&song);
+        for (start, end) in [(2usize, 2usize), (3, 1), (0, song.len() + 1)] {
+            engine.set_loop(Some(LoopConfig::for_song(
+                &song,
+                start,
+                end,
+                LoopCount::Infinite,
+                48_000,
+            )));
+            assert!(engine.loop_config().is_none(), "accepted {start}..{end}");
+        }
+    }
+
+    /// A region with no delays renders nothing, so looping it would spin forever
+    /// without filling the buffer. It must give up instead of hanging.
+    #[test]
+    fn a_region_that_renders_no_audio_disables_the_loop() {
+        // Instructions 0..1 is the leading register write: no delay at all.
+        let song = small_song();
+        let mut engine = looping_engine(&song, 0, 1, LoopCount::Infinite);
+        assert_eq!(total_rendered(&mut engine), 384, "the song still plays out");
+        assert!(engine.is_finished());
+        assert!(engine.loop_config().is_none(), "the loop was dropped");
+    }
+
+    #[test]
+    fn seeking_restarts_the_repeat_count() {
+        let song = small_song();
+        let mut engine = looping_engine(&song, 1, 2, LoopCount::Times(2));
+        let mut out = vec![0i16; 1024 * 2];
+        engine.render(&mut out);
+        assert_eq!(
+            engine.position().loop_iteration,
+            1,
+            "it used its one repeat"
+        );
+
+        engine.seek_to_pos(0);
+        assert_eq!(engine.position().loop_iteration, 0);
+        // And the repeat is available again, so the full length replays.
+        assert_eq!(total_rendered(&mut engine), 384 + 240);
+    }
+
+    #[test]
+    fn clearing_the_loop_stops_the_repeats() {
+        let song = small_song();
+        let mut engine = looping_engine(&song, 1, 2, LoopCount::Infinite);
+        engine.set_loop(None);
+        assert!(engine.loop_config().is_none());
+        assert_eq!(total_rendered(&mut engine), 384);
+        assert!(engine.is_finished());
     }
 
     #[test]
