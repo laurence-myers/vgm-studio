@@ -3,7 +3,69 @@
 **For:** a fresh Claude Code session implementing the loop-points feature.
 **From:** the planning session, 2026-07-20.
 **Repo:** `I:\Code\Python\dro-trimmer` · **branch `rust`** (main/master is the Python original — parity oracle only, never modify `src/`).
-**Status:** plan complete, all user decisions made (§2). **No code written.** You are cleared to begin at Step 1 (§6), following the workflow rules in §4.
+**Status:** **lp-1, lp-2 and lp-3 are implemented, tested and committed** (see §0).
+The backend is done; lp-4 starts the user-visible surface. All user decisions are
+made (§2). Follow the workflow rules in §4.
+
+---
+
+## 0 · Progress (updated 2026-07-20)
+
+| Step | State | Commit |
+|------|-------|--------|
+| lp-1 | **done** — `VgmMeta::loop_end`, derivation, reader materialisation, deletion sliding, undo restore, 11 tests | `a015398` |
+| lp-2 | **done** — `LoopConfig`/`LoopCount`, wrap in `render`, 12 tests | `0ee16a9` |
+| lp-3 | **done** — `SetLoop` command, `loop_iteration` atomic, `AudioService::set_loop` | `9e738d9` |
+| lp-4 | not started — `RangeMarkers`, actions, gestures | |
+| lp-5 | not started — palette, waveform markers, transport, snapshots | |
+| lp-6 | not started — dialog loop-end field, apply action, docs | |
+
+Workspace after lp-3: `cargo test --workspace` green (dro-core 224, dro-synth 70,
+dro-ui 151, dro-trimmer 31, + integration suites); `cargo clippy --workspace
+--all-targets` zero warnings.
+
+### What changed versus the plan below (read before lp-4)
+
+1. **`Position` gained only `loop_iteration`, not the `song_frames`/`song_ms`
+   pair §5.2 called for.** `frames_rendered` turned out to be a *song position*
+   already — `seek_to_pos` resets it — not a monotonic count of frames sent to
+   the device, and nothing consumes it as the latter. So a wrap simply rewinds
+   `frames_rendered` to `LoopConfig::start_frames`, and the readout, cursor and
+   `elapsed_ms` all wrap for free. lp-5 should read `Position::loop_iteration`
+   for the "loop 2/5" display and otherwise needs no new position plumbing.
+2. **`LoopCount::Times(n)` means the region is heard `n` times in total**
+   (player convention), so it jumps back `n - 1` times; `Times(0)` and
+   `Times(1)` both mean "no repeat". The count applies **from now**: both
+   `set_loop` and any seek restart the tally rather than crediting repeats
+   already played.
+3. **A region containing no delays is refused at wrap time.** It renders no
+   audio, so looping it would spin inside `render` forever without ever filling
+   the caller's buffer — a hang, not a glitch. The engine logs a warning, drops
+   the loop and plays on. `set_loop` likewise refuses an empty or out-of-range
+   region outright. lp-4's UI should not be able to produce either, but the
+   engine no longer depends on that.
+4. **`dro-synth` gained a `log` dependency** (workspace dep, wasm-clean) for
+   that warning.
+5. **Loop-end index normalisation.** Zero-delay commands share a timestamp, so a
+   header loop length can match several indices; the reader takes the *first*.
+   The file round-trips byte-for-byte either way, but `loop_end` may come back
+   as a lower index than the one that was saved. lp-6's dialog should not treat
+   that as data loss.
+6. **`resolve_loop_end` rejects a zero-length header loop** (a loop offset with
+   a zero length is self-contradictory) and falls back to looping to the end.
+
+### Pre-existing breakage you will trip over
+
+`cargo fmt --all --check` is **red on code nobody in this feature touched** —
+7 files (`dro-core/src/rip.rs`, `dro-ui/src/{action,app,rip}.rs`,
+`dro-ui/src/theme/bevel.rs`, `dro-ui/src/widgets/{channels,pan_knob,table}.rs`).
+`rust-toolchain.toml` floats on `channel = "stable"`, and rustfmt 1.9.0
+(2026-07-07) changed its wrapping heuristics, so files formatted by the previous
+rustfmt now fail. Confirmed pre-existing by formatting HEAD's copy of an
+untouched file. **lp-1..lp-3 therefore formatted only their own files** rather
+than bundle an unrelated 7-file reformat into a feature commit. Worth its own
+`style: reformat under rustfmt 1.9` commit before lp-5, since lp-5 edits several
+of those files and would otherwise mix the reformat into a feature diff.
 
 ---
 
