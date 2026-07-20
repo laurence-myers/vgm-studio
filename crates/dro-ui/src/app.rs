@@ -1126,10 +1126,15 @@ impl DroApp {
             Action::OpenDroInfo => {
                 if self.require_song() {
                     let song = self.editor.song().expect("gated");
-                    // Never editable for a VGM: its length is derived from
-                    // the sample delays (an edit would silently evaporate),
-                    // and re-typing its chip corrupts the header's clocks.
-                    let edit_allowed = self.config.ui.dro_info_edit_enabled && !song.is_vgm();
+                    // The menu hides this for a VGM, so the shortcut must agree
+                    // -- otherwise Ctrl+I opens a dialog the menu says does not
+                    // apply. A VGM's header is the VGM Metadata dialog's job.
+                    if song.is_vgm() {
+                        self.status =
+                            "DRO Info applies to DRO files; use Edit VGM Metadata.".to_owned();
+                        return;
+                    }
+                    let edit_allowed = self.config.ui.dro_info_edit_enabled;
                     self.dialogs.dro_info = Some(DroInfoDialog::new(song, edit_allowed));
                 }
             }
@@ -2398,6 +2403,7 @@ impl DroApp {
             has_rip: self.rip.is_some(),
             on_rip_tab,
             focused_row: self.editor.selection.first(),
+            song_type: self.editor.song().map(|song| song.file_type),
         }
     }
 

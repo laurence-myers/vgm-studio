@@ -2224,3 +2224,72 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
     // ...and the right button does nothing at all.
     assert_eq!(waveform_action(7, 500, true, false), None);
 }
+
+// -- format-specific menu items ----------------------------------------------
+
+/// Opens the Edit menu and reports which of the format-specific items are on it.
+fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
+    harness.get_by_label("Edit").click();
+    harness.run();
+    let present: Vec<&'static str> = [
+        "DRO Info...",
+        "Convert to VGM",
+        "Edit Tag",
+        "Edit VGM Metadata",
+        "Apply Loop to Metadata",
+    ]
+    .into_iter()
+    // `_contains`, not an exact match: an item carrying a shortcut hint folds
+    // that hint into its accessible label ("DRO Info...", "Ctrl+I").
+    .filter(|label| harness.query_by_label_contains(label).is_some())
+    .collect();
+    // Close the menu again so the next open starts clean.
+    harness.key_press(Key::Escape);
+    harness.run();
+    present
+}
+
+#[test]
+fn a_dro_shows_only_the_dro_menu_items() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    assert_eq!(
+        edit_menu_items(&mut harness),
+        ["DRO Info...", "Convert to VGM"],
+        "a DRO has no tag, no VGM header and nowhere to store a loop"
+    );
+}
+
+#[test]
+fn a_vgm_shows_only_the_vgm_menu_items() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    harness.run();
+    assert_eq!(
+        edit_menu_items(&mut harness),
+        ["Edit Tag", "Edit VGM Metadata", "Apply Loop to Metadata"],
+        "a VGM has no DRO header to inspect and is already converted"
+    );
+}
+
+#[test]
+fn with_no_song_no_format_specific_items_show() {
+    let (mut harness, _handles) = empty_harness();
+    assert!(edit_menu_items(&mut harness).is_empty());
+}
+
+#[test]
+fn the_dro_info_shortcut_is_refused_for_a_vgm() {
+    // The menu hides the item for a VGM, so Ctrl+I must agree rather than open
+    // a dialog the menu says does not apply.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    harness.key_press_modifiers(Modifiers::COMMAND, Key::I);
+    harness.run();
+
+    assert!(harness.state().dialogs.dro_info.is_none());
+    assert!(
+        harness.state().status.contains("VGM Metadata"),
+        "it points at the dialog that does apply; status was {:?}",
+        harness.state().status
+    );
+}

@@ -1,5 +1,6 @@
 //! The menu bar and keyboard shortcuts (`menus.py` + the wx accelerator table).
 
+use dro_core::SongFileType;
 use egui::{Key, KeyboardShortcut, Modifiers};
 
 use crate::action::Action;
@@ -35,6 +36,11 @@ pub struct MenuState {
     pub on_rip_tab: bool,
     /// The row the loop-marker items act on -- the same one `[` and `]` use.
     pub focused_row: Option<usize>,
+    /// The loaded song's format, if any. Items that only make sense for one
+    /// format are hidden for the other rather than shown greyed: a VGM has no
+    /// DRO header to inspect and a DRO has nowhere to put a tag, so offering
+    /// them at all is just noise to read past.
+    pub song_type: Option<SongFileType>,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
@@ -88,16 +94,19 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, editor, "Find Register...", Some(&FIND_REGISTER)) {
                 actions.push(Action::OpenFindRegister);
             }
-            if enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
+            // Format-specific items: shown only for the format they apply to.
+            let is_dro = state.song_type == Some(SongFileType::Dro);
+            let is_vgm = state.song_type == Some(SongFileType::Vgm);
+            if is_dro && enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
                 actions.push(Action::OpenDroInfo);
             }
-            if enabled_item(ui, editor, "Edit Tag", None) {
+            if is_vgm && enabled_item(ui, editor, "Edit Tag", None) {
                 actions.push(Action::OpenEditTag);
             }
-            if enabled_item(ui, editor, "Edit VGM Metadata", None) {
+            if is_vgm && enabled_item(ui, editor, "Edit VGM Metadata", None) {
                 actions.push(Action::OpenVgmMetadata);
             }
-            if enabled_item(ui, editor, "Convert to VGM", None) {
+            if is_dro && enabled_item(ui, editor, "Convert to VGM", None) {
                 actions.push(Action::ConvertToVgm);
             }
             crate::theme::separator(ui, palette);
@@ -124,7 +133,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, editor, "Clear Loop Markers", None) {
                 actions.push(Action::ClearLoopMarkers);
             }
-            if enabled_item(ui, editor, "Apply Loop to Metadata", None) {
+            // Marking and looping work on a DRO too -- auditioning a region is
+            // useful whatever the format -- but only a VGM has anywhere to store
+            // the result.
+            if is_vgm && enabled_item(ui, editor, "Apply Loop to Metadata", None) {
                 actions.push(Action::ApplyLoopToMetadata);
             }
             crate::theme::separator(ui, palette);
