@@ -116,6 +116,21 @@ pub trait FileService {
 
     /// The outcome of the most recent [`Self::rename`]. `None` until it arrives.
     fn poll_renamed(&mut self) -> Option<Result<(), String>>;
+
+    /// Asks where to put a batch of new files -- the split's one directory for
+    /// its per-channel outputs.
+    ///
+    /// Distinct from [`Self::pick_folder`], which *reads* a folder in as a rip
+    /// project. Defaulted to nothing at all, because a browser has no directory
+    /// to write into; a web build offers its outputs some other way.
+    fn pick_output_folder(&mut self) {}
+
+    /// The folder from the most recent [`Self::pick_output_folder`]:
+    /// `Some(Some(dir))` once one is chosen, `Some(None)` if the picker was
+    /// dismissed, `None` while nothing has happened.
+    fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
+        None
+    }
 }
 
 /// Owns the platform's audio output and the `PlayerEngine` behind it.

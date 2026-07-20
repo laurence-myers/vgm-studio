@@ -28,6 +28,9 @@ pub struct NativeFileService {
     saved: VecDeque<SaveOutcome>,
     folder: Option<Result<PickedFolder, String>>,
     renamed: Option<Result<(), String>>,
+    /// Where a split should write, once chosen. The inner `None` is a dismissed
+    /// picker, which the app reports rather than treating as an error.
+    output_folder: Option<Option<PathBuf>>,
 }
 
 impl NativeFileService {
@@ -129,6 +132,20 @@ impl FileService for NativeFileService {
 
     fn poll_renamed(&mut self) -> Option<Result<(), String>> {
         self.renamed.take()
+    }
+
+    fn pick_output_folder(&mut self) {
+        // Unlike `pick_folder`, nothing is read: the split only needs somewhere
+        // to put its files.
+        self.output_folder = Some(
+            rfd::FileDialog::new()
+                .set_title("Choose where to write the split files")
+                .pick_folder(),
+        );
+    }
+
+    fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
+        self.output_folder.take()
     }
 }
 

@@ -13,6 +13,7 @@ pub mod gd3_tag;
 pub mod goto;
 pub mod render_wav;
 pub mod settings;
+pub mod split;
 pub mod track_edit;
 pub mod vgm_metadata;
 
@@ -22,6 +23,7 @@ pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use render_wav::RenderWavDialog;
 pub use settings::SettingsDialog;
+pub use split::SplitDialog;
 pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
@@ -75,6 +77,8 @@ pub struct Dialogs {
     pub track_edit: Option<TrackEditDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,
+    /// File > Split Channels: the output format and percussion handling.
+    pub split: Option<SplitDialog>,
 }
 
 impl Dialogs {
@@ -92,6 +96,7 @@ impl Dialogs {
             || self.settings.is_some()
             || self.track_edit.is_some()
             || self.render_wav.is_some()
+            || self.split.is_some()
     }
 
     /// Draws every open dialog, dropping the ones that closed.
@@ -121,6 +126,7 @@ impl Dialogs {
         retain(&mut self.render_wav, |d| {
             d.show(ctx, palette, area, actions)
         });
+        retain(&mut self.split, |d| d.show(ctx, palette, area, actions));
     }
 }
 

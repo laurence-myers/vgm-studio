@@ -25,6 +25,13 @@ pub enum Action {
     SaveAs,
     /// Open the Render to WAV options dialog.
     OpenRenderWav,
+    /// Open the Split Channels options dialog.
+    OpenSplit,
+    /// Split the song into one file per channel used, once a folder is chosen.
+    SplitSubmitted {
+        format: dro_synth::SplitFormat,
+        isolate_percussion: bool,
+    },
     /// Render the song to a WAV with the chosen options applied, then offer to
     /// save it. `boost` is already resolved to `1.0` when it was switched off.
     RenderWavSubmitted {

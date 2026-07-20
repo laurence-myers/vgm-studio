@@ -36,6 +36,12 @@ pub(crate) struct FileLog {
     pub pick_open_calls: usize,
     pub opened_paths: Vec<PathBuf>,
     pub save_requests: Vec<SaveRequest>,
+    /// Answers for `pick_output_folder`, front first: `Some(dir)` for a chosen
+    /// folder, `None` for a dismissed picker (also the default once empty).
+    pub output_folders: VecDeque<Option<PathBuf>>,
+    pub pick_output_folder_calls: usize,
+    /// The answer the picker gave, waiting to be polled.
+    pending_output_folder: Option<Option<PathBuf>>,
     /// Fed to `poll_folder`, front first (rip mode).
     pub picked_folders: VecDeque<Result<PickedFolder, String>>,
     pub pick_folder_calls: usize,
@@ -87,6 +93,20 @@ impl FileService for FakeFileService {
 
     fn poll_renamed(&mut self) -> Option<Result<(), String>> {
         self.0.borrow_mut().rename_outcomes.pop_front()
+    }
+
+    fn pick_output_folder(&mut self) {
+        let mut log = self.0.borrow_mut();
+        log.pick_output_folder_calls += 1;
+        // As the native service does: the dialog blocks, answers, and its result
+        // waits for the next poll -- so a queued answer cannot be drained before
+        // anything asked for it.
+        let answer = log.output_folders.pop_front().unwrap_or(None);
+        log.pending_output_folder = Some(answer);
+    }
+
+    fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
+        self.0.borrow_mut().pending_output_folder.take()
     }
 }
 

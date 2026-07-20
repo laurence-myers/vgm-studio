@@ -11,7 +11,11 @@ use core::time::Duration;
 use std::sync::Arc;
 
 use dro_core::Song;
-use dro_synth::{RenderMix, WaveformBucket, render_wav_mixed, render_waveform_progressive};
+use dro_core::io::write_song;
+use dro_synth::{
+    RenderMix, SplitData, SplitOptions, WaveformBucket, render_wav_mixed,
+    render_waveform_progressive, split,
+};
 
 /// Identifies a task for cancel-on-resubmit, as the Python keyed its registry
 /// by task name.
@@ -20,6 +24,8 @@ pub enum TaskKind {
     RenderWaveform,
     /// File > Render to WAV.
     RenderWav,
+    /// File > Split Channels.
+    Split,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -37,6 +43,10 @@ pub enum TaskRequest {
         sample_rate: u32,
         bit_depth: u16,
     },
+    Split {
+        song: Arc<Song>,
+        options: SplitOptions,
+    },
 }
 
 impl TaskRequest {
@@ -45,6 +55,7 @@ impl TaskRequest {
         match self {
             Self::RenderWaveform { .. } => TaskKind::RenderWaveform,
             Self::RenderWav { .. } => TaskKind::RenderWav,
+            Self::Split { .. } => TaskKind::Split,
         }
     }
 }
@@ -59,6 +70,10 @@ pub enum TaskResult {
     /// edit (or a convert) while the render runs cannot mislabel the save dialog
     /// that follows.
     Wav(Result<(String, Vec<u8>), String>),
+    /// One `(name, bytes)` per channel the song uses, ready to write, or why the
+    /// split failed. Song-format outputs are serialised inside the task, so the
+    /// app never has to know a DRO from a VGM to save them.
+    Split(Result<Vec<(String, Vec<u8>)>, String>),
 }
 
 /// Schedules [`TaskRequest`]s off the UI thread.
@@ -135,7 +150,33 @@ pub fn run_task(
                 .map_err(|e| format!("Rendering to WAV failed: {e}"));
             emit(TaskResult::Wav(rendered));
         }
+        TaskRequest::Split { song, options } => {
+            emit(TaskResult::Split(split_to_bytes(song, *options)));
+        }
     }
+}
+
+/// Splits `song` and serialises each output, so what comes back is ready to
+/// write wherever the user chose.
+fn split_to_bytes(song: &Song, options: SplitOptions) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let outputs = split(
+        song,
+        &options,
+        &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
+        &mut |_, _| {},
+    )
+    .map_err(|e| e.to_string())?;
+
+    outputs
+        .into_iter()
+        .map(|output| {
+            let bytes = match output.data {
+                SplitData::Wav(bytes) => bytes,
+                SplitData::Song(song) => write_song(&song).map_err(|e| e.to_string())?,
+            };
+            Ok((output.name, bytes))
+        })
+        .collect()
 }
 
 #[cfg(test)]

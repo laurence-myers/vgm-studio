@@ -9,14 +9,14 @@ use std::path::PathBuf;
 use dro_core::config::{AppConfig, ConfigStore};
 use dro_core::song::{DRO_FILE_V2, SongFileType};
 use dro_core::{FindTarget, Gd3Tag};
-use dro_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix};
+use dro_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat, SplitOptions};
 use egui::Key;
 
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, RenderWavDialog,
-    SettingsDialog, TrackEditDialog, VgmMetadataDialog,
+    SettingsDialog, SplitDialog, TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -129,6 +129,8 @@ enum SavePurpose {
     Song,
     /// A WAV rendered by File > Render to WAV.
     WavExport,
+    /// One of the per-channel files from File > Split Channels.
+    SplitFile,
     /// A rip project's description or playlist.
     RipDoc,
     /// A track rewritten in place by the quick-edit dialog.
@@ -139,6 +141,22 @@ enum SavePurpose {
     ExportZip,
     /// A `Write` step of the rip file-op executor (reorder / undo / redo).
     RipOp,
+}
+
+/// The stages of File > Split Channels: choose a folder, render into it, write
+/// the files out.
+#[derive(Debug, Clone)]
+enum SplitFlow {
+    /// The options are chosen; the folder picker is up.
+    AwaitingFolder { options: SplitOptions },
+    /// The split is rendering, bound for `dir`.
+    Rendering { dir: PathBuf },
+    /// Writing the outputs, counting them off as their saves land.
+    Writing {
+        dir: PathBuf,
+        written: usize,
+        failed: bool,
+    },
 }
 
 /// Whether the running file-op sequence is a fresh edit, a redo, or an undo --
@@ -184,6 +202,10 @@ pub struct DroApp {
     active_tab: AppTab,
     /// One entry per outstanding `files.save`, in order, to route its outcome.
     pending_saves: VecDeque<SavePurpose>,
+    /// How far along File > Split Channels is, if it is running at all. Doubles
+    /// as the in-flight guard and as the gate that drops a result belonging to a
+    /// split the user has since abandoned.
+    split_flow: Option<SplitFlow>,
 
     waveform: WaveformState,
     /// The stereo output peak meter beside the waveform.
@@ -258,6 +280,7 @@ impl DroApp {
             rip: None,
             active_tab: AppTab::Editor,
             pending_saves: VecDeque::new(),
+            split_flow: None,
             waveform: WaveformState::default(),
             peak_meter: PeakMeterState::default(),
             position: PositionPanel::new(config.audio.frequency),
@@ -395,6 +418,9 @@ impl DroApp {
                         // every edit.
                         if self.tasks.is_busy_kind(TaskKind::RenderWav) {
                             ui.label("Rendering WAV...");
+                        }
+                        if self.tasks.is_busy_kind(TaskKind::Split) {
+                            ui.label("Splitting channels...");
                         }
                         if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
                             ui.label("Rendering waveform...");
@@ -619,6 +645,9 @@ impl DroApp {
                 }
             }
         }
+        if let Some(chosen) = self.files.poll_output_folder() {
+            self.split_into(chosen);
+        }
         if let Some(outcome) = self.files.poll_saved() {
             // Outcomes arrive in the order the saves were made, so a FIFO of
             // purposes routes each one to the editor or the rip project.
@@ -665,6 +694,7 @@ impl DroApp {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
                 TaskResult::Wav(rendered) => self.handle_wav_result(rendered),
+                TaskResult::Split(outputs) => self.write_split(outputs),
             }
         }
     }
@@ -761,6 +791,7 @@ impl DroApp {
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
                     self.status = format!("Rendered {shown}.");
                 }
+                SavePurpose::SplitFile => self.split_file_saved(true),
             },
             SaveOutcome::Cancelled => match purpose {
                 SavePurpose::RipDoc => self.rip_docs_failed = true,
@@ -768,10 +799,18 @@ impl DroApp {
                 SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
                     self.pending_rip_undo = None;
                 }
+                // Split files save in place, so there is no picker to cancel --
+                // but the tally still has to move on, or the batch never ends.
+                SavePurpose::SplitFile => self.split_file_saved(false),
                 _ => {}
             },
             SaveOutcome::Failed(message) => match purpose {
                 SavePurpose::RipOp => self.abort_rip_run(message),
+                SavePurpose::SplitFile => {
+                    // One alert at the end for the whole batch, not eighteen.
+                    log::warn!("split file could not be written: {message}");
+                    self.split_file_saved(false);
+                }
                 other => {
                     if other == SavePurpose::RipDoc {
                         self.rip_docs_failed = true;
@@ -1107,6 +1146,20 @@ impl DroApp {
                 use_panning,
                 boost,
             } => self.render_to_wav(use_toggles, use_panning, boost),
+            Action::OpenSplit => {
+                if !self.require_song() {
+                    return;
+                }
+                if self.split_is_running() {
+                    self.status = "Already splitting channels.".to_owned();
+                    return;
+                }
+                self.dialogs.split = Some(SplitDialog::new());
+            }
+            Action::SplitSubmitted {
+                format,
+                isolate_percussion,
+            } => self.start_split(format, isolate_percussion),
             Action::OpenSettings => {
                 self.dialogs.settings = Some(SettingsDialog::new(&self.config));
             }
@@ -1439,10 +1492,12 @@ impl DroApp {
                 // so anything song-bound closes with the song.
                 self.close_song_dialogs();
                 self.waveform = WaveformState::default();
-                // The export belongs to the song being replaced; drop it rather
-                // than pop a save dialog for a song no longer on screen. (Its
-                // own kind, so this does not disturb the waveform render below.)
+                // The exports belong to the song being replaced; drop them
+                // rather than write out a song no longer on screen. (Their own
+                // kinds, so this does not disturb the waveform render below.)
                 self.tasks.cancel(TaskKind::RenderWav);
+                self.tasks.cancel(TaskKind::Split);
+                self.split_flow = None;
                 self.submit_waveform(None);
                 // Unload, not pause: the old stream's position must not leak
                 // into the fresh cursor/readout via the end-of-playback
@@ -2319,6 +2374,7 @@ impl DroApp {
         self.dialogs.gd3_tag = None;
         self.dialogs.vgm_metadata = None;
         self.dialogs.render_wav = None;
+        self.dialogs.split = None;
     }
 
     /// The `@requires_dro_loaded` decorator: gates an action on a loaded song,
@@ -2386,6 +2442,115 @@ impl DroApp {
             None,
         );
         self.status = "Rendering to WAV...".to_owned();
+    }
+
+    /// Whether a split is somewhere between its dialog and its last written file.
+    fn split_is_running(&self) -> bool {
+        self.split_flow.is_some() || self.tasks.is_busy_kind(TaskKind::Split)
+    }
+
+    /// Asks where the split's files should go. The split itself starts once the
+    /// answer arrives in `poll_services`.
+    fn start_split(&mut self, format: SplitFormat, isolate_percussion: bool) {
+        if !self.require_song() || self.split_is_running() {
+            return;
+        }
+        self.split_flow = Some(SplitFlow::AwaitingFolder {
+            options: SplitOptions {
+                format,
+                isolate_percussion,
+                audio: self.config.audio,
+            },
+        });
+        self.files.pick_output_folder();
+    }
+
+    /// Starts the split now that `dir` is known, or gives up if the picker was
+    /// dismissed.
+    fn split_into(&mut self, dir: Option<PathBuf>) {
+        let Some(SplitFlow::AwaitingFolder { options }) = self.split_flow.clone() else {
+            // A folder arrived with no split waiting for it; nothing to do.
+            return;
+        };
+        let (Some(dir), Some(song)) = (dir, self.editor.snapshot()) else {
+            self.split_flow = None;
+            self.status = "Split cancelled.".to_owned();
+            return;
+        };
+        self.tasks
+            .submit(TaskRequest::Split { song, options }, None);
+        self.split_flow = Some(SplitFlow::Rendering { dir });
+        self.status = "Splitting channels...".to_owned();
+    }
+
+    /// Writes a finished split's files into the folder chosen for it.
+    fn write_split(&mut self, outputs: Result<Vec<(String, Vec<u8>)>, String>) {
+        // Only the split still being waited on: a result from one the user
+        // abandoned (by loading another song) has nowhere to go.
+        let Some(SplitFlow::Rendering { dir }) = self.split_flow.clone() else {
+            return;
+        };
+        let files = match outputs {
+            Ok(files) => files,
+            Err(message) => {
+                self.split_flow = None;
+                self.status = "The split failed.".to_owned();
+                self.alerts.push_back(Alert::error(message));
+                return;
+            }
+        };
+        if files.is_empty() {
+            self.split_flow = None;
+            self.status = "No channels to split.".to_owned();
+            return;
+        }
+        for (name, bytes) in files {
+            self.pending_saves.push_back(SavePurpose::SplitFile);
+            // In place, not a dialog: the user already chose the folder, and
+            // there may be eighteen of these. Existing files are overwritten,
+            // as `drotrim split` does.
+            self.files.save(SaveRequest::InPlace {
+                path: dir.join(name),
+                bytes,
+            });
+        }
+        self.split_flow = Some(SplitFlow::Writing {
+            dir,
+            written: 0,
+            failed: false,
+        });
+    }
+
+    /// Counts off one split file's save, reporting once the last one lands.
+    fn split_file_saved(&mut self, ok: bool) {
+        let Some(SplitFlow::Writing {
+            dir,
+            written,
+            failed,
+        }) = &mut self.split_flow
+        else {
+            return;
+        };
+        if ok {
+            *written += 1;
+        } else {
+            *failed = true;
+        }
+        // The whole batch is queued at once, so the last outcome is the one with
+        // no `SplitFile` left behind it -- the same rule rip mode's docs use.
+        if self
+            .pending_saves
+            .iter()
+            .any(|purpose| *purpose == SavePurpose::SplitFile)
+        {
+            return;
+        }
+        self.status = if *failed {
+            "Some split files could not be written.".to_owned()
+        } else {
+            format!("Wrote {written} file(s) to {}.", dir.display())
+        };
+        self.split_flow = None;
     }
 
     fn submit_waveform(&mut self, debounce: Option<Duration>) {

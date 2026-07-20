@@ -929,6 +929,209 @@ fn a_failed_render_alerts_instead_of_saving() {
     );
 }
 
+// -- split channels ----------------------------------------------------------
+
+/// Opens File > Split Channels...
+fn open_split_dialog(harness: &mut Harness<'static, DroApp>) {
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label_contains("Split Channels").click();
+    harness.run();
+}
+
+/// The names a WAV split of `dual_tone_song` writes, in order.
+fn split_names(song: &Song) -> Vec<String> {
+    dro_synth::split(
+        song,
+        &dro_synth::SplitOptions {
+            format: dro_synth::SplitFormat::Wav,
+            isolate_percussion: false,
+            audio: dro_core::config::AudioConfig::default(),
+        },
+        &mut |_| {},
+        &mut |_, _| {},
+    )
+    .unwrap()
+    .into_iter()
+    .map(|output| output.name)
+    .collect()
+}
+
+#[test]
+fn splitting_writes_one_file_per_channel_into_the_chosen_folder() {
+    let song = dual_tone_song();
+    let (mut harness, handles) = build(Some(picked(&song)), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+
+    assert_eq!(handles.files.borrow().pick_output_folder_calls, 1);
+    let expected = split_names(&song);
+    assert!(!expected.is_empty(), "the fixture uses some channels");
+
+    let files = handles.files.borrow();
+    let written: Vec<PathBuf> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, .. } => Some(path.clone()),
+            SaveRequest::Dialog { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        expected
+            .iter()
+            .map(|name| dir.join(name))
+            .collect::<Vec<_>>(),
+        "every channel should be written into the chosen folder"
+    );
+}
+
+#[test]
+fn the_last_written_split_file_reports_the_total() {
+    let song = dual_tone_song();
+    let (mut harness, handles) = build(Some(picked(&song)), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+
+    // One outcome is polled per frame, so feed the batch a frame at a time.
+    let count = split_names(&song).len();
+    for _ in 0..count {
+        handles
+            .files
+            .borrow_mut()
+            .save_outcomes
+            .push_back(SaveOutcome::Saved {
+                name: "split.wav".to_owned(),
+                path: None,
+            });
+        harness.run();
+    }
+
+    assert_eq!(
+        harness.state().status,
+        format!("Wrote {count} file(s) to {}.", dir.display())
+    );
+    assert!(
+        harness.state().split_flow.is_none(),
+        "the flow should be finished"
+    );
+}
+
+#[test]
+fn dismissing_the_folder_picker_cancels_the_split() {
+    let (mut harness, handles) = build(Some(picked(&dual_tone_song())), true, false);
+    // A dismissed picker.
+    handles.files.borrow_mut().output_folders.push_back(None);
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+
+    assert_eq!(harness.state().status, "Split cancelled.");
+    assert!(harness.state().split_flow.is_none());
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "nothing should be written"
+    );
+}
+
+#[test]
+fn a_failed_split_file_is_reported_once_for_the_batch() {
+    let song = dual_tone_song();
+    let (mut harness, handles) = build(Some(picked(&song)), true, false);
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(PathBuf::from("C:/out")));
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+
+    let count = split_names(&song).len();
+    for index in 0..count {
+        let outcome = if index == 0 {
+            SaveOutcome::Failed("disk full".to_owned())
+        } else {
+            SaveOutcome::Saved {
+                name: "split.wav".to_owned(),
+                path: None,
+            }
+        };
+        handles.files.borrow_mut().save_outcomes.push_back(outcome);
+        harness.run();
+    }
+
+    assert_eq!(
+        harness.state().status,
+        "Some split files could not be written."
+    );
+    assert!(
+        harness.state().alerts.is_empty(),
+        "one status line, not an alert per file"
+    );
+}
+
+#[test]
+fn loading_a_song_abandons_a_split_of_the_previous_one() {
+    // Noop tasks, so the split stays mid-render for the duration of the test.
+    let (mut harness, handles) = harness_with_song(&dual_tone_song());
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(PathBuf::from("C:/out")));
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+    assert!(harness.state().split_flow.is_some(), "a split is in flight");
+
+    handles
+        .files
+        .borrow_mut()
+        .picked
+        .push_back(Ok(picked(&tone_song())));
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label_contains("Open").click();
+    harness.run();
+
+    assert!(harness.state().split_flow.is_none());
+    assert!(handles.tasks.borrow().cancelled.contains(&TaskKind::Split));
+}
+
+#[test]
+fn a_vgm_can_be_split_too() {
+    // The song-data split captures a VGM as VGMs, so both formats are offered
+    // whatever the song is.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    harness.run();
+
+    open_split_dialog(&mut harness);
+    assert!(harness.state().dialogs.split.is_some());
+    assert!(harness.query_by_label_contains("Song data").is_some());
+}
+
 // -- snapshot tests ----------------------------------------------------------
 //
 // Baselines live in tests/snapshots/. They render via wgpu (DX12 WARP on
@@ -979,6 +1182,13 @@ fn snapshot_render_wav_dialog() {
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     open_render_wav_dialog(&mut harness);
     settled_snapshot(&mut harness, "render_wav_dialog");
+}
+
+#[test]
+fn snapshot_split_dialog() {
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
+    open_split_dialog(&mut harness);
+    settled_snapshot(&mut harness, "split_dialog");
 }
 
 #[test]
