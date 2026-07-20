@@ -42,6 +42,35 @@ pub(crate) fn dual_tone_song() -> Song {
     )
 }
 
+/// Six 50 ms tone bursts, each followed by 50 ms of silence -- 600 ms in all,
+/// with a delay every other instruction.
+///
+/// [`tone_song`]'s delays sit only at its very end, so every one of its first ten
+/// instructions shares a timestamp of zero and any marked region among them
+/// collapses onto the left edge. This one carries time across its whole width,
+/// which is what a range drawn over the waveform needs to be visible at all.
+pub(crate) fn paced_song() -> Song {
+    let mut data = vec![
+        0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)
+        0x23, 0x01, 0x43, 0x00, 0x63, 0xF0, 0x83, 0x7F, // carrier (fast release)
+        0xA0, 0x98, // frequency
+    ];
+    for _ in 0..6 {
+        data.extend_from_slice(&[
+            0xB0, 0x31, // key on
+            0x00, 0x31, // 50 ms of tone
+            0xB0, 0x11, // key off
+            0x00, 0x31, // 50 ms of silence
+        ]);
+    }
+    Song::dro_v1(
+        "paced.dro".to_owned(),
+        DroDataV1::new(data).unwrap(),
+        600,
+        OplType::Opl2,
+    )
+}
+
 /// The `dro-core` v2 fixture rebuilt via public constructors: five register
 /// writes, a short delay (177 ms), a long delay (49408 ms), then the same
 /// fourteen instructions again. Total delay 99170 ms.

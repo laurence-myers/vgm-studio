@@ -6,7 +6,7 @@
 //! byte counts divided by a bit-depth fudge), and the length is the *measured*
 //! total delay, not the header's `ms_length`.
 
-use dro_synth::Position;
+use dro_synth::{LoopCount, Position};
 
 use crate::theme::Palette;
 
@@ -29,6 +29,8 @@ pub struct PositionPanel {
     length_frames: u64,
     /// Whether the user picked "44.1 khz" while rendering at another rate.
     show_at_44100: bool,
+    /// "Loop 2 / 5" while a loop is repeating, replacing the sample counter.
+    loop_progress: Option<String>,
 }
 
 impl PositionPanel {
@@ -41,6 +43,7 @@ impl PositionPanel {
             length_ms: 0,
             length_frames: 0,
             show_at_44100: false,
+            loop_progress: None,
         }
     }
 
@@ -74,6 +77,17 @@ impl PositionPanel {
         self.position_frames = position.frames_rendered;
     }
 
+    /// Which pass of the loop is playing, or `None` to show the sample counter.
+    ///
+    /// `iteration` is how many times playback has jumped back, so the pass being
+    /// heard is one more than that.
+    pub fn set_loop_progress(&mut self, progress: Option<(u32, LoopCount)>) {
+        self.loop_progress = progress.map(|(iteration, count)| match count {
+            LoopCount::Infinite => format!("Loop {}", iteration + 1),
+            LoopCount::Times(times) => format!("Loop {} / {}", iteration + 1, times.max(1)),
+        });
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         let (position_frames, length_frames) = if self.show_at_44100 && self.frequency != 44_100 {
             (
@@ -84,12 +98,21 @@ impl PositionPanel {
             (self.position_frames, self.length_frames)
         };
 
+        // Taken before the closures so they do not each need `self`.
+        let (position_ms, length_ms) = (self.position_ms, self.length_ms);
+        let loop_progress = self.loop_progress.clone();
+
         ui.columns(3, |columns| {
             columns[0].centered_and_justified(|ui| {
-                ui.label(format!("{} / {} ms", self.position_ms, self.length_ms));
+                ui.label(format!("{position_ms} / {length_ms} ms"));
             });
             columns[1].centered_and_justified(|ui| {
-                ui.label(format!("{position_frames} / {length_frames} samples"));
+                match &loop_progress {
+                    // While a loop is running, which pass it is on matters more
+                    // than the sample count, and the two would not fit together.
+                    Some(progress) => ui.label(progress),
+                    None => ui.label(format!("{position_frames} / {length_frames} samples")),
+                };
             });
             columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 self.rate_picker(ui, palette);

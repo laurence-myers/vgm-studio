@@ -95,6 +95,15 @@ impl ShowcaseState {
                 buckets,
                 start_ms: 90,
                 cursor_ms: 210,
+                // A marked, actively looping region so the brackets, their solid
+                // flags and the wash are all on screen for the per-theme baseline
+                // to guard. (`loop_overlay` covers the hollow, unapplied flags.)
+                loop_overlay: Some(waveform::LoopOverlay {
+                    start_ms: 140,
+                    end_ms: 330,
+                    active: true,
+                    unapplied: false,
+                }),
             },
             meter,
             channels,
@@ -196,7 +205,7 @@ fn section(ui: &mut egui::Ui, p: &Palette, title: &str) {
 
 /// Every [`Palette`] field, destructured without `..` so a new role added to
 /// the struct is a compile error here until it is given a swatch.
-fn roles(p: &Palette) -> [(&'static str, Color32); 34] {
+fn roles(p: &Palette) -> [(&'static str, Color32); 36] {
     let Palette {
         face,
         face_hover,
@@ -232,6 +241,8 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 34] {
         meter_mid,
         meter_high,
         meter_hold,
+        wf_loop,
+        wf_loop_region,
     } = *p;
     [
         ("face", face),
@@ -263,6 +274,8 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 34] {
         ("wf_start", wf_start),
         ("wf_cursor", wf_cursor),
         ("wf_dim", wf_dim),
+        ("wf_loop", wf_loop),
+        ("wf_loop_region", wf_loop_region),
         ("meter_off", meter_off),
         ("meter_low", meter_low),
         ("meter_mid", meter_mid),

@@ -41,6 +41,22 @@ pub struct WaveformState {
     /// The yellow cursor. Only playback moves it; it survives edits, as in
     /// Python, and is reset explicitly on file load.
     pub cursor_ms: u32,
+    /// The loop brackets, when there is a region worth showing.
+    pub loop_overlay: Option<LoopOverlay>,
+}
+
+/// The loop region as the panel needs it: in milliseconds, plus the two facts
+/// that change how it is drawn.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct LoopOverlay {
+    pub start_ms: u32,
+    pub end_ms: u32,
+    /// Loop playback is on, so the region is washed as well as bracketed --
+    /// the difference between "marked" and "actually repeating".
+    pub active: bool,
+    /// The markers differ from the loop the song stores, so the flags are drawn
+    /// hollow: the cue that there is something to apply.
+    pub unapplied: bool,
 }
 
 /// What the panel reported this frame.
@@ -107,6 +123,12 @@ pub fn show(
         painter.rect_filled(dimmed, 0.0, palette.wf_dim);
     }
 
+    // The loop brackets sit above the dim -- a marked region outside the played
+    // span still has to be visible.
+    if let Some(overlay) = state.loop_overlay {
+        draw_loop_overlay(&painter, rect, overlay, total_ms, pen, palette);
+    }
+
     // The sunken well frame, on top of the dim so the bevel is never buried.
     bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
 
@@ -118,6 +140,71 @@ pub fn show(
         out.modifiers = ui.input(|input| input.modifiers);
     }
     out
+}
+
+/// Height of the marker flags, in points.
+const FLAG_HEIGHT: f32 = 9.0;
+/// How far a flag juts inward from its bracket.
+const FLAG_WIDTH: f32 = 7.0;
+
+/// Draws the loop region: a bracket at each end, flags pointing inward so the
+/// pair reads as enclosing what lies between them, and -- while looping is
+/// actually on -- a faint wash over the region itself.
+///
+/// An unapplied region gets hollow flags: the same silhouette, outline only, so
+/// the difference is legible without adding another colour to the panel.
+fn draw_loop_overlay(
+    painter: &egui::Painter,
+    rect: Rect,
+    overlay: LoopOverlay,
+    total_ms: u32,
+    pen: f32,
+    palette: &Palette,
+) {
+    let start_x = x_for_ms(rect, overlay.start_ms, total_ms);
+    let end_x = x_for_ms(rect, overlay.end_ms, total_ms);
+    if overlay.active && end_x > start_x {
+        let region = Rect::from_min_max(pos2(start_x, rect.top()), pos2(end_x, rect.bottom()));
+        painter.rect_filled(region, 0.0, palette.wf_loop_region);
+    }
+
+    let colour = palette.wf_loop;
+    vertical_line(painter, rect, start_x, pen, colour);
+    vertical_line(painter, rect, end_x, pen, colour);
+    // Flags point at each other, so a narrow region still reads as a pair rather
+    // than two unrelated lines.
+    flag(
+        painter,
+        start_x,
+        rect.top(),
+        FLAG_WIDTH,
+        colour,
+        overlay.unapplied,
+    );
+    flag(
+        painter,
+        end_x,
+        rect.top(),
+        -FLAG_WIDTH,
+        colour,
+        overlay.unapplied,
+    );
+}
+
+/// One triangular flag hanging from `top` at `x`, pointing `width` points along
+/// the x axis (negative points left). Filled normally, outlined when `hollow`.
+fn flag(painter: &egui::Painter, x: f32, top: f32, width: f32, colour: Color32, hollow: bool) {
+    let points = vec![
+        pos2(x, top),
+        pos2(x + width, top),
+        pos2(x, top + FLAG_HEIGHT),
+    ];
+    let stroke = Stroke::new(1.0, colour);
+    if hollow {
+        painter.add(Shape::closed_line(points, stroke));
+    } else {
+        painter.add(Shape::convex_polygon(points, colour, stroke));
+    }
 }
 
 fn draw_buckets(

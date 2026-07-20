@@ -30,7 +30,9 @@ use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::waveform::WaveformState;
-use crate::widgets::{boost_stepper, channels::ChannelPanel, peak_meter, table, waveform};
+use crate::widgets::{
+    boost_stepper, channels::ChannelPanel, loop_stepper, peak_meter, table, waveform,
+};
 
 const AUTO_TRIM_TITLE: &str = "DRO auto-trimmed";
 const AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
@@ -431,6 +433,23 @@ impl DroApp {
                         {
                             actions.push(Action::PlayTail);
                         }
+                        if theme::bevel::button(ui, p, "Seam")
+                            .on_hover_text(self.play_seam_label())
+                            .clicked()
+                        {
+                            actions.push(Action::PlaySeam);
+                        }
+                        let mut looping = self.loop_enabled;
+                        if theme::bevel::toggle(ui, p, &mut looping, "Loop")
+                            .on_hover_text(
+                                "Repeat the marked region. Shift+click the waveform to mark \
+                                 the start, Ctrl+Shift+click the end; [ and ] use the selected row.",
+                            )
+                            .clicked()
+                        {
+                            actions.push(Action::ToggleLoopPlayback);
+                        }
+                        loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
                         boost_stepper::boost_stepper(ui, p, self.config.audio.boost, &mut actions);
                     });
                     ui.add_space(PAD);
@@ -520,6 +539,10 @@ impl DroApp {
         }
 
         self.sync_selection_indicator();
+        // Cheap, and derived from three separate pieces of state (markers, the
+        // loop toggle, the song's stored loop), so it is refreshed per frame
+        // rather than at each of the places any of them can change.
+        self.sync_loop_overlay();
         self.playback_tick(&ctx);
     }
 
@@ -989,8 +1012,15 @@ impl DroApp {
                     self.waveform.cursor_ms = end;
                     self.position.set_position_ms(end);
                 } else if let Some(position) = self.audio.position() {
+                    // A wrap rewinds the engine's frame count to the loop start,
+                    // so the cursor and readout follow the loop without any
+                    // special handling here.
                     self.waveform.cursor_ms = position.elapsed_ms;
                     self.position.set_position(position);
+                    self.position.set_loop_progress(
+                        (self.loop_enabled && playing)
+                            .then_some((position.loop_iteration, self.loop_count)),
+                    );
                 }
                 ctx.request_repaint_after(Duration::from_millis(16));
             }
@@ -2272,6 +2302,32 @@ impl DroApp {
         Ok(())
     }
 
+    /// Refreshes the waveform's loop brackets from the markers.
+    ///
+    /// Nothing is drawn for an untouched region with looping off -- brackets at
+    /// both extremes would be noise on a song nobody has marked up. Marking, or
+    /// switching looping on, brings them in.
+    fn sync_loop_overlay(&mut self) {
+        let markers = self.editor.markers;
+        let len = self.editor.len();
+        let worth_showing = self.editor.has_song() && (!markers.is_full(len) || self.loop_enabled);
+        self.waveform.loop_overlay = worth_showing
+            .then(|| {
+                let song = self.editor.song()?;
+                Some(waveform::LoopOverlay {
+                    start_ms: song.ms_offset_at(markers.start())?,
+                    // The end is exclusive, so its time is where the *next*
+                    // instruction starts -- which for `len` is the end of the song.
+                    end_ms: song
+                        .ms_offset_at(markers.end())
+                        .unwrap_or_else(|| song.total_delay_ms()),
+                    active: self.loop_enabled,
+                    unapplied: self.editor.loop_markers_are_unapplied(),
+                })
+            })
+            .flatten();
+    }
+
     /// Hands the audio service the region to repeat, or `None` when looping is
     /// off. Cheap and idempotent; call it after anything that moves the markers,
     /// changes the count, or reloads the stream.
@@ -2337,6 +2393,15 @@ impl DroApp {
         };
         let plural = if ms == 1000 { "" } else { "s" };
         format!("Play last {value} second{plural}")
+    }
+
+    fn play_seam_label(&self) -> String {
+        format!(
+            "Play the loop join: the last {} of the region, repeating",
+            self.play_tail_label()
+                .trim_start_matches("Play last ")
+                .to_owned()
+        )
     }
 }
 

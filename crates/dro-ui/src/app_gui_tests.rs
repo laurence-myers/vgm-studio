@@ -26,7 +26,7 @@ use crate::platform::{
     OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
 };
 use crate::tasks::TaskKind;
-use crate::test_song::{bogus_leading_delay_song, dual_tone_song, tone_song};
+use crate::test_song::{bogus_leading_delay_song, dual_tone_song, paced_song, tone_song};
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
     MemoryConfigStore, NoopTaskService, RipLog, TaskLog,
@@ -2075,4 +2075,104 @@ fn play_seam_forces_looping_on_and_seeks_before_the_loop_end() {
         log.loops.last().unwrap().is_some(),
         "the region is armed before playback starts"
     );
+}
+
+#[test]
+fn the_transport_row_drives_the_loop_controls() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+
+    // The count starts "without end" and steps down into the finite range.
+    assert!(harness.query_by_label("\u{221E}").is_some());
+    harness.get_by_label("\u{2212}").click();
+    harness.run();
+    assert_eq!(harness.state().loop_count, LoopCount::Times(9));
+    harness.get_by_label("+").click();
+    harness.run();
+    assert_eq!(
+        harness.state().loop_count,
+        LoopCount::Infinite,
+        "stepping back up returns to 'without end'"
+    );
+
+    // The Loop toggle arms the region.
+    harness.get_by_label("Loop").click();
+    harness.run();
+    assert!(harness.state().loop_enabled);
+    assert!(handles.audio.borrow().loops.last().unwrap().is_some());
+}
+
+#[test]
+fn the_loop_overlay_appears_only_once_there_is_something_to_show() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    assert!(
+        harness.state().waveform.loop_overlay.is_none(),
+        "an unmarked song with looping off shows no brackets"
+    );
+
+    // Switching looping on shows the region even though it is still the whole song.
+    act(&mut harness, Action::ToggleLoopPlayback);
+    harness.run_steps(2);
+    let overlay = harness
+        .state()
+        .waveform
+        .loop_overlay
+        .expect("brackets show");
+    assert!(overlay.active);
+
+    // Marking a region shows them with looping off too.
+    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::SetLoopStart(1));
+    harness.run_steps(2);
+    let overlay = harness
+        .state()
+        .waveform
+        .loop_overlay
+        .expect("brackets show");
+    assert!(!overlay.active, "marked, but not repeating");
+}
+
+#[test]
+fn the_overlay_flags_an_unapplied_region_until_it_is_written() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    act(&mut harness, Action::SetLoopStart(1));
+    harness.run_steps(2);
+    assert!(
+        harness
+            .state()
+            .waveform
+            .loop_overlay
+            .expect("brackets show")
+            .unapplied,
+        "the region differs from the song's stored loop"
+    );
+
+    act(&mut harness, Action::ApplyLoopToMetadata);
+    harness.run_steps(2);
+    assert!(
+        !harness
+            .state()
+            .waveform
+            .loop_overlay
+            .expect("brackets stay")
+            .unapplied,
+        "applying clears the cue"
+    );
+}
+
+#[test]
+fn snapshot_loop_overlay() {
+    // The visual guard for the loop region: brackets with inward flags, the wash
+    // over the region, the lit Loop toggle and the repeat count. The song is a
+    // VGM with nothing stored, so the flags are hollow -- the unapplied cue.
+    let (mut harness, _handles) = build(Some(picked(&paced_song())), true, true);
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    // Instruction 9 opens the first burst and every fourth one after it starts
+    // the next 100 ms, so 13..25 is the region from 100 ms to 400 ms of 600.
+    act(&mut harness, Action::SetLoopStart(13));
+    act(&mut harness, Action::SetLoopEnd(25));
+    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::SetLoopCount(LoopCount::Times(4)));
+    harness.run();
+    settled_snapshot(&mut harness, "loop_overlay");
 }

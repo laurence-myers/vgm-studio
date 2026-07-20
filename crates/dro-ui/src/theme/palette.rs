@@ -82,6 +82,11 @@ pub struct Palette {
     pub wf_cursor: Color32,
     /// The half-black overlay left of the start line.
     pub wf_dim: Color32,
+    /// The loop-region brackets and their flags.
+    pub wf_loop: Color32,
+    /// The translucent wash over the looped region. Premultiplied, and kept
+    /// faint: it lies over the wave, not behind it.
+    pub wf_loop_region: Color32,
 
     // -- peak meter (the well behind it reuses `wf_bg`) --
     /// An unlit meter segment.
@@ -132,6 +137,10 @@ pub(crate) const CLONE_DARK: Palette = Palette {
     wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
     wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
     wf_start: Color32::WHITE,
+    // Warm orange: the one hue not already spoken for on this panel (yellow
+    // wave, cyan cursor, white start line, pale teal hover).
+    wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
+    wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x14, 0x05, 0x24),
     // The wave is yellow, so the cursor moves to cyan to stay visible over it.
     wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
@@ -179,6 +188,10 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
     wf_start: Color32::WHITE,
     wf_cursor: Color32::from_rgb(0xFF, 0xFF, 0x00),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
+    // The cursor is yellow here, so the brackets take the cooler orange-red end
+    // to stay distinct from it.
+    wf_loop: Color32::from_rgb(0xFF, 0x7A, 0x45),
+    wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x10, 0x06, 0x24),
 
     // Steel-tinted takes on the classic green/amber/red zones.
     meter_off: Color32::from_rgb(0x26, 0x30, 0x4A),
