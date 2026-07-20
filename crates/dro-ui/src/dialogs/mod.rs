@@ -11,6 +11,7 @@ pub mod dro_info;
 pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
+pub mod render_wav;
 pub mod settings;
 pub mod track_edit;
 pub mod vgm_metadata;
@@ -19,6 +20,7 @@ pub use dro_info::DroInfoDialog;
 pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
+pub use render_wav::RenderWavDialog;
 pub use settings::SettingsDialog;
 pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
@@ -45,10 +47,17 @@ pub(crate) fn dialog_window(
 
 /// The shared right-aligned footer button row: laid out right-to-left (so the
 /// first button drawn sits rightmost) with 10px between buttons.
+///
+/// Wrapped in a `horizontal` so the right-to-left layout is confined to one
+/// row's height. On its own it claims whatever vertical space is left in the
+/// window and centres the buttons in it, which a dialog with little content
+/// renders as a tall box with its buttons floating in the middle.
 pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::Ui)) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 10.0;
-        buttons(ui);
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            buttons(ui);
+        });
     });
 }
 
@@ -64,6 +73,8 @@ pub struct Dialogs {
     pub settings: Option<SettingsDialog>,
     /// Rip mode's per-track quick edit (rename + GD3).
     pub track_edit: Option<TrackEditDialog>,
+    /// File > Render to WAV: which of the editor's mix settings to apply.
+    pub render_wav: Option<RenderWavDialog>,
 }
 
 impl Dialogs {
@@ -80,6 +91,7 @@ impl Dialogs {
             || self.vgm_metadata.is_some()
             || self.settings.is_some()
             || self.track_edit.is_some()
+            || self.render_wav.is_some()
     }
 
     /// Draws every open dialog, dropping the ones that closed.
@@ -104,6 +116,9 @@ impl Dialogs {
         });
         retain(&mut self.settings, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.track_edit, |d| {
+            d.show(ctx, palette, area, actions)
+        });
+        retain(&mut self.render_wav, |d| {
             d.show(ctx, palette, area, actions)
         });
     }

@@ -60,6 +60,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 actions.push(Action::SaveAs);
             }
             crate::theme::separator(ui, palette);
+            if enabled_item(ui, editor, "Render to WAV...", None) {
+                actions.push(Action::OpenRenderWav);
+            }
+            crate::theme::separator(ui, palette);
             // New in the Rust port: the Python read drotrim.ini only.
             if item(ui, "Settings...", None) {
                 actions.push(Action::OpenSettings);

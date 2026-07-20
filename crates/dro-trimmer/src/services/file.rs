@@ -230,6 +230,7 @@ fn save_filters(suggested_name: &str) -> &'static [(&'static str, &'static [&'st
         Some("zip") => &[("Zip archive (*.zip)", &["zip"])],
         Some("txt") => &[("Text file (*.txt)", &["txt"])],
         Some("m3u") => &[("Playlist (*.m3u)", &["m3u"])],
+        Some("wav") => &[("WAV audio (*.wav)", &["wav"])],
         // A song is offered only its own format, so Save As cannot pick an
         // extension the already-serialised bytes don't match (M5/ux-2).
         Some("dro") => &[("DRO files (*.dro)", &["dro"])],
@@ -454,6 +455,16 @@ mod tests {
         assert_eq!(save_filters("song.vgm")[0].1.to_vec(), ["vgm", "vgz"]);
         assert_eq!(save_filters("song.vgz")[0].1.to_vec(), ["vgm", "vgz"]);
         assert_eq!(save_filters("Game.zip")[0].1.to_vec(), ["zip"]);
+        // A rendered WAV is not a song, and must not be offered song filters.
+        assert_eq!(save_filters("song.dro.wav")[0].1.to_vec(), ["wav"]);
+    }
+
+    /// The Save As format guard must not fire on a rendered WAV: `.wav` is not a
+    /// song format, so saving one under any name is fine.
+    #[test]
+    fn a_rendered_wav_is_never_a_format_change() {
+        assert!(!changes_song_format("song.dro.wav", Path::new("mix.wav")));
+        assert!(!changes_song_format("song.dro.wav", Path::new("mix.dro")));
     }
 
     #[test]

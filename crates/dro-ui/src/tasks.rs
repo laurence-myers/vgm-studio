@@ -11,13 +11,15 @@ use core::time::Duration;
 use std::sync::Arc;
 
 use dro_core::Song;
-use dro_synth::{WaveformBucket, render_waveform_progressive};
+use dro_synth::{RenderMix, WaveformBucket, render_wav_mixed, render_waveform_progressive};
 
 /// Identifies a task for cancel-on-resubmit, as the Python keyed its registry
 /// by task name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskKind {
     RenderWaveform,
+    /// File > Render to WAV.
+    RenderWav,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -29,6 +31,12 @@ pub enum TaskRequest {
         num_buckets: usize,
         sample_rate: u32,
     },
+    RenderWav {
+        song: Arc<Song>,
+        mix: RenderMix,
+        sample_rate: u32,
+        bit_depth: u16,
+    },
 }
 
 impl TaskRequest {
@@ -36,6 +44,7 @@ impl TaskRequest {
     pub fn kind(&self) -> TaskKind {
         match self {
             Self::RenderWaveform { .. } => TaskKind::RenderWaveform,
+            Self::RenderWav { .. } => TaskKind::RenderWav,
         }
     }
 }
@@ -44,6 +53,12 @@ impl TaskRequest {
 #[derive(Debug, Clone)]
 pub enum TaskResult {
     Waveform(Vec<WaveformBucket>),
+    /// The rendered WAV and the name to offer for it, or why it failed.
+    ///
+    /// The name is derived inside the task from the snapshot it rendered, so an
+    /// edit (or a convert) while the render runs cannot mislabel the save dialog
+    /// that follows.
+    Wav(Result<(String, Vec<u8>), String>),
 }
 
 /// Schedules [`TaskRequest`]s off the UI thread.
@@ -106,6 +121,20 @@ pub fn run_task(
                 &mut |buckets| emit(TaskResult::Waveform(buckets)),
             );
         }
+        TaskRequest::RenderWav {
+            song,
+            mix,
+            sample_rate,
+            bit_depth,
+        } => {
+            // `song.dro` becomes `song.dro.wav`, the name `drotrim render`
+            // writes -- so the same song exported both ways lands in one place.
+            let name = format!("{}.wav", song.name);
+            let rendered = render_wav_mixed(Arc::clone(song), *mix, *sample_rate, *bit_depth)
+                .map(|bytes| (name, bytes))
+                .map_err(|e| format!("Rendering to WAV failed: {e}"));
+            emit(TaskResult::Wav(rendered));
+        }
     }
 }
 
@@ -136,12 +165,36 @@ mod tests {
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());
-        let TaskResult::Waveform(last) = results.last().unwrap();
+        let Some(TaskResult::Waveform(last)) = results.last() else {
+            panic!("expected waveform buckets, got {results:?}")
+        };
         assert_eq!(*last, expected);
     }
 
     #[test]
     fn a_cancelled_task_produces_nothing() {
         assert!(collect(&request(tone_song()), || true).is_empty());
+    }
+
+    #[test]
+    fn the_wav_task_renders_the_mix_and_names_the_file() {
+        let song = tone_song();
+        let expected = render_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
+
+        let results = collect(
+            &TaskRequest::RenderWav {
+                song: Arc::new(song),
+                mix: RenderMix::default(),
+                sample_rate: 48_000,
+                bit_depth: 16,
+            },
+            || false,
+        );
+        let [TaskResult::Wav(Ok((name, bytes)))] = &results[..] else {
+            panic!("expected one rendered WAV, got {results:?}")
+        };
+        // The CLI's own naming: `tone.dro` renders to `tone.dro.wav`.
+        assert_eq!(name, "tone.dro.wav");
+        assert_eq!(*bytes, expected);
     }
 }

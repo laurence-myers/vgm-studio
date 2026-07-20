@@ -8,14 +8,14 @@ use std::path::PathBuf;
 
 use dro_core::config::{AppConfig, ConfigStore};
 use dro_core::{FindTarget, Gd3Tag};
-use dro_synth::{LoopConfig, LoopCount};
+use dro_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix};
 use egui::Key;
 
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, SettingsDialog,
-    TrackEditDialog, VgmMetadataDialog,
+    Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, RenderWavDialog,
+    SettingsDialog, TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -25,7 +25,7 @@ use crate::platform::{
     SaveOutcome, SaveRequest,
 };
 use crate::rip::{RipMutation, RipState, RipTransaction};
-use crate::tasks::{TaskRequest, TaskResult, TaskService};
+use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
@@ -126,6 +126,8 @@ fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
 enum SavePurpose {
     /// The editor's song (File > Save / Save As).
     Song,
+    /// A WAV rendered by File > Render to WAV.
+    WavExport,
     /// A rip project's description or playlist.
     RipDoc,
     /// A track rewritten in place by the quick-edit dialog.
@@ -387,7 +389,13 @@ impl DroApp {
                             // screenshot optimise); this just shows liveness.
                             ui.label("Working...");
                         }
-                        if self.tasks.is_busy() {
+                        // Name the job rather than just "busy": a WAV render can
+                        // take a while, and the waveform's own render runs after
+                        // every edit.
+                        if self.tasks.is_busy_kind(TaskKind::RenderWav) {
+                            ui.label("Rendering WAV...");
+                        }
+                        if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
                             ui.label("Rendering waveform...");
                         }
                     });
@@ -655,6 +663,28 @@ impl DroApp {
         for result in self.tasks.poll() {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
+                TaskResult::Wav(rendered) => self.handle_wav_result(rendered),
+            }
+        }
+    }
+
+    /// Offers a finished render to the save dialog, or reports why there is
+    /// nothing to offer.
+    ///
+    /// The picker blocks the UI thread, but only once the long part is done --
+    /// the same shape as the rip zip export.
+    fn handle_wav_result(&mut self, rendered: Result<(String, Vec<u8>), String>) {
+        match rendered {
+            Ok((name, bytes)) => {
+                self.pending_saves.push_back(SavePurpose::WavExport);
+                self.files.save(SaveRequest::Dialog {
+                    suggested_name: name,
+                    bytes,
+                });
+            }
+            Err(message) => {
+                self.status = "The WAV render failed.".to_owned();
+                self.alerts.push_back(Alert::error(message));
             }
         }
     }
@@ -723,6 +753,12 @@ impl DroApp {
                         .as_ref()
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
                     self.status = format!("Exported {shown}.");
+                }
+                SavePurpose::WavExport => {
+                    let shown = path
+                        .as_ref()
+                        .map_or_else(|| name.clone(), |p| p.display().to_string());
+                    self.status = format!("Rendered {shown}.");
                 }
             },
             SaveOutcome::Cancelled => match purpose {
@@ -1060,6 +1096,16 @@ impl DroApp {
             Action::OpenFile => self.files.pick_open(),
             Action::Save => self.save(false),
             Action::SaveAs => self.save(true),
+            Action::OpenRenderWav => {
+                if self.require_song() {
+                    self.dialogs.render_wav = Some(RenderWavDialog::new(self.config.audio.boost));
+                }
+            }
+            Action::RenderWavSubmitted {
+                use_toggles,
+                use_panning,
+                boost,
+            } => self.render_to_wav(use_toggles, use_panning, boost),
             Action::OpenSettings => {
                 self.dialogs.settings = Some(SettingsDialog::new(&self.config));
             }
@@ -1378,6 +1424,10 @@ impl DroApp {
                 // so anything song-bound closes with the song.
                 self.close_song_dialogs();
                 self.waveform = WaveformState::default();
+                // The export belongs to the song being replaced; drop it rather
+                // than pop a save dialog for a song no longer on screen. (Its
+                // own kind, so this does not disturb the waveform render below.)
+                self.tasks.cancel(TaskKind::RenderWav);
                 self.submit_waveform(None);
                 // Unload, not pause: the old stream's position must not leak
                 // into the fresh cursor/readout via the end-of-playback
@@ -1772,7 +1822,7 @@ impl DroApp {
             self.alerts.push_back(Alert::error(message));
             return;
         }
-        self.audio.set_muting(dro_synth::Muting::all());
+        self.audio.set_muting(Muting::all());
         self.audio.set_panning(preview_panning);
         if let Err(message) = self.audio.play() {
             // Load succeeded but playback won't start: drop the half-started
@@ -2253,6 +2303,7 @@ impl DroApp {
         self.dialogs.dro_info = None;
         self.dialogs.gd3_tag = None;
         self.dialogs.vgm_metadata = None;
+        self.dialogs.render_wav = None;
     }
 
     /// The `@requires_dro_loaded` decorator: gates an action on a loaded song,
@@ -2279,6 +2330,47 @@ impl DroApp {
         self.submit_waveform(Some(Duration::from_secs(1)));
         // The selected row's time may have changed; force the indicator sync.
         self.last_first_selected = None;
+    }
+
+    /// Renders the song to a WAV in the background; the result reaches a save
+    /// dialog through `poll_services`.
+    ///
+    /// Each option is opt-in, so with none of them this is exactly what
+    /// `drotrim render` writes.
+    fn render_to_wav(&mut self, use_toggles: bool, use_panning: bool, boost: f32) {
+        let Some(song) = self.editor.snapshot() else {
+            self.require_song();
+            return;
+        };
+        // One render at a time: a second would finish into the same save queue,
+        // and the first's dialog is already in the user's way.
+        if self.tasks.is_busy_kind(TaskKind::RenderWav) {
+            self.status = "Already rendering a WAV.".to_owned();
+            return;
+        }
+        let mix = RenderMix {
+            muting: if use_toggles {
+                self.channels.muting()
+            } else {
+                Muting::all()
+            },
+            panning: if use_panning {
+                self.channels.panning()
+            } else {
+                Panning::Original
+            },
+            boost,
+        };
+        self.tasks.submit(
+            TaskRequest::RenderWav {
+                song,
+                mix,
+                sample_rate: self.config.audio.frequency,
+                bit_depth: self.config.audio.bit_depth,
+            },
+            None,
+        );
+        self.status = "Rendering to WAV...".to_owned();
     }
 
     fn submit_waveform(&mut self, debounce: Option<Duration>) {

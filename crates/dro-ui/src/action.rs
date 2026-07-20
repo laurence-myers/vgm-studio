@@ -23,6 +23,15 @@ pub enum Action {
     OpenFile,
     Save,
     SaveAs,
+    /// Open the Render to WAV options dialog.
+    OpenRenderWav,
+    /// Render the song to a WAV with the chosen options applied, then offer to
+    /// save it. `boost` is already resolved to `1.0` when it was switched off.
+    RenderWavSubmitted {
+        use_toggles: bool,
+        use_panning: bool,
+        boost: f32,
+    },
     OpenSettings,
     Exit,
     /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).
