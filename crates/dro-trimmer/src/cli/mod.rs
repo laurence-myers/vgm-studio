@@ -1,5 +1,6 @@
-//! `drotrim`'s command line: the subcommands that were once the `dro_player`,
-//! `dro_split` and `dro2to1` binaries.
+//! `drotrim`'s command line: the subcommands that were once the `dro_player`
+//! and `dro_split` binaries. (DRO v2 -> v1 conversion, the old `dro2to1`, lives
+//! only in the GUI now -- Edit > Convert to DRO v1.)
 //!
 //! One executable does everything. With no subcommand (and at most a file to
 //! open) `drotrim` starts the GUI, so the parser's [`Cli::command`] is optional
@@ -11,7 +12,6 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-pub mod convert;
 pub mod play;
 pub mod render;
 pub mod split;
@@ -21,16 +21,16 @@ mod console;
 #[cfg(windows)]
 pub use console::attach_parent_console;
 
-/// Edit, play, render, split and convert DRO and VGM songs.
+/// Edit, play, render and split DRO and VGM songs.
 #[derive(Debug, Parser)]
 #[command(
     // Without this, clap names the command after the *package* (`dro-trimmer`),
     // which is not what the user typed.
     name = "drotrim",
     version,
-    about = "Edit, play, render, split and convert DRO and VGM songs.",
+    about = "Edit, play, render and split DRO and VGM songs.",
     after_help = "Run with no arguments (or with just a file) to open the GUI.",
-    // `drotrim song.dro convert` is a mistake, not a request to convert; reject
+    // `drotrim song.dro render` is a mistake, not a request to render; reject
     // it rather than half-parse it.
     args_conflicts_with_subcommands = true
 )]
@@ -50,8 +50,6 @@ pub enum Command {
     Render(render::Args),
     /// Split a song into one file per channel used.
     Split(split::Args),
-    /// Convert a DRO v2 file to DRO v1.
-    Convert(convert::Args),
 }
 
 /// Runs a subcommand.
@@ -64,7 +62,6 @@ pub fn run(command: Command) -> Result<()> {
         Command::Play(args) => play::run(&args),
         Command::Render(args) => render::run(&args),
         Command::Split(args) => split::run(&args),
-        Command::Convert(args) => convert::run(args),
     }
 }
 
@@ -112,12 +109,6 @@ mod tests {
                 .command,
             Some(Command::Split(_))
         ));
-        assert!(matches!(
-            Cli::try_parse_from(["drotrim", "convert", "a.dro"])
-                .unwrap()
-                .command,
-            Some(Command::Convert(_))
-        ));
     }
 
     /// `dro_split`'s flag, kept working for anyone with it in a script.
@@ -136,6 +127,6 @@ mod tests {
 
     #[test]
     fn a_file_and_a_subcommand_together_are_rejected() {
-        assert!(Cli::try_parse_from(["drotrim", "a.dro", "convert"]).is_err());
+        assert!(Cli::try_parse_from(["drotrim", "a.dro", "render"]).is_err());
     }
 }

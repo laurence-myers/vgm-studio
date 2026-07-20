@@ -5,6 +5,13 @@ original — parity oracle only, never modify `src/`).
 **Written:** 2026-07-20. **Status: complete** — all nine steps implemented,
 tested and committed on `rust`.
 
+> **Follow-up (2026-07-21):** the `convert` subcommand (the old `dro2to1`,
+> Step 1) was **removed** — the GUI's Edit > Convert to DRO v1 (Step 7) covers
+> it, so a CLI command for it was no longer needed. `drotrim` now has three
+> subcommands: `play`, `render`, `split`. The v2→v1 conversion logic
+> (`dro_core::convert::dro2_to_dro1`, `dro1_default_name`) stays — the GUI uses
+> it. The steps below still describe convert as it was first built.
+
 ---
 
 ## 0 · Progress

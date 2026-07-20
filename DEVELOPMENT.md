@@ -36,8 +36,10 @@ cargo run -p dro-trimmer -- play song.dro           # play through the speakers
 cargo run -p dro-trimmer -- render song.dro         # write song.dro.wav
 cargo run -p dro-trimmer -- split song.dro          # one WAV per channel used
 cargo run -p dro-trimmer -- split --song song.vgm   # one VGM per channel instead
-cargo run -p dro-trimmer -- convert song.dro        # DRO v2 -> v1, as song_1.dro
 ```
+
+DRO v2 -> v1 conversion (the old `dro2to1`) is GUI-only now, under Edit >
+Convert to DRO v1.
 
 Two things to know about the release build, which is linked as a *GUI-subsystem*
 executable so double-clicking it does not flash a console window:

@@ -316,8 +316,8 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
 
 /// The name a converted DRO v1 takes: `song.dro` becomes `song_1.dro`.
 ///
-/// The `_1` suffix is what `drotrim convert` names its output file, and the
-/// editor renames the converted song to match -- so a Save As after converting
+/// The editor's Convert to DRO v1 renames the converted song this way (the `_1`
+/// suffix the old `dro2to1` gave its output too) -- so a Save As after converting
 /// suggests the new name rather than offering to overwrite the v2 source.
 #[must_use]
 pub fn dro1_default_name(name: &str) -> String {
@@ -494,7 +494,7 @@ mod tests {
     fn the_v1_name_suffixes_the_stem() {
         assert_eq!(dro1_default_name("song.dro"), "song_1.dro");
         assert_eq!(dro1_default_name("song.DRO"), "song_1.DRO");
-        // Matches `drotrim convert`'s own default output name.
+        // A name with no extension still gets the suffix.
         assert_eq!(dro1_default_name("capture"), "capture_1");
         assert_eq!(dro1_default_name("a.b/song.dro"), "a.b/song_1.dro");
     }

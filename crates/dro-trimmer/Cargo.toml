@@ -1,6 +1,6 @@
 [package]
 name = "dro-trimmer"
-description = "The drotrim executable: the GUI, plus its play, render, split and convert subcommands."
+description = "The drotrim executable: the GUI, plus its play, render and split subcommands."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

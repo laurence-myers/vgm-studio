@@ -1,5 +1,5 @@
-//! DRO Trimmer's one executable: the GUI, plus the `play`, `render`, `split` and
-//! `convert` subcommands.
+//! DRO Trimmer's one executable: the GUI, plus the `play`, `render` and `split`
+//! subcommands.
 //!
 //! With no subcommand this is a thin `eframe::run_native` shell injecting the
 //! native services into `dro-ui`'s application; with one, it runs that

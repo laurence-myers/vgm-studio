@@ -3,8 +3,7 @@
 //! These run the real executable, so they cover the parts a unit test cannot:
 //! that the subcommands are wired to the parser at all, that `help` lists them,
 //! and that each writes the files it claims to. The song under test is built
-//! here rather than taken from `tests/`: the committed fixture is 99 seconds
-//! long, which is fine to convert but far too slow to render.
+//! here rather than taken from `tests/`, small enough to render in milliseconds.
 //!
 //! `play` is deliberately absent -- it needs an audio device.
 
@@ -69,12 +68,18 @@ fn help_lists_every_subcommand() {
     let output = run(&["help"]);
     assert!(output.status.success(), "`drotrim help` failed");
     let text = stdout_of(&output);
-    for subcommand in ["play", "render", "split", "convert"] {
+    for subcommand in ["play", "render", "split"] {
         assert!(
             text.contains(subcommand),
             "`help` omits {subcommand}:\n{text}"
         );
     }
+    // Convert moved to the GUI (Edit > Convert to DRO v1); it is no longer a
+    // subcommand.
+    assert!(
+        !text.contains("convert"),
+        "`convert` should be gone:\n{text}"
+    );
 }
 
 #[test]
@@ -85,28 +90,13 @@ fn version_is_reported() {
 }
 
 #[test]
-fn convert_writes_the_default_output_and_refuses_to_clobber_it() {
-    let dir = temp_dir("convert");
-    let input = dir.join("song.dro");
-    // The committed v2 fixture: `convert` only reads the stream, so its length
-    // costs nothing here.
-    std::fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/lsl3_score_up_dro2.dro"),
-        &input,
-    )
-    .unwrap();
-
-    let output = run(&["convert", input.to_str().unwrap()]);
-    assert!(output.status.success(), "convert failed: {output:?}");
-    assert!(dir.join("song_1.dro").is_file(), "{:?}", file_names(&dir));
-
-    // A second run must not overwrite what the first wrote.
-    let again = run(&["convert", input.to_str().unwrap()]);
-    assert!(!again.status.success(), "the second convert should fail");
+fn an_unknown_subcommand_is_rejected() {
+    // Convert used to be a subcommand; make sure it (and any typo) now errors
+    // rather than silently doing nothing.
+    let output = run(&["convert", "song.dro"]);
     assert!(
-        String::from_utf8_lossy(&again.stderr).contains("already exists"),
-        "unexpected error: {}",
-        String::from_utf8_lossy(&again.stderr)
+        !output.status.success(),
+        "an unknown subcommand should fail"
     );
 }
 
@@ -192,6 +182,6 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
 fn a_file_argument_is_not_mistaken_for_a_subcommand() {
     // `drotrim <file> <subcommand>` is a mistake, and must be reported as one
     // rather than half-parsed.
-    let output = run(&["small.dro", "convert"]);
+    let output = run(&["small.dro", "render"]);
     assert!(!output.status.success());
 }
