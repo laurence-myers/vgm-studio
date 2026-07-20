@@ -1,5 +1,4 @@
 - Update docs (VGM, new behaviours)
-- Publish new version of PyOPL
 
 ## VGM
 
@@ -27,7 +26,3 @@
   round-tripping and nothing fills those fields yet. Restore the larger header
   once there is something to put in it -- and bump the version field with it,
   rather than padding a v1.51 header.
-- Sometimes there's a gap at the end of the waveform panel. Related to delays?
-- Add VGM/VGZ to drag and drop
-- On a long song, moving the playback cursor, while it's already playing, will quickly play
-  a blast of the skipped music.
