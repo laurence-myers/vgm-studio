@@ -62,6 +62,13 @@ pub struct Palette {
     pub button_shadow: Color32,
     /// Text on a button; near-black, as on a real FT2 button.
     pub button_text: Color32,
+    /// The face of a latched (pushed-in) toggle. Distinctly darker than
+    /// [`Self::button_face`], so "engaged" reads from the shading rather than
+    /// from a colour -- these are buttons, not selections, and sharing the
+    /// selection accent made a muted channel look like a selected row.
+    pub button_pressed: Color32,
+    /// Text over [`Self::button_pressed`].
+    pub button_pressed_text: Color32,
 
     // -- selection --
     /// The selection bar fill.
@@ -129,6 +136,9 @@ pub(crate) const CLONE_DARK: Palette = Palette {
     button_light: Color32::from_rgb(0xE2, 0xEA, 0xEA),
     button_shadow: Color32::from_rgb(0x53, 0x5F, 0x5F),
     button_text: Color32::BLACK,
+    // Between `button_active` and `button_shadow`: clearly sunk, still a button.
+    button_pressed: Color32::from_rgb(0x6E, 0x79, 0x79),
+    button_pressed_text: Color32::WHITE,
 
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
     selection_text: Color32::WHITE,
@@ -178,6 +188,9 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
     button_light: Color32::from_rgb(0xEC, 0xEF, 0xF4),
     button_shadow: Color32::from_rgb(0x58, 0x5E, 0x68),
     button_text: Color32::BLACK,
+    // Between `button_active` and `button_shadow`: clearly sunk, still a button.
+    button_pressed: Color32::from_rgb(0x78, 0x7E, 0x87),
+    button_pressed_text: Color32::WHITE,
 
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
     selection_text: Color32::WHITE,

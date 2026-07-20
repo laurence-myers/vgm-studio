@@ -211,14 +211,14 @@ fn toggle_impl(
         // label, exactly as a momentary button does.
         let sunken = on || held;
         let fill = if on {
-            palette.accent
+            palette.button_pressed
         } else if response.hovered() {
             palette.button_hover
         } else {
             palette.button_face
         };
         let ink = if on {
-            palette.selection_text
+            palette.button_pressed_text
         } else {
             palette.button_text
         };
