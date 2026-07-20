@@ -64,6 +64,8 @@ pub struct LoopOverlay {
 pub struct WaveformResponse {
     /// A click, already snapped to an instruction and its time.
     pub clicked: Option<(usize, u32)>,
+    /// Whether `clicked` was the secondary (right) button.
+    pub secondary: bool,
     /// The modifiers held for `clicked`, so the caller can tell a plain seek from
     /// a loop-marking gesture. The panel itself stays ignorant of what they mean.
     pub modifiers: egui::Modifiers,
@@ -132,11 +134,15 @@ pub fn show(
     // The sunken well frame, on top of the dim so the bevel is never buried.
     bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
 
-    if response.clicked()
+    // Either button reports; which one it was is the caller's to interpret, and
+    // is what tells a loop start from a loop end.
+    let secondary = response.secondary_clicked();
+    if (response.clicked() || secondary)
         && let Some(pointer) = response.interact_pointer_pos()
     {
         let pct = f64::from((pointer.x - rect.left()) / rect.width());
         out.clicked = song.index_and_ms_offset_at_pct(pct);
+        out.secondary = secondary;
         out.modifiers = ui.input(|input| input.modifiers);
     }
     out

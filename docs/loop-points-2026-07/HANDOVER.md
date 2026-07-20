@@ -313,7 +313,7 @@ pub struct LoopConfig {
 - New `Action` variants: `SetLoopStart(usize)`, `SetLoopEnd(usize)`,
   `ClearLoopMarkers`, `ToggleLoopPlayback`, `SetLoopCount(LoopCount)`,
   `ApplyLoopToMetadata`, `PlaySeam`.
-- Gestures (all three): waveform Shift+click = set start / Ctrl+Shift+click =
+- Gestures (all three): waveform Shift+click = set start / Shift+right-click =
   set end at the snapped instruction (the click-snap machinery exists in
   `widgets/waveform.rs::show`); table keys `[` / `]` = start/end from the
   focused row; transport "Set start"/"Set end" buttons from the selection.

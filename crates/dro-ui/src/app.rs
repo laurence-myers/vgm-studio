@@ -78,6 +78,23 @@ fn about_text() -> String {
 /// The DRO timing mismatch box (`wxapp.__load_file`), version-specific advice
 /// and all. The v2 advice now points at the Settings dialog instead of a hand
 /// edit of drotrim.ini, since the port has one.
+/// What a click on the waveform means, given the button and whether Shift was
+/// held. `None` for a gesture that does nothing.
+///
+/// Shift brackets the loop -- left marks the start, right the end -- so the two
+/// markers are one gesture apart rather than one being a modifier deeper than
+/// the other. The end is the *time* clicked, hence that instruction's index
+/// taken exclusively: everything sounding before the click is inside the loop.
+fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Option<Action> {
+    match (shift, secondary) {
+        (true, false) => Some(Action::SetLoopStart(index)),
+        (true, true) => Some(Action::SetLoopEnd(index)),
+        // A plain right-click marks nothing; seeking is the left button's job.
+        (false, true) => None,
+        (false, false) => Some(Action::WaveformClicked { index, ms }),
+    }
+}
+
 fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
     let prefix = if auto_trimmed {
         "Despite auto-trimming, t"
@@ -346,16 +363,12 @@ impl DroApp {
                             let response =
                                 waveform::show(ui, &self.waveform, self.editor.song(), p);
                             if let Some((index, ms)) = response.clicked {
-                                // Shift marks the loop start, Ctrl+Shift the end.
-                                // The end is the *time* clicked, so it is that
-                                // instruction's index exclusive -- everything
-                                // sounding before the click is in the loop.
-                                let mods = response.modifiers;
-                                actions.push(match (mods.shift, mods.command) {
-                                    (true, false) => Action::SetLoopStart(index),
-                                    (true, true) => Action::SetLoopEnd(index),
-                                    _ => Action::WaveformClicked { index, ms },
-                                });
+                                actions.extend(waveform_action(
+                                    index,
+                                    ms,
+                                    response.secondary,
+                                    response.modifiers.shift,
+                                ));
                             }
                         });
                         peak_meter::show(ui, &self.peak_meter, p);
@@ -443,7 +456,8 @@ impl DroApp {
                         if theme::bevel::toggle(ui, p, &mut looping, "Loop")
                             .on_hover_text(
                                 "Repeat the marked region. Shift+click the waveform to mark \
-                                 the start, Ctrl+Shift+click the end; [ and ] use the selected row.",
+                                 the start and Shift+right-click the end; [ and ] use the \
+                                 selected row.",
                             )
                             .clicked()
                         {

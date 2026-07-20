@@ -2202,3 +2202,25 @@ fn an_applied_loop_is_guarded_by_the_discard_prompt() {
     );
     assert!(harness.query_by_label("OK").is_some());
 }
+
+#[test]
+fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
+    use super::waveform_action;
+
+    // Shift+left marks the start, Shift+right the end -- one gesture apart.
+    assert_eq!(
+        waveform_action(7, 500, false, true),
+        Some(Action::SetLoopStart(7))
+    );
+    assert_eq!(
+        waveform_action(7, 500, true, true),
+        Some(Action::SetLoopEnd(7))
+    );
+    // Unmodified, the left button still seeks...
+    assert_eq!(
+        waveform_action(7, 500, false, false),
+        Some(Action::WaveformClicked { index: 7, ms: 500 })
+    );
+    // ...and the right button does nothing at all.
+    assert_eq!(waveform_action(7, 500, true, false), None);
+}

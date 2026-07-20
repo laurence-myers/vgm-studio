@@ -19,7 +19,7 @@
     "data starts at 0x60" minimal header); today those tracks show as unreadable.
 - Support for header features:
   - Loop points -- done. A region is marked in the editor (Shift+click and
-    Ctrl+Shift+click on the waveform, `[` and `]` on the selected row, or the
+    Shift+right-click on the waveform, `[` and `]` on the selected row, or the
     Edit menu), played back with the Loop toggle and a repeat count, auditioned
     at the join with "Seam", and written to the header with Edit > Apply Loop to
     Metadata. Both markers survive trimming as instruction indices, and the
