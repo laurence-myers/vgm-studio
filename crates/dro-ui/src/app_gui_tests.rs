@@ -2293,3 +2293,84 @@ fn the_dro_info_shortcut_is_refused_for_a_vgm() {
         harness.state().status
     );
 }
+
+#[test]
+fn dro_info_offers_editing_when_the_setting_is_on() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+
+    // "Edit" is also the menu bar's Edit menu, which is always on screen, so
+    // the dialog's button is the *second* node with that label.
+    let edit_nodes =
+        |harness: &mut Harness<'static, DroApp>| harness.get_all_by_label("Edit").count();
+
+    // Off by default: the dialog is view-only, so only the menu answers.
+    act(&mut harness, Action::OpenDroInfo);
+    harness.run();
+    assert!(harness.state().dialogs.dro_info.is_some());
+    assert_eq!(
+        edit_nodes(&mut harness),
+        1,
+        "view-only until the setting is on"
+    );
+    harness.get_by_label("Close").click();
+    harness.run();
+
+    harness.state_mut().config.ui.dro_info_edit_enabled = true;
+    act(&mut harness, Action::OpenDroInfo);
+    harness.run();
+    assert_eq!(
+        edit_nodes(&mut harness),
+        2,
+        "the setting is on, so the dialog should offer Edit"
+    );
+
+    // And Edit actually unlocks the fields: the button becomes Save.
+    harness
+        .get_all_by_label("Edit")
+        .nth(1)
+        .expect("the dialog's Edit button")
+        .click();
+    harness.run();
+    assert!(harness.query_by_label("Save").is_some(), "now in edit mode");
+    assert_eq!(edit_nodes(&mut harness), 1, "the button became Save");
+}
+
+#[test]
+fn clicking_a_settings_caption_toggles_its_checkbox() {
+    // The caption used to be inert text, so clicking the words did nothing and
+    // only the small box itself worked -- which reads as a setting that does
+    // not work at all.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    assert!(!harness.state().config.ui.dro_info_edit_enabled);
+
+    let config = harness.state().config;
+    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.run();
+    harness.get_by_label("Allow editing in DRO Info").click();
+    harness.run();
+    harness.get_by_label("Save").click();
+    harness.run();
+
+    assert!(
+        harness.state().config.ui.dro_info_edit_enabled,
+        "clicking the caption should have toggled the setting"
+    );
+    assert_eq!(
+        handles
+            .saved_configs
+            .borrow()
+            .last()
+            .map(|c| c.ui.dro_info_edit_enabled),
+        Some(true),
+        "and it should have been persisted"
+    );
+
+    // The DRO Info dialog now offers editing -- the user-visible payoff.
+    act(&mut harness, Action::OpenDroInfo);
+    harness.run();
+    assert_eq!(
+        harness.get_all_by_label("Edit").count(),
+        2,
+        "the menu's Edit, plus the dialog's now-available Edit button"
+    );
+}

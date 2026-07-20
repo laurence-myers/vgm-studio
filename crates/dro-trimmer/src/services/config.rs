@@ -69,6 +69,11 @@ mod tests {
         let mut config = AppConfig::default();
         config.audio.frequency = 49_716;
         config.ui.tail_length = 4500;
+        // The booleans write as Rust's "true"/"false" and are read back by a
+        // parser that also accepts yes/on/1 -- worth pinning, since a setting
+        // that applies live but evaporates on restart looks like it never worked.
+        config.ui.dro_info_edit_enabled = true;
+        config.ui.maximize_window = true;
         let text = config.to_ini_string();
         assert_eq!(AppConfig::from_ini_sources(&[&text]), config);
     }

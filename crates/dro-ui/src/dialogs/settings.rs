@@ -129,12 +129,14 @@ impl SettingsDialog {
                         });
                     ui.end_row();
 
-                    ui.label("Maximize window at launch");
-                    ui.checkbox(&mut self.maximize_window, "");
+                    checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
                     ui.end_row();
 
-                    ui.label("Allow editing in DRO Info");
-                    ui.checkbox(&mut self.dro_info_edit_enabled, "");
+                    checkbox_row(
+                        ui,
+                        "Allow editing in DRO Info",
+                        &mut self.dro_info_edit_enabled,
+                    );
                     ui.end_row();
                 });
             ui.add_space(8.0);
@@ -187,6 +189,23 @@ impl SettingsDialog {
         actions.push(Action::ApplySettings(Box::new(config)));
         true
     }
+}
+
+/// A settings row whose caption toggles the checkbox beside it.
+///
+/// The grid puts captions in the left column, where a plain `ui.label` is inert
+/// -- so the only way to change one of these settings was to land on the box
+/// itself, and clicking the words did nothing at all. Every other toolkit
+/// toggles on the caption, which makes a setting that reads as broken when it
+/// isn't.
+fn checkbox_row(ui: &mut egui::Ui, caption: &str, value: &mut bool) {
+    if ui
+        .add(egui::Label::new(caption).sense(egui::Sense::click()))
+        .clicked()
+    {
+        *value = !*value;
+    }
+    ui.checkbox(value, "");
 }
 
 /// The rates the dropdown offers: CD rate, the usual device rate, and the
@@ -258,5 +277,21 @@ mod tests {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.frequency, 49_716);
+    }
+
+    #[test]
+    fn the_checkbox_settings_reach_the_saved_config() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default());
+        assert!(!dialog.dro_info_edit_enabled, "off by default");
+        dialog.dro_info_edit_enabled = true;
+        dialog.maximize_window = true;
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert!(saved.ui.dro_info_edit_enabled);
+        assert!(saved.ui.maximize_window);
     }
 }
