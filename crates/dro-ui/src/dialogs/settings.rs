@@ -14,7 +14,7 @@ pub struct SettingsDialog {
     /// preserved rather than silently reset.
     original: AppConfig,
     frequency: u32,
-    buffer_size: String,
+    buffer_size: u32,
     bit_depth: u16,
     chip_write_delay: String,
     tail_length: String,
@@ -29,7 +29,7 @@ impl SettingsDialog {
         Self {
             original: *config,
             frequency: config.audio.frequency,
-            buffer_size: config.audio.buffer_size.to_string(),
+            buffer_size: config.audio.buffer_size,
             bit_depth: config.audio.bit_depth,
             chip_write_delay: config.audio.chip_write_delay.to_string(),
             tail_length: config.ui.tail_length.to_string(),
@@ -71,12 +71,24 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
-                    ui.label("Buffer size");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.buffer_size)
-                            .text_color(palette.data_text)
-                            .desired_width(100.0),
+                    ui.label("Buffer size").on_hover_text(
+                        "Frames per audio callback. Smaller responds to seeking and \
+                         muting sooner; larger is safer against dropouts.",
                     );
+                    ui.scope(|ui| {
+                        crate::theme::style_dropdown(ui, palette);
+                        egui::ComboBox::from_id_salt("settings-buffer-size")
+                            .selected_text(self.buffer_size.to_string())
+                            .show_ui(ui, |ui| {
+                                for size in BUFFER_SIZES {
+                                    ui.selectable_value(
+                                        &mut self.buffer_size,
+                                        size,
+                                        size.to_string(),
+                                    );
+                                }
+                            });
+                    });
                     ui.end_row();
 
                     ui.label("Bit depth").on_hover_text("WAV export only");
@@ -159,11 +171,10 @@ impl SettingsDialog {
         // edit (like `audio.boost`, driven by the transport slider) survive.
         let mut config = self.original;
         let parsed = (
-            self.buffer_size.trim().parse::<u32>(),
             self.chip_write_delay.trim().parse::<f64>(),
             self.tail_length.trim().parse::<u32>(),
         );
-        let (Ok(buffer_size), Ok(chip_write_delay), Ok(tail_length)) = parsed else {
+        let (Ok(chip_write_delay), Ok(tail_length)) = parsed else {
             actions.push(Action::Alert {
                 title: "Invalid settings".to_owned(),
                 message: "Check that the entered values are numbers.".to_owned(),
@@ -171,7 +182,7 @@ impl SettingsDialog {
             return false;
         };
         config.audio.frequency = self.frequency;
-        config.audio.buffer_size = buffer_size;
+        config.audio.buffer_size = self.buffer_size;
         config.audio.bit_depth = self.bit_depth;
         config.audio.chip_write_delay = chip_write_delay;
         config.ui.tail_length = tail_length;
@@ -212,6 +223,13 @@ fn checkbox_row(ui: &mut egui::Ui, caption: &str, value: &mut bool) {
 /// OPL3's own. Anything else in a hand-edited ini is still shown and kept --
 /// see [`frequency_label`] -- it just isn't one of the offered choices.
 const FREQUENCIES: [u32; 3] = [44_100, 48_000, 49_716];
+
+/// The buffer sizes the dropdown offers: the powers of two audio devices
+/// actually accept, from a low-latency 64 up to a very safe 4096. The device's
+/// own supported range clamps whatever is chosen, so an unusable extreme here
+/// costs nothing. As with the rates, a value from a hand-edited ini is shown and
+/// kept even though it is not offered.
+const BUFFER_SIZES: [u32; 7] = [64, 128, 256, 512, 1024, 2048, 4096];
 
 /// The dropdown label for a sample rate. Round thousands read as kHz; anything
 /// else (the OPL3's 49716, or a hand-edited value) stays in Hz rather than
@@ -293,5 +311,26 @@ mod tests {
         };
         assert!(saved.ui.dro_info_edit_enabled);
         assert!(saved.ui.maximize_window);
+    }
+
+    #[test]
+    fn an_unlisted_buffer_size_survives_a_save() {
+        let mut config = AppConfig::default();
+        config.audio.buffer_size = 384;
+        let mut dialog = SettingsDialog::new(&config);
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.buffer_size, 384, "the unlisted size is kept");
+
+        dialog.buffer_size = 1024;
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.buffer_size, 1024);
     }
 }
