@@ -82,6 +82,13 @@ which this resolved.
 12. **`Editor::set_vgm_metadata` now re-derives the markers** from what it
     stored, so the modeless dialog and the waveform cannot disagree about the
     loop after a save.
+13. **Metadata edits now mark the song dirty** (the follow-up §5.6 deferred).
+    They are tracked by a `metadata_dirty` flag, *not* by bumping `revision`:
+    revision means "the instruction stream changed" and keys the audio snapshot
+    and waveform render, so bumping it for a tag edit would reload the stream
+    and re-render the wave for nothing, interrupting playback to do it. Only a
+    real change sets the flag — both dialogs' Save fires whether or not anything
+    was typed, and prompting to discard nothing trains the prompt to be ignored.
 
 ### Pre-existing breakage (resolved during lp-4)
 

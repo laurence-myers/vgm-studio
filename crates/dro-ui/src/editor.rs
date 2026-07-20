@@ -50,6 +50,16 @@ pub struct Editor {
     /// simple equality check suffices (an undo back to the saved point reads
     /// dirty -- a safe over-prompt, never a missed one).
     saved_revision: Option<u64>,
+    /// Whether a metadata edit (GD3 tag, VGM loop fields) is unsaved.
+    ///
+    /// Tracked apart from `revision` because the two answer different questions.
+    /// `revision` means "the instruction stream changed", and the audio snapshot
+    /// and waveform render key off it; a tag edit changes neither, so bumping it
+    /// would reload the stream and re-render the wave for nothing -- and
+    /// interrupt playback to do it. This flag carries the "unsaved" half on its
+    /// own. Metadata edits are not undoable, so it only ever clears on a save or
+    /// a fresh song.
+    metadata_dirty: bool,
 }
 
 impl Editor {
@@ -84,12 +94,15 @@ impl Editor {
         self.revision
     }
 
-    /// Whether the song has unsaved edits (drives the discard-changes prompts).
-    /// A pure metadata edit (GD3 tag, VGM loop point) does not bump the revision,
-    /// so -- as in the Python -- it is not tracked as dirty here.
+    /// Whether the song has unsaved changes (drives the discard-changes prompts).
+    ///
+    /// Covers metadata edits as well as instruction edits. The Python tracked
+    /// only the latter, so a GD3 tag or a loop point could be typed in and lost
+    /// to an Open or a close without a word -- and a loop region is deliberate
+    /// work, not a stray field edit.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        self.has_song() && self.saved_revision != Some(self.revision)
+        self.has_song() && (self.saved_revision != Some(self.revision) || self.metadata_dirty)
     }
 
     /// An immutable snapshot of the current song, for the audio output and
@@ -131,6 +144,7 @@ impl Editor {
         self.analysis.invalidate();
         self.revision += 1;
         self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
         Ok(report)
     }
 
@@ -162,10 +176,11 @@ impl Editor {
         song.is_vgm() && was_vgz != is_vgz
     }
 
-    /// Marks the current revision as the saved point, clearing the dirty flag
+    /// Marks the current state as saved, clearing both halves of the dirty flag
     /// (the discard-changes prompts key off [`Self::is_dirty`]).
     pub fn mark_saved(&mut self) {
         self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
     }
 
     // -- editing -------------------------------------------------------------
@@ -252,14 +267,21 @@ impl Editor {
         self.analysis.invalidate();
         self.revision += 1;
         self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
         Ok(())
     }
 
     /// Applies the GD3 tag editor's Save. Not undoable, matching the Python's
     /// `on_tag_update`. Ignored unless the song is a VGM.
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
-        if let Some(meta) = self.song.as_mut().and_then(Song::vgm_meta_mut) {
+        let Some(meta) = self.song.as_mut().and_then(Song::vgm_meta_mut) else {
+            return;
+        };
+        // Only a real change dirties the song: the dialog's Save fires whether or
+        // not anything was typed, and prompting to discard nothing is noise.
+        if meta.tag.as_ref() != Some(&tag) {
             meta.tag = Some(tag);
+            self.metadata_dirty = true;
         }
     }
 
@@ -296,14 +318,30 @@ impl Editor {
         // song's end -- which is what `None` already means.
         let clamped_end = clamped
             .and_then(|start| loop_end.filter(|&end| end <= len && end > start && end < len));
+        let before = (
+            meta.loop_point,
+            meta.loop_end,
+            meta.loop_base,
+            meta.loop_modifier,
+            meta.volume_modifier,
+        );
         meta.loop_point = clamped;
         meta.loop_end = clamped_end;
         meta.loop_base = loop_base;
         meta.loop_modifier = loop_modifier;
         meta.volume_modifier = volume_modifier;
+        let changed = before
+            != (
+                clamped,
+                clamped_end,
+                loop_base,
+                loop_modifier,
+                volume_modifier,
+            );
         // The dialog is modeless, so the song may have been shortened behind it;
         // the markers now describe the stored loop either way.
         self.markers = RangeMarkers::from_song(song);
+        self.metadata_dirty |= changed;
         dropped
     }
 
@@ -326,8 +364,10 @@ impl Editor {
         let Some(meta) = song.vgm_meta_mut() else {
             return false;
         };
-        meta.loop_point = Some(start);
-        meta.loop_end = (end < len).then_some(end);
+        let stored = (Some(start), (end < len).then_some(end));
+        let changed = (meta.loop_point, meta.loop_end) != stored;
+        (meta.loop_point, meta.loop_end) = stored;
+        self.metadata_dirty |= changed;
         true
     }
 
@@ -666,6 +706,83 @@ mod tests {
         editor.selection.select_only(0);
         editor.delete_selection();
         assert!(editor.is_dirty(), "a further edit dirties it again");
+    }
+
+    #[test]
+    fn metadata_edits_dirty_the_song_without_invalidating_the_audio() {
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        assert!(!editor.is_dirty(), "a fresh conversion is clean");
+        let revision = editor.revision();
+
+        editor.set_vgm_metadata(Some(1), None, 0, 0, 0);
+        assert!(editor.is_dirty(), "a loop point is unsaved work");
+        // The instruction stream did not change, so the audio snapshot and the
+        // waveform must stay valid -- bumping the revision would reload the
+        // stream and re-render the wave for nothing, interrupting playback.
+        assert_eq!(editor.revision(), revision, "the stream is untouched");
+
+        editor.mark_saved();
+        assert!(!editor.is_dirty(), "saving clears it");
+
+        editor.set_gd3_tag(dro_core::Gd3Tag {
+            track_name_en: "Loop Test".to_owned(),
+            ..Default::default()
+        });
+        assert!(editor.is_dirty(), "a tag edit is unsaved work too");
+        assert_eq!(editor.revision(), revision);
+    }
+
+    #[test]
+    fn a_metadata_save_that_changes_nothing_leaves_the_song_clean() {
+        // Both dialogs' Save fires whether or not anything was typed, and the
+        // apply-loop action re-applies whatever is already marked. Prompting to
+        // discard nothing would train the prompt to be ignored.
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        editor.set_vgm_metadata(Some(1), None, 0, 0, 0);
+        editor.mark_saved();
+
+        editor.set_vgm_metadata(Some(1), None, 0, 0, 0);
+        assert!(
+            !editor.is_dirty(),
+            "re-saving identical values changes nothing"
+        );
+
+        editor.set_gd3_tag(dro_core::Gd3Tag::default());
+        editor.mark_saved();
+        editor.set_gd3_tag(dro_core::Gd3Tag::default());
+        assert!(!editor.is_dirty(), "re-saving an identical tag likewise");
+
+        // The markers already match the metadata, so applying them is a no-op.
+        assert!(editor.apply_loop_to_metadata());
+        assert!(!editor.is_dirty(), "applying what is already stored");
+    }
+
+    #[test]
+    fn applying_a_loop_region_dirties_the_song() {
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        let len = editor.len();
+        editor.markers.set_start(1, len);
+        editor.markers.set_end(len - 1, len);
+
+        assert!(editor.apply_loop_to_metadata());
+        assert!(
+            editor.is_dirty(),
+            "a loop region is deliberate work, and must not be lost silently"
+        );
+    }
+
+    #[test]
+    fn loading_a_song_clears_a_metadata_edit() {
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        editor.set_vgm_metadata(Some(1), None, 0, 0, 0);
+        assert!(editor.is_dirty());
+
+        editor.load(picked(&tone_song())).unwrap();
+        assert!(!editor.is_dirty(), "a freshly loaded song is clean");
     }
 
     #[test]

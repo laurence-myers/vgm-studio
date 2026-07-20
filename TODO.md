@@ -1,4 +1,8 @@
 - Update docs (VGM, new behaviours)
+- Metadata edits (GD3 tag, VGM loop fields) now mark the song dirty, so the
+  discard-changes prompts cover them. Tracked separately from the instruction
+  stream's revision, which keys the audio snapshot and waveform render -- a tag
+  edit must not reload either. The Python tracked only instruction edits.
 
 ## VGM
 
@@ -21,10 +25,6 @@
     Metadata. Both markers survive trimming as instruction indices, and the
     header's loop length is derived from them. See
     `docs/loop-points-2026-07/HANDOVER.md`. Possible follow-ups:
-    - Applying a loop does not mark the song dirty, so the unsaved-changes
-      prompts ignore it (metadata edits have always behaved this way, matching
-      the Python). Worth revisiting on its own, since it now covers something
-      the user set up deliberately rather than a stray field edit.
     - A loop end short of the song's end is honoured here and survives a save,
       but other players restart at the end-of-data command whatever the header
       says. A crop/trim would make it universal, and the `RangeMarkers` the loop

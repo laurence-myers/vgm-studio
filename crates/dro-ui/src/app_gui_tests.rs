@@ -2176,3 +2176,29 @@ fn snapshot_loop_overlay() {
     harness.run();
     settled_snapshot(&mut harness, "loop_overlay");
 }
+
+#[test]
+fn an_applied_loop_is_guarded_by_the_discard_prompt() {
+    // The metadata half of H2: a loop region is deliberate work, and before this
+    // an Open would have thrown it away without a word.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::ApplyLoopToMetadata);
+    assert!(
+        harness.state().editor.is_dirty(),
+        "applying a loop leaves unsaved changes"
+    );
+
+    handles
+        .files
+        .borrow_mut()
+        .picked
+        .push_back(Ok(picked(&dual_tone_song())));
+    harness.run();
+    assert!(
+        harness.state().pending_load.is_some(),
+        "the open is held behind a confirm rather than clobbering the loop"
+    );
+    assert!(harness.query_by_label("OK").is_some());
+}
