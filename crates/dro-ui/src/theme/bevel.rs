@@ -191,9 +191,8 @@ fn toggle_impl(
     // The label's colour tracks the state, so lay it out with the "recolour me
     // later" sentinel and pass the real ink to `galley` at paint time.
     let font = egui::TextStyle::Button.resolve(ui.style());
-    let galley = ui.fonts_mut(|fonts| {
-        fonts.layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER)
-    });
+    let galley = ui
+        .fonts_mut(|fonts| fonts.layout_no_wrap(text.to_owned(), font, egui::Color32::PLACEHOLDER));
 
     let desired = size(galley.size());
     let (rect, mut response) = ui.allocate_exact_size(desired, Sense::click());

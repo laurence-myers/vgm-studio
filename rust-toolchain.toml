@@ -1,4 +1,12 @@
 [toolchain]
-channel = "stable"
+# Pinned, not "stable": rustfmt's line-wrapping heuristics change between
+# releases, so a floating channel silently turns `cargo fmt --all --check` red on
+# code nobody touched the moment a new stable lands. 1.97.0 ships rustfmt 1.9.0,
+# which is what the tree is formatted with.
+#
+# Bumping this is a deliberate act: raise the version here, run `cargo fmt --all`,
+# and land the reformat as its own commit so it never muddies a feature diff.
+# Keep `rust-version` in Cargo.toml at or below whatever is pinned here.
+channel = "1.97.0"
 components = ["clippy", "rustfmt"]
 targets = ["wasm32-unknown-unknown"]

@@ -171,8 +171,7 @@ pub fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str
         let delta = response.drag_delta();
         let raw = ui.data_mut(|d| {
             let seed = d.get_temp::<f32>(response.id).unwrap_or(*spread);
-            let raw =
-                (seed + (delta.x - delta.y) * SPREAD_UNITS_PER_POINT).clamp(-1.0, 1.0);
+            let raw = (seed + (delta.x - delta.y) * SPREAD_UNITS_PER_POINT).clamp(-1.0, 1.0);
             d.insert_temp(response.id, raw);
             raw
         });
@@ -270,7 +269,11 @@ mod tests {
     fn drag_value_scales_and_clamps() {
         assert_eq!(drag_value(128.0, 0.0, 0.0), 128.0);
         assert_eq!(drag_value(128.0, 10.0, 0.0), 128.0 + 40.0); // right: 4 units/point
-        assert_eq!(drag_value(128.0, 0.0, 10.0), 128.0 + 40.0, "down pans right");
+        assert_eq!(
+            drag_value(128.0, 0.0, 10.0),
+            128.0 + 40.0,
+            "down pans right"
+        );
         assert_eq!(drag_value(128.0, -5.0, 0.0), 128.0 - 20.0, "left pans left");
         assert_eq!(drag_value(128.0, 0.0, -5.0), 128.0 - 20.0, "up pans left");
         // The axes add, so a diagonal that cancels leaves the pan put.

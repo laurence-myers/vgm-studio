@@ -525,7 +525,10 @@ impl DroApp {
             }
         }
         if let Some(result) = self.files.poll_renamed() {
-            let is_rip_op = self.rip_run.as_ref().is_some_and(|run| run.rename_in_flight);
+            let is_rip_op = self
+                .rip_run
+                .as_ref()
+                .is_some_and(|run| run.rename_in_flight);
             match result {
                 Ok(()) if is_rip_op => {
                     if let Some(run) = self.rip_run.as_mut() {

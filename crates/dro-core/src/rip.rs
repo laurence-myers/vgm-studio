@@ -878,7 +878,10 @@ mod tests {
     #[test]
     fn track_file_name_formats_number_title_and_extension() {
         assert_eq!(track_file_name(1, "Intro", "vgz"), "01 Intro.vgz");
-        assert_eq!(track_file_name(12, "Boss Battle", "vgm"), "12 Boss Battle.vgm");
+        assert_eq!(
+            track_file_name(12, "Boss Battle", "vgm"),
+            "12 Boss Battle.vgm"
+        );
         // Forbidden characters become underscores; the title is trimmed.
         assert_eq!(track_file_name(3, "  A/B:C  ", "vgz"), "03 A_B_C.vgz");
     }

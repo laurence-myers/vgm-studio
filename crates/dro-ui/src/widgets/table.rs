@@ -118,10 +118,8 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, pa
     let body_top = area.top() + header_height;
     let overflows = len as f32 * row_height > (area.bottom() - body_top);
     if overflows {
-        let bar = egui::Rect::from_min_max(
-            egui::pos2(area.right() - bar_width, body_top),
-            area.max,
-        );
+        let bar =
+            egui::Rect::from_min_max(egui::pos2(area.right() - bar_width, body_top), area.max);
         crate::theme::frame_scrollbar(ui, palette, bar);
     }
 }

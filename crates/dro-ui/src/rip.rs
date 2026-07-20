@@ -391,7 +391,10 @@ pub struct RipTransaction {
 /// The mutations that apply a set of `(src, dst)` renames without a transient
 /// collision: rename every source to a unique temp name first, then each temp to
 /// its destination. Safe for any permutation (including cycles and swaps).
-fn rename_batch_mutations(folder: &std::path::Path, pairs: &[(String, String)]) -> Vec<RipMutation> {
+fn rename_batch_mutations(
+    folder: &std::path::Path,
+    pairs: &[(String, String)],
+) -> Vec<RipMutation> {
     let temp = |i: usize| format!(".drotrim-reorder-{i}");
     let mut muts = Vec::with_capacity(pairs.len() * 2);
     for (i, (src, _)) in pairs.iter().enumerate() {
@@ -751,10 +754,7 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                             .on_hover_text("Move up")
                                             .clicked()
                                         {
-                                            actions.push(Action::RipMoveTrack {
-                                                index,
-                                                delta: -1,
-                                            });
+                                            actions.push(Action::RipMoveTrack { index, delta: -1 });
                                         }
                                         if bevel::button(ui, palette, "\u{25BC}")
                                             .on_hover_text("Move down")
