@@ -50,7 +50,7 @@ impl Default for RenderMix {
 /// If the `hound` writer fails. Writing to an in-memory `Cursor` does not fail in
 /// practice, so this is effectively infallible.
 pub fn render_wav(song: &Song, sample_rate: u32, bit_depth: u16) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(
+    render_uncancelled(
         song,
         RenderMix::default(),
         sample_rate,
@@ -72,7 +72,28 @@ pub fn render_wav_mixed<B: Borrow<Song>>(
     sample_rate: u32,
     bit_depth: u16,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
+    render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
+}
+
+/// As [`render_wav_mixed`], reporting progress and calling `keep_going` between
+/// render chunks so a background export can be abandoned part-way -- when the
+/// song it belongs to is replaced, say. `Ok(None)` iff `keep_going` returned
+/// `false`.
+///
+/// This is the entry point with everything exposed; the rest are the convenient
+/// shorthands for it.
+///
+/// # Errors
+/// See [`render_wav`].
+pub fn render_wav_cancellable<B: Borrow<Song>>(
+    song: B,
+    mix: RenderMix,
+    sample_rate: u32,
+    bit_depth: u16,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
+    render_wav_impl(song, mix, sample_rate, bit_depth, on_progress, keep_going)
 }
 
 /// As [`render_wav`], but with channel/percussion muting applied -- what
@@ -91,7 +112,7 @@ pub fn render_wav_muted<B: Borrow<Song>>(
         muting,
         ..RenderMix::default()
     };
-    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
+    render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
 /// As [`render_wav_muted`], reporting the running rendered-frame count to
@@ -112,7 +133,7 @@ pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
         muting,
         ..RenderMix::default()
     };
-    render_wav_impl(song, mix, sample_rate, bit_depth, on_progress)
+    render_uncancelled(song, mix, sample_rate, bit_depth, on_progress)
 }
 
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
@@ -136,7 +157,7 @@ pub fn render_wav_boosted(
         boost,
         ..RenderMix::default()
     };
-    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
+    render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
 /// As [`render_wav_boosted`], reporting the running rendered-frame count to
@@ -156,17 +177,36 @@ pub fn render_wav_boosted_with_progress(
         boost,
         ..RenderMix::default()
     };
-    render_wav_impl(song, mix, sample_rate, bit_depth, on_progress)
+    render_uncancelled(song, mix, sample_rate, bit_depth, on_progress)
 }
 
-/// The shared render loop behind the public `render_wav*` entry points.
-fn render_wav_impl<B: Borrow<Song>>(
+/// [`render_wav_impl`] for the entry points that cannot be cancelled, which is
+/// every one but [`render_wav_cancellable`].
+fn render_uncancelled<B: Borrow<Song>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
     bit_depth: u16,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
+    Ok(
+        render_wav_impl(song, mix, sample_rate, bit_depth, on_progress, &mut || true)?
+            .expect("a render that is never cancelled always completes"),
+    )
+}
+
+/// The shared render loop behind the public `render_wav*` entry points.
+///
+/// Returns `Ok(None)` when `keep_going` asks it to stop; the callers that cannot
+/// be cancelled go through [`render_uncancelled`].
+fn render_wav_impl<B: Borrow<Song>>(
+    song: B,
+    mix: RenderMix,
+    sample_rate: u32,
+    bit_depth: u16,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
     let spec = WavSpec {
         channels: 2,
         sample_rate,
@@ -187,6 +227,11 @@ fn render_wav_impl<B: Borrow<Song>>(
     let mut limiter = BoostLimiter::new(sample_rate, mix.boost);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
+        // Between chunks, as the waveform render does: often enough that an
+        // abandoned export stops promptly, never mid-buffer.
+        if !keep_going() {
+            return Ok(None);
+        }
         let frames = engine.render(&mut buffer);
         // Boost and limit exactly as the live audio callback does, so a boosted
         // render matches boosted playback. Bit-transparent when boost is 1.0, so
@@ -208,7 +253,7 @@ fn render_wav_impl<B: Borrow<Song>>(
     }
 
     writer.finalize()?;
-    Ok(cursor.into_inner())
+    Ok(Some(cursor.into_inner()))
 }
 
 #[cfg(test)]
@@ -327,6 +372,57 @@ mod tests {
         let plain = render_wav(&song, 48_000, 16).unwrap();
         let unity = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
         assert_eq!(plain, unity);
+    }
+
+    #[test]
+    fn a_cancelled_render_stops_and_returns_nothing() {
+        let song = small_song();
+        // Refused before the first chunk.
+        assert!(
+            render_wav_cancellable(
+                &song,
+                RenderMix::default(),
+                48_000,
+                16,
+                &mut |_| {},
+                &mut || false
+            )
+            .unwrap()
+            .is_none()
+        );
+
+        // ...and part-way through: the render stops early, so fewer chunks run
+        // than the whole song needs.
+        let mut chunks = 0;
+        let cancelled = render_wav_cancellable(
+            &song,
+            RenderMix::default(),
+            48_000,
+            16,
+            &mut |_| {},
+            &mut || {
+                chunks += 1;
+                chunks <= 1
+            },
+        )
+        .unwrap();
+        assert!(cancelled.is_none());
+    }
+
+    #[test]
+    fn an_uncancelled_render_is_identical_to_the_plain_one() {
+        let song = small_song();
+        let plain = render_wav(&song, 48_000, 16).unwrap();
+        let cancellable = render_wav_cancellable(
+            &song,
+            RenderMix::default(),
+            48_000,
+            16,
+            &mut |_| {},
+            &mut || true,
+        )
+        .unwrap();
+        assert_eq!(cancellable.as_deref(), Some(plain.as_slice()));
     }
 
     #[test]

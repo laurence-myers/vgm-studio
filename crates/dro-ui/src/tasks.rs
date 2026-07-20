@@ -13,8 +13,8 @@ use std::sync::Arc;
 use dro_core::Song;
 use dro_core::io::write_song;
 use dro_synth::{
-    RenderMix, SplitData, SplitOptions, WaveformBucket, render_wav_mixed,
-    render_waveform_progressive, split,
+    RenderMix, SplitData, SplitOptions, WaveformBucket, render_wav_cancellable,
+    render_waveform_progressive, split_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit, as the Python keyed its registry
@@ -73,8 +73,11 @@ pub enum TaskResult {
     /// One `(name, bytes)` per channel the song uses, ready to write, or why the
     /// split failed. Song-format outputs are serialised inside the task, so the
     /// app never has to know a DRO from a VGM to save them.
-    Split(Result<Vec<(String, Vec<u8>)>, String>),
+    Split(SplitFiles),
 }
+
+/// A finished split's files, ready to write, or why it failed.
+pub type SplitFiles = Result<Vec<(String, Vec<u8>)>, String>;
 
 /// Schedules [`TaskRequest`]s off the UI thread.
 ///
@@ -145,45 +148,68 @@ pub fn run_task(
             // `song.dro` becomes `song.dro.wav`, the name `drotrim render`
             // writes -- so the same song exported both ways lands in one place.
             let name = format!("{}.wav", song.name);
-            let rendered = render_wav_mixed(Arc::clone(song), *mix, *sample_rate, *bit_depth)
-                .map(|bytes| (name, bytes))
-                .map_err(|e| format!("Rendering to WAV failed: {e}"));
-            emit(TaskResult::Wav(rendered));
+            let rendered = render_wav_cancellable(
+                Arc::clone(song),
+                *mix,
+                *sample_rate,
+                *bit_depth,
+                &mut |_| {},
+                &mut || !is_cancelled(),
+            )
+            .map_err(|e| format!("Rendering to WAV failed: {e}"));
+            // A cancelled render emits nothing at all, like the waveform's.
+            match rendered {
+                Ok(None) => {}
+                Ok(Some(bytes)) => emit(TaskResult::Wav(Ok((name, bytes)))),
+                Err(message) => emit(TaskResult::Wav(Err(message))),
+            }
         }
         TaskRequest::Split { song, options } => {
-            emit(TaskResult::Split(split_to_bytes(song, *options)));
+            if let Some(result) = split_to_bytes(song, *options, is_cancelled) {
+                emit(TaskResult::Split(result));
+            }
         }
     }
 }
 
 /// Splits `song` and serialises each output, so what comes back is ready to
-/// write wherever the user chose.
-fn split_to_bytes(song: &Song, options: SplitOptions) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let outputs = split(
+/// write wherever the user chose. `None` if the split was cancelled part-way.
+fn split_to_bytes(
+    song: &Song,
+    options: SplitOptions,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Option<SplitFiles> {
+    let outputs = match split_cancellable(
         song,
         &options,
         &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
         &mut |_, _| {},
-    )
-    .map_err(|e| e.to_string())?;
+        &mut || !is_cancelled(),
+    ) {
+        Ok(Some(outputs)) => outputs,
+        Ok(None) => return None,
+        Err(error) => return Some(Err(error.to_string())),
+    };
 
-    outputs
-        .into_iter()
-        .map(|output| {
-            let bytes = match output.data {
-                SplitData::Wav(bytes) => bytes,
-                SplitData::Song(song) => write_song(&song).map_err(|e| e.to_string())?,
-            };
-            Ok((output.name, bytes))
-        })
-        .collect()
+    Some(
+        outputs
+            .into_iter()
+            .map(|output| {
+                let bytes = match output.data {
+                    SplitData::Wav(bytes) => bytes,
+                    SplitData::Song(song) => write_song(&song).map_err(|e| e.to_string())?,
+                };
+                Ok((output.name, bytes))
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_song::tone_song;
-    use dro_synth::render_waveform;
+    use dro_synth::{render_wav_mixed, render_waveform};
 
     fn request(song: Song) -> TaskRequest {
         TaskRequest::RenderWaveform {
@@ -215,6 +241,30 @@ mod tests {
     #[test]
     fn a_cancelled_task_produces_nothing() {
         assert!(collect(&request(tone_song()), || true).is_empty());
+    }
+
+    /// An abandoned export must produce nothing at all: its bytes belong to a
+    /// song the user has moved on from, and a save dialog for it would be a
+    /// surprise.
+    #[test]
+    fn a_cancelled_export_emits_nothing() {
+        let wav = TaskRequest::RenderWav {
+            song: Arc::new(tone_song()),
+            mix: RenderMix::default(),
+            sample_rate: 48_000,
+            bit_depth: 16,
+        };
+        assert!(collect(&wav, || true).is_empty());
+
+        let split = TaskRequest::Split {
+            song: Arc::new(tone_song()),
+            options: SplitOptions {
+                format: dro_synth::SplitFormat::Wav,
+                isolate_percussion: false,
+                audio: dro_core::config::AudioConfig::default(),
+            },
+        };
+        assert!(collect(&split, || true).is_empty());
     }
 
     #[test]

@@ -8,7 +8,7 @@
 use dro_core::config::AudioConfig;
 use dro_core::{Bank, Error, OplType, RegisterUsage, Result, Song};
 
-use crate::{Muting, capture, render_wav_muted_with_progress};
+use crate::{Muting, RenderMix, capture, render_wav_cancellable};
 
 /// Output format for a split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +70,24 @@ pub fn split(
     on_skip: &mut dyn FnMut(u16),
     on_progress: &mut dyn FnMut(&str, u64),
 ) -> Result<Vec<SplitOutput>> {
+    Ok(
+        split_cancellable(song, options, on_skip, on_progress, &mut || true)?
+            .expect("a split that is never cancelled always completes"),
+    )
+}
+
+/// As [`split`], but calling `keep_going` as it renders so a background split can
+/// be abandoned part-way. `Ok(None)` iff `keep_going` returned `false`.
+///
+/// # Errors
+/// See [`split`].
+pub fn split_cancellable(
+    song: &Song,
+    options: &SplitOptions,
+    on_skip: &mut dyn FnMut(u16),
+    on_progress: &mut dyn FnMut(&str, u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<SplitOutput>>> {
     let usage = RegisterUsage::analyze(song, options.isolate_percussion);
     let mut outputs = Vec::new();
 
@@ -87,7 +105,7 @@ pub fn split(
         let channel_num = (channel & 0xFF) - 0xAF; // 0xB0 -> 1, 0xB8 -> 9, 0xBD -> 14
 
         if options.isolate_percussion && (channel & 0xFF) == 0xBD {
-            split_percussion(
+            if split_percussion(
                 song,
                 options,
                 &usage,
@@ -95,7 +113,12 @@ pub fn split(
                 bank_num,
                 &mut outputs,
                 on_progress,
-            )?;
+                keep_going,
+            )?
+            .is_none()
+            {
+                return Ok(None);
+            }
         } else {
             let mut muting = Muting::silent();
             if (channel & 0xFF) == 0xBD {
@@ -104,16 +127,23 @@ pub fn split(
                 muting.allow_channel(bank, (channel & 0xFF) as u8);
             }
             let base = format!("{}.{}.{:02}", song.name, bank_num, channel_num);
-            outputs.push(render_one(song, muting, options, base, on_progress)?);
+            let Some(output) = render_one(song, muting, options, base, on_progress, keep_going)?
+            else {
+                return Ok(None);
+            };
+            outputs.push(output);
         }
     }
-    Ok(outputs)
+    Ok(Some(outputs))
 }
 
 /// Isolates each used drum of the percussion channel on `bank` to its own file.
 ///
 /// Unlike the Python -- whose `p <= 16` filter silently dropped the high bank's
 /// drums -- this isolates drums per bank correctly.
+///
+/// `Ok(None)` if `keep_going` asked it to stop part-way.
+#[allow(clippy::too_many_arguments)]
 fn split_percussion(
     song: &Song,
     options: &SplitOptions,
@@ -122,7 +152,8 @@ fn split_percussion(
     bank_num: u16,
     outputs: &mut Vec<SplitOutput>,
     on_progress: &mut dyn FnMut(&str, u64),
-) -> Result<()> {
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<()>> {
     for (mask, name) in DRUMS {
         let key = (u16::from(bank.index()) << 8) | u16::from(mask);
         if !usage.percussion_used(key) {
@@ -131,9 +162,12 @@ fn split_percussion(
         let mut muting = Muting::silent();
         muting.set_percussion(bank, 0xE0 | mask); // keep control bits, one drum
         let base = format!("{}.{}.14.{}", song.name, bank_num, name);
-        outputs.push(render_one(song, muting, options, base, on_progress)?);
+        let Some(output) = render_one(song, muting, options, base, on_progress, keep_going)? else {
+            return Ok(None);
+        };
+        outputs.push(output);
     }
-    Ok(())
+    Ok(Some(()))
 }
 
 /// Renders one muted view of `song` into the configured format. A WAV render
@@ -145,29 +179,39 @@ fn render_one(
     options: &SplitOptions,
     base: String,
     on_progress: &mut dyn FnMut(&str, u64),
-) -> Result<SplitOutput> {
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<SplitOutput>> {
     Ok(match options.format {
-        SplitFormat::Wav => SplitOutput {
-            name: format!("{base}.wav"),
-            data: SplitData::Wav(
-                render_wav_muted_with_progress(
-                    song,
-                    muting,
-                    options.audio.frequency,
-                    options.audio.bit_depth,
-                    &mut |frames| on_progress(&base, frames),
-                )
-                .map_err(|e| Error::file(format!("Rendering {base} to WAV failed: {e}")))?,
-            ),
-        },
+        SplitFormat::Wav => {
+            let mix = RenderMix {
+                muting,
+                ..RenderMix::default()
+            };
+            let rendered = render_wav_cancellable(
+                song,
+                mix,
+                options.audio.frequency,
+                options.audio.bit_depth,
+                &mut |frames| on_progress(&base, frames),
+                keep_going,
+            )
+            .map_err(|e| Error::file(format!("Rendering {base} to WAV failed: {e}")))?;
+            rendered.map(|bytes| SplitOutput {
+                name: format!("{base}.wav"),
+                data: SplitData::Wav(bytes),
+            })
+        }
+        // A capture writes no audio, so it finishes fast enough that stopping
+        // between channels (which the caller does) is soon enough.
+        SplitFormat::Song if !keep_going() => None,
         SplitFormat::Song => {
             // A capture keeps the input's format, so the name must too.
             let name = format!("{base}.out.{}", if song.is_vgm() { "vgm" } else { "dro" });
             let captured = capture(song, muting, name.clone())?;
-            SplitOutput {
+            Some(SplitOutput {
                 name,
                 data: SplitData::Song(captured),
-            }
+            })
         }
     })
 }
@@ -421,6 +465,64 @@ mod tests {
         assert!(names.iter().any(|n| n.contains(".14.HH.")), "{names:?}");
         // SD/CY/TT were not set, so they are not rendered.
         assert!(!names.iter().any(|n| n.contains(".14.SD.")), "{names:?}");
+    }
+
+    #[test]
+    fn a_cancelled_split_produces_nothing() {
+        let cancelled = split_cancellable(
+            &small_song(),
+            &options(SplitFormat::Wav, false),
+            &mut |_| {},
+            &mut |_, _| {},
+            &mut || false,
+        )
+        .unwrap();
+        assert!(cancelled.is_none(), "a cancelled split has no outputs");
+    }
+
+    /// Cancelling between channels stops the split rather than returning a
+    /// partial set the caller might write out as if it were complete.
+    #[test]
+    fn cancelling_part_way_abandons_the_whole_split() {
+        let mut channels = 0;
+        let cancelled = split_cancellable(
+            &small_song(),
+            &options(SplitFormat::Song, false),
+            &mut |_| {},
+            &mut |_, _| {},
+            &mut || {
+                channels += 1;
+                channels <= 1
+            },
+        )
+        .unwrap();
+        assert!(cancelled.is_none());
+    }
+
+    #[test]
+    fn an_uncancelled_split_matches_the_plain_one() {
+        let song = small_song();
+        let plain = split(
+            &song,
+            &options(SplitFormat::Wav, false),
+            &mut |_| {},
+            &mut |_, _| {},
+        )
+        .unwrap();
+        let same = split_cancellable(
+            &song,
+            &options(SplitFormat::Wav, false),
+            &mut |_| {},
+            &mut |_, _| {},
+            &mut || true,
+        )
+        .unwrap()
+        .expect("not cancelled");
+
+        let names = |outputs: &[SplitOutput]| -> Vec<String> {
+            outputs.iter().map(|o| o.name.clone()).collect()
+        };
+        assert_eq!(names(&plain), names(&same));
     }
 
     #[test]
