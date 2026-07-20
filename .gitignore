@@ -9,6 +9,11 @@ docs/readme.html
 *.dro
 *.wav
 
+# ...except the committed test fixtures: the DRO/VGM songs the format tests read,
+# and the known-good renders `dro-synth`'s render_regression compares against.
+!tests/*.dro
+!tests/render/*.wav
+
 # Rust
 /target/
 

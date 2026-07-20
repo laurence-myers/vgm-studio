@@ -23,8 +23,8 @@ pub use opl::CReferenceOpl3;
 pub use opl::{NukedOpl3, OplChip};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split};
 pub use wav::{
-    render_wav, render_wav_boosted, render_wav_boosted_with_progress, render_wav_muted,
-    render_wav_muted_with_progress,
+    RenderMix, render_wav, render_wav_boosted, render_wav_boosted_with_progress, render_wav_mixed,
+    render_wav_muted, render_wav_muted_with_progress,
 };
 pub use waveform::{
     WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,

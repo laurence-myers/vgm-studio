@@ -11,8 +11,33 @@ use std::io::Cursor;
 use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
-use crate::engine::{Muting, PlayerEngine};
+use crate::engine::{Muting, Panning, PlayerEngine};
 use crate::limiter::BoostLimiter;
+
+/// How a render is mixed: which voices are audible, where they sit in the stereo
+/// image, and how hard the signal is driven.
+///
+/// [`Default`] is the faithful render every `drotrim render` produces -- nothing
+/// muted, the song's own stereo image, and no boost. The GUI's Render to WAV
+/// dialog turns each of the three on individually.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RenderMix {
+    pub muting: Muting,
+    pub panning: Panning,
+    /// Multiplies the signal through the playback peak limiter. `1.0` is
+    /// bit-transparent.
+    pub boost: f32,
+}
+
+impl Default for RenderMix {
+    fn default() -> Self {
+        Self {
+            muting: Muting::all(),
+            panning: Panning::Original,
+            boost: 1.0,
+        }
+    }
+}
 
 /// Renders `song` to a stereo WAV file held in memory.
 ///
@@ -27,12 +52,27 @@ use crate::limiter::BoostLimiter;
 pub fn render_wav(song: &Song, sample_rate: u32, bit_depth: u16) -> Result<Vec<u8>, hound::Error> {
     render_wav_impl(
         song,
-        Muting::all(),
+        RenderMix::default(),
         sample_rate,
         bit_depth,
-        1.0,
         &mut |_| {},
     )
+}
+
+/// Renders `song` with muting, panning and boost all applied -- the GUI's Render
+/// to WAV, whose dialog offers the three independently.
+///
+/// [`RenderMix::default()`] renders exactly what [`render_wav`] does.
+///
+/// # Errors
+/// See [`render_wav`].
+pub fn render_wav_mixed<B: Borrow<Song>>(
+    song: B,
+    mix: RenderMix,
+    sample_rate: u32,
+    bit_depth: u16,
+) -> Result<Vec<u8>, hound::Error> {
+    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
 /// As [`render_wav`], but with channel/percussion muting applied -- what
@@ -47,7 +87,11 @@ pub fn render_wav_muted<B: Borrow<Song>>(
     sample_rate: u32,
     bit_depth: u16,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(song, muting, sample_rate, bit_depth, 1.0, &mut |_| {})
+    let mix = RenderMix {
+        muting,
+        ..RenderMix::default()
+    };
+    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
 /// As [`render_wav_muted`], reporting the running rendered-frame count to
@@ -64,7 +108,11 @@ pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
     bit_depth: u16,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(song, muting, sample_rate, bit_depth, 1.0, on_progress)
+    let mix = RenderMix {
+        muting,
+        ..RenderMix::default()
+    };
+    render_wav_impl(song, mix, sample_rate, bit_depth, on_progress)
 }
 
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
@@ -84,14 +132,11 @@ pub fn render_wav_boosted(
     bit_depth: u16,
     boost: f32,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(
-        song,
-        Muting::all(),
-        sample_rate,
-        bit_depth,
+    let mix = RenderMix {
         boost,
-        &mut |_| {},
-    )
+        ..RenderMix::default()
+    };
+    render_wav_impl(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
 /// As [`render_wav_boosted`], reporting the running rendered-frame count to
@@ -107,23 +152,19 @@ pub fn render_wav_boosted_with_progress(
     boost: f32,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(
-        song,
-        Muting::all(),
-        sample_rate,
-        bit_depth,
+    let mix = RenderMix {
         boost,
-        on_progress,
-    )
+        ..RenderMix::default()
+    };
+    render_wav_impl(song, mix, sample_rate, bit_depth, on_progress)
 }
 
 /// The shared render loop behind the public `render_wav*` entry points.
 fn render_wav_impl<B: Borrow<Song>>(
     song: B,
-    muting: Muting,
+    mix: RenderMix,
     sample_rate: u32,
     bit_depth: u16,
-    boost: f32,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
     let spec = WavSpec {
@@ -136,8 +177,14 @@ fn render_wav_impl<B: Borrow<Song>>(
     let mut writer = WavWriter::new(&mut cursor, spec)?;
 
     let mut engine = PlayerEngine::new(song, sample_rate);
-    engine.set_muting(muting);
-    let mut limiter = BoostLimiter::new(sample_rate, boost);
+    engine.set_muting(mix.muting);
+    // Only when it differs from the engine's own starting state: `set_panning`
+    // is a chip write, and `Original` would replay the whole `0xC0` shadow for
+    // nothing -- keeping the faithful render byte-for-byte what it always was.
+    if mix.panning != Panning::Original {
+        engine.set_panning(mix.panning);
+    }
+    let mut limiter = BoostLimiter::new(sample_rate, mix.boost);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         let frames = engine.render(&mut buffer);
@@ -280,6 +327,82 @@ mod tests {
         let plain = render_wav(&song, 48_000, 16).unwrap();
         let unity = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
         assert_eq!(plain, unity);
+    }
+
+    #[test]
+    fn the_default_mix_renders_exactly_what_render_wav_does() {
+        // Everything audible, the song's own image, no boost -- so the dialog's
+        // "none of the options" is the same faithful render the CLI produces.
+        let song = small_song();
+        let plain = render_wav(&song, 48_000, 16).unwrap();
+        let mixed = render_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
+        assert_eq!(plain, mixed);
+    }
+
+    #[test]
+    fn each_mix_option_alone_matches_its_single_purpose_render() {
+        let song = small_song();
+        let mut muting = Muting::silent();
+        muting.allow_channel(dro_core::Bank::Low, 0xB0);
+
+        assert_eq!(
+            render_wav_mixed(
+                &song,
+                RenderMix {
+                    muting,
+                    ..RenderMix::default()
+                },
+                48_000,
+                16
+            )
+            .unwrap(),
+            render_wav_muted(&song, muting, 48_000, 16).unwrap(),
+        );
+        assert_eq!(
+            render_wav_mixed(
+                &song,
+                RenderMix {
+                    boost: 4.0,
+                    ..RenderMix::default()
+                },
+                48_000,
+                16
+            )
+            .unwrap(),
+            render_wav_boosted(&song, 48_000, 16, 4.0).unwrap(),
+        );
+    }
+
+    #[test]
+    fn panning_a_render_hard_left_moves_the_energy() {
+        let song = small_song();
+        let hard_left = render_wav_mixed(
+            &song,
+            RenderMix {
+                panning: Panning::Custom([0x00; 18]),
+                ..RenderMix::default()
+            },
+            48_000,
+            16,
+        )
+        .unwrap();
+        let (_, samples) = read_back(&hard_left);
+
+        let energy = |channel: usize| {
+            samples
+                .iter()
+                .skip(channel)
+                .step_by(2)
+                .map(|&v| i64::from(v.abs()))
+                .sum::<i64>()
+        };
+        assert!(energy(0) > 0, "the left channel should carry the song");
+        assert!(
+            energy(0) > energy(1) * 4,
+            "hard left should leave little on the right: {} vs {}",
+            energy(0),
+            energy(1)
+        );
     }
 
     #[test]
