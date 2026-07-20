@@ -50,8 +50,9 @@ pub enum TaskResult {
 ///
 /// Semantics ported from the Python `TaskMaster`: tasks are keyed by
 /// [`TaskKind`]; submitting cancels any pending or running task of the same
-/// kind; a debounced submission only starts once the debounce elapses with no
-/// resubmission (so holding Delete does not thrash the renderer).
+/// kind **and only that kind**; a debounced submission only starts once the
+/// debounce elapses with no resubmission (so holding Delete does not thrash the
+/// renderer).
 pub trait TaskService {
     fn submit(&mut self, request: TaskRequest, debounce: Option<Duration>);
 
@@ -64,6 +65,15 @@ pub trait TaskService {
     /// Whether anything is pending or running -- drives the status-bar
     /// indicator and repaint requests.
     fn is_busy(&self) -> bool;
+
+    /// Whether work of this kind specifically is pending or running.
+    ///
+    /// Kinds run concurrently, so "busy" is not one thing: the status bar names
+    /// what is actually running, and an export refuses to start a second copy of
+    /// itself without blocking on the waveform render that always follows an
+    /// edit. Required rather than defaulted, so an implementation cannot quietly
+    /// answer "never busy" and let both slip through.
+    fn is_busy_kind(&self, kind: TaskKind) -> bool;
 
     /// Cancels everything, for app shutdown.
     fn shutdown(&mut self) {}

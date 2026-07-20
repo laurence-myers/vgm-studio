@@ -230,6 +230,10 @@ impl AudioService for FakeAudioService {
 pub(crate) struct TaskLog {
     pub submitted: Vec<(TaskKind, Option<Duration>)>,
     pub cancelled: Vec<TaskKind>,
+    /// Kinds the service should claim to be working on. A test sets this to
+    /// exercise the paths that refuse to start a second export, or that name the
+    /// running job in the status bar.
+    pub busy: Vec<TaskKind>,
 }
 
 /// Records submissions but never produces results. The default for interaction
@@ -254,7 +258,11 @@ impl TaskService for NoopTaskService {
     }
 
     fn is_busy(&self) -> bool {
-        false
+        !self.0.borrow().busy.is_empty()
+    }
+
+    fn is_busy_kind(&self, kind: TaskKind) -> bool {
+        self.0.borrow().busy.contains(&kind)
     }
 }
 
@@ -296,7 +304,11 @@ impl TaskService for InlineTaskService {
     }
 
     fn is_busy(&self) -> bool {
-        false
+        !self.log.borrow().busy.is_empty()
+    }
+
+    fn is_busy_kind(&self, kind: TaskKind) -> bool {
+        self.log.borrow().busy.contains(&kind)
     }
 }
 
