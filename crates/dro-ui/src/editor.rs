@@ -271,6 +271,32 @@ impl Editor {
         Ok(())
     }
 
+    /// Replaces the DRO v2 song with its v1 conversion. Not undoable: the
+    /// history is wiped, as [`Self::convert_to_vgm`] does.
+    ///
+    /// The song is renamed `<stem>_1.<ext>`, matching `drotrim convert`'s output
+    /// name -- so a following Save As cannot silently overwrite the v2 original.
+    ///
+    /// # Errors
+    /// If no song is loaded, or it is not a DRO v2.
+    pub fn convert_to_dro1(&mut self) -> Result<(), String> {
+        let song = self.song.as_ref().ok_or("no song is loaded")?;
+        let mut converted = convert::dro2_to_dro1(song).map_err(|e| e.to_string())?;
+        converted.name = convert::dro1_default_name(&converted.name);
+        // v1 re-encodes the stream (bank switches, escapes), so a marked region
+        // no longer means what it did.
+        self.markers = RangeMarkers::from_song(&converted);
+        self.song = Some(converted);
+        self.path = None;
+        self.undo.reset();
+        self.selection.clear();
+        self.analysis.invalidate();
+        self.revision += 1;
+        self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
+        Ok(())
+    }
+
     /// Applies the GD3 tag editor's Save. Not undoable, matching the Python's
     /// `on_tag_update`. Ignored unless the song is a VGM.
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
@@ -584,6 +610,38 @@ mod tests {
         assert!(!editor.can_undo());
 
         assert!(editor.convert_to_vgm().is_err(), "already a VGM");
+    }
+
+    #[test]
+    fn convert_to_dro1_downgrades_the_song_and_renames_it() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        editor.selection.select_only(2);
+        let before = editor.song().unwrap().total_delay_ms();
+
+        editor.convert_to_dro1().unwrap();
+
+        let song = editor.song().unwrap();
+        assert_eq!(song.file_version, dro_core::song::DRO_FILE_V1);
+        // The name `drotrim convert` would have written, so Save As cannot
+        // silently overwrite the v2 the conversion came from.
+        assert_eq!(song.name, "test_1.dro");
+        assert_eq!(song.total_delay_ms(), before, "timing is preserved");
+        assert!(editor.path.is_none());
+        assert!(editor.selection.is_empty());
+        assert!(!editor.can_undo(), "the conversion is not undoable");
+        assert!(!editor.is_dirty(), "a fresh conversion has nothing to save");
+    }
+
+    #[test]
+    fn convert_to_dro1_refuses_anything_that_is_not_a_v2() {
+        // A v1 is already there...
+        let (mut editor, _) = loaded(&tone_song());
+        assert!(editor.convert_to_dro1().is_err());
+
+        // ...and a VGM has no v1 to become.
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        assert!(editor.convert_to_dro1().is_err());
     }
 
     #[test]

@@ -314,6 +314,23 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
     ))
 }
 
+/// The name a converted DRO v1 takes: `song.dro` becomes `song_1.dro`.
+///
+/// The `_1` suffix is what `drotrim convert` names its output file, and the
+/// editor renames the converted song to match -- so a Save As after converting
+/// suggests the new name rather than offering to overwrite the v2 source.
+#[must_use]
+pub fn dro1_default_name(name: &str) -> String {
+    match name.rfind('.') {
+        // Only a plausible extension, matching `replace_extension`'s rule; a dot
+        // in the middle of a name is not a suffix to insert before.
+        Some(dot) if matches!(name.len() - dot - 1, 3 | 4) => {
+            format!("{}_1{}", &name[..dot], &name[dot..])
+        }
+        _ => format!("{name}_1"),
+    }
+}
+
 /// Swaps a three- or four-character extension for `extension`, or appends one.
 ///
 /// The Python's `re.sub(r"\..{3,4}$", ".vgm", name)` left a name with no extension
@@ -471,6 +488,15 @@ mod tests {
     fn converting_a_vgm_is_rejected() {
         let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
         assert!(dro_to_vgm(&vgm).is_err());
+    }
+
+    #[test]
+    fn the_v1_name_suffixes_the_stem() {
+        assert_eq!(dro1_default_name("song.dro"), "song_1.dro");
+        assert_eq!(dro1_default_name("song.DRO"), "song_1.DRO");
+        // Matches `drotrim convert`'s own default output name.
+        assert_eq!(dro1_default_name("capture"), "capture_1");
+        assert_eq!(dro1_default_name("a.b/song.dro"), "a.b/song_1.dro");
     }
 
     #[test]

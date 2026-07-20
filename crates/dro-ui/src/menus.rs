@@ -41,6 +41,9 @@ pub struct MenuState {
     /// DRO header to inspect and a DRO has nowhere to put a tag, so offering
     /// them at all is just noise to read past.
     pub song_type: Option<SongFileType>,
+    /// Whether the loaded song is a DRO **v2** specifically -- the only thing
+    /// there is to convert down to v1.
+    pub is_dro_v2: bool,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
@@ -112,6 +115,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             if is_dro && enabled_item(ui, editor, "Convert to VGM", None) {
                 actions.push(Action::ConvertToVgm);
+            }
+            // Only a v2 has anywhere to go: v1 is already the older format.
+            if state.is_dro_v2 && enabled_item(ui, editor, "Convert to DRO v1", None) {
+                actions.push(Action::ConvertToDro1);
             }
             crate::theme::separator(ui, palette);
             // The loop markers. The gestures ([ and ], and modifier-clicks on the

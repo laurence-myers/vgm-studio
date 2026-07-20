@@ -48,6 +48,8 @@ pub enum Action {
     OpenEditTag,
     OpenVgmMetadata,
     ConvertToVgm,
+    /// Convert the loaded DRO v2 down to DRO v1.
+    ConvertToDro1,
     DeleteSelection,
 
     // Rip mode

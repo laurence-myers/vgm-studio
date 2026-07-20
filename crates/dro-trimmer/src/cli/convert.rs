@@ -42,17 +42,14 @@ pub fn run(args: Args) -> Result<()> {
     Ok(())
 }
 
-/// `<input>_1.<ext>`, matching the Python default.
+/// `<input>_1.<ext>`, matching the Python default -- and the name the GUI's
+/// Convert to DRO v1 gives the converted song, through the same helper.
 fn default_output(input: &Path) -> PathBuf {
-    let stem = input
-        .file_stem()
+    let name = input
+        .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("output");
-    let name = match input.extension().and_then(|s| s.to_str()) {
-        Some(ext) => format!("{stem}_1.{ext}"),
-        None => format!("{stem}_1"),
-    };
-    input.with_file_name(name)
+    input.with_file_name(dro_core::convert::dro1_default_name(name))
 }
 
 #[cfg(test)]

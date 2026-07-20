@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 
 use dro_core::config::{AppConfig, ConfigStore};
+use dro_core::song::{DRO_FILE_V2, SongFileType};
 use dro_core::{FindTarget, Gd3Tag};
 use dro_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix};
 use egui::Key;
@@ -1218,6 +1219,20 @@ impl DroApp {
                 match self.editor.convert_to_vgm() {
                     Ok(()) => {
                         self.status = "Successfully converted to VGM".to_owned();
+                        self.close_song_dialogs();
+                        self.scroll_to = Some(0);
+                        self.after_edit();
+                    }
+                    Err(message) => self.alerts.push_back(Alert::error(message)),
+                }
+            }
+            Action::ConvertToDro1 => {
+                if !self.require_song() {
+                    return;
+                }
+                match self.editor.convert_to_dro1() {
+                    Ok(()) => {
+                        self.status = "Successfully converted to DRO v1".to_owned();
                         self.close_song_dialogs();
                         self.scroll_to = Some(0);
                         self.after_edit();
@@ -2494,6 +2509,9 @@ impl DroApp {
             on_rip_tab,
             focused_row: self.editor.selection.first(),
             song_type: self.editor.song().map(|song| song.file_type),
+            is_dro_v2: self.editor.song().is_some_and(|song| {
+                song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
+            }),
         }
     }
 

@@ -26,7 +26,9 @@ use crate::platform::{
     OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
 };
 use crate::tasks::TaskKind;
-use crate::test_song::{bogus_leading_delay_song, dual_tone_song, paced_song, tone_song};
+use crate::test_song::{
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, paced_song, tone_song,
+};
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
     MemoryConfigStore, NoopTaskService, RipLog, TaskLog,
@@ -2395,6 +2397,7 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
     let present: Vec<&'static str> = [
         "DRO Info...",
         "Convert to VGM",
+        "Convert to DRO v1",
         "Edit Tag",
         "Edit VGM Metadata",
         "Apply Loop to Metadata",
@@ -2412,11 +2415,45 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
 
 #[test]
 fn a_dro_shows_only_the_dro_menu_items() {
+    // tone_song is a v1, which has nowhere left to convert down to.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     assert_eq!(
         edit_menu_items(&mut harness),
         ["DRO Info...", "Convert to VGM"],
         "a DRO has no tag, no VGM header and nowhere to store a loop"
+    );
+}
+
+#[test]
+fn only_a_dro_v2_is_offered_the_v1_conversion() {
+    let (mut harness, _handles) = harness_with_song(&dro_song_v2());
+    assert_eq!(
+        edit_menu_items(&mut harness),
+        ["DRO Info...", "Convert to VGM", "Convert to DRO v1"],
+    );
+}
+
+#[test]
+fn converting_to_dro_v1_renames_the_song_and_clears_its_path() {
+    let (mut harness, _handles) = harness_with_song(&dro_song_v2());
+    harness.get_by_label("Edit").click();
+    harness.run();
+    harness.get_by_label_contains("Convert to DRO v1").click();
+    harness.run();
+
+    let state = harness.state();
+    let song = state.editor.song().expect("still loaded");
+    assert_eq!(song.file_version, dro_core::song::DRO_FILE_V1);
+    // The CLI's own output name, so a Save As cannot overwrite the v2 source...
+    assert_eq!(song.name, "test_1.dro");
+    // ...and neither can a plain Save, which now has nowhere to write.
+    assert!(state.editor.path.is_none());
+    assert_eq!(state.status, "Successfully converted to DRO v1");
+
+    // Converting again is refused: v1 is as far down as it goes.
+    assert_eq!(
+        edit_menu_items(&mut harness),
+        ["DRO Info...", "Convert to VGM"],
     );
 }
 
