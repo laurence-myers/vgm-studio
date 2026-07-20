@@ -17,7 +17,7 @@ use std::sync::Arc;
 use dro_audio_native::NativeAudio;
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{Muting, Panning, Position};
+use dro_synth::{LoopConfig, Muting, Panning, Position};
 use dro_ui::AudioService;
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +39,8 @@ pub struct NativeAudioService {
     panning: Panning,
     /// The latest requested boost, flushed on every play.
     boost: f32,
+    /// The latest requested loop region, flushed on every play.
+    loop_config: Option<LoopConfig>,
     /// The seek to apply on the next play, when one arrived while paused.
     pending_seek: Option<PendingSeek>,
 }
@@ -51,6 +53,7 @@ impl Default for NativeAudioService {
             muting: Muting::all(),
             panning: Panning::Original,
             boost: 1.0,
+            loop_config: None,
             pending_seek: None,
         }
     }
@@ -101,6 +104,7 @@ impl AudioService for NativeAudioService {
         audio.set_muting(self.muting);
         audio.set_panning(self.panning);
         audio.set_boost(self.boost);
+        audio.set_loop(self.loop_config);
         audio.play().map_err(|e| e.to_string())?;
         self.playing = true;
         Ok(())
@@ -172,6 +176,16 @@ impl AudioService for NativeAudioService {
                 .as_mut()
                 .expect("stream_live checked")
                 .set_boost(boost);
+        }
+    }
+
+    fn set_loop(&mut self, config: Option<LoopConfig>) {
+        self.loop_config = config;
+        if self.stream_live() {
+            self.audio
+                .as_mut()
+                .expect("stream_live checked")
+                .set_loop(config);
         }
     }
 

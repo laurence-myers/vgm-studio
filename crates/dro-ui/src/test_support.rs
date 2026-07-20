@@ -107,6 +107,8 @@ pub(crate) struct AudioLog {
     pub mutings: Vec<Muting>,
     pub pannings: Vec<Panning>,
     pub boosts: Vec<f32>,
+    /// Every loop region pushed at the service, `None` for "stop looping".
+    pub loops: Vec<Option<dro_synth::LoopConfig>>,
     /// Toggled by `play`/`pause`; also directly settable by a test.
     pub playing: bool,
     /// Read by `is_finished`; a test sets it to exercise end-of-song handling.
@@ -191,6 +193,10 @@ impl AudioService for FakeAudioService {
 
     fn set_boost(&mut self, boost: f32) {
         self.0.borrow_mut().boosts.push(boost);
+    }
+
+    fn set_loop(&mut self, config: Option<dro_synth::LoopConfig>) {
+        self.0.borrow_mut().loops.push(config);
     }
 
     fn is_playing(&self) -> bool {

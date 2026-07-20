@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{Muting, Panning, Position};
+use dro_synth::{LoopConfig, Muting, Panning, Position};
 
 pub use dro_core::config::ConfigStore;
 
@@ -164,6 +164,14 @@ pub trait AudioService {
     /// Sets the live playback volume boost. A limiter keeps the boosted signal
     /// from clipping. Never affects a WAV render or the waveform.
     fn set_boost(&mut self, boost: f32);
+
+    /// Sets (or clears) the region playback loops over, live.
+    ///
+    /// Build the config with `LoopConfig::for_song`, which precomputes the frame
+    /// position the audio callback cannot afford to derive. A region that is
+    /// empty or reaches past the song is ignored by the engine, so playback
+    /// simply does not loop.
+    fn set_loop(&mut self, config: Option<LoopConfig>);
 
     fn is_playing(&self) -> bool;
 

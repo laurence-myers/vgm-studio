@@ -20,7 +20,7 @@ use cpal::{SampleFormat, StreamConfig};
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{BoostLimiter, Muting, Panning, PlayerEngine, Position};
+use dro_synth::{BoostLimiter, LoopConfig, Muting, Panning, PlayerEngine, Position};
 
 /// What can go wrong opening or driving the audio device.
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +41,7 @@ enum Command {
     SetMuting(Muting),
     SetPanning(Panning),
     SetBoost(f32),
+    SetLoop(Option<LoopConfig>),
     Rewind,
 }
 
@@ -50,6 +51,8 @@ struct SharedState {
     frames_rendered: AtomicU64,
     next_instruction: AtomicUsize,
     finished: AtomicBool,
+    /// Loop repeats taken since the last seek, for the "loop 2/5" readout.
+    loop_iteration: AtomicU32,
     /// Loudest post-limiter |sample| per channel since the UI last took them.
     /// The callback raises them with `fetch_max`; the UI consumes with
     /// `swap(0)`, so a transient between two UI polls is never missed.
@@ -227,6 +230,16 @@ impl NativeAudio {
         self.send(Command::SetBoost(boost));
     }
 
+    /// Sets (or clears) the region playback loops over.
+    ///
+    /// Takes effect at the next loop boundary, so changing the repeat count
+    /// mid-playback does not interrupt the pass in progress. Build the config
+    /// with `LoopConfig::for_song` -- it precomputes the frame position the
+    /// callback cannot afford to derive.
+    pub fn set_loop(&mut self, config: Option<LoopConfig>) {
+        self.send(Command::SetLoop(config));
+    }
+
     /// The rate the stream actually renders at: `config.frequency` if the
     /// device supported it, otherwise the device's default rate.
     #[must_use]
@@ -238,10 +251,11 @@ impl NativeAudio {
     #[must_use]
     pub fn position(&self) -> Position {
         let frames = self.shared.frames_rendered.load(Ordering::Relaxed);
-        Position::from_frames(
+        Position::looping(
             frames,
             self.sample_rate,
             self.shared.next_instruction.load(Ordering::Relaxed),
+            self.shared.loop_iteration.load(Ordering::Relaxed),
         )
     }
 
@@ -306,6 +320,7 @@ where
                     Command::SetMuting(muting) => engine.set_muting(muting),
                     Command::SetPanning(panning) => engine.set_panning(panning),
                     Command::SetBoost(boost) => limiter.set_boost(boost),
+                    Command::SetLoop(config) => engine.set_loop(config),
                     Command::Rewind => engine.rewind(),
                 }
             }
@@ -336,6 +351,9 @@ where
             shared
                 .next_instruction
                 .store(position.next_instruction, Ordering::Relaxed);
+            shared
+                .loop_iteration
+                .store(position.loop_iteration, Ordering::Relaxed);
             shared
                 .finished
                 .store(engine.is_finished(), Ordering::Relaxed);
