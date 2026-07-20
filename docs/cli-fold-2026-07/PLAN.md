@@ -2,7 +2,8 @@
 
 **Repo:** `I:\Code\Python\dro-trimmer` · **branch `rust`** (master is the Python
 original — parity oracle only, never modify `src/`).
-**Written:** 2026-07-20. **Status:** planned, implementation starting.
+**Written:** 2026-07-20. **Status: complete** — all nine steps implemented,
+tested and committed on `rust`.
 
 ---
 
@@ -10,16 +11,42 @@ original — parity oracle only, never modify `src/`).
 
 | Step | What | State | Commit |
 |------|------|-------|--------|
-| 0 | This plan | — | — |
-| 1 | Fold the three bins into `drotrim` subcommands | pending | |
-| 2 | VGM capture (`filter_vgm` + `capture` dispatch) | pending | |
-| 3 | Move `split` into `dro-synth`, `SplitFormat::Song` | pending | |
-| 4 | Combined render variant + WAV regression fixtures | pending | |
-| 5 | Per-kind `ThreadTaskService` + `is_busy_kind` | pending | |
-| 6 | Render to WAV (GUI) | pending | |
-| 7 | Convert to DRO v1 (GUI) | pending | |
-| 8 | Split Channels (GUI) | pending | |
-| 9 | Cancellable exports | pending | |
+| 0 | This plan | done | `3431cca` |
+| 1 | Fold the three bins into `drotrim` subcommands | done | `d68b147` |
+| 2 | VGM capture (`filter_vgm` + `capture` dispatch) | done | `12e240a` |
+| 3 | Move `split` into `dro-synth`, `SplitFormat::Song` | done | `53c9d7f` |
+| 4 | Combined render variant + WAV regression fixtures | done | `22da87d` |
+| 5 | Per-kind `ThreadTaskService` + `is_busy_kind` | done | `e89a850` |
+| 6 | Render to WAV (GUI) | done | `37ae32d` |
+| 7 | Convert to DRO v1 (GUI) | done | `158e98f` |
+| 8 | Split Channels (GUI) | done | `9524da3` |
+| 9 | Cancellable exports | done | `88b2db2` |
+
+The workspace gate (§3) was green at every commit.
+
+### What differed from the plan
+
+1. **`dialog_footer` had a latent layout bug**, found when the new Render to WAV
+   dialog rendered as a tall box with its buttons floating in the middle: the
+   right-to-left footer layout claimed all the vertical space left in the window
+   and centred itself in it. Invisible under a tall Settings grid, obvious in a
+   short dialog. Fixed in the shared helper rather than worked around per dialog,
+   so Goto and Find Register benefit too; the theme-showcase baselines were
+   re-blessed to match.
+2. **`render_wav_cancellable` carries progress as well as cancellation**, rather
+   than the plan's cancel-only variant sitting beside a separate progress one.
+   With five shorthand entry points already, an eighth was not worth it: this is
+   now the one entry point with everything exposed, and split uses it directly.
+3. **`RenderMix`** was not in the plan by name. Passing muting, panning and boost
+   as three parameters through five functions was worse than one value, and it is
+   exactly what the GUI's task request carries.
+4. **PowerShell's `>` redirection does not capture a GUI-subsystem exe's output**
+   (it writes an empty file), though piping and `cmd`-style redirection do. Found
+   while verifying the console attach; documented in DEVELOPMENT.md and §7 rather
+   than fixed, since it is PowerShell not waiting for the process.
+5. **`SplitDialog` needs no per-format disabling.** The plan hedged that the DRO
+   radio might have to be greyed for a VGM; Step 2 made a VGM split produce VGMs,
+   so both formats always apply.
 
 ---
 
