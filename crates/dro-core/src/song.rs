@@ -441,16 +441,24 @@ impl Song {
         prefix
     }
 
-    /// The number of samples in one loop: from the loop point to the end of the
-    /// song. `None` for a DRO song, or a VGM that does not loop.
+    /// The number of samples in one loop: from the loop point to
+    /// [`VgmMeta::loop_end`](crate::VgmMeta::loop_end), or to the end of the song
+    /// when no end is set. `None` for a DRO song, or a VGM that does not loop.
     ///
     /// This is the VGM header's `loop # samples`. Deriving it, rather than carrying
     /// the header's copy, is what stops a trim inside the loop from leaving it
     /// stale.
     #[must_use]
     pub fn loop_num_samples(&self) -> Option<u32> {
-        let loop_point = self.vgm.as_deref()?.loop_point?;
-        Some(self.total_delay_samples() - self.samples_before(loop_point))
+        let meta = self.vgm.as_deref()?;
+        let loop_point = meta.loop_point?;
+        let end = meta.loop_end.unwrap_or_else(|| self.len());
+        // Saturating: the editor's own paths keep `loop_end` above `loop_point`,
+        // but a hand-set pair must never underflow the writer into a panic.
+        Some(
+            self.samples_before(end)
+                .saturating_sub(self.samples_before(loop_point)),
+        )
     }
 
     /// The time at which instruction `index` is executed, in milliseconds.
@@ -593,7 +601,7 @@ impl Song {
         sorted.sort_unstable();
         sorted.dedup();
 
-        self.move_loop_point_past_deletion(&sorted);
+        self.move_loop_markers_past_deletion(&sorted);
         self.data.delete_many(&sorted);
         self.rebuild_delay_prefix();
     }
@@ -603,15 +611,17 @@ impl Song {
         self.rebuild_delay_prefix();
     }
 
-    /// Slides a VGM's loop point left by however many instructions before it are
-    /// about to be deleted.
+    /// Slides a VGM's loop markers left by however many instructions before them
+    /// are about to be deleted.
     ///
     /// If the loop instruction itself is deleted, the loop point lands on whatever
     /// now occupies its slot -- the next surviving instruction. If nothing survives
-    /// at or after it, the file no longer loops.
+    /// at or after it, the file no longer loops. The end marker follows the same
+    /// arithmetic, but its `None` means "the end of the song", so a deletion that
+    /// consumes everything from it onward simply restores that default.
     ///
     /// `sorted` must be ascending, unique and in range.
-    fn move_loop_point_past_deletion(&mut self, sorted: &[usize]) {
+    fn move_loop_markers_past_deletion(&mut self, sorted: &[usize]) {
         let surviving = self.len() - sorted.len();
         let Some(meta) = self.vgm.as_deref_mut() else {
             return;
@@ -620,14 +630,24 @@ impl Song {
             return;
         };
 
-        let deleted_before = sorted.partition_point(|&index| index < loop_point);
-        let moved = loop_point - deleted_before;
-        meta.loop_point = (moved < surviving).then_some(moved);
-        if meta.loop_point.is_none() {
+        let Some(moved_point) = slide_index_past_deletion(loop_point, sorted, surviving) else {
             log::warn!(
                 "the VGM loop point, and everything after it, was deleted; the song no longer loops"
             );
-        }
+            // No loop, no end: a surviving end marker would describe a region
+            // that no longer has a start.
+            meta.loop_point = None;
+            meta.loop_end = None;
+            return;
+        };
+        meta.loop_point = Some(moved_point);
+        // An end that slid onto the loop point leaves no region at all (the whole
+        // loop was deleted); fall back to the end of the song rather than keep an
+        // empty one.
+        meta.loop_end = meta
+            .loop_end
+            .and_then(|end| slide_index_past_deletion(end, sorted, surviving))
+            .filter(|&end| end > moved_point);
     }
 
     /// Rebuilds the exclusive prefix sum of delays, in milliseconds.
@@ -658,6 +678,26 @@ impl Song {
             }
         }
     }
+}
+
+/// Slides a stored instruction index left past the deletion of `sorted`, or
+/// `None` when nothing survives at or after it.
+///
+/// The shared primitive behind every index the song stores about itself -- today
+/// the two VGM loop markers. Anything else that comes to reference instructions by
+/// index should reuse this rather than re-derive the arithmetic, so all of them
+/// move identically.
+///
+/// `sorted` must be ascending, unique and in range; `surviving` is the number of
+/// instructions left after the deletion.
+pub(crate) fn slide_index_past_deletion(
+    index: usize,
+    sorted: &[usize],
+    surviving: usize,
+) -> Option<usize> {
+    // At most `index` of the deletions are below it, so this cannot underflow.
+    let moved = index - sorted.partition_point(|&deleted| deleted < index);
+    (moved < surviving).then_some(moved)
 }
 
 /// The description of a register write, following the Python's lookup order:

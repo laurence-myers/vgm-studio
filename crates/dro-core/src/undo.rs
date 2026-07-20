@@ -160,8 +160,9 @@ pub struct DeleteInstructions {
     /// The Python added the removed delay back, which is only the same thing when
     /// the arithmetic did not saturate.
     previous_ms_length: u32,
-    /// A VGM's loop point before the delete, likewise restored verbatim.
+    /// A VGM's loop markers before the delete, likewise restored verbatim.
     previous_loop_point: Option<usize>,
+    previous_loop_end: Option<usize>,
 }
 
 impl DeleteInstructions {
@@ -175,6 +176,7 @@ impl DeleteInstructions {
             deleted: Vec::new(),
             previous_ms_length: 0,
             previous_loop_point: None,
+            previous_loop_end: None,
         }
     }
 
@@ -194,6 +196,7 @@ impl UndoableCommand<Song> for DeleteInstructions {
         self.indices.retain(|&index| index < song.len());
         self.previous_ms_length = song.ms_length;
         self.previous_loop_point = song.vgm_meta().and_then(|meta| meta.loop_point);
+        self.previous_loop_end = song.vgm_meta().and_then(|meta| meta.loop_end);
 
         let mut removed_ms = 0u32;
         let mut deleted = Vec::with_capacity(self.indices.len());
@@ -227,6 +230,7 @@ impl UndoableCommand<Song> for DeleteInstructions {
         song.ms_length = self.previous_ms_length;
         if let Some(meta) = song.vgm_meta_mut() {
             meta.loop_point = self.previous_loop_point;
+            meta.loop_end = self.previous_loop_end;
         }
     }
 }

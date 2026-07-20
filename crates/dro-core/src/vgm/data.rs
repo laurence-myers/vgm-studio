@@ -318,8 +318,27 @@ pub struct VgmMeta {
     ///
     /// The matching `loop # samples` field is not stored at all -- it is
     /// [`Song::loop_num_samples`](crate::Song::loop_num_samples), derived from the
-    /// command stream, so trimming inside the loop cannot leave it stale.
+    /// command stream and [`Self::loop_end`], so trimming inside the loop cannot
+    /// leave it stale.
     pub loop_point: Option<usize>,
+    /// Where the loop stops, as an **exclusive** instruction index, or `None` for
+    /// the end of the song.
+    ///
+    /// VGM has no loop-end field. The header carries `loop # samples`, which the
+    /// spec defines as the wait total from the loop point to the end of the file,
+    /// and that is exactly what a `None` here writes. Holding an end index lets
+    /// the editor express a loop that stops short of the tail, and the writer
+    /// emits that region's length in the same field -- so it survives a save and
+    /// a reload.
+    ///
+    /// Be aware that other players restart at the end-of-data command regardless
+    /// of the declared length, so a `Some(end)` short of the song's end is
+    /// honoured here but not elsewhere; trimming the tail is what makes it
+    /// universal.
+    ///
+    /// Only meaningful alongside a [`Self::loop_point`], and always strictly
+    /// greater than it.
+    pub loop_end: Option<usize>,
     pub loop_base: u8,
     pub loop_modifier: u8,
     pub volume_modifier: u8,
@@ -333,6 +352,7 @@ impl VgmMeta {
     pub fn new(header: Vec<u8>) -> Self {
         Self {
             loop_point: None,
+            loop_end: None,
             loop_base: 0,
             loop_modifier: 0,
             volume_modifier: 0,

@@ -283,13 +283,15 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
         .map(|offset| parse_gd3_tag(bytes, offset))
         .transpose()?;
 
-    let song = Song::vgm(
+    let mut song = Song::vgm(
         name.to_owned(),
         version,
         data,
         opl_type,
         VgmMeta {
             loop_point,
+            // Resolved below: it needs the assembled song's delay prefix.
+            loop_end: None,
             loop_base,
             loop_modifier,
             volume_modifier,
@@ -305,12 +307,12 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
             song.total_delay_samples()
         );
     }
-    let derived_loop_samples = song.loop_num_samples().unwrap_or(0);
-    if derived_loop_samples != loop_num_samples {
-        log::warn!(
-            "VGM header claims a loop of {loop_num_samples} samples, but {derived_loop_samples} \
-             samples follow the loop point; trusting the stream"
-        );
+    if let Some(loop_point) = loop_point
+        && let Some(end) = resolve_loop_end(&song, loop_point, loop_num_samples)
+    {
+        song.vgm_meta_mut()
+            .expect("the loop point came from this song's own VGM metadata")
+            .loop_end = Some(end);
     }
     Ok(song)
 }
@@ -343,6 +345,49 @@ fn resolve_loop_point(relative: u32, data_offset: usize, data: &VgmData) -> Opti
             None
         }
     }
+}
+
+/// Turns the header's `loop # samples` field into an exclusive end index, or
+/// `None` for "the loop runs to the end of the song".
+///
+/// The spec defines the field as the wait total from the loop point to the end of
+/// the file, and that is what a `None` writes back. A *shorter* value landing
+/// exactly on a command boundary is how this editor records a loop that stops
+/// short of the tail ([`VgmMeta::loop_end`]), so it is materialised rather than
+/// discarded -- without this, re-saving such a file would silently widen its loop
+/// to the whole tail. Anything else (longer than what actually follows the loop
+/// point, or falling inside a delay) is a stale or corrupt header: warn, and let
+/// the derived to-the-end length stand.
+fn resolve_loop_end(song: &Song, loop_point: usize, header_samples: u32) -> Option<usize> {
+    let prefix = song.delay_samples_prefix();
+    let start = prefix[loop_point];
+    let to_end = prefix[song.len()].saturating_sub(start);
+    if header_samples == to_end {
+        return None;
+    }
+    if header_samples > to_end {
+        log::warn!(
+            "VGM header claims a loop of {header_samples} samples, but only {to_end} follow the \
+             loop point; trusting the stream"
+        );
+        return None;
+    }
+
+    // Strictly shorter: find the command starting exactly `header_samples` after
+    // the loop point. Zero-delay commands share a timestamp, so this lands on the
+    // first of them -- the loop then covers everything sounding before that
+    // instant, and writing it back produces the same length, so a re-read
+    // normalises to this same index.
+    let target = start + header_samples;
+    let end = loop_point + prefix[loop_point..].partition_point(|&samples| samples < target);
+    if end <= loop_point || prefix.get(end) != Some(&target) {
+        log::warn!(
+            "VGM header's {header_samples}-sample loop does not end on a command boundary; \
+             looping to the end of the stream instead"
+        );
+        return None;
+    }
+    Some(end)
 }
 
 fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
@@ -764,6 +809,139 @@ mod tests {
         let written = write(&song).unwrap();
         assert_eq!(header_u32(&written, offset::LOOP_OFFSET), 0);
         assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), 0);
+    }
+
+    // -- explicit loop ends (lp-1) ------------------------------------------
+    //
+    // The fixture's sample prefix is [0, 0, 10000, 10000, 30000, 30000, 30735],
+    // so a loop at index 2 starts at 10000 and runs 20735 samples to the end.
+    // A declared 20000 ends at index 4, the only boundary 20000 samples along.
+
+    #[test]
+    fn a_shorter_loop_length_resolves_to_an_end_index() {
+        let song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!(meta.loop_point, Some(2));
+        assert_eq!(
+            meta.loop_end,
+            Some(4),
+            "ends before the last register write"
+        );
+        assert_eq!(song.loop_num_samples(), Some(20_000));
+        // The song itself is untouched -- only the loop stops early.
+        assert_eq!(song.total_delay_samples(), LOOPING_TOTAL_SAMPLES);
+    }
+
+    /// The whole point of materialising it: without a `loop_end` the re-save
+    /// would widen the loop back out to the full tail.
+    #[test]
+    fn a_file_with_an_explicit_loop_end_round_trips_byte_for_byte() {
+        let original = looping_vgm(6, 20_000);
+        let song = read("t.vgm", &original).unwrap();
+        assert_eq!(write(&song).unwrap(), original);
+    }
+
+    #[test]
+    fn an_explicit_loop_end_survives_a_reload() {
+        let song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        let reread = read("t.vgm", &write(&song).unwrap()).unwrap();
+        assert_eq!(reread.vgm_meta().unwrap().loop_end, Some(4));
+        assert_eq!(reread.loop_num_samples(), Some(20_000));
+    }
+
+    /// A length landing mid-delay cannot be an instruction boundary, so it is a
+    /// stale header rather than an authored end: loop to the end of the stream.
+    #[test]
+    fn a_loop_length_that_misses_a_command_boundary_falls_back_to_the_end() {
+        // 15000 lands inside the 20000-sample wait at index 3.
+        let song = read("t.vgm", &looping_vgm(6, 15_000)).unwrap();
+        assert_eq!(song.vgm_meta().unwrap().loop_end, None);
+        assert_eq!(song.loop_num_samples(), Some(20_735));
+        // Saving corrects the header to what the stream actually says.
+        let written = write(&song).unwrap();
+        assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), 20_735);
+    }
+
+    #[test]
+    fn a_loop_length_longer_than_the_stream_falls_back_to_the_end() {
+        let song = read("t.vgm", &looping_vgm(6, 99_999)).unwrap();
+        assert_eq!(song.vgm_meta().unwrap().loop_end, None);
+        assert_eq!(song.loop_num_samples(), Some(20_735));
+    }
+
+    /// A loop offset with a zero length is self-contradictory; an empty loop is
+    /// never what was meant, so the stream wins.
+    #[test]
+    fn a_zero_loop_length_falls_back_to_the_end() {
+        let song = read("t.vgm", &looping_vgm(6, 0)).unwrap();
+        assert_eq!(song.vgm_meta().unwrap().loop_point, Some(2));
+        assert_eq!(song.vgm_meta().unwrap().loop_end, None);
+        assert_eq!(song.loop_num_samples(), Some(20_735));
+    }
+
+    #[test]
+    fn deleting_before_the_loop_slides_both_markers() {
+        let mut song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        song.delete_instructions(&[0]);
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!((meta.loop_point, meta.loop_end), (Some(1), Some(3)));
+        assert_eq!(
+            song.loop_num_samples(),
+            Some(20_000),
+            "the region is intact"
+        );
+    }
+
+    #[test]
+    fn deleting_inside_the_loop_shortens_it_but_keeps_the_end() {
+        let mut song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        // Index 3 is the 20000-sample wait, inside the loop.
+        song.delete_instructions(&[3]);
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!((meta.loop_point, meta.loop_end), (Some(2), Some(3)));
+        assert_eq!(song.loop_num_samples(), Some(0));
+    }
+
+    /// Deleting the entire region leaves no loop to bound, so the end marker
+    /// gives way to the default rather than describing an empty loop.
+    #[test]
+    fn deleting_the_whole_loop_region_drops_the_end_marker() {
+        let mut song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        song.delete_instructions(&[2, 3]);
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!(
+            meta.loop_point,
+            Some(2),
+            "slid onto the surviving successor"
+        );
+        assert_eq!(meta.loop_end, None, "back to the end of the song");
+    }
+
+    #[test]
+    fn deleting_from_the_loop_point_onward_clears_both_markers() {
+        let mut song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        song.delete_instructions(&[2, 3, 4, 5]);
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!((meta.loop_point, meta.loop_end), (None, None));
+        let written = write(&song).unwrap();
+        assert_eq!(header_u32(&written, offset::LOOP_OFFSET), 0);
+        assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), 0);
+    }
+
+    #[test]
+    fn undoing_a_delete_restores_the_loop_end() {
+        use crate::UndoableCommand;
+        use crate::undo::DeleteInstructions;
+
+        let mut song = read("t.vgm", &looping_vgm(6, 20_000)).unwrap();
+        let mut command = DeleteInstructions::new([2, 3]);
+        command.apply(&mut song);
+        assert_eq!(song.vgm_meta().unwrap().loop_end, None);
+
+        command.revert(&mut song);
+        let meta = song.vgm_meta().unwrap();
+        assert_eq!((meta.loop_point, meta.loop_end), (Some(2), Some(4)));
+        assert_eq!(song.loop_num_samples(), Some(20_000));
     }
 
     /// Adding a GD3 tag appends after the data, so the loop point must not move.
