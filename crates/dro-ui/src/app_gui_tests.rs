@@ -18,9 +18,10 @@ use egui_kittest::kittest::Queryable as _;
 
 use dro_core::Song;
 use dro_core::config::{AppConfig, ThemeChoice};
+use dro_synth::LoopCount;
 
 use super::DroApp;
-use crate::action::AppTab;
+use crate::action::{Action, AppTab};
 use crate::platform::{
     OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
 };
@@ -413,7 +414,7 @@ fn enter_confirms_a_confirm_alert_and_runs_its_action() {
         .push_back(crate::alert::Alert::confirm(
             "Discard unsaved changes?",
             "Quit anyway?",
-            crate::action::Action::ConfirmExit,
+            Action::ConfirmExit,
         ));
     harness.run();
 
@@ -1915,4 +1916,163 @@ fn snapshot_track_edit_dialog() {
     harness.get_by_label("Tags").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
+}
+
+// -- loop points (lp-4) ------------------------------------------------------
+
+/// Drives one action through the app the way the frame loop would.
+fn act(harness: &mut Harness<'static, DroApp>, action: Action) {
+    let ctx = harness.ctx.clone();
+    harness.state_mut().handle_action(&ctx, action);
+}
+
+#[test]
+fn marking_a_loop_pushes_the_region_only_while_looping_is_on() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+
+    // Markers move, but with looping off nothing but `None` reaches the engine:
+    // Play still means "play the song".
+    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::SetLoopEnd(3));
+    assert_eq!(
+        (
+            harness.state().editor.markers.start(),
+            harness.state().editor.markers.end()
+        ),
+        (1, 3)
+    );
+    assert!(
+        handles.audio.borrow().loops.iter().all(Option::is_none),
+        "looping is off, so no region should be armed"
+    );
+
+    act(&mut harness, Action::ToggleLoopPlayback);
+    let armed = handles.audio.borrow().loops.last().copied().flatten();
+    let armed = armed.expect("toggling looping on arms the marked region");
+    assert_eq!((armed.start, armed.end), (1, 3));
+
+    // Turning it back off disarms rather than leaving a stale region behind.
+    act(&mut harness, Action::ToggleLoopPlayback);
+    assert!(handles.audio.borrow().loops.last().unwrap().is_none());
+
+    // And a reset marks the whole song again.
+    act(&mut harness, Action::ClearLoopMarkers);
+    assert!(harness.state().editor.markers.is_full(len));
+}
+
+#[test]
+fn changing_the_repeat_count_re_arms_the_region() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::SetLoopCount(LoopCount::Times(3)));
+
+    let armed = handles
+        .audio
+        .borrow()
+        .loops
+        .last()
+        .copied()
+        .flatten()
+        .expect("a region is armed");
+    assert_eq!(armed.count, LoopCount::Times(3));
+}
+
+#[test]
+fn deleting_instructions_slides_the_loop_markers() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::SetLoopStart(2));
+    act(&mut harness, Action::SetLoopEnd(4));
+
+    harness.state_mut().editor.selection.select_only(0);
+    act(&mut harness, Action::DeleteSelection);
+
+    let markers = harness.state().editor.markers;
+    assert_eq!(
+        (markers.start(), markers.end()),
+        (1, 3),
+        "both markers slide past the deleted row"
+    );
+}
+
+#[test]
+fn applying_a_loop_to_a_dro_explains_itself_instead_of_failing_quietly() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::ApplyLoopToMetadata);
+    harness.run_steps(2);
+    assert!(
+        harness
+            .query_by_label_contains("Convert the song")
+            .is_some(),
+        "a DRO has nowhere to store a loop, and should say so"
+    );
+}
+
+#[test]
+fn applying_a_loop_writes_the_vgm_metadata() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    let len = harness.state().editor.len();
+
+    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::SetLoopEnd(len - 1));
+    assert!(
+        harness.state().editor.loop_markers_are_unapplied(),
+        "the markers differ from the stored loop until applied"
+    );
+
+    act(&mut harness, Action::ApplyLoopToMetadata);
+    let meta = harness
+        .state()
+        .editor
+        .song()
+        .unwrap()
+        .vgm_meta()
+        .unwrap()
+        .clone();
+    assert_eq!(meta.loop_point, Some(1));
+    assert_eq!(meta.loop_end, Some(len - 1));
+    assert!(!harness.state().editor.loop_markers_are_unapplied());
+    // The end stops short of the tail, so the status says what that means.
+    assert!(
+        harness.state().status.contains("trimmed"),
+        "status was {:?}",
+        harness.state().status
+    );
+
+    // An end at the song's end is stored as "to the end", not a fixed index --
+    // so a later trim widens the loop with the song instead of stranding it.
+    act(&mut harness, Action::SetLoopEnd(len));
+    act(&mut harness, Action::ApplyLoopToMetadata);
+    let meta = harness.state().editor.song().unwrap().vgm_meta().unwrap();
+    assert_eq!(meta.loop_end, None);
+}
+
+#[test]
+fn play_seam_forces_looping_on_and_seeks_before_the_loop_end() {
+    let song = tone_song();
+    let (mut harness, handles) = harness_with_song(&song);
+    act(&mut harness, Action::SetLoopEnd(song.len()));
+    act(&mut harness, Action::PlaySeam);
+
+    assert!(
+        harness.state().loop_enabled,
+        "auditioning a seam with looping off would never reach it"
+    );
+    let log = handles.audio.borrow();
+    let seek = log
+        .seeks_ms
+        .last()
+        .copied()
+        .expect("it seeks before playing");
+    let end_ms = song.total_delay_ms();
+    assert!(
+        seek < end_ms,
+        "seek {seek} should precede the loop end {end_ms}"
+    );
+    assert!(log.play_calls > 0);
+    assert!(
+        log.loops.last().unwrap().is_some(),
+        "the region is armed before playback starts"
+    );
 }

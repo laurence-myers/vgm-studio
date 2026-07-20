@@ -7,6 +7,7 @@
 
 use dro_core::config::AppConfig;
 use dro_core::{Gd3Tag, OplType};
+use dro_synth::LoopCount;
 
 /// Which top-level view is showing. The tab strip appears only while a rip is
 /// open; otherwise the app is always on [`AppTab::Editor`].
@@ -88,6 +89,9 @@ pub enum Action {
     Play,
     Stop,
     PlayTail,
+    /// Play the loop join: `tail_length` ms before the loop end, looping, so the
+    /// seam can be heard on its own.
+    PlaySeam,
     TogglePlayback,
     /// Jump the play position back to the very start.
     RewindToStart,
@@ -97,6 +101,20 @@ pub enum Action {
         value: f32,
         persist: bool,
     },
+
+    // Loop points
+    /// Mark the loop start at an instruction index.
+    SetLoopStart(usize),
+    /// Mark the loop end at an instruction index (exclusive).
+    SetLoopEnd(usize),
+    /// Reset the marked region to the whole song.
+    ClearLoopMarkers,
+    /// Turn loop playback on or off. Takes effect immediately, mid-playback.
+    ToggleLoopPlayback,
+    /// Change how many times the marked region repeats.
+    SetLoopCount(LoopCount),
+    /// Write the marked region into the song's VGM loop metadata.
+    ApplyLoopToMetadata,
 
     // Table navigation
     NextDelay,

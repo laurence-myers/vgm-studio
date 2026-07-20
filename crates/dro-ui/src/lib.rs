@@ -15,6 +15,7 @@ pub mod analysis;
 pub mod app;
 pub mod dialogs;
 pub mod editor;
+pub mod markers;
 pub mod menus;
 pub mod platform;
 pub mod rip;

@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use dro_core::config::{AppConfig, ConfigStore};
 use dro_core::{FindTarget, Gd3Tag};
+use dro_synth::{LoopConfig, LoopCount};
 use egui::Key;
 
 use crate::action::{Action, AppTab};
@@ -17,6 +18,7 @@ use crate::dialogs::{
     TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
+use crate::markers::RangeMarkers;
 use crate::menus::{self, MenuState};
 use crate::platform::{
     AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, RipService,
@@ -175,6 +177,11 @@ pub struct DroApp {
     last_first_selected: Option<usize>,
     /// The editor revision currently loaded into the audio service, if any.
     audio_revision: Option<u64>,
+    /// Whether playback repeats the marked region. Off by default: Play means
+    /// "play the song" until asked otherwise.
+    loop_enabled: bool,
+    /// How many times the region repeats while looping.
+    loop_count: LoopCount,
     /// Whether the previous frame was playing, so the frame after playback
     /// ends can display the exact final position.
     was_playing: bool,
@@ -236,6 +243,8 @@ impl DroApp {
             scroll_to: None,
             last_first_selected: None,
             audio_revision: None,
+            loop_enabled: false,
+            loop_count: LoopCount::Infinite,
             was_playing: false,
             pending_open: initial_file,
             pending_load: None,
@@ -335,7 +344,16 @@ impl DroApp {
                             let response =
                                 waveform::show(ui, &self.waveform, self.editor.song(), p);
                             if let Some((index, ms)) = response.clicked {
-                                actions.push(Action::WaveformClicked { index, ms });
+                                // Shift marks the loop start, Ctrl+Shift the end.
+                                // The end is the *time* clicked, so it is that
+                                // instruction's index exclusive -- everything
+                                // sounding before the click is in the loop.
+                                let mods = response.modifiers;
+                                actions.push(match (mods.shift, mods.command) {
+                                    (true, false) => Action::SetLoopStart(index),
+                                    (true, true) => Action::SetLoopEnd(index),
+                                    _ => Action::WaveformClicked { index, ms },
+                                });
                             }
                         });
                         peak_meter::show(ui, &self.peak_meter, p);
@@ -887,6 +905,18 @@ impl DroApp {
                     extend: mods.shift,
                 });
             }
+            // [ and ] bracket the loop around the focused row -- the fastest way
+            // to mark a region, since the table is where an exact instruction is
+            // found. The end is exclusive, so ] marks *past* the focused row,
+            // taking it into the loop rather than stopping just short of it.
+            if let Some(row) = self.editor.selection.first() {
+                if input.key_pressed(Key::OpenBracket) {
+                    actions.push(Action::SetLoopStart(row));
+                }
+                if input.key_pressed(Key::CloseBracket) {
+                    actions.push(Action::SetLoopEnd(row + 1));
+                }
+            }
             // 1..9 toggle channels 0..8; Shift+1..9 the high bank, channels 9..17.
             const NUMBER_KEYS: [Key; 9] = [
                 Key::Num1,
@@ -1156,6 +1186,7 @@ impl DroApp {
             Action::Play => self.do_play(),
             Action::Stop => self.do_stop(),
             Action::PlayTail => self.do_play_tail(),
+            Action::PlaySeam => self.do_play_seam(),
             Action::TogglePlayback => {
                 if !self.require_song() {
                     return;
@@ -1197,6 +1228,23 @@ impl DroApp {
                 }
                 self.position.set_position_ms(0);
             }
+
+            Action::SetLoopStart(index) => self.set_loop_marker(Some(index), None),
+            Action::SetLoopEnd(index) => self.set_loop_marker(None, Some(index)),
+            Action::ClearLoopMarkers => {
+                self.editor.markers = RangeMarkers::full(self.editor.len());
+                self.push_loop_config();
+                self.status = "Loop markers reset to the whole song.".to_owned();
+            }
+            Action::ToggleLoopPlayback => {
+                self.loop_enabled = !self.loop_enabled;
+                self.push_loop_config();
+            }
+            Action::SetLoopCount(count) => {
+                self.loop_count = count;
+                self.push_loop_config();
+            }
+            Action::ApplyLoopToMetadata => self.apply_loop_to_metadata(),
 
             Action::ToggleChannel(channel) => {
                 self.channels.toggle_channel(channel);
@@ -1967,6 +2015,88 @@ impl DroApp {
         }
     }
 
+    /// Plays the loop join: the last `tail_length` ms of the region, looping, so
+    /// the seam is heard on its own instead of after a full pass.
+    ///
+    /// Forces looping on -- auditioning a join with looping off would play the
+    /// tail straight through and never reach the seam at all.
+    fn do_play_seam(&mut self) {
+        if !self.require_song() {
+            return;
+        }
+        self.loop_enabled = true;
+        if let Err(message) = self.ensure_audio() {
+            self.alerts.push_back(Alert::error(message));
+            return;
+        }
+        let Some(end_ms) = self
+            .editor
+            .song()
+            .and_then(|song| song.ms_offset_at(self.editor.markers.end()))
+        else {
+            return;
+        };
+        self.audio.rewind();
+        self.audio
+            .seek_ms(end_ms.saturating_sub(self.config.ui.tail_length));
+        if let Err(message) = self.audio.play() {
+            self.alerts.push_back(Alert::error(message));
+        }
+    }
+
+    /// Moves one loop marker (whichever is `Some`) and re-arms playback.
+    fn set_loop_marker(&mut self, start: Option<usize>, end: Option<usize>) {
+        let len = self.editor.len();
+        if len == 0 {
+            return;
+        }
+        if let Some(index) = start {
+            self.editor.markers.set_start(index, len);
+        }
+        if let Some(index) = end {
+            self.editor.markers.set_end(index, len);
+        }
+        let markers = self.editor.markers;
+        self.push_loop_config();
+        self.status = format!(
+            "Loop {} - {} ({} instructions).",
+            markers.start(),
+            markers.end(),
+            markers.end() - markers.start()
+        );
+    }
+
+    /// Writes the marked region into the song's VGM loop fields.
+    fn apply_loop_to_metadata(&mut self) {
+        if !self.require_song() {
+            return;
+        }
+        let markers = self.editor.markers;
+        let len = self.editor.len();
+        if !self.editor.apply_loop_to_metadata() {
+            self.alerts.push_back(Alert::new(
+                "Not a VGM".to_owned(),
+                "Only a VGM file stores loop points. Convert the song to VGM first \
+                 (Edit > Convert to VGM)."
+                    .to_owned(),
+            ));
+            return;
+        }
+        // A VGM's loop length is defined as running to the end of the file, and
+        // other players restart at the end-of-data command whatever the header
+        // says. An end short of the tail is honoured here and survives a save,
+        // but say so plainly rather than let it be discovered later.
+        self.status = if markers.end() < len {
+            format!(
+                "Loop saved: {} - {}. Other players loop the whole tail until it is trimmed.",
+                markers.start(),
+                markers.end()
+            )
+        } else {
+            format!("Loop saved: {} - end of song.", markers.start())
+        };
+    }
+
     fn delay_navigate(&mut self, backwards: bool) {
         if !self.require_song() {
             return;
@@ -2136,7 +2266,33 @@ impl DroApp {
                 self.position.set_length_ms(song.total_delay_ms());
             }
         }
+        // Only now is the stream's real rate known, and the loop's start frame is
+        // denominated in it -- so this must follow the load, not precede it.
+        self.push_loop_config();
         Ok(())
+    }
+
+    /// Hands the audio service the region to repeat, or `None` when looping is
+    /// off. Cheap and idempotent; call it after anything that moves the markers,
+    /// changes the count, or reloads the stream.
+    fn push_loop_config(&mut self) {
+        let config = self
+            .loop_enabled
+            .then(|| self.editor.song())
+            .flatten()
+            .map(|song| {
+                // The stream's real rate while one is live, else the configured one --
+                // the same rule the position readout follows. `ensure_audio` re-pushes
+                // once a device has negotiated its rate, so a mismatch cannot outlive
+                // the next load.
+                let rate = self
+                    .audio
+                    .output_rate()
+                    .unwrap_or(self.config.audio.frequency);
+                let markers = self.editor.markers;
+                LoopConfig::for_song(song, markers.start(), markers.end(), self.loop_count, rate)
+            });
+        self.audio.set_loop(config);
     }
 
     fn menu_state(&self) -> MenuState {

@@ -48,6 +48,9 @@ pub struct WaveformState {
 pub struct WaveformResponse {
     /// A click, already snapped to an instruction and its time.
     pub clicked: Option<(usize, u32)>,
+    /// The modifiers held for `clicked`, so the caller can tell a plain seek from
+    /// a loop-marking gesture. The panel itself stays ignorant of what they mean.
+    pub modifiers: egui::Modifiers,
 }
 
 pub fn show(
@@ -112,6 +115,7 @@ pub fn show(
     {
         let pct = f64::from((pointer.x - rect.left()) / rect.width());
         out.clicked = song.index_and_ms_offset_at_pct(pct);
+        out.modifiers = ui.input(|input| input.modifiers);
     }
     out
 }

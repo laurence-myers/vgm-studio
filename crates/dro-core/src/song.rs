@@ -683,14 +683,14 @@ impl Song {
 /// Slides a stored instruction index left past the deletion of `sorted`, or
 /// `None` when nothing survives at or after it.
 ///
-/// The shared primitive behind every index the song stores about itself -- today
-/// the two VGM loop markers. Anything else that comes to reference instructions by
-/// index should reuse this rather than re-derive the arithmetic, so all of them
-/// move identically.
+/// The shared primitive behind every index the song stores about itself -- the
+/// two VGM loop markers, and the UI's own loop-region markers. Anything else that
+/// comes to reference instructions by index should reuse this rather than
+/// re-derive the arithmetic, so all of them move identically.
 ///
 /// `sorted` must be ascending, unique and in range; `surviving` is the number of
 /// instructions left after the deletion.
-pub(crate) fn slide_index_past_deletion(
+pub fn slide_index_past_deletion(
     index: usize,
     sorted: &[usize],
     surviving: usize,

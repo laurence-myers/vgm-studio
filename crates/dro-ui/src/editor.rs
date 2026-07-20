@@ -12,6 +12,7 @@ use dro_core::{
 };
 
 use crate::analysis::AnalysisCache;
+use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
 
@@ -36,6 +37,10 @@ pub struct Editor {
     pub path: Option<PathBuf>,
     undo: UndoController<Song>,
     pub selection: Selection,
+    /// The marked-out loop region, tracked through edits alongside the
+    /// selection. A view onto the song until [`Editor::apply_loop_to_metadata`]
+    /// writes it into the file.
+    pub markers: RangeMarkers,
     analysis: AnalysisCache,
     /// Bumped on every change to the song. Consumers (the waveform render, the
     /// audio snapshot) compare it to decide staleness.
@@ -118,6 +123,7 @@ impl Editor {
             report.delay_mismatch = song.ms_length != song.total_delay_ms();
         }
 
+        self.markers = RangeMarkers::from_song(&song);
         self.song = Some(song);
         self.path = file.path;
         self.undo.reset();
@@ -177,9 +183,13 @@ impl Editor {
             .selection
             .first()
             .expect("the selection was just checked non-empty");
-        let command = DeleteInstructions::new(self.selection.iter());
+        let deleted: Vec<usize> = self.selection.iter().collect();
+        let command = DeleteInstructions::new(deleted.iter().copied());
         self.undo.execute(Box::new(command), song);
 
+        // The same rule the song's own loop point moved by, so a marked region
+        // and the metadata it may have been applied to cannot drift apart.
+        self.markers.after_delete(&deleted, song.len());
         self.selection.after_delete(first_deleted, song.len());
         self.analysis.invalidate();
         self.revision += 1;
@@ -195,6 +205,7 @@ impl Editor {
         let song = self.song.as_mut()?;
         let description = self.undo.undo(song)?.to_owned();
         self.selection.truncate_to(song.len());
+        self.markers.clamp_to(song.len());
         self.analysis.invalidate();
         self.revision += 1;
         Some(description)
@@ -205,6 +216,7 @@ impl Editor {
         let song = self.song.as_mut()?;
         let description = self.undo.redo(song)?.to_owned();
         self.selection.truncate_to(song.len());
+        self.markers.clamp_to(song.len());
         self.analysis.invalidate();
         self.revision += 1;
         Some(description)
@@ -230,6 +242,9 @@ impl Editor {
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
         let song = self.song.as_ref().ok_or("no song is loaded")?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
+        // The instruction stream is re-encoded, so any marked region no longer
+        // means what it did; start over from the converted song's own loop.
+        self.markers = RangeMarkers::from_song(&converted);
         self.song = Some(converted);
         self.path = None;
         self.undo.reset();
@@ -279,6 +294,45 @@ impl Editor {
         meta.loop_modifier = loop_modifier;
         meta.volume_modifier = volume_modifier;
         dropped
+    }
+
+    /// Writes the marked region into the song's VGM loop fields.
+    ///
+    /// Not undoable, matching the other metadata edits (and the Python). Returns
+    /// `false` for a DRO, which has nowhere to put a loop -- the caller turns
+    /// that into the "convert to VGM first" message.
+    ///
+    /// A region covering the whole song still writes a loop: `0..len` is a
+    /// perfectly ordinary "loop the lot". The end is stored only when it stops
+    /// short of the tail, since `None` already means "to the end" and keeping it
+    /// that way is what lets a later trim widen the loop with the song.
+    pub fn apply_loop_to_metadata(&mut self) -> bool {
+        let Some(song) = self.song.as_mut() else {
+            return false;
+        };
+        let len = song.len();
+        let (start, end) = (self.markers.start(), self.markers.end());
+        let Some(meta) = song.vgm_meta_mut() else {
+            return false;
+        };
+        meta.loop_point = Some(start);
+        meta.loop_end = (end < len).then_some(end);
+        true
+    }
+
+    /// Whether the marked region differs from what the song's metadata records,
+    /// i.e. whether applying it would change anything. Drives the unsaved cue on
+    /// the waveform markers. Always `false` for a DRO, which stores no loop.
+    #[must_use]
+    pub fn loop_markers_are_unapplied(&self) -> bool {
+        let Some(song) = self.song.as_ref() else {
+            return false;
+        };
+        let Some(meta) = song.vgm_meta() else {
+            return false;
+        };
+        let stored_end = meta.loop_end.unwrap_or(song.len());
+        meta.loop_point != Some(self.markers.start()) || stored_end != self.markers.end()
     }
 
     // -- queries -------------------------------------------------------------

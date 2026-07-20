@@ -26,7 +26,7 @@ pub use error::{Error, Result};
 pub use rip::{RipMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
-    SongFileType,
+    SongFileType, slide_index_past_deletion,
 };
 pub use undo::{UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};
