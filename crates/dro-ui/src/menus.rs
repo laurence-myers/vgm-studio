@@ -33,6 +33,8 @@ pub struct MenuState {
     pub has_rip: bool,
     /// Whether the Rip tab is showing (disables the song-bound File/Edit items).
     pub on_rip_tab: bool,
+    /// The row the loop-marker items act on -- the same one `[` and `]` use.
+    pub focused_row: Option<usize>,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
@@ -97,6 +99,33 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             if enabled_item(ui, editor, "Convert to VGM", None) {
                 actions.push(Action::ConvertToVgm);
+            }
+            crate::theme::separator(ui, palette);
+            // The loop markers. The gestures ([ and ], and modifier-clicks on the
+            // waveform) are the fast path; these are how they are discovered, and
+            // the only way to reach Apply at all.
+            if ui
+                .add_enabled(
+                    editor,
+                    egui::Button::new("Set Loop Start").shortcut_text("["),
+                )
+                .clicked()
+                && let Some(row) = state.focused_row
+            {
+                actions.push(Action::SetLoopStart(row));
+            }
+            if ui
+                .add_enabled(editor, egui::Button::new("Set Loop End").shortcut_text("]"))
+                .clicked()
+                && let Some(row) = state.focused_row
+            {
+                actions.push(Action::SetLoopEnd(row + 1));
+            }
+            if enabled_item(ui, editor, "Clear Loop Markers", None) {
+                actions.push(Action::ClearLoopMarkers);
+            }
+            if enabled_item(ui, editor, "Apply Loop to Metadata", None) {
+                actions.push(Action::ApplyLoopToMetadata);
             }
             crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint

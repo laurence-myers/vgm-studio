@@ -276,6 +276,7 @@ impl Editor {
     pub fn set_vgm_metadata(
         &mut self,
         loop_point: Option<usize>,
+        loop_end: Option<usize>,
         loop_base: u8,
         loop_modifier: u8,
         volume_modifier: u8,
@@ -289,10 +290,20 @@ impl Editor {
         };
         let clamped = loop_point.filter(|&index| index < len);
         let dropped = clamped != loop_point;
+        // The end goes the same way as the start when the start is dropped: an
+        // end without a start describes a region with no beginning. Otherwise it
+        // must stay inside the song and above the start, or it falls back to the
+        // song's end -- which is what `None` already means.
+        let clamped_end = clamped
+            .and_then(|start| loop_end.filter(|&end| end <= len && end > start && end < len));
         meta.loop_point = clamped;
+        meta.loop_end = clamped_end;
         meta.loop_base = loop_base;
         meta.loop_modifier = loop_modifier;
         meta.volume_modifier = volume_modifier;
+        // The dialog is modeless, so the song may have been shortened behind it;
+        // the markers now describe the stored loop either way.
+        self.markers = RangeMarkers::from_song(song);
         dropped
     }
 
@@ -580,14 +591,14 @@ mod tests {
         let len = editor.len();
 
         // The dialog captured a longer song than the one being edited now.
-        let dropped = editor.set_vgm_metadata(Some(len + 50), 0, 0, 0);
+        let dropped = editor.set_vgm_metadata(Some(len + 50), None, 0, 0, 0);
         assert!(dropped, "the caller is told the loop point was dropped");
         assert_eq!(editor.song().unwrap().vgm_meta().unwrap().loop_point, None);
         // The write path must not panic on what was just stored.
         editor.save_bytes().unwrap();
 
         // A valid loop point still lands, and is not reported as dropped.
-        let dropped = editor.set_vgm_metadata(Some(len - 1), 1, 2, 3);
+        let dropped = editor.set_vgm_metadata(Some(len - 1), None, 1, 2, 3);
         assert!(!dropped);
         let meta = editor.song().unwrap().vgm_meta().unwrap();
         assert_eq!(meta.loop_point, Some(len - 1));
@@ -595,6 +606,46 @@ mod tests {
             (meta.loop_base, meta.loop_modifier, meta.volume_modifier),
             (1, 2, 3)
         );
+        editor.save_bytes().unwrap();
+    }
+
+    #[test]
+    fn a_loop_end_is_only_kept_while_it_bounds_a_real_region() {
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        let len = editor.len();
+
+        // Inside the song and after the start: kept, and the markers follow it.
+        editor.set_vgm_metadata(Some(1), Some(len - 1), 0, 0, 0);
+        assert_eq!(
+            editor.song().unwrap().vgm_meta().unwrap().loop_end,
+            Some(len - 1)
+        );
+        assert_eq!(
+            (editor.markers.start(), editor.markers.end()),
+            (1, len - 1),
+            "the markers describe what was just stored"
+        );
+
+        // At the end of the song: stored as `None`, which already means that --
+        // and is what lets a later trim widen the loop with the song.
+        editor.set_vgm_metadata(Some(1), Some(len), 0, 0, 0);
+        assert_eq!(editor.song().unwrap().vgm_meta().unwrap().loop_end, None);
+
+        // At or before the start, or past the song: no region to bound.
+        for end in [Some(1), Some(0), Some(len + 5)] {
+            editor.set_vgm_metadata(Some(1), end, 0, 0, 0);
+            assert_eq!(
+                editor.song().unwrap().vgm_meta().unwrap().loop_end,
+                None,
+                "end {end:?} does not bound a region"
+            );
+        }
+
+        // And an end without a start describes a region with no beginning.
+        editor.set_vgm_metadata(None, Some(2), 0, 0, 0);
+        let meta = editor.song().unwrap().vgm_meta().unwrap();
+        assert_eq!((meta.loop_point, meta.loop_end), (None, None));
         editor.save_bytes().unwrap();
     }
 

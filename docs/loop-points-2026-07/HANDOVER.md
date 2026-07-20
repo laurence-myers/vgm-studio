@@ -16,13 +16,18 @@ made (§2). Follow the workflow rules in §4.
 | lp-1 | **done** — `VgmMeta::loop_end`, derivation, reader materialisation, deletion sliding, undo restore, 11 tests | `a015398` |
 | lp-2 | **done** — `LoopConfig`/`LoopCount`, wrap in `render`, 12 tests | `0ee16a9` |
 | lp-3 | **done** — `SetLoop` command, `loop_iteration` atomic, `AudioService::set_loop` | `9e738d9` |
-| lp-4 | not started — `RangeMarkers`, actions, gestures | |
-| lp-5 | not started — palette, waveform markers, transport, snapshots | |
-| lp-6 | not started — dialog loop-end field, apply action, docs | |
+| lp-4 | **done** — `RangeMarkers`, actions, gestures, edit tracking, 18 tests | `2936d6b` |
+| lp-5 | **done** — palette, waveform brackets, transport, snapshots | `0622f3c` |
+| lp-6 | **done** — dialog loop-end field, menu items, docs | see `git log` |
 
-Workspace after lp-3: `cargo test --workspace` green (dro-core 224, dro-synth 70,
-dro-ui 151, dro-trimmer 31, + integration suites); `cargo clippy --workspace
---all-targets` zero warnings.
+**The feature is complete.** Workspace green throughout: `cargo test
+--workspace` (dro-core 224, dro-synth 70, dro-ui 181, dro-trimmer 31, +
+integration suites), `cargo clippy --workspace --all-targets` zero warnings,
+`cargo fmt --all --check` clean.
+
+The toolchain is now pinned (`rust-toolchain.toml`, `channel = "1.97.0"`) and the
+tree reformatted under its rustfmt — see the "pre-existing breakage" note below,
+which this resolved.
 
 ### What changed versus the plan below (read before lp-4)
 
@@ -54,7 +59,31 @@ dro-ui 151, dro-trimmer 31, + integration suites); `cargo clippy --workspace
 6. **`resolve_loop_end` rejects a zero-length header loop** (a loop offset with
    a zero length is self-contradictory) and falls back to looping to the end.
 
-### Pre-existing breakage you will trip over
+### What the UI steps settled (lp-4 to lp-6)
+
+7. **`RangeMarkers` lives in the `Editor`, beside `Selection`** (`markers.rs`),
+   not in the `Song`: dropping a marker is a view onto the song, not an edit of
+   it. It is named for the range rather than the loop because a crop/trim wants
+   the identical primitive — that is the reuse the plan asked for.
+8. **Setting one marker past the other** lets the set marker land where it was
+   put and retreats the *opposite* one to the song boundary. The click is an
+   explicit intent; the stale marker is not.
+9. **The loop stepper uses `-`/`+`, not the boost stepper's triangles.** Sharing
+   the `▲` glyph made `get_by_label("▲")` ambiguous and broke the existing boost
+   test — a real accessibility smell, not just a test artefact.
+10. **`tone_song` cannot show a loop overlay**: its first ten instructions all
+    sit at timestamp zero, so any region among them collapses onto the left
+    edge. `paced_song` (six 50 ms bursts) was added for anything that needs time
+    spread across the waveform — reach for it in the crop work too.
+11. **Two snapshots guard the overlay**: `loop_overlay` (hollow/unapplied flags
+    plus the transport controls) and the per-theme showcase (solid flags, and
+    the two new palette roles). The showcase still needs its isolated
+    `UPDATE_SNAPSHOTS=1` re-run after a whole-suite update, as its own note says.
+12. **`Editor::set_vgm_metadata` now re-derives the markers** from what it
+    stored, so the modeless dialog and the waveform cannot disagree about the
+    loop after a save.
+
+### Pre-existing breakage (resolved during lp-4)
 
 `cargo fmt --all --check` is **red on code nobody in this feature touched** —
 7 files (`dro-core/src/rip.rs`, `dro-ui/src/{action,app,rip}.rs`,
@@ -63,9 +92,12 @@ dro-ui 151, dro-trimmer 31, + integration suites); `cargo clippy --workspace
 (2026-07-07) changed its wrapping heuristics, so files formatted by the previous
 rustfmt now fail. Confirmed pre-existing by formatting HEAD's copy of an
 untouched file. **lp-1..lp-3 therefore formatted only their own files** rather
-than bundle an unrelated 7-file reformat into a feature commit. Worth its own
-`style: reformat under rustfmt 1.9` commit before lp-5, since lp-5 edits several
-of those files and would otherwise mix the reformat into a feature diff.
+than bundle an unrelated 7-file reformat into a feature commit.
+
+**Resolved** in `4947e46`: the toolchain is pinned to `1.97.0` and the tree
+reformatted under its rustfmt, in a commit of its own. Bumping the pin is now a
+deliberate act — raise the version, run `cargo fmt --all`, land the reformat
+separately.
 
 ---
 

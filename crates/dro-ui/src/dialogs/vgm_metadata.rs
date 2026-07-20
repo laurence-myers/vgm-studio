@@ -17,6 +17,7 @@ use crate::theme::{Palette, bevel};
 #[derive(Debug)]
 pub struct VgmMetadataDialog {
     loop_point: String,
+    loop_end: String,
     loop_base: String,
     loop_modifier: String,
     volume_modifier: String,
@@ -35,6 +36,7 @@ impl VgmMetadataDialog {
         let meta = song.vgm_meta()?;
         Some(Self {
             loop_point: meta.loop_point.map_or_else(String::new, |i| i.to_string()),
+            loop_end: meta.loop_end.map_or_else(String::new, |i| i.to_string()),
             loop_base: meta.loop_base.to_string(),
             loop_modifier: meta.loop_modifier.to_string(),
             volume_modifier: meta.volume_modifier.to_string(),
@@ -61,6 +63,15 @@ impl VgmMetadataDialog {
                     ui.add(
                         egui::TextEdit::singleline(&mut self.loop_point)
                             .hint_text("empty = no loop")
+                            .text_color(palette.data_text)
+                            .desired_width(160.0),
+                    );
+                    ui.end_row();
+
+                    ui.label("Loop end (instruction):");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.loop_end)
+                            .hint_text("empty = end of song")
                             .text_color(palette.data_text)
                             .desired_width(160.0),
                     );
@@ -125,6 +136,34 @@ impl VgmMetadataDialog {
             }
         };
 
+        // An end is only meaningful with a start, and must leave a region: the
+        // engine refuses an empty one anyway, so catch it here where it can be
+        // explained rather than silently ignored.
+        let loop_end = match (loop_point, self.parsed_end()) {
+            (None, _) => None,
+            (Some(_), None) => {
+                actions.push(Action::Alert {
+                    title: "Invalid VGM metadata".to_owned(),
+                    message: format!(
+                        "Loop end must be an instruction index of {} or less, or empty for the \
+                         end of the song.",
+                        self.song_len
+                    ),
+                });
+                return false;
+            }
+            (Some(start), Some(end)) if end <= start => {
+                actions.push(Action::Alert {
+                    title: "Invalid VGM metadata".to_owned(),
+                    message: "Loop end must come after the loop start.".to_owned(),
+                });
+                return false;
+            }
+            // An end at the end of the song is the default, and storing it as
+            // such is what lets a later trim widen the loop with the song.
+            (Some(_), Some(end)) => (end < self.song_len).then_some(end),
+        };
+
         let parsed = (
             self.loop_base.trim().parse::<u8>(),
             self.loop_modifier.trim().parse::<u8>(),
@@ -141,6 +180,7 @@ impl VgmMetadataDialog {
 
         actions.push(Action::SaveVgmMetadata {
             loop_point,
+            loop_end,
             loop_base,
             loop_modifier,
             volume_modifier,
@@ -148,21 +188,43 @@ impl VgmMetadataDialog {
         true
     }
 
-    /// The loop length in samples for the currently-typed loop point, derived
-    /// live from the prefix captured at open: "(no loop)" when the field is
-    /// empty, "(invalid)" when it isn't a valid instruction index.
+    /// The loop length in samples for the currently-typed pair, derived live from
+    /// the prefix captured at open: "(no loop)" when there is no loop point, and
+    /// "(invalid)" when either field is not a usable instruction index.
+    ///
+    /// This is the header's `loop # samples`, which is why it is shown rather
+    /// than edited -- it is a consequence of the two indices, not a third fact.
     fn loop_samples_display(&self) -> String {
         let trimmed = self.loop_point.trim();
         if trimmed.is_empty() {
             return "(no loop)".to_owned();
         }
-        match trimmed.parse::<usize>() {
-            Ok(index) if index < self.song_len => {
-                let total = self.samples_prefix.last().copied().unwrap_or(0);
-                total.saturating_sub(self.samples_prefix[index]).to_string()
-            }
-            _ => "(invalid)".to_owned(),
+        let Ok(start) = trimmed.parse::<usize>() else {
+            return "(invalid)".to_owned();
+        };
+        let Some(end) = self.parsed_end() else {
+            return "(invalid)".to_owned();
+        };
+        if start >= self.song_len || start >= end {
+            return "(invalid)".to_owned();
         }
+        self.samples_prefix[end]
+            .saturating_sub(self.samples_prefix[start])
+            .to_string()
+    }
+
+    /// The typed loop end as an index into the samples prefix, defaulting to the
+    /// end of the song when the field is empty. `None` if it does not parse or
+    /// reaches past the song.
+    fn parsed_end(&self) -> Option<usize> {
+        let trimmed = self.loop_end.trim();
+        if trimmed.is_empty() {
+            return Some(self.song_len);
+        }
+        trimmed
+            .parse::<usize>()
+            .ok()
+            .filter(|&end| end <= self.song_len)
     }
 }
 
@@ -175,6 +237,7 @@ mod tests {
     fn dialog() -> VgmMetadataDialog {
         VgmMetadataDialog {
             loop_point: String::new(),
+            loop_end: String::new(),
             loop_base: "0".to_owned(),
             loop_modifier: "0".to_owned(),
             volume_modifier: "0".to_owned(),
@@ -190,6 +253,54 @@ mod tests {
         assert_eq!(dialog.loop_samples_display(), "70"); // 100 - 30
         dialog.loop_point = "3".to_owned();
         assert_eq!(dialog.loop_samples_display(), "40"); // 100 - 60
+    }
+
+    #[test]
+    fn readout_measures_between_the_two_markers() {
+        let mut dialog = dialog();
+        dialog.loop_point = "1".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "90", "empty end = 100 - 10");
+        dialog.loop_end = "3".to_owned();
+        assert_eq!(dialog.loop_samples_display(), "50", "60 - 10");
+        dialog.loop_end = "4".to_owned(); // == len, the end of the song
+        assert_eq!(dialog.loop_samples_display(), "90");
+    }
+
+    #[test]
+    fn readout_rejects_an_end_that_bounds_nothing() {
+        let mut dialog = dialog();
+        dialog.loop_point = "2".to_owned();
+        for end in ["2", "1", "5", "x"] {
+            dialog.loop_end = end.to_owned();
+            assert_eq!(dialog.loop_samples_display(), "(invalid)", "end {end:?}");
+        }
+    }
+
+    #[test]
+    fn saving_an_end_at_the_songs_end_stores_the_default() {
+        let mut dialog = dialog();
+        dialog.loop_point = "1".to_owned();
+        dialog.loop_end = "4".to_owned(); // == song_len
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::SaveVgmMetadata {
+                loop_point: Some(1),
+                loop_end: None,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn saving_an_end_that_bounds_nothing_is_refused_with_a_reason() {
+        let mut dialog = dialog();
+        dialog.loop_point = "2".to_owned();
+        dialog.loop_end = "2".to_owned();
+        let mut actions = Vec::new();
+        assert!(!dialog.save(&mut actions));
+        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
     }
 
     #[test]

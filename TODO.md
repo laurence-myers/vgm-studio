@@ -14,10 +14,21 @@
   - Extend the VGM reader so more real PC-AT packs load (0x67 data blocks, the
     "data starts at 0x60" minimal header); today those tracks show as unreadable.
 - Support for header features:
-  - Loop points: the loop point now survives trimming (it is held as an
-    instruction index and the byte offset is recomputed on save), and the loop
-    length is derived from what is left. What is still missing is *playback*:
-    looping the song when it reaches the end.
+  - Loop points -- done. A region is marked in the editor (Shift+click and
+    Ctrl+Shift+click on the waveform, `[` and `]` on the selected row, or the
+    Edit menu), played back with the Loop toggle and a repeat count, auditioned
+    at the join with "Seam", and written to the header with Edit > Apply Loop to
+    Metadata. Both markers survive trimming as instruction indices, and the
+    header's loop length is derived from them. See
+    `docs/loop-points-2026-07/HANDOVER.md`. Possible follow-ups:
+    - Applying a loop does not mark the song dirty, so the unsaved-changes
+      prompts ignore it (metadata edits have always behaved this way, matching
+      the Python). Worth revisiting on its own, since it now covers something
+      the user set up deliberately rather than a stray field edit.
+    - A loop end short of the song's end is honoured here and survives a save,
+      but other players restart at the end-of-data command whatever the header
+      says. A crop/trim would make it universal, and the `RangeMarkers` the loop
+      uses were built to be reused for exactly that.
   - Volume boost
 - Emit a higher-version VGM header when converting. The Python reserved 0x100
   bytes on purpose, leaving room for the fields later versions add (the v1.70

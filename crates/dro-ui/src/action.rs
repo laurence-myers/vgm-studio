@@ -156,6 +156,8 @@ pub enum Action {
     SaveGd3(Box<Gd3Tag>),
     SaveVgmMetadata {
         loop_point: Option<usize>,
+        /// Exclusive; `None` for the end of the song.
+        loop_end: Option<usize>,
         loop_base: u8,
         loop_modifier: u8,
         volume_modifier: u8,

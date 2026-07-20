@@ -1312,16 +1312,20 @@ impl DroApp {
             Action::SaveGd3(tag) => self.editor.set_gd3_tag(*tag),
             Action::SaveVgmMetadata {
                 loop_point,
+                loop_end,
                 loop_base,
                 loop_modifier,
                 volume_modifier,
             } => {
                 let dropped = self.editor.set_vgm_metadata(
                     loop_point,
+                    loop_end,
                     loop_base,
                     loop_modifier,
                     volume_modifier,
                 );
+                // The stored loop is now the marked one, so re-arm playback.
+                self.push_loop_config();
                 if dropped {
                     self.alerts.push_back(Alert::new(
                         "Loop point cleared",
@@ -2379,6 +2383,7 @@ impl DroApp {
             redo_description,
             has_rip: self.rip.is_some(),
             on_rip_tab,
+            focused_row: self.editor.selection.first(),
         }
     }
 
