@@ -928,6 +928,42 @@ mod tests {
         assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), 0);
     }
 
+    /// The synthetic fixtures above all have their data at 0x80 and delays in
+    /// tidy round numbers. This runs the same round trip over the real
+    /// `dro2vgm` capture, whose stream is a few hundred commands of ordinary
+    /// music, so the boundary search has to find a genuine command edge.
+    #[test]
+    fn a_real_capture_carries_an_explicit_loop_end_through_a_round_trip() {
+        let mut song = read("lsl3.vgm", VGM_FIXTURE).unwrap();
+        let len = song.len();
+        // A region well inside the song, ending on an instruction that actually
+        // has time before it (the prefix must strictly increase across it, or
+        // the length would be ambiguous rather than wrong).
+        let prefix = song.delay_samples_prefix();
+        let start = 1;
+        let end = (start + 1..len)
+            .find(|&index| prefix[index] > prefix[start])
+            .expect("the capture has delays");
+        {
+            let meta = song.vgm_meta_mut().unwrap();
+            meta.loop_point = Some(start);
+            meta.loop_end = Some(end);
+        }
+        let expected = song.loop_num_samples().unwrap();
+        assert!(expected > 0, "the region has to last some time to be found");
+
+        let written = write(&song).unwrap();
+        assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), expected);
+
+        let reread = read("lsl3.vgm", &written).unwrap();
+        let meta = reread.vgm_meta().unwrap();
+        assert_eq!(meta.loop_point, Some(start));
+        assert_eq!(meta.loop_end, Some(end));
+        assert_eq!(reread.loop_num_samples(), Some(expected));
+        // And it is now stable: writing the re-read song reproduces the bytes.
+        assert_eq!(write(&reread).unwrap(), written);
+    }
+
     #[test]
     fn undoing_a_delete_restores_the_loop_end() {
         use crate::UndoableCommand;
