@@ -51,6 +51,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
     // The song-bound File and Edit items act on the editor's song, which the
     // Rip tab hides; disable them there so they cannot edit an unseen song.
     let editor = !state.on_rip_tab;
+    // Format-specific items are shown only for the format they apply to: a VGM
+    // has no DRO header to inspect, a DRO has nowhere to store a tag, and only a
+    // DRO can be converted to another format.
+    let is_dro = state.song_type == Some(SongFileType::Dro);
+    let is_vgm = state.song_type == Some(SongFileType::Vgm);
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
             if item(ui, "Open...", Some(&OPEN)) {
@@ -68,6 +73,24 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             if enabled_item(ui, editor, "Split Channels...", None) {
                 actions.push(Action::OpenSplit);
+            }
+            // Convert to another format, in an expanding submenu. DRO only: a VGM
+            // has no format this app can convert it to, and which conversions a
+            // DRO offers depends on its version. Disabled on the rip tab, like its
+            // File-menu siblings.
+            if is_dro {
+                ui.add_enabled_ui(editor, |ui| {
+                    ui.menu_button("Convert", |ui| {
+                        if item(ui, "Convert to VGM", None) {
+                            actions.push(Action::ConvertToVgm);
+                        }
+                        // Only a v2 has anywhere to go: v1 is already the older
+                        // format.
+                        if state.is_dro_v2 && item(ui, "Convert to DRO v1", None) {
+                            actions.push(Action::ConvertToDro1);
+                        }
+                    });
+                });
             }
             crate::theme::separator(ui, palette);
             // New in the Rust port: the Python read drotrim.ini only.
@@ -104,9 +127,6 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, editor, "Find Register...", Some(&FIND_REGISTER)) {
                 actions.push(Action::OpenFindRegister);
             }
-            // Format-specific items: shown only for the format they apply to.
-            let is_dro = state.song_type == Some(SongFileType::Dro);
-            let is_vgm = state.song_type == Some(SongFileType::Vgm);
             if is_dro && enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
                 actions.push(Action::OpenDroInfo);
             }
@@ -115,13 +135,6 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             if is_vgm && enabled_item(ui, editor, "Edit VGM Metadata", None) {
                 actions.push(Action::OpenVgmMetadata);
-            }
-            if is_dro && enabled_item(ui, editor, "Convert to VGM", None) {
-                actions.push(Action::ConvertToVgm);
-            }
-            // Only a v2 has anywhere to go: v1 is already the older format.
-            if state.is_dro_v2 && enabled_item(ui, editor, "Convert to DRO v1", None) {
-                actions.push(Action::ConvertToDro1);
             }
             crate::theme::separator(ui, palette);
             // The loop markers. The gestures ([ and ], and modifier-clicks on the

@@ -2250,7 +2250,7 @@ impl DroApp {
             self.alerts.push_back(Alert::new(
                 "Not a VGM".to_owned(),
                 "Only a VGM file stores loop points. Convert the song to VGM first \
-                 (Edit > Convert to VGM)."
+                 (File > Convert > Convert to VGM)."
                     .to_owned(),
             ));
             return;

@@ -2606,8 +2606,6 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
     harness.run();
     let present: Vec<&'static str> = [
         "DRO Info...",
-        "Convert to VGM",
-        "Convert to DRO v1",
         "Edit Tag",
         "Edit VGM Metadata",
         "Apply Loop to Metadata",
@@ -2623,30 +2621,68 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
     present
 }
 
+/// Opens File > Convert and reports which conversions it offers. Empty when the
+/// Convert submenu is not shown at all (a VGM, or no song).
+fn convert_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
+    harness.get_by_label("File").click();
+    harness.run();
+    // The submenu header renders as "Convert ⏵" (with a submenu arrow); its
+    // children ("Convert to ...") render only once it is expanded, so until then
+    // "Convert" matches the header alone.
+    let present = if harness.query_by_label_contains("Convert").is_some() {
+        harness.get_by_label_contains("Convert").click();
+        harness.run();
+        ["Convert to VGM", "Convert to DRO v1"]
+            .into_iter()
+            .filter(|label| harness.query_by_label_contains(label).is_some())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    harness.key_press(Key::Escape);
+    harness.run();
+    present
+}
+
 #[test]
 fn a_dro_shows_only_the_dro_menu_items() {
-    // tone_song is a v1, which has nowhere left to convert down to.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     assert_eq!(
         edit_menu_items(&mut harness),
-        ["DRO Info...", "Convert to VGM"],
+        ["DRO Info..."],
         "a DRO has no tag, no VGM header and nowhere to store a loop"
     );
 }
 
 #[test]
-fn only_a_dro_v2_is_offered_the_v1_conversion() {
+fn only_a_dro_can_be_converted() {
+    // A DRO offers the Convert submenu; a v1 can go to VGM, a v2 also to v1.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    assert_eq!(
+        convert_menu_items(&mut harness),
+        ["Convert to VGM"],
+        "a v1 has nowhere further down to go"
+    );
+
     let (mut harness, _handles) = harness_with_song(&dro_song_v2());
     assert_eq!(
-        edit_menu_items(&mut harness),
-        ["DRO Info...", "Convert to VGM", "Convert to DRO v1"],
+        convert_menu_items(&mut harness),
+        ["Convert to VGM", "Convert to DRO v1"],
     );
+
+    // A VGM has no format this app can convert it to: no submenu at all.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    harness.run();
+    assert!(convert_menu_items(&mut harness).is_empty());
 }
 
 #[test]
 fn converting_to_dro_v1_renames_the_song_and_clears_its_path() {
     let (mut harness, _handles) = harness_with_song(&dro_song_v2());
-    harness.get_by_label("Edit").click();
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label_contains("Convert").click();
     harness.run();
     harness.get_by_label_contains("Convert to DRO v1").click();
     harness.run();
@@ -2654,17 +2690,14 @@ fn converting_to_dro_v1_renames_the_song_and_clears_its_path() {
     let state = harness.state();
     let song = state.editor.song().expect("still loaded");
     assert_eq!(song.file_version, dro_core::song::DRO_FILE_V1);
-    // The CLI's own output name, so a Save As cannot overwrite the v2 source...
+    // The `_1` output name, so a Save As cannot overwrite the v2 source...
     assert_eq!(song.name, "test_1.dro");
     // ...and neither can a plain Save, which now has nowhere to write.
     assert!(state.editor.path.is_none());
     assert_eq!(state.status, "Successfully converted to DRO v1");
 
-    // Converting again is refused: v1 is as far down as it goes.
-    assert_eq!(
-        edit_menu_items(&mut harness),
-        ["DRO Info...", "Convert to VGM"],
-    );
+    // Converting again offers only the VGM direction: v1 is as far down as it goes.
+    assert_eq!(convert_menu_items(&mut harness), ["Convert to VGM"]);
 }
 
 #[test]
@@ -2683,6 +2716,7 @@ fn a_vgm_shows_only_the_vgm_menu_items() {
 fn with_no_song_no_format_specific_items_show() {
     let (mut harness, _handles) = empty_harness();
     assert!(edit_menu_items(&mut harness).is_empty());
+    assert!(convert_menu_items(&mut harness).is_empty());
 }
 
 #[test]
