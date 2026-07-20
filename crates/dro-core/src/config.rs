@@ -18,10 +18,6 @@ pub struct AudioConfig {
     /// waveform display.
     pub boost: f32,
     pub buffer_size: u32,
-    /// Microseconds to wait after each write to the emulated chip, to imitate a
-    /// real one. `0` means perfect, unrealistic timing. OPL2 wants at least 26.6;
-    /// OPL3 maybe 4.47.
-    pub chip_write_delay: f64,
     /// Sample rate of both the emulated chip and the audio output. 49716 is the
     /// OPL3's native rate and gives the best quality.
     pub frequency: u32,
@@ -33,7 +29,6 @@ impl Default for AudioConfig {
             bit_depth: 16,
             boost: 1.0,
             buffer_size: 512,
-            chip_write_delay: 0.0,
             frequency: 48_000,
         }
     }
@@ -171,12 +166,6 @@ impl AppConfig {
         if self.audio.buffer_size == 0 {
             return Err(Error::config("Invalid value for audio.buffer_size: 0"));
         }
-        if !self.audio.chip_write_delay.is_finite() || self.audio.chip_write_delay < 0.0 {
-            return Err(Error::config(format!(
-                "Invalid value for audio.chip_write_delay: {} (expected a non-negative number of microseconds)",
-                self.audio.chip_write_delay
-            )));
-        }
         if !self.audio.boost.is_finite() || !(1.0..=16.0).contains(&self.audio.boost) {
             return Err(Error::config(format!(
                 "Invalid value for audio.boost: {} (expected a number from 1 to 16)",
@@ -202,9 +191,6 @@ impl AppConfig {
         }
         if let Some(value) = lookup(&ini, "audio", "buffer_size") {
             self.audio.buffer_size = parse(value, "audio.buffer_size")?;
-        }
-        if let Some(value) = lookup(&ini, "audio", "chip_write_delay") {
-            self.audio.chip_write_delay = parse(value, "audio.chip_write_delay")?;
         }
         if let Some(value) = lookup(&ini, "audio", "frequency") {
             self.audio.frequency = parse(value, "audio.frequency")?;
@@ -238,13 +224,6 @@ impl AppConfig {
              frequency={frequency}\n\
              bit_depth={bit_depth}\n\
              buffer_size={buffer_size}\n\
-             # Use chip_write_delay to specify the microseconds to wait after\n\
-             # writing to the emulated chip. This is to better emulate the\n\
-             # timing/speed of playing music to a real chip.\n\
-             # Use a value of 0 for \"perfect\", if unrealistic, timing.\n\
-             # OPL2 uses a minimum value of 26.6.\n\
-             # OPL3 uses maybe 4.47?\n\
-             chip_write_delay={chip_write_delay}\n\
              # Volume boost multiplier for live playback: 1 = no boost. A peak\n\
              # limiter keeps louder values from clipping, so higher numbers just\n\
              # get louder. Never affects the WAV render or the waveform display.\n\
@@ -263,7 +242,6 @@ impl AppConfig {
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
-            chip_write_delay = self.audio.chip_write_delay,
             boost = self.audio.boost,
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
@@ -329,7 +307,6 @@ mod tests {
         assert_eq!(config.audio.bit_depth, 16);
         assert_eq!(config.audio.boost, 1.0);
         assert_eq!(config.audio.buffer_size, 512);
-        assert_eq!(config.audio.chip_write_delay, 0.0);
         assert_eq!(config.audio.frequency, 48_000);
         assert!(!config.ui.dro_info_edit_enabled);
         assert!(!config.ui.maximize_window);
@@ -347,14 +324,13 @@ mod tests {
     #[test]
     fn values_are_read_from_the_ini() {
         let config = AppConfig::from_ini_sources(&[
-            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nchip_write_delay=26.6\nboost=2.5\n\
+            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nboost=2.5\n\
              [ui]\ntail_length=5000\nmaximize_window=yes\ndro_info_edit_enabled=on\ntheme=ft2-classic\n",
         ]);
         assert_eq!(config.audio.frequency, 49_716);
         assert_eq!(config.audio.bit_depth, 8);
         assert_eq!(config.audio.boost, 2.5);
         assert_eq!(config.audio.buffer_size, 2048);
-        assert_eq!(config.audio.chip_write_delay, 26.6);
         assert_eq!(config.ui.tail_length, 5000);
         assert!(config.ui.maximize_window);
         assert!(config.ui.dro_info_edit_enabled);
@@ -482,9 +458,6 @@ mod tests {
             "[audio]\nbit_depth=24\n", // the OPL emulator renders 8- or 16-bit only
             "[audio]\nfrequency=0\n",
             "[audio]\nbuffer_size=0\n",
-            "[audio]\nchip_write_delay=-1.0\n",
-            "[audio]\nchip_write_delay=nan\n",
-            "[audio]\nchip_write_delay=inf\n",
             "[audio]\nboost=0\n",   // below the 1.0 floor
             "[audio]\nboost=0.5\n", // below the 1.0 floor
             "[audio]\nboost=100\n", // above the 16.0 ceiling
@@ -509,15 +482,14 @@ mod tests {
     }
 
     #[test]
-    fn realistic_chip_write_delays_are_accepted() {
-        // The values the shipped ini's comments recommend.
-        for delay in ["0", "4.47", "26.6"] {
-            let source = format!("[audio]\nchip_write_delay={delay}\n");
-            assert!(
-                AppConfig::try_from_ini_sources(&[&source]).is_ok(),
-                "{delay}"
-            );
-        }
+    fn a_retired_key_is_ignored_rather_than_rejected() {
+        // `chip_write_delay` was dropped once the OPL core's own write buffer
+        // took over spacing register writes. Every ini written before that --
+        // including the one shipped beside the Python -- still carries the key,
+        // and must still load rather than fall back to the defaults wholesale.
+        let source = "[audio]\nchip_write_delay=26.6\nbuffer_size=2048\n";
+        let config = AppConfig::try_from_ini_sources(&[source]).expect("still parses");
+        assert_eq!(config.audio.buffer_size, 2048, "the rest is still read");
     }
 
     #[test]
@@ -527,7 +499,6 @@ mod tests {
                 bit_depth: 8,
                 boost: 2.5,
                 buffer_size: 2048,
-                chip_write_delay: 26.6,
                 frequency: 49_716,
             },
             ui: UiConfig {

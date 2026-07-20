@@ -320,13 +320,7 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
     song: B,
     chip: C,
     sample_rate: u32,
-    /// Microseconds rendered after every register write to imitate a real chip's
-    /// write latency (`AudioConfig::chip_write_delay`). `0` -- the default --
-    /// makes the whole mechanism inert.
-    chip_write_delay: f64,
     clock: FrameClock,
-    /// The fractional-frame remainder of the chip-write-delay accumulator.
-    chip_frame_carry: f64,
     muting: Muting,
     /// The song's own stereo image, or an explicit per-channel pan override.
     panning: Panning,
@@ -359,15 +353,12 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
 }
 
 impl<B: Borrow<Song>> PlayerEngine<B, NukedOpl3> {
-    /// Builds an engine for `song`, rendering at `sample_rate` Hz.
-    ///
-    /// `chip_write_delay` is `AudioConfig::chip_write_delay` in microseconds; pass
-    /// `0.0` for exact, unrealistic timing. The chip is reset and positioned at
-    /// the start of the song.
+    /// Builds an engine for `song`, rendering at `sample_rate` Hz. The chip is
+    /// reset and positioned at the start of the song.
     #[must_use]
-    pub fn new(song: B, sample_rate: u32, chip_write_delay: f64) -> Self {
+    pub fn new(song: B, sample_rate: u32) -> Self {
         let chip = NukedOpl3::new(sample_rate);
-        Self::with_chip(song, chip, sample_rate, chip_write_delay)
+        Self::with_chip(song, chip, sample_rate)
     }
 }
 
@@ -375,7 +366,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// As [`PlayerEngine::new`], but with a caller-provided chip (for tests, or a
     /// different [`OplChip`]).
     #[must_use]
-    pub fn with_chip(song: B, chip: C, sample_rate: u32, chip_write_delay: f64) -> Self {
+    pub fn with_chip(song: B, chip: C, sample_rate: u32) -> Self {
         let delay_unit = if song.borrow().data().delays_in_samples() {
             VGM_SAMPLE_RATE
         } else {
@@ -385,9 +376,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             song,
             chip,
             sample_rate,
-            chip_write_delay,
             clock: FrameClock::new(sample_rate, delay_unit),
-            chip_frame_carry: 0.0,
             muting: Muting::all(),
             panning: Panning::Original,
             c0_shadow: [0x30; 18],
@@ -657,9 +646,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 // While Custom is engaged the chip repurposes `0xD0..=0xD8` as the
                 // per-channel pan registers. A song's own writes there (unused on a
                 // real OPL3, so no-ops when disengaged) would clobber the applied
-                // pan, so drop them while engaged -- the write's time still counts.
+                // pan, so drop them while engaged.
                 if engaged && (0xD0..=0xD8).contains(&reg) {
-                    return self.chip_delay_frames();
+                    return 0;
                 }
                 // Shadow every `0xC0..=0xC8` write (pre-gate) so `Original` can
                 // resync the chip's pan bits after disengaging. Muting never gates
@@ -681,7 +670,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                         self.chip.write_reg(reg, value);
                     }
                 }
-                self.chip_delay_frames()
+                0
             }
             DroInstruction::BankSwitch(bank) => {
                 self.bank = bank; // DRO v1 tracks the bank with these.
@@ -690,19 +679,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
             DroInstruction::DelayMs { ms, .. } => self.clock.frames_for(ms),
             DroInstruction::DelaySamples { samples, .. } => self.clock.frames_for(samples),
         }
-    }
-
-    /// The frames owed by one register write's chip-write-delay, keeping the
-    /// fractional remainder. `0` when the feature is disabled.
-    fn chip_delay_frames(&mut self) -> u64 {
-        if self.chip_write_delay <= 0.0 {
-            return 0;
-        }
-        let exact = self.chip_write_delay * f64::from(self.sample_rate) / 1_000_000.0
-            + self.chip_frame_carry;
-        let whole = exact.floor();
-        self.chip_frame_carry = exact - whole;
-        whole as u64
     }
 
     /// Clears the chip to silence and re-primes the DRO v1 waveform-select hack.
@@ -714,7 +690,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         self.chip.reset(self.sample_rate);
         self.bank = Bank::Low;
         self.clock.reset();
-        self.chip_frame_carry = 0.0;
         let song = self.song();
         if song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V1 {
             self.chip.write_reg(0x01, 0x20);
@@ -837,7 +812,7 @@ mod tests {
     }
 
     fn recording_engine(song: &Song) -> PlayerEngine<&Song, RecordingChip> {
-        PlayerEngine::with_chip(song, RecordingChip::default(), 48_000, 0.0)
+        PlayerEngine::with_chip(song, RecordingChip::default(), 48_000)
     }
 
     /// Like [`RecordingChip`], but models the real chip's *deferred* write buffer:
@@ -1027,7 +1002,7 @@ mod tests {
         // drains -- by routing the key-off through the same write buffer -- not
         // before, or the queued key-on wins and the note sticks.
         let song = dro_song_v1();
-        let mut engine = PlayerEngine::with_chip(&song, BufferingChip::default(), 48_000, 0.0);
+        let mut engine = PlayerEngine::with_chip(&song, BufferingChip::default(), 48_000);
         // A pending (not-yet-drained) playback key-on for low-bank channel 0xB0.
         engine.chip.write_reg_buffered(0xB0, 0x31);
 
@@ -1486,16 +1461,13 @@ mod tests {
         assert!(engine.is_finished());
     }
 
+    /// A register write costs no time of its own: the chip's own write buffer
+    /// spaces queued writes apart *within* the audio being generated, so a burst
+    /// of writes cannot stretch the song past the length its file declares.
     #[test]
-    fn chip_write_delay_inserts_frames_after_each_write() {
-        // With a write delay set, the five register writes of the fixture each
-        // render a little audio before the first delay even begins.
-        let song = dro_song_v2();
-        let mut engine = PlayerEngine::with_chip(&song, RecordingChip::default(), 48_000, 1000.0);
-        // 1000 us at 48 kHz is 48 frames per write. Render just past the five
-        // writes without reaching the 177 ms delay's bulk.
-        let mut out = vec![0i16; 5 * 48 * 2];
-        let frames = engine.render(&mut out);
-        assert_eq!(frames, 5 * 48);
+    fn register_writes_do_not_lengthen_the_song() {
+        let song = small_song();
+        let mut engine = recording_engine(&song);
+        assert_eq!(total_rendered(&mut engine), u64::from(song.ms_length) * 48);
     }
 }

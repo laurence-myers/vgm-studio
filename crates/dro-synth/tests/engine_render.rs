@@ -24,7 +24,7 @@ fn fixture_song() -> Song {
 
 /// Renders a song to the end through the engine, collecting the PCM.
 fn engine_pcm(song: &Song, sample_rate: u32, chunk_frames: usize) -> Vec<i16> {
-    let mut engine = PlayerEngine::new(song, sample_rate, 0.0);
+    let mut engine = PlayerEngine::new(song, sample_rate);
     let mut out = vec![0i16; chunk_frames * 2];
     let mut pcm = Vec::new();
     loop {
@@ -97,7 +97,7 @@ fn engine_output_is_chunk_invariant_on_real_data() {
 #[test]
 fn wav_export_of_the_fixture_is_the_right_length_and_audible() {
     let song = fixture_song();
-    let bytes = render_wav(&song, 48_000, 16, 0.0).unwrap();
+    let bytes = render_wav(&song, 48_000, 16).unwrap();
     let reader = hound::WavReader::new(std::io::Cursor::new(&bytes)).unwrap();
     let spec = reader.spec();
     assert_eq!(spec.channels, 2);
@@ -115,7 +115,7 @@ fn wav_export_of_the_fixture_is_the_right_length_and_audible() {
 #[test]
 fn waveform_of_the_fixture_is_shaped() {
     let song = fixture_song();
-    let buckets = render_waveform(&song, 200, 48_000, 0.0);
+    let buckets = render_waveform(&song, 200, 48_000);
     assert_eq!(buckets.len(), 200);
     let peak = buckets.iter().map(|b| b.max).max().unwrap();
     let trough = buckets.iter().map(|b| b.min).min().unwrap();

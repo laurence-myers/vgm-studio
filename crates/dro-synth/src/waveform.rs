@@ -134,16 +134,9 @@ impl WaveformBucketer {
 const PROGRESSIVE_UPDATES: usize = 32;
 
 /// Renders `song` and buckets it into `num_buckets` min/max slices for drawing.
-///
-/// `chip_write_delay` is microseconds per register write, matching playback.
 #[must_use]
-pub fn render_waveform(
-    song: &Song,
-    num_buckets: usize,
-    sample_rate: u32,
-    chip_write_delay: f64,
-) -> Vec<WaveformBucket> {
-    render_waveform_cancellable(song, num_buckets, sample_rate, chip_write_delay, || true)
+pub fn render_waveform(song: &Song, num_buckets: usize, sample_rate: u32) -> Vec<WaveformBucket> {
+    render_waveform_cancellable(song, num_buckets, sample_rate, || true)
         .expect("a render that is never cancelled always completes")
 }
 
@@ -154,7 +147,6 @@ pub fn render_waveform_cancellable(
     song: &Song,
     num_buckets: usize,
     sample_rate: u32,
-    chip_write_delay: f64,
     mut keep_going: impl FnMut() -> bool,
 ) -> Option<Vec<WaveformBucket>> {
     // Reuse the progressive loop but keep only the last (final) snapshot.
@@ -163,7 +155,6 @@ pub fn render_waveform_cancellable(
         song,
         num_buckets,
         sample_rate,
-        chip_write_delay,
         &mut keep_going,
         &mut |buckets| last = Some(buckets),
     );
@@ -187,7 +178,6 @@ pub fn render_waveform_progressive(
     song: &Song,
     num_buckets: usize,
     sample_rate: u32,
-    chip_write_delay: f64,
     keep_going: &mut dyn FnMut() -> bool,
     on_update: &mut dyn FnMut(Vec<WaveformBucket>),
 ) -> bool {
@@ -195,13 +185,13 @@ pub fn render_waveform_progressive(
         on_update(Vec::new());
         return true;
     }
-    let total = total_output_frames(song, sample_rate, chip_write_delay);
+    let total = total_output_frames(song, sample_rate);
     let mut bucketer = WaveformBucketer::new(total, num_buckets);
 
     let stride = (num_buckets / PROGRESSIVE_UPDATES).max(1);
     let mut next_update = stride;
 
-    let mut engine = PlayerEngine::new(song, sample_rate, chip_write_delay);
+    let mut engine = PlayerEngine::new(song, sample_rate);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         if !keep_going() {
@@ -222,9 +212,9 @@ pub fn render_waveform_progressive(
 }
 
 /// The number of output frames [`PlayerEngine`] will render for the whole song,
-/// used to size the buckets. Mirrors the engine's own frame accounting: delays
-/// through the [`FrameClock`], plus one chip-write-delay per register write.
-fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32, chip_write_delay: f64) -> u64 {
+/// used to size the buckets. Mirrors the engine's own frame accounting: the
+/// delays, through the same [`FrameClock`]. Register writes cost no frames.
+fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32) -> u64 {
     let song = song.borrow();
     let delay_unit = if song.data().delays_in_samples() {
         VGM_SAMPLE_RATE
@@ -233,20 +223,12 @@ fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32, chip_write_de
     };
     let mut clock = FrameClock::new(sample_rate, delay_unit);
     let mut frames = 0u64;
-    let mut writes = 0u64;
     for instruction in song.data().iter() {
         match instruction {
             DroInstruction::DelayMs { ms, .. } => frames += clock.frames_for(ms),
             DroInstruction::DelaySamples { samples, .. } => frames += clock.frames_for(samples),
-            DroInstruction::Register { .. } => writes += 1,
-            DroInstruction::BankSwitch(_) => {}
+            DroInstruction::Register { .. } | DroInstruction::BankSwitch(_) => {}
         }
-    }
-    if chip_write_delay > 0.0 {
-        // The engine carries a fractional remainder here; a whole-frame estimate
-        // is close enough to size buckets by.
-        let extra = writes as f64 * chip_write_delay * f64::from(sample_rate) / 1_000_000.0;
-        frames += extra as u64;
     }
     frames
 }
@@ -277,20 +259,20 @@ mod tests {
     fn produces_exactly_the_requested_number_of_buckets() {
         let song = tone_song();
         for num in [1usize, 10, 300, 1000] {
-            assert_eq!(render_waveform(&song, num, 48_000, 0.0).len(), num);
+            assert_eq!(render_waveform(&song, num, 48_000).len(), num);
         }
     }
 
     #[test]
     fn zero_buckets_is_empty() {
-        assert!(render_waveform(&tone_song(), 0, 48_000, 0.0).is_empty());
+        assert!(render_waveform(&tone_song(), 0, 48_000).is_empty());
     }
 
     #[test]
     fn the_tone_shows_amplitude_and_the_tail_is_silent() {
         // 300 ms song, 30 buckets = 10 ms each. The first ~20 buckets are the
         // keyed-on tone; the last ~10 are silence.
-        let buckets = render_waveform(&tone_song(), 30, 48_000, 0.0);
+        let buckets = render_waveform(&tone_song(), 30, 48_000);
         // Across the tone region the wave swings well to both sides of zero.
         let peak = buckets[..20].iter().map(|b| b.max).max().unwrap();
         let trough = buckets[..20].iter().map(|b| b.min).min().unwrap();
@@ -327,23 +309,23 @@ mod tests {
     fn a_cancelled_render_returns_none_and_an_uncancelled_one_matches_the_batch() {
         let song = tone_song();
         assert_eq!(
-            render_waveform_cancellable(&song, 30, 48_000, 0.0, || false),
+            render_waveform_cancellable(&song, 30, 48_000, || false),
             None
         );
         assert_eq!(
-            render_waveform_cancellable(&song, 30, 48_000, 0.0, || true).unwrap(),
-            render_waveform(&song, 30, 48_000, 0.0)
+            render_waveform_cancellable(&song, 30, 48_000, || true).unwrap(),
+            render_waveform(&song, 30, 48_000)
         );
     }
 
     #[test]
     fn progressive_updates_fill_left_to_right_and_end_at_the_batch() {
         let song = tone_song();
-        let batch = render_waveform(&song, 64, 48_000, 0.0);
+        let batch = render_waveform(&song, 64, 48_000);
 
         let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
         let completed =
-            render_waveform_progressive(&song, 64, 48_000, 0.0, &mut || true, &mut |buckets| {
+            render_waveform_progressive(&song, 64, 48_000, &mut || true, &mut |buckets| {
                 updates.push(buckets)
             });
 
@@ -375,9 +357,7 @@ mod tests {
         let song = tone_song();
         let mut updates = 0;
         let completed =
-            render_waveform_progressive(&song, 64, 48_000, 0.0, &mut || false, &mut |_| {
-                updates += 1
-            });
+            render_waveform_progressive(&song, 64, 48_000, &mut || false, &mut |_| updates += 1);
         assert!(!completed);
         assert_eq!(
             updates, 0,
@@ -388,14 +368,10 @@ mod tests {
     #[test]
     fn zero_buckets_still_emits_one_empty_final() {
         let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
-        let completed = render_waveform_progressive(
-            &tone_song(),
-            0,
-            48_000,
-            0.0,
-            &mut || true,
-            &mut |buckets| updates.push(buckets),
-        );
+        let completed =
+            render_waveform_progressive(&tone_song(), 0, 48_000, &mut || true, &mut |buckets| {
+                updates.push(buckets)
+            });
         assert!(completed);
         assert_eq!(updates, vec![Vec::new()]);
     }
@@ -405,6 +381,6 @@ mod tests {
         // The bucket-sizing total must equal what the engine actually renders.
         let song = tone_song();
         let expected = u64::from(song.ms_length) * 48; // 48 kHz
-        assert_eq!(total_output_frames(&song, 48_000, 0.0), expected);
+        assert_eq!(total_output_frames(&song, 48_000), expected);
     }
 }

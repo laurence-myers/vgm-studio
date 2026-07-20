@@ -137,7 +137,7 @@ impl NativeAudio {
         config: &AudioConfig,
         buffer_size: cpal::BufferSize,
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
-        let engine = PlayerEngine::new(Arc::clone(song), sample_rate, config.chip_write_delay);
+        let engine = PlayerEngine::new(Arc::clone(song), sample_rate);
         // Boost rides the existing `&AudioConfig`, and the limiter's release is
         // derived from the *actual* negotiated rate, not the configured one.
         let limiter = BoostLimiter::new(sample_rate, config.boost);

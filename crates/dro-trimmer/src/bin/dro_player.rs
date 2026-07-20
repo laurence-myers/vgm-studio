@@ -19,7 +19,6 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use dro_audio_native::NativeAudio;
 use dro_core::config::AudioConfig;
-use dro_core::total_delay_with_write_delay_ms;
 use dro_core::util::ms_to_timestr;
 use dro_trimmer::{load_config, read_song_from_path};
 
@@ -57,7 +56,7 @@ fn main() -> Result<()> {
             .validate()
             .with_context(|| format!("invalid --boost {boost}"))?;
     }
-    let total_ms = total_delay_with_write_delay_ms(&song, config.audio.chip_write_delay);
+    let total_ms = song.total_delay_ms();
 
     if args.render {
         // A render is faithful to the source unless an explicit --boost is given;
@@ -71,7 +70,6 @@ fn main() -> Result<()> {
             &song,
             freq,
             config.audio.bit_depth,
-            config.audio.chip_write_delay,
             boost,
             &mut |frames| {
                 let ms = dro_synth::Position::ms_from_frames(frames, freq);

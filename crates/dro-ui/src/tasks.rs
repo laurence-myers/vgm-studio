@@ -28,7 +28,6 @@ pub enum TaskRequest {
         song: Arc<Song>,
         num_buckets: usize,
         sample_rate: u32,
-        chip_write_delay: f64,
     },
 }
 
@@ -88,13 +87,11 @@ pub fn run_task(
             song,
             num_buckets,
             sample_rate,
-            chip_write_delay,
         } => {
             render_waveform_progressive(
                 song,
                 *num_buckets,
                 *sample_rate,
-                *chip_write_delay,
                 &mut || !is_cancelled(),
                 &mut |buckets| emit(TaskResult::Waveform(buckets)),
             );
@@ -113,7 +110,6 @@ mod tests {
             song: Arc::new(song),
             num_buckets: 32,
             sample_rate: 48_000,
-            chip_write_delay: 0.0,
         }
     }
 
@@ -126,7 +122,7 @@ mod tests {
     #[test]
     fn the_waveform_task_ends_at_the_batch_render() {
         let song = tone_song();
-        let expected = render_waveform(&song, 32, 48_000, 0.0);
+        let expected = render_waveform(&song, 32, 48_000);
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());

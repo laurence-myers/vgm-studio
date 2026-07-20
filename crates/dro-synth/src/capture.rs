@@ -269,7 +269,7 @@ mod tests {
     fn a_capture_is_playable() {
         let song = read_song("lsl3_score_up_dro2.dro", DRO_FIXTURE).unwrap();
         let captured = capture(&song, Muting::all(), "out.dro".to_owned()).unwrap();
-        let wav = render_wav(&captured, 48_000, 16, 0.0).unwrap();
+        let wav = render_wav(&captured, 48_000, 16).unwrap();
         let reader = hound::WavReader::new(std::io::Cursor::new(&wav)).unwrap();
         let samples: Vec<i16> = reader.into_samples::<i16>().map(Result::unwrap).collect();
         assert!(samples.iter().any(|&s| s != 0), "captured song was silent");

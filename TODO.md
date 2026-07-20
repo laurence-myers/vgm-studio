@@ -1,4 +1,12 @@
 - Update docs (VGM, new behaviours)
+- `chip_write_delay` is gone (setting, config key and engine mechanism). It
+  rendered real audio time after every register write, so the Python could
+  observe key-off/key-on edges that PyOPL's DBOPL would otherwise collapse --
+  at the cost of stretching the song past the length its own file declares.
+  nuked-opl3's write buffer solves that properly: it spaces queued writes a
+  couple of samples apart *inside* the audio being generated, for everyone,
+  without adding time. An ini still carrying the key loads fine; the key is
+  ignored.
 - Metadata edits (GD3 tag, VGM loop fields) now mark the song dirty, so the
   discard-changes prompts cover them. Tracked separately from the instruction
   stream's revision, which keys the audio snapshot and waveform render -- a tag

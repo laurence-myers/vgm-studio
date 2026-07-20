@@ -192,7 +192,6 @@ mod tests {
             song: Arc::new(song),
             num_buckets: 4,
             sample_rate: 48_000,
-            chip_write_delay: 0.0,
         }
     }
 

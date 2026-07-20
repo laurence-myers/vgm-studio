@@ -18,10 +18,7 @@ pub mod undo;
 pub mod util;
 pub mod vgm;
 
-pub use analysis::{
-    RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans,
-    total_delay_with_write_delay_ms,
-};
+pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
 pub use error::{Error, Result};
 pub use rip::{RipMeta, TrackEntry};
 pub use song::{

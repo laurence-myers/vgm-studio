@@ -154,7 +154,6 @@ fn render_one(
                 muting,
                 options.audio.frequency,
                 options.audio.bit_depth,
-                options.audio.chip_write_delay,
                 &mut |frames| on_progress(&base, frames),
             )?),
         },

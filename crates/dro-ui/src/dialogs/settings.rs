@@ -16,7 +16,6 @@ pub struct SettingsDialog {
     frequency: u32,
     buffer_size: u32,
     bit_depth: u16,
-    chip_write_delay: String,
     tail_length: String,
     maximize_window: bool,
     dro_info_edit_enabled: bool,
@@ -31,7 +30,6 @@ impl SettingsDialog {
             frequency: config.audio.frequency,
             buffer_size: config.audio.buffer_size,
             bit_depth: config.audio.bit_depth,
-            chip_write_delay: config.audio.chip_write_delay.to_string(),
             tail_length: config.ui.tail_length.to_string(),
             maximize_window: config.ui.maximize_window,
             dro_info_edit_enabled: config.ui.dro_info_edit_enabled,
@@ -103,17 +101,6 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
-                    ui.label("Chip write delay (\u{00b5}s)").on_hover_text(
-                        "Microseconds after each chip write, to imitate real hardware. \
-                             0 = perfect timing; OPL2 wants at least 26.6.",
-                    );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.chip_write_delay)
-                            .text_color(palette.data_text)
-                            .desired_width(100.0),
-                    );
-                    ui.end_row();
-
                     ui.label("Tail length (ms)")
                         .on_hover_text("How much the \"play last X seconds\" button plays");
                     ui.add(
@@ -170,11 +157,7 @@ impl SettingsDialog {
         // Start from the config the dialog opened with, so fields it does not
         // edit (like `audio.boost`, driven by the transport slider) survive.
         let mut config = self.original;
-        let parsed = (
-            self.chip_write_delay.trim().parse::<f64>(),
-            self.tail_length.trim().parse::<u32>(),
-        );
-        let (Ok(chip_write_delay), Ok(tail_length)) = parsed else {
+        let Ok(tail_length) = self.tail_length.trim().parse::<u32>() else {
             actions.push(Action::Alert {
                 title: "Invalid settings".to_owned(),
                 message: "Check that the entered values are numbers.".to_owned(),
@@ -184,7 +167,6 @@ impl SettingsDialog {
         config.audio.frequency = self.frequency;
         config.audio.buffer_size = self.buffer_size;
         config.audio.bit_depth = self.bit_depth;
-        config.audio.chip_write_delay = chip_write_delay;
         config.ui.tail_length = tail_length;
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;

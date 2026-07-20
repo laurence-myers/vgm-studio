@@ -19,23 +19,17 @@ use crate::limiter::BoostLimiter;
 /// `bit_depth` must be `8` or `16` (as [`dro_core::config::AudioConfig`]
 /// guarantees). The chip always renders 16-bit internally; an 8-bit request is
 /// down-converted at write time, since -- unlike PyOPL -- the Rust core has no
-/// 8-bit mode. `chip_write_delay` is microseconds per register write.
+/// 8-bit mode.
 ///
 /// # Errors
 /// If the `hound` writer fails. Writing to an in-memory `Cursor` does not fail in
 /// practice, so this is effectively infallible.
-pub fn render_wav(
-    song: &Song,
-    sample_rate: u32,
-    bit_depth: u16,
-    chip_write_delay: f64,
-) -> Result<Vec<u8>, hound::Error> {
+pub fn render_wav(song: &Song, sample_rate: u32, bit_depth: u16) -> Result<Vec<u8>, hound::Error> {
     render_wav_impl(
         song,
         Muting::all(),
         sample_rate,
         bit_depth,
-        chip_write_delay,
         1.0,
         &mut |_| {},
     )
@@ -52,17 +46,8 @@ pub fn render_wav_muted<B: Borrow<Song>>(
     muting: Muting,
     sample_rate: u32,
     bit_depth: u16,
-    chip_write_delay: f64,
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(
-        song,
-        muting,
-        sample_rate,
-        bit_depth,
-        chip_write_delay,
-        1.0,
-        &mut |_| {},
-    )
+    render_wav_impl(song, muting, sample_rate, bit_depth, 1.0, &mut |_| {})
 }
 
 /// As [`render_wav_muted`], reporting the running rendered-frame count to
@@ -77,18 +62,9 @@ pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
     muting: Muting,
     sample_rate: u32,
     bit_depth: u16,
-    chip_write_delay: f64,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
-    render_wav_impl(
-        song,
-        muting,
-        sample_rate,
-        bit_depth,
-        chip_write_delay,
-        1.0,
-        on_progress,
-    )
+    render_wav_impl(song, muting, sample_rate, bit_depth, 1.0, on_progress)
 }
 
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
@@ -106,7 +82,6 @@ pub fn render_wav_boosted(
     song: &Song,
     sample_rate: u32,
     bit_depth: u16,
-    chip_write_delay: f64,
     boost: f32,
 ) -> Result<Vec<u8>, hound::Error> {
     render_wav_impl(
@@ -114,7 +89,6 @@ pub fn render_wav_boosted(
         Muting::all(),
         sample_rate,
         bit_depth,
-        chip_write_delay,
         boost,
         &mut |_| {},
     )
@@ -130,7 +104,6 @@ pub fn render_wav_boosted_with_progress(
     song: &Song,
     sample_rate: u32,
     bit_depth: u16,
-    chip_write_delay: f64,
     boost: f32,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
@@ -139,7 +112,6 @@ pub fn render_wav_boosted_with_progress(
         Muting::all(),
         sample_rate,
         bit_depth,
-        chip_write_delay,
         boost,
         on_progress,
     )
@@ -151,7 +123,6 @@ fn render_wav_impl<B: Borrow<Song>>(
     muting: Muting,
     sample_rate: u32,
     bit_depth: u16,
-    chip_write_delay: f64,
     boost: f32,
     on_progress: &mut dyn FnMut(u64),
 ) -> Result<Vec<u8>, hound::Error> {
@@ -164,7 +135,7 @@ fn render_wav_impl<B: Borrow<Song>>(
     let mut cursor = Cursor::new(Vec::new());
     let mut writer = WavWriter::new(&mut cursor, spec)?;
 
-    let mut engine = PlayerEngine::new(song, sample_rate, chip_write_delay);
+    let mut engine = PlayerEngine::new(song, sample_rate);
     engine.set_muting(muting);
     let mut limiter = BoostLimiter::new(sample_rate, boost);
     let mut buffer = vec![0i16; 4096 * 2];
@@ -227,7 +198,7 @@ mod tests {
     #[test]
     fn renders_a_16_bit_stereo_wav_of_the_right_length() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 16, 0.0).unwrap();
+        let bytes = render_wav(&song, 48_000, 16).unwrap();
         let (spec, samples) = read_back(&bytes);
 
         assert_eq!(spec.channels, 2);
@@ -240,13 +211,12 @@ mod tests {
     #[test]
     fn progress_is_reported_without_changing_the_render() {
         let song = small_song();
-        let plain = render_wav_boosted(&song, 48_000, 16, 0.0, 1.0).unwrap();
+        let plain = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
         let mut frames = Vec::new();
-        let tracked =
-            render_wav_boosted_with_progress(&song, 48_000, 16, 0.0, 1.0, &mut |rendered| {
-                frames.push(rendered);
-            })
-            .unwrap();
+        let tracked = render_wav_boosted_with_progress(&song, 48_000, 16, 1.0, &mut |rendered| {
+            frames.push(rendered);
+        })
+        .unwrap();
         assert_eq!(
             tracked, plain,
             "progress reporting must not change the bytes"
@@ -262,17 +232,13 @@ mod tests {
     #[test]
     fn muted_progress_is_reported_without_changing_the_render() {
         let song = small_song();
-        let plain = render_wav_muted(&song, Muting::all(), 48_000, 16, 0.0).unwrap();
+        let plain = render_wav_muted(&song, Muting::all(), 48_000, 16).unwrap();
         let mut frames = Vec::new();
-        let tracked = render_wav_muted_with_progress(
-            &song,
-            Muting::all(),
-            48_000,
-            16,
-            0.0,
-            &mut |rendered| frames.push(rendered),
-        )
-        .unwrap();
+        let tracked =
+            render_wav_muted_with_progress(&song, Muting::all(), 48_000, 16, &mut |rendered| {
+                frames.push(rendered)
+            })
+            .unwrap();
         assert_eq!(
             tracked, plain,
             "progress reporting must not change the bytes"
@@ -288,7 +254,7 @@ mod tests {
     #[test]
     fn the_render_is_not_silent() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 16, 0.0).unwrap();
+        let bytes = render_wav(&song, 48_000, 16).unwrap();
         let (_, samples) = read_back(&bytes);
         assert!(
             samples.iter().any(|&s| s != 0),
@@ -299,7 +265,7 @@ mod tests {
     #[test]
     fn eight_bit_export_round_trips_through_hound() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 8, 0.0).unwrap();
+        let bytes = render_wav(&song, 48_000, 8).unwrap();
         let (spec, samples) = read_back(&bytes);
         assert_eq!(spec.bits_per_sample, 8);
         assert_eq!(samples.len(), 150 * 48 * 2);
@@ -311,16 +277,16 @@ mod tests {
         // The limiter bypasses at boost 1.0, so an opt-in boosted render with no
         // actual boost is the same faithful render as `render_wav`.
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16, 0.0).unwrap();
-        let unity = render_wav_boosted(&song, 48_000, 16, 0.0, 1.0).unwrap();
+        let plain = render_wav(&song, 48_000, 16).unwrap();
+        let unity = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
         assert_eq!(plain, unity);
     }
 
     #[test]
     fn a_boosted_render_is_louder_but_never_clips() {
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16, 0.0).unwrap();
-        let boosted = render_wav_boosted(&song, 48_000, 16, 0.0, 4.0).unwrap();
+        let plain = render_wav(&song, 48_000, 16).unwrap();
+        let boosted = render_wav_boosted(&song, 48_000, 16, 4.0).unwrap();
         let (_, plain_s) = read_back(&plain);
         let (_, boosted_s) = read_back(&boosted);
         assert_eq!(plain_s.len(), boosted_s.len());

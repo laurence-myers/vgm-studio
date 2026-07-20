@@ -59,7 +59,7 @@ impl ShowcaseState {
         let song = tone_song();
         // Same integer DSP the app renders through, so the wave is bit-faithful
         // to a real render (and stable across platforms, unlike an f32 synthetic).
-        let buckets = render_waveform(&song, NUM_BUCKETS, FREQUENCY, 0.0);
+        let buckets = render_waveform(&song, NUM_BUCKETS, FREQUENCY);
 
         let mut editor = Editor::new();
         editor.load(picked(&song)).expect("the tone fixture parses");

@@ -2222,8 +2222,7 @@ impl DroApp {
         // Only an audio change needs an output reload or a fresh waveform; a
         // theme-only change keeps the existing buckets and just recolours them.
         let audio_changed = config.audio != self.config.audio;
-        let waveform_changed = config.audio.frequency != self.config.audio.frequency
-            || config.audio.chip_write_delay != self.config.audio.chip_write_delay;
+        let waveform_changed = config.audio.frequency != self.config.audio.frequency;
         self.config = config;
         // Don't retune the position panel to the configured rate while a stream
         // is live: it reports frames at the stream's real (still-old) rate, so
@@ -2291,7 +2290,6 @@ impl DroApp {
                 song: snapshot,
                 num_buckets: waveform::NUM_BUCKETS,
                 sample_rate: self.config.audio.frequency,
-                chip_write_delay: self.config.audio.chip_write_delay,
             },
             debounce,
         );

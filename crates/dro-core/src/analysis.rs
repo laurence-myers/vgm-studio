@@ -327,24 +327,6 @@ pub fn initial_channel_pans(song: &Song) -> [u8; 18] {
     pans
 }
 
-/// The song's playing time in milliseconds, including the configured per-write
-/// chip delay (Python `DROTotalDelayWithWriteDelayCalculator`).
-///
-/// `total_delay_ms` plus `floor(register_writes * chip_write_delay_us / 1000)`.
-/// The CLI player shows this as the true length when `chip_write_delay` is set;
-/// with the default `0.0` it equals [`Song::total_delay_ms`]. Sample delays
-/// (VGM) do not count here, matching the Python, which summed only `DELAY_MS`.
-#[must_use]
-pub fn total_delay_with_write_delay_ms(song: &Song, chip_write_delay_us: f64) -> u32 {
-    let writes = song
-        .data()
-        .iter()
-        .filter(|instruction| matches!(instruction, DroInstruction::Register { .. }))
-        .count();
-    let extra_ms = (writes as f64 * chip_write_delay_us / 1000.0) as u32;
-    song.total_delay_ms().saturating_add(extra_ms)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,33 +597,6 @@ mod tests {
         assert!(!usage.percussion_used(0x08), "SD was not set");
         // Without the detailed pass, no percussion is recorded at all.
         assert!(!RegisterUsage::analyze(&song, false).percussion_used(0x20));
-    }
-
-    #[test]
-    fn write_delay_length_adds_floor_of_write_microseconds() {
-        let song = dro_song_v2();
-        let writes = song
-            .data()
-            .iter()
-            .filter(|i| matches!(i, DroInstruction::Register { .. }))
-            .count() as u32;
-        assert_eq!(writes, 10, "the v2 fixture writes ten registers");
-
-        // With no chip write delay it is just the summed delays.
-        assert_eq!(
-            total_delay_with_write_delay_ms(&song, 0.0),
-            song.total_delay_ms()
-        );
-        // 1000 us per write over ten writes is exactly 10 ms extra.
-        assert_eq!(
-            total_delay_with_write_delay_ms(&song, 1000.0),
-            song.total_delay_ms() + 10
-        );
-        // Floors: 26.6 us * 10 = 266 us -> 0 whole ms.
-        assert_eq!(
-            total_delay_with_write_delay_ms(&song, 26.6),
-            song.total_delay_ms()
-        );
     }
 
     // -- initial_channel_pans ------------------------------------------------
