@@ -1,4 +1,4 @@
-//! `dro2to1`: convert a DRO v2 file to DRO v1 (Python `dro2to1.py`).
+//! `drotrim convert`: convert a DRO v2 file to DRO v1 (Python `dro2to1.py`).
 //!
 //! The conversion itself is `dro_core::convert::dro2_to_dro1`, tested there; this
 //! is only argument parsing and file I/O.
@@ -6,24 +6,25 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use clap::Parser;
 use dro_core::convert::dro2_to_dro1;
 use dro_core::io::write_song;
-use dro_trimmer::read_song_from_path;
 
-#[derive(Parser)]
-#[command(name = "dro2to1", version, about = "Convert a DRO v2 file to DRO v1.")]
-struct Args {
+use crate::read_song_from_path;
+
+#[derive(Debug, clap::Args)]
+pub struct Args {
     /// The DRO v2 file to convert.
-    input: PathBuf,
+    pub input: PathBuf,
     /// The output file. Defaults to `<input>_1.<ext>`.
-    output: Option<PathBuf>,
+    pub output: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
-    env_logger::init();
-    let args = Args::parse();
-
+/// Converts `args.input` to DRO v1.
+///
+/// # Errors
+/// If the song cannot be read, is not a DRO v2, the output already exists, or
+/// the write fails.
+pub fn run(args: Args) -> Result<()> {
     let song = read_song_from_path(&args.input)?;
     let v1 = dro2_to_dro1(&song)?;
 
@@ -52,4 +53,25 @@ fn default_output(input: &Path) -> PathBuf {
         None => format!("{stem}_1"),
     };
     input.with_file_name(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_output_suffixes_the_stem() {
+        assert_eq!(
+            default_output(Path::new("song.dro")),
+            PathBuf::from("song_1.dro")
+        );
+        assert_eq!(
+            default_output(Path::new("music/song.dro")),
+            PathBuf::from("music/song_1.dro")
+        );
+        assert_eq!(
+            default_output(Path::new("capture")),
+            PathBuf::from("capture_1")
+        );
+    }
 }

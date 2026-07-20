@@ -24,6 +24,34 @@ cargo clippy --workspace --all-targets -- -D warnings        # lint
 cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth   # wasm stays clean
 ```
 
+### The `drotrim` command line
+
+The workspace builds **one executable**. Run it with no arguments (or with just a
+file) for the GUI; run it with a subcommand for what used to be the `dro_player`,
+`dro_split` and `dro2to1` binaries:
+
+```PowerShell
+cargo run -p dro-trimmer -- help                    # list the subcommands
+cargo run -p dro-trimmer -- play song.dro           # play through the speakers
+cargo run -p dro-trimmer -- render song.dro         # write song.dro.wav
+cargo run -p dro-trimmer -- split song.dro          # one WAV per channel used
+cargo run -p dro-trimmer -- split --song song.vgm   # one VGM per channel instead
+cargo run -p dro-trimmer -- convert song.dro        # DRO v2 -> v1, as song_1.dro
+```
+
+Two things to know about the release build, which is linked as a *GUI-subsystem*
+executable so double-clicking it does not flash a console window:
+
+- An interactive shell does not wait for a GUI-subsystem process, so the prompt
+  comes back immediately and the subcommand's output interleaves with it. Piping
+  (`drotrim help | more`) and `cmd`-style redirection (`cmd /c "drotrim help >
+  out.txt"`) both capture it, but **PowerShell's `>` writes an empty file** —
+  PowerShell has already moved on by the time the process prints. Debug builds
+  are console-subsystem and behave like any other console program, so this only
+  affects a release build run by hand.
+- A file whose name is exactly `play`, `render`, `split`, `convert` or `help`
+  parses as a subcommand. Open it as `drotrim .\play`.
+
 Run the file-format round trips as real wasm, under Node. The CLI version must
 match the `wasm-bindgen` version in `Cargo.lock`:
 

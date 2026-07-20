@@ -1,45 +1,45 @@
-//! `dro_split`: split a DRO song into one file per channel (Python `dro_split.py`).
+//! `drotrim split`: split a song into one file per channel (Python
+//! `dro_split.py`).
 //!
-//! The splitting logic is `dro_trimmer::split`, tested there; this parses
-//! arguments, loads the config, and writes the outputs next to the input.
+//! The splitting logic is [`crate::split`], tested there; this parses arguments,
+//! loads the config, and writes the outputs next to the input.
 
 use std::cell::RefCell;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use clap::Parser;
 use dro_core::io::write_song;
 use dro_core::util::ms_to_timestr;
 use dro_synth::Position;
-use dro_trimmer::{SplitData, SplitFormat, SplitOptions, load_config, read_song_from_path, split};
 
-#[derive(Parser)]
-#[command(
-    name = "dro_split",
-    version,
-    about = "Split a DRO song into one WAV (or DRO) file per channel used."
-)]
-struct Args {
-    /// The DRO file to split.
-    input: PathBuf,
-    /// Split to DRO files instead of WAV.
-    #[arg(short = 'd', long = "dro")]
-    dro: bool,
+use crate::{SplitData, SplitFormat, SplitOptions, load_config, read_song_from_path, split};
+
+#[derive(Debug, clap::Args)]
+pub struct Args {
+    /// The DRO or VGM file to split.
+    pub input: PathBuf,
+    /// Split to song files -- DRO or VGM, matching the input -- instead of WAV.
+    // `-d`/`--dro` was this flag's name when the tool was `dro_split`, and the
+    // output was always a DRO. Kept working, but out of the help.
+    #[arg(short = 's', long = "song", visible_alias = "dro", short_alias = 'd')]
+    pub song: bool,
     /// Render each drum on the percussion channel to its own file.
     #[arg(short = 'i', long = "isolate-percussion")]
-    isolate_percussion: bool,
+    pub isolate_percussion: bool,
 }
 
-fn main() -> Result<()> {
-    env_logger::init();
-    let args = Args::parse();
-
+/// Splits `args.input`, writing one file per used channel beside it.
+///
+/// # Errors
+/// If the song cannot be read, a channel cannot be rendered or captured, or an
+/// output cannot be written.
+pub fn run(args: &Args) -> Result<()> {
     let song = read_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
     let options = SplitOptions {
-        format: if args.dro {
+        format: if args.song {
             SplitFormat::Dro
         } else {
             SplitFormat::Wav
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         println!("Wrote {}", path.display());
     }
-    println!("Done -- {} file(s).", count);
+    println!("Done -- {count} file(s).");
     Ok(())
 }
 

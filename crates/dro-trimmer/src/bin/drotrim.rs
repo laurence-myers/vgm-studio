@@ -1,24 +1,21 @@
-//! The DRO Trimmer GUI: a thin `eframe::run_native` shell injecting the
-//! native services into `dro-ui`'s application.
+//! DRO Trimmer's one executable: the GUI, plus the `play`, `render`, `split` and
+//! `convert` subcommands.
+//!
+//! With no subcommand this is a thin `eframe::run_native` shell injecting the
+//! native services into `dro-ui`'s application; with one, it runs that
+//! subcommand and exits. See `dro_trimmer::cli`.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::Parser;
+use dro_trimmer::cli::Cli;
 use dro_trimmer::services::{
     IniConfigStore, NativeAudioService, NativeFileService, NativeRipService, ThreadTaskService,
 };
 use dro_ui::DroApp;
 use dro_ui::platform::FileService;
-
-/// Opens a GUI to edit a DRO song.
-#[derive(Debug, Parser)]
-#[command(version)]
-struct Args {
-    /// A .dro, .vgm or .vgz file to open at startup.
-    file: Option<PathBuf>,
-}
 
 /// Decodes the embedded `dt.ico` into the window/taskbar icon (parity-3).
 /// Returns `None` -- no icon, not a failure -- if it can't be decoded, so a bad
@@ -38,12 +35,43 @@ fn load_icon() -> Option<eframe::egui::IconData> {
     })
 }
 
-fn main() -> eframe::Result {
-    env_logger::init();
-    let args = Args::parse();
+fn main() -> ExitCode {
+    // A release build is GUI-subsystem, so borrow the parent's console before
+    // anything prints -- including clap's own `--help` and usage errors. Only
+    // worth doing when there are arguments: a bare `drotrim` opens the GUI and
+    // should stay silent.
+    #[cfg(all(windows, not(debug_assertions)))]
+    if std::env::args_os().len() > 1 {
+        dro_trimmer::cli::attach_parent_console();
+    }
 
+    env_logger::init();
+    let cli = Cli::parse();
+
+    match cli.command {
+        Some(command) => match dro_trimmer::cli::run(command) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                // `{:?}` on an anyhow error prints the whole cause chain, which
+                // is what returning it from `main` used to do.
+                eprintln!("Error: {err:?}");
+                ExitCode::FAILURE
+            }
+        },
+        None => match run_gui(cli.file) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("Error: {err}");
+                ExitCode::FAILURE
+            }
+        },
+    }
+}
+
+/// Opens the editor, optionally loading `file` at startup.
+fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
     let mut files = NativeFileService::new();
-    if let Some(path) = args.file {
+    if let Some(path) = file {
         // Queued through the file service so a failure surfaces as the app's
         // own "Failed to open file" box, like the Python's initial-load path.
         files.open_path(path);

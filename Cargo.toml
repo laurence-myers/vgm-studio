@@ -86,10 +86,17 @@ thiserror = "2"
 cpal = "0.18"
 rtrb = "0.3"
 
-# CLI tooling for the `dro-trimmer` bins (native only).
+# CLI tooling for the `drotrim` binary (native only).
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
+# Console attaching for the GUI-subsystem release build (Windows only), so the
+# subcommands can print when drotrim is started from a terminal. The 0.61 line
+# unifies with the newest already in the lock file via transitive deps.
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_Console",
+] }
 
 # Rip-mode packaging (native only; never dro-core/dro-ui/wasm).
 # `deflate-flate2` only, never the defaults: zip 8's default set enables

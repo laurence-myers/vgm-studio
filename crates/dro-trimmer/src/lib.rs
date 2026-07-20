@@ -1,5 +1,5 @@
-//! Shared logic for the native binaries: the `dro_player`, `dro2to1` and
-//! `dro_split` CLI tools, and the platform services behind the `drotrim` GUI.
+//! Everything behind the `drotrim` executable: its `play`, `render`, `split` and
+//! `convert` subcommands, and the platform services the GUI runs on.
 
 use std::path::Path;
 
@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use dro_core::Song;
 use dro_core::io::read_song;
 
+pub mod cli;
 pub mod config;
 pub mod rip_zip;
 pub mod services;
@@ -17,9 +18,8 @@ pub use rip_zip::{RipZipOutput, build_rip_zip};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split};
 
 /// Reads and parses the song at `path`, naming it after the file (falling back to
-/// `input.dro`) so format detection follows the file's extension. The three CLI
-/// binaries -- `dro_player`, `dro_split`, `dro2to1` -- all open their one input
-/// exactly this way.
+/// `input.dro`) so format detection follows the file's extension. Every
+/// subcommand opens its one input exactly this way.
 ///
 /// # Errors
 /// If the file cannot be read, or is not a song `dro_core` can parse.

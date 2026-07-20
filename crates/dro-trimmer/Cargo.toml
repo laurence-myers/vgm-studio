@@ -1,6 +1,6 @@
 [package]
 name = "dro-trimmer"
-description = "Native binaries: the drotrim GUI, plus the dro_player, dro2to1 and dro_split CLI tools."
+description = "The drotrim executable: the GUI, plus its play, render, split and convert subcommands."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -24,6 +24,11 @@ log.workspace = true
 oxipng.workspace = true
 rfd.workspace = true
 zip.workspace = true
+
+# Windows-only: lets a GUI-subsystem release build borrow the parent console, so
+# the subcommands' output is visible when drotrim is run from a terminal.
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
 
 # Windows-only: compiles src/dt.ico into the executable's resource table (see
 # build.rs) so Explorer shows the app icon. Never pulled on other targets.

@@ -379,8 +379,10 @@ match byte for byte — they are the guard on this refactor.
 
 - **Interactive shells do not wait for a GUI-subsystem executable.** After
   `drotrim render x.dro` the prompt returns immediately and output interleaves
-  with it. Piping and redirection behave normally, and debug builds are
-  console-subsystem, so this only affects an interactively-run release build.
+  with it. Piping and `cmd`-style redirection capture the output; PowerShell's
+  `>` writes an empty file, having moved on before the process prints. Debug
+  builds are console-subsystem, so this only affects an interactively-run release
+  build. (Measured on the release exe, 2026-07-20.)
 - **A file literally named `play`, `render`, `split`, `convert` or `help`** parses
   as a subcommand; open it as `drotrim .\play`.
 - **The old bin names are gone.** `dro_split x.dro` is now `drotrim split
