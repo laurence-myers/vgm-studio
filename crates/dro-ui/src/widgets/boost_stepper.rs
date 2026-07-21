@@ -136,6 +136,12 @@ pub fn boost_stepper(
                         }),
                 )
                 .on_hover_text(format!("{factor:.2}\u{00d7} ({db:+.1} dB)"));
+            // Report whether this field holds keyboard focus, so the app yields
+            // the keyboard to it (see `gather_key_input`) -- a number typed here
+            // must change the volume, not toggle a channel. Routed as an action
+            // rather than written to egui memory here, which would deadlock the
+            // memory lock held during the draw.
+            actions.push(Action::VolumeFieldFocused(response.has_focus()));
             // No continuous drag (speed 0), so a change is always a committed edit
             // -- persist it once, like an arrow click. A typed value is snapped to
             // the ladder and capped at the clipping ceiling.

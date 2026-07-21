@@ -157,6 +157,10 @@ pub enum Action {
     /// The VGM metadata dialog's "Measure" button: measure the song's peak in the
     /// background, then fill the volume-modifier field with a suggestion.
     MeasureVolumeModifier,
+    /// Reported each frame by the volume field: whether it currently holds
+    /// keyboard focus. While it does, the editor's key shortcuts stand down so a
+    /// typed number edits the volume instead of toggling a channel.
+    VolumeFieldFocused(bool),
 
     // Loop points
     /// Mark the loop start at an instruction index.

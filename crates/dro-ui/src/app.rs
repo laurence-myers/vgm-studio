@@ -247,6 +247,11 @@ pub struct DroApp {
     /// use one [`TaskKind::VolumeScan`], and submitting cancels the other, so a
     /// single value tracks the live purpose.
     volume_scan_purpose: VolumeScanPurpose,
+    /// Whether the transport's volume field held keyboard focus as of the last
+    /// frame, reported by the lever via [`Action::VolumeFieldFocused`]. While it
+    /// does, [`Self::gather_key_input`] stands the editor shortcuts down so typed
+    /// numbers edit the value instead of toggling channels.
+    volume_field_editing: bool,
     position: PositionPanel,
     channels: ChannelPanel,
 
@@ -320,6 +325,7 @@ impl DroApp {
             peak_meter: PeakMeterState::default(),
             boost_ceiling: None,
             volume_scan_purpose: VolumeScanPurpose::MatchBoost,
+            volume_field_editing: false,
             position: PositionPanel::new(config.audio.frequency),
             channels: ChannelPanel::new(),
             scroll_to: None,
@@ -1038,10 +1044,10 @@ impl DroApp {
     fn gather_key_input(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
         // An alert or any open dialog owns the keyboard: the editor's shortcuts
         // (Space, Delete, ...) must not fire behind it, and Ctrl+Z in a tag field
-        // must undo the *text*, not the song. Unlike egui_wants_keyboard_input(),
-        // this does NOT fire when a chrome button merely holds focus -- the editor
-        // view has no text inputs, so a stray Tab onto a button used to disable
-        // every shortcut and let Space "click" the focused button (e.g. delete).
+        // must undo the *text*, not the song. A blanket `egui_wants_keyboard_input`
+        // gate would also swallow shortcuts whenever a chrome button merely holds
+        // focus, so instead the one editor-view text input (the volume field)
+        // reports its own focus (see the boost_stepper gate below).
         if !self.alerts.is_empty() || self.dialogs.any_open() {
             return;
         }
@@ -1069,10 +1075,19 @@ impl DroApp {
             });
             return;
         }
+        // The transport's volume field is the editor view's one focusable text
+        // input; while it holds keyboard focus it owns the keyboard, so typed
+        // numbers edit the value instead of toggling channels 1-9 (and Delete /
+        // arrows edit the text, not the song). Tab is intentionally left
+        // unconsumed here so it can move focus out of the field as usual.
+        if self.volume_field_editing {
+            return;
+        }
         ctx.input_mut(|input| {
-            // The editor view has no focusable text, so swallow Tab/Shift+Tab: a
-            // stray Tab would otherwise move focus onto a chrome button, where
-            // Space activates it (e.g. "Del.") instead of toggling playback.
+            // Aside from the volume field handled just above, the editor view has
+            // no focusable text, so swallow Tab/Shift+Tab: a stray Tab would
+            // otherwise move focus onto a chrome button, where Space activates it
+            // (e.g. "Del.") instead of toggling playback.
             input.consume_key(egui::Modifiers::NONE, Key::Tab);
             input.consume_key(egui::Modifiers::SHIFT, Key::Tab);
             // egui's shortcut matching ignores a surplus Shift, so the
@@ -1596,6 +1611,7 @@ impl DroApp {
             Action::SetBoost { value, persist } => self.set_boost(value, persist),
             Action::MatchVolume => self.match_volume(),
             Action::MeasureVolumeModifier => self.measure_volume_modifier(),
+            Action::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
 
             Action::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
             Action::Status(message) => self.status = message,

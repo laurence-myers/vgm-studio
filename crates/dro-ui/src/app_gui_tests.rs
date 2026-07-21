@@ -666,6 +666,25 @@ fn loading_a_song_resets_pan_mode_to_original() {
 }
 
 #[test]
+fn typing_in_the_volume_field_does_not_toggle_a_channel() {
+    // Regression: the channel shortcuts (1-9) must not fire while the volume field
+    // holds keyboard focus, or typing a number there would also mute a channel.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    // Stand in for the field holding focus, as it reports each frame it is edited.
+    harness.state_mut().volume_field_editing = true;
+    let before = harness.state().channels.muting();
+
+    harness.key_press(Key::Num3);
+    harness.run_steps(1);
+
+    assert_eq!(
+        harness.state().channels.muting(),
+        before,
+        "a number typed into the focused volume field must not toggle channel 3"
+    );
+}
+
+#[test]
 fn boost_up_arrow_steps_up_and_persists_it() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
