@@ -20,6 +20,7 @@ pub mod split_songs;
 pub mod undo;
 pub mod util;
 pub mod vgm;
+pub mod volume;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
 pub use error::{Error, Result};
@@ -33,3 +34,4 @@ pub use song::{
 pub use split_songs::{Segment, detect_segments};
 pub use undo::{OptimizeVgm, UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};
+pub use volume::{boost_for_peak, encode_volume_modifier, peak_dbfs, suggest_volume_modifier};
