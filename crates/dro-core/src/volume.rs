@@ -171,6 +171,30 @@ pub fn nearest_volume_modifier(factor: f32) -> u8 {
         .expect("the 0..=255 range is non-empty")
 }
 
+/// The next ladder volume *above* `factor`, for the volume stepper's up arrow.
+///
+/// Steps by about `1.0` at unity and above (so the lever climbs `1x -> 2x -> 3x`)
+/// and by about `0.1` below unity (`0.8x -> 0.9x -> 1.0x`), then snaps to the
+/// nearest modifier value. Saturating at the `64x` ceiling returns `factor`
+/// unchanged, which the widget reads as "cannot go higher".
+#[must_use]
+pub fn volume_step_up(factor: f32) -> f32 {
+    let step = if factor >= 1.0 { 1.0 } else { 0.1 };
+    volume_modifier_factor(nearest_volume_modifier(factor + step))
+}
+
+/// The next ladder volume *below* `factor`; the mirror of [`volume_step_up`].
+///
+/// The unity boundary is asymmetric so the sequence is continuous: `factor > 1.0`
+/// takes the `1.0` step, but `1.0` itself takes the `0.1` step, so `1.00x` steps
+/// down to `~0.90x` rather than jumping to the `0.25x` floor. Saturates at that
+/// floor.
+#[must_use]
+pub fn volume_step_down(factor: f32) -> f32 {
+    let step = if factor > 1.0 { 1.0 } else { 0.1 };
+    volume_modifier_factor(nearest_volume_modifier(factor - step))
+}
+
 /// The playback boost that brings `peak` up to full scale, clamped to the
 /// gain half of the `0.25..=64.0` range
 /// [`AudioConfig::boost`](crate::config::AudioConfig::boost) accepts.
@@ -407,6 +431,40 @@ mod tests {
         let boost = boost_for_peak(0x3000); // ~2.67x
         let snapped = volume_modifier_factor(nearest_volume_modifier(boost));
         assert!((snapped - boost).abs() < 0.05, "{snapped} vs {boost}");
+    }
+
+    #[test]
+    fn volume_steps_are_coarse_above_unity_and_fine_below() {
+        // Snapping to the geometric ladder means "about", not exact.
+        let approx = |a: f32, b: f32| (a - b).abs() < 0.06;
+
+        // At unity and above, the arrows move in whole numbers.
+        assert!(
+            approx(volume_step_up(1.0), 2.0),
+            "1 -> {}",
+            volume_step_up(1.0)
+        );
+        assert!(approx(volume_step_up(2.0), 3.0));
+        assert!(approx(volume_step_down(3.0), 2.0));
+        assert!(approx(volume_step_down(2.0), 1.0));
+
+        // The unity boundary is continuous: down from 1.0 is a fine 0.1 step to
+        // ~0.9, not a jump to the 0.25 floor; up from ~0.9 lands back on 1.0.
+        assert!(
+            approx(volume_step_down(1.0), 0.9),
+            "1 down -> {}",
+            volume_step_down(1.0)
+        );
+        assert!(approx(volume_step_up(0.9), 1.0));
+
+        // Below unity, the arrows move in tenths.
+        assert!(approx(volume_step_down(0.9), 0.8));
+        assert!(approx(volume_step_up(0.5), 0.6));
+
+        // The ladder ends saturate -- stepping past them returns the same value,
+        // which the stepper reads as "cannot move further".
+        assert_eq!(volume_step_up(64.0), volume_modifier_factor(0xC0));
+        assert_eq!(volume_step_down(0.25), volume_modifier_factor(0xC1));
     }
 
     #[test]

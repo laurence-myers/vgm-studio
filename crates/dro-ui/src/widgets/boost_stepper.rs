@@ -10,12 +10,7 @@
 
 use crate::action::Action;
 use crate::theme::{self, Palette};
-use dro_core::{nearest_volume_modifier, nudge_volume_modifier, volume_modifier_factor};
-
-/// One up/down click moves this many positions along the factor ladder. 32
-/// positions is a doubling, so a single step is about `0.22` dB -- fine, but it
-/// lands exactly on a modifier value and the 2-dp readout still moves each click.
-const ARROW_STEP: i32 = 1;
+use dro_core::{nearest_volume_modifier, volume_modifier_factor, volume_step_down, volume_step_up};
 
 /// Snaps a desired factor onto the modifier ladder, then caps it at `ceiling`
 /// (the clipping-guard level) when one is set.
@@ -57,17 +52,16 @@ pub fn boost_stepper(
         let row_h = ui.spacing().interact_size.y;
 
         // The lever sits on the modifier factor ladder: snap the stored factor to
-        // its nearest ladder position, then step and display from there.
-        let byte = nearest_volume_modifier(boost);
-        let factor = volume_modifier_factor(byte);
-        let up = nudge_volume_modifier(byte, ARROW_STEP);
-        let down = nudge_volume_modifier(byte, -ARROW_STEP);
+        // its nearest ladder position, then step and display from there. The
+        // arrows move ~1.0 at unity and above, ~0.1 below it (both snapped).
+        let factor = volume_modifier_factor(nearest_volume_modifier(boost));
+        let up_factor = volume_step_up(factor);
+        let down_factor = volume_step_down(factor);
         // The ceiling blocks raising past the level that clipped (a hair of slack
-        // for the float compare, since the ladder steps are ~2% apart). Lowering
-        // is always allowed.
-        let can_raise =
-            up != byte && ceiling.is_none_or(|c| volume_modifier_factor(up) <= c * 1.001);
-        let can_lower = down != byte;
+        // for the float compare). A step that does not move (the ladder end)
+        // disables its arrow. Lowering is always allowed.
+        let can_raise = up_factor != factor && ceiling.is_none_or(|c| up_factor <= c * 1.001);
+        let can_lower = down_factor != factor;
 
         // Up/down arrows, snug together (rightmost in the row). A nested
         // `ui.horizontal` inherits the enclosing right-to-left layout, so add down
@@ -82,7 +76,7 @@ pub fn boost_stepper(
                 && can_lower
             {
                 actions.push(Action::SetBoost {
-                    value: volume_modifier_factor(down),
+                    value: down_factor,
                     persist: true,
                 });
             }
@@ -101,7 +95,7 @@ pub fn boost_stepper(
                 && can_raise
             {
                 actions.push(Action::SetBoost {
-                    value: volume_modifier_factor(up),
+                    value: up_factor,
                     persist: true,
                 });
             }

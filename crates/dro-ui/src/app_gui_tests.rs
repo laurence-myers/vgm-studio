@@ -666,26 +666,23 @@ fn loading_a_song_resets_pan_mode_to_original() {
 }
 
 #[test]
-fn boost_up_arrow_steps_up_the_ladder_and_persists_it() {
+fn boost_up_arrow_steps_up_and_persists_it() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
     harness.get_by_label("\u{25B2}").click(); // ▲ louder
     harness.run();
 
-    // The volume lever moves one modifier-ladder position up from unity -- a fine
-    // ~0.22 dB step (0x00 -> 0x01), not the old whole-number jump to 2x.
-    let expected = dro_core::volume_modifier_factor(dro_core::nudge_volume_modifier(
-        dro_core::nearest_volume_modifier(1.0),
-        1,
-    ));
+    // From unity the up arrow makes a coarse ~1.0 step to about 2x (snapped to the
+    // ladder), not a fine nudge.
+    let expected = dro_core::volume_step_up(1.0);
     assert!(
-        expected > 1.0 && expected < 1.1,
-        "one click is a single fine step, not a doubling: {expected}"
+        (expected - 2.0).abs() < 0.06,
+        "one click steps ~1.0 up from unity: {expected}"
     );
     assert_eq!(
         handles.audio.borrow().boosts.last().copied(),
         Some(expected),
-        "the up arrow steps up one ladder position"
+        "the up arrow steps the volume up"
     );
     let saved = handles.saved_configs.borrow();
     assert_eq!(saved.len(), 1, "the change is persisted once");
