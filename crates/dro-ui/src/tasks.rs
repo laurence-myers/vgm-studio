@@ -13,8 +13,8 @@ use dro_core::io::write_song;
 use dro_core::rip::track_file_name;
 use dro_core::split_songs::{detect_segments, materialise};
 use dro_synth::{
-    RenderMix, SplitData, SplitOptions, WaveformBucket, render_wav_cancellable,
-    render_waveform_progressive, split_cancellable,
+    Peak, RenderMix, SplitData, SplitOptions, WaveformBucket, measure_peak_cancellable,
+    render_wav_cancellable, render_waveform_progressive, split_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -27,6 +27,9 @@ pub enum TaskKind {
     Split,
     /// File > Split Songs (one capture into its per-song files).
     SplitSongs,
+    /// Measuring a song's peak level, for the volume lever's "Match" button and
+    /// the VGM volume-modifier suggestion.
+    VolumeScan,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -59,6 +62,8 @@ pub enum TaskRequest {
         /// Decay tail to keep after each piece, in native units.
         trailing_tail: u32,
     },
+    /// Measures `song`'s peak level by rendering it internally at `sample_rate`.
+    VolumeScan { song: Arc<Song>, sample_rate: u32 },
 }
 
 impl TaskRequest {
@@ -69,6 +74,7 @@ impl TaskRequest {
             Self::RenderWav { .. } => TaskKind::RenderWav,
             Self::Split { .. } => TaskKind::Split,
             Self::SplitSongs { .. } => TaskKind::SplitSongs,
+            Self::VolumeScan { .. } => TaskKind::VolumeScan,
         }
     }
 }
@@ -90,6 +96,9 @@ pub enum TaskResult {
     /// One `(name, bytes)` per included song in the capture, ready to write, or
     /// why the split failed. Serialised inside the task, like [`Self::Split`].
     SplitSongs(SplitFiles),
+    /// A finished volume scan's peak, for the "Match Volume" button and the VGM
+    /// volume-modifier suggestion. A cancelled scan emits nothing.
+    Peak(Peak),
 }
 
 /// A finished split's files, ready to write, or why it failed.
@@ -198,6 +207,17 @@ pub fn run_task(
                 is_cancelled,
             ) {
                 emit(TaskResult::SplitSongs(result));
+            }
+        }
+        TaskRequest::VolumeScan { song, sample_rate } => {
+            // A cancelled scan (the song was replaced, or a fresh scan started)
+            // emits nothing, like the WAV render.
+            if let Some(peak) =
+                measure_peak_cancellable(Arc::clone(song), *sample_rate, &mut |_| {}, &mut || {
+                    !is_cancelled()
+                })
+            {
+                emit(TaskResult::Peak(peak));
             }
         }
     }
@@ -317,6 +337,23 @@ mod tests {
     #[test]
     fn a_cancelled_task_produces_nothing() {
         assert!(collect(&request(tone_song()), || true).is_empty());
+    }
+
+    #[test]
+    fn the_volume_scan_emits_the_songs_peak() {
+        let song = tone_song();
+        let expected = dro_synth::measure_peak(&song, 48_000);
+        let scan = TaskRequest::VolumeScan {
+            song: Arc::new(song),
+            sample_rate: 48_000,
+        };
+        let results = collect(&scan, || false);
+        assert!(
+            matches!(results.as_slice(), [TaskResult::Peak(peak)] if *peak == expected),
+            "expected one Peak matching the direct measurement, got {results:?}"
+        );
+        // A cancelled scan emits nothing.
+        assert!(collect(&scan, || true).is_empty());
     }
 
     /// An abandoned export must produce nothing at all: its bytes belong to a

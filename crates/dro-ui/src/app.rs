@@ -724,6 +724,7 @@ impl DroApp {
                 TaskResult::Split(outputs) | TaskResult::SplitSongs(outputs) => {
                     self.write_split(outputs);
                 }
+                TaskResult::Peak(peak) => self.handle_volume_scan(peak),
             }
         }
     }
@@ -747,6 +748,55 @@ impl DroApp {
                 self.alerts.push_back(Alert::error(message));
             }
         }
+    }
+
+    /// Changes the live playback volume, updating the config, the audio engine and
+    /// (when `persist`) `drotrim.ini`. The shared path behind the volume lever and
+    /// the "Match Volume" scan.
+    fn set_boost(&mut self, value: f32, persist: bool) {
+        self.config.audio.boost = value;
+        // A loaded stream gets the boost live via the command queue; an unloaded
+        // one picks it up from `config.audio` on the next load, so this
+        // deliberately does not force an audio reload.
+        self.audio.set_boost(value);
+        if persist && let Err(error) = self.config_store.save(&self.config) {
+            self.alerts
+                .push_back(Alert::error(format!("Could not save settings: {error}")));
+        }
+    }
+
+    /// Kicks off a background peak scan of the current song for the volume lever's
+    /// "Match" button; the finished scan reaches [`Self::handle_volume_scan`]
+    /// through `poll_services`. Cancels any scan already running (same
+    /// [`TaskKind`]), so mashing the button just re-measures.
+    fn match_volume(&mut self) {
+        let Some(song) = self.editor.snapshot() else {
+            self.require_song();
+            return;
+        };
+        self.tasks.submit(
+            TaskRequest::VolumeScan {
+                song,
+                sample_rate: self.config.audio.frequency,
+            },
+            None,
+        );
+        self.status = "Measuring volume...".to_owned();
+    }
+
+    /// Applies a finished volume scan: sets the volume to the modifier-ladder
+    /// value that brings the measured peak to full scale, and reports the peak and
+    /// the volume it chose.
+    fn handle_volume_scan(&mut self, peak: dro_synth::Peak) {
+        if peak.max_level == 0 {
+            self.status = "The song is silent; volume left unchanged.".to_owned();
+            return;
+        }
+        // The modifier-ladder volume that lifts the peak to full scale.
+        let volume = dro_core::matched_volume(peak.max_level);
+        self.set_boost(volume, true);
+        let dbfs = dro_core::peak_dbfs(peak.max_level);
+        self.status = format!("Peak {dbfs:.1} dBFS \u{2192} volume {volume:.2}\u{00d7}");
     }
 
     fn handle_save_outcome(&mut self, purpose: SavePurpose, outcome: SaveOutcome) {
@@ -1498,17 +1548,8 @@ impl DroApp {
             }
             Action::MutingChanged => self.audio.set_muting(self.channels.muting()),
             Action::PanningChanged => self.audio.set_panning(self.channels.panning()),
-            Action::SetBoost { value, persist } => {
-                self.config.audio.boost = value;
-                // A loaded stream gets the boost live via the command queue; an
-                // unloaded one picks it up from `config.audio` on the next load,
-                // so this deliberately does not force an audio reload.
-                self.audio.set_boost(value);
-                if persist && let Err(error) = self.config_store.save(&self.config) {
-                    self.alerts
-                        .push_back(Alert::error(format!("Could not save settings: {error}")));
-                }
-            }
+            Action::SetBoost { value, persist } => self.set_boost(value, persist),
+            Action::MatchVolume => self.match_volume(),
 
             Action::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
             Action::Status(message) => self.status = message,

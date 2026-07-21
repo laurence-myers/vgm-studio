@@ -766,6 +766,83 @@ fn the_volume_ceiling_allows_returning_to_the_trigger_level_but_not_beyond() {
 }
 
 #[test]
+fn match_volume_measures_the_peak_and_sets_the_volume() {
+    // An inline task service runs the scan synchronously, so the whole chain --
+    // button -> VolumeScan task -> measure_peak -> set volume -> persist -- runs
+    // for real on the song.
+    let song = tone_song();
+    // build(initial, inline_tasks, wgpu): inline runs the scan synchronously.
+    let (mut harness, handles) = build(Some(picked(&song)), true, false);
+
+    harness.get_by_label("Match").click();
+    // The inline scan finishes on submit, but its Peak lands in `pending` and is
+    // delivered by a later frame's poll. `run` would go idle before then (the
+    // synchronous fake never looks busy), so force frames: one processes the
+    // click and submits, the next polls the Peak and applies it.
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    assert!(
+        handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::VolumeScan),
+        "clicking Match submits a volume scan"
+    );
+
+    // The status line proves the scan landed and was applied.
+    assert!(
+        harness.state().status.contains("dBFS"),
+        "the status reports the peak: {:?} boost={}",
+        harness.state().status,
+        harness.state().config.audio.boost
+    );
+
+    // Recompute the scan's peak here to pin the exact ladder volume the app must
+    // have chosen and persisted.
+    let rate = harness.state().config.audio.frequency;
+    let peak = dro_synth::measure_peak(&song, rate);
+    let expected = dro_core::volume_modifier_factor(dro_core::nearest_volume_modifier(
+        dro_core::boost_for_peak(peak.max_level),
+    ));
+    assert_eq!(
+        harness.state().config.audio.boost,
+        expected,
+        "the volume is matched to the measured peak, on the ladder; status={:?}",
+        harness.state().status
+    );
+    assert!(
+        handles
+            .saved_configs
+            .borrow()
+            .iter()
+            .any(|config| config.audio.boost == expected),
+        "the matched volume is persisted"
+    );
+}
+
+#[test]
+fn match_volume_without_a_song_submits_no_scan() {
+    let (mut harness, handles) = empty_harness();
+    // The lever (and its Match button) render even with no song loaded; clicking
+    // Match then asks for a song rather than scanning nothing.
+    harness.get_by_label("Match").click();
+    harness.run();
+    assert!(
+        !handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::VolumeScan),
+        "no scan is submitted without a song"
+    );
+}
+
+#[test]
 fn settings_save_preserves_a_live_changed_boost() {
     // M4/ux-15: the Settings dialog snapshots the config at open and doesn't
     // expose the boost, so a boost changed via the transport meanwhile must not

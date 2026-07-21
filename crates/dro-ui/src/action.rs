@@ -151,6 +151,9 @@ pub enum Action {
         value: f32,
         persist: bool,
     },
+    /// The volume lever's "Match" button: measure the song's peak in the
+    /// background, then set the volume to bring it to full scale.
+    MatchVolume,
 
     // Loop points
     /// Mark the loop start at an instruction index.

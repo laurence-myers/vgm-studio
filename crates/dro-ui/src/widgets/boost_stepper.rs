@@ -155,6 +155,18 @@ pub fn boost_stepper(
 
         // The label sits left of the value...
         ui.label("Volume");
+        // ...then the "Match" button (further left in this right-to-left row, so it
+        // reads "Match Volume 1.00x"): it measures the song's peak and sets the
+        // volume to bring it to full scale.
+        if theme::bevel::button(ui, palette, "Match")
+            .on_hover_text(
+                "Measure the song's loudest peak and set the volume to bring it to \
+                 full scale without clipping",
+            )
+            .clicked()
+        {
+            actions.push(Action::MatchVolume);
+        }
         // ...and a 2px beveled groove at full row height separates the volume
         // section from the transport buttons, matching the grooves between the
         // stacked panels.

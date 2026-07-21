@@ -188,6 +188,18 @@ pub fn boost_for_peak(peak: i16) -> f32 {
     (32_768.0 / peak).clamp(1.0, 64.0)
 }
 
+/// The modifier-ladder volume that brings `peak` up to full scale -- what the
+/// "Match Volume" button sets the playback lever to.
+///
+/// [`boost_for_peak`] gives the exact factor; this snaps it onto the modifier
+/// ladder with [`nearest_volume_modifier`] so the lever sits on a real modifier
+/// value. Silence (`peak == 0`) has no meaningful match; callers should special
+/// case it (this returns the max-gain clamp, as `boost_for_peak` does).
+#[must_use]
+pub fn matched_volume(peak: i16) -> f32 {
+    volume_modifier_factor(nearest_volume_modifier(boost_for_peak(peak)))
+}
+
 /// The peak level in dBFS, for a readout beside the modifier and boost controls.
 ///
 /// `20 * log10(peak / 0x8000)`: `0` dBFS at full scale, `-6.02` at half,
@@ -395,6 +407,29 @@ mod tests {
         let boost = boost_for_peak(0x3000); // ~2.67x
         let snapped = volume_modifier_factor(nearest_volume_modifier(boost));
         assert!((snapped - boost).abs() < 0.05, "{snapped} vs {boost}");
+    }
+
+    #[test]
+    fn matched_volume_snaps_the_full_scale_boost_onto_the_ladder() {
+        // A half-scale peak wants a clean 2x lift; full scale wants none.
+        assert!((matched_volume(0x4000) - 2.0).abs() < 1e-3, "half -> 2x");
+        assert!(
+            (matched_volume(0x7FFF) - 1.0).abs() < 1e-3,
+            "full scale -> unity"
+        );
+        // Whatever the peak, the result is a real ladder value in the gain range.
+        for peak in [0x0100i32, 0x0800, 0x1234, 0x4000, 0x7FFF] {
+            let volume = matched_volume(peak as i16);
+            assert_eq!(
+                volume,
+                volume_modifier_factor(nearest_volume_modifier(volume)),
+                "peak {peak:#06X} sits on the ladder"
+            );
+            assert!(
+                (1.0..=64.0).contains(&volume),
+                "peak {peak:#06X} in gain range"
+            );
+        }
     }
 
     #[test]
