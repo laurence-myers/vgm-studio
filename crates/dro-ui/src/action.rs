@@ -9,6 +9,8 @@ use dro_core::config::AppConfig;
 use dro_core::{Gd3Tag, OplType};
 use dro_synth::LoopCount;
 
+use crate::rip::BulkTagOverlay;
+
 /// Which top-level view is showing. The tab strip appears only while a rip is
 /// open; otherwise the app is always on [`AppTab::Editor`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +99,15 @@ pub enum Action {
         original_name: String,
         file_name: String,
         tag: Box<Gd3Tag>,
+    },
+    /// Open the bulk GD3 tag editor (chosen fields written to chosen tracks).
+    OpenBulkTag,
+    /// Apply a bulk GD3 edit: overlay the checked fields onto each target track's
+    /// existing tag and rewrite the files as one undoable batch. Targets are file
+    /// names (the stable identity re-resolved against the current list).
+    BulkTagSubmitted {
+        targets: Vec<String>,
+        overlay: Box<BulkTagOverlay>,
     },
 
     // Help

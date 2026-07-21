@@ -16,6 +16,7 @@ use dro_core::rip::{
     DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, TrackEntry, doc_file_stem, format_track_time,
     generate_description, generate_m3u, music_hardware_suggestion, parse_description,
 };
+use dro_core::vgm::data::GD3_FIELD_COUNT;
 use dro_core::{Gd3Tag, OplType, Song};
 use egui_extras::{Column, TableBuilder};
 
@@ -545,6 +546,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
             {
                 actions.push(Action::RipSaveDocs);
             }
+            if bevel::button(ui, palette, "Bulk Tag\u{2026}")
+                .on_hover_text("Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at once")
+                .clicked()
+            {
+                actions.push(Action::OpenBulkTag);
+            }
             ui.checkbox(&mut state.gzip_on_export, "Gzip to .vgz on export");
         });
     });
@@ -639,6 +646,76 @@ pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8
         meta.tag = Some(tag);
     }
     dro_core::io::write_song(&song).map_err(|error| error.to_string())
+}
+
+// GD3 field indices (file order), for the bulk-tag seeding below.
+mod gd3_index {
+    pub(super) const GAME_NAME_EN: usize = 2;
+    pub(super) const SYSTEM_NAME_EN: usize = 4;
+    pub(super) const TRACK_AUTHOR_EN: usize = 6;
+    pub(super) const RELEASE_DATE: usize = 8;
+    pub(super) const CREATOR: usize = 9;
+}
+
+/// A bulk GD3 edit: which of the eleven fields to write, and the value for each.
+///
+/// Applying it overlays only the *checked* fields onto a track's existing tag,
+/// so every unchecked field keeps that track's own value. That is the whole
+/// point of a bulk edit: correct the composer on half the tracks, or stamp the
+/// shared game name onto all of them, without disturbing anything else.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BulkTagOverlay {
+    /// Per field, in GD3 file order: whether `values[i]` is written.
+    pub apply: [bool; GD3_FIELD_COUNT],
+    /// Per field, in GD3 file order: the value written when `apply[i]` is set.
+    pub values: [String; GD3_FIELD_COUNT],
+}
+
+impl BulkTagOverlay {
+    /// The tag that results from writing the checked fields onto `base`, leaving
+    /// the unchecked fields at their existing values.
+    #[must_use]
+    pub fn apply_to(&self, base: &Gd3Tag) -> Gd3Tag {
+        let mut fields = base.fields().map(str::to_owned);
+        for (slot, (on, value)) in fields.iter_mut().zip(self.apply.iter().zip(&self.values)) {
+            if *on {
+                slot.clone_from(value);
+            }
+        }
+        Gd3Tag::from_fields(fields)
+    }
+
+    /// Whether any field is checked. With none, a bulk edit has nothing to do.
+    #[must_use]
+    pub fn writes_anything(&self) -> bool {
+        self.apply.iter().any(|&on| on)
+    }
+}
+
+/// Seeds a bulk edit from the package metadata: the GD3 fields whose value is
+/// shared by every track in a pack.
+///
+/// Game, system, release date and ripper are pre-checked when present -- a pack
+/// shares them, so "write these to every track" is the common case and wants no
+/// extra clicks. The composer is pre-*filled* but left unchecked, since it is
+/// the field most likely to differ between tracks (the reason to tag a subset).
+/// Track titles are never seeded: they are per-track by definition.
+#[must_use]
+pub fn seed_from_meta(meta: &RipMeta) -> BulkTagOverlay {
+    let mut overlay = BulkTagOverlay::default();
+    // (field index, seed value, whether to pre-check when non-empty)
+    let seeds = [
+        (gd3_index::GAME_NAME_EN, &meta.game_name, true),
+        (gd3_index::SYSTEM_NAME_EN, &meta.system, true),
+        (gd3_index::RELEASE_DATE, &meta.release_date, true),
+        (gd3_index::CREATOR, &meta.creator, true),
+        (gd3_index::TRACK_AUTHOR_EN, &meta.music_authors, false),
+    ];
+    for (index, value, precheck) in seeds {
+        overlay.values[index] = value.clone();
+        overlay.apply[index] = precheck && !value.trim().is_empty();
+    }
+    overlay
 }
 
 /// A labelled single-line field. Returns whether it changed.
@@ -1179,5 +1256,77 @@ mod tests {
         // A no-op or out-of-range move builds nothing.
         assert!(state.reorder_transaction(0, 0).is_none());
         assert!(state.reorder_transaction(0, 9).is_none());
+    }
+
+    #[test]
+    fn overlay_writes_only_the_checked_fields() {
+        let base = tag("Old Game", "Ada", "Old Ripper");
+        let mut overlay = BulkTagOverlay::default();
+        // Check game name and creator; leave author and everything else alone.
+        overlay.apply[gd3_index::GAME_NAME_EN] = true;
+        overlay.values[gd3_index::GAME_NAME_EN] = "New Game".to_owned();
+        overlay.apply[gd3_index::CREATOR] = true;
+        overlay.values[gd3_index::CREATOR] = "New Ripper".to_owned();
+        // A value present but unchecked must not be written.
+        overlay.values[gd3_index::TRACK_AUTHOR_EN] = "Zoe".to_owned();
+
+        let merged = overlay.apply_to(&base);
+        assert_eq!(merged.game_name_en, "New Game", "checked field written");
+        assert_eq!(merged.creator, "New Ripper", "checked field written");
+        assert_eq!(merged.track_author_en, "Ada", "unchecked field kept");
+        assert_eq!(merged.release_date, "1994", "untouched field kept");
+    }
+
+    #[test]
+    fn overlay_can_clear_a_field_by_checking_an_empty_value() {
+        let base = tag("Game", "Ada", "Ripper");
+        let mut overlay = BulkTagOverlay::default();
+        overlay.apply[gd3_index::TRACK_AUTHOR_EN] = true; // empty value
+        assert_eq!(overlay.apply_to(&base).track_author_en, "");
+    }
+
+    #[test]
+    fn writes_anything_reflects_the_checkboxes() {
+        let mut overlay = BulkTagOverlay::default();
+        assert!(!overlay.writes_anything());
+        overlay.apply[gd3_index::SYSTEM_NAME_EN] = true;
+        assert!(overlay.writes_anything());
+    }
+
+    #[test]
+    fn seed_prechecks_shared_fields_but_not_the_composer() {
+        let meta = RipMeta {
+            game_name: "Cool Game".to_owned(),
+            system: "IBM PC/AT".to_owned(),
+            release_date: "1994-03-01".to_owned(),
+            creator: "Ripper".to_owned(),
+            music_authors: "Ada, Bob".to_owned(),
+            ..RipMeta::default()
+        };
+        let overlay = seed_from_meta(&meta);
+
+        // Shared pack-wide fields: pre-filled and pre-checked.
+        for index in [
+            gd3_index::GAME_NAME_EN,
+            gd3_index::SYSTEM_NAME_EN,
+            gd3_index::RELEASE_DATE,
+            gd3_index::CREATOR,
+        ] {
+            assert!(overlay.apply[index], "field {index} pre-checked");
+        }
+        // The composer is seeded but left unchecked -- it often varies per track.
+        assert_eq!(overlay.values[gd3_index::TRACK_AUTHOR_EN], "Ada, Bob");
+        assert!(!overlay.apply[gd3_index::TRACK_AUTHOR_EN]);
+        // Titles are never seeded.
+        assert!(overlay.values[0].is_empty() && !overlay.apply[0]);
+    }
+
+    #[test]
+    fn seed_leaves_empty_pack_fields_unchecked() {
+        let overlay = seed_from_meta(&RipMeta::default());
+        assert!(
+            !overlay.writes_anything(),
+            "a blank pack pre-checks nothing"
+        );
     }
 }

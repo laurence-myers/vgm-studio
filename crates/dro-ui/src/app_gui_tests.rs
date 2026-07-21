@@ -2064,6 +2064,152 @@ fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
     }
 }
 
+/// An overlay that writes one field (by GD3 index) to a given value.
+fn overlay_writing(index: usize, value: &str) -> crate::rip::BulkTagOverlay {
+    let mut overlay = crate::rip::BulkTagOverlay::default();
+    overlay.apply[index] = true;
+    overlay.values[index] = value.to_owned();
+    overlay
+}
+
+/// Reads back a written VGM/VGZ and returns its GD3 tag.
+fn tag_of(name: &str, bytes: &[u8]) -> dro_core::Gd3Tag {
+    dro_core::io::read_song(name, bytes)
+        .unwrap()
+        .vgm_meta()
+        .unwrap()
+        .tag
+        .clone()
+        .unwrap_or_default()
+}
+
+/// Drives a rip run to completion: feed one save outcome per write, plus the
+/// rescan folder, then step the frame loop.
+fn settle_rip_run(harness: &mut Harness<'static, DroApp>, handles: &Handles, writes: usize) {
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..writes {
+            files.save_outcomes.push_back(SaveOutcome::Saved {
+                name: "written".to_owned(),
+                path: None,
+            });
+        }
+        files.picked_folders.push_back(Ok(cool_game_folder()));
+    }
+    harness.run_steps(writes + 4);
+}
+
+const GD3_TRACK_AUTHOR_EN: usize = 6;
+const GD3_GAME_NAME_EN: usize = 2;
+
+#[test]
+fn bulk_tag_rewrites_every_selected_track_with_the_checked_field() {
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    // Push a new composer onto both tracks; every other field is left alone.
+    harness.state_mut().bulk_tag_submitted(
+        vec!["01 Intro.vgz".to_owned(), "02 Boss.vgm".to_owned()],
+        overlay_writing(GD3_TRACK_AUTHOR_EN, "New Composer"),
+    );
+    settle_rip_run(&mut harness, &handles, 2);
+
+    let files = handles.files.borrow();
+    let writes: Vec<(&PathBuf, &Vec<u8>)> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, bytes } => Some((path, bytes)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(writes.len(), 2, "both selected tracks are rewritten");
+
+    for (path, bytes) in writes {
+        let name = path.file_name().unwrap().to_string_lossy();
+        let tag = tag_of(&name, bytes);
+        assert_eq!(
+            tag.track_author_en, "New Composer",
+            "{name}: author written"
+        );
+        // Untouched fields keep each track's existing values.
+        assert_eq!(tag.game_name_en, "Cool Game", "{name}: game name kept");
+        assert_eq!(tag.creator, "Ripper", "{name}: creator kept");
+    }
+    // The whole bulk edit is one undoable step.
+    assert_eq!(
+        harness.state().rip_undo.len(),
+        1,
+        "one transaction, one undo"
+    );
+}
+
+#[test]
+fn bulk_tag_can_target_a_subset_of_tracks() {
+    // The composer differs across the pack: only 02 Boss gets the new author.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    harness.state_mut().bulk_tag_submitted(
+        vec!["02 Boss.vgm".to_owned()],
+        overlay_writing(GD3_TRACK_AUTHOR_EN, "Only Bob"),
+    );
+    settle_rip_run(&mut harness, &handles, 1);
+
+    let files = handles.files.borrow();
+    let writes: Vec<&PathBuf> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, .. } => Some(path),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(writes.len(), 1, "only the one selected track is rewritten");
+    assert!(
+        writes[0].to_string_lossy().ends_with("02 Boss.vgm"),
+        "the subset targeted 02 Boss, got {:?}",
+        writes[0]
+    );
+}
+
+#[test]
+fn bulk_tag_skips_tracks_whose_tag_would_not_change() {
+    // Writing the game name every track already has changes nothing, so no file
+    // is rewritten and the run never starts.
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    harness.state_mut().bulk_tag_submitted(
+        vec!["01 Intro.vgz".to_owned(), "02 Boss.vgm".to_owned()],
+        overlay_writing(GD3_GAME_NAME_EN, "Cool Game"),
+    );
+
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "an all-no-op bulk edit writes nothing"
+    );
+    assert!(
+        harness.state().status.contains("nothing changed"),
+        "it says so; status was {:?}",
+        harness.state().status
+    );
+    assert!(harness.state().rip_undo.is_empty(), "nothing to undo");
+}
+
+#[test]
+fn bulk_tag_button_opens_a_dialog() {
+    let (mut harness, handles) = tall_rip_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    harness.get_by_label_contains("Bulk Tag").click();
+    harness.run();
+    assert!(
+        harness.state().dialogs.bulk_tag.is_some(),
+        "the Bulk Tag button opens the dialog"
+    );
+}
+
 const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// A folder that passes every export validation (named, numbered, with a png).
@@ -2289,6 +2435,15 @@ fn snapshot_track_edit_dialog() {
     harness.get_by_label("Tags").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
+}
+
+#[test]
+fn snapshot_bulk_tag_dialog() {
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    harness.get_by_label_contains("Bulk Tag").click();
+    harness.run();
+    settled_snapshot(&mut harness, "bulk_tag_dialog");
 }
 
 // -- loop points (lp-4) ------------------------------------------------------

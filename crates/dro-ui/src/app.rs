@@ -15,8 +15,8 @@ use egui::Key;
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog, RenderWavDialog,
-    SettingsDialog, SplitDialog, TrackEditDialog, VgmMetadataDialog,
+    BulkTagDialog, Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
+    RenderWavDialog, SettingsDialog, SplitDialog, TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -25,7 +25,7 @@ use crate::platform::{
     AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, RipService,
     SaveOutcome, SaveRequest,
 };
-use crate::rip::{RipMutation, RipState, RipTransaction};
+use crate::rip::{BulkTagOverlay, RipMutation, RipState, RipTransaction};
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
@@ -1342,6 +1342,10 @@ impl DroApp {
                 file_name,
                 tag,
             } => self.quick_edit_submitted(original_name, file_name, *tag),
+            Action::OpenBulkTag => self.open_bulk_tag(),
+            Action::BulkTagSubmitted { targets, overlay } => {
+                self.bulk_tag_submitted(targets, *overlay);
+            }
 
             Action::Help => self.alerts.push_back(Alert::new(HELP_TITLE, HELP_TEXT)),
             Action::About => self.alerts.push_back(Alert::new("About", about_text())),
@@ -2070,6 +2074,103 @@ impl DroApp {
         self.status = format!("Updated {new_name}.");
     }
 
+    /// Opens the bulk-tag dialog over every readable track, its fields seeded
+    /// from the package metadata. A no-op with no rip open or no readable tracks.
+    fn open_bulk_tag(&mut self) {
+        let Some(rip) = self.rip.as_ref() else {
+            return;
+        };
+        let tracks: Vec<(String, String)> = rip
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| track.song().is_some())
+            .map(|(index, track)| {
+                let title = track
+                    .entry
+                    .as_ref()
+                    .map_or("", |entry| entry.title.as_str());
+                (track.file_name.clone(), format!("{:02} {title}", index + 1))
+            })
+            .collect();
+        if tracks.is_empty() {
+            self.status = "No readable tracks to tag.".to_owned();
+            return;
+        }
+        let overlay = crate::rip::seed_from_meta(&rip.meta);
+        self.dialogs.bulk_tag = Some(BulkTagDialog::new(tracks, overlay));
+    }
+
+    /// Applies a bulk GD3 edit: overlay the checked fields onto each target
+    /// track's existing tag and rewrite the files as one undoable batch. Tracks
+    /// whose tag would not change (and any not currently VGMs) are skipped, so a
+    /// no-op selection writes nothing.
+    fn bulk_tag_submitted(&mut self, targets: Vec<String>, overlay: BulkTagOverlay) {
+        if self.rip_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        self.stop_preview();
+        let Some(rip) = self.rip.as_ref() else {
+            return;
+        };
+        let mut forward = Vec::new();
+        let mut inverse = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+        for name in &targets {
+            let Some(track) = rip.tracks.iter().find(|track| &track.file_name == name) else {
+                continue;
+            };
+            // Only VGMs carry a GD3 tag; the rip list is VGM/VGZ only, but guard
+            // anyway so a non-VGM can never be rewritten by a bulk edit.
+            let (Some(song), Some(path)) = (track.song(), track.path.clone()) else {
+                continue;
+            };
+            if song.vgm_meta().is_none() {
+                continue;
+            }
+            let current = song
+                .vgm_meta()
+                .and_then(|meta| meta.tag.clone())
+                .unwrap_or_default();
+            let new_tag = overlay.apply_to(&current);
+            if new_tag == current {
+                continue; // nothing changed for this track
+            }
+            match crate::rip::retagged_bytes(song, &track.file_name, new_tag) {
+                Ok(bytes) => {
+                    forward.push(RipMutation::Write {
+                        path: path.clone(),
+                        bytes,
+                    });
+                    inverse.push(RipMutation::Write {
+                        path,
+                        bytes: track.bytes.clone(),
+                    });
+                }
+                Err(message) => errors.push(format!("{name}: {message}")),
+            }
+        }
+
+        if !errors.is_empty() {
+            self.alerts.push_back(Alert::error(errors.join("\n")));
+        }
+        if forward.is_empty() {
+            self.status = "Bulk tag: nothing changed.".to_owned();
+            return;
+        }
+        let count = forward.len();
+        let transaction = RipTransaction {
+            label: format!(
+                "Bulk tag {count} track{}",
+                if count == 1 { "" } else { "s" }
+            ),
+            forward,
+            inverse,
+        };
+        self.start_rip_run(transaction, RipRunKind::NewEdit);
+    }
+
     /// Kicks off an explicit lossless recompression of a screenshot.
     fn optimize_image(&mut self, index: usize) {
         if self.rip_busy() {
@@ -2138,10 +2239,12 @@ impl DroApp {
         }
     }
 
-    /// Closes rip-bound dialogs (the quick-edit dialog), analogous to
-    /// [`Self::close_song_dialogs`].
+    /// Closes rip-bound dialogs (quick-edit and bulk-tag), analogous to
+    /// [`Self::close_song_dialogs`]. Both bind to the current track list, so a
+    /// rescan that can reorder or drop tracks must dismiss them.
     fn close_rip_dialogs(&mut self) {
         self.dialogs.track_edit = None;
+        self.dialogs.bulk_tag = None;
     }
 
     fn do_play(&mut self) {

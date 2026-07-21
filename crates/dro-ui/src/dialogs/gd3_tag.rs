@@ -7,7 +7,9 @@ use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
 /// Labels in `Gd3Tag` field order; "orig" is GD3's original-language variant.
-const LABELS: [&str; GD3_FIELD_COUNT] = [
+/// Shared with the bulk-tag dialog, which lays the same labels out with a
+/// per-field apply checkbox.
+pub(crate) const LABELS: [&str; GD3_FIELD_COUNT] = [
     "Track Name (EN):",
     "Track Name (orig):",
     "Game Name (EN):",

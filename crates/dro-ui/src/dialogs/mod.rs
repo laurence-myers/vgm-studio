@@ -7,6 +7,7 @@
 //!
 //! [`Action`]: crate::action::Action
 
+pub mod bulk_tag;
 pub mod dro_info;
 pub mod find_reg;
 pub mod gd3_tag;
@@ -17,6 +18,7 @@ pub mod split;
 pub mod track_edit;
 pub mod vgm_metadata;
 
+pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
 pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
@@ -75,6 +77,8 @@ pub struct Dialogs {
     pub settings: Option<SettingsDialog>,
     /// Rip mode's per-track quick edit (rename + GD3).
     pub track_edit: Option<TrackEditDialog>,
+    /// Rip mode's bulk GD3 editor (chosen fields, chosen tracks).
+    pub bulk_tag: Option<BulkTagDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,
     /// File > Split Channels: the output format and percussion handling.
@@ -95,6 +99,7 @@ impl Dialogs {
             || self.vgm_metadata.is_some()
             || self.settings.is_some()
             || self.track_edit.is_some()
+            || self.bulk_tag.is_some()
             || self.render_wav.is_some()
             || self.split.is_some()
     }
@@ -123,6 +128,7 @@ impl Dialogs {
         retain(&mut self.track_edit, |d| {
             d.show(ctx, palette, area, actions)
         });
+        retain(&mut self.bulk_tag, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.render_wav, |d| {
             d.show(ctx, palette, area, actions)
         });
