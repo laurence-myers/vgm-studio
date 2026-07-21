@@ -25,11 +25,12 @@ pub struct RipZipOutput {
 /// Builds the release zip from `entries` (already in final order). Returns
 /// `Ok(None)` if `is_cancelled` fired partway through.
 ///
-/// A PNG that oxipng cannot process is kept verbatim and logged, never fatal: a
-/// bad screenshot must not sink the whole export.
+/// A PNG that oxipng cannot process, or a song the optimiser cannot read, is kept
+/// verbatim and logged, never fatal: one bad file must not sink the whole export.
 pub fn build_rip_zip(
     entries: &[RipEntry],
     gzip_vgms: bool,
+    optimize_vgms: bool,
     is_cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<Option<RipZipOutput>> {
     let mut log: Vec<String> = Vec::new();
@@ -40,7 +41,7 @@ pub fn build_rip_zip(
         if is_cancelled() {
             return Ok(None);
         }
-        let (name, bytes) = process_entry(entry, gzip_vgms, &mut log)?;
+        let (name, bytes) = process_entry(entry, gzip_vgms, optimize_vgms, &mut log)?;
         zip.start_file(name.as_str(), options)
             .with_context(|| format!("adding {name} to the zip"))?;
         zip.write_all(&bytes)
@@ -57,28 +58,41 @@ pub fn build_rip_zip(
     }))
 }
 
-/// The final `(name, bytes)` for one entry, applying gzip/oxipng as its kind and
-/// the job settings dictate.
+/// The final `(name, bytes)` for one entry, applying optimise/gzip/oxipng as its
+/// kind and the job settings dictate.
+///
+/// A song is optimised first (stripping redundant OPL writes, `vgm_cmp`-style),
+/// then gzipped -- so the log shows the two savings on their own lines.
 fn process_entry(
     entry: &RipEntry,
     gzip_vgms: bool,
+    optimize_vgms: bool,
     log: &mut Vec<String>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
     match entry.kind {
-        RipEntryKind::Song if gzip_vgms && has_extension(&entry.name, "vgm") => {
-            let name = to_vgz_name(&entry.name);
-            if dro_core::vgm::io::is_gzipped(&entry.bytes) {
-                // Already compressed despite the .vgm name: just rename it.
-                Ok((name, entry.bytes.clone()))
+        RipEntryKind::Song => {
+            let bytes = if optimize_vgms {
+                optimize_song(&entry.name, &entry.bytes, log)
             } else {
-                let compressed = gzip(&entry.bytes).context("gzipping a song")?;
-                log.push(format!(
-                    "{} -> {name} ({} -> {} bytes)",
-                    entry.name,
-                    entry.bytes.len(),
-                    compressed.len()
-                ));
-                Ok((name, compressed))
+                entry.bytes.clone()
+            };
+            if gzip_vgms && has_extension(&entry.name, "vgm") {
+                let name = to_vgz_name(&entry.name);
+                if dro_core::vgm::io::is_gzipped(&bytes) {
+                    // Already compressed despite the .vgm name: just rename it.
+                    Ok((name, bytes))
+                } else {
+                    let compressed = gzip(&bytes).context("gzipping a song")?;
+                    log.push(format!(
+                        "{} -> {name} ({} -> {} bytes)",
+                        entry.name,
+                        bytes.len(),
+                        compressed.len()
+                    ));
+                    Ok((name, compressed))
+                }
+            } else {
+                Ok((entry.name.clone(), bytes))
             }
         }
         RipEntryKind::Image => match oxipng::optimize_from_memory(&entry.bytes, &png_options()) {
@@ -99,7 +113,40 @@ fn process_entry(
                 Ok((entry.name.clone(), entry.bytes.clone()))
             }
         },
-        RipEntryKind::Song | RipEntryKind::Doc => Ok((entry.name.clone(), entry.bytes.clone())),
+        RipEntryKind::Doc => Ok((entry.name.clone(), entry.bytes.clone())),
+    }
+}
+
+/// Optimises one song's bytes when it is a parseable VGM that shrinks, logging the
+/// saving. A DRO, an already-optimal VGM, or any read/write failure passes through
+/// unchanged and never fails the export -- the same never-fatal posture as the PNG
+/// path. The bytes stay in the song's own container (a `.vgm` stays plain, so the
+/// gzip step can still compress it; a `.vgz` stays gzipped).
+fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
+    let mut song = match dro_core::io::read_song(name, bytes) {
+        Ok(song) => song,
+        Err(error) => {
+            log.push(format!("{name}: kept as-is (could not read: {error})"));
+            return bytes.to_vec();
+        }
+    };
+    let Some(outcome) = dro_core::optimize::optimize(&song) else {
+        return bytes.to_vec(); // a DRO, or already optimal
+    };
+    outcome.install(&mut song);
+    match dro_core::io::write_song(&song) {
+        Ok(optimised) => {
+            log.push(format!(
+                "{name}: {} -> {} bytes (optimized)",
+                bytes.len(),
+                optimised.len()
+            ));
+            optimised
+        }
+        Err(error) => {
+            log.push(format!("{name}: kept as-is (could not write: {error})"));
+            bytes.to_vec()
+        }
     }
 }
 
@@ -166,6 +213,128 @@ mod tests {
         || false
     }
 
+    /// A real VGM file (header + stream) carrying a redundant write between two
+    /// delays, so the optimiser has something to strip and merge.
+    fn optimizable_vgm_bytes() -> Vec<u8> {
+        use dro_core::vgm::io::synthesise_header;
+        use dro_core::{OplType, Song, VgmData, VgmMeta};
+        let stream = vec![
+            0x5A, 0x20, 0x01, // write
+            0x61, 0x64, 0x00, // wait 100
+            0x5A, 0x20, 0x01, // redundant write
+            0x61, 0xC8, 0x00, // wait 200
+            0x5A, 0x21, 0x02, // write
+        ];
+        let song = Song::vgm(
+            "x.vgm".to_owned(),
+            0x151,
+            VgmData::new(stream).unwrap(),
+            OplType::Opl2,
+            VgmMeta::new(synthesise_header()),
+        );
+        dro_core::io::write_song(&song).unwrap()
+    }
+
+    #[test]
+    fn an_optimizable_vgm_is_shrunk_and_logged() {
+        let original = optimizable_vgm_bytes();
+        let entries = [song("01 Song.vgm", &original)];
+        // Optimise on, gzip off: the file shrinks but keeps its .vgm name.
+        let output = build_rip_zip(&entries, false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(files[0].0, "01 Song.vgm");
+        assert!(
+            files[0].1.len() < original.len(),
+            "optimising should shrink the file"
+        );
+        assert!(
+            dro_core::io::read_song("01 Song.vgm", &files[0].1).is_ok(),
+            "the optimised bytes are still a valid VGM"
+        );
+        assert!(
+            output.log.iter().any(|line| line.contains("(optimized)")),
+            "log: {:?}",
+            output.log
+        );
+    }
+
+    #[test]
+    fn an_already_optimal_vgm_passes_through_unchanged() {
+        const CLEAN: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+        let entries = [song("01 Clean.vgm", CLEAN)];
+        let output = build_rip_zip(&entries, false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(
+            files[0].1, CLEAN,
+            "an optimal VGM is untouched, byte for byte"
+        );
+        assert!(
+            !output.log.iter().any(|line| line.contains("(optimized)")),
+            "nothing to report: {:?}",
+            output.log
+        );
+    }
+
+    #[test]
+    fn optimize_off_leaves_the_song_verbatim() {
+        let original = optimizable_vgm_bytes();
+        let entries = [song("01 Song.vgm", &original)];
+        let output = build_rip_zip(&entries, false, false, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(files[0].1, original, "optimise off means verbatim bytes");
+    }
+
+    #[test]
+    fn an_unreadable_song_is_kept_verbatim_and_logged() {
+        let entries = [song("01 Bad.vgm", b"not a vgm at all")];
+        let output = build_rip_zip(&entries, false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(
+            files[0].1, b"not a vgm at all",
+            "an unreadable song passes through, never fatal"
+        );
+        assert!(
+            output.log.iter().any(|line| line.contains("kept as-is")),
+            "log: {:?}",
+            output.log
+        );
+    }
+
+    #[test]
+    fn optimizing_then_gzipping_shrinks_and_renames() {
+        let original = optimizable_vgm_bytes();
+        let entries = [song("01 Song.vgm", &original)];
+        let output = build_rip_zip(&entries, true, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(files[0].0, "01 Song.vgz", "gzip still renames the entry");
+        let mut decoded = Vec::new();
+        GzDecoder::new(files[0].1.as_slice())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert!(
+            decoded.len() < original.len(),
+            "the .vgz gunzips to the optimised VGM"
+        );
+        // Both steps are reported, on their own lines.
+        assert!(output.log.iter().any(|line| line.contains("(optimized)")));
+        assert!(
+            output
+                .log
+                .iter()
+                .any(|line| line.contains("-> 01 Song.vgz"))
+        );
+    }
+
     #[test]
     fn gzips_songs_and_packs_everything_flat() {
         let entries = [
@@ -182,7 +351,9 @@ mod tests {
                 kind: RipEntryKind::Image,
             },
         ];
-        let output = build_rip_zip(&entries, true, &never()).unwrap().unwrap();
+        let output = build_rip_zip(&entries, true, false, &never())
+            .unwrap()
+            .unwrap();
         let files = read_zip(&output.bytes);
 
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
@@ -207,7 +378,9 @@ mod tests {
     #[test]
     fn leaves_songs_alone_when_not_gzipping() {
         let entries = [song("01 First.vgm", b"raw")];
-        let output = build_rip_zip(&entries, false, &never()).unwrap().unwrap();
+        let output = build_rip_zip(&entries, false, false, &never())
+            .unwrap()
+            .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].0, "01 First.vgm");
         assert_eq!(files[0].1, b"raw");
@@ -217,7 +390,9 @@ mod tests {
     fn an_already_gzipped_vgm_is_renamed_but_not_recompressed() {
         let gzipped = gzip(b"already compressed").unwrap();
         let entries = [song("01 First.vgm", &gzipped)];
-        let output = build_rip_zip(&entries, true, &never()).unwrap().unwrap();
+        let output = build_rip_zip(&entries, true, false, &never())
+            .unwrap()
+            .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].0, "01 First.vgz");
         assert_eq!(files[0].1, gzipped, "the bytes are untouched");
@@ -230,7 +405,9 @@ mod tests {
             bytes: b"not really a png".to_vec(),
             kind: RipEntryKind::Image,
         }];
-        let output = build_rip_zip(&entries, true, &never()).unwrap().unwrap();
+        let output = build_rip_zip(&entries, true, false, &never())
+            .unwrap()
+            .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].1, b"not really a png");
         assert!(output.log.iter().any(|line| line.contains("kept as-is")));
@@ -239,7 +416,7 @@ mod tests {
     #[test]
     fn cancellation_yields_none() {
         let entries = [song("01 First.vgm", b"raw")];
-        let output = build_rip_zip(&entries, true, &|| true).unwrap();
+        let output = build_rip_zip(&entries, true, false, &|| true).unwrap();
         assert!(output.is_none());
     }
 }

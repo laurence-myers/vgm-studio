@@ -49,9 +49,14 @@ fn scan_build_and_reopen_a_release_zip() {
     assert_eq!(state.meta.music_authors, "Ada, Bob");
 
     let request = state.export_request();
-    let output = build_rip_zip(&request.entries, request.gzip_vgms, &|| false)
-        .unwrap()
-        .expect("the build was not cancelled");
+    let output = build_rip_zip(
+        &request.entries,
+        request.gzip_vgms,
+        request.optimize_vgms,
+        &|| false,
+    )
+    .unwrap()
+    .expect("the build was not cancelled");
 
     // Reopen the archive: flat, .vgm gzipped to .vgz, docs and screenshot present.
     let mut archive = zip::ZipArchive::new(Cursor::new(output.bytes)).unwrap();

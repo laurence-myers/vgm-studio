@@ -2327,6 +2327,7 @@ fn exporting_submits_a_job_and_saves_the_returned_zip() {
         let job = &rip.submitted[0];
         assert_eq!(job.zip_name, "Cool Game.zip");
         assert!(job.gzip_vgms);
+        assert!(job.optimize_vgms, "optimise-on-export defaults on");
         let names: Vec<&str> = job
             .entries
             .iter()

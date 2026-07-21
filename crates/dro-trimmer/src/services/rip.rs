@@ -81,7 +81,12 @@ impl NativeRipService {
         live.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
             let is_cancelled = || cancelled.load(Ordering::Relaxed);
-            let outcome = match build_rip_zip(&request.entries, request.gzip_vgms, &is_cancelled) {
+            let outcome = match build_rip_zip(
+                &request.entries,
+                request.gzip_vgms,
+                request.optimize_vgms,
+                &is_cancelled,
+            ) {
                 Ok(Some(output)) => Some(RipJobOutcome::Done {
                     zip_name: request.zip_name,
                     bytes: output.bytes,
@@ -188,6 +193,7 @@ mod tests {
                 kind: RipEntryKind::Doc,
             }],
             gzip_vgms: false,
+            optimize_vgms: false,
         }
     }
 

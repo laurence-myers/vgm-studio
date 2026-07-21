@@ -72,6 +72,9 @@ pub struct RipState {
     pub dirty: bool,
     /// Gzip `.vgm` songs to `.vgz` on export (the VGMRips convention).
     pub gzip_on_export: bool,
+    /// Strip redundant OPL writes from each VGM on export (`vgm_cmp`, the final
+    /// step of the VGMRips optimisation pipeline).
+    pub optimize_on_export: bool,
     /// The row currently previewing through the audio output (rip mode playback).
     pub preview: Option<usize>,
 }
@@ -138,6 +141,7 @@ impl RipState {
             parse_warning,
             dirty: false,
             gzip_on_export: true,
+            optimize_on_export: true,
             preview: None,
         }
     }
@@ -312,6 +316,7 @@ impl RipState {
             zip_name: format!("{stem}.zip"),
             entries,
             gzip_vgms: self.gzip_on_export,
+            optimize_vgms: self.optimize_on_export,
         }
     }
 }
@@ -553,6 +558,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                 actions.push(Action::OpenBulkTag);
             }
             ui.checkbox(&mut state.gzip_on_export, "Gzip to .vgz on export");
+            ui.checkbox(&mut state.optimize_on_export, "Optimize VGMs on export")
+                .on_hover_text(
+                    "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)",
+                );
         });
     });
     if let Some(warning) = &state.parse_warning {
@@ -1104,6 +1113,18 @@ mod tests {
     }
 
     #[test]
+    fn the_optimize_toggle_flows_into_the_export_request() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
+        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        assert!(state.optimize_on_export, "defaults on");
+
+        state.optimize_on_export = false;
+        assert!(!state.export_request().optimize_vgms);
+        state.optimize_on_export = true;
+        assert!(state.export_request().optimize_vgms);
+    }
+
+    #[test]
     fn export_request_lists_songs_then_docs_with_final_names() {
         let files = vec![
             tagged_song("01 Intro.vgz", tag("Cool Game", "A", "R")),
@@ -1114,6 +1135,7 @@ mod tests {
         let request = state.export_request();
         assert_eq!(request.zip_name, "Cool Game.zip");
         assert!(request.gzip_vgms);
+        assert!(request.optimize_vgms, "optimise-on-export defaults on");
         let names: Vec<&str> = request
             .entries
             .iter()

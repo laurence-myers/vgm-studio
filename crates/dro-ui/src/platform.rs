@@ -236,6 +236,9 @@ pub struct RipJobRequest {
     pub entries: Vec<RipEntry>,
     /// Whether to gzip `.vgm` songs to `.vgz` (renaming the entry).
     pub gzip_vgms: bool,
+    /// Whether to strip redundant OPL writes from each VGM before packing it
+    /// (the `vgm_cmp` step of the VGMRips pipeline).
+    pub optimize_vgms: bool,
 }
 
 /// What became of a [`RipJobRequest`].
