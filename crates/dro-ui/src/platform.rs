@@ -207,11 +207,12 @@ pub trait AudioService {
     /// report frames at *this* rate.
     fn output_rate(&self) -> Option<u32>;
 
-    /// Whether the boost limiter has engaged since the current song loaded --
-    /// i.e. the current boost has driven some passage into clipping. Sticky, and
-    /// reset when a new song loads. `false` when nothing is loaded. The app uses
-    /// it to cap the boost at the level where clipping starts.
-    fn limiter_engaged(&self) -> bool;
+    /// The lowest boost at which the limiter has engaged since the current song
+    /// loaded, or `None` if it has not clipped (or nothing is loaded). Reset when
+    /// a new song loads. The app uses it as the volume ceiling -- the cap ratchets
+    /// down to the lowest boost that clips, so dropping the volume and still
+    /// clipping lowers the cap.
+    fn min_engaged_boost(&self) -> Option<f32>;
 }
 
 /// What a [`RipEntry`] is, which decides how the export job treats its bytes.

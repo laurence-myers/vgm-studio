@@ -215,9 +215,7 @@ impl AudioService for NativeAudioService {
         self.audio.as_ref().map(NativeAudio::sample_rate)
     }
 
-    fn limiter_engaged(&self) -> bool {
-        self.audio
-            .as_ref()
-            .is_some_and(NativeAudio::limiter_engaged)
+    fn min_engaged_boost(&self) -> Option<f32> {
+        self.audio.as_ref().and_then(NativeAudio::min_engaged_boost)
     }
 }

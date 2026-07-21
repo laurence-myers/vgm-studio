@@ -133,9 +133,10 @@ pub(crate) struct AudioLog {
     pub playing: bool,
     /// Read by `is_finished`; a test sets it to exercise end-of-song handling.
     pub finished: bool,
-    /// Read by `limiter_engaged`; a test sets it to exercise the boost ceiling
-    /// (the clipping guard that stops the boost rising once the limiter bites).
-    pub limiter_engaged: bool,
+    /// Read by `min_engaged_boost`; a test sets the lowest boost that has clipped
+    /// to exercise the volume ceiling (the clipping guard that stops the volume
+    /// rising past the lowest level that bit the limiter).
+    pub min_engaged_boost: Option<f32>,
     /// When set, the next `load` fails (and clears the flag), letting a test
     /// exercise the failed-load paths -- e.g. a rip preview that can't decode.
     pub fail_next_load: bool,
@@ -245,8 +246,8 @@ impl AudioService for FakeAudioService {
         self.0.borrow().output_rate
     }
 
-    fn limiter_engaged(&self) -> bool {
-        self.0.borrow().limiter_engaged
+    fn min_engaged_boost(&self) -> Option<f32> {
+        self.0.borrow().min_engaged_boost
     }
 }
 

@@ -56,6 +56,14 @@ impl BoostLimiter {
         self.boost = boost.max(0.0);
     }
 
+    /// The boost currently applied (post-clamp). The audio callback records this
+    /// as the level at which the limiter engaged, so the UI can cap the volume at
+    /// the lowest boost that clipped.
+    #[must_use]
+    pub fn boost(&self) -> f32 {
+        self.boost
+    }
+
     /// Boosts and limits interleaved stereo `samples` in place, returning whether
     /// the limiter **engaged** -- whether any frame's boosted peak overshot full
     /// scale and had to be pulled down.
@@ -114,6 +122,17 @@ mod tests {
         // Every sample -- including i16::MIN, which a 32_768-scaled limiter would
         // mangle -- survives untouched.
         assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn boost_getter_reflects_the_set_boost() {
+        let mut limiter = BoostLimiter::new(RATE, 3.0);
+        assert_eq!(limiter.boost(), 3.0);
+        limiter.set_boost(0.5);
+        assert_eq!(limiter.boost(), 0.5);
+        // Negative boosts are clamped to 0, and the getter reports the clamp.
+        limiter.set_boost(-1.0);
+        assert_eq!(limiter.boost(), 0.0);
     }
 
     #[test]

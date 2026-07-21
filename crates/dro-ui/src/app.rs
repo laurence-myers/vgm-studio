@@ -1222,16 +1222,11 @@ impl DroApp {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
 
-        // Cap the volume where clipping starts: the audio backend's engaged flag
-        // is sticky per stream (a new song clears it), so the first clip this song
-        // pins the ceiling at the level that clipped, and it holds even if the
-        // user then lowers the volume. `get_or_insert` keeps that first level;
-        // a fresh (or unloaded) stream reads `false` and clears the ceiling.
-        if self.audio.limiter_engaged() {
-            self.boost_ceiling.get_or_insert(self.config.audio.boost);
-        } else {
-            self.boost_ceiling = None;
-        }
+        // Cap the volume where clipping starts. The backend reports the lowest
+        // boost that has clipped this song (ratcheting down as quieter boosts
+        // still clip), which is exactly the ceiling: the volume lever cannot rise
+        // above it. A fresh (or unloaded) stream reports `None`, clearing the cap.
+        self.boost_ceiling = self.audio.min_engaged_boost();
 
         let playing = self.audio.is_playing();
         if self.active_tab == AppTab::Editor {

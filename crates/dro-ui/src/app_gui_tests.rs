@@ -713,8 +713,8 @@ fn the_volume_lever_cannot_rise_past_the_clipping_ceiling() {
     // Once the limiter has engaged, the app pins a ceiling at the current volume
     // and the up arrow stops raising it -- the clipping guard.
     let (mut harness, handles) = harness_with_song(&tone_song());
-    handles.audio.borrow_mut().limiter_engaged = true;
-    harness.run(); // a tick captures the ceiling at the current 1.0x
+    handles.audio.borrow_mut().min_engaged_boost = Some(1.0);
+    harness.run(); // the backend reports 1.0x as the lowest clipping level
 
     let before = harness.state().config.audio.boost;
     harness.get_by_label("\u{25B2}").click(); // ▲ louder -- but capped
@@ -741,8 +741,8 @@ fn the_volume_ceiling_allows_returning_to_the_trigger_level_but_not_beyond() {
     // move freely below 2.00x and back up to it, but never past it.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.state_mut().config.audio.boost = 2.0;
-    handles.audio.borrow_mut().limiter_engaged = true;
-    harness.run(); // a tick pins the ceiling at the current 2.00x
+    handles.audio.borrow_mut().min_engaged_boost = Some(2.0);
+    harness.run(); // the backend reports 2.00x as the lowest clipping level
 
     // At the ceiling, the up arrow is blocked.
     harness.get_by_label("\u{25B2}").click();
@@ -778,6 +778,30 @@ fn the_volume_ceiling_allows_returning_to_the_trigger_level_but_not_beyond() {
         harness.state().config.audio.boost,
         2.0,
         "still capped at the trigger level"
+    );
+}
+
+#[test]
+fn the_volume_ceiling_ratchets_down_to_the_lowest_clipping_level() {
+    // The limiter first bites at 10x, so the cap starts there.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    handles.audio.borrow_mut().min_engaged_boost = Some(10.0);
+    harness.run();
+    assert_eq!(
+        harness.state().boost_ceiling,
+        Some(10.0),
+        "the cap starts at the first level that clipped"
+    );
+
+    // Dropping to 9x still clips, so the backend reports the lower minimum and the
+    // cap follows it down -- unlike the old sticky boolean, which kept 10x and let
+    // the user climb back to it.
+    handles.audio.borrow_mut().min_engaged_boost = Some(9.0);
+    harness.run();
+    assert_eq!(
+        harness.state().boost_ceiling,
+        Some(9.0),
+        "the cap ratchets down to the lowest level that clips"
     );
 }
 
