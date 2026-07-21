@@ -227,6 +227,11 @@ pub struct DroApp {
     waveform: WaveformState,
     /// The stereo output peak meter beside the waveform.
     peak_meter: PeakMeterState,
+    /// The volume factor at which the limiter began clipping this song, or `None`
+    /// while it has not. The volume lever cannot rise above it (the clipping
+    /// guard); it clears when a new song loads. Derived each frame in
+    /// [`Self::playback_tick`] from the audio backend's sticky engaged flag.
+    boost_ceiling: Option<f32>,
     position: PositionPanel,
     channels: ChannelPanel,
 
@@ -298,6 +303,7 @@ impl DroApp {
             split_flow: None,
             waveform: WaveformState::default(),
             peak_meter: PeakMeterState::default(),
+            boost_ceiling: None,
             position: PositionPanel::new(config.audio.frequency),
             channels: ChannelPanel::new(),
             scroll_to: None,
@@ -514,7 +520,13 @@ impl DroApp {
                             actions.push(Action::ToggleLoopPlayback);
                         }
                         loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
-                        boost_stepper::boost_stepper(ui, p, self.config.audio.boost, &mut actions);
+                        boost_stepper::boost_stepper(
+                            ui,
+                            p,
+                            self.config.audio.boost,
+                            self.boost_ceiling,
+                            &mut actions,
+                        );
                     });
                     ui.add_space(PAD);
                     theme::separator_full(ui, p);
@@ -1100,6 +1112,17 @@ impl DroApp {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
 
+        // Cap the volume where clipping starts: the audio backend's engaged flag
+        // is sticky per stream (a new song clears it), so the first clip this song
+        // pins the ceiling at the level that clipped, and it holds even if the
+        // user then lowers the volume. `get_or_insert` keeps that first level;
+        // a fresh (or unloaded) stream reads `false` and clears the ceiling.
+        if self.audio.limiter_engaged() {
+            self.boost_ceiling.get_or_insert(self.config.audio.boost);
+        } else {
+            self.boost_ceiling = None;
+        }
+
         let playing = self.audio.is_playing();
         if self.active_tab == AppTab::Editor {
             // One more update after playback ends, so the readout and cursor land
@@ -1563,6 +1586,9 @@ impl DroApp {
                 // update below.
                 self.audio.unload();
                 self.peak_meter = PeakMeterState::default();
+                // A new song starts with no clipping ceiling; its own limiter has
+                // not engaged yet.
+                self.boost_ceiling = None;
                 self.audio_revision = None;
                 self.was_playing = false;
                 let song = self.editor.song().expect("just loaded");

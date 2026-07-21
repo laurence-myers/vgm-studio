@@ -666,20 +666,57 @@ fn loading_a_song_resets_pan_mode_to_original() {
 }
 
 #[test]
-fn boost_up_arrow_sets_boost_and_persists_it() {
+fn boost_up_arrow_steps_up_the_ladder_and_persists_it() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
     harness.get_by_label("\u{25B2}").click(); // ▲ louder
     harness.run();
 
+    // The volume lever moves one modifier-ladder position up from unity -- a fine
+    // ~0.22 dB step (0x00 -> 0x01), not the old whole-number jump to 2x.
+    let expected = dro_core::volume_modifier_factor(dro_core::nudge_volume_modifier(
+        dro_core::nearest_volume_modifier(1.0),
+        1,
+    ));
+    assert!(
+        expected > 1.0 && expected < 1.1,
+        "one click is a single fine step, not a doubling: {expected}"
+    );
     assert_eq!(
         handles.audio.borrow().boosts.last().copied(),
-        Some(2.0),
-        "default boost 1 steps up to 2"
+        Some(expected),
+        "the up arrow steps up one ladder position"
     );
     let saved = handles.saved_configs.borrow();
     assert_eq!(saved.len(), 1, "the change is persisted once");
-    assert_eq!(saved[0].audio.boost, 2.0);
+    assert_eq!(saved[0].audio.boost, expected);
+}
+
+#[test]
+fn the_volume_lever_cannot_rise_past_the_clipping_ceiling() {
+    // Once the limiter has engaged, the app pins a ceiling at the current volume
+    // and the up arrow stops raising it -- the clipping guard.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    handles.audio.borrow_mut().limiter_engaged = true;
+    harness.run(); // a tick captures the ceiling at the current 1.0x
+
+    let before = harness.state().config.audio.boost;
+    harness.get_by_label("\u{25B2}").click(); // ▲ louder -- but capped
+    harness.run();
+
+    assert_eq!(
+        harness.state().config.audio.boost,
+        before,
+        "the up arrow is blocked once the limiter has engaged"
+    );
+
+    // Lowering is still allowed, and drops off the ceiling.
+    harness.get_by_label("\u{25BC}").click(); // ▼ quieter
+    harness.run();
+    assert!(
+        harness.state().config.audio.boost < before,
+        "the down arrow still works at the ceiling"
+    );
 }
 
 #[test]
