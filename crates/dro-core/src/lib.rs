@@ -35,6 +35,6 @@ pub use split_songs::{Segment, detect_segments};
 pub use undo::{OptimizeVgm, UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};
 pub use volume::{
-    boost_for_peak, encode_volume_modifier, peak_dbfs, suggest_volume_modifier,
-    volume_modifier_factor,
+    boost_for_peak, encode_volume_modifier, nearest_volume_modifier, nudge_volume_modifier,
+    peak_dbfs, suggest_volume_modifier, volume_modifier_factor,
 };

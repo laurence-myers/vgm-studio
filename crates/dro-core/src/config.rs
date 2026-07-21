@@ -16,6 +16,11 @@ pub struct AudioConfig {
     /// Playback volume multiplier, applied through a peak limiter so a boosted
     /// signal cannot clip. Live playback only -- never the WAV render or the
     /// waveform display.
+    ///
+    /// A bidirectional factor in `0.25..=64.0`, matching the reachable range of
+    /// a VGM volume modifier (below `1.0` attenuates); `1.0` is bit-transparent.
+    /// The GUI snaps it to the modifier factor ladder (see
+    /// [`volume`](crate::volume)), but any value in range loads.
     pub boost: f32,
     pub buffer_size: u32,
     /// Sample rate of both the emulated chip and the audio output. 49716 is the
@@ -163,9 +168,9 @@ impl AppConfig {
         if self.audio.buffer_size == 0 {
             return Err(Error::config("Invalid value for audio.buffer_size: 0"));
         }
-        if !self.audio.boost.is_finite() || !(1.0..=16.0).contains(&self.audio.boost) {
+        if !self.audio.boost.is_finite() || !(0.25..=64.0).contains(&self.audio.boost) {
             return Err(Error::config(format!(
-                "Invalid value for audio.boost: {} (expected a number from 1 to 16)",
+                "Invalid value for audio.boost: {} (expected a number from 0.25 to 64)",
                 self.audio.boost
             )));
         }
@@ -221,9 +226,10 @@ impl AppConfig {
              frequency={frequency}\n\
              bit_depth={bit_depth}\n\
              buffer_size={buffer_size}\n\
-             # Volume boost multiplier for live playback: 1 = no boost. A peak\n\
-             # limiter keeps louder values from clipping, so higher numbers just\n\
-             # get louder. Never affects the WAV render or the waveform display.\n\
+             # Volume multiplier for live playback: 1 = no change, below 1\n\
+             # attenuates, above 1 boosts (0.25 to 64). A peak limiter keeps\n\
+             # louder values from clipping. Never affects the WAV render or the\n\
+             # waveform display.\n\
              boost={boost}\n\
              \n\
              [ui]\n\
@@ -450,9 +456,9 @@ mod tests {
             "[audio]\nbit_depth=24\n", // the OPL emulator renders 8- or 16-bit only
             "[audio]\nfrequency=0\n",
             "[audio]\nbuffer_size=0\n",
-            "[audio]\nboost=0\n",   // below the 1.0 floor
-            "[audio]\nboost=0.5\n", // below the 1.0 floor
-            "[audio]\nboost=100\n", // above the 16.0 ceiling
+            "[audio]\nboost=0\n",   // below the 0.25 floor
+            "[audio]\nboost=0.1\n", // below the 0.25 floor
+            "[audio]\nboost=100\n", // above the 64.0 ceiling
             "[audio]\nboost=nan\n",
             "[audio]\nboost=inf\n",
         ] {
@@ -465,6 +471,22 @@ mod tests {
                 AppConfig::try_from_ini_sources(&[source]).is_err(),
                 "{source:?}"
             );
+        }
+    }
+
+    #[test]
+    fn the_bidirectional_boost_range_is_accepted() {
+        // The boost is a two-way volume factor: below 1.0 attenuates, above 1.0
+        // boosts, spanning the VGM volume modifier's 0.25..=64 reach.
+        for (source, expected) in [
+            ("[audio]\nboost=0.25\n", 0.25), // the attenuation floor
+            ("[audio]\nboost=0.5\n", 0.5),   // half volume
+            ("[audio]\nboost=1\n", 1.0),     // unity
+            ("[audio]\nboost=64\n", 64.0),   // the boost ceiling
+        ] {
+            let config = AppConfig::try_from_ini_sources(&[source])
+                .unwrap_or_else(|e| panic!("{source:?} should be valid: {e}"));
+            assert_eq!(config.audio.boost, expected, "{source:?}");
         }
     }
 
