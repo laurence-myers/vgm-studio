@@ -630,6 +630,65 @@ mod tests {
             "the piece should be plain VGM"
         );
     }
+
+    // -- corpus sanity -----------------------------------------------------
+
+    /// Corpus sanity on a real capture: three copies of the `dro2vgm` OPL2 rip,
+    /// parted by one-second gaps, must split back into three pieces, each
+    /// beginning on exactly the register state the stream had reached there. This
+    /// is the programmatic stand-in for "listen to piece 2+ for state-replay
+    /// correctness" -- a real few-hundred-command stream of ordinary music, not a
+    /// synthetic one.
+    #[test]
+    fn a_real_capture_tripled_with_gaps_splits_and_replays() {
+        const CAPTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+        let base = read_song("lsl3_score_up.vgm", CAPTURE).unwrap();
+        // At the 0.75 s default threshold the jingle itself has no internal gap.
+        assert_eq!(
+            detect_segments(&base, 33_075).len(),
+            1,
+            "one song on its own"
+        );
+
+        // Concatenate the command stream three times, parted by 44100-sample gaps.
+        let body = base.data().raw();
+        let gap = [command::WAIT, 0x44, 0xAC]; // 44100 = 0xAC44
+        let mut bytes = Vec::new();
+        for copy in 0..3 {
+            if copy > 0 {
+                bytes.extend_from_slice(&gap);
+            }
+            bytes.extend_from_slice(body);
+        }
+        let capture = Song::vgm(
+            "triple.vgm".to_owned(),
+            0x151,
+            VgmData::new(bytes).unwrap(),
+            base.opl_type,
+            VgmMeta::new(synthesise_header()),
+        );
+
+        let segments = detect_segments(&capture, 33_075);
+        assert_eq!(segments.len(), 3, "three songs after concatenation");
+
+        for (index, segment) in segments.iter().enumerate() {
+            let expected = state_over(&capture, segment.start);
+            let piece = materialise(&capture, segment, true);
+            let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
+            assert_eq!(
+                state_after_writes(&reread, expected.len()),
+                expected,
+                "piece {index} does not open on the capture's register state"
+            );
+            // Every piece carries the whole jingle: the same command count as the
+            // original stream, plus its state-replay prelude.
+            assert!(piece.len() >= base.len(), "piece {index} lost commands");
+        }
+        // Pieces 2 and 3 have a real prelude to restore (piece 1 does not).
+        assert!(state_over(&capture, segments[0].start).is_empty());
+        assert!(!state_over(&capture, segments[1].start).is_empty());
+        assert!(!state_over(&capture, segments[2].start).is_empty());
+    }
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]

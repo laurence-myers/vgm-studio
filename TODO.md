@@ -42,6 +42,21 @@
     to a greedy wrap on save; see the note in `dro-core/src/rip.rs`).
   - Extend the VGM reader so more real PC-AT packs load (0x67 data blocks, the
     "data starts at 0x60" minimal header); today those tracks show as unreadable.
+- Multi-song splitter (`vgm_sptd` equivalent) -- done. File > Split Songs (VGM
+  only) cuts one long capture -- a whole sound-test session logged in one go --
+  into its per-song files at the silent gaps. A dialog runs the detector live as
+  a gap-threshold slider (seconds) is dragged, lists each song's start and length
+  with an include checkbox and a Preview button, and exports `NN <stem>.vgm` into
+  a chosen folder, then offers to open that folder as a rip project. Each piece is
+  prepended with the OPL register state the capture had reached at its start (a
+  minimal replay via the shared `opl_state::OplState`, which the optimiser also
+  uses), so a song taken from the middle opens on the chip state it would have had
+  mid-play rather than on silence. Route B (gap detection is one accumulator;
+  state capture is a register-file fold), so the project stays LGPL-2.1; the net
+  is a corpus-sanity test that tripling the real OPL2 rip with gaps splits back
+  into three pieces each opening on the folded register state. Possible follow-up:
+  split DRO captures too (the pieces would need the DRO writer path; VGM-only for
+  now).
 - Support for header features:
   - Loop points -- done. A region is marked in the editor (Shift+click and
     Shift+right-click on the waveform, `[` and `]` on the selected row, or the
