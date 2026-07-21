@@ -200,6 +200,16 @@ struct RipRun {
     rename_in_flight: bool,
 }
 
+/// What a background volume scan's [`Peak`](dro_synth::Peak) is for, so the app
+/// routes the result to the control that asked for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VolumeScanPurpose {
+    /// The transport "Match" button: set the playback volume lever.
+    MatchBoost,
+    /// The VGM dialog "Measure" button: fill the volume-modifier field.
+    FillModifier,
+}
+
 pub struct DroApp {
     editor: Editor,
     files: Box<dyn FileService>,
@@ -232,6 +242,11 @@ pub struct DroApp {
     /// guard); it clears when a new song loads. Derived each frame in
     /// [`Self::playback_tick`] from the audio backend's sticky engaged flag.
     boost_ceiling: Option<f32>,
+    /// What the in-flight (or most recent) volume scan is for, so its `Peak`
+    /// result reaches the right place -- the volume lever or the VGM dialog. Both
+    /// use one [`TaskKind::VolumeScan`], and submitting cancels the other, so a
+    /// single value tracks the live purpose.
+    volume_scan_purpose: VolumeScanPurpose,
     position: PositionPanel,
     channels: ChannelPanel,
 
@@ -304,6 +319,7 @@ impl DroApp {
             waveform: WaveformState::default(),
             peak_meter: PeakMeterState::default(),
             boost_ceiling: None,
+            volume_scan_purpose: VolumeScanPurpose::MatchBoost,
             position: PositionPanel::new(config.audio.frequency),
             channels: ChannelPanel::new(),
             scroll_to: None,
@@ -770,10 +786,24 @@ impl DroApp {
     /// through `poll_services`. Cancels any scan already running (same
     /// [`TaskKind`]), so mashing the button just re-measures.
     fn match_volume(&mut self) {
+        self.submit_volume_scan(VolumeScanPurpose::MatchBoost, "Measuring volume...");
+    }
+
+    /// Kicks off a background peak scan for the VGM dialog's "Measure" button; the
+    /// finished scan fills the volume-modifier field via [`Self::handle_volume_scan`].
+    fn measure_volume_modifier(&mut self) {
+        self.submit_volume_scan(VolumeScanPurpose::FillModifier, "Measuring peak...");
+    }
+
+    /// Submits a volume scan of the current song for `purpose`, or asks for a song
+    /// if none is loaded. Shared by the "Match" and "Measure" buttons; the purpose
+    /// is remembered so [`Self::handle_volume_scan`] routes the result.
+    fn submit_volume_scan(&mut self, purpose: VolumeScanPurpose, status: &str) {
         let Some(song) = self.editor.snapshot() else {
             self.require_song();
             return;
         };
+        self.volume_scan_purpose = purpose;
         self.tasks.submit(
             TaskRequest::VolumeScan {
                 song,
@@ -781,22 +811,37 @@ impl DroApp {
             },
             None,
         );
-        self.status = "Measuring volume...".to_owned();
+        self.status = status.to_owned();
     }
 
-    /// Applies a finished volume scan: sets the volume to the modifier-ladder
-    /// value that brings the measured peak to full scale, and reports the peak and
-    /// the volume it chose.
+    /// Applies a finished volume scan to whatever asked for it: the playback
+    /// volume lever (the "Match" button) or the VGM dialog's volume-modifier field
+    /// (the "Measure" button).
     fn handle_volume_scan(&mut self, peak: dro_synth::Peak) {
-        if peak.max_level == 0 {
-            self.status = "The song is silent; volume left unchanged.".to_owned();
-            return;
+        match self.volume_scan_purpose {
+            VolumeScanPurpose::MatchBoost => {
+                if peak.max_level == 0 {
+                    self.status = "The song is silent; volume left unchanged.".to_owned();
+                    return;
+                }
+                // The modifier-ladder volume that lifts the peak to full scale.
+                let volume = dro_core::matched_volume(peak.max_level);
+                self.set_boost(volume, true);
+                let dbfs = dro_core::peak_dbfs(peak.max_level);
+                self.status = format!("Peak {dbfs:.1} dBFS \u{2192} volume {volume:.2}\u{00d7}");
+            }
+            VolumeScanPurpose::FillModifier => {
+                // The dialog may have been closed while the scan ran; if so, the
+                // result is simply dropped.
+                if let Some(dialog) = self.dialogs.vgm_metadata.as_mut() {
+                    dialog.apply_measured_peak(peak);
+                    let modifier = dro_core::suggest_volume_modifier(peak.max_level, None);
+                    let dbfs = dro_core::peak_dbfs(peak.max_level);
+                    self.status =
+                        format!("Peak {dbfs:.1} dBFS \u{2192} volume modifier {modifier}");
+                }
+            }
         }
-        // The modifier-ladder volume that lifts the peak to full scale.
-        let volume = dro_core::matched_volume(peak.max_level);
-        self.set_boost(volume, true);
-        let dbfs = dro_core::peak_dbfs(peak.max_level);
-        self.status = format!("Peak {dbfs:.1} dBFS \u{2192} volume {volume:.2}\u{00d7}");
     }
 
     fn handle_save_outcome(&mut self, purpose: SavePurpose, outcome: SaveOutcome) {
@@ -1550,6 +1595,7 @@ impl DroApp {
             Action::PanningChanged => self.audio.set_panning(self.channels.panning()),
             Action::SetBoost { value, persist } => self.set_boost(value, persist),
             Action::MatchVolume => self.match_volume(),
+            Action::MeasureVolumeModifier => self.measure_volume_modifier(),
 
             Action::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
             Action::Status(message) => self.status = message,

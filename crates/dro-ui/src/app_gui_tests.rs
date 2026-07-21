@@ -843,6 +843,32 @@ fn match_volume_without_a_song_submits_no_scan() {
 }
 
 #[test]
+fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
+    let song = tone_song();
+    // Inline tasks run the scan; convert to VGM so there is a modifier to fill.
+    let (mut harness, _handles) = build(Some(picked(&song)), true, false);
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    let vgm = harness.state().editor.song().unwrap().clone();
+    harness.state_mut().dialogs.vgm_metadata =
+        Some(crate::dialogs::VgmMetadataDialog::new(&vgm).unwrap());
+
+    // Trigger the Measure scan; the inline scan stores its Peak, then a poll frame
+    // routes it to the open dialog (the same delivery shape as Match Volume).
+    act(&mut harness, Action::MeasureVolumeModifier);
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    // Only the FillModifier branch sets this status, and only with an open dialog,
+    // so it proves the scan measured and reached the dialog.
+    assert!(
+        harness.state().status.contains("volume modifier"),
+        "status was {:?}",
+        harness.state().status
+    );
+}
+
+#[test]
 fn settings_save_preserves_a_live_changed_boost() {
     // M4/ux-15: the Settings dialog snapshots the config at open and doesn't
     // expose the boost, so a boost changed via the transport meanwhile must not

@@ -18,6 +18,9 @@ pub struct VgmMetadataDialog {
     loop_base: String,
     loop_modifier: String,
     volume_modifier: String,
+    /// The peak from the most recent "Measure", for the dBFS/clipping readout.
+    /// `None` until a measurement lands.
+    measured: Option<dro_synth::Peak>,
     /// One past the highest valid loop point.
     song_len: usize,
     /// Cumulative samples before each instruction (len = `song_len + 1`),
@@ -37,9 +40,38 @@ impl VgmMetadataDialog {
             loop_base: meta.loop_base.to_string(),
             loop_modifier: meta.loop_modifier.to_string(),
             volume_modifier: meta.volume_modifier.to_string(),
+            measured: None,
             song_len: song.len(),
             samples_prefix: song.delay_samples_prefix(),
         })
+    }
+
+    /// Fills the volume-modifier field with the value that would bring the just-
+    /// measured `peak` to full scale, and remembers the peak for the readout.
+    /// Called by the app when a "Measure" scan lands.
+    pub fn apply_measured_peak(&mut self, peak: dro_synth::Peak) {
+        self.volume_modifier = dro_core::suggest_volume_modifier(peak.max_level, None).to_string();
+        self.measured = Some(peak);
+    }
+
+    /// The "= N.NNx" gloss beside the volume-modifier field: what factor the
+    /// typed byte asks players for, plus the measured peak's dBFS (and a clipping
+    /// note) once a measurement has landed. `(invalid)` if the byte does not parse.
+    fn volume_modifier_readout(&self) -> String {
+        let Ok(byte) = self.volume_modifier.trim().parse::<u8>() else {
+            return "(invalid)".to_owned();
+        };
+        let factor = dro_core::volume_modifier_factor(byte);
+        let mut text = format!("= {factor:.2}\u{00d7}");
+        if let Some(peak) = self.measured {
+            let dbfs = dro_core::peak_dbfs(peak.max_level);
+            text.push_str(&format!("  (peak {dbfs:.1} dBFS"));
+            if peak.clipped {
+                text.push_str(", clipping");
+            }
+            text.push(')');
+        }
+        text
     }
 
     /// Draws the window. Returns `false` once closed.
@@ -87,7 +119,6 @@ impl VgmMetadataDialog {
                     for (label, value) in [
                         ("Loop base:", &mut self.loop_base),
                         ("Loop modifier:", &mut self.loop_modifier),
-                        ("Volume modifier:", &mut self.volume_modifier),
                     ] {
                         ui.label(label);
                         ui.add(
@@ -97,6 +128,28 @@ impl VgmMetadataDialog {
                         );
                         ui.end_row();
                     }
+
+                    // Volume modifier gets a "Measure" button that fills it from
+                    // the song's peak, and a live gloss of what the byte means.
+                    ui.label("Volume modifier:");
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.volume_modifier)
+                                .text_color(palette.data_text)
+                                .desired_width(70.0),
+                        );
+                        if bevel::button(ui, palette, "Measure")
+                            .on_hover_text(
+                                "Measure the song's peak and suggest a modifier that brings it \
+                                 to full scale",
+                            )
+                            .clicked()
+                        {
+                            actions.push(Action::MeasureVolumeModifier);
+                        }
+                        ui.label(self.volume_modifier_readout());
+                    });
+                    ui.end_row();
                 });
             ui.add_space(8.0);
             super::dialog_footer(ui, |ui| {
@@ -238,6 +291,7 @@ mod tests {
             loop_base: "0".to_owned(),
             loop_modifier: "0".to_owned(),
             volume_modifier: "0".to_owned(),
+            measured: None,
             song_len: 4,
             samples_prefix: vec![0, 10, 30, 60, 100],
         }
@@ -298,6 +352,46 @@ mod tests {
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
         assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+    }
+
+    #[test]
+    fn measuring_fills_the_field_from_the_peak() {
+        let mut dialog = dialog();
+        // A half-scale peak suggests a +6 dB modifier: byte 0x20 = 32.
+        dialog.apply_measured_peak(dro_synth::Peak {
+            max_level: 0x4000,
+            clipped: false,
+        });
+        assert_eq!(dialog.volume_modifier, "32");
+        // Saving carries the freshly measured byte through.
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::SaveVgmMetadata {
+                volume_modifier: 32,
+                ..
+            }]
+        ));
+    }
+
+    #[test]
+    fn the_volume_readout_decodes_the_byte_and_notes_clipping() {
+        let mut dialog = dialog();
+        // Byte 32 = 0x20 = a 2x factor, before any measurement.
+        dialog.volume_modifier = "32".to_owned();
+        assert_eq!(dialog.volume_modifier_readout(), "= 2.00\u{00d7}");
+        // After a clipping measurement, the peak and a clipping note are appended.
+        dialog.apply_measured_peak(dro_synth::Peak {
+            max_level: 0x7FFF,
+            clipped: true,
+        });
+        let readout = dialog.volume_modifier_readout();
+        assert!(readout.contains("dBFS"), "{readout}");
+        assert!(readout.contains("clipping"), "{readout}");
+        // A non-numeric byte reads as invalid rather than panicking.
+        dialog.volume_modifier = "??".to_owned();
+        assert_eq!(dialog.volume_modifier_readout(), "(invalid)");
     }
 
     #[test]

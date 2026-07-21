@@ -154,6 +154,9 @@ pub enum Action {
     /// The volume lever's "Match" button: measure the song's peak in the
     /// background, then set the volume to bring it to full scale.
     MatchVolume,
+    /// The VGM metadata dialog's "Measure" button: measure the song's peak in the
+    /// background, then fill the volume-modifier field with a suggestion.
+    MeasureVolumeModifier,
 
     // Loop points
     /// Mark the loop start at an instruction index.
