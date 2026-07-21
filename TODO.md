@@ -73,7 +73,25 @@
       but other players restart at the end-of-data command whatever the header
       says. A crop/trim would make it universal, and the `RangeMarkers` the loop
       uses were built to be reused for exactly that.
-  - Volume boost
+  - Volume -- done. A bidirectional playback "volume" lever in the transport
+    row, sitting on the VGM volume-modifier factor ladder (0.25x..64x, shown to
+    two decimals) so every position is a real modifier value. Arrows step ~1.0 at
+    unity and above, ~0.1 below; a typed value snaps to the ladder. Behind it the
+    peak limiter has a clipping guard: the volume cannot rise past the lowest
+    boost that has driven the limiter into clipping this song (it ratchets down as
+    quieter boosts still clip), reset per song. "Match Volume" measures the song's
+    peak (`dro_synth::measure_peak`, an internal render) and sets the lever to
+    bring it to full scale. The VGM Metadata dialog's "Measure" button fills the
+    header `volume_modifier` with the vgm_vol suggestion
+    (`dro_core::volume::suggest_volume_modifier`) plus a decoded "= N.NNx"
+    readout. Rip mode adds "Scan Volumes" (one background task over the whole
+    pack) filling a Peak column, and "Apply Modifiers" writing every track's
+    `volume_modifier` to level the pack -- album mode by default (one factor from
+    the loudest peak) or per-track -- as one undoable batch. See
+    `docs/vgm-vol-2026-07/HANDOVER.md`. Follow-up: playback does NOT honour the
+    header `volume_modifier` (the boost lever is the playback control); the
+    `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
+    applies the modifier" follow-up would build on.
 - Emit a higher-version VGM header when converting. The Python reserved 0x100
   bytes on purpose, leaving room for the fields later versions add (the v1.70
   extra-header offset at 0xBC, and beyond). The Rust port writes a tight 0x80
