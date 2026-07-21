@@ -1,18 +1,22 @@
 //! The Split Songs dialog: cut one long capture into its per-song files.
 //!
 //! A whole sound-test session logged in one go is many songs end to end, parted
-//! by silence. The dialog runs [`detect_segments`] over the loaded capture and
-//! lists what it found; dragging the gap-threshold slider re-detects live (one
-//! cheap pass), so the boundary list updates as you tune it. Each row has an
-//! include checkbox -- to drop a false positive without leaving the dialog -- and
-//! a Preview button that seeks playback to the song's start. Export asks where to
-//! put the files and writes `NN <stem>.vgm` for every checked song.
+//! by silence. The dialog runs [`detect_segments`] over the loaded capture (VGM
+//! or DRO) and lists what it found; dragging the gap-threshold slider re-detects
+//! live (one cheap pass), so the boundary list updates as you tune it. Each row
+//! has an include checkbox -- to drop a false positive without leaving the dialog
+//! -- and a Preview button that seeks playback to the song's start. A decay-tail
+//! slider keeps a little of the trimmed silence after each piece. Export asks
+//! where to put the files and writes `NN <stem>.<ext>` for every checked song.
+//!
+//! Times work in the capture's native delay unit (samples for a VGM,
+//! milliseconds for a DRO); [`native_rate`] converts to and from the seconds the
+//! sliders show, so the dialog is format-agnostic.
 
 use std::sync::Arc;
 
 use dro_core::Song;
-use dro_core::split_songs::{Segment, detect_segments};
-use dro_core::util::VGM_SAMPLE_RATE;
+use dro_core::split_songs::{Segment, detect_segments, native_rate};
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
@@ -20,16 +24,23 @@ use crate::theme::{Palette, bevel};
 /// The default gap threshold, in seconds. `vgm_sptd` uses 0x8000 = 32768 samples
 /// (~0.74 s); 0.75 s is the same, rounded.
 const DEFAULT_THRESHOLD_SECS: f32 = 0.75;
-/// The slider's range, in seconds.
+/// The gap-threshold slider's range, in seconds.
 const MIN_THRESHOLD_SECS: f32 = 0.2;
 const MAX_THRESHOLD_SECS: f32 = 5.0;
+/// The decay-tail slider's maximum, in seconds. Default is 0 (no tail kept).
+const MAX_TAIL_SECS: f32 = 2.0;
 
 #[derive(Debug)]
 pub struct SplitSongsDialog {
     /// A snapshot of the capture, taken at open; detection re-runs against it.
     song: Arc<Song>,
+    /// Native delay units per second: 44100 for a VGM, 1000 for a DRO. Cached so
+    /// the seconds/native conversions do not keep re-deriving it.
+    rate: u32,
     /// The gap threshold the slider edits, in seconds.
     threshold_secs: f32,
+    /// The decay tail to keep after each piece, in seconds.
+    tail_secs: f32,
     /// The songs detected at the current threshold.
     segments: Vec<Segment>,
     /// One include flag per segment, in the same order. Reset to all-on whenever
@@ -40,9 +51,12 @@ pub struct SplitSongsDialog {
 impl SplitSongsDialog {
     #[must_use]
     pub fn new(song: Arc<Song>) -> Self {
+        let rate = native_rate(&song);
         let mut dialog = Self {
             song,
+            rate,
             threshold_secs: DEFAULT_THRESHOLD_SECS,
+            tail_secs: 0.0,
             segments: Vec::new(),
             included: Vec::new(),
         };
@@ -50,16 +64,25 @@ impl SplitSongsDialog {
         dialog
     }
 
-    /// The current threshold in samples, as the detector and the export want it.
-    fn threshold_samples(&self) -> u32 {
-        // Round to the nearest sample; clamps below by the slider's own minimum.
-        (self.threshold_secs * VGM_SAMPLE_RATE as f32).round() as u32
+    /// A seconds value in the capture's native unit, rounded to the nearest unit.
+    fn to_native(&self, seconds: f32) -> u32 {
+        (seconds * self.rate as f32).round() as u32
+    }
+
+    /// The current gap threshold in native units, as the detector and export want.
+    fn threshold_native(&self) -> u32 {
+        self.to_native(self.threshold_secs)
+    }
+
+    /// The current decay tail in native units.
+    fn tail_native(&self) -> u32 {
+        self.to_native(self.tail_secs)
     }
 
     /// Re-runs detection at the current threshold and resets every include flag,
     /// since the old flags no longer line up with the new segment list.
     fn redetect(&mut self) {
-        self.segments = detect_segments(&self.song, self.threshold_samples());
+        self.segments = detect_segments(&self.song, self.threshold_native());
         self.included = vec![true; self.segments.len()];
     }
 
@@ -101,6 +124,23 @@ impl SplitSongsDialog {
                 palette.muted,
                 "Songs are split where the capture goes silent for at least this long.",
             );
+
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Keep decay tail:")
+                        .color(palette.data_label)
+                        .strong(),
+                );
+                ui.add(
+                    egui::Slider::new(&mut self.tail_secs, 0.0..=MAX_TAIL_SECS)
+                        .suffix(" s")
+                        .step_by(0.05),
+                )
+                .on_hover_text(
+                    "How much of the silence after each song to keep, for release tails",
+                );
+            });
 
             ui.add_space(6.0);
             crate::theme::separator_full(ui, palette);
@@ -144,6 +184,7 @@ impl SplitSongsDialog {
         // segment is read from another, all without touching `self` in the loop.
         let segments = &self.segments;
         let included = &mut self.included;
+        let rate = self.rate;
         egui::ScrollArea::vertical()
             .max_height(220.0)
             .show(ui, |ui| {
@@ -163,8 +204,8 @@ impl SplitSongsDialog {
 
                         for (index, segment) in segments.iter().enumerate() {
                             ui.label(format!("{}", index + 1));
-                            ui.label(fmt_time(segment.start_samples));
-                            ui.label(fmt_time(segment.length_samples));
+                            ui.label(fmt_time(segment.start_time, rate));
+                            ui.label(fmt_time(segment.duration, rate));
                             ui.checkbox(&mut included[index], "Include");
                             if bevel::button(ui, palette, "Preview").clicked() {
                                 actions.push(Action::SplitSongsPreview {
@@ -188,16 +229,17 @@ impl SplitSongsDialog {
             return false;
         }
         actions.push(Action::SplitSongsSubmitted {
-            threshold_samples: self.threshold_samples(),
+            threshold_native: self.threshold_native(),
             included: self.included.clone(),
+            trailing_tail: self.tail_native(),
         });
         true
     }
 }
 
-/// Formats a sample count at 44100 Hz as `M:SS.s`.
-fn fmt_time(samples: u32) -> String {
-    let total_secs = f64::from(samples) / f64::from(VGM_SAMPLE_RATE);
+/// Formats a native-unit time as `M:SS.s`, given the unit's per-second `rate`.
+fn fmt_time(native: u32, rate: u32) -> String {
+    let total_secs = f64::from(native) / f64::from(rate);
     let minutes = (total_secs / 60.0).floor() as u32;
     let seconds = total_secs - f64::from(minutes) * 60.0;
     format!("{minutes}:{seconds:04.1}")
@@ -206,7 +248,7 @@ fn fmt_time(samples: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_song::{multi_song_capture, tone_song};
+    use crate::test_song::{multi_song_capture, multi_song_capture_dro, tone_song};
 
     fn dialog() -> SplitSongsDialog {
         SplitSongsDialog::new(Arc::new(multi_song_capture()))
@@ -221,10 +263,19 @@ mod tests {
     }
 
     #[test]
-    fn the_default_threshold_matches_vgm_sptd() {
+    fn a_vgm_threshold_is_in_samples() {
         let dialog = dialog();
+        assert_eq!(dialog.rate, 44_100);
         // 0.75 s * 44100 = 33075 samples, next to vgm_sptd's 0x8000 = 32768.
-        assert_eq!(dialog.threshold_samples(), 33_075);
+        assert_eq!(dialog.threshold_native(), 33_075);
+    }
+
+    #[test]
+    fn a_dro_threshold_is_in_milliseconds() {
+        let dialog = SplitSongsDialog::new(Arc::new(multi_song_capture_dro()));
+        assert_eq!(dialog.rate, 1000);
+        assert_eq!(dialog.threshold_native(), 750, "0.75 s = 750 ms");
+        assert_eq!(dialog.segments.len(), 3, "three DRO songs at 0.75 s");
     }
 
     #[test]
@@ -240,21 +291,24 @@ mod tests {
     }
 
     #[test]
-    fn export_submits_the_threshold_and_the_include_flags() {
+    fn export_submits_the_threshold_tail_and_include_flags() {
         let mut dialog = dialog();
         dialog.included[1] = false; // drop the middle song
+        dialog.tail_secs = 0.5; // keep half a second of decay
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         match actions.as_slice() {
             [
                 Action::SplitSongsSubmitted {
-                    threshold_samples,
+                    threshold_native,
                     included,
+                    trailing_tail,
                 },
             ] => {
-                assert_eq!(*threshold_samples, 33_075);
+                assert_eq!(*threshold_native, 33_075);
                 assert_eq!(included, &[true, false, true]);
+                assert_eq!(*trailing_tail, 22_050, "0.5 s in samples");
             }
             other => panic!("expected a split-songs submit, got {other:?}"),
         }
@@ -274,8 +328,6 @@ mod tests {
     fn a_capture_with_no_gaps_is_one_song() {
         // A plain single tone converted to VGM has no gaps: one segment.
         let mut song = tone_song();
-        // tone_song is a DRO; a DRO's ms delays report zero samples, so detection
-        // yields a single all-writes-and-delays segment regardless.
         song.name = "tone.vgm".to_owned();
         let dialog = SplitSongsDialog::new(Arc::new(song));
         assert!(dialog.segments.len() <= 1);
@@ -283,10 +335,12 @@ mod tests {
 
     #[test]
     fn fmt_time_reads_as_minutes_and_seconds() {
-        assert_eq!(fmt_time(0), "0:00.0");
-        assert_eq!(fmt_time(VGM_SAMPLE_RATE), "0:01.0");
-        assert_eq!(fmt_time(VGM_SAMPLE_RATE * 75), "1:15.0");
-        // 33075 samples = 0.75 s.
-        assert_eq!(fmt_time(33_075), "0:00.8");
+        // Samples at 44100 Hz.
+        assert_eq!(fmt_time(0, 44_100), "0:00.0");
+        assert_eq!(fmt_time(44_100, 44_100), "0:01.0");
+        assert_eq!(fmt_time(44_100 * 75, 44_100), "1:15.0");
+        // Milliseconds.
+        assert_eq!(fmt_time(1000, 1000), "0:01.0");
+        assert_eq!(fmt_time(75_000, 1000), "1:15.0");
     }
 }

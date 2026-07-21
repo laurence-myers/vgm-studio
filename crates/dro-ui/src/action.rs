@@ -37,11 +37,14 @@ pub enum Action {
     /// Open the Split Songs dialog (a long capture into its per-song files).
     OpenSplitSongs,
     /// Split the capture into per-song files at the silent gaps, once a folder is
-    /// chosen. `included` is one flag per detected segment, in detection order, so
-    /// the user can drop false positives before exporting.
+    /// chosen. `threshold_native` and `trailing_tail` are in the song's native
+    /// delay unit (samples for a VGM, milliseconds for a DRO); `included` is one
+    /// flag per detected segment, in detection order, so the user can drop false
+    /// positives before exporting.
     SplitSongsSubmitted {
-        threshold_samples: u32,
+        threshold_native: u32,
         included: Vec<bool>,
+        trailing_tail: u32,
     },
     /// Preview a detected song by seeking playback to its first instruction and
     /// playing from there.

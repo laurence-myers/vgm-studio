@@ -27,8 +27,8 @@ use crate::platform::{
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
-    bogus_leading_delay_song, dro_song_v2, dual_tone_song, multi_song_capture, paced_song,
-    redundant_vgm_song, tone_song,
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, multi_song_capture,
+    multi_song_capture_dro, paced_song, redundant_vgm_song, tone_song,
 };
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
@@ -1144,21 +1144,51 @@ fn open_split_songs_dialog(harness: &mut Harness<'static, DroApp>) {
 }
 
 #[test]
-fn split_songs_is_offered_only_for_a_vgm() {
-    // A DRO capture: the menu item is hidden (the pieces are written as VGMs).
-    let (mut harness, _handles) = harness_with_song(&tone_song());
-    harness.get_by_label("File").click();
-    harness.run();
-    assert!(
-        harness.query_by_label_contains("Split Songs").is_none(),
-        "Split Songs should be VGM-only"
-    );
-
-    // A VGM capture: the item is there and opens the dialog.
+fn split_songs_is_offered_for_vgm_and_dro() {
+    // A VGM capture opens the dialog with its detected songs.
     let (mut harness, _handles) = harness_with_song(&multi_song_capture());
     open_split_songs_dialog(&mut harness);
     assert!(harness.state().dialogs.split_songs.is_some());
     assert!(harness.query_by_label_contains("song(s) found").is_some());
+
+    // A DRO capture works too (pieces are written as DROs).
+    let (mut harness, _handles) = harness_with_song(&multi_song_capture_dro());
+    open_split_songs_dialog(&mut harness);
+    assert!(harness.state().dialogs.split_songs.is_some());
+    assert!(harness.query_by_label_contains("song(s) found").is_some());
+}
+
+#[test]
+fn exporting_a_dro_capture_writes_numbered_dro_files() {
+    let (mut harness, handles) = build(Some(picked(&multi_song_capture_dro())), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_songs_dialog(&mut harness);
+    harness.get_by_label_contains("Export").click();
+    harness.run();
+
+    let files = handles.files.borrow();
+    let written: Vec<PathBuf> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, .. } => Some(path.clone()),
+            SaveRequest::Dialog { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        ["01 capture.dro", "02 capture.dro", "03 capture.dro"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect::<Vec<_>>(),
+        "three numbered DRO songs written into the chosen folder"
+    );
 }
 
 #[test]

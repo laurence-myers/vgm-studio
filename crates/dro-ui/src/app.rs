@@ -163,8 +163,9 @@ enum PendingSplit {
         options: SplitOptions,
     },
     Songs {
-        threshold_samples: u32,
+        threshold_native: u32,
         included: Vec<bool>,
+        trailing_tail: u32,
     },
 }
 
@@ -1180,10 +1181,6 @@ impl DroApp {
                 if !self.require_song() {
                     return;
                 }
-                if !self.editor.song().is_some_and(|song| song.is_vgm()) {
-                    self.status = "Split Songs works on a VGM capture.".to_owned();
-                    return;
-                }
                 if self.split_is_running() {
                     self.status = "Already splitting.".to_owned();
                     return;
@@ -1193,9 +1190,10 @@ impl DroApp {
                 }
             }
             Action::SplitSongsSubmitted {
-                threshold_samples,
+                threshold_native,
                 included,
-            } => self.start_split_songs(threshold_samples, included),
+                trailing_tail,
+            } => self.start_split_songs(threshold_native, included, trailing_tail),
             Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
             Action::OpenSettings => {
                 self.dialogs.settings = Some(SettingsDialog::new(&self.config));
@@ -2625,10 +2623,16 @@ impl DroApp {
     }
 
     /// Asks where the song split's files should go, then starts on the answer.
-    fn start_split_songs(&mut self, threshold_samples: u32, included: Vec<bool>) {
+    fn start_split_songs(
+        &mut self,
+        threshold_native: u32,
+        included: Vec<bool>,
+        trailing_tail: u32,
+    ) {
         self.begin_split(PendingSplit::Songs {
-            threshold_samples,
+            threshold_native,
             included,
+            trailing_tail,
         });
     }
 
@@ -2661,13 +2665,15 @@ impl DroApp {
                 "Splitting channels...",
             ),
             PendingSplit::Songs {
-                threshold_samples,
+                threshold_native,
                 included,
+                trailing_tail,
             } => (
                 TaskRequest::SplitSongs {
                     song,
-                    threshold_samples,
+                    threshold_native,
                     included,
+                    trailing_tail,
                 },
                 "Splitting songs...",
             ),

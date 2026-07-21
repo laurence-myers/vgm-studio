@@ -152,6 +152,32 @@ pub(crate) fn multi_song_capture() -> Song {
     )
 }
 
+/// A DRO v2 stand-in for a sound-test session: three short songs parted by two
+/// ~1024 ms silent gaps (over the 0.75 s = 750 ms default split threshold). Each
+/// song sets a distinct register before its note, so a later piece's state-replay
+/// prelude has earlier writes to restore. The DRO counterpart to
+/// [`multi_song_capture`].
+pub(crate) fn multi_song_capture_dro() -> Song {
+    // Codemap slots: 0x20, 0x40, 0xB0, 0x21, 0xB1, 0x22, 0xB2.
+    let codemap = vec![0x20, 0x40, 0xB0, 0x21, 0xB1, 0x22, 0xB2];
+    let (short, long) = (0xFE, 0xFF);
+    // A 100 ms short delay is `[short, 99]`; a 1024 ms long delay is `[long, 3]`
+    // -> (3 + 1) << 8.
+    let mut data = Vec::new();
+    data.extend_from_slice(&[0, 0x01, 1, 0x10, short, 99, 2, 0x31]); // song 1
+    data.extend_from_slice(&[long, 3]); // gap
+    data.extend_from_slice(&[3, 0x02, short, 99, 4, 0x32]); // song 2
+    data.extend_from_slice(&[long, 3]); // gap
+    data.extend_from_slice(&[5, 0x03, short, 99, 6, 0x33]); // song 3
+
+    Song::dro_v2(
+        "capture.dro".to_owned(),
+        DroDataV2::new(data, codemap, short, long).unwrap(),
+        2348, // 3 x 100 ms + 2 x 1024 ms
+        OplType::Opl2,
+    )
+}
+
 /// A DRO v2 song whose first instruction is a delay and whose header length
 /// disagrees with the summed delays -- both load-time warnings at once.
 pub(crate) fn bogus_leading_delay_song() -> Song {
