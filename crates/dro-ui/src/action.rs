@@ -60,6 +60,8 @@ pub enum Action {
     /// Convert the loaded DRO v2 down to DRO v1.
     ConvertToDro1,
     DeleteSelection,
+    /// Strip redundant OPL writes and merge the delays left behind (VGM only).
+    OptimizeVgm,
 
     // Rip mode
     /// Open the folder picker for a rip project (prompts first if the current

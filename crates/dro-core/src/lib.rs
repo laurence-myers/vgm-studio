@@ -27,5 +27,5 @@ pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
     SongFileType, slide_index_past_deletion,
 };
-pub use undo::{UndoController, UndoableCommand};
+pub use undo::{OptimizeVgm, UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};

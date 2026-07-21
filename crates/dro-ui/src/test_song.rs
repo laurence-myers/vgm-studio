@@ -1,7 +1,8 @@
 //! Songs for unit tests, built through `dro-core`'s public constructors
 //! (`dro-core`'s own fixtures are `pub(crate)` to it).
 
-use dro_core::{DroDataV1, DroDataV2, OplType, Song};
+use dro_core::vgm::io::synthesise_header;
+use dro_core::{DroDataV1, DroDataV2, OplType, Song, VgmData, VgmMeta};
 
 /// A 300 ms OPL2 tone: instruments, key-on, 200 ms of sound, key-off, 100 ms of
 /// silence. Same stream as `dro-synth`'s waveform test song.
@@ -89,6 +90,31 @@ pub(crate) fn dro_song_v2() -> Song {
         .unwrap(),
         99_170,
         OplType::Opl3,
+    )
+}
+
+/// A small OPL2 VGM carrying redundant register writes between its delays, so
+/// the optimiser has both writes to strip (indices 4 and 5 repeat the values set
+/// at 1 and 2) and the delays they separate to merge. Named `*.vgm` so it
+/// round-trips through the VGM writer when a test opens it.
+pub(crate) fn redundant_vgm_song() -> Song {
+    let bytes = vec![
+        0x5A, 0x20, 0x01, // 0: write
+        0x5A, 0x40, 0x10, // 1: write (operator level)
+        0x5A, 0xB0, 0x31, // 2: key on
+        0x61, 0x64, 0x00, // 3: wait 100
+        0x5A, 0x40, 0x10, // 4: redundant -- same operator level
+        0x5A, 0xB0, 0x31, // 5: redundant -- key already on
+        0x61, 0xC8, 0x00, // 6: wait 200
+        0x5A, 0xB0, 0x11, // 7: key off
+        0x61, 0x64, 0x00, // 8: wait 100
+    ];
+    Song::vgm(
+        "redundant.vgm".to_owned(),
+        0x151,
+        VgmData::new(bytes).unwrap(),
+        OplType::Opl2,
+        VgmMeta::new(synthesise_header()),
     )
 }
 

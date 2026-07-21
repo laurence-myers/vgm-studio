@@ -1291,6 +1291,27 @@ impl DroApp {
                     self.after_edit();
                 }
             }
+            Action::OptimizeVgm => {
+                if !self.require_song() {
+                    return;
+                }
+                if !self.editor.song().expect("gated").is_vgm() {
+                    self.status = "Only VGMs can be optimized".to_owned();
+                    return;
+                }
+                match self.editor.optimize_vgm() {
+                    Some((commands, bytes)) => {
+                        self.status = format!(
+                            "Optimized: removed {commands} command(s), saved {bytes} byte(s)"
+                        );
+                        self.scroll_to = Some(0);
+                        self.after_edit();
+                    }
+                    None => {
+                        self.status = "Nothing to optimize -- the VGM is already compact".to_owned()
+                    }
+                }
+            }
 
             Action::OpenRipFolder => {
                 if self.rip_is_dirty() {

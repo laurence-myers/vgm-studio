@@ -5,7 +5,9 @@
 
 use core::fmt;
 
-use crate::song::{InsertEntry, OplType, Song};
+use crate::optimize::OptimizeOutcome;
+use crate::song::{InsertEntry, OplType, Song, SongData};
+use crate::vgm::VgmData;
 
 /// A reversible edit.
 ///
@@ -271,6 +273,65 @@ impl UndoableCommand<Song> for UpdateHeader {
             .expect("the controller only reverts a command it has applied");
         song.opl_type = opl_type;
         song.ms_length = ms_length;
+    }
+}
+
+/// A VGM stream and its two loop markers -- the whole of what the optimiser edits.
+type VgmSnapshot = (VgmData, Option<usize>, Option<usize>);
+
+/// Replaces a VGM's stream with an optimised one ([`crate::optimize::optimize`]),
+/// snapshotting the whole before/after stream so undo restores it exactly.
+///
+/// Unlike [`DeleteInstructions`], the optimiser also re-encodes delay runs, which
+/// no delete/insert can express -- so this snapshots the stream wholesale rather
+/// than a set of removed instructions. VGM streams are small, so the two clones
+/// are cheap, and the snapshot is a plainer inverse than replaying two phases.
+#[derive(Debug)]
+pub struct OptimizeVgm {
+    /// The optimised stream and its remapped loop markers.
+    after: VgmSnapshot,
+    /// The original stream and loop markers, captured on `apply`.
+    before: Option<VgmSnapshot>,
+}
+
+impl OptimizeVgm {
+    /// Builds the command from an [`OptimizeOutcome`]. The editor computes the
+    /// outcome first (to report what was saved) and hands it here.
+    #[must_use]
+    pub fn new(outcome: OptimizeOutcome) -> Self {
+        Self {
+            after: (outcome.data, outcome.loop_point, outcome.loop_end),
+            before: None,
+        }
+    }
+}
+
+impl UndoableCommand<Song> for OptimizeVgm {
+    fn description(&self) -> &str {
+        "Optimize VGM"
+    }
+
+    fn apply(&mut self, song: &mut Song) {
+        let SongData::Vgm(data) = song.data() else {
+            // Only a VGM has a stream to optimise; leave a DRO untouched.
+            return;
+        };
+        let meta = song.vgm_meta();
+        self.before = Some((
+            data.clone(),
+            meta.and_then(|meta| meta.loop_point),
+            meta.and_then(|meta| meta.loop_end),
+        ));
+        let (data, loop_point, loop_end) = self.after.clone();
+        song.replace_vgm_stream(data, loop_point, loop_end);
+    }
+
+    fn revert(&mut self, song: &mut Song) {
+        let (data, loop_point, loop_end) = self
+            .before
+            .clone()
+            .expect("the controller only reverts a command it has applied");
+        song.replace_vgm_stream(data, loop_point, loop_end);
     }
 }
 
@@ -588,6 +649,73 @@ mod tests {
         undo.execute(Box::new(DeleteInstructions::new([5])), &mut song);
         assert_eq!(undo.len(), 1);
         assert!(!undo.can_redo());
+        undo.undo(&mut song);
+        assert_eq!(song, original);
+    }
+
+    // -- OptimizeVgm --------------------------------------------------------
+
+    /// A VGM with a redundant register write between two delays, so the optimiser
+    /// has both a write to strip and a pair of delays to merge.
+    fn optimisable_vgm() -> Song {
+        use crate::vgm::VgmData;
+        use crate::vgm::io::synthesise_header;
+        let bytes = vec![
+            0x5A, 0x20, 0x01, // write
+            0x61, 0x64, 0x00, // wait 100
+            0x5A, 0x20, 0x01, // redundant write
+            0x61, 0xC8, 0x00, // wait 200
+            0x5A, 0x21, 0x02, // write
+        ];
+        Song::vgm(
+            "t.vgm".to_owned(),
+            0x151,
+            VgmData::new(bytes).unwrap(),
+            OplType::Opl2,
+            crate::vgm::VgmMeta::new(synthesise_header()),
+        )
+    }
+
+    #[test]
+    fn optimize_vgm_applies_and_reverts_exactly() {
+        use crate::optimize::optimize;
+        let original = optimisable_vgm();
+        let outcome = optimize(&original).expect("the fixture has a redundant write");
+        let saved = outcome.bytes_saved;
+        assert!(saved > 0);
+
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(Box::new(OptimizeVgm::new(outcome)), &mut song);
+
+        // The stream shrank, and the total delay is conserved.
+        assert!(song.data().raw().len() < original.data().raw().len());
+        assert_eq!(song.total_delay_samples(), original.total_delay_samples());
+        assert_eq!(undo.undo_description(), Some("Optimize VGM"));
+
+        // Undo restores the original exactly; redo re-applies.
+        undo.undo(&mut song);
+        assert_eq!(song, original);
+        undo.redo(&mut song);
+        assert!(song.data().raw().len() < original.data().raw().len());
+        undo.undo(&mut song);
+        assert_eq!(song, original);
+    }
+
+    #[test]
+    fn optimize_vgm_preserves_loop_markers_through_undo() {
+        use crate::optimize::optimize;
+        let mut original = optimisable_vgm();
+        {
+            let meta = original.vgm_meta_mut().unwrap();
+            meta.loop_point = Some(0); // loop the whole song
+        }
+        let outcome = optimize(&original).unwrap();
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(Box::new(OptimizeVgm::new(outcome)), &mut song);
+        // The loop point is still present after the rebuild.
+        assert!(song.vgm_meta().unwrap().loop_point.is_some());
         undo.undo(&mut song);
         assert_eq!(song, original);
     }

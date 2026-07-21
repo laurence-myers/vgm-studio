@@ -27,7 +27,8 @@ use crate::platform::{
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
-    bogus_leading_delay_song, dro_song_v2, dual_tone_song, paced_song, tone_song,
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, paced_song, redundant_vgm_song,
+    tone_song,
 };
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
@@ -2763,6 +2764,7 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
         "DRO Info...",
         "Edit Tag",
         "Edit VGM Metadata",
+        "Optimize VGM",
         "Apply Loop to Metadata",
     ]
     .into_iter()
@@ -2862,7 +2864,12 @@ fn a_vgm_shows_only_the_vgm_menu_items() {
     harness.run();
     assert_eq!(
         edit_menu_items(&mut harness),
-        ["Edit Tag", "Edit VGM Metadata", "Apply Loop to Metadata"],
+        [
+            "Edit Tag",
+            "Edit VGM Metadata",
+            "Optimize VGM",
+            "Apply Loop to Metadata"
+        ],
         "a VGM has no DRO header to inspect and is already converted"
     );
 }
@@ -2872,6 +2879,116 @@ fn with_no_song_no_format_specific_items_show() {
     let (mut harness, _handles) = empty_harness();
     assert!(edit_menu_items(&mut harness).is_empty());
     assert!(convert_menu_items(&mut harness).is_empty());
+}
+
+// -- Optimize VGM (cmp-3) ----------------------------------------------------
+
+#[test]
+fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
+    let (mut harness, _handles) = harness_with_song(&redundant_vgm_song());
+    let before = harness.state().editor.len();
+
+    act(&mut harness, Action::OptimizeVgm);
+
+    let state = harness.state();
+    assert!(
+        state.editor.len() < before,
+        "optimising should remove commands"
+    );
+    // The two redundant writes go, and the delays they separated merge into one.
+    assert_eq!(state.editor.len(), before - 3);
+    assert!(
+        state.status.contains("Optimized") && state.status.contains("saved"),
+        "status should report the saving, got {:?}",
+        state.status
+    );
+}
+
+#[test]
+fn optimize_undo_then_redo_restores_the_exact_bytes() {
+    let (mut harness, _handles) = harness_with_song(&redundant_vgm_song());
+    let original = harness.state().editor.song().unwrap().data().raw().to_vec();
+
+    act(&mut harness, Action::OptimizeVgm);
+    let optimised = harness.state().editor.song().unwrap().data().raw().to_vec();
+    assert_ne!(optimised, original, "optimising should change the stream");
+
+    act(&mut harness, Action::Undo);
+    assert_eq!(
+        harness.state().editor.song().unwrap().data().raw(),
+        original.as_slice(),
+        "undo must restore the original bytes exactly"
+    );
+
+    act(&mut harness, Action::Redo);
+    assert_eq!(
+        harness.state().editor.song().unwrap().data().raw(),
+        optimised.as_slice(),
+        "redo must re-apply the optimisation exactly"
+    );
+}
+
+#[test]
+fn optimizing_a_dro_is_refused() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    let before = harness.state().editor.len();
+
+    act(&mut harness, Action::OptimizeVgm);
+
+    let state = harness.state();
+    assert_eq!(state.editor.len(), before, "a DRO must be left untouched");
+    assert!(state.status.contains("Only VGMs"), "got {:?}", state.status);
+}
+
+#[test]
+fn optimizing_an_already_optimal_vgm_reports_nothing() {
+    // A freshly converted VGM has no redundant writes.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.state_mut().editor.convert_to_vgm().unwrap();
+    harness.run();
+    let before = harness.state().editor.len();
+
+    act(&mut harness, Action::OptimizeVgm);
+
+    let state = harness.state();
+    assert_eq!(state.editor.len(), before, "nothing should change");
+    assert!(
+        state.status.contains("Nothing to optimize"),
+        "got {:?}",
+        state.status
+    );
+}
+
+#[test]
+fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
+    // Loop point at the key-off write (index 7); stripping the two redundant
+    // writes before it slides and re-indexes it.
+    let mut song = redundant_vgm_song();
+    song.vgm_meta_mut().unwrap().loop_point = Some(7);
+    let (mut harness, _handles) = harness_with_song(&song);
+    assert_eq!(
+        harness.state().editor.markers.start(),
+        7,
+        "loaded loop point"
+    );
+
+    act(&mut harness, Action::OptimizeVgm);
+
+    let state = harness.state();
+    let remapped = state
+        .editor
+        .song()
+        .unwrap()
+        .vgm_meta()
+        .unwrap()
+        .loop_point
+        .expect("the loop survives optimisation");
+    // The markers were re-derived from the song's remapped loop, so they agree.
+    assert_eq!(state.editor.markers.start(), remapped);
+    assert!(
+        remapped < 7,
+        "the loop point slid left past the stripped writes, got {remapped}"
+    );
 }
 
 #[test]

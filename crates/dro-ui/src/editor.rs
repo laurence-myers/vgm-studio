@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dro_core::undo::{DeleteInstructions, UpdateHeader};
+use dro_core::undo::{DeleteInstructions, OptimizeVgm, UpdateHeader};
 use dro_core::{
     DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType, UndoController,
     UndoableCommand, convert, io,
@@ -207,6 +207,25 @@ impl Editor {
         self.analysis.invalidate();
         self.revision += 1;
         true
+    }
+
+    /// Optimises the loaded VGM: strips redundant OPL writes and merges the
+    /// delays left behind, undoably. Returns `(commands_removed, bytes_saved)`,
+    /// or `None` when no VGM is loaded or there is nothing to optimise.
+    ///
+    /// The stream is rebuilt wholesale (delay runs re-encode), so the selection
+    /// is cleared and the loop markers are re-derived from the song's remapped
+    /// loop metadata, exactly as a fresh load or conversion would.
+    pub fn optimize_vgm(&mut self) -> Option<(usize, usize)> {
+        let song = self.song.as_mut()?;
+        let outcome = dro_core::optimize::optimize(song)?;
+        let stats = (outcome.commands_removed, outcome.bytes_saved);
+        self.undo.execute(Box::new(OptimizeVgm::new(outcome)), song);
+        self.markers = RangeMarkers::from_song(song);
+        self.selection.clear();
+        self.analysis.invalidate();
+        self.revision += 1;
+        Some(stats)
     }
 
     /// Reverts the last edit, returning its description for the status bar,

@@ -135,6 +135,9 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if is_vgm && enabled_item(ui, editor, "Edit VGM Metadata", None) {
                 actions.push(Action::OpenVgmMetadata);
             }
+            if is_vgm && enabled_item(ui, editor, "Optimize VGM", None) {
+                actions.push(Action::OptimizeVgm);
+            }
             crate::theme::separator(ui, palette);
             // The loop markers. The gestures ([ and ], and modifier-clicks on the
             // waveform) are the fast path; these are how they are discovered, and
