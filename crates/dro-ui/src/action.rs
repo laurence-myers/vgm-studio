@@ -34,6 +34,20 @@ pub enum Action {
         format: dro_synth::SplitFormat,
         isolate_percussion: bool,
     },
+    /// Open the Split Songs dialog (a long capture into its per-song files).
+    OpenSplitSongs,
+    /// Split the capture into per-song files at the silent gaps, once a folder is
+    /// chosen. `included` is one flag per detected segment, in detection order, so
+    /// the user can drop false positives before exporting.
+    SplitSongsSubmitted {
+        threshold_samples: u32,
+        included: Vec<bool>,
+    },
+    /// Preview a detected song by seeking playback to its first instruction and
+    /// playing from there.
+    SplitSongsPreview {
+        start_index: usize,
+    },
     /// Render the song to a WAV with the chosen options applied, then offer to
     /// save it. `boost` is already resolved to `1.0` when it was switched off.
     RenderWavSubmitted {
@@ -69,6 +83,8 @@ pub enum Action {
     OpenRipFolder,
     /// Open the folder picker after the user confirmed discarding a dirty rip.
     ConfirmOpenRipFolder,
+    /// Open a specific folder as a rip project (the Split Songs completion offer).
+    OpenRipFolderAt(std::path::PathBuf),
     /// Switch the active tab (only meaningful while a rip is open).
     SelectTab(AppTab),
     /// Close the rip project (prompts first if it has unsaved edits).

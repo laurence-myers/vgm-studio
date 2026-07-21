@@ -27,8 +27,8 @@ use crate::platform::{
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
-    bogus_leading_delay_song, dro_song_v2, dual_tone_song, paced_song, redundant_vgm_song,
-    tone_song,
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, multi_song_capture, paced_song,
+    redundant_vgm_song, tone_song,
 };
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
@@ -1133,6 +1133,147 @@ fn a_vgm_can_be_split_too() {
     assert!(harness.query_by_label_contains("Song data").is_some());
 }
 
+// -- split songs -------------------------------------------------------------
+
+/// Opens File > Split Songs...
+fn open_split_songs_dialog(harness: &mut Harness<'static, DroApp>) {
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label_contains("Split Songs").click();
+    harness.run();
+}
+
+#[test]
+fn split_songs_is_offered_only_for_a_vgm() {
+    // A DRO capture: the menu item is hidden (the pieces are written as VGMs).
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.get_by_label("File").click();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("Split Songs").is_none(),
+        "Split Songs should be VGM-only"
+    );
+
+    // A VGM capture: the item is there and opens the dialog.
+    let (mut harness, _handles) = harness_with_song(&multi_song_capture());
+    open_split_songs_dialog(&mut harness);
+    assert!(harness.state().dialogs.split_songs.is_some());
+    assert!(harness.query_by_label_contains("song(s) found").is_some());
+}
+
+#[test]
+fn exporting_songs_writes_a_numbered_file_per_song() {
+    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_songs_dialog(&mut harness);
+    harness.get_by_label_contains("Export").click();
+    harness.run();
+
+    assert_eq!(handles.files.borrow().pick_output_folder_calls, 1);
+    let files = handles.files.borrow();
+    let written: Vec<PathBuf> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, .. } => Some(path.clone()),
+            SaveRequest::Dialog { .. } => None,
+        })
+        .collect();
+    assert_eq!(
+        written,
+        ["01 capture.vgm", "02 capture.vgm", "03 capture.vgm"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect::<Vec<_>>(),
+        "three numbered songs written into the chosen folder"
+    );
+}
+
+#[test]
+fn the_song_split_offers_to_open_the_folder_as_a_rip_project() {
+    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_songs_dialog(&mut harness);
+    harness.get_by_label_contains("Export").click();
+    harness.run();
+
+    // Feed a Saved outcome per written file; the offer appears once the last lands.
+    for _ in 0..3 {
+        handles
+            .files
+            .borrow_mut()
+            .save_outcomes
+            .push_back(SaveOutcome::Saved {
+                name: "song.vgm".to_owned(),
+                path: None,
+            });
+        harness.run();
+    }
+    assert_eq!(
+        harness.state().status,
+        format!("Wrote 3 song(s) to {}.", dir.display())
+    );
+
+    // The completion alert offers the rip handoff; accepting opens the folder.
+    assert!(
+        harness
+            .query_by_label_contains("Open the folder as a rip project")
+            .is_some()
+    );
+    harness.get_by_label("OK").click();
+    harness.run();
+    assert!(
+        handles.files.borrow().opened_folder_paths.contains(&dir),
+        "accepting the offer opens the folder as a rip project"
+    );
+}
+
+#[test]
+fn dismissing_the_folder_picker_cancels_the_song_split() {
+    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    handles.files.borrow_mut().output_folders.push_back(None);
+
+    open_split_songs_dialog(&mut harness);
+    harness.get_by_label_contains("Export").click();
+    harness.run();
+
+    assert_eq!(harness.state().status, "Split cancelled.");
+    assert!(harness.state().split_flow.is_none());
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "nothing should be written"
+    );
+}
+
+#[test]
+fn previewing_a_song_seeks_to_its_start_and_plays() {
+    // A single-song VGM: one segment, so its lone Preview button is unambiguous.
+    let (mut harness, handles) = build(Some(picked(&redundant_vgm_song())), false, false);
+    open_split_songs_dialog(&mut harness);
+
+    harness.get_by_label_contains("Preview").click();
+    harness.run_steps(3); // playback requests repaints; `run` would spin.
+
+    let audio = handles.audio.borrow();
+    assert!(audio.play_calls >= 1, "preview should start playback");
+    assert!(
+        audio.seeks_pos.contains(&0),
+        "preview should seek to the song's first instruction"
+    );
+}
+
 // -- snapshot tests ----------------------------------------------------------
 //
 // Baselines live in tests/snapshots/. They render via wgpu (DX12 WARP on
@@ -1190,6 +1331,13 @@ fn snapshot_split_dialog() {
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     open_split_dialog(&mut harness);
     settled_snapshot(&mut harness, "split_dialog");
+}
+
+#[test]
+fn snapshot_split_songs_dialog() {
+    let (mut harness, _handles) = build(Some(picked(&multi_song_capture())), false, true);
+    open_split_songs_dialog(&mut harness);
+    settled_snapshot(&mut harness, "split_songs_dialog");
 }
 
 #[test]

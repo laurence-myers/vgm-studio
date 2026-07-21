@@ -4,7 +4,7 @@
 use core::fmt;
 use core::time::Duration;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use dro_core::config::{AppConfig, ConfigStore};
 use dro_core::song::{DRO_FILE_V2, SongFileType};
@@ -16,7 +16,8 @@ use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
-    RenderWavDialog, SettingsDialog, SplitDialog, TrackEditDialog, VgmMetadataDialog,
+    RenderWavDialog, SettingsDialog, SplitDialog, SplitSongsDialog, TrackEditDialog,
+    VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -135,20 +136,43 @@ enum SavePurpose {
     RipOp,
 }
 
-/// The stages of File > Split Channels: choose a folder, render into it, write
-/// the files out.
+/// The stages shared by File > Split Channels and File > Split Songs: choose a
+/// folder, render into it, write the files out. Both go through the one output
+/// folder picker, so at most one runs at a time.
 #[derive(Debug, Clone)]
 enum SplitFlow {
     /// The options are chosen; the folder picker is up.
-    AwaitingFolder { options: SplitOptions },
-    /// The split is rendering, bound for `dir`.
-    Rendering { dir: PathBuf },
+    AwaitingFolder(PendingSplit),
+    /// The split is rendering, bound for `dir`. `songs` distinguishes the two
+    /// kinds once the folder is chosen, for the completion offer.
+    Rendering { dir: PathBuf, songs: bool },
     /// Writing the outputs, counting them off as their saves land.
     Writing {
         dir: PathBuf,
         written: usize,
         failed: bool,
+        songs: bool,
     },
+}
+
+/// Which split the folder picker is being asked about: one file per channel, or
+/// one file per song in a capture.
+#[derive(Debug, Clone)]
+enum PendingSplit {
+    Channels {
+        options: SplitOptions,
+    },
+    Songs {
+        threshold_samples: u32,
+        included: Vec<bool>,
+    },
+}
+
+impl PendingSplit {
+    /// Whether this is a Split Songs request (drives the completion offer).
+    fn is_songs(&self) -> bool {
+        matches!(self, Self::Songs { .. })
+    }
 }
 
 /// Whether the running file-op sequence is a fresh edit, a redo, or an undo --
@@ -684,7 +708,9 @@ impl DroApp {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
                 TaskResult::Wav(rendered) => self.handle_wav_result(rendered),
-                TaskResult::Split(outputs) => self.write_split(outputs),
+                TaskResult::Split(outputs) | TaskResult::SplitSongs(outputs) => {
+                    self.write_split(outputs);
+                }
             }
         }
     }
@@ -1150,6 +1176,27 @@ impl DroApp {
                 format,
                 isolate_percussion,
             } => self.start_split(format, isolate_percussion),
+            Action::OpenSplitSongs => {
+                if !self.require_song() {
+                    return;
+                }
+                if !self.editor.song().is_some_and(|song| song.is_vgm()) {
+                    self.status = "Split Songs works on a VGM capture.".to_owned();
+                    return;
+                }
+                if self.split_is_running() {
+                    self.status = "Already splitting.".to_owned();
+                    return;
+                }
+                if let Some(song) = self.editor.snapshot() {
+                    self.dialogs.split_songs = Some(SplitSongsDialog::new(song));
+                }
+            }
+            Action::SplitSongsSubmitted {
+                threshold_samples,
+                included,
+            } => self.start_split_songs(threshold_samples, included),
+            Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
             Action::OpenSettings => {
                 self.dialogs.settings = Some(SettingsDialog::new(&self.config));
             }
@@ -1325,6 +1372,7 @@ impl DroApp {
                 }
             }
             Action::ConfirmOpenRipFolder => self.files.pick_folder(),
+            Action::OpenRipFolderAt(path) => self.files.open_folder_path(path),
             Action::SelectTab(tab) => self.select_tab(tab),
             Action::CloseRip => {
                 if self.rip_is_dirty() {
@@ -2556,31 +2604,48 @@ impl DroApp {
         self.status = "Rendering to WAV...".to_owned();
     }
 
-    /// Whether a split is somewhere between its dialog and its last written file.
+    /// Whether a split (of either kind) is somewhere between its dialog and its
+    /// last written file.
     fn split_is_running(&self) -> bool {
-        self.split_flow.is_some() || self.tasks.is_busy_kind(TaskKind::Split)
+        self.split_flow.is_some()
+            || self.tasks.is_busy_kind(TaskKind::Split)
+            || self.tasks.is_busy_kind(TaskKind::SplitSongs)
     }
 
-    /// Asks where the split's files should go. The split itself starts once the
-    /// answer arrives in `poll_services`.
+    /// Asks where the channel split's files should go. The split itself starts
+    /// once the answer arrives in `poll_services`.
     fn start_split(&mut self, format: SplitFormat, isolate_percussion: bool) {
-        if !self.require_song() || self.split_is_running() {
-            return;
-        }
-        self.split_flow = Some(SplitFlow::AwaitingFolder {
+        self.begin_split(PendingSplit::Channels {
             options: SplitOptions {
                 format,
                 isolate_percussion,
                 audio: self.config.audio,
             },
         });
+    }
+
+    /// Asks where the song split's files should go, then starts on the answer.
+    fn start_split_songs(&mut self, threshold_samples: u32, included: Vec<bool>) {
+        self.begin_split(PendingSplit::Songs {
+            threshold_samples,
+            included,
+        });
+    }
+
+    /// The shared entry both splits use: guard, stash the request, open the
+    /// output-folder picker.
+    fn begin_split(&mut self, pending: PendingSplit) {
+        if !self.require_song() || self.split_is_running() {
+            return;
+        }
+        self.split_flow = Some(SplitFlow::AwaitingFolder(pending));
         self.files.pick_output_folder();
     }
 
     /// Starts the split now that `dir` is known, or gives up if the picker was
     /// dismissed.
     fn split_into(&mut self, dir: Option<PathBuf>) {
-        let Some(SplitFlow::AwaitingFolder { options }) = self.split_flow.clone() else {
+        let Some(SplitFlow::AwaitingFolder(pending)) = self.split_flow.clone() else {
             // A folder arrived with no split waiting for it; nothing to do.
             return;
         };
@@ -2589,17 +2654,34 @@ impl DroApp {
             self.status = "Split cancelled.".to_owned();
             return;
         };
-        self.tasks
-            .submit(TaskRequest::Split { song, options }, None);
-        self.split_flow = Some(SplitFlow::Rendering { dir });
-        self.status = "Splitting channels...".to_owned();
+        let songs = pending.is_songs();
+        let (request, status) = match pending {
+            PendingSplit::Channels { options } => (
+                TaskRequest::Split { song, options },
+                "Splitting channels...",
+            ),
+            PendingSplit::Songs {
+                threshold_samples,
+                included,
+            } => (
+                TaskRequest::SplitSongs {
+                    song,
+                    threshold_samples,
+                    included,
+                },
+                "Splitting songs...",
+            ),
+        };
+        self.tasks.submit(request, None);
+        self.split_flow = Some(SplitFlow::Rendering { dir, songs });
+        self.status = status.to_owned();
     }
 
     /// Writes a finished split's files into the folder chosen for it.
     fn write_split(&mut self, outputs: Result<Vec<(String, Vec<u8>)>, String>) {
         // Only the split still being waited on: a result from one the user
         // abandoned (by loading another song) has nowhere to go.
-        let Some(SplitFlow::Rendering { dir }) = self.split_flow.clone() else {
+        let Some(SplitFlow::Rendering { dir, songs }) = self.split_flow.clone() else {
             return;
         };
         let files = match outputs {
@@ -2613,7 +2695,11 @@ impl DroApp {
         };
         if files.is_empty() {
             self.split_flow = None;
-            self.status = "No channels to split.".to_owned();
+            self.status = if songs {
+                "No songs to split.".to_owned()
+            } else {
+                "No channels to split.".to_owned()
+            };
             return;
         }
         for (name, bytes) in files {
@@ -2630,6 +2716,7 @@ impl DroApp {
             dir,
             written: 0,
             failed: false,
+            songs,
         });
     }
 
@@ -2639,6 +2726,7 @@ impl DroApp {
             dir,
             written,
             failed,
+            songs,
         }) = &mut self.split_flow
         else {
             return;
@@ -2657,12 +2745,47 @@ impl DroApp {
         {
             return;
         }
-        self.status = if *failed {
-            "Some split files could not be written.".to_owned()
-        } else {
-            format!("Wrote {written} file(s) to {}.", dir.display())
-        };
+        let (dir, written, failed, songs) = (dir.clone(), *written, *failed, *songs);
         self.split_flow = None;
+        if failed {
+            self.status = "Some split files could not be written.".to_owned();
+            return;
+        }
+        self.finish_split(&dir, written, songs);
+    }
+
+    /// The success report once every split file has landed. A song split also
+    /// offers to open the folder it filled as a rip project.
+    fn finish_split(&mut self, dir: &Path, written: usize, songs: bool) {
+        if songs {
+            self.status = format!("Wrote {written} song(s) to {}.", dir.display());
+            self.alerts.push_back(Alert::confirm(
+                "Songs exported",
+                format!(
+                    "Wrote {written} song(s) to {}.\n\nOpen the folder as a rip project?",
+                    dir.display()
+                ),
+                Action::OpenRipFolderAt(dir.to_path_buf()),
+            ));
+        } else {
+            self.status = format!("Wrote {written} file(s) to {}.", dir.display());
+        }
+    }
+
+    /// Previews a detected song: seek playback to its first instruction and play.
+    fn preview_segment(&mut self, start_index: usize) {
+        if !self.require_song() {
+            return;
+        }
+        if let Err(message) = self.ensure_audio() {
+            self.alerts.push_back(Alert::error(message));
+            return;
+        }
+        self.audio.rewind();
+        self.audio.seek_pos(start_index);
+        if let Err(message) = self.audio.play() {
+            self.alerts.push_back(Alert::error(message));
+        }
     }
 
     fn submit_waveform(&mut self, debounce: Option<Duration>) {

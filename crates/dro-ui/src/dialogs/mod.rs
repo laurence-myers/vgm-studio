@@ -14,6 +14,7 @@ pub mod goto;
 pub mod render_wav;
 pub mod settings;
 pub mod split;
+pub mod split_songs;
 pub mod track_edit;
 pub mod vgm_metadata;
 
@@ -25,6 +26,7 @@ pub use goto::GotoDialog;
 pub use render_wav::RenderWavDialog;
 pub use settings::SettingsDialog;
 pub use split::SplitDialog;
+pub use split_songs::SplitSongsDialog;
 pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
@@ -81,6 +83,8 @@ pub struct Dialogs {
     pub render_wav: Option<RenderWavDialog>,
     /// File > Split Channels: the output format and percussion handling.
     pub split: Option<SplitDialog>,
+    /// File > Split Songs: the gap threshold and per-song include flags.
+    pub split_songs: Option<SplitSongsDialog>,
 }
 
 impl Dialogs {
@@ -100,6 +104,7 @@ impl Dialogs {
             || self.bulk_tag.is_some()
             || self.render_wav.is_some()
             || self.split.is_some()
+            || self.split_songs.is_some()
     }
 
     /// Draws every open dialog, dropping the ones that closed.
@@ -131,6 +136,9 @@ impl Dialogs {
             d.show(ctx, palette, area, actions)
         });
         retain(&mut self.split, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.split_songs, |d| {
+            d.show(ctx, palette, area, actions)
+        });
     }
 }
 

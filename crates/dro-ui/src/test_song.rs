@@ -118,6 +118,40 @@ pub(crate) fn redundant_vgm_song() -> Song {
     )
 }
 
+/// An OPL2 VGM standing in for a whole sound-test session logged in one file:
+/// three short "songs" parted by two one-second (44100-sample) silent gaps, well
+/// over the 0.75 s default split threshold. Each song sets a distinct register
+/// before its note, so a later piece's state-replay prelude has earlier writes to
+/// restore. Named `*.vgm` so it round-trips through the VGM writer.
+pub(crate) fn multi_song_capture() -> Song {
+    // 44100 samples = 0xAC44 (one second); 4410 = 0x113A (a tenth).
+    let gap = [0x61, 0x44, 0xAC];
+    let short = [0x61, 0x3A, 0x11];
+    let mut bytes = Vec::new();
+    // song 1
+    bytes.extend_from_slice(&[0x5A, 0x20, 0x01, 0x5A, 0x40, 0x10, 0x5A, 0xB0, 0x31]);
+    bytes.extend_from_slice(&short);
+    bytes.extend_from_slice(&[0x5A, 0xB0, 0x11]);
+    bytes.extend_from_slice(&gap);
+    // song 2
+    bytes.extend_from_slice(&[0x5A, 0x21, 0x02, 0x5A, 0xB1, 0x32]);
+    bytes.extend_from_slice(&short);
+    bytes.extend_from_slice(&[0x5A, 0xB1, 0x12]);
+    bytes.extend_from_slice(&gap);
+    // song 3
+    bytes.extend_from_slice(&[0x5A, 0x22, 0x03, 0x5A, 0xB2, 0x33]);
+    bytes.extend_from_slice(&short);
+    bytes.extend_from_slice(&[0x5A, 0xB2, 0x13]);
+
+    Song::vgm(
+        "capture.vgm".to_owned(),
+        0x151,
+        VgmData::new(bytes).unwrap(),
+        OplType::Opl2,
+        VgmMeta::new(synthesise_header()),
+    )
+}
+
 /// A DRO v2 song whose first instruction is a delay and whose header length
 /// disagrees with the summed delays -- both load-time warnings at once.
 pub(crate) fn bogus_leading_delay_song() -> Song {

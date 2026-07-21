@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 use dro_core::Song;
 use dro_core::io::write_song;
+use dro_core::rip::track_file_name;
+use dro_core::split_songs::{detect_segments, materialise};
 use dro_synth::{
     RenderMix, SplitData, SplitOptions, WaveformBucket, render_wav_cancellable,
     render_waveform_progressive, split_cancellable,
@@ -23,6 +25,8 @@ pub enum TaskKind {
     RenderWav,
     /// File > Split Channels.
     Split,
+    /// File > Split Songs (one capture into its per-song files).
+    SplitSongs,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -44,6 +48,13 @@ pub enum TaskRequest {
         song: Arc<Song>,
         options: SplitOptions,
     },
+    SplitSongs {
+        song: Arc<Song>,
+        threshold_samples: u32,
+        /// One flag per detected segment (in detection order); a `false` drops
+        /// that segment from the export.
+        included: Vec<bool>,
+    },
 }
 
 impl TaskRequest {
@@ -53,6 +64,7 @@ impl TaskRequest {
             Self::RenderWaveform { .. } => TaskKind::RenderWaveform,
             Self::RenderWav { .. } => TaskKind::RenderWav,
             Self::Split { .. } => TaskKind::Split,
+            Self::SplitSongs { .. } => TaskKind::SplitSongs,
         }
     }
 }
@@ -71,6 +83,9 @@ pub enum TaskResult {
     /// split failed. Song-format outputs are serialised inside the task, so the
     /// app never has to know a DRO from a VGM to save them.
     Split(SplitFiles),
+    /// One `(name, bytes)` per included song in the capture, ready to write, or
+    /// why the split failed. Serialised inside the task, like [`Self::Split`].
+    SplitSongs(SplitFiles),
 }
 
 /// A finished split's files, ready to write, or why it failed.
@@ -165,7 +180,59 @@ pub fn run_task(
                 emit(TaskResult::Split(result));
             }
         }
+        TaskRequest::SplitSongs {
+            song,
+            threshold_samples,
+            included,
+        } => {
+            if let Some(result) =
+                split_songs_to_bytes(song, *threshold_samples, included, is_cancelled)
+            {
+                emit(TaskResult::SplitSongs(result));
+            }
+        }
     }
+}
+
+/// Detects the songs in `song`, materialises each included one, and serialises it
+/// to VGM bytes named `NN <stem>.vgm` (a running number over the included songs).
+/// `None` if cancelled part-way.
+///
+/// The detection is re-run here from `threshold_samples`, so `included[i]` lines
+/// up with the same segment the dialog showed at that threshold; a shorter or
+/// absent `included` treats the remaining segments as kept.
+fn split_songs_to_bytes(
+    song: &Song,
+    threshold_samples: u32,
+    included: &[bool],
+    is_cancelled: &dyn Fn() -> bool,
+) -> Option<SplitFiles> {
+    let stem = song
+        .name
+        .rsplit_once('.')
+        .map_or(song.name.as_str(), |(stem, _extension)| stem);
+
+    let mut files = Vec::new();
+    let mut number = 1;
+    for (index, segment) in detect_segments(song, threshold_samples)
+        .into_iter()
+        .enumerate()
+    {
+        if is_cancelled() {
+            return None;
+        }
+        if !included.get(index).copied().unwrap_or(true) {
+            continue;
+        }
+        let piece = materialise(song, &segment, true);
+        let bytes = match write_song(&piece) {
+            Ok(bytes) => bytes,
+            Err(error) => return Some(Err(error.to_string())),
+        };
+        files.push((track_file_name(number, stem, "vgm"), bytes));
+        number += 1;
+    }
+    Some(Ok(files))
 }
 
 /// Splits `song` and serialises each output, so what comes back is ready to
@@ -283,5 +350,46 @@ mod tests {
         // The CLI's own naming: `tone.dro` renders to `tone.dro.wav`.
         assert_eq!(name, "tone.dro.wav");
         assert_eq!(*bytes, expected);
+    }
+
+    // -- split songs -------------------------------------------------------
+
+    #[test]
+    fn a_song_split_names_a_numbered_vgm_per_song() {
+        let song = crate::test_song::multi_song_capture();
+        let files = split_songs_to_bytes(&song, 33_075, &[true, true, true], &|| false)
+            .unwrap()
+            .unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["01 capture.vgm", "02 capture.vgm", "03 capture.vgm"]
+        );
+        // Each piece reads back as a VGM.
+        for (name, bytes) in &files {
+            let piece = dro_core::io::read_song(name, bytes).unwrap();
+            assert!(piece.is_vgm(), "{name} should be a VGM");
+        }
+    }
+
+    #[test]
+    fn a_song_split_drops_excluded_segments_and_renumbers() {
+        let song = crate::test_song::multi_song_capture();
+        // Drop the middle song; the numbering must stay contiguous.
+        let files = split_songs_to_bytes(&song, 33_075, &[true, false, true], &|| false)
+            .unwrap()
+            .unwrap();
+        let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["01 capture.vgm", "02 capture.vgm"]);
+    }
+
+    #[test]
+    fn a_cancelled_song_split_emits_nothing() {
+        let split = TaskRequest::SplitSongs {
+            song: Arc::new(crate::test_song::multi_song_capture()),
+            threshold_samples: 33_075,
+            included: vec![true, true, true],
+        };
+        assert!(collect(&split, || true).is_empty());
     }
 }

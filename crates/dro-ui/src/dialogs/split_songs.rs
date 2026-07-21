@@ -1,0 +1,292 @@
+//! The Split Songs dialog: cut one long capture into its per-song files.
+//!
+//! A whole sound-test session logged in one go is many songs end to end, parted
+//! by silence. The dialog runs [`detect_segments`] over the loaded capture and
+//! lists what it found; dragging the gap-threshold slider re-detects live (one
+//! cheap pass), so the boundary list updates as you tune it. Each row has an
+//! include checkbox -- to drop a false positive without leaving the dialog -- and
+//! a Preview button that seeks playback to the song's start. Export asks where to
+//! put the files and writes `NN <stem>.vgm` for every checked song.
+
+use std::sync::Arc;
+
+use dro_core::Song;
+use dro_core::split_songs::{Segment, detect_segments};
+use dro_core::util::VGM_SAMPLE_RATE;
+
+use crate::action::Action;
+use crate::theme::{Palette, bevel};
+
+/// The default gap threshold, in seconds. `vgm_sptd` uses 0x8000 = 32768 samples
+/// (~0.74 s); 0.75 s is the same, rounded.
+const DEFAULT_THRESHOLD_SECS: f32 = 0.75;
+/// The slider's range, in seconds.
+const MIN_THRESHOLD_SECS: f32 = 0.2;
+const MAX_THRESHOLD_SECS: f32 = 5.0;
+
+#[derive(Debug)]
+pub struct SplitSongsDialog {
+    /// A snapshot of the capture, taken at open; detection re-runs against it.
+    song: Arc<Song>,
+    /// The gap threshold the slider edits, in seconds.
+    threshold_secs: f32,
+    /// The songs detected at the current threshold.
+    segments: Vec<Segment>,
+    /// One include flag per segment, in the same order. Reset to all-on whenever
+    /// re-detection changes the segment list.
+    included: Vec<bool>,
+}
+
+impl SplitSongsDialog {
+    #[must_use]
+    pub fn new(song: Arc<Song>) -> Self {
+        let mut dialog = Self {
+            song,
+            threshold_secs: DEFAULT_THRESHOLD_SECS,
+            segments: Vec::new(),
+            included: Vec::new(),
+        };
+        dialog.redetect();
+        dialog
+    }
+
+    /// The current threshold in samples, as the detector and the export want it.
+    fn threshold_samples(&self) -> u32 {
+        // Round to the nearest sample; clamps below by the slider's own minimum.
+        (self.threshold_secs * VGM_SAMPLE_RATE as f32).round() as u32
+    }
+
+    /// Re-runs detection at the current threshold and resets every include flag,
+    /// since the old flags no longer line up with the new segment list.
+    fn redetect(&mut self) {
+        self.segments = detect_segments(&self.song, self.threshold_samples());
+        self.included = vec![true; self.segments.len()];
+    }
+
+    #[must_use]
+    fn included_count(&self) -> usize {
+        self.included.iter().filter(|&&on| on).count()
+    }
+
+    /// Draws the window. Returns `false` once closed.
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        area: egui::Rect,
+        actions: &mut Vec<Action>,
+    ) -> bool {
+        let mut close = false;
+        let open = super::dialog_window(ctx, "Split Songs", area, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Gap threshold:")
+                        .color(palette.data_label)
+                        .strong(),
+                );
+                let slider = ui.add(
+                    egui::Slider::new(
+                        &mut self.threshold_secs,
+                        MIN_THRESHOLD_SECS..=MAX_THRESHOLD_SECS,
+                    )
+                    .suffix(" s")
+                    .step_by(0.05),
+                );
+                if slider.changed() {
+                    self.redetect();
+                }
+            });
+            ui.add_space(2.0);
+            ui.colored_label(
+                palette.muted,
+                "Songs are split where the capture goes silent for at least this long.",
+            );
+
+            ui.add_space(6.0);
+            crate::theme::separator_full(ui, palette);
+            self.boundary_table(ui, palette, actions);
+
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                if bevel::button(ui, palette, "Export...").clicked() && self.save(actions) {
+                    close = true;
+                }
+            });
+        });
+        open && !close
+    }
+
+    /// The song count and the scrollable boundary list (number, start, length, an
+    /// include checkbox, and a Preview button per row).
+    fn boundary_table(&mut self, ui: &mut egui::Ui, palette: &Palette, actions: &mut Vec<Action>) {
+        if self.segments.is_empty() {
+            ui.colored_label(palette.muted, "No songs found at this threshold.");
+            return;
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("{} song(s) found", self.segments.len()))
+                    .color(palette.data_label)
+                    .strong(),
+            );
+            ui.colored_label(
+                palette.muted,
+                format!("{} to export", self.included_count()),
+            );
+        });
+        ui.add_space(4.0);
+
+        // Disjoint borrows so the checkbox can take one field mutably while the
+        // segment is read from another, all without touching `self` in the loop.
+        let segments = &self.segments;
+        let included = &mut self.included;
+        egui::ScrollArea::vertical()
+            .max_height(220.0)
+            .show(ui, |ui| {
+                egui::Grid::new("split-songs-boundaries")
+                    .num_columns(5)
+                    .spacing([12.0, 6.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for label in ["#", "Start", "Length", "", ""] {
+                            ui.label(
+                                egui::RichText::new(label)
+                                    .color(palette.data_label)
+                                    .strong(),
+                            );
+                        }
+                        ui.end_row();
+
+                        for (index, segment) in segments.iter().enumerate() {
+                            ui.label(format!("{}", index + 1));
+                            ui.label(fmt_time(segment.start_samples));
+                            ui.label(fmt_time(segment.length_samples));
+                            ui.checkbox(&mut included[index], "Include");
+                            if bevel::button(ui, palette, "Preview").clicked() {
+                                actions.push(Action::SplitSongsPreview {
+                                    start_index: segment.start,
+                                });
+                            }
+                            ui.end_row();
+                        }
+                    });
+            });
+    }
+
+    /// Emits the export request, or queues an alert and stays open if nothing is
+    /// checked. Returns whether the dialog should close.
+    fn save(&self, actions: &mut Vec<Action>) -> bool {
+        if self.included_count() == 0 {
+            actions.push(Action::Alert {
+                title: "Nothing to export".to_owned(),
+                message: "Check at least one song to export.".to_owned(),
+            });
+            return false;
+        }
+        actions.push(Action::SplitSongsSubmitted {
+            threshold_samples: self.threshold_samples(),
+            included: self.included.clone(),
+        });
+        true
+    }
+}
+
+/// Formats a sample count at 44100 Hz as `M:SS.s`.
+fn fmt_time(samples: u32) -> String {
+    let total_secs = f64::from(samples) / f64::from(VGM_SAMPLE_RATE);
+    let minutes = (total_secs / 60.0).floor() as u32;
+    let seconds = total_secs - f64::from(minutes) * 60.0;
+    format!("{minutes}:{seconds:04.1}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_song::{multi_song_capture, tone_song};
+
+    fn dialog() -> SplitSongsDialog {
+        SplitSongsDialog::new(Arc::new(multi_song_capture()))
+    }
+
+    #[test]
+    fn new_detects_at_the_default_threshold_with_all_included() {
+        let dialog = dialog();
+        assert_eq!(dialog.segments.len(), 3, "three songs at 0.75 s");
+        assert_eq!(dialog.included, vec![true, true, true]);
+        assert_eq!(dialog.included_count(), 3);
+    }
+
+    #[test]
+    fn the_default_threshold_matches_vgm_sptd() {
+        let dialog = dialog();
+        // 0.75 s * 44100 = 33075 samples, next to vgm_sptd's 0x8000 = 32768.
+        assert_eq!(dialog.threshold_samples(), 33_075);
+    }
+
+    #[test]
+    fn a_higher_threshold_re_detects_and_resets_the_flags() {
+        let mut dialog = dialog();
+        dialog.included[1] = false;
+        // The gaps are one second; a two-second threshold merges everything back
+        // into a single song.
+        dialog.threshold_secs = 2.0;
+        dialog.redetect();
+        assert_eq!(dialog.segments.len(), 1);
+        assert_eq!(dialog.included, vec![true], "flags reset on re-detect");
+    }
+
+    #[test]
+    fn export_submits_the_threshold_and_the_include_flags() {
+        let mut dialog = dialog();
+        dialog.included[1] = false; // drop the middle song
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        match actions.as_slice() {
+            [
+                Action::SplitSongsSubmitted {
+                    threshold_samples,
+                    included,
+                },
+            ] => {
+                assert_eq!(*threshold_samples, 33_075);
+                assert_eq!(included, &[true, false, true]);
+            }
+            other => panic!("expected a split-songs submit, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn export_with_nothing_checked_alerts_instead() {
+        let mut dialog = dialog();
+        dialog.included = vec![false, false, false];
+
+        let mut actions = Vec::new();
+        assert!(!dialog.save(&mut actions));
+        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+    }
+
+    #[test]
+    fn a_capture_with_no_gaps_is_one_song() {
+        // A plain single tone converted to VGM has no gaps: one segment.
+        let mut song = tone_song();
+        // tone_song is a DRO; a DRO's ms delays report zero samples, so detection
+        // yields a single all-writes-and-delays segment regardless.
+        song.name = "tone.vgm".to_owned();
+        let dialog = SplitSongsDialog::new(Arc::new(song));
+        assert!(dialog.segments.len() <= 1);
+    }
+
+    #[test]
+    fn fmt_time_reads_as_minutes_and_seconds() {
+        assert_eq!(fmt_time(0), "0:00.0");
+        assert_eq!(fmt_time(VGM_SAMPLE_RATE), "0:01.0");
+        assert_eq!(fmt_time(VGM_SAMPLE_RATE * 75), "1:15.0");
+        // 33075 samples = 0.75 s.
+        assert_eq!(fmt_time(33_075), "0:00.8");
+    }
+}

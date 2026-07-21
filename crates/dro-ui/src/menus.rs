@@ -74,6 +74,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, editor, "Split Channels...", None) {
                 actions.push(Action::OpenSplit);
             }
+            // Splitting one capture into its per-song files is VGM-only for now:
+            // the pieces are written through the VGM writer.
+            if is_vgm && enabled_item(ui, editor, "Split Songs...", None) {
+                actions.push(Action::OpenSplitSongs);
+            }
             // Convert to another format, in an expanding submenu. DRO only: a VGM
             // has no format this app can convert it to, and which conversions a
             // DRO offers depends on its version. Disabled on the rip tab, like its
