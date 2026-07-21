@@ -112,7 +112,12 @@ pub fn optimize(song: &Song) -> Option<OptimizeOutcome> {
         return None;
     }
     Some(OptimizeOutcome {
-        commands_removed: original_commands - rebuilt.data.len(),
+        // Usually the rebuilt stream has fewer commands, but the byte-minimal
+        // re-encoder can turn a run of delays into *more* commands that still
+        // take fewer bytes (e.g. three `0x61` chunks becoming two chunks plus a
+        // two-command tail). The pass is kept because the bytes shrank; the
+        // command tally just floors at zero rather than underflowing.
+        commands_removed: original_commands.saturating_sub(rebuilt.data.len()),
         bytes_saved: original_bytes - new_bytes,
         data: rebuilt.data,
         loop_point: rebuilt.loop_point,
@@ -510,6 +515,24 @@ mod tests {
         .concat();
         let song = vgm(bytes, OplType::Opl2);
         assert!(optimize(&song).is_none());
+    }
+
+    #[test]
+    fn a_reencode_that_adds_a_command_but_saves_a_byte_does_not_underflow() {
+        // Three `0x61` waits (a run of three delays) then a write. The run's
+        // 131953 samples re-encode to two `0x61` chunks plus a two-command tail:
+        // four commands where there were three, but one byte fewer -- so the
+        // rebuilt stream has *more* commands than the original, and the
+        // `commands_removed` tally must floor at zero rather than underflow. This
+        // is the shrunk proptest counterexample, pinned as a unit test.
+        let bytes = vec![97, 143, 220, 97, 35, 100, 97, 191, 194, 90, 0, 0];
+        let song = vgm(bytes, OplType::Opl2);
+        let outcome = optimize(&song).expect("the three delays merge to fewer bytes");
+        assert_eq!(
+            outcome.commands_removed, 0,
+            "floors instead of underflowing"
+        );
+        assert!(outcome.bytes_saved > 0, "the merge still saved bytes");
     }
 
     #[test]
