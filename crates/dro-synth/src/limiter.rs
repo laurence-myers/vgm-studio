@@ -56,22 +56,32 @@ impl BoostLimiter {
         self.boost = boost.max(0.0);
     }
 
-    /// Boosts and limits interleaved stereo `samples` in place.
+    /// Boosts and limits interleaved stereo `samples` in place, returning whether
+    /// the limiter **engaged** -- whether any frame's boosted peak overshot full
+    /// scale and had to be pulled down.
+    ///
+    /// The playback UI uses that flag to cap the boost at the level where
+    /// clipping starts: once a loud passage drives the signal into the limiter,
+    /// raising the boost further only squashes harder. A bypassed unity pass and
+    /// an attenuating (`boost < 1.0`) pass never engage.
     ///
     /// A trailing odd sample (there should never be one -- the engine renders
     /// whole stereo frames) is left untouched.
-    pub fn process(&mut self, samples: &mut [i16]) {
+    pub fn process(&mut self, samples: &mut [i16]) -> bool {
         if self.boost == 1.0 && self.gain >= SETTLED {
             // Unity boost with a settled gain is a no-op; pass the samples
             // through bit-for-bit rather than round-trip them through f32.
             self.gain = 1.0;
-            return;
+            return false;
         }
+        let mut engaged = false;
         for frame in samples.chunks_exact_mut(2) {
             let l = f32::from(frame[0]) * self.boost;
             let r = f32::from(frame[1]) * self.boost;
             let peak = l.abs().max(r.abs());
             let target = if peak > THRESHOLD {
+                // The boosted signal would clip: the limiter is doing work.
+                engaged = true;
                 THRESHOLD / peak
             } else {
                 1.0
@@ -85,6 +95,7 @@ impl BoostLimiter {
             frame[0] = (l * self.gain).round() as i16;
             frame[1] = (r * self.gain).round() as i16;
         }
+        engaged
     }
 }
 
@@ -103,6 +114,26 @@ mod tests {
         // Every sample -- including i16::MIN, which a 32_768-scaled limiter would
         // mangle -- survives untouched.
         assert_eq!(samples, original);
+    }
+
+    #[test]
+    fn process_reports_whether_it_engaged() {
+        // Unity boost, quiet signal: bypassed, so it never engages.
+        assert!(!BoostLimiter::new(RATE, 1.0).process(&mut [100, -100, 0, 0]));
+
+        // A big boost drives a loud signal past full scale: the limiter clamps
+        // and says so.
+        assert!(
+            BoostLimiter::new(RATE, 8.0).process(&mut [20_000, -20_000]),
+            "an overshoot must report engagement"
+        );
+
+        // A boost that stays under full scale does no clamping.
+        assert!(!BoostLimiter::new(RATE, 2.0).process(&mut [1_000, -1_000]));
+
+        // Attenuation can never push anything past full scale, so it never
+        // engages -- even on the loudest possible input.
+        assert!(!BoostLimiter::new(RATE, 0.5).process(&mut [i16::MAX, i16::MIN]));
     }
 
     #[test]
