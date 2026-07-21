@@ -1,8 +1,6 @@
-//! Background-task definitions and the `TaskService` trait (Python's
-//! `TaskMaster`, `tasks.py`).
+//! Background-task definitions and the `TaskService` trait.
 //!
-//! The Python ran two tasks: the detailed register analysis and the waveform
-//! render. The analysis became `dro-core`'s synchronous replay cursor, so the
+//! The register analysis is `dro-core`'s synchronous replay cursor, so the
 //! waveform render is the only background task left. The task *logic* lives
 //! here, shared by every platform; the *scheduling* -- threads natively, Web
 //! Workers later -- lives behind [`TaskService`].
@@ -17,8 +15,7 @@ use dro_synth::{
     render_waveform_progressive, split_cancellable,
 };
 
-/// Identifies a task for cancel-on-resubmit, as the Python keyed its registry
-/// by task name.
+/// Identifies a task for cancel-on-resubmit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TaskKind {
     RenderWaveform,
@@ -81,11 +78,10 @@ pub type SplitFiles = Result<Vec<(String, Vec<u8>)>, String>;
 
 /// Schedules [`TaskRequest`]s off the UI thread.
 ///
-/// Semantics ported from the Python `TaskMaster`: tasks are keyed by
-/// [`TaskKind`]; submitting cancels any pending or running task of the same
-/// kind **and only that kind**; a debounced submission only starts once the
-/// debounce elapses with no resubmission (so holding Delete does not thrash the
-/// renderer).
+/// Semantics: tasks are keyed by [`TaskKind`]; submitting cancels any pending
+/// or running task of the same kind **and only that kind**; a debounced
+/// submission only starts once the debounce elapses with no resubmission (so
+/// holding Delete does not thrash the renderer).
 pub trait TaskService {
     fn submit(&mut self, request: TaskRequest, debounce: Option<Duration>);
 

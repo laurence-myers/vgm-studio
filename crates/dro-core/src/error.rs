@@ -1,12 +1,11 @@
-//! Error types, mirroring the Python `DROTrimmerException` / `DROFileException`.
+//! Error types.
 
 use thiserror::Error;
 
 /// Anything that can go wrong inside `dro-core`.
 ///
-/// The Python original distinguished `DROFileException` (a subclass) from the
-/// `DROTrimmerException` base. Here that distinction is a variant, which callers
-/// match on rather than downcast.
+/// The file-vs-config distinction is a variant, which callers match on rather
+/// than downcast.
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum Error {
     /// The bytes handed to a reader are not a valid file of the expected format.

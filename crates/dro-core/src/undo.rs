@@ -1,9 +1,7 @@
-//! Undo/redo, ported from `dro_undo.py`.
+//! Undo/redo.
 //!
-//! The Python commands captured the song in their constructor and mutated it
-//! through a lock. Rust's borrow rules make that awkward and unnecessary: a
-//! command here is a pure description of an edit, and the target is handed to it
-//! by the controller.
+//! A command here is a pure description of an edit, and the target is handed to
+//! it by the controller.
 
 use core::fmt;
 
@@ -22,10 +20,8 @@ pub trait UndoableCommand<T> {
 
 /// The undo stack.
 ///
-/// The Python tracked a `position` index that was `-1` when nothing had been
-/// applied, which every predicate then had to special-case. Counting *applied*
-/// commands instead removes the sentinel: `applied` is both the number of
-/// commands in effect and the index of the next command to redo.
+/// Counting *applied* commands avoids a `-1` sentinel: `applied` is both the
+/// number of commands in effect and the index of the next command to redo.
 pub struct UndoController<T> {
     buffer: Vec<Box<dyn UndoableCommand<T>>>,
     applied: usize,
@@ -100,8 +96,8 @@ impl<T> UndoController<T> {
 
     /// Reverts the most recently applied command, if any.
     ///
-    /// Returns its description, or `None` when there is nothing to undo -- the
-    /// Python silently ignored the call in that case, and so does this.
+    /// Returns its description, or `None` when there is nothing to undo, in which
+    /// case the call is silently ignored.
     pub fn undo(&mut self, target: &mut T) -> Option<&str> {
         if !self.can_undo() {
             return None;
@@ -148,17 +144,13 @@ impl<T> fmt::Debug for UndoController<T> {
 
 /// Deletes a set of instructions, remembering their bytes so undo can restore them.
 ///
-/// Indices are sorted and de-duplicated on construction. The Python passed the wx
-/// list control's selection straight through, and `DRODataV1.insert_multiple`
-/// silently corrupted the song if it ever arrived out of order.
+/// Indices are sorted and de-duplicated on construction.
 #[derive(Debug, Default)]
 pub struct DeleteInstructions {
     indices: Vec<usize>,
     /// The removed instructions, ascending by index. Captured on `apply`.
     deleted: Vec<InsertEntry>,
     /// The song's header length before the delete, restored verbatim on revert.
-    /// The Python added the removed delay back, which is only the same thing when
-    /// the arithmetic did not saturate.
     previous_ms_length: u32,
     /// A VGM's loop markers before the delete, likewise restored verbatim.
     previous_loop_point: Option<usize>,
@@ -217,7 +209,7 @@ impl UndoableCommand<Song> for DeleteInstructions {
 
         // A VGM's `ms_length` is derived from its sample delays, and
         // `delete_instructions` has already refreshed it. A DRO's is a header
-        // field, adjusted by what we removed. (Python let it go negative.)
+        // field, adjusted by what we removed.
         if !song.is_vgm() {
             song.ms_length = self.previous_ms_length.saturating_sub(removed_ms);
         }
@@ -236,11 +228,10 @@ impl UndoableCommand<Song> for DeleteInstructions {
 }
 
 /// Edits the header fields the DRO Info dialog exposes: the OPL type and the
-/// declared length. (Python: `UpdateHeaderCommand`.)
+/// declared length.
 ///
-/// The Python's revert had a bug -- it captured the *new* length as the
-/// "original", so undo never restored `ms_length`; this one captures on
-/// `apply`. Only meaningful for DRO songs: a VGM's `ms_length` is derived
+/// The header is captured on `apply` so `revert` can restore `ms_length`
+/// exactly. Only meaningful for DRO songs: a VGM's `ms_length` is derived
 /// from its sample delays and would be overwritten by the next edit's rebuild.
 #[derive(Debug)]
 pub struct UpdateHeader {
@@ -263,8 +254,8 @@ impl UpdateHeader {
 
 impl UndoableCommand<Song> for UpdateHeader {
     fn description(&self) -> &str {
-        // The Python `UpdateHeaderCommand`'s description, so the status bar
-        // says "Undone: DRO Header Changes" exactly as before.
+        // The description string, so the status bar says
+        // "Undone: DRO Header Changes".
         "DRO Header Changes"
     }
 
@@ -288,7 +279,7 @@ mod tests {
     use super::*;
     use crate::song::fixtures::{SONG_LENGTH, dro_song_v1, dro_song_v2};
 
-    /// The Python test's command: it only records that it ran.
+    /// The test command: it only records that it ran.
     #[derive(Debug, Default)]
     struct Log {
         events: Vec<&'static str>,
@@ -308,10 +299,6 @@ mod tests {
         }
     }
 
-    /// Port of `test_dro_undo.py::TestDroUndo::test_undo_and_redo`.
-    ///
-    /// Python's `position` is `applied - 1`, so `position == -1` becomes
-    /// `applied == 0`.
     #[test]
     fn undo_and_redo_state_machine() {
         let mut undo = UndoController::new();
@@ -420,7 +407,6 @@ mod tests {
 
     // -- DeleteInstructions ------------------------------------------------
 
-    /// Port of `test_dro_data.py::TestDeleteInstructionsCommand::test_apply_and_revert`.
     #[test]
     fn delete_apply_and_revert() {
         let mut undo = UndoController::new();
@@ -442,7 +428,7 @@ mod tests {
         assert_eq!(song.len(), 14);
         assert_eq!(head(&song), expected_1);
 
-        // The Python passed [1, 6, 3, 4] -- deliberately out of order.
+        // [1, 6, 3, 4] is deliberately out of order.
         undo.execute(Box::new(DeleteInstructions::new([1, 6, 3, 4])), &mut song);
         assert_eq!(song.len(), 14 - 4);
         assert_eq!(head(&song), expected_2);

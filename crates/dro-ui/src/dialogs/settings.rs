@@ -1,5 +1,4 @@
-//! The Settings dialog. New in the Rust port: the Python only ever *read*
-//! `drotrim.ini`. The web build (Step 8) has no ini file at all, so the same
+//! The Settings dialog. The web build (Step 8) has no ini file at all, so the
 //! dialog writes through whatever `ConfigStore` the platform injected.
 
 use dro_core::config::{AppConfig, ThemeChoice};

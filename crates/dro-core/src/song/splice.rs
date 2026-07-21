@@ -1,8 +1,7 @@
 //! Single-pass multi-range deletion and re-insertion, shared by every encoding.
 //!
-//! The Python deleted one contiguous range at a time -- `O(k*n)` for `k` ranges --
-//! and re-inserted one instruction at a time. These are `O(n)` regardless of how
-//! fragmented the selection is, and are exact inverses of each other.
+//! Deletion and re-insertion are `O(n)` regardless of how fragmented the
+//! selection is, and are exact inverses of each other.
 
 use core::ops::Range;
 
@@ -14,10 +13,8 @@ pub type InsertEntry = (usize, Box<[u8]>);
 /// Turns an arbitrary selection into the byte ranges to remove, or `None` if
 /// nothing survives the bounds filter.
 ///
-/// Sorts and de-duplicates defensively: the Python `DRODataV1.insert_multiple`
-/// (and its copy in `VGMData`) silently produced garbage when handed an unsorted
-/// list, and the only reason that never fired was that the wx list control
-/// happened to yield indices in ascending order.
+/// Sorts and de-duplicates defensively: an unsorted index list would otherwise
+/// silently produce garbage.
 pub(crate) fn byte_ranges_to_delete(
     indices: &[usize],
     len: usize,

@@ -73,7 +73,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
     let mut files = NativeFileService::new();
     if let Some(path) = file {
         // Queued through the file service so a failure surfaces as the app's
-        // own "Failed to open file" box, like the Python's initial-load path.
+        // own "Failed to open file" box.
         files.open_path(path);
     }
 

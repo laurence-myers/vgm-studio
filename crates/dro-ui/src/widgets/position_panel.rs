@@ -1,17 +1,15 @@
-//! The playback position panel (`playback_position_panel.py`).
+//! The playback position panel.
 //!
 //! Three sections: "pos / len ms", "pos / len samples", and a read-only
 //! sample-rate dropdown that re-denominates the sample counts to 44.1 kHz.
-//! One deliberate difference: the counts are true frames (the Python's were
-//! byte counts divided by a bit-depth fudge), and the length is the *measured*
-//! total delay, not the header's `ms_length`.
+//! The counts are true frames, and the length is the *measured* total delay,
+//! not the header's `ms_length`.
 
 use dro_synth::{LoopCount, Position};
 
 use crate::theme::Palette;
 
-/// Round-half-up rescale to 44100 Hz, as the Python's
-/// `floor(n / frequency * 44100 + 0.5)`.
+/// Round-half-up rescale to 44100 Hz: `floor(n / frequency * 44100 + 0.5)`.
 fn rescale_to_44100(frames: u64, frequency: u32) -> u64 {
     (frames as f64 / f64::from(frequency) * 44_100.0 + 0.5).floor() as u64
 }
@@ -121,7 +119,7 @@ impl PositionPanel {
     }
 
     fn rate_picker(&mut self, ui: &mut egui::Ui, palette: &Palette) {
-        // The Python built ["44.1 khz", "<config> khz"], lexicographically
+        // The choices are ["44.1 khz", "<config> khz"], lexicographically
         // sorted, defaulting to the rendering rate.
         let rendering = format!("{:.1} khz", f64::from(self.frequency) / 1000.0);
         let mut choices = vec!["44.1 khz".to_owned()];
@@ -164,7 +162,7 @@ mod tests {
     fn rescaling_to_44100_rounds_half_up() {
         // 48000 frames at 48 kHz is exactly one second: 44100 samples.
         assert_eq!(rescale_to_44100(48_000, 48_000), 44_100);
-        // The Python formula's half-up rounding: 1 frame at 48 kHz.
+        // Half-up rounding: 1 frame at 48 kHz.
         assert_eq!(rescale_to_44100(1, 48_000), 1);
         assert_eq!(rescale_to_44100(0, 48_000), 0);
     }

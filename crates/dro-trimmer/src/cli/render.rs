@@ -1,5 +1,4 @@
-//! `drotrim render`: render a DRO or VGM song to a WAV file (Python
-//! `dro_player.py --render`).
+//! `drotrim render`: render a DRO or VGM song to a WAV file.
 //!
 //! A tight offline loop with a once-a-second progress line.
 
@@ -86,7 +85,7 @@ pub fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
-/// Appends `.ext` to the whole path, as the Python `"{}.wav".format(name)` did:
+/// Appends `.ext` to the whole path:
 /// `song.dro` becomes `song.dro.wav`, not `song.wav`.
 fn append_extension(path: &Path, extension: &str) -> PathBuf {
     let mut name = path.as_os_str().to_owned();

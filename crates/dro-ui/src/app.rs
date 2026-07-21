@@ -1,4 +1,4 @@
-//! The application: `wxapp.DTApp` + `containers.DTMainFrame`, as one
+//! The application, as one
 //! `eframe::App` driven entirely through the platform-service traits.
 
 use core::fmt;
@@ -76,9 +76,9 @@ fn about_text() -> String {
     )
 }
 
-/// The DRO timing mismatch box (`wxapp.__load_file`), version-specific advice
-/// and all. The v2 advice now points at the Settings dialog instead of a hand
-/// edit of drotrim.ini, since the port has one.
+/// The DRO timing mismatch box, version-specific advice
+/// and all. The v2 advice points at the Settings dialog instead of a hand
+/// edit of drotrim.ini, since the app has one.
 /// What a click on the waveform means, given the button and whether Shift was
 /// held. `None` for a gesture that does nothing.
 ///
@@ -213,11 +213,9 @@ pub struct DroApp {
     position: PositionPanel,
     channels: ChannelPanel,
 
-    /// A row the table should scroll into view next frame (Python's
-    /// `EnsureVisible`).
+    /// A row the table should scroll into view next frame.
     scroll_to: Option<usize>,
-    /// The last first-selected row, to detect selection changes (the Python
-    /// list's `FirstSelectedItemChangedEvent`).
+    /// The last first-selected row, to detect selection changes.
     last_first_selected: Option<usize>,
     /// The editor revision currently loaded into the audio service, if any.
     audio_revision: Option<u64>,
@@ -833,7 +831,7 @@ impl DroApp {
         if dropped.is_empty() {
             return;
         }
-        // Only single-file drops, as in Python; say so rather than silently
+        // Only single-file drops; say so rather than silently
         // ignoring a multi-drop (ux-17).
         if dropped.len() > 1 {
             self.status = "Drop a single file at a time.".to_owned();
@@ -1057,7 +1055,7 @@ impl DroApp {
             return;
         }
         self.last_first_selected = first;
-        // An emptied selection leaves the indicator where it was, as in Python.
+        // An emptied selection leaves the indicator where it was.
         let Some(index) = first else {
             return;
         };
@@ -1087,7 +1085,7 @@ impl DroApp {
         if self.active_tab == AppTab::Editor {
             // One more update after playback ends, so the readout and cursor land
             // on the exact final position instead of freezing a buffer short of
-            // it. (The Python's timer kept firing after the song finished.)
+            // it.
             if playing || self.was_playing {
                 // A song that reached its end lands ~1 ms short of its length,
                 // because the frame counter and the ms readout each floor at a
@@ -1257,7 +1255,6 @@ impl DroApp {
                 let song = self.editor.song().expect("gated");
                 match VgmMetadataDialog::new(song) {
                     Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
-                    // "Songs is not a VGM" in the Python -- typo fixed.
                     None => self.status = "Song is not a VGM".to_owned(),
                 }
             }
@@ -1378,7 +1375,7 @@ impl DroApp {
             }
             Action::WaveformClicked { index, ms } => {
                 self.editor.selection.select_only(index);
-                // No scroll-into-view here, matching the Python's click path.
+                // No scroll-into-view here on the click path.
                 if self.audio.is_playing() {
                     self.audio.seek_pos(index);
                 }
@@ -1490,10 +1487,9 @@ impl DroApp {
         match self.editor.load(file) {
             Ok(report) => {
                 self.status = format!("Successfully opened {name}.");
-                // The Python left these dialogs open, still bound to the old
-                // song object -- a stale Save then silently edited the wrong
-                // song. Here they would edit the *new* one, which is worse,
-                // so anything song-bound closes with the song.
+                // A dialog left open across a load would edit the wrong song
+                // -- a stale Save silently corrupting it -- so anything
+                // song-bound closes with the song.
                 self.close_song_dialogs();
                 self.waveform = WaveformState::default();
                 // The exports belong to the song being replaced; drop them
@@ -2281,7 +2277,7 @@ impl DroApp {
             return;
         }
         // Measured length, not the header's: on a DRO whose header overstates
-        // the length, the Python seeked past the end and played nothing.
+        // the length, the header value would seek past the end and play nothing.
         let total = self.editor.song().expect("gated").total_delay_ms();
         self.audio.rewind();
         self.audio
@@ -2412,7 +2408,7 @@ impl DroApp {
     }
 
     fn find_register(&mut self, target: &str, backwards: bool) {
-        // An empty choice is a silent no-op, as in Python.
+        // An empty choice is a silent no-op.
         if target.is_empty() || !self.require_song() {
             return;
         }
@@ -2480,8 +2476,8 @@ impl DroApp {
         self.dialogs.split = None;
     }
 
-    /// The `@requires_dro_loaded` decorator: gates an action on a loaded song,
-    /// with the Python's exact status message.
+    /// Gates an action on a loaded song, setting a status message asking the
+    /// user to open a file when none is loaded.
     fn require_song(&mut self) -> bool {
         if self.editor.has_song() {
             true
@@ -2493,7 +2489,7 @@ impl DroApp {
 
     /// Everything every edit needs: stale audio paused, the length readout
     /// refreshed, and the waveform re-rendered (debounced, so holding Delete
-    /// does not thrash the renderer -- the Python used the same 1 s debounce).
+    /// does not thrash the renderer -- a 1 s debounce).
     fn after_edit(&mut self) {
         self.audio.pause();
         self.audio_revision = None;
@@ -2783,7 +2779,7 @@ impl DroApp {
         }
     }
 
-    /// `"Play last 3 seconds"`, with the Python's exact formatting: two
+    /// `"Play last 3 seconds"`, formatted with two
     /// decimals only for fractional lengths, singular for exactly one second.
     fn play_tail_label(&self) -> String {
         let ms = self.config.ui.tail_length;

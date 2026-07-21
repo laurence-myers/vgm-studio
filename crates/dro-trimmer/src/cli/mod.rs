@@ -1,6 +1,5 @@
-//! `drotrim`'s command line: the subcommands that were once the `dro_player`
-//! and `dro_split` binaries. (DRO v2 -> v1 conversion, the old `dro2to1`, lives
-//! only in the GUI now -- Edit > Convert to DRO v1.)
+//! `drotrim`'s command line and its subcommands. (DRO v2 -> v1 conversion
+//! lives only in the GUI now -- Edit > Convert to DRO v1.)
 //!
 //! One executable does everything. With no subcommand (and at most a file to
 //! open) `drotrim` starts the GUI, so the parser's [`Cli::command`] is optional
@@ -111,7 +110,7 @@ mod tests {
         ));
     }
 
-    /// `dro_split`'s flag, kept working for anyone with it in a script.
+    /// The old `--dro` flag, kept working for anyone with it in a script.
     #[test]
     fn the_old_dro_flag_still_selects_song_output() {
         for argv in [

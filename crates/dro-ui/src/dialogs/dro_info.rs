@@ -1,9 +1,9 @@
-//! The DRO Info dialog (`dialogs.DROInfoDialog`). Modal, unlike the others.
+//! The DRO Info dialog. Modal, unlike the others.
 //!
 //! View-only unless `ui.dro_info_edit_enabled` is set, in which case an
 //! Edit/Save toggle unlocks the hardware type and length. Saving goes through
-//! the undoable [`Action::UpdateHeader`] and, as in Python, the dialog stays
-//! open in edit mode afterwards.
+//! the undoable [`Action::UpdateHeader`] and the dialog stays open in edit mode
+//! afterwards.
 
 use dro_core::{OplType, Song};
 
@@ -125,7 +125,7 @@ impl DroInfoDialog {
                     title: "DRO Info".to_owned(),
                     message: "DRO info updated.\nRemember to save the file.".to_owned(),
                 });
-                // The dialog stays open, still in edit mode, as in Python.
+                // The dialog stays open, still in edit mode.
             }
             Err(_) => {
                 actions.push(Action::Alert {

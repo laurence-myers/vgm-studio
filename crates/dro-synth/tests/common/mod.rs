@@ -5,7 +5,7 @@
 use dro_core::{DroDataV2, DroInstruction, SongData};
 use dro_synth::{FrameClock, OplChip};
 
-/// `tests/lsl3_score_up_dro2.dro`, the fixture the Python suite uses.
+/// The committed `tests/lsl3_score_up_dro2.dro` fixture.
 const FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up_dro2.dro");
 
 /// The fixture's own length, from its header.

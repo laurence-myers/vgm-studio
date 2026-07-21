@@ -23,7 +23,7 @@ pub trait OplChip {
     /// with no samples rendered between them collapse to their net state and fast
     /// retriggers are silently dropped. The buffered path spreads queued writes a
     /// couple of samples apart during generation so every edge is observed --
-    /// matching real hardware (and DOSBox's DBOPL, which the Python used), where
+    /// matching real hardware, where
     /// register writes are inherently spaced in time. Live playback and rendering
     /// use this; a seek's bulk replay uses [`Self::write_reg`], where only the
     /// final register *values* matter. The default is an immediate write.
@@ -46,8 +46,6 @@ pub trait OplChip {
 /// The port pulls in no C toolchain, so `wasm32-unknown-unknown` builds have an
 /// empty import section. That it really is bit-identical to Nuke.YKT's C original
 /// is asserted, not assumed: see [`CReferenceOpl3`] and `tests/c_parity.rs`.
-///
-/// This replaces PyOPL, whose core was DOSBox's less accurate DBOPL.
 pub struct NukedOpl3 {
     chip: Opl3Chip,
 }
@@ -73,8 +71,7 @@ impl fmt::Debug for NukedOpl3 {
 
 impl OplChip for NukedOpl3 {
     fn reset(&mut self, sample_rate: u32) {
-        // A fresh chip state, without pushing 512 zero-writes through the whole
-        // write path as `OPLStream.reset()` did.
+        // A fresh chip state.
         self.chip.reset(sample_rate);
     }
 

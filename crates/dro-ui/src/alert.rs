@@ -1,4 +1,4 @@
-//! Modal message boxes (wx `MessageDialog` / `error_alert`).
+//! Modal message boxes.
 //!
 //! Alerts queue up -- a load can produce both the auto-trim and the mismatch
 //! box -- and are shown one at a time, frontmost first. A confirm alert also
@@ -28,7 +28,7 @@ impl Alert {
         }
     }
 
-    /// `ui_util.error_alert`'s default title.
+    /// The default error-alert title.
     #[must_use]
     pub fn error(message: impl Into<String>) -> Self {
         Self::new("Error", message)
@@ -70,7 +70,7 @@ pub fn show_front(
                 dismissed = true;
             }
             // OK is drawn last (rightmost of the pair in this right-to-left row)
-            // and focused on open, so Enter accepts the box, matching wx.
+            // and focused on open, so Enter accepts the box.
             let ok = bevel::button(ui, palette, "OK");
             if ok.clicked() {
                 if is_confirm {

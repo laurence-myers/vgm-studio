@@ -46,9 +46,6 @@ pub fn write_song(song: &Song) -> Result<Vec<u8>> {
 }
 
 /// Reads `u8` / `u16` / `u32` little-endian values with bounds checks.
-///
-/// Replaces `dro_util`'s `read_char` / `read_short` / `read_int`, which read from
-/// a file handle and raised `struct.error` on a short read.
 #[derive(Debug, Clone)]
 pub(crate) struct ByteReader<'a> {
     bytes: &'a [u8],

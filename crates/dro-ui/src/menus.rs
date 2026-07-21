@@ -1,4 +1,4 @@
-//! The menu bar and keyboard shortcuts (`menus.py` + the wx accelerator table).
+//! The menu bar and keyboard shortcuts.
 
 use dro_core::SongFileType;
 use egui::{Key, KeyboardShortcut, Modifiers};
@@ -93,7 +93,6 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 });
             }
             crate::theme::separator(ui, palette);
-            // New in the Rust port: the Python read drotrim.ini only.
             if item(ui, "Settings...", None) {
                 actions.push(Action::OpenSettings);
             }
@@ -168,7 +167,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint
-            // matches the Python label "&Delete Instruction(s)\tDEL".
+            // matches the label "&Delete Instruction(s)\tDEL".
             if ui
                 .add_enabled(
                     editor,

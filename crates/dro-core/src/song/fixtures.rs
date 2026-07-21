@@ -1,7 +1,4 @@
 //! Test data shared across the crate's unit tests.
-//!
-//! The v2 fixture is the one from `tests/drotrimmer/test_dro_data.py`, so the
-//! ported assertions can be compared against the Python ones directly.
 
 use crate::song::dro_data::{DroDataV1, DroDataV2};
 use crate::song::{OplType, Song};
@@ -9,8 +6,6 @@ use crate::song::{OplType, Song};
 /// `(0xB1 + 0xC100) * 2` -- the v2 fixture's two short delays plus two long ones.
 pub(crate) const SONG_LENGTH: u32 = (0xB1 + 0xC100) * 2;
 
-/// `create_dro_data_v2()`: `(list(range(10)) + [0xFE, 0xB0, 0xFF, 0xC0]) * 2`.
-///
 /// Decodes to 14 instructions: five register writes, a short delay of 177 ms, a
 /// long delay of 49408 ms, then the same again.
 pub(crate) fn dro_data_v2() -> DroDataV2 {
@@ -26,7 +21,6 @@ pub(crate) fn dro_data_v2() -> DroDataV2 {
     .expect("fixture is well-formed")
 }
 
-/// `create_dro_song_v2()`.
 pub(crate) fn dro_song_v2() -> Song {
     Song::dro_v2(
         "test.dro".to_owned(),
@@ -38,8 +32,6 @@ pub(crate) fn dro_song_v2() -> Song {
 
 /// A v1 stream exercising every opcode: a plain register write, a short delay, a
 /// long delay, both bank switches, the escape opcode, and one more register.
-///
-/// There is no equivalent in the Python tests, which never covered `DRODataV1`.
 pub(crate) fn dro_data_v1() -> DroDataV1 {
     DroDataV1::new(vec![
         0x20, 0x01, // 0: register 0x20 = 0x01

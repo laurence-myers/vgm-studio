@@ -1,5 +1,4 @@
-//! Capture: re-record a (muted) playthrough as a new song file (Python
-//! `dro_capture.py`).
+//! Capture: re-record a (muted) playthrough as a new song file.
 //!
 //! This is what `drotrim split --song` uses to split a song into one file per
 //! channel. It renders no audio: it walks the instruction stream, applies the
@@ -15,8 +14,8 @@ use dro_core::{Bank, DroDataV2, DroInstruction, Error, OplType, Result, Song, So
 use crate::engine::Muting;
 
 /// The registers a DRO v1 capture zeroes before playback, so an isolated channel
-/// starts from a known chip state. (Python `DroCapture.REGISTERS_TO_INIT`: 122
-/// registers -- five singletons, five operator banks, three channel banks.)
+/// starts from a known chip state: 122 registers -- five singletons, five
+/// operator banks, three channel banks.
 fn registers_to_init() -> Vec<u8> {
     let mut registers = vec![0x01u8, 0x04, 0x05, 0x08, 0xBD];
     for i in 0..24u8 {
@@ -151,9 +150,8 @@ impl DroCapture {
         // A dense codemap: `codemap[code] == register`. The delay-code positions
         // (and any gap) are left as placeholders -- `DroDataV2` checks a byte
         // against the delay codes before ever indexing the codemap, so a
-        // placeholder there is never read. The Python's `sorted(code_map.keys())`
-        // produced a *packed* tuple instead, so an unknown register (code >= 124)
-        // indexed past its end; this cannot.
+        // placeholder there is never read. The dense codemap means an unknown
+        // register (code >= 124) can never index past its end.
         let max_code = self.code_of.values().copied().max().unwrap_or(0);
         let mut codemap = vec![0u8; usize::from(max_code) + 1];
         for (&register, &code) in &self.code_of {

@@ -16,8 +16,8 @@ use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
 
-/// What loading a DRO found, for the two load-time warning dialogs
-/// (`wxapp.__load_file`). Always all-clear for a VGM.
+/// What loading a DRO found, for the two load-time warning dialogs.
+/// Always all-clear for a VGM.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LoadReport {
     /// A bogus leading delay was removed -- the "DRO auto-trimmed" box.
@@ -33,7 +33,7 @@ pub struct Editor {
     /// Where the song was loaded from or last saved to. `None` on the web, and
     /// after Convert to VGM -- the converted song has no file yet, so Save
     /// falls through to Save As rather than writing VGM bytes over the
-    /// original `.dro` (which is what the Python did).
+    /// original `.dro`.
     pub path: Option<PathBuf>,
     undo: UndoController<Song>,
     pub selection: Selection,
@@ -96,10 +96,9 @@ impl Editor {
 
     /// Whether the song has unsaved changes (drives the discard-changes prompts).
     ///
-    /// Covers metadata edits as well as instruction edits. The Python tracked
-    /// only the latter, so a GD3 tag or a loop point could be typed in and lost
-    /// to an Open or a close without a word -- and a loop region is deliberate
-    /// work, not a stray field edit.
+    /// Covers metadata edits as well as instruction edits, so a GD3 tag or a
+    /// loop point cannot be typed in and lost to an Open or a close without a
+    /// word -- a loop region is deliberate work, not a stray field edit.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
         self.has_song() && (self.saved_revision != Some(self.revision) || self.metadata_dirty)
@@ -107,7 +106,7 @@ impl Editor {
 
     /// An immutable snapshot of the current song, for the audio output and
     /// background tasks. A full clone: snapshots must not alias the editable
-    /// song (Python instead shared it under a lock, which blocked edits).
+    /// song.
     #[must_use]
     pub fn snapshot(&self) -> Option<Arc<Song>> {
         self.song.clone().map(Arc::new)
@@ -116,7 +115,7 @@ impl Editor {
     // -- loading and saving --------------------------------------------------
 
     /// Parses and installs `file`, replacing any current song and wiping the
-    /// undo history (which makes the auto-trim non-undoable, as in Python).
+    /// undo history (which makes the auto-trim non-undoable).
     ///
     /// # Errors
     /// The parse error's message, for the "Failed to load file" alert. The
@@ -127,9 +126,8 @@ impl Editor {
         let mut report = LoadReport::default();
         if song.file_type == SongFileType::Dro {
             if song.instruction(0).is_some_and(DroInstruction::is_delay) {
-                // Applied directly rather than through the controller: the
-                // Python routed it through the controller and then immediately
-                // reset the history, so it was never undoable there either.
+                // Applied directly rather than through the controller, so it is
+                // never undoable.
                 DeleteInstructions::new([0]).apply(&mut song);
                 report.auto_trimmed = true;
             }
@@ -212,10 +210,9 @@ impl Editor {
     }
 
     /// Reverts the last edit, returning its description for the status bar,
-    /// or `None` when there is nothing to undo. Selection is left alone, as
-    /// in Python (its indices may now point at different rows), except that
-    /// rows past the new end are dropped -- wx could not keep nonexistent
-    /// rows selected either.
+    /// or `None` when there is nothing to undo. Selection is left alone (its
+    /// indices may now point at different rows), except that rows past the new
+    /// end are dropped -- nonexistent rows cannot stay selected.
     pub fn undo(&mut self) -> Option<String> {
         let song = self.song.as_mut()?;
         let description = self.undo.undo(song)?.to_owned();
@@ -244,13 +241,12 @@ impl Editor {
         };
         self.undo
             .execute(Box::new(UpdateHeader::new(opl_type, ms_length)), song);
-        // The waveform and the audio snapshot re-key on the revision; the
-        // Python likewise re-rendered after a header edit.
+        // The waveform and the audio snapshot re-key on the revision.
         self.revision += 1;
     }
 
     /// Replaces the DRO song with its VGM conversion. Not undoable: the
-    /// history is wiped, as in Python.
+    /// history is wiped.
     ///
     /// # Errors
     /// If no song is loaded, or it is already a VGM.
@@ -297,8 +293,8 @@ impl Editor {
         Ok(())
     }
 
-    /// Applies the GD3 tag editor's Save. Not undoable, matching the Python's
-    /// `on_tag_update`. Ignored unless the song is a VGM.
+    /// Applies the GD3 tag editor's Save. Not undoable. Ignored unless the song
+    /// is a VGM.
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
         let Some(meta) = self.song.as_mut().and_then(Song::vgm_meta_mut) else {
             return;
@@ -311,7 +307,7 @@ impl Editor {
         }
     }
 
-    /// Applies the VGM metadata dialog's Save. Not undoable, as in Python.
+    /// Applies the VGM metadata dialog's Save. Not undoable.
     ///
     /// An out-of-range loop point is dropped rather than stored: the dialog
     /// validated against the song it captured, which edits behind its
@@ -373,7 +369,7 @@ impl Editor {
 
     /// Writes the marked region into the song's VGM loop fields.
     ///
-    /// Not undoable, matching the other metadata edits (and the Python). Returns
+    /// Not undoable, matching the other metadata edits. Returns
     /// `false` for a DRO, which has nowhere to put a loop -- the caller turns
     /// that into the "convert to VGM first" message.
     ///
@@ -416,8 +412,7 @@ impl Editor {
 
     /// Find Register / delay navigation: the next match strictly after (or
     /// before) the highest selected row, starting from the top when nothing is
-    /// selected. (Python `button_find_reg` used the same start for both
-    /// directions.)
+    /// selected.
     #[must_use]
     pub fn find_next(&self, target: FindTarget, look_backwards: bool) -> Option<usize> {
         let song = self.song.as_ref()?;
@@ -586,8 +581,8 @@ mod tests {
         assert_eq!(song.opl_type, OplType::Opl2);
         assert_eq!(song.ms_length, 42);
 
-        // The Python's UpdateHeaderCommand failed to restore ms_length on
-        // undo (it captured the new value); this pins the fix.
+        // Undo must restore the original ms_length, not the new value; this
+        // pins that.
         assert_eq!(editor.undo(), Some("DRO Header Changes".to_owned()));
         let song = editor.song().unwrap();
         assert_eq!(song.opl_type, OplType::Opl3);
@@ -603,8 +598,8 @@ mod tests {
         let song = editor.song().unwrap();
         assert!(song.is_vgm());
         assert!(song.name.ends_with(".vgm"));
-        // Divergence from Python: Save no longer writes VGM bytes over the
-        // original .dro path -- the converted song has no path until Save As.
+        // Save does not write VGM bytes over the original .dro path -- the
+        // converted song has no path until Save As.
         assert!(editor.path.is_none());
         assert!(editor.selection.is_empty());
         assert!(!editor.can_undo());

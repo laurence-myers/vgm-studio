@@ -1,20 +1,8 @@
-//! The DRO container, versions 1 and 2. Ported from `dro_io.py`.
+//! The DRO container, versions 1 and 2.
 //!
-//! # Two bugs the Python has here, which this does not
-//!
-//! - **v1 cannot be read at all.** `DroFileIOv1.read_data` finishes with
-//!   `m = drof.read(1); if m != "": raise ...`. The handle is binary, so `m` is
-//!   `b""` at EOF, and `b"" != ""` is `True` in Python 3. Every v1 file is
-//!   rejected. The check was meant to catch *trailing* bytes; here that is a
-//!   warning, not an error.
-//! - **v2 cannot be written at all.** `DroFileIOv2.write_data` passes
-//!   `dro_song.opl_type` -- an `enum.Enum` member, not an int -- to
-//!   `struct.pack("<2L6B", ...)`, which raises
-//!   `struct.error: required argument is not an integer`.
-//!
-//! So "byte-compatible with the Python implementation" is not an available
-//! oracle for most of this module. The oracle is the format itself, plus
-//! `tests/lsl3_score_up_dro2.dro`, which this reads and writes byte-for-byte.
+//! Trailing bytes after the declared v1 data are a warning, not an error. The
+//! oracle is the format itself, plus `tests/lsl3_score_up_dro2.dro`, which this
+//! reads and writes byte-for-byte.
 
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
@@ -30,8 +18,7 @@ const VERSION_V1_NEW: (u16, u16) = (0, 1);
 const VERSION_V2: (u16, u16) = (2, 0);
 
 /// v1 headers were once written with a one-byte OPL type and later with a
-/// four-byte one. [`read`] detects which; writing always uses four bytes, as the
-/// Python's `WRITE_CHAR_OPL = False` did.
+/// four-byte one. [`read`] detects which; writing always uses four bytes.
 const WRITE_CHAR_OPL: bool = false;
 
 /// Parses a DRO file of either version.
@@ -91,7 +78,7 @@ fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
     //
     // This cannot mistake a four-byte type for a one-byte one (0, 1 and 2 all fit
     // in a byte). It *can* go the other way, if a one-byte type is followed by
-    // three zero bytes -- the same blind spot the Python has.
+    // three zero bytes.
     let opl_type_offset = reader.offset();
     let opl_type_code = reader.u32_le()?;
     let opl_type_code = if opl_type_code > 0xFF {
@@ -114,8 +101,8 @@ fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
     }
     let raw = reader.take(byte_length)?.to_vec();
 
-    // The Python meant to reject trailing bytes here and never could -- see the
-    // module docs. Rejecting a file over some slop at the end helps nobody.
+    // Trailing bytes are not rejected. Rejecting a file over some slop at the end
+    // helps nobody.
     let trailing = reader.remaining();
     if trailing > 0 {
         log::warn!(
@@ -139,9 +126,8 @@ fn write_v1(song: &Song) -> Vec<u8> {
     let raw = song.data().raw();
     debug_assert!(raw.len() <= MAX_DRO_DATA_BYTES);
 
-    // Not `song.ms_length`. The Python recomputes this, with the comment: "Why
-    // don't we use the value stored in the dro_song object? Seems to be a
-    // discrepancy between how V1 and V2 files write this value."
+    // Not `song.ms_length`: recompute it, because V1 and V2 files write this
+    // value differently.
     let total_delay = song.total_delay_ms();
 
     let mut out = Vec::with_capacity(0x18 + raw.len());
@@ -279,7 +265,6 @@ mod tests {
 
     // -- v2 ----------------------------------------------------------------
 
-    /// Port of `test_dro_io.py::test_load_dro2`.
     #[test]
     fn read_the_v2_fixture() {
         let song = read("lsl3_score_up_dro2.dro", DRO_V2_FIXTURE).unwrap();
@@ -319,7 +304,6 @@ mod tests {
     }
 
     /// The load-bearing test: `dro-core` reproduces the fixture byte for byte.
-    /// The Python cannot -- its v2 writer raises `struct.error`.
     #[test]
     fn the_v2_fixture_round_trips_byte_for_byte() {
         let song = read("f.dro", DRO_V2_FIXTURE).unwrap();
@@ -383,7 +367,6 @@ mod tests {
 
     // -- v1 ----------------------------------------------------------------
 
-    /// The Python cannot get this far: `b"" != ""` rejects every v1 file.
     #[test]
     fn read_a_v1_file_with_a_four_byte_opl_type() {
         let song = read("test.dro", &v1_bytes(false)).unwrap();
@@ -439,8 +422,8 @@ mod tests {
         assert_eq!(write(&song).unwrap(), original);
     }
 
-    /// A one-byte OPL type is upgraded to four on write, as the Python's writer
-    /// also does (`WRITE_CHAR_OPL = False`). The instructions survive intact.
+    /// A one-byte OPL type is upgraded to four on write. The instructions survive
+    /// intact.
     #[test]
     fn v1_char_opl_type_is_upgraded_on_write() {
         let song = read("t.dro", &v1_bytes(true)).unwrap();
@@ -449,9 +432,8 @@ mod tests {
         assert_eq!(written.len(), v1_bytes(true).len() + 3);
     }
 
-    /// The v1 writer takes the length from the data, not from `ms_length` -- the
-    /// Python does the same, with the comment "Seems to be a discrepancy between
-    /// how V1 and V2 files write this value."
+    /// The v1 writer takes the length from the data, not from `ms_length`, because
+    /// V1 and V2 files write this value differently.
     #[test]
     fn v1_writer_recomputes_the_total_delay_and_ignores_the_header() {
         let mut song = read("t.dro", &v1_bytes(false)).unwrap();
@@ -496,7 +478,7 @@ mod tests {
         assert_eq!(read("t.dro", &bytes).unwrap().len(), 7);
     }
 
-    /// The Python *intended* to reject these, and couldn't. Warn and carry on.
+    /// Trailing bytes are tolerated: warn and carry on.
     #[test]
     fn v1_tolerates_trailing_bytes() {
         let mut bytes = v1_bytes(false);

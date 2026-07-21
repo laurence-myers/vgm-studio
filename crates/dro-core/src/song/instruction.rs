@@ -1,8 +1,7 @@
 //! The instruction type, decoded on access from the raw byte array.
 //!
-//! The Python `DROInstruction` was a heap object rebuilt on every `data[i]`, and
-//! `data[i]` is on the path of every table-row paint, every analyser pass and the
-//! seeker. Here it is a `Copy` enum: decoding allocates nothing.
+//! It is a `Copy` enum: decoding allocates nothing. This matters because `data[i]`
+//! is on the path of every table-row paint, every analyser pass and the seeker.
 
 use core::fmt;
 use core::str::FromStr;
@@ -24,7 +23,7 @@ impl Bank {
         }
     }
 
-    /// `"low"` or `"high"`, as the Python `("low", "high")[value]` produced.
+    /// `"low"` or `"high"`.
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -58,11 +57,8 @@ impl fmt::Display for Bank {
 
 /// Whether a delay was encoded with the compact or the wide opcode.
 ///
-/// The Python original carried the raw delay opcode in `DROInstruction.command`
-/// and asked the enclosing `DROData` whether it was short or long. Since a
-/// `DELAY_MS` instruction is only ever produced *because* the opcode matched one
-/// of the two delay codes, the third `"???"` branch was unreachable; encoding the
-/// answer here removes it.
+/// A `DELAY_MS` instruction is only ever produced *because* the opcode matched
+/// one of the two delay codes, so there is no third "unknown" variant.
 ///
 /// VGM uses the same distinction: `0x61 nn nn` is long; `0x62`, `0x63` and
 /// `0x70..=0x7F` are short.
@@ -164,8 +160,8 @@ impl DroInstruction {
 
 /// What `Find Register` is looking for.
 ///
-/// Replaces the Python's magic strings (`"DLYS"`, `"DLYL"`, `"DALL"`, `"BANK"`,
-/// or a hex register number) and the per-step comparison lambda they selected.
+/// One of the tokens (`"DLYS"`, `"DLYL"`, `"DALL"`, `"BANK"`) or a hex register
+/// number, with the comparison to run baked into the variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FindTarget {
     Register(u8),
@@ -212,7 +208,7 @@ impl FromStr for FindTarget {
     type Err = ParseFindTargetError;
 
     /// Accepts the four tokens, or a register number in hex with an optional
-    /// `0x` prefix -- Python's `int(s, 16)` took both forms.
+    /// `0x` prefix.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(&(_, target)) = Self::TOKENS.iter().find(|&&(token, _)| token == s) {
             return Ok(target);
@@ -324,7 +320,7 @@ mod tests {
         assert_eq!("DLYL".parse(), Ok(FindTarget::LongDelay));
         assert_eq!("DALL".parse(), Ok(FindTarget::AnyDelay));
         assert_eq!("BANK".parse(), Ok(FindTarget::BankSwitch));
-        // Python's `int(s_inst, 16)` accepted both of these.
+        // Both forms parse as the same hex register number.
         assert_eq!("0x50".parse(), Ok(FindTarget::Register(0x50)));
         assert_eq!("50".parse(), Ok(FindTarget::Register(0x50)));
         assert_eq!("bd".parse(), Ok(FindTarget::Register(0xBD)));

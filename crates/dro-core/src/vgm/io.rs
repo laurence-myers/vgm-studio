@@ -1,12 +1,10 @@
-//! The VGM container and its gzipped form, VGZ. Ported from `vgm/vgm_io.py`.
+//! The VGM container and its gzipped form, VGZ.
 //!
 //! # Byte-exact round trips
 //!
-//! The Python writer discards the file's header and emits a fresh 0x100-byte one,
-//! so reading and writing `tests/lsl3_score_up.vgm` unchanged grows it from 1026
-//! to 1154 bytes and moves the data. Here the header is kept verbatim and only the
-//! fields that can have changed are patched, so an unedited round trip reproduces
-//! the file exactly -- including chip clocks, `rate`, and any v1.70 extra header.
+//! The header is kept verbatim and only the fields that can have changed are
+//! patched, so an unedited round trip reproduces the file exactly -- including
+//! chip clocks, `rate`, and any v1.70 extra header.
 
 use std::io::{Read, Write};
 
@@ -65,10 +63,10 @@ const MINIMUM_HEADER_SIZE: usize = 0x80;
 /// The header a converted song gets: exactly the v1.51 header size, which is what
 /// `dro2vgm` emits, and what `tests/lsl3_score_up.vgm` has.
 ///
-/// The Python reserved 0x100 bytes here deliberately, leaving room for the fields
-/// later VGM versions add -- the v1.70 extra-header offset at 0xBC, and whatever
-/// follows. Nothing writes those yet, and the padding is what stopped its output
-/// from round-tripping, so a converted song gets the tight header for now. See
+/// Reserving 0x100 bytes here would leave room for the fields later VGM versions
+/// add -- the v1.70 extra-header offset at 0xBC, and whatever follows. Nothing
+/// writes those yet, and that padding is what stops such a header from
+/// round-tripping, so a converted song gets the tight header for now. See
 /// `TODO.md`: emitting a higher-version header is worth restoring once there is
 /// something to put in it.
 const SYNTHESISED_HEADER_SIZE: usize = MINIMUM_HEADER_SIZE;
@@ -79,9 +77,6 @@ const SYNTHESISED_RATE: u32 = 1000;
 const GZIP_MAGIC: [u8; 2] = [0x1F, 0x8B];
 
 /// Whether `bytes` is gzipped, and therefore a `.vgz`.
-///
-/// The Python decided by filename extension, which meant a `.vgm` that happened to
-/// be compressed failed to open.
 #[must_use]
 pub fn is_gzipped(bytes: &[u8]) -> bool {
     bytes.starts_with(&GZIP_MAGIC)
@@ -240,7 +235,7 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
     let data_offset = offset::DATA_OFFSET + reader.u32_le()? as usize;
     if data_offset < MINIMUM_HEADER_SIZE {
         // The chip clocks live at 0x50 and 0x5C; a header that stops sooner cannot
-        // declare an OPL chip at all. The Python read them out of the data stream.
+        // declare an OPL chip at all.
         return Err(Error::file(format!(
             "VGM data starts at {data_offset:#X}, before the end of a v1.51 header \
              ({MINIMUM_HEADER_SIZE:#X}); it declares no OPL chip"
@@ -415,9 +410,7 @@ fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
         ));
     }
 
-    // Eleven null-terminated UTF-16LE strings. The Python decoded the whole blob
-    // and split on `"\0"`, which silently produced the wrong fields when a string
-    // contained an unpaired surrogate.
+    // Eleven null-terminated UTF-16LE strings.
     let units: Vec<u16> = blob
         .chunks_exact(GD3_ENCODING_UNITS)
         .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
@@ -502,7 +495,6 @@ mod tests {
         encoder.finish().unwrap()
     }
 
-    /// Port of `test_vgm_io.py::test_read_vgm`.
     #[test]
     fn read_the_fixture() {
         let song = read("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
@@ -537,7 +529,7 @@ mod tests {
         assert_eq!(header, &VGM_FIXTURE[..0x80]);
     }
 
-    /// The load-bearing test. Python grows this file from 1026 to 1154 bytes.
+    /// The load-bearing test: an unedited file must round-trip byte for byte.
     #[test]
     fn the_fixture_round_trips_byte_for_byte() {
         let song = read("f.vgm", VGM_FIXTURE).unwrap();
@@ -574,15 +566,14 @@ mod tests {
         assert_eq!(plain, VGM_FIXTURE);
     }
 
-    /// Python's gzip output embeds the current time and the source filename, so it
-    /// differs run to run. `flate2`'s default header has neither.
+    /// `flate2`'s default gzip header embeds neither the current time nor the
+    /// source filename, so the output is identical run to run.
     #[test]
     fn vgz_output_is_deterministic() {
         let song = read("f.vgz", &gzip(VGM_FIXTURE)).unwrap();
         assert_eq!(write_gzipped(&song).unwrap(), write_gzipped(&song).unwrap());
     }
 
-    /// The Python decided by file extension, so a compressed `.vgm` would not open.
     #[test]
     fn compression_is_detected_from_the_bytes_not_the_name() {
         assert!(!is_gzipped(VGM_FIXTURE));
@@ -663,7 +654,7 @@ mod tests {
     }
 
     /// The whole point. Delete a command *before* the loop and the byte offset must
-    /// follow it. Python wrote the stale offset straight back out.
+    /// follow it.
     #[test]
     fn deleting_before_the_loop_point_moves_the_offset() {
         let mut song = read("t.vgm", &looping_vgm(6, 20_735)).unwrap();
@@ -692,8 +683,8 @@ mod tests {
         assert_eq!(write(&song).unwrap(), looping_vgm(6, 20_735));
     }
 
-    /// Deleting a delay *inside* the loop shortens it. Python never recomputed
-    /// `loop # samples` at all.
+    /// Deleting a delay *inside* the loop shortens it, and `loop # samples` is
+    /// recomputed to match.
     #[test]
     fn deleting_inside_the_loop_shortens_it() {
         let mut song = read("t.vgm", &looping_vgm(6, 20_735)).unwrap();

@@ -30,8 +30,7 @@ pub(crate) mod v1_opcode {
 
 /// DRO v1: variable-length instructions, so a logical index needs a lookup table.
 ///
-/// The Python kept a `list[int]` of boxed integers; a `Vec<u32>` is roughly ten
-/// times smaller and cache-friendly.
+/// A `Vec<u32>` keeps the index map compact and cache-friendly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DroDataV1 {
     data: Vec<u8>,
@@ -42,9 +41,7 @@ impl DroDataV1 {
     /// Wraps a v1 instruction stream, building the logical-to-byte index map.
     ///
     /// # Errors
-    /// If the stream ends in the middle of an instruction. The Python original
-    /// silently produced an index-map entry pointing at the truncated tail, and
-    /// then raised `IndexError` the first time anything read it.
+    /// If the stream ends in the middle of an instruction.
     ///
     /// The file reader uses [`Self::new_truncating`] instead, so a real-world
     /// malformed capture still opens.
@@ -210,9 +207,7 @@ impl DroDataV2 {
     ///
     /// # Errors
     /// If `data` has an odd length, if `codemap` is longer than 128 entries, or
-    /// if any register code indexes past the end of the codemap. The Python
-    /// original raised `IndexError` from deep inside `_interpret_data` on that
-    /// last case, at paint time rather than at load time.
+    /// if any register code indexes past the end of the codemap.
     pub fn new(
         data: Vec<u8>,
         codemap: Vec<u8>,
@@ -608,7 +603,7 @@ mod tests {
     fn v2_delete_contiguous_range() {
         let mut data = SongData::V2(v2_fixture());
         data.delete_many(&[0]);
-        // Python's `del dro_data[1:2]` removed logical indices 1 AND 2.
+        // Deleting [1, 2] removes logical indices 1 AND 2.
         data.delete_many(&[1, 2]);
         assert_eq!(data.len(), 11);
         assert_eq!(data.raw_len(), 22);
@@ -622,7 +617,7 @@ mod tests {
             &[0],
             &[13],
             &[0, 13],
-            &[1, 6, 3, 4], // the unsorted, fragmented selection from the Python test
+            &[1, 6, 3, 4], // an unsorted, fragmented selection
             &[4, 4, 4],    // duplicates
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13], // delete-all
             &[2, 3, 4, 8, 9], // two adjacent runs

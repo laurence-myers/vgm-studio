@@ -1,25 +1,14 @@
-//! Small helpers ported from `dro_util.py`.
-//!
-//! Two of the Python's helpers are deliberately absent:
-//!
-//! - `calculate_playback_samples` existed only to undo `OPLStream`'s confusion of
-//!   bytes, samples and frames. The engine (Step 4) counts frames as `u64`
-//!   throughout, so there is nothing to compensate for.
-//! - `getch` probed the platform at import time and returned three different types
-//!   depending on the answer. The CLI (Step 5) uses a proper terminal crate.
+//! Small helpers.
 
 use core::ops::RangeInclusive;
 
 /// The sample rate a VGM file's sample counts are expressed in.
-///
-/// `smp_to_ms` in the Python original defaulted to 44100 and was never called
-/// with anything else, so the "default" was really this constant.
 pub const VGM_SAMPLE_RATE: u32 = 44_100;
 
 /// Converts a sample count to milliseconds, rounding half away from zero.
 ///
-/// The Python original is `math.floor((samples / (frequency / 1000)) + 0.5)`.
-/// Done here in exact integer arithmetic so native and wasm agree bit for bit:
+/// Equivalent to `floor((samples / (frequency / 1000)) + 0.5)`, but done in
+/// exact integer arithmetic so native and wasm agree bit for bit:
 /// `floor((2 * samples * 1000 + frequency) / (2 * frequency))`.
 #[must_use]
 pub fn smp_to_ms(samples: u32, frequency: u32) -> u32 {
@@ -32,8 +21,7 @@ pub fn smp_to_ms(samples: u32, frequency: u32) -> u32 {
 
 /// Formats a millisecond count as `MM:SS`, truncating seconds.
 ///
-/// Minutes are not clamped: a 100-minute song renders as `100:00`, exactly as
-/// Python's `"%02i:%02i"` does.
+/// Minutes are not clamped: a 100-minute song renders as `100:00`.
 #[must_use]
 pub fn ms_to_timestr(ms: u32) -> String {
     to_timestr(ms / 60_000, (ms % 60_000) / 1000)
@@ -47,10 +35,8 @@ fn to_timestr(minutes: u32, seconds: u32) -> String {
 
 /// Groups a sorted, de-duplicated list of indices into contiguous inclusive ranges.
 ///
-/// This replaces `dro_util.condense_slices`. The Python version was fed a
-/// *descending* list because it deleted each range separately, back to front, to
-/// keep the earlier indices valid. Deletion here is a single forward compaction
-/// pass, so ascending order is the natural input and output.
+/// Deletion here is a single forward compaction pass, so ascending order is the
+/// natural input and output.
 ///
 /// # Panics
 /// In debug builds, if `indices` is not strictly ascending.
@@ -77,7 +63,7 @@ mod tests {
 
     #[test]
     fn smp_to_ms_rounds_half_away_from_zero() {
-        // Python: math.floor((samples / (44100 / 1000)) + 0.5)
+        // floor((samples / (44100 / 1000)) + 0.5)
         assert_eq!(smp_to_ms(0, VGM_SAMPLE_RATE), 0);
         assert_eq!(smp_to_ms(44_100, VGM_SAMPLE_RATE), 1000);
         assert_eq!(smp_to_ms(44, VGM_SAMPLE_RATE), 1); // 0.9977 -> 1

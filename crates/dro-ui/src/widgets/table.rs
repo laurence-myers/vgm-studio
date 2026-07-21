@@ -1,10 +1,9 @@
-//! The virtual instruction table (`tables.py`'s `DTSongDataList`).
+//! The virtual instruction table.
 //!
-//! Same six columns as the Python. Only visible rows are built each frame
-//! (`egui_extras` virtual rows), so the 100k+-row requirement holds. One
-//! difference by construction: the Bank and Description columns are computed
-//! synchronously from the replay cursor, so there is no "`?` until the
-//! analysis task finishes" phase.
+//! Six columns. Only visible rows are built each frame (`egui_extras` virtual
+//! rows), so the 100k+-row requirement holds. The Bank and Description columns
+//! are computed synchronously from the replay cursor, so there is no "`?` until
+//! the analysis task finishes" phase.
 
 use egui::{Color32, Sense};
 use egui_extras::{Column, TableBuilder};

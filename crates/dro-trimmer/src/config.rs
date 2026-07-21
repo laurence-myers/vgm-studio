@@ -9,7 +9,7 @@ use std::fs;
 use dro_core::config::AppConfig;
 
 /// Reads `drotrim.ini` from the working directory then the executable's
-/// directory, the later overriding the earlier -- the Python lookup order.
+/// directory, the later overriding the earlier.
 /// Missing or malformed files fall back to the defaults.
 #[must_use]
 pub fn load_config() -> AppConfig {

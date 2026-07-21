@@ -1,16 +1,13 @@
-//! The waveform panel (`waveform.py`).
+//! The waveform panel.
 //!
-//! Same visual language as the Python -- a dark well, a bright wave, a white
-//! playback-start line, a bright playback cursor, a pale hover line that snaps
-//! to instruction offsets, and a half-black dim over everything left of the
-//! start line -- but the exact colours now come from the active [`Palette`], so
-//! each theme tints it. Differences from the Python, both deliberate:
+//! A dark well, a bright wave, a white playback-start line, a bright playback
+//! cursor, a pale hover line that snaps to instruction offsets, and a half-black
+//! dim over everything left of the start line -- the exact colours come from the
+//! active [`Palette`], so each theme tints it.
 //!
-//! - The buckets are true min/max (the Python tracked only the positive
-//!   peak), so the wave is drawn symmetrically around a centre line rather
-//!   than as bars growing from the bottom.
-//! - Hovering also shows the snapped time as a tooltip -- the plan calls for
-//!   one; the Python had none.
+//! - The buckets are true min/max, so the wave is drawn symmetrically around a
+//!   centre line rather than as bars growing from the bottom.
+//! - Hovering also shows the snapped time as a tooltip.
 //!
 //! Everything here is denominated in [`Song::total_delay_ms`], never the
 //! header's `ms_length`, so a DRO with a lying header still maps clicks to the
@@ -25,11 +22,10 @@ use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
 use crate::theme::Palette;
 use crate::theme::bevel::{self, Bevel};
 
-/// The fixed bucket count, as the Python's `x_resolution`. The painted panel
-/// stretches these to its width.
+/// The fixed bucket count. The painted panel stretches these to its width.
 pub const NUM_BUCKETS: usize = 768;
 
-/// Headroom above the tallest bucket, as the Python's fixed 10px gap.
+/// Headroom above the tallest bucket.
 const HEADROOM: f32 = 5.0;
 
 /// The waveform's displayed state, owned by the app.
@@ -38,8 +34,8 @@ pub struct WaveformState {
     pub buckets: Vec<WaveformBucket>,
     /// The white playback-start indicator, from the selected row.
     pub start_ms: u32,
-    /// The yellow cursor. Only playback moves it; it survives edits, as in
-    /// Python, and is reset explicitly on file load.
+    /// The yellow cursor. Only playback moves it; it survives edits, and is
+    /// reset explicitly on file load.
     pub cursor_ms: u32,
     /// The loop brackets, when there is a region worth showing.
     pub loop_overlay: Option<LoopOverlay>,
@@ -91,7 +87,7 @@ pub fn show(
 
     draw_buckets(&painter, rect, &state.buckets, palette);
 
-    // Pen width scales with the panel, as the Python's `width // 768 + 1`.
+    // Pen width scales with the panel: `width // 768 + 1`.
     let pen = (rect.width() / NUM_BUCKETS as f32 + 1.0).floor();
 
     // Hover: snap to the instruction under the pointer, preview line + time.
@@ -222,7 +218,7 @@ fn draw_buckets(
     if buckets.is_empty() {
         return;
     }
-    // Auto-scale to the loudest bucket, as the Python did (`max_value or 1`).
+    // Auto-scale to the loudest bucket.
     let peak = buckets
         .iter()
         .map(|b| i32::from(b.max).max(-i32::from(b.min)))

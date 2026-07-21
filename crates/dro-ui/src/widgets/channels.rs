@@ -1,10 +1,9 @@
 //! Channel and percussion muting, soloing, and per-channel panning.
 //!
-//! New in the Rust port: the Python CLI player's interactive soloing was
-//! deliberately dropped in Step 5 because its home is the GUI. Eighteen
-//! melodic-channel toggles (nine per bank) plus a drums toggle per bank, applied
-//! live through `AudioService::set_muting`; and, above each toggle, a pan knob
-//! applied through `AudioService::set_panning` when the panel is in Custom mode.
+//! Eighteen melodic-channel toggles (nine per bank) plus a drums toggle per bank,
+//! applied live through `AudioService::set_muting`; and, above each toggle, a pan
+//! knob applied through `AudioService::set_panning` when the panel is in Custom
+//! mode.
 
 use dro_core::{Bank, OplType, Song};
 use dro_synth::{Muting, Panning};

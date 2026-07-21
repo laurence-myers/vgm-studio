@@ -1,6 +1,6 @@
-//! The Goto dialog (`dialogs.DTDialogGoto`). Modeless; stays open after Go so
+//! The Goto dialog. Modeless; stays open after Go so
 //! the user can jump repeatedly. Validation (and its exact status-bar
-//! messages) lives in the app, as it did in `wxapp.button_goto`.
+//! messages) lives in the app.
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
@@ -13,7 +13,7 @@ pub struct GotoDialog {
 impl GotoDialog {
     #[must_use]
     pub fn new() -> Self {
-        // The Python spinner started visually empty.
+        // The input starts visually empty.
         Self::default()
     }
 

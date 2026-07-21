@@ -1,9 +1,9 @@
 //! Everything the UI can ask the application to do.
 //!
 //! Menus, buttons, shortcuts and dialogs all *emit* actions while the frame is
-//! being drawn; the app processes the queue afterwards. This replaces wx's
-//! event/id indirection (`gui_id`) and keeps the "menu item, button and
-//! accelerator share one handler" aliasing the Python relied on.
+//! being drawn; the app processes the queue afterwards. A menu item, its
+//! button and its keyboard shortcut all emit the same action, so they share
+//! one handler.
 
 use dro_core::config::AppConfig;
 use dro_core::{Gd3Tag, OplType};

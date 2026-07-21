@@ -1,7 +1,6 @@
-//! Offline WAV rendering (Python's `WavRenderer`).
+//! Offline WAV rendering.
 //!
-//! The Python renderer was one of several push sinks fed by the real-time
-//! playback pipeline. Here it is a plain loop over [`PlayerEngine::render`],
+//! It is a plain loop over [`PlayerEngine::render`],
 //! writing into an in-memory `hound` WAV. The same bytes result on native and web
 //! -- the caller writes them to disk or offers them as a download.
 
@@ -43,8 +42,7 @@ impl Default for RenderMix {
 ///
 /// `bit_depth` must be `8` or `16` (as [`dro_core::config::AudioConfig`]
 /// guarantees). The chip always renders 16-bit internally; an 8-bit request is
-/// down-converted at write time, since -- unlike PyOPL -- the Rust core has no
-/// 8-bit mode.
+/// down-converted at write time, since the core has no 8-bit mode.
 ///
 /// # Errors
 /// If the `hound` writer fails. Writing to an in-memory `Cursor` does not fail in

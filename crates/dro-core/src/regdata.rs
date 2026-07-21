@@ -1,14 +1,12 @@
-//! Static OPL register descriptions, ported from `regdata.py`.
+//! Static OPL register descriptions.
 //!
 //! Data taken from:
 //! - <http://www.shipbrook.com/jeff/sb.html>
 //! - <http://www.gamedev.net/reference/articles/article447.asp>
 //! - <http://www.shikadi.net/moddingwiki/OPL_chip>
 //!
-//! The Python original was a `dict[int, str]` of register descriptions plus a
-//! second `dict[str, tuple[RegisterBitmask]]` keyed *by the description string*.
-//! Here both are keyed by a [`RegisterKind`] instead, so the two tables cannot
-//! drift and no string hashing happens on the table-painting path.
+//! Both tables are keyed by a [`RegisterKind`], so they cannot drift and no
+//! string hashing happens on the table-painting path.
 
 /// A named field within a register's value byte.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +44,7 @@ pub enum RegisterKind {
 }
 
 impl RegisterKind {
-    /// The human-readable description, byte-for-byte as the Python table had it.
+    /// The human-readable description.
     #[must_use]
     pub const fn description(self) -> &'static str {
         use RegisterKind::*;
@@ -113,7 +111,7 @@ const TEST_LSI: &[RegisterBitmask] = &[
 ];
 const TIMER_1_COUNT: &[RegisterBitmask] = &[bm("Timer 1 Count", 0b1111_1111)];
 const TIMER_2_COUNT: &[RegisterBitmask] = &[bm("Timer 2 Count", 0b1111_1111)];
-// TODO (inherited from the Python): registers 004 and 104 need revising.
+// TODO: registers 004 and 104 need revising.
 const TIMER_CONTROL: &[RegisterBitmask] = &[
     bm("IRQ Reset", 0b1000_0000),
     bm("Timer 1 Mask", 0b0100_0000),
@@ -183,8 +181,8 @@ pub const PERCUSSION_REGISTER: u8 = 0xBD;
 
 /// Looks up the kind of a register, addressed as `bank << 8 | reg`.
 ///
-/// Returns `None` for registers the Python table had no entry for; callers
-/// render those as `"(unknown)"`.
+/// Returns `None` for registers with no entry; callers render those as
+/// `"(unknown)"`.
 #[must_use]
 pub const fn register_kind(reg: u16) -> Option<RegisterKind> {
     use RegisterKind::*;
@@ -255,7 +253,7 @@ mod tests {
 
     #[test]
     fn gaps_in_the_python_table_stay_gaps() {
-        // Every register the Python `registers` dict has no key for.
+        // Every register with no description entry.
         for reg in [
             0x00u16, 0x05, 0x06, 0x07, 0x09, 0x1F, 0x36, 0x3F, 0x56, 0x5F, 0x76, 0x7F, 0x96, 0x9F,
             0xA9, 0xAF, 0xB9, 0xBC, 0xBE, 0xBF, 0xC9, 0xCF, 0xDF, 0xF6, 0xFF, 0x100, 0x103, 0x106,

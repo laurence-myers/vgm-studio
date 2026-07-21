@@ -1,8 +1,7 @@
-//! `drotrim play`: play a DRO or VGM song through the speakers (Python
-//! `dro_player.py`).
+//! `drotrim play`: play a DRO or VGM song through the speakers.
 //!
-//! The Python's interactive channel soloing (number keys during playback) is not
-//! ported here -- it needs raw-terminal handling and cannot be exercised without
+//! Interactive channel soloing (number keys during playback) is not offered
+//! here -- it needs raw-terminal handling and cannot be exercised without
 //! an audio device. The same soloing lives in the GUI; the CLI keeps to playing.
 
 use std::io::Write;

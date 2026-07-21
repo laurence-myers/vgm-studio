@@ -1,5 +1,4 @@
-//! `drotrim split`: split a song into one file per channel (Python
-//! `dro_split.py`).
+//! `drotrim split`: split a song into one file per channel.
 //!
 //! The splitting logic is [`dro_synth::split`], tested there; this parses
 //! arguments, loads the config, and writes the outputs next to the input.
@@ -20,8 +19,8 @@ pub struct Args {
     /// The DRO or VGM file to split.
     pub input: PathBuf,
     /// Split to song files -- DRO or VGM, matching the input -- instead of WAV.
-    // `-d`/`--dro` was this flag's name when the tool was `dro_split`, and the
-    // output was always a DRO. Kept working, but out of the help.
+    // `-d`/`--dro` was this flag's earlier name, and the output was always a
+    // DRO. Kept working, but out of the help.
     #[arg(short = 's', long = "song", visible_alias = "dro", short_alias = 'd')]
     pub song: bool,
     /// Render each drum on the percussion channel to its own file.

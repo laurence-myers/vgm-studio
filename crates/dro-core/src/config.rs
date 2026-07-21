@@ -1,4 +1,4 @@
-//! Application settings, ported from `dro_config.py`.
+//! Application settings.
 //!
 //! Parsing lives here, wasm-clean and file-free. *Finding* the settings is the
 //! platform's job: the native shell reads `drotrim.ini` from the working
@@ -64,9 +64,9 @@ impl core::fmt::Display for ThemeChoice {
 impl core::str::FromStr for ThemeChoice {
     type Err = ();
 
-    /// Accepts hyphen or underscore, case-insensitively, matching the tolerant
-    /// spirit of `configparser`. Anything else errors, so a typo in `theme=`
-    /// discards the whole config like every other malformed value here.
+    /// Accepts hyphen or underscore, case-insensitively. Anything else errors,
+    /// so a typo in `theme=` discards the whole config like every other
+    /// malformed value here.
     fn from_str(value: &str) -> core::result::Result<Self, Self::Err> {
         match value.trim().to_ascii_lowercase().as_str() {
             "clone-dark" | "clone_dark" | "clonedark" => Ok(Self::CloneDark),
@@ -112,10 +112,7 @@ impl AppConfig {
     /// earlier ones.
     ///
     /// Any failure -- no sources at all, unparseable INI, or a malformed value --
-    /// yields the complete set of defaults, with a warning logged. That is exactly
-    /// what the Python did: `configparser`'s `getint`/`getfloat`/`getboolean`
-    /// raise on a bad value rather than falling back, and `get_config` caught
-    /// everything and returned `DROConfig()`.
+    /// yields the complete set of defaults, with a warning logged.
     #[must_use]
     pub fn from_ini_sources(sources: &[&str]) -> Self {
         Self::try_from_ini_sources(sources).unwrap_or_else(|error| {
@@ -146,10 +143,10 @@ impl AppConfig {
 
     /// Rejects settings that parse but cannot work.
     ///
-    /// Python had no such check: `bit_depth = 4` made `calculate_playback_samples`
-    /// return zero and the player divided by it, and `frequency = 0` reached the
-    /// emulator. Both are better caught here, where the answer is "use the
-    /// defaults and warn".
+    /// An out-of-range `bit_depth` such as `4` would make the playback-sample
+    /// calculation return zero and the player divide by it, and `frequency = 0`
+    /// would reach the emulator. Both are better caught here, where the answer is
+    /// "use the defaults and warn".
     ///
     /// # Errors
     /// If any setting is outside the range the player can honour.
@@ -263,8 +260,7 @@ pub trait ConfigStore {
     fn save(&self, config: &AppConfig) -> Result<()>;
 }
 
-/// Finds a key case-insensitively, as `configparser` does -- it lowercases every
-/// key name it reads. Section names stay case-sensitive, also as in Python.
+/// Finds a key case-insensitively. Section names stay case-sensitive.
 fn lookup<'a>(ini: &'a Ini, section: &str, key: &str) -> Option<&'a str> {
     ini.section(Some(section))?
         .iter()
@@ -282,7 +278,7 @@ where
         .map_err(|_| Error::config(format!("Invalid value for {key}: {value:?}")))
 }
 
-/// Python's `configparser.BOOLEAN_STATES`, exactly.
+/// Accepts the standard INI boolean literals, case-insensitively.
 fn parse_bool(value: &str, key: &str) -> Result<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "1" | "yes" | "true" | "on" => Ok(true),
@@ -350,15 +346,15 @@ mod tests {
 
     #[test]
     fn no_sources_yields_defaults() {
-        // Mirrors `get_config` when neither `drotrim.ini` can be read.
+        // With no readable `drotrim.ini`, the result is all defaults.
         assert_eq!(AppConfig::from_ini_sources(&[]), AppConfig::default());
         assert!(AppConfig::try_from_ini_sources(&[]).is_err());
     }
 
     #[test]
     fn later_sources_override_earlier_ones() {
-        // `configparser.read([a, b])` reads both and lets `b` win, so an ini
-        // beside the executable overrides one in the working directory.
+        // Reading both sources lets `b` win, so an ini beside the executable
+        // overrides one in the working directory.
         let cwd = "[audio]\nfrequency=44100\nbit_depth=8\n";
         let exe_dir = "[audio]\nfrequency=49716\n";
         let config = AppConfig::from_ini_sources(&[cwd, exe_dir]);
@@ -369,9 +365,8 @@ mod tests {
 
     #[test]
     fn one_malformed_value_discards_the_whole_config() {
-        // Python's `getint` raises `ValueError`, which escapes `__read_config`
-        // and is caught by `get_config`, which then returns *all* defaults --
-        // including the settings that parsed fine.
+        // One malformed value discards the whole config and returns *all*
+        // defaults -- including the settings that parsed fine.
         let source = "[audio]\nfrequency=nonsense\nbit_depth=8\n[ui]\ntail_length=5000\n";
         assert_eq!(AppConfig::from_ini_sources(&[source]), AppConfig::default());
 
@@ -395,7 +390,7 @@ mod tests {
 
     #[test]
     fn keys_are_matched_case_insensitively() {
-        // `configparser` lowercases every key it reads.
+        // Key names are matched case-insensitively.
         let config = AppConfig::from_ini_sources(&["[audio]\nFREQUENCY=49716\n"]);
         assert_eq!(config.audio.frequency, 49_716);
     }
@@ -429,9 +424,8 @@ mod tests {
 
     #[test]
     fn full_line_comments_are_ignored_and_inline_ones_are_not() {
-        // `rust-ini` with default features and `configparser` with default
-        // `inline_comment_prefixes=None` agree: `#` only starts a comment at the
-        // beginning of a line.
+        // `rust-ini` with default features treats `#` as starting a comment
+        // only at the beginning of a line.
         let config = AppConfig::from_ini_sources(&["[audio]\n# frequency=1\nfrequency=49716\n"]);
         assert_eq!(config.audio.frequency, 49_716);
 
@@ -443,7 +437,6 @@ mod tests {
 
     #[test]
     fn negative_numbers_are_rejected_rather_than_wrapped() {
-        // Python's `int()` accepts `-1` and the app then misbehaves downstream.
         assert_eq!(
             AppConfig::from_ini_sources(&["[audio]\nbuffer_size=-1\n"]),
             AppConfig::default()
@@ -452,9 +445,8 @@ mod tests {
 
     #[test]
     fn unusable_values_fall_back_to_defaults() {
-        // Python accepted all of these and blew up (or went silent) later.
         for source in [
-            "[audio]\nbit_depth=4\n",  // -> `bit_depth // 8 == 0` -> ZeroDivisionError
+            "[audio]\nbit_depth=4\n",
             "[audio]\nbit_depth=24\n", // the OPL emulator renders 8- or 16-bit only
             "[audio]\nfrequency=0\n",
             "[audio]\nbuffer_size=0\n",
@@ -484,9 +476,9 @@ mod tests {
     #[test]
     fn a_retired_key_is_ignored_rather_than_rejected() {
         // `chip_write_delay` was dropped once the OPL core's own write buffer
-        // took over spacing register writes. Every ini written before that --
-        // including the one shipped beside the Python -- still carries the key,
-        // and must still load rather than fall back to the defaults wholesale.
+        // took over spacing register writes. Every ini written before that still
+        // carries the key, and must still load rather than fall back to the
+        // defaults wholesale.
         let source = "[audio]\nchip_write_delay=26.6\nbuffer_size=2048\n";
         let config = AppConfig::try_from_ini_sources(&[source]).expect("still parses");
         assert_eq!(config.audio.buffer_size, 2048, "the rest is still read");

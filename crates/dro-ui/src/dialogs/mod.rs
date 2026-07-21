@@ -1,7 +1,6 @@
-//! The application's dialogs (`dialogs.py`, `gd3_tag_dialog.py`,
-//! `vgm_metadata_dialog.py`, plus the new Settings dialog).
+//! The application's dialogs.
 //!
-//! Modality follows the Python: DRO Info is modal; the rest are modeless
+//! DRO Info is modal; the rest are modeless
 //! windows. Each is a plain struct created at open (capturing whatever song
 //! state it edits), drawn every frame while open, and emitting [`Action`]s.
 //!
@@ -65,8 +64,7 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::U
     });
 }
 
-/// The open dialogs. One of each at most -- reopening replaces the instance,
-/// as the Python did for Goto and Find Register.
+/// The open dialogs. One of each at most -- reopening replaces the instance.
 #[derive(Debug, Default)]
 pub struct Dialogs {
     pub goto: Option<GotoDialog>,

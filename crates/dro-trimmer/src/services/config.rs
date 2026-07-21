@@ -1,9 +1,9 @@
 //! The native `ConfigStore`: `drotrim.ini` on disk.
 //!
-//! Loading follows the Python lookup (working directory, then the
-//! executable's directory, the latter overriding). Saving is new -- the
-//! Python never wrote its config -- and targets the executable's copy first,
-//! because that is the one whose values win the load order.
+//! Loading follows the lookup order (working directory, then the
+//! executable's directory, the latter overriding). Saving targets the
+//! executable's copy first, because that is the one whose values win the
+//! load order.
 
 use std::fs;
 use std::path::PathBuf;

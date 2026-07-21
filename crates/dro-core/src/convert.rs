@@ -1,7 +1,5 @@
 //! Format conversions: DRO -> VGM, DRO v2 -> v1, and filtering a VGM's register
 //! writes ([`filter_vgm`], which shares the VGM emitter with the DRO conversion).
-//!
-//! Ported from `VGMSong.from_song` and `dro2to1.py`.
 
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
@@ -20,11 +18,6 @@ const MAX_WAIT_SAMPLES: u64 = 0xFFFF;
 /// fixture: two identical 16 ms delays in it become 706 and 705 samples, which no
 /// per-delay rounding can produce. Seeding the carry at half a millisecond makes
 /// each emitted count `round(cumulative_ms * 44.1)` minus its predecessor.
-///
-/// The Python got this triply wrong: delays of 15 ms or less were emitted as
-/// `0x70 | ms`, which waits `ms + 1` *samples*; the running total counted those
-/// milliseconds as samples; and a wait longer than 65535 samples dropped the
-/// repeated `0x61` opcode, corrupting the stream.
 #[derive(Debug)]
 struct SampleClock {
     carry: u64,
@@ -243,8 +236,8 @@ const fn write_command(opl_type: OplType, bank: Bank) -> u8 {
 /// Converts a DRO v2 song to DRO v1.
 ///
 /// v1 has no per-write bank bit, so a bank switch instruction is emitted whenever
-/// the bank changes. As the Python noted, v2 files usually alternate banks, so the
-/// result is bank-switch heavy; grouping the writes would be a better conversion.
+/// the bank changes. v2 files usually alternate banks, so the result is
+/// bank-switch heavy; grouping the writes would be a better conversion.
 ///
 /// # Errors
 /// If `song` is not a DRO v2 song, or a delay does not fit v1's encoding.
@@ -332,9 +325,6 @@ pub fn dro1_default_name(name: &str) -> String {
 }
 
 /// Swaps a three- or four-character extension for `extension`, or appends one.
-///
-/// The Python's `re.sub(r"\..{3,4}$", ".vgm", name)` left a name with no extension
-/// untouched, so `capture` converted to a VGM still called `capture`.
 fn replace_extension(name: &str, extension: &str) -> String {
     match name.rfind('.') {
         Some(dot) if matches!(name.len() - dot - 1, 3 | 4) => {
@@ -373,7 +363,6 @@ mod tests {
         assert_eq!(written, VGM_FIXTURE);
     }
 
-    /// Python's converter reports 118125 samples for the same input.
     #[test]
     fn the_sample_clock_rounds_the_running_total() {
         let mut clock = SampleClock::new();
@@ -403,8 +392,7 @@ mod tests {
 
     #[test]
     fn a_long_delay_becomes_several_wait_commands() {
-        // 65535 samples is ~1486 ms. Python emitted `61 FF FF <lo> <hi>`, leaving
-        // the second pair to be decoded as commands.
+        // 65535 samples is ~1486 ms.
         let mut clock = SampleClock::new();
         let samples = clock.samples_for_ms(2000);
         assert!(samples > MAX_WAIT_SAMPLES);
@@ -505,7 +493,6 @@ mod tests {
         assert_eq!(replace_extension("song.DRO", "vgm"), "song.vgm");
         assert_eq!(replace_extension("song.vgz", "vgm"), "song.vgm");
         assert_eq!(replace_extension("a/b.c/song.dro", "vgm"), "a/b.c/song.vgm");
-        // Python left this one alone, producing a VGM still called `capture`.
         assert_eq!(replace_extension("capture", "vgm"), "capture.vgm");
         assert_eq!(replace_extension("song.a", "vgm"), "song.a.vgm");
     }
@@ -546,7 +533,7 @@ mod tests {
         }
     }
 
-    /// The v1 output must be readable -- which the Python's own v1 reader cannot do.
+    /// The v1 output must be readable.
     #[test]
     fn dro2_to_dro1_output_round_trips() {
         let v2 = dro::read("f.dro", DRO_V2_FIXTURE).unwrap();

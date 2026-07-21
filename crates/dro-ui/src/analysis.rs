@@ -6,8 +6,7 @@
 //! already passed, which resets it and replays from instruction 0 -- every
 //! frame. Memoising the produced rows makes the steady state (repainting an
 //! unchanged window) free, while keeping memory bounded: the memo is dropped
-//! whenever it outgrows [`AnalysisCache::CAPACITY`], unlike the Python, which
-//! kept one description string per instruction for the whole song.
+//! whenever it outgrows [`AnalysisCache::CAPACITY`].
 
 use std::collections::BTreeMap;
 
@@ -20,8 +19,7 @@ pub struct AnalysisCache {
 }
 
 impl AnalysisCache {
-    /// The memo bound. Generous for any plausible scroll session, small next to
-    /// the Python's whole-song list.
+    /// The memo bound. Generous for any plausible scroll session.
     const CAPACITY: usize = 50_000;
 
     #[must_use]

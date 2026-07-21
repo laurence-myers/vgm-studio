@@ -1,12 +1,6 @@
-//! Offline waveform generation (Python's `WaveformRenderer`).
+//! Offline waveform generation.
 //!
-//! The Python renderer played the whole song through the real-time pipeline into
-//! an output sink that, per rendered buffer, unpacked every sample in Python, did
-//! two float divisions each, and **re-enqueued the entire growing points list**
-//! (`self.queue.put(self.points)`) -- quadratic in queue traffic. It also
-//! hard-coded mono and tracked only a peak of the *positive* samples.
-//!
-//! Here it is a tight loop over [`PlayerEngine::render`] with integer bucket
+//! It is a tight loop over [`PlayerEngine::render`] with integer bucket
 //! boundaries and a true min/max per bucket. [`WaveformBucketer`] can be fed PCM
 //! incrementally and yields completed buckets, so a background task can stream
 //! partial updates; [`render_waveform`] is the batch convenience over it.
@@ -163,9 +157,8 @@ pub fn render_waveform_cancellable(
 
 /// Renders `song`, calling `on_update` with a `num_buckets`-long snapshot
 /// periodically as the waveform fills in left-to-right, and once more with the
-/// completed buckets. This is what drives the GUI's progressive waveform: the
-/// Python played the song into a growing points list and redrew it ~10 times a
-/// second; here it is [`WaveformBucketer::snapshot`] emitted every
+/// completed buckets. This is what drives the GUI's progressive waveform:
+/// [`WaveformBucketer::snapshot`] emitted every
 /// [`PROGRESSIVE_UPDATES`]th of the way through.
 ///
 /// `keep_going` is polled between render chunks; returning `false` abandons the

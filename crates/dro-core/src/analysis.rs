@@ -1,13 +1,10 @@
-//! On-demand detailed register analysis (Python `DRODetailedRegisterAnalyzer`).
+//! On-demand detailed register analysis.
 //!
-//! The Python analyser produced, for *every* instruction, a
-//! `(bank, description, ms_offset)` tuple, and the GUI stored the whole list --
-//! hundreds of thousands of heap strings, recomputed from scratch after every
-//! edit and undo. Two of those three fields no longer need an analyser at all:
-//! the ms offset is [`Song::ms_offset_at`] (the delay prefix sum, built at load),
-//! and the bank falls out of tracking bank switches. What is left is the
-//! *changed-bits* description for the instruction table -- which fields of a
-//! register a write actually altered.
+//! Of the `(bank, description, ms_offset)` fields an instruction needs, two do
+//! not need an analyser at all: the ms offset is [`Song::ms_offset_at`] (the
+//! delay prefix sum, built at load), and the bank falls out of tracking bank
+//! switches. What is left is the *changed-bits* description for the instruction
+//! table -- which fields of a register a write actually altered.
 //!
 //! This is a lazy replay **cursor**, not the eager list. It holds the chip's
 //! register state and replays forward one instruction at a time, so a table
@@ -57,8 +54,7 @@ pub struct RegisterAnalyzer {
     /// The last value written to each `(bank << 8) | reg`, or `None` if never.
     ///
     /// Sized `0x200`, not `0x1FF`: the key reaches `0x1FF` (high bank, register
-    /// `0xFF`). The Python's `[None] * 0x1FF` escaped an out-of-bounds write only
-    /// because an unknown register returned before it ever indexed the array.
+    /// `0xFF`).
     state: Box<[Option<u8>; 0x200]>,
 }
 
@@ -112,8 +108,8 @@ impl RegisterAnalyzer {
     /// The analysis of every instruction, in order.
     ///
     /// A convenience over [`Self::row`] for callers that want the whole song at
-    /// once -- tests, or a caller that prefers the Python's precompute-everything
-    /// model. The GUI queries `row` per visible line instead.
+    /// once -- tests, or a caller that prefers to precompute everything. The GUI
+    /// queries `row` per visible line instead.
     #[must_use]
     pub fn analyze_all(song: &Song) -> Vec<RowAnalysis> {
         let mut analyzer = Self::new();
@@ -154,9 +150,9 @@ impl RegisterAnalyzer {
     /// Describes a register write and records its value in the chip state.
     fn describe_register(&mut self, reg: u8, value: u8) -> Cow<'static, str> {
         let Some(kind) = kind_for(self.bank, reg) else {
-            // The Python returned here *before* recording the value, so an
-            // unknown register never populates the state array. Its `%s` on an
-            // int register number is a decimal, unlike the hex `register_display`.
+            // Return here *before* recording the value, so an unknown register
+            // never populates the state array. The register number is shown in
+            // decimal here, unlike the hex `register_display` uses.
             return Cow::Owned(format!("Unknown register: {reg}"));
         };
 
@@ -217,8 +213,8 @@ impl fmt::Debug for RegisterAnalyzer {
 /// the shared register.
 ///
 /// This is the reverse of [`Song::instruction_description`], which resolves the
-/// low bank first to feed the table's "all register options" column. It matches
-/// the Python `DRODetailedRegisterAnalyzer`, which tried `0x100 | reg` first.
+/// low bank first to feed the table's "all register options" column. Here the
+/// high bank is tried first (`0x100 | reg`).
 fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
     let reg = u16::from(reg);
     match bank {
@@ -227,8 +223,7 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
     }
 }
 
-/// Which registers, and which percussion voices, a song writes (Python
-/// `DRORegisterUsageAnalyzer`).
+/// Which registers, and which percussion voices, a song writes.
 ///
 /// `dro_split` uses this to skip channels a song never touches. Keys are
 /// `(bank << 8) | reg`; the bank is tracked across DRO v1 bank switches and DRO
@@ -245,8 +240,8 @@ impl RegisterUsage {
     /// With `detailed_percussion`, also records which percussion bits were ever
     /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask` -- the map
     /// `dro_split`'s `--isolate-percussion` needs. The count is what matters to
-    /// the splitter (it only tests for zero), but it is kept exact so the ported
-    /// Python tests (`usage[0x020] == 2`) still pin it.
+    /// the splitter (it only tests for zero), but it is kept exact so tests
+    /// asserting a specific count still pin it.
     #[must_use]
     pub fn analyze(song: &Song, detailed_percussion: bool) -> Self {
         let mut usage = Self::default();
@@ -564,7 +559,7 @@ mod tests {
         assert_eq!(song.total_delay_ms(), song.ms_length);
     }
 
-    // -- register usage (port of TestDRORegisterUsageAnalyzer) --------------
+    // -- register usage -----------------------------------------------------
 
     #[test]
     fn register_usage_tracks_the_bank_across_switches() {

@@ -1,27 +1,18 @@
-//! The pull-based playback engine (Python's `OPLStream` + `DROPlayerUpdateThread`
-//! + `DROSeeker`, restructured into one thread-free state machine).
+//! The pull-based playback engine: a thread-free state machine.
 //!
-//! The Python design *pushed* rendered PCM into output streams from a background
-//! thread, relying on PyAudio's blocking `write()` for backpressure. That survives
-//! neither a cpal callback nor an `AudioWorkletProcessor.process()`. Here
-//! everything is *pulled*: [`PlayerEngine::render`] fills a caller-supplied buffer,
+//! A push design survives neither a cpal callback nor an
+//! `AudioWorkletProcessor.process()`, so everything here is *pulled*:
+//! [`PlayerEngine::render`] fills a caller-supplied buffer,
 //! stepping instructions and rendering delays, and pauses mid-delay when the
 //! buffer fills so the next call resumes exactly where it left off. Native audio,
 //! web audio, WAV render and waveform generation are all thin callers of it.
 //!
-//! What the Python conflated, this separates:
+//! Concerns kept deliberately separate:
 //!
-//! - **Frames, not bytes.** `OPLStream.samples_rendered` counted *bytes*
-//!   (`len(tmp_buffer)`), and `calculate_playback_samples` multiplied by
-//!   `channels * bit_depth/8` to match. Position here is a `u64` frame count.
+//! - **Frames, not bytes.** Position here is a `u64` frame count.
 //! - **One honest delay clock.** DRO delays are milliseconds, VGM delays are
 //!   44100 Hz samples; both become output frames through an exact integer carry.
-//!   The Python's VGM path (`render_samples`) divided by the output rate instead
-//!   of multiplying and then again by `channels + bit_depth/8` ("I'm not sure
-//!   why"), rendering VGMs far too fast. Fixed here by construction.
-//! - **No dropped samples.** PyOPL needed >= 2 samples per call, so `_render_
-//!   samples_out` skipped renders under two frames and lost a whole-frame residue
-//!   of exactly one; the integer carry here keeps every frame.
+//! - **No dropped samples.** The integer carry here keeps every frame.
 
 use std::borrow::Borrow;
 
@@ -33,14 +24,13 @@ use dro_core::{Bank, DroInstruction, Song, SongFileType};
 use crate::opl::{NukedOpl3, OplChip};
 
 /// The nine per-channel key-on/frequency registers, `0xB0..=0xB8`, whose writes
-/// channel muting gates. (Python `DROPlayer.CHANNEL_REGISTERS`, minus the bank
-/// bit, which is tracked separately.)
+/// channel muting gates. The bank bit is tracked separately.
 const CHANNEL_REGISTERS: core::ops::RangeInclusive<u8> = 0xB0..=0xB8;
 
 /// Milliseconds (or VGM samples) to output frames, carrying the fractional
 /// remainder exactly so it cannot drift over a long song.
 ///
-/// This is the Python `OPLStream.sample_overflow`, done in integers: `frames =
+/// The conversion, done in integers: `frames =
 /// (delay * rate + carry) / unit`, where `unit` is `1000` for DRO milliseconds or
 /// `44100` for VGM samples.
 #[derive(Debug, Clone)]
@@ -334,7 +324,7 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
     /// the stereo-ext enable (`0x105` bit 1) never disturbs OPL3 mode.
     newm_bit: u8,
 
-    /// The bank subsequent register writes address (Python's `_bank`).
+    /// The bank subsequent register writes address.
     bank: Bank,
     /// The next instruction to execute.
     pos: usize,
@@ -400,8 +390,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// Replaces the muting configuration, immediately keying off any melodic
     /// channel that just became muted so a sounding note does not ring on.
     ///
-    /// (Python did this at the top of every update-thread iteration by diffing a
-    /// snapshot; here it happens the moment the caller changes the mutes.)
+    /// This happens the moment the caller changes the mutes.
     pub fn set_muting(&mut self, muting: Muting) {
         for bank in [Bank::Low, Bank::High] {
             for channel in CHANNEL_REGISTERS {
@@ -586,8 +575,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// register write before it. Delays are not rendered, only counted.
     ///
     /// Register writes during a seek are applied *unconditionally* -- muting is a
-    /// playback concern, and the Python seeker likewise ignored it. Clamps past
-    /// the end of the song.
+    /// playback concern. Clamps past the end of the song.
     pub fn seek_to_pos(&mut self, index: usize) {
         let index = index.min(self.song().len());
         self.reset_chip();
@@ -660,7 +648,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 let gated = if playback {
                     self.muting.gate(self.bank, reg, value)
                 } else {
-                    Some(value) // Seeking replays every write, as the Python seeker did.
+                    Some(value) // Seeking replays every write.
                 };
                 if let Some(value) = gated {
                     let reg = self.bank.register_offset() | u16::from(reg);
@@ -683,9 +671,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
 
     /// Clears the chip to silence and re-primes the DRO v1 waveform-select hack.
     ///
-    /// A fresh chip state, rather than the Python `reset()`'s 512 zero-writes.
+    /// A fresh chip state.
     /// DRO v1 (OPL2) captures assume `0x01 = 0x20` (waveform select enable) is set
-    /// before playback, which the Python `DROPlayer.reset` wrote explicitly.
+    /// before playback.
     fn reset_chip(&mut self) {
         self.chip.reset(self.sample_rate);
         self.bank = Bank::Low;
@@ -869,7 +857,7 @@ mod tests {
     #[test]
     fn vgm_sample_delays_convert_at_the_44100_ratio() {
         // A 0x62 VGM wait is 735 samples (one 60 Hz frame). At 48000 Hz output
-        // that is 735 * 48000 / 44100 = 800 frames -- the Python rendered ~169.
+        // that is 735 * 48000 / 44100 = 800 frames.
         let mut clock = FrameClock::new(48_000, VGM_SAMPLE_RATE);
         assert_eq!(clock.frames_for(735), 800);
     }

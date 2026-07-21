@@ -1,13 +1,10 @@
-//! The VGM metadata dialog (`vgm_metadata_dialog.py`). Modeless.
+//! The VGM metadata dialog. Modeless.
 //!
-//! Diverges from the Python where the Rust model does:
 //! - The loop start is an *instruction index* (`VgmMeta::loop_point`), not a
 //!   raw byte offset, and may be empty for "no loop".
 //! - The loop length in samples is derived from the loop point, so it is
 //!   displayed read-only rather than edited.
-//! - Save actually works (the Python bound its Save button to the wrong id,
-//!   so it never fired), and invalid input gets an error box instead of an
-//!   uncaught exception.
+//! - Save applies the metadata, and invalid input gets an error box.
 
 use dro_core::Song;
 

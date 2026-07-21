@@ -1,10 +1,10 @@
 //! The instruction table's selection model.
 //!
-//! wx gave the Python multi-selection for free; egui's table has none, so the
-//! semantics are re-implemented here, headless and tested: plain click
-//! replaces, Ctrl+click toggles, Shift+click ranges from the anchor, arrows
-//! move (Shift+arrows extend), and deleting selects the row that slid into the
-//! first deleted slot (`wxapp.button_delete`).
+//! egui's table has no built-in multi-selection, so the semantics are
+//! re-implemented here, headless and tested: plain click replaces, Ctrl+click
+//! toggles, Shift+click ranges from the anchor, arrows move (Shift+arrows
+//! extend), and deleting selects the row that slid into the first deleted
+//! slot.
 
 use std::collections::BTreeSet;
 
@@ -23,7 +23,7 @@ pub struct Selection {
     selected: BTreeSet<usize>,
     /// Where a Shift-range extends from: the last plainly-clicked row.
     anchor: Option<usize>,
-    /// The row the keyboard acts from (wx's focused item).
+    /// The row the keyboard acts from.
     focus: Option<usize>,
 }
 
@@ -49,24 +49,24 @@ impl Selection {
         self.selected.contains(&row)
     }
 
-    /// The selected rows, ascending (Python `get_all_selected`).
+    /// The selected rows, ascending.
     pub fn iter(&self) -> impl Iterator<Item = usize> + '_ {
         self.selected.iter().copied()
     }
 
-    /// The lowest selected row (Python `GetFirstSelected`), or `None`.
+    /// The lowest selected row, or `None`.
     #[must_use]
     pub fn first(&self) -> Option<usize> {
         self.selected.first().copied()
     }
 
-    /// The highest selected row (Python `get_last_selected`), or `None`.
+    /// The highest selected row, or `None`.
     #[must_use]
     pub fn last(&self) -> Option<usize> {
         self.selected.last().copied()
     }
 
-    /// Selects exactly `row` (Python's `deselect()` + `select_item_manual`).
+    /// Selects exactly `row`.
     pub fn select_only(&mut self, row: usize) {
         self.selected.clear();
         self.selected.insert(row);
@@ -112,9 +112,8 @@ impl Selection {
         Some(target)
     }
 
-    /// Drops any rows at or past `len` -- after a redo shrinks the song, the
-    /// wx list control could not keep nonexistent rows selected, and neither
-    /// can this.
+    /// Drops any rows at or past `len` -- after a redo shrinks the song,
+    /// nonexistent rows cannot stay selected.
     pub fn truncate_to(&mut self, len: usize) {
         self.selected.retain(|&row| row < len);
         if self.anchor.is_some_and(|row| row >= len) {
@@ -127,8 +126,7 @@ impl Selection {
 
     /// Re-selects after a deletion, given the first (lowest) deleted row and
     /// the new row count: that same index if it still exists, else the new last
-    /// row, else nothing (the song is empty). Exactly `wxapp.button_delete`'s
-    /// rule.
+    /// row, else nothing (the song is empty).
     ///
     /// Returns the newly selected row, for scrolling it into view.
     pub fn after_delete(&mut self, first_deleted: usize, new_len: usize) -> Option<usize> {
@@ -251,7 +249,7 @@ mod tests {
         assert_eq!(selection.key_move(1, false, 10), Some(1));
     }
 
-    // -- the after-delete rule (wxapp.button_delete) ------------------------
+    // -- the after-delete rule ----------------------------------------------
 
     #[test]
     fn after_delete_selects_the_row_that_slid_into_the_first_deleted_slot() {

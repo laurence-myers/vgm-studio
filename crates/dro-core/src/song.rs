@@ -21,9 +21,8 @@ pub const DRO_FILE_V2: u32 = 2;
 
 /// The instruction stream, in whichever encoding it was read.
 ///
-/// The Python modelled this as an abstract base class with three subclasses. A
-/// closed enum is a better fit: there are exactly three encodings, and dispatch on
-/// the table-paint path becomes a jump rather than a vtable call.
+/// A closed enum fits: there are exactly three encodings, and dispatch on the
+/// table-paint path becomes a jump rather than a vtable call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SongData {
     V1(DroDataV1),
@@ -96,9 +95,8 @@ impl SongData {
 
     /// Removes the instructions at `indices` in a single compaction pass.
     ///
-    /// `indices` need not be sorted or unique. Where the Python did one `del` per
-    /// contiguous range -- `O(k*n)` for `k` ranges -- this is `O(n)` regardless of
-    /// how fragmented the selection is.
+    /// `indices` need not be sorted or unique. This is `O(n)` regardless of how
+    /// fragmented the selection is.
     pub fn delete_many(&mut self, indices: &[usize]) {
         match self {
             Self::V1(data) => data.delete_many(indices),
@@ -233,14 +231,11 @@ impl fmt::Display for OplType {
 ///   agree by construction.
 /// - It is monotonically non-decreasing, so every lookup is a binary search.
 ///
-/// The Python derived these offsets as a byproduct of the *detailed register
-/// analysis*, which meant clicking the waveform did nothing until a background
-/// task finished. Here the prefix is built at load, in one cheap pass.
+/// The prefix is built at load, in one cheap pass.
 ///
 /// VGM counts its delays in samples, not milliseconds. Those are accumulated in
-/// samples and converted once per entry, so the per-instruction rounding the
-/// Python did (`smp_to_ms(inst.value)` inside the seeker) cannot drift over a
-/// long song.
+/// samples and converted once per entry, so per-instruction rounding cannot drift
+/// over a long song.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Song {
     pub file_type: SongFileType,
@@ -375,7 +370,7 @@ impl Song {
         self.vgm.is_some()
     }
 
-    /// The number of instructions. (Python: `get_length_data`.)
+    /// The number of instructions.
     #[must_use]
     pub fn len(&self) -> usize {
         self.data.len()
@@ -395,8 +390,7 @@ impl Song {
 
     /// The summed delay of every instruction, in milliseconds.
     ///
-    /// Python walked the whole instruction list for this (`DROTotalDelayCalculator`);
-    /// here it is the last entry of the prefix sum.
+    /// It is the last entry of the prefix sum.
     #[must_use]
     pub fn total_delay_ms(&self) -> u32 {
         *self
@@ -408,8 +402,7 @@ impl Song {
     /// The summed delay of every instruction, in samples at 44100 Hz.
     ///
     /// Only VGM streams carry sample delays, so this is `0` for a DRO song. It is
-    /// what the VGM header's `total # samples` field must say. (Python:
-    /// `DROTotalSamplesCalculator`.)
+    /// what the VGM header's `total # samples` field must say.
     #[must_use]
     pub fn total_delay_samples(&self) -> u32 {
         self.samples_before(self.len())
@@ -470,9 +463,9 @@ impl Song {
     /// The instruction a seek to `target_ms` lands on.
     ///
     /// Playback resumes *before* the target when the target falls inside a delay,
-    /// matching the Python seeker, which broke out of its loop rather than
-    /// overshoot. Where the target lands exactly on an instruction boundary, this
-    /// returns the *first* instruction at that timestamp.
+    /// stopping on that delay rather than overshooting. Where the target lands
+    /// exactly on an instruction boundary, this returns the *first* instruction at
+    /// that timestamp.
     ///
     /// The returned index may be `len()`, meaning "past the last instruction".
     #[must_use]
@@ -494,8 +487,8 @@ impl Song {
     /// the row and seeking to it agree. Returns `None` for an empty song or a
     /// non-finite percentage.
     ///
-    /// Unlike the Python, this does not depend on the background analysis task,
-    /// so clicking the waveform works the instant a file is loaded.
+    /// This does not depend on any background analysis, so clicking the waveform
+    /// works the instant a file is loaded.
     #[must_use]
     pub fn index_and_ms_offset_at_pct(&self, position_pct: f64) -> Option<(usize, u32)> {
         if self.is_empty() || !position_pct.is_finite() {
@@ -519,8 +512,6 @@ impl Song {
     // -- searching ---------------------------------------------------------
 
     /// The next instruction matching `target`, strictly after (or before) `start`.
-    ///
-    /// Python returned `-1` for "not found" and took the target as a magic string.
     #[must_use]
     pub fn find_next_instruction(
         &self,
@@ -545,8 +536,6 @@ impl Song {
         Some(match self.data.get(index)? {
             DroInstruction::BankSwitch(_) => "BANK".to_owned(),
             DroInstruction::Register { reg, .. } => format!("{reg:02X}"),
-            // Python fell through to the register branch for VGM's sample delays,
-            // rendering a `0x61` wait as though it were a write to register 0x61.
             DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
                 kind.token().to_owned()
             }
@@ -661,8 +650,8 @@ impl Song {
 
         if self.data.delays_in_samples() {
             // Accumulate in samples and convert each running total once, so the
-            // rounding cannot compound. Converting each delay separately, as the
-            // Python seeker did, drifts by up to half a millisecond per delay.
+            // rounding cannot compound. Converting each delay separately would
+            // drift by up to half a millisecond per delay.
             let mut samples = 0u64;
             for instruction in self.data.iter() {
                 samples += u64::from(instruction.delay_samples());
@@ -700,9 +689,8 @@ pub fn slide_index_past_deletion(
     (moved < surviving).then_some(moved)
 }
 
-/// The description of a register write, following the Python's lookup order:
-/// the low-bank table first, then the high-bank table only if the write itself
-/// selected the high bank.
+/// The description of a register write: the low-bank table first, then the
+/// high-bank table only if the write itself selected the high bank.
 fn register_description(reg: u8, bank: Option<Bank>) -> &'static str {
     regdata::register_description(u16::from(reg))
         .or_else(|| match bank {
@@ -891,8 +879,7 @@ mod tests {
     fn index_and_ms_offset_at_pct() {
         let song = dro_song_v2();
 
-        // Python's `test_get_index_and_ms_offset_by_position_pct` asserted
-        // (7, SONG_LENGTH / 2) here, and it still holds.
+        // Halfway through lands on instruction 7, at half the song length.
         assert_eq!(
             song.index_and_ms_offset_at_pct(0.5),
             Some((7, SONG_LENGTH / 2))
@@ -904,9 +891,8 @@ mod tests {
         assert_eq!(song.index_and_ms_offset_at_pct(0.25), Some((6, 177)));
 
         // At 100% the last instruction is the final long delay, which *begins* at
-        // 49762 ms. Python's unit test said (13, 99170) only because its
-        // hand-written offsets table was an inclusive sum; the real analyser
-        // yields exclusive offsets, and 49762 is what `seek_to_pos(13)` elapses.
+        // 49762 ms. The offsets are an exclusive sum, so 49762 is the elapsed
+        // time on reaching that row.
         assert_eq!(song.index_and_ms_offset_at_pct(1.0), Some((13, 49_762)));
     }
 
@@ -940,8 +926,8 @@ mod tests {
         assert_eq!(empty.total_delay_ms(), 0);
     }
 
-    /// The prefix-sum search must land where the Python's linear scan would,
-    /// given the same (real, exclusive) offsets.
+    /// The prefix-sum search must land where a linear scan would, given the same
+    /// (real, exclusive) offsets.
     #[test]
     fn pct_search_matches_a_linear_reference() {
         let song = dro_song_v2();
@@ -953,7 +939,7 @@ mod tests {
             let pct = f64::from(step) / 1000.0;
             let target = f64::from(song.total_delay_ms()) * pct;
 
-            // Verbatim port of the Python walk, seeded at the proportional guess.
+            // A linear reference walk, seeded at the proportional guess.
             let mut index = ((offsets.len() as f64) * pct).floor() as usize;
             if index == offsets.len() {
                 index -= 1;
@@ -991,13 +977,13 @@ mod tests {
         assert_eq!(song.seek_index_for_ms(u32::MAX), 14);
     }
 
-    /// `seek_index_for_ms` must land exactly where the Python `DROSeeker`
-    /// `seek_to_time` loop would, for every reachable target.
+    /// `seek_index_for_ms` must land exactly where a step-by-step seek loop
+    /// would, for every reachable target.
     #[test]
     fn seek_index_matches_the_python_seeker() {
         let song = dro_song_v2();
         for target in 0..=SONG_LENGTH {
-            // Verbatim port of DROSeeker.seek_to_time's stepping.
+            // A step-by-step reference seek.
             let mut pos = 0usize;
             let mut elapsed = 0u32;
             while elapsed < target && pos < song.len() {
@@ -1020,8 +1006,7 @@ mod tests {
     #[test]
     fn display_and_pretty_string() {
         let song = dro_song_v2();
-        // The Python interpolated `OPLType.OPL3` here, leaking an enum repr into
-        // console output. Printing the bare name is the only difference.
+        // The output prints the bare OPL type name, e.g. `OPL3`.
         assert_eq!(
             song.to_string(),
             format!(

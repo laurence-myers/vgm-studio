@@ -1,13 +1,11 @@
 //! The VGM command stream, its GD3 tag, and the header fields we model.
-//!
-//! Ported from `vgm/vgm_data.py`.
 
 use crate::error::{Error, Result};
 use crate::song::instruction::{Bank, DelayKind, DroInstruction};
 use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
-/// The VGM commands this app understands. Anything else is a hard error, as in
-/// the Python -- a trimmer must not silently drop data it cannot re-encode.
+/// The VGM commands this app understands. Anything else is a hard error -- a
+/// trimmer must not silently drop data it cannot re-encode.
 pub mod command {
     /// `0x5A aa dd` -- YM3812 (OPL2), write `dd` to register `aa`.
     pub const YM3812: u8 = 0x5A;
@@ -306,8 +304,7 @@ impl Gd3Tag {
 /// `header` holds the file's own header bytes verbatim. Writing copies them and
 /// patches only the fields that can have changed, so a read-then-write of an
 /// unedited file reproduces it exactly -- including the chip clocks, the `rate`
-/// field, and any v1.70 extra-header offset we do not otherwise model. The Python
-/// discarded all of that, emitting a fresh 0x100-byte header every time.
+/// field, and any v1.70 extra-header offset we do not otherwise model.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VgmMeta {
     /// The command the loop restarts at, or `None` if the file does not loop.
@@ -372,8 +369,7 @@ impl VgmMeta {
 mod tests {
     use super::*;
 
-    /// `test_vgm_data.py::create_vgm_data`: five OPL2 writes, a long wait, a
-    /// one-sample short wait -- twice over.
+    /// Five OPL2 writes, a long wait, a one-sample short wait -- twice over.
     pub(crate) fn vgm_fixture() -> VgmData {
         let mut data = Vec::new();
         for i in 0..5u8 {
@@ -520,7 +516,6 @@ mod tests {
         assert_eq!(data.raw_instruction(14), None);
     }
 
-    /// Python's `test_del`, restated: `del dro_data[1:2]` removed logical 1 *and* 2.
     #[test]
     fn delete_matches_the_python_expectations() {
         let mut data = vgm_fixture();
@@ -541,8 +536,7 @@ mod tests {
         );
     }
 
-    /// The Python's `VGMData.insert_multiple` is a copy of `DRODataV1`'s, complete
-    /// with the unsorted-input defect. The shared splice sorts at the boundary.
+    /// The shared splice sorts unsorted input at the boundary.
     #[test]
     fn delete_then_insert_round_trips_for_a_fragmented_selection() {
         let original = vgm_fixture();

@@ -1,7 +1,6 @@
-//! The native `TaskService`: one `std::thread` per task, with the Python
-//! `TaskMaster`'s semantics -- keyed by task kind, cancel-on-resubmit, and an
-//! optional debounce so rapid resubmissions (key-repeat deletes) only run the
-//! last request.
+//! The native `TaskService`: one `std::thread` per task, keyed by task kind,
+//! cancel-on-resubmit, and an optional debounce so rapid resubmissions
+//! (key-repeat deletes) only run the last request.
 //!
 //! Each kind gets its own slot, so the waveform render that follows every edit
 //! never cancels a WAV export (or the other way about); only a resubmission of

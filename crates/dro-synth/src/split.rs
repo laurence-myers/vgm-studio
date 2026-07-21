@@ -1,4 +1,4 @@
-//! Splitting a song into one file per channel (Python `dro_split.py`).
+//! Splitting a song into one file per channel.
 //!
 //! Pure: [`split`] returns named outputs (WAV bytes, or a captured song); the
 //! caller writes them -- `drotrim split` to disk, the GUI to a chosen folder.
@@ -43,8 +43,7 @@ pub struct SplitOptions {
 }
 
 /// The five percussion voices of register `0xBD`, low bit first, with the drum
-/// names `dro_split` gives their files. The order matches the Python's
-/// `sorted(percs)` and `PERC_NAME_MAP`.
+/// names `dro_split` gives their files.
 const DRUMS: [(u8, &str); 5] = [
     (0x01, "HH"),
     (0x02, "CY"),
@@ -139,8 +138,7 @@ pub fn split_cancellable(
 
 /// Isolates each used drum of the percussion channel on `bank` to its own file.
 ///
-/// Unlike the Python -- whose `p <= 16` filter silently dropped the high bank's
-/// drums -- this isolates drums per bank correctly.
+/// This isolates drums per bank correctly.
 ///
 /// `Ok(None)` if `keep_going` asked it to stop part-way.
 #[allow(clippy::too_many_arguments)]

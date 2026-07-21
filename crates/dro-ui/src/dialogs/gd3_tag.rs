@@ -1,5 +1,4 @@
-//! The GD3 tag editor (`gd3_tag_dialog.py`). Modeless; Save applies the tag
-//! (not undoably, as in Python) and closes.
+//! The GD3 tag editor. Modeless; Save applies the tag (not undoably) and closes.
 
 use dro_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 

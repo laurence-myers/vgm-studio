@@ -1,7 +1,7 @@
 //! The native `FileService`: rfd dialogs + `std::fs`.
 //!
-//! The dialogs block the UI thread, exactly as wx's modal dialogs did; the
-//! result is stashed and handed over on the next poll.
+//! The dialogs block the UI thread; the result is stashed and handed over on
+//! the next poll.
 
 use std::collections::VecDeque;
 use std::fs;
@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use dro_ui::{FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest};
 
-/// The wx wildcard string, as rfd filters.
+/// The file-type wildcard string, as rfd filters.
 const FILTERS: [(&str, &[&str]); 4] = [
     ("DRO, VGM (*.dro;*.vgm;*.vgz)", &["dro", "vgm", "vgz"]),
     ("DRO files (*.dro)", &["dro"]),

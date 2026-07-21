@@ -1,10 +1,6 @@
-//! The Find Register dialog (`dialogs.DTDialogFindReg`). Modeless. The choice
+//! The Find Register dialog. Modeless. The choice
 //! list is fixed at open time: the delay tokens, `BANK` only where bank-switch
 //! instructions can exist (DRO v1), then every register `0x00`..`0xFF`.
-//!
-//! The Python offered `BANK` for anything that was not DRO v2 -- including
-//! VGMs, where no instruction can ever match it. Gating on "is actually v1"
-//! drops that dead entry.
 
 use dro_core::song::DRO_FILE_V1;
 use dro_core::{FindTarget, Song, SongFileType};
@@ -35,8 +31,8 @@ impl FindRegDialog {
         choices.extend((0..=0xFFu16).map(|reg| format!("{reg:02X}")));
         Self {
             choices,
-            // Nothing selected initially (the Python combobox started at -1);
-            // searching with no choice is a silent no-op.
+            // Nothing selected initially; searching with no choice is a silent
+            // no-op.
             selected: String::new(),
         }
     }
