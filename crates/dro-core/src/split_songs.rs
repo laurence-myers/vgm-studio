@@ -167,7 +167,18 @@ pub fn materialise(song: &Song, segment: &Segment, state_replay: bool) -> Song {
     }
 
     let mut meta = VgmMeta::new(synthesise_header());
-    meta.tag = song.vgm_meta().and_then(|meta| meta.tag.clone());
+    // Copy the source's GD3, but blank the track title: it names the whole
+    // capture, not this one song, so stamping it on every piece would be wrong.
+    // Game/system/author/date carry over; the per-song title is set in rip
+    // quick-edit or bulk tag.
+    meta.tag = song
+        .vgm_meta()
+        .and_then(|meta| meta.tag.clone())
+        .map(|mut tag| {
+            tag.track_name_en.clear();
+            tag.track_name_native.clear();
+            tag
+        });
     Song::vgm(
         piece_name(&song.name),
         CONVERSION_VERSION,
@@ -551,21 +562,30 @@ mod tests {
     }
 
     #[test]
-    fn the_gd3_tag_is_copied_into_each_piece() {
+    fn the_gd3_tag_is_copied_but_the_title_is_cleared() {
         let mut song = capture();
         let tag = Gd3Tag {
+            track_name_en: "Whole Capture".to_owned(),
+            track_name_native: "\u{5168}".to_owned(),
             game_name_en: "Sound Test".to_owned(),
             track_author_en: "Composer".to_owned(),
             ..Gd3Tag::default()
         };
-        song.vgm_meta_mut().unwrap().tag = Some(tag.clone());
+        song.vgm_meta_mut().unwrap().tag = Some(tag);
 
         for segment in &detect_segments(&song, 8000) {
             let piece = materialise(&song, segment, true);
-            assert_eq!(piece.vgm_meta().unwrap().tag.as_ref(), Some(&tag));
-            // And it survives a write/read cycle.
+            let piece_tag = piece.vgm_meta().unwrap().tag.as_ref().unwrap();
+            // The capture-wide title is blanked; the rest carries over.
+            assert_eq!(piece_tag.track_name_en, "");
+            assert_eq!(piece_tag.track_name_native, "");
+            assert_eq!(piece_tag.game_name_en, "Sound Test");
+            assert_eq!(piece_tag.track_author_en, "Composer");
+            // And that survives a write/read cycle.
             let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
-            assert_eq!(reread.vgm_meta().unwrap().tag.as_ref(), Some(&tag));
+            let reread_tag = reread.vgm_meta().unwrap().tag.as_ref().unwrap();
+            assert_eq!(reread_tag.track_name_en, "");
+            assert_eq!(reread_tag.game_name_en, "Sound Test");
         }
     }
 
