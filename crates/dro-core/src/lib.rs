@@ -11,21 +11,25 @@ pub mod config;
 pub mod convert;
 pub mod error;
 pub mod io;
+pub mod opl_state;
 pub mod optimize;
 pub mod regdata;
 pub mod rip;
 pub mod song;
+pub mod split_songs;
 pub mod undo;
 pub mod util;
 pub mod vgm;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
 pub use error::{Error, Result};
+pub use opl_state::OplState;
 pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
 pub use rip::{RipMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
     SongFileType, slide_index_past_deletion,
 };
+pub use split_songs::{Segment, detect_segments};
 pub use undo::{OptimizeVgm, UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};

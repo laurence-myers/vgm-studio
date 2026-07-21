@@ -41,21 +41,13 @@
 //! (`vgm_cmp` iterates only because its passes interact with encoding sizes). The
 //! tests assert idempotence rather than looping.
 
+use crate::opl_state::OplState;
 use crate::song::{DroInstruction, Song, SongData};
 use crate::vgm::VgmData;
 use crate::vgm::data::command;
 
 /// The largest wait a single `0x61` command can express.
 const MAX_WAIT: u64 = 0xFFFF;
-
-/// The number of register files the optimiser tracks: the low file and the high
-/// file. For a dual OPL2 the high file is the second chip; for an OPL3 it is
-/// port 1. A song is only ever one of those, so keying on the decoded [`Bank`]
-/// (which the reader already mapped each write opcode onto) never conflates them.
-///
-/// [`Bank`]: crate::song::Bank
-const FILE_COUNT: usize = 2;
-const REGISTER_COUNT: usize = 256;
 
 /// The result of optimising a VGM song: the rebuilt command stream, the loop
 /// markers remapped onto it, and what was saved (for the status line).
@@ -150,47 +142,15 @@ pub fn redundant_indices(song: &Song) -> Vec<usize> {
             state.reset();
         }
         if let Some(DroInstruction::Register { reg, value, bank }) = song.instruction(index) {
-            // Every VGM write carries a bank; the reader has already routed each
-            // opcode to the right file (chip 2 / port 1 -> the high file).
-            let file = bank.map_or(0, |bank| usize::from(bank.index()));
-            if state.is_cached(file, reg, value) {
+            // Every VGM write carries a bank; [`OplState`] routes chip 2 / port 1
+            // to the high file and everything else to the low file.
+            if state.is_set(bank, reg, value) {
                 redundant.push(index);
             }
-            state.record(file, reg, value);
+            state.record(bank, reg, value);
         }
     }
     redundant
-}
-
-/// The OPL register cache the strip pass simulates: one 256-entry file per chip
-/// side, each entry the register's last written value or `None` if never written
-/// since load or the last loop-point reset.
-struct OplState {
-    files: [[Option<u8>; REGISTER_COUNT]; FILE_COUNT],
-}
-
-impl OplState {
-    fn new() -> Self {
-        Self {
-            files: [[None; REGISTER_COUNT]; FILE_COUNT],
-        }
-    }
-
-    /// Forgets every cached value, so the next write to any register is treated as
-    /// a first write and kept.
-    fn reset(&mut self) {
-        self.files = [[None; REGISTER_COUNT]; FILE_COUNT];
-    }
-
-    /// Whether `reg` on `file` already holds `value` -- i.e. writing it would be a
-    /// no-op the optimiser can drop.
-    fn is_cached(&self, file: usize, reg: u8, value: u8) -> bool {
-        self.files[file][usize::from(reg)] == Some(value)
-    }
-
-    fn record(&mut self, file: usize, reg: u8, value: u8) {
-        self.files[file][usize::from(reg)] = Some(value);
-    }
 }
 
 /// A stream rebuilt by the merge pass, with its loop markers remapped.
