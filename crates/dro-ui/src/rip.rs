@@ -692,28 +692,28 @@ impl BulkTagOverlay {
     }
 }
 
-/// Seeds a bulk edit from the package metadata: the GD3 fields whose value is
-/// shared by every track in a pack.
+/// Seeds a bulk edit from the package metadata: the GD3 fields a pack typically
+/// shares across every track.
 ///
-/// Game, system, release date and ripper are pre-checked when present -- a pack
-/// shares them, so "write these to every track" is the common case and wants no
-/// extra clicks. The composer is pre-*filled* but left unchecked, since it is
-/// the field most likely to differ between tracks (the reason to tag a subset).
-/// Track titles are never seeded: they are per-track by definition.
+/// Game, system, composer, release date and ripper are pre-filled and
+/// pre-checked when present, so opening the dialog on a filled-in pack and
+/// hitting Apply writes them to every track with no extra clicks. To tag a
+/// subset with a different value (say, the half of the pack a second composer
+/// wrote), edit the value and deselect the tracks it does not apply to. Track
+/// titles are never seeded: they are per-track by definition.
 #[must_use]
 pub fn seed_from_meta(meta: &RipMeta) -> BulkTagOverlay {
     let mut overlay = BulkTagOverlay::default();
-    // (field index, seed value, whether to pre-check when non-empty)
     let seeds = [
-        (gd3_index::GAME_NAME_EN, &meta.game_name, true),
-        (gd3_index::SYSTEM_NAME_EN, &meta.system, true),
-        (gd3_index::RELEASE_DATE, &meta.release_date, true),
-        (gd3_index::CREATOR, &meta.creator, true),
-        (gd3_index::TRACK_AUTHOR_EN, &meta.music_authors, false),
+        (gd3_index::GAME_NAME_EN, &meta.game_name),
+        (gd3_index::SYSTEM_NAME_EN, &meta.system),
+        (gd3_index::TRACK_AUTHOR_EN, &meta.music_authors),
+        (gd3_index::RELEASE_DATE, &meta.release_date),
+        (gd3_index::CREATOR, &meta.creator),
     ];
-    for (index, value, precheck) in seeds {
+    for (index, value) in seeds {
         overlay.values[index] = value.clone();
-        overlay.apply[index] = precheck && !value.trim().is_empty();
+        overlay.apply[index] = !value.trim().is_empty();
     }
     overlay
 }
@@ -1294,7 +1294,7 @@ mod tests {
     }
 
     #[test]
-    fn seed_prechecks_shared_fields_but_not_the_composer() {
+    fn seed_prechecks_every_shared_field_including_the_composer() {
         let meta = RipMeta {
             game_name: "Cool Game".to_owned(),
             system: "IBM PC/AT".to_owned(),
@@ -1305,18 +1305,18 @@ mod tests {
         };
         let overlay = seed_from_meta(&meta);
 
-        // Shared pack-wide fields: pre-filled and pre-checked.
+        // Every shared pack field -- composer included -- is pre-filled and
+        // pre-checked, so "apply to all" needs no extra clicks.
         for index in [
             gd3_index::GAME_NAME_EN,
             gd3_index::SYSTEM_NAME_EN,
+            gd3_index::TRACK_AUTHOR_EN,
             gd3_index::RELEASE_DATE,
             gd3_index::CREATOR,
         ] {
             assert!(overlay.apply[index], "field {index} pre-checked");
         }
-        // The composer is seeded but left unchecked -- it often varies per track.
         assert_eq!(overlay.values[gd3_index::TRACK_AUTHOR_EN], "Ada, Bob");
-        assert!(!overlay.apply[gd3_index::TRACK_AUTHOR_EN]);
         // Titles are never seeded.
         assert!(overlay.values[0].is_empty() && !overlay.apply[0]);
     }
