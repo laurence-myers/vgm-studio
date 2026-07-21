@@ -11,6 +11,7 @@ pub mod config;
 pub mod convert;
 pub mod error;
 pub mod io;
+pub mod optimize;
 pub mod regdata;
 pub mod rip;
 pub mod song;
@@ -20,6 +21,7 @@ pub mod vgm;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
 pub use error::{Error, Result};
+pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
 pub use rip::{RipMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,

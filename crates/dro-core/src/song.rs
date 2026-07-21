@@ -600,6 +600,31 @@ impl Song {
         self.rebuild_delay_prefix();
     }
 
+    /// Replaces a VGM song's whole command stream and loop markers, refreshing the
+    /// derived length. This is how the optimiser installs its rebuilt stream (the
+    /// merge pass re-encodes delay runs, which no delete/insert can express), and
+    /// how [`OptimizeVgm`](crate::undo::OptimizeVgm) reverts to the original.
+    ///
+    /// Only meaningful for a VGM song; a DRO song has no `loop_point`/`loop_end` to
+    /// set and its stream stays whatever it was.
+    pub(crate) fn replace_vgm_stream(
+        &mut self,
+        data: VgmData,
+        loop_point: Option<usize>,
+        loop_end: Option<usize>,
+    ) {
+        debug_assert!(
+            self.is_vgm(),
+            "replace_vgm_stream is only valid for a VGM song"
+        );
+        self.data = SongData::Vgm(data);
+        if let Some(meta) = self.vgm.as_deref_mut() {
+            meta.loop_point = loop_point;
+            meta.loop_end = loop_end;
+        }
+        self.rebuild_delay_prefix();
+    }
+
     /// Slides a VGM's loop markers left by however many instructions before them
     /// are about to be deleted.
     ///
