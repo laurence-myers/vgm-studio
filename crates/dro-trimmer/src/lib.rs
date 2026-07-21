@@ -1,5 +1,5 @@
 //! Everything behind the `drotrim` executable: its `play`, `render`, `split` and
-//! `convert` subcommands, and the platform services the GUI runs on.
+//! `optimize` subcommands, and the platform services the GUI runs on.
 
 use std::path::Path;
 

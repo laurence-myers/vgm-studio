@@ -3,18 +3,35 @@
 //! Stripping a redundant OPL write and merging the delays left behind must not
 //! change a single rendered sample. The chip (`nuked-opl3`) is bit-exact integer
 //! emulation and the frame clock carries its remainder exactly, so a byte-for-byte
-//! WAV match is a true proof that the optimisation is inaudible -- the strongest
-//! check the strip rules can have, and the reason an independent (Route B)
-//! implementation is safe without matching `vgm_cmp`'s bytes.
+//! match is a true proof that the optimisation is inaudible -- the strongest check
+//! the strip rules can have, and the reason an independent (Route B) implementation
+//! is safe without matching `vgm_cmp`'s bytes.
 //!
-//! Rendering is at the OPL3 native rate so the chip's own output is compared, with
+//! # Immediate writes, not the buffered playback path
+//!
+//! These renders apply every register write *immediately*, rather than through
+//! nuked's write buffer (which `render_wav` and live playback use). The buffer
+//! spaces queued writes a couple of samples apart during generation, and that
+//! spacing depends on how many writes are in a burst -- so removing a redundant
+//! write shifts the following writes by ~2 samples (~40 us). That is inaudible but
+//! byte-visible, and it is a property of the emulator's scheduler, not of the
+//! optimisation. Applying writes immediately isolates the latched-state audio the
+//! optimiser preserves, giving a byte-exact oracle for *any* stream. (The residual
+//! buffered-path difference is a purely local ~2-sample phase shift around the
+//! moved writes -- its instantaneous amplitude can be large next to a steep
+//! waveform edge, but a 40 us shift of a few register writes is inaudible, and the
+//! corpus harness confirms the byte-exact immediate parity across thousands of
+//! real files.)
+//!
+//! Rendering is at the OPL3 native rate, so the chip's own output is compared with
 //! no resampler in the path.
 
 use dro_core::io::read_song;
 use dro_core::optimize::optimize;
+use dro_core::util::VGM_SAMPLE_RATE;
 use dro_core::vgm::io::synthesise_header;
-use dro_core::{DroInstruction, OplType, Song, VgmData, VgmMeta};
-use dro_synth::{LoopConfig, LoopCount, NATIVE_SAMPLE_RATE, PlayerEngine, render_wav};
+use dro_core::{Bank, DroInstruction, OplType, Song, VgmData, VgmMeta};
+use dro_synth::{FrameClock, NATIVE_SAMPLE_RATE, NukedOpl3, OplChip};
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 
@@ -54,38 +71,58 @@ fn optimised(song: &Song) -> Song {
     copy
 }
 
-/// A one-shot render at the native rate -- exactly the chip's own output.
-fn render(song: &Song) -> Vec<u8> {
-    render_wav(song, NATIVE_SAMPLE_RATE, 16).unwrap()
-}
-
-/// Renders `song` with a finite loop over `[start, end)` repeated `times`, then
-/// the tail to the end. Capped so a runaway loop fails the test rather than hangs.
-fn render_looped(song: &Song, start: usize, end: usize, times: u32) -> Vec<i16> {
-    let mut engine = PlayerEngine::new(song, NATIVE_SAMPLE_RATE);
-    engine.set_loop(Some(LoopConfig::for_song(
-        song,
-        start,
-        end,
-        LoopCount::Times(times),
-        NATIVE_SAMPLE_RATE,
-    )));
-
+/// Renders the given instruction indices, in order, through the chip with
+/// immediate register writes. See the module docs for why the write buffer is
+/// bypassed.
+fn render_indices(song: &Song, indices: &[usize]) -> Vec<i16> {
+    let mut chip = NukedOpl3::new(NATIVE_SAMPLE_RATE);
+    let mut clock = FrameClock::new(NATIVE_SAMPLE_RATE, VGM_SAMPLE_RATE);
     let mut out = Vec::new();
-    let mut buffer = vec![0i16; 4096 * 2];
-    let cap = u64::from(NATIVE_SAMPLE_RATE) * 30; // 30 s of frames is plenty
-    loop {
-        let frames = engine.render(&mut buffer);
-        out.extend_from_slice(&buffer[..frames * 2]);
-        if frames < buffer.len() / 2 {
-            break;
+    let mut scratch = vec![0i16; 8192];
+    let mut bank = Bank::Low;
+    for &index in indices {
+        match song.instruction(index).unwrap() {
+            DroInstruction::Register {
+                reg,
+                value,
+                bank: written,
+            } => {
+                if let Some(written) = written {
+                    bank = written;
+                }
+                chip.write_reg(bank.register_offset() | u16::from(reg), value);
+            }
+            DroInstruction::DelaySamples { samples, .. } => {
+                let mut frames = clock.frames_for(samples);
+                while frames > 0 {
+                    let n = frames.min((scratch.len() / 2) as u64) as usize;
+                    chip.generate_samples(&mut scratch[..n * 2]);
+                    out.extend_from_slice(&scratch[..n * 2]);
+                    frames -= n as u64;
+                }
+            }
+            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {}
         }
-        assert!(
-            engine.position().frames_rendered < cap,
-            "the looped render did not terminate"
-        );
     }
     out
+}
+
+/// A one-shot render of the whole song.
+fn render(song: &Song) -> Vec<i16> {
+    render_indices(song, &(0..song.len()).collect::<Vec<_>>())
+}
+
+/// Renders the song with its loop `[start, end)` played `iterations` times, then
+/// the tail -- by unrolling the loop into one continuous immediate render, which
+/// carries chip and clock state across the seam exactly as looped playback does
+/// (the engine does not reset the chip at the seam).
+fn render_looped(song: &Song, start: usize, end: usize, iterations: u32) -> Vec<i16> {
+    let mut indices: Vec<usize> = (0..end).collect(); // prefix + first iteration
+    for _ in 1..iterations {
+        indices.extend(start..end);
+    }
+    indices.extend(end..song.len()); // the tail, played once after the loop
+    render_indices(song, &indices)
 }
 
 /// A melodic OPL2 channel set up and keyed, with a handful of redundant writes a

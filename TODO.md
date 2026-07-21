@@ -14,6 +14,23 @@
 
 ## VGM
 
+- VGM optimiser (`vgm_cmp` equivalent) -- done. Strips OPL register writes that
+  rewrite a register with the value it already holds (inaudible on a
+  level-sensitive latch) and merges the delays those drops leave adjacent,
+  conserving the sample total exactly. Reached three ways: Edit > Optimize VGM
+  (undoable), the "Optimize VGMs on export" rip checkbox (default on, runs before
+  the gzip step), and `drotrim optimize <in> [out]`. Route B (independent
+  implementation from chip facts, not a port of vgmtools), so the project stays
+  LGPL-2.1; the correctness net is render parity through nuked-opl3 with
+  *immediate* writes (the buffered playback path spaces writes a couple of samples
+  apart, an inaudible shift that byte-parity would spuriously flag). Corpus run
+  over the local OPL packs: most published packs are already `vgm_cmp`'d so only a
+  minority shrink, but un-optimised captures shrink up to ~70%. Loop safety: the
+  register cache resets at the loop point so the loop body re-establishes its own
+  state across the seam. Possible follow-up: a stronger timer-register rule (drop
+  even value-changing writes to the inaudible 0x02-0x04 timer control), and
+  2-byte-optimal delay re-encoding (the greedy encoder leaves a rare byte on the
+  table but never grows a run).
 - Rip mode (VGMRips submission prep) -- done. Open a folder as a project; the
   package .txt is re-parsed on reopen; the track list, lengths and loop times are
   computed from each file; per-track preview, open-in-editor and quick-edit

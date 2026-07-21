@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+pub mod optimize;
 pub mod play;
 pub mod render;
 pub mod split;
@@ -20,14 +21,14 @@ mod console;
 #[cfg(windows)]
 pub use console::attach_parent_console;
 
-/// Edit, play, render and split DRO and VGM songs.
+/// Edit, play, render, split and optimise DRO and VGM songs.
 #[derive(Debug, Parser)]
 #[command(
     // Without this, clap names the command after the *package* (`dro-trimmer`),
     // which is not what the user typed.
     name = "drotrim",
     version,
-    about = "Edit, play, render and split DRO and VGM songs.",
+    about = "Edit, play, render, split and optimise DRO and VGM songs.",
     after_help = "Run with no arguments (or with just a file) to open the GUI.",
     // `drotrim song.dro render` is a mistake, not a request to render; reject
     // it rather than half-parse it.
@@ -49,6 +50,8 @@ pub enum Command {
     Render(render::Args),
     /// Split a song into one file per channel used.
     Split(split::Args),
+    /// Strip redundant OPL writes from a VGM (the `vgm_cmp` optimisation).
+    Optimize(optimize::Args),
 }
 
 /// Runs a subcommand.
@@ -61,6 +64,7 @@ pub fn run(command: Command) -> Result<()> {
         Command::Play(args) => play::run(&args),
         Command::Render(args) => render::run(&args),
         Command::Split(args) => split::run(&args),
+        Command::Optimize(args) => optimize::run(&args),
     }
 }
 
@@ -108,6 +112,21 @@ mod tests {
                 .command,
             Some(Command::Split(_))
         ));
+        assert!(matches!(
+            Cli::try_parse_from(["drotrim", "optimize", "a.vgm"])
+                .unwrap()
+                .command,
+            Some(Command::Optimize(_))
+        ));
+        // The optional output path parses too.
+        let Some(Command::Optimize(args)) =
+            Cli::try_parse_from(["drotrim", "optimize", "a.vgm", "b.vgz"])
+                .unwrap()
+                .command
+        else {
+            panic!("expected an optimize command");
+        };
+        assert_eq!(args.output, Some(PathBuf::from("b.vgz")));
     }
 
     /// The old `--dro` flag, kept working for anyone with it in a script.
