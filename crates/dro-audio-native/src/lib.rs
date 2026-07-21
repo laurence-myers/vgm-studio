@@ -58,6 +58,11 @@ struct SharedState {
     /// `swap(0)`, so a transient between two UI polls is never missed.
     peak_left: AtomicU32,
     peak_right: AtomicU32,
+    /// Whether the boost limiter has engaged (clamped an overshoot) at any point
+    /// since this stream opened. Sticky: the callback only ever raises it, and a
+    /// new song opens a fresh stream, so it resets per song for free. The UI
+    /// reads it to cap the boost at the level where clipping starts.
+    limiter_engaged: AtomicBool,
 }
 
 /// An open output stream playing one song.
@@ -274,6 +279,14 @@ impl NativeAudio {
         self.shared.finished.load(Ordering::Relaxed)
     }
 
+    /// Whether the boost limiter has engaged since this stream opened -- i.e. the
+    /// current boost has driven some passage into clipping. Sticky and reset per
+    /// song (a new song is a new stream); the UI caps the boost once it is true.
+    #[must_use]
+    pub fn limiter_engaged(&self) -> bool {
+        self.shared.limiter_engaged.load(Ordering::Relaxed)
+    }
+
     fn send(&mut self, command: Command) {
         if self.commands.push(command).is_err() {
             log::warn!("audio command queue is full; dropping a control command");
@@ -333,8 +346,11 @@ where
             // is valid to convert.
             engine.render(&mut scratch[..frames * 2]);
             // Boost + limit the i16 frames before conversion, so both device
-            // formats (f32 and i16) hear the identical limited signal.
-            limiter.process(&mut scratch[..frames * 2]);
+            // formats (f32 and i16) hear the identical limited signal. Raise the
+            // sticky engaged flag if it clamped, so the UI can cap the boost.
+            if limiter.process(&mut scratch[..frames * 2]) {
+                shared.limiter_engaged.store(true, Ordering::Relaxed);
+            }
             // Publish the post-limiter peaks for the UI's meter. `fetch_max`,
             // not `store`: a transient in a buffer between UI polls survives.
             let (peak_l, peak_r) = channel_peaks(&scratch[..frames * 2]);

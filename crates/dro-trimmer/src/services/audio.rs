@@ -214,4 +214,10 @@ impl AudioService for NativeAudioService {
     fn output_rate(&self) -> Option<u32> {
         self.audio.as_ref().map(NativeAudio::sample_rate)
     }
+
+    fn limiter_engaged(&self) -> bool {
+        self.audio
+            .as_ref()
+            .is_some_and(NativeAudio::limiter_engaged)
+    }
 }

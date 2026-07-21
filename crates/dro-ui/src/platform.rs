@@ -206,6 +206,12 @@ pub trait AudioService {
     /// from the configured frequency if the device rejected it -- positions
     /// report frames at *this* rate.
     fn output_rate(&self) -> Option<u32>;
+
+    /// Whether the boost limiter has engaged since the current song loaded --
+    /// i.e. the current boost has driven some passage into clipping. Sticky, and
+    /// reset when a new song loads. `false` when nothing is loaded. The app uses
+    /// it to cap the boost at the level where clipping starts.
+    fn limiter_engaged(&self) -> bool;
 }
 
 /// What a [`RipEntry`] is, which decides how the export job treats its bytes.
