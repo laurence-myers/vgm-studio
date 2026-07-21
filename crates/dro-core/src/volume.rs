@@ -11,9 +11,13 @@
 //!   song up to full scale, for the "match volume" button beside the boost
 //!   stepper.
 //!
-//! Both take an `i16` peak rather than `dro_synth`'s `Peak`, keeping this crate
-//! free of any audio dependency; the GUI reads `peak.max_level` and passes it
-//! in.
+//! [`volume_modifier_factor`] runs the header byte the other way -- back to the
+//! `0.25x..=64x` gain a player would apply -- so the GUI can show what a
+//! suggested (or hand-entered) modifier actually does.
+//!
+//! The peak helpers take an `i16` peak rather than `dro_synth`'s `Peak`, keeping
+//! this crate free of any audio dependency; the GUI reads `peak.max_level` and
+//! passes it in.
 
 /// The full-scale reference the loudness maths normalise toward: `0x8000`.
 ///
@@ -28,7 +32,10 @@ const FULL_SCALE: f64 = 32_768.0;
 /// attenuation of `-63..=-1` steps.
 const MAX_GAIN_STEPS: i32 = 0xC0;
 
-/// The most attenuation the header can express: `-63` steps, stored as `0xC1`.
+/// The most attenuation the header byte can express, as a step count for the
+/// `256 + steps` encoding: `-63` maps to `0xC1`. Players then read `0xC1` as
+/// `-64` -- a clean `0.25x` -- but the encoding arithmetic keeps `-63` so the
+/// byte comes out `0xC1` (see [`volume_modifier_factor`]).
 const MAX_ATTEN_STEPS: i32 = -63;
 
 /// Suggests a VGM header `Volume Modifier` byte that brings `peak` (or the
@@ -66,6 +73,11 @@ pub fn suggest_volume_modifier(peak: i16, album_peak: Option<i16>) -> u8 {
 /// `0..=192` gain steps, while `0xC1..=0xFF` are `-63..=-1` attenuation steps.
 /// So `0` → `0x00`, `+32` (one doubling) → `0x20`, `+192` → `0xC0`, `-1` →
 /// `0xFF`, `-63` → `0xC1`. Values beyond either end clamp to it.
+///
+/// The extreme `0xC1` is special: players read it as `-64` rather than `-63` so
+/// the smallest factor is a clean `0.25x`, making the reachable player-side
+/// range `0.25x..=64x` (see [`volume_modifier_factor`]). That substitution is a
+/// decode-time detail -- the encoding still writes `0xC1` from `-63` steps.
 #[must_use]
 pub fn encode_volume_modifier(steps: i32) -> u8 {
     if steps >= 0 {
@@ -74,6 +86,31 @@ pub fn encode_volume_modifier(steps: i32) -> u8 {
         // -1 -> 0xFF, -63 -> 0xC1; anything lower clamps to -63.
         (256 + steps.max(MAX_ATTEN_STEPS)) as u8
     }
+}
+
+/// The playback gain a VGM `Volume Modifier` byte asks players for:
+/// `2^(steps / 0x20)`, the inverse of [`encode_volume_modifier`].
+///
+/// Decodes the split range -- `0x00..=0xC0` as `0..=192` gain steps,
+/// `0xC1..=0xFF` as `-63..=-1` attenuation steps -- with the spec's one quirk:
+/// byte `0xC1` (nominally `-63`) is read as `-64`, so the smallest factor is a
+/// clean `0.25` rather than `0.2557`. The reachable range is therefore
+/// `0.25..=64.0`, and the default `0x00` is unity. Feeds the "this modifier
+/// means N×" readout beside the metadata field.
+#[must_use]
+pub fn volume_modifier_factor(modifier: u8) -> f32 {
+    let steps = if i32::from(modifier) <= MAX_GAIN_STEPS {
+        i32::from(modifier)
+    } else {
+        // 0xC1..=0xFF -> -63..=-1, but 0xC1's -63 is read as -64 (a clean 0.25x).
+        let nominal = i32::from(modifier) - 256;
+        if nominal == MAX_ATTEN_STEPS {
+            -64
+        } else {
+            nominal
+        }
+    };
+    2.0f32.powf(steps as f32 / 32.0)
 }
 
 /// The playback boost that brings `peak` up to full scale, clamped to the
@@ -155,6 +192,48 @@ mod tests {
         assert_eq!(encode_volume_modifier(-63), 0xC1);
         // Attenuation clamps at -63 (0xC1).
         assert_eq!(encode_volume_modifier(-1_000), 0xC1);
+    }
+
+    #[test]
+    fn decoding_a_modifier_matches_the_spec_range() {
+        let approx = |a: f32, b: f32| (a - b).abs() < 1e-3;
+        // Gain range: default unity, then a doubling per 0x20, up to +192 = 64x.
+        assert!(
+            approx(volume_modifier_factor(0x00), 1.0),
+            "default is unity"
+        );
+        assert!(approx(volume_modifier_factor(0x20), 2.0));
+        assert!(approx(volume_modifier_factor(0x40), 4.0));
+        assert!(
+            approx(volume_modifier_factor(0xC0), 64.0),
+            "max gain is 64x"
+        );
+        // Attenuation range: a halving per -0x20 (0xE0 = -32 steps = 0.5x)...
+        assert!(approx(volume_modifier_factor(0xE0), 0.5));
+        assert!(approx(
+            volume_modifier_factor(0xFF),
+            2.0f32.powf(-1.0 / 32.0)
+        ));
+        // ...and the spec's quirk: 0xC1 is read as -64, not -63, for a clean
+        // 0.25x floor rather than 0.2557x.
+        assert!(approx(volume_modifier_factor(0xC1), 0.25), "0xC1 is 0.25x");
+        assert!(
+            !approx(volume_modifier_factor(0xC1), 2.0f32.powf(-63.0 / 32.0)),
+            "0xC1 must not decode as the nominal -63 steps"
+        );
+    }
+
+    #[test]
+    fn a_suggested_modifier_decodes_to_roughly_the_scale_up_it_asked_for() {
+        // The round trip is lossy (the byte quantises to 1/32-of-a-doubling
+        // steps), but a half-scale peak suggests 0x20, which is a 2x lift -- so
+        // applying it to that peak lands near full scale, as intended.
+        let modifier = suggest_volume_modifier(0x4000, None);
+        let lifted = f32::from(0x4000i32 as i16) * volume_modifier_factor(modifier);
+        assert!(
+            (lifted - 32_768.0).abs() < 1_024.0,
+            "half-scale peak lifted to ~full scale, got {lifted}"
+        );
     }
 
     #[test]
