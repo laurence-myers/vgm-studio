@@ -30,6 +30,8 @@ pub enum TaskKind {
     /// Measuring a song's peak level, for the volume lever's "Match" button and
     /// the VGM volume-modifier suggestion.
     VolumeScan,
+    /// Measuring every rip track's peak, for the rip "Scan Volumes" button.
+    RipVolumeScan,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -64,6 +66,13 @@ pub enum TaskRequest {
     },
     /// Measures `song`'s peak level by rendering it internally at `sample_rate`.
     VolumeScan { song: Arc<Song>, sample_rate: u32 },
+    /// Measures the peak of every `(file_name, song)` at `sample_rate`, for rip
+    /// mode's "Scan Volumes". One background task covers the whole pack so its
+    /// many songs never freeze the UI.
+    RipVolumeScan {
+        tracks: Vec<(String, Arc<Song>)>,
+        sample_rate: u32,
+    },
 }
 
 impl TaskRequest {
@@ -75,6 +84,7 @@ impl TaskRequest {
             Self::Split { .. } => TaskKind::Split,
             Self::SplitSongs { .. } => TaskKind::SplitSongs,
             Self::VolumeScan { .. } => TaskKind::VolumeScan,
+            Self::RipVolumeScan { .. } => TaskKind::RipVolumeScan,
         }
     }
 }
@@ -99,6 +109,9 @@ pub enum TaskResult {
     /// A finished volume scan's peak, for the "Match Volume" button and the VGM
     /// volume-modifier suggestion. A cancelled scan emits nothing.
     Peak(Peak),
+    /// One `(file_name, peak)` per rip track measured, for the rip Peak column.
+    /// A cancelled scan (the folder changed) emits nothing.
+    RipPeaks(Vec<(String, Peak)>),
 }
 
 /// A finished split's files, ready to write, or why it failed.
@@ -219,6 +232,26 @@ pub fn run_task(
             {
                 emit(TaskResult::Peak(peak));
             }
+        }
+        TaskRequest::RipVolumeScan {
+            tracks,
+            sample_rate,
+        } => {
+            let mut peaks = Vec::with_capacity(tracks.len());
+            for (name, song) in tracks {
+                // Abandon promptly (emitting nothing) if the folder changed under
+                // us -- a whole-pack scan is easy to leave stale.
+                let Some(peak) = measure_peak_cancellable(
+                    Arc::clone(song),
+                    *sample_rate,
+                    &mut |_| {},
+                    &mut || !is_cancelled(),
+                ) else {
+                    return;
+                };
+                peaks.push((name.clone(), peak));
+            }
+            emit(TaskResult::RipPeaks(peaks));
         }
     }
 }
@@ -353,6 +386,30 @@ mod tests {
             "expected one Peak matching the direct measurement, got {results:?}"
         );
         // A cancelled scan emits nothing.
+        assert!(collect(&scan, || true).is_empty());
+    }
+
+    #[test]
+    fn the_rip_volume_scan_emits_a_peak_per_track() {
+        let song = Arc::new(tone_song());
+        let expected = dro_synth::measure_peak(&*song, 48_000);
+        let scan = TaskRequest::RipVolumeScan {
+            tracks: vec![
+                ("01.vgm".to_owned(), Arc::clone(&song)),
+                ("02.vgm".to_owned(), Arc::clone(&song)),
+            ],
+            sample_rate: 48_000,
+        };
+        let results = collect(&scan, || false);
+        let [TaskResult::RipPeaks(peaks)] = results.as_slice() else {
+            panic!("expected one RipPeaks, got {results:?}");
+        };
+        assert_eq!(peaks.len(), 2);
+        assert_eq!(peaks[0].0, "01.vgm");
+        assert_eq!(peaks[0].1, expected);
+        assert_eq!(peaks[1].0, "02.vgm");
+        assert_eq!(peaks[1].1, expected);
+        // A cancelled scan emits nothing at all, not a partial list.
         assert!(collect(&scan, || true).is_empty());
     }
 

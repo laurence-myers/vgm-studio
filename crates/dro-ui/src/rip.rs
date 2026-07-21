@@ -9,8 +9,11 @@
 //! When there is no description (a fresh rip), the fields are prefilled from the
 //! songs' GD3 tags.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use dro_synth::Peak;
 
 use dro_core::rip::{
     DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, TrackEntry, doc_file_stem, format_track_time,
@@ -77,6 +80,14 @@ pub struct RipState {
     pub optimize_on_export: bool,
     /// The row currently previewing through the audio output (rip mode playback).
     pub preview: Option<usize>,
+    /// Measured peak per track, keyed by `file_name` (the stable identity that
+    /// survives a rescan/reorder). Filled by "Scan Volumes"; drives the Peak
+    /// column and the suggested modifiers.
+    pub peaks: HashMap<String, Peak>,
+    /// Whether "Apply suggested modifiers" levels the whole pack by its loudest
+    /// track (album mode, the VGMRips convention) rather than normalising each
+    /// track to its own peak.
+    pub album_normalize: bool,
 }
 
 impl RipState {
@@ -143,6 +154,8 @@ impl RipState {
             gzip_on_export: true,
             optimize_on_export: true,
             preview: None,
+            peaks: HashMap::new(),
+            album_normalize: true,
         }
     }
 
@@ -162,6 +175,10 @@ impl RipState {
         self.images = rescanned.images;
         self.preview = previewing
             .and_then(|name| self.tracks.iter().position(|track| track.file_name == name));
+        // Measured peaks survive a rescan (a header edit does not change the
+        // audio), but drop any whose track is gone -- e.g. a reorder renamed it.
+        self.peaks
+            .retain(|name, _| self.tracks.iter().any(|track| &track.file_name == name));
     }
 
     /// The transaction that moves the track at `from` to `to`, renumbering the
@@ -185,6 +202,62 @@ impl RipState {
             label: "Reorder tracks".to_owned(),
             forward: rename_batch_mutations(folder, &pairs),
             inverse: rename_batch_mutations(folder, &inverse_pairs),
+        })
+    }
+
+    /// The transaction that sets each scanned track's VGM volume modifier to
+    /// level the pack: album mode (one factor from the loudest peak, the VGMRips
+    /// convention) unless [`Self::album_normalize`] is off, when each track is
+    /// normalised to its own peak.
+    ///
+    /// `None` when nothing would change -- no peaks scanned yet, or every track's
+    /// modifier already matches its suggestion. Tracks with no peak, no path, or
+    /// that are not VGMs are skipped, so the batch touches only what it must.
+    #[must_use]
+    pub fn suggested_modifier_transaction(&self) -> Option<RipTransaction> {
+        let album_peak = self.peaks.values().map(|peak| peak.max_level).max()?;
+        let album = self.album_normalize.then_some(album_peak);
+        let mut forward = Vec::new();
+        let mut inverse = Vec::new();
+        for track in &self.tracks {
+            let (Some(song), Some(path), Some(peak)) = (
+                track.song(),
+                track.path.clone(),
+                self.peaks.get(&track.file_name),
+            ) else {
+                continue;
+            };
+            // Only VGMs carry a volume modifier; the rip list is VGM/VGZ only, but
+            // guard so a non-VGM can never be rewritten.
+            let Some(current) = song.vgm_meta().map(|meta| meta.volume_modifier) else {
+                continue;
+            };
+            let new_modifier = dro_core::suggest_volume_modifier(peak.max_level, album);
+            if new_modifier == current {
+                continue; // nothing changed for this track
+            }
+            if let Some(Ok(bytes)) = revolumed_bytes(song, new_modifier) {
+                forward.push(RipMutation::Write {
+                    path: path.clone(),
+                    bytes,
+                });
+                inverse.push(RipMutation::Write {
+                    path,
+                    bytes: track.bytes.clone(),
+                });
+            }
+        }
+        if forward.is_empty() {
+            return None;
+        }
+        let count = forward.len();
+        Some(RipTransaction {
+            label: format!(
+                "Set volume modifier on {count} track{}",
+                if count == 1 { "" } else { "s" }
+            ),
+            forward,
+            inverse,
         })
     }
 
@@ -557,6 +630,29 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
             {
                 actions.push(Action::OpenBulkTag);
             }
+            if bevel::button(ui, palette, "Scan Volumes")
+                .on_hover_text(
+                    "Measure every track's peak level (dBFS) for the Peak column and the \
+                     suggested volume modifiers",
+                )
+                .clicked()
+            {
+                actions.push(Action::RipScanVolumes);
+            }
+            if bevel::button(ui, palette, "Apply Modifiers")
+                .on_hover_text(
+                    "Set each track's VGM volume modifier from the scanned peaks to level the \
+                     pack (one undoable edit)",
+                )
+                .clicked()
+            {
+                actions.push(Action::RipApplySuggestedModifiers);
+            }
+            ui.checkbox(&mut state.album_normalize, "Album")
+                .on_hover_text(
+                    "Level the whole pack by its loudest track (album mode); off normalises each \
+                     track to its own peak",
+                );
             ui.checkbox(&mut state.gzip_on_export, "Gzip to .vgz on export");
             ui.checkbox(&mut state.optimize_on_export, "Optimize VGMs on export")
                 .on_hover_text(
@@ -655,6 +751,17 @@ pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8
         meta.tag = Some(tag);
     }
     dro_core::io::write_song(&song).map_err(|error| error.to_string())
+}
+
+/// Re-serialises `song` with its VGM volume modifier set to `modifier`, keeping
+/// the file name (and thus format/extension). The clone/set/write precedent for
+/// the "Apply suggested modifiers" batch, mirroring [`retagged_bytes`]. `None`
+/// if `song` is not a VGM, which has no modifier.
+#[must_use]
+pub fn revolumed_bytes(song: &Song, modifier: u8) -> Option<Result<Vec<u8>, String>> {
+    let mut song = song.clone();
+    song.vgm_meta_mut()?.volume_modifier = modifier;
+    Some(dro_core::io::write_song(&song).map_err(|error| error.to_string()))
 }
 
 // GD3 field indices (file order), for the bulk-tag seeding below. The "native"
@@ -788,9 +895,10 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .column(Column::remainder().at_least(180.0)) // Title (GD3)
             .column(Column::auto().at_least(55.0)) // Total
             .column(Column::auto().at_least(55.0)) // Loop
+            .column(Column::auto().at_least(60.0)) // Peak (dBFS)
             .column(Column::auto().at_least(200.0)) // actions (reorder + preview + open + tags)
             .header(row_height + 2.0, |mut header| {
-                for title in ["#", "Title (GD3)", "Total", "Loop", ""] {
+                for title in ["#", "Title (GD3)", "Total", "Loop", "Peak", ""] {
                     header.col(|ui| {
                         ui.label(
                             egui::RichText::new(title)
@@ -840,6 +948,40 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                             .monospace()
                                             .color(palette.muted),
                                     );
+                                });
+                                row.col(|ui| {
+                                    // Peak in dBFS once scanned; clipped tracks in
+                                    // the meter's "hot" colour, "-" until scanned.
+                                    match state.peaks.get(&track.file_name) {
+                                        Some(peak) => {
+                                            let dbfs = dro_core::peak_dbfs(peak.max_level);
+                                            let text = if dbfs.is_finite() {
+                                                format!("{dbfs:.1}")
+                                            } else {
+                                                "silent".to_owned()
+                                            };
+                                            let color = if peak.clipped {
+                                                palette.meter_high
+                                            } else {
+                                                palette.data_text
+                                            };
+                                            ui.label(
+                                                egui::RichText::new(text).monospace().color(color),
+                                            )
+                                            .on_hover_text(if peak.clipped {
+                                                "Peak reaches full scale (clipping)"
+                                            } else {
+                                                "Loudest peak, in dBFS"
+                                            });
+                                        }
+                                        None => {
+                                            ui.label(
+                                                egui::RichText::new("-")
+                                                    .monospace()
+                                                    .color(palette.muted),
+                                            );
+                                        }
+                                    }
                                 });
                                 row.col(|ui| {
                                     ui.horizontal(|ui| {
@@ -893,6 +1035,9 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
                                     ui.colored_label(palette.muted, "unreadable")
                                         .on_hover_text(error);
                                 });
+                                // Total, Loop, Peak, actions -- empty for a track
+                                // that did not parse.
+                                row.col(|_ui| {});
                                 row.col(|_ui| {});
                                 row.col(|_ui| {});
                                 row.col(|_ui| {});
@@ -980,6 +1125,14 @@ mod tests {
         }
     }
 
+    /// A non-clipping peak at `max_level`, for the volume-modifier tests.
+    fn peak(max_level: i16) -> Peak {
+        Peak {
+            max_level,
+            clipped: false,
+        }
+    }
+
     fn tag(game: &str, author: &str, creator: &str) -> Gd3Tag {
         Gd3Tag {
             game_name_en: game.to_owned(),
@@ -1017,6 +1170,84 @@ mod tests {
         let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "Rip"))];
         let state = RipState::from_folder(folder("G", files), None);
         assert_eq!(state.meta.history, "1.00 <date> Rip: Initial release.");
+    }
+
+    /// The volume_modifier a set of serialised song bytes decode to.
+    fn modifier_of(bytes: &[u8]) -> u8 {
+        dro_core::io::read_song("x.vgm", bytes)
+            .unwrap()
+            .vgm_meta()
+            .unwrap()
+            .volume_modifier
+    }
+
+    #[test]
+    fn revolumed_bytes_round_trips_the_modifier() {
+        let song = dro_core::io::read_song("t.vgm", VGM_FIXTURE).unwrap();
+        let bytes = revolumed_bytes(&song, 0x20)
+            .expect("a VGM")
+            .expect("writes");
+        assert_eq!(modifier_of(&bytes), 0x20);
+    }
+
+    #[test]
+    fn album_mode_gives_every_changed_track_the_same_modifier() {
+        let files = vec![
+            tagged_song("01 Loud.vgm", tag("Game", "A", "R")),
+            tagged_song("02 Quiet.vgm", tag("Game", "B", "R")),
+        ];
+        let mut state = RipState::from_folder(folder("Game", files), None);
+        // No peaks scanned yet: nothing to apply.
+        assert!(state.suggested_modifier_transaction().is_none());
+
+        // The loudest track peaks at half scale, the other at an eighth.
+        state.peaks.insert("01 Loud.vgm".to_owned(), peak(0x4000));
+        state.peaks.insert("02 Quiet.vgm".to_owned(), peak(0x1000));
+
+        // Album mode levels both by the loudest peak, so they share one modifier
+        // (a half-scale album peak means +1 doubling, 0x20) -- preserving their
+        // relative loudness.
+        let txn = state
+            .suggested_modifier_transaction()
+            .expect("both differ from the fixture default");
+        let modifiers: Vec<u8> = txn
+            .forward
+            .iter()
+            .map(|mutation| match mutation {
+                RipMutation::Write { bytes, .. } => modifier_of(bytes),
+                RipMutation::Rename { .. } => panic!("only writes"),
+            })
+            .collect();
+        assert_eq!(
+            modifiers,
+            vec![0x20, 0x20],
+            "album mode: one factor for all"
+        );
+    }
+
+    #[test]
+    fn per_track_mode_normalises_each_track_to_its_own_peak() {
+        let files = vec![
+            tagged_song("01 Loud.vgm", tag("Game", "A", "R")),
+            tagged_song("02 Quiet.vgm", tag("Game", "B", "R")),
+        ];
+        let mut state = RipState::from_folder(folder("Game", files), None);
+        state.album_normalize = false;
+        state.peaks.insert("01 Loud.vgm".to_owned(), peak(0x4000)); // half -> 0x20
+        state.peaks.insert("02 Quiet.vgm".to_owned(), peak(0x1000)); // eighth -> 0x60
+
+        let txn = state.suggested_modifier_transaction().expect("both change");
+        let modifiers: Vec<u8> = txn
+            .forward
+            .iter()
+            .map(|mutation| match mutation {
+                RipMutation::Write { bytes, .. } => modifier_of(bytes),
+                RipMutation::Rename { .. } => panic!("only writes"),
+            })
+            .collect();
+        // Each track is boosted to its own full scale, so the quieter one gets the
+        // bigger modifier -- unlike album mode's shared factor.
+        assert_eq!(modifiers, vec![0x20, 0x60]);
     }
 
     #[test]

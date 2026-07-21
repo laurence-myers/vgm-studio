@@ -747,6 +747,7 @@ impl DroApp {
                     self.write_split(outputs);
                 }
                 TaskResult::Peak(peak) => self.handle_volume_scan(peak),
+                TaskResult::RipPeaks(peaks) => self.handle_rip_peaks(peaks),
             }
         }
     }
@@ -1513,6 +1514,8 @@ impl DroApp {
             }
             Action::ConfirmCloseRip => self.close_rip(),
             Action::RipSaveDocs => self.save_rip_docs(),
+            Action::RipScanVolumes => self.scan_rip_volumes(),
+            Action::RipApplySuggestedModifiers => self.apply_rip_modifiers(),
             Action::RipExportZip => self.export_rip_zip(false),
             Action::ConfirmExportZip => self.export_rip_zip(true),
             Action::RipTrackOpen(index) => self.open_track_in_editor(index),
@@ -2346,6 +2349,71 @@ impl DroApp {
             ),
             forward,
             inverse,
+        };
+        self.start_rip_run(transaction, RipRunKind::NewEdit);
+    }
+
+    /// Measures every readable track's peak in one background task (so the pack's
+    /// many songs never freeze the UI); the results reach
+    /// [`Self::handle_rip_peaks`] through `poll_services` and fill the Peak column.
+    fn scan_rip_volumes(&mut self) {
+        let sample_rate = self.config.audio.frequency;
+        let Some(rip) = self.rip.as_ref() else {
+            return;
+        };
+        let tracks: Vec<(String, std::sync::Arc<dro_core::Song>)> = rip
+            .tracks
+            .iter()
+            .filter_map(|track| {
+                track
+                    .song()
+                    .map(|song| (track.file_name.clone(), std::sync::Arc::clone(song)))
+            })
+            .collect();
+        if tracks.is_empty() {
+            self.status = "No readable tracks to scan.".to_owned();
+            return;
+        }
+        let count = tracks.len();
+        self.tasks.submit(
+            TaskRequest::RipVolumeScan {
+                tracks,
+                sample_rate,
+            },
+            None,
+        );
+        self.status = format!("Scanning {count} track volume(s)...");
+    }
+
+    /// Stores a finished rip volume scan's peaks (keyed by file name) for the Peak
+    /// column and the suggested modifiers.
+    fn handle_rip_peaks(&mut self, peaks: Vec<(String, dro_synth::Peak)>) {
+        let Some(rip) = self.rip.as_mut() else {
+            return;
+        };
+        let count = peaks.len();
+        for (name, peak) in peaks {
+            rip.peaks.insert(name, peak);
+        }
+        self.status = format!("Scanned {count} track volume(s).");
+    }
+
+    /// Sets each scanned track's VGM volume modifier so the pack is levelled, as
+    /// one undoable batch. The album-vs-per-track choice, the skip-unchanged
+    /// logic and the serialisation live in [`RipState::suggested_modifier_transaction`].
+    fn apply_rip_modifiers(&mut self) {
+        if self.rip_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        self.stop_preview();
+        let Some(transaction) = self
+            .rip
+            .as_ref()
+            .and_then(RipState::suggested_modifier_transaction)
+        else {
+            self.status = "Volume modifiers: nothing to change (scan volumes first).".to_owned();
+            return;
         };
         self.start_rip_run(transaction, RipRunKind::NewEdit);
     }

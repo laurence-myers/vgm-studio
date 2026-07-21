@@ -96,6 +96,11 @@ pub enum Action {
     ConfirmCloseRip,
     /// Write the generated Game Name.txt and Game Name.m3u into the folder.
     RipSaveDocs,
+    /// Measure every rip track's peak in the background, for the Peak column.
+    RipScanVolumes,
+    /// Set each track's VGM volume modifier from the scanned peaks (album or
+    /// per-track), as one undoable batch of header rewrites.
+    RipApplySuggestedModifiers,
     /// Build the release zip and save it (prompts first on soft warnings).
     RipExportZip,
     /// Build the release zip after the user accepted the warnings.

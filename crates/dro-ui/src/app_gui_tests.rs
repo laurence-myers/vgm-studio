@@ -1773,6 +1773,24 @@ fn tall_rip_harness() -> (Harness<'static, DroApp>, Handles) {
 }
 
 #[test]
+fn scanning_rip_volumes_fills_the_peak_map() {
+    // Inline tasks run the whole-pack scan; a two-VGM folder.
+    let (mut harness, handles) = build(None, true, false);
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    act(&mut harness, Action::RipScanVolumes);
+    // The inline scan stores its RipPeaks on submit; a poll frame delivers them.
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    let peaks = &harness.state().rip.as_ref().expect("a rip is open").peaks;
+    assert_eq!(peaks.len(), 2, "both tracks measured: {peaks:?}");
+    assert!(peaks.contains_key("01 Intro.vgz"));
+    assert!(peaks.contains_key("02 Boss.vgm"));
+}
+
+#[test]
 fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
