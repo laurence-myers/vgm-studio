@@ -298,7 +298,7 @@ mod tests {
     const SHIPPED_INI: &str = include_str!("../../../src/drotrim.ini");
 
     #[test]
-    fn defaults_match_the_python_dataclasses() {
+    fn defaults_are_correct() {
         let config = AppConfig::default();
         assert_eq!(config.audio.bit_depth, 16);
         assert_eq!(config.audio.boost, 1.0);

@@ -517,7 +517,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_matches_the_python_expectations() {
+    fn delete_matches_expectations() {
         let mut data = vgm_fixture();
         data.delete_many(&[0]);
         assert_eq!(data.len(), 13);

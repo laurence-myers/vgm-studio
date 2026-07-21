@@ -346,7 +346,7 @@ mod tests {
     use crate::song::fixtures::{dro_data_v1 as v1_fixture, dro_data_v2 as v2_fixture};
 
     #[test]
-    fn v2_fixture_bytes_match_python() {
+    fn v2_fixture_bytes_match_expected() {
         let data = v2_fixture();
         assert_eq!(data.data.len(), 28);
         assert_eq!(

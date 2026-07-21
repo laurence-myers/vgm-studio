@@ -223,7 +223,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn known_registers_match_the_python_table() {
+    fn known_registers_have_expected_descriptions() {
         assert_eq!(
             register_description(0x01),
             Some("Test LSI Register / Waveform Select Enable")
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn gaps_in_the_python_table_stay_gaps() {
+    fn gaps_in_the_table_stay_gaps() {
         // Every register with no description entry.
         for reg in [
             0x00u16, 0x05, 0x06, 0x07, 0x09, 0x1F, 0x36, 0x3F, 0x56, 0x5F, 0x76, 0x7F, 0x96, 0x9F,
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn the_python_table_had_exactly_this_many_keys() {
+    fn the_table_has_exactly_this_many_keys() {
         // 1 + 1 + 1 + 1 + 1 + 1 + 1 (singletons: 01,02,03,04,104,105,08)
         // + 22 + 22 + 22 + 22 (operator banks) + 9 + 9 + 1 + 9 + 22
         let count = (0u16..=0x1FF)

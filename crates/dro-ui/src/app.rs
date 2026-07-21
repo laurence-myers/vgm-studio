@@ -61,14 +61,6 @@ fn about_text() -> String {
          Web: https://github.com/laurence-myers/dro-trimmer\n\
          E-Mail: jestarjokin@jestarjokin.net\n\
          \n\
-         Thanks to:\n\
-         The DOSBOX team\n\
-         The AdPlug team\n\
-         Adam Nielsen for PyOPL\n\
-         Nuke.YKT for Nuked-OPL3\n\
-         Wraithverge for testing, feedback and contributions\n\
-         pi-r-squared for their original attempt at a DRO editor\n\
-         \n\
          This build embeds the Nuked-OPL3 emulator and is licensed\n\
          under the LGPL-2.1-or-later. Complete source code:\n\
          https://github.com/laurence-myers/dro-trimmer",

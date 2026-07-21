@@ -736,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn register_display_matches_python() {
+    fn register_display_is_correct() {
         let song = dro_song_v2();
         assert_eq!(song.register_display(0).unwrap(), "10");
         assert_eq!(song.register_display(1).unwrap(), "30");
@@ -747,7 +747,7 @@ mod tests {
     }
 
     #[test]
-    fn value_display_matches_python() {
+    fn value_display_is_correct() {
         let song = dro_song_v2();
         assert_eq!(song.value_display(0).unwrap(), "01 (1)");
         assert_eq!(song.value_display(1).unwrap(), "03 (3)");
@@ -758,7 +758,7 @@ mod tests {
     }
 
     #[test]
-    fn instruction_description_matches_python() {
+    fn instruction_description_is_correct() {
         let song = dro_song_v2();
         // codemap[0] = 0x10, which the register table has no entry for.
         assert_eq!(song.instruction_description(0).unwrap(), "(unknown)");
@@ -810,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn find_next_instruction_matches_python() {
+    fn find_next_instruction_is_correct() {
         let song = dro_song_v2();
         let find = |start, target: &str, backwards| {
             song.find_next_instruction(start, target.parse().unwrap(), backwards)
@@ -980,7 +980,7 @@ mod tests {
     /// `seek_index_for_ms` must land exactly where a step-by-step seek loop
     /// would, for every reachable target.
     #[test]
-    fn seek_index_matches_the_python_seeker() {
+    fn seek_index_matches_expected() {
         let song = dro_song_v2();
         for target in 0..=SONG_LENGTH {
             // A step-by-step reference seek.
