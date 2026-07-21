@@ -720,6 +720,52 @@ fn the_volume_lever_cannot_rise_past_the_clipping_ceiling() {
 }
 
 #[test]
+fn the_volume_ceiling_allows_returning_to_the_trigger_level_but_not_beyond() {
+    // The limiter fires at 2.00x, pinning the ceiling there. The lever must then
+    // move freely below 2.00x and back up to it, but never past it.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.state_mut().config.audio.boost = 2.0;
+    handles.audio.borrow_mut().limiter_engaged = true;
+    harness.run(); // a tick pins the ceiling at the current 2.00x
+
+    // At the ceiling, the up arrow is blocked.
+    harness.get_by_label("\u{25B2}").click();
+    harness.run();
+    assert_eq!(
+        harness.state().config.audio.boost,
+        2.0,
+        "cannot rise past the 2.00x trigger level"
+    );
+
+    // Step down one position -- now below the ceiling.
+    harness.get_by_label("\u{25BC}").click();
+    harness.run();
+    let lowered = harness.state().config.audio.boost;
+    assert!(
+        lowered < 2.0,
+        "the down arrow drops below the ceiling: {lowered}"
+    );
+
+    // The up arrow works again from there, climbing back to exactly 2.00x...
+    harness.get_by_label("\u{25B2}").click();
+    harness.run();
+    assert_eq!(
+        harness.state().config.audio.boost,
+        2.0,
+        "can climb back up to the trigger level"
+    );
+
+    // ...but no further: still capped at 2.00x.
+    harness.get_by_label("\u{25B2}").click();
+    harness.run();
+    assert_eq!(
+        harness.state().config.audio.boost,
+        2.0,
+        "still capped at the trigger level"
+    );
+}
+
+#[test]
 fn settings_save_preserves_a_live_changed_boost() {
     // M4/ux-15: the Settings dialog snapshots the config at open and doesn't
     // expose the boost, so a boost changed via the transport meanwhile must not
