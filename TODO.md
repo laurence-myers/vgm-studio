@@ -27,10 +27,10 @@
   over the local OPL packs: most published packs are already `vgm_cmp`'d so only a
   minority shrink, but un-optimised captures shrink up to ~70%. Loop safety: the
   register cache resets at the loop point so the loop body re-establishes its own
-  state across the seam. Possible follow-up: a stronger timer-register rule (drop
-  even value-changing writes to the inaudible 0x02-0x04 timer control), and
-  2-byte-optimal delay re-encoding (the greedy encoder leaves a rare byte on the
-  table but never grows a run).
+  state across the seam. The delay re-encoder is byte-minimal (full 0x61 chunks
+  plus a tail of up to two 0x62/0x63/0x7n commands, borrowing from the last chunk
+  when that shaves a byte). Possible follow-up: a stronger timer-register rule
+  (drop even value-changing writes to the inaudible 0x02-0x04 timer control).
 - Rip mode (VGMRips submission prep) -- done. Open a folder as a project; the
   package .txt is re-parsed on reopen; the track list, lengths and loop times are
   computed from each file; per-track preview, open-in-editor and quick-edit

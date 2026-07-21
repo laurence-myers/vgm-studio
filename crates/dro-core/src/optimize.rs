@@ -304,41 +304,67 @@ fn delay_at(stream: &VgmData, index: usize) -> u32 {
         .map_or(0, |instruction| instruction.delay_samples())
 }
 
-/// Encodes a wait of `samples` samples as the byte sequence and command count of a
-/// compact VGM wait: full `0x61` chunks for the bulk, then the shortest single
-/// command for the remainder (`0x7n` for 1..=16, `0x62`/`0x63` for their exact
-/// counts, else one more `0x61`).
+/// The single-byte VGM wait commands, as `(samples, opcode)`: `0x7n` for 1..=16,
+/// `0x62` for 735, `0x63` for 882.
+fn short_waits() -> Vec<(u64, u8)> {
+    let mut waits: Vec<(u64, u8)> = (0..16u8)
+        .map(|n| (u64::from(n) + 1, command::SHORT_WAIT_BASE + n))
+        .collect();
+    waits.push((u64::from(command::SAMPLES_60TH), command::WAIT_60TH));
+    waits.push((u64::from(command::SAMPLES_50TH), command::WAIT_50TH));
+    waits
+}
+
+/// Encodes a wait of `samples` samples as the *shortest* VGM byte sequence, with
+/// its command count. The emitted commands always sum to exactly `samples`.
 ///
-/// The emitted commands always sum to exactly `samples`.
-fn encode_wait(mut samples: u64) -> (Vec<u8>, usize) {
+/// The bulk goes in full `0x61` chunks (three bytes, up to 65535 samples each --
+/// far the most byte-efficient); a "tail" of at most two single-byte commands
+/// (`0x62`/`0x63`/`0x7n`) then shaves the last chunk when it lands on a value they
+/// can hit. Two is the useful maximum: three single-byte commands cost the same
+/// three bytes as one `0x61`, which covers far more, so no optimal encoding needs
+/// more than two. Enumerating every such tail and taking the fewest bytes is
+/// therefore exactly minimal -- and it captures the cases the old greedy pass
+/// missed, e.g. 32 → `0x7F 0x7F` (two bytes, not a three-byte `0x61`), 1470 →
+/// `0x62 0x62`, and the borrow 67004 → `0x61(65534) 0x62 0x62` (five bytes, where
+/// a full `0x61(65535)` chunk would leave an un-shavable 1469).
+fn encode_wait(samples: u64) -> (Vec<u8>, usize) {
+    let shorts = short_waits();
+
+    // Candidate tails: nothing, one single-byte command, or two.
+    let mut tails: Vec<(u64, Vec<u8>)> = vec![(0, Vec::new())];
+    for &(value, op) in &shorts {
+        tails.push((value, vec![op]));
+    }
+    for &(v1, op1) in &shorts {
+        for &(v2, op2) in &shorts {
+            tails.push((v1 + v2, vec![op1, op2]));
+        }
+    }
+
+    // The rest of `samples` after the tail is covered by `0x61` chunks. Pick the
+    // tail giving the fewest bytes, then the fewest commands.
+    let (tail_value, tail_ops) = tails
+        .iter()
+        .filter(|(value, _)| *value <= samples)
+        .min_by_key(|(value, ops)| {
+            let chunks = (samples - value).div_ceil(MAX_WAIT) as usize;
+            (ops.len() + 3 * chunks, ops.len() + chunks)
+        })
+        .expect("the empty tail is always a candidate");
+
     let mut out = Vec::new();
     let mut commands = 0usize;
-
-    while samples > MAX_WAIT {
+    let mut remaining = samples - tail_value;
+    while remaining > 0 {
+        let chunk = remaining.min(MAX_WAIT);
         out.push(command::WAIT);
-        out.extend_from_slice(&(MAX_WAIT as u16).to_le_bytes());
-        samples -= MAX_WAIT;
+        out.extend_from_slice(&(chunk as u16).to_le_bytes());
+        remaining -= chunk;
         commands += 1;
     }
-
-    let remainder = samples as u32; // now 0..=65535
-    if remainder == 0 {
-        // A run summing to zero samples merges to nothing.
-    } else if (1..=16).contains(&remainder) {
-        out.push(command::SHORT_WAIT_BASE + (remainder as u8 - 1));
-        commands += 1;
-    } else if remainder == command::SAMPLES_60TH {
-        out.push(command::WAIT_60TH);
-        commands += 1;
-    } else if remainder == command::SAMPLES_50TH {
-        out.push(command::WAIT_50TH);
-        commands += 1;
-    } else {
-        out.push(command::WAIT);
-        out.extend_from_slice(&(remainder as u16).to_le_bytes());
-        commands += 1;
-    }
-
+    out.extend_from_slice(tail_ops);
+    commands += tail_ops.len();
     (out, commands)
 }
 
@@ -685,8 +711,57 @@ mod tests {
         let (bytes, commands) = encode_wait(65_535 + 5);
         assert_eq!(commands, 2);
         assert_eq!(bytes.len(), 3 + 1);
+
+        // Two single-byte commands beat a three-byte 0x61 where they can hit the
+        // value: 32 = 16 + 16, 1470 = 735 + 735, 1764 = 882 + 882.
+        for &(samples, len) in &[(32u64, 2usize), (1470, 2), (1617, 2), (1764, 2)] {
+            assert_eq!(encode_wait(samples).0.len(), len, "for {samples} samples");
+            assert_eq!(total(samples), samples);
+        }
+        // The borrow: a full 0x61(65535) chunk would leave 1469 -- un-shavable, so
+        // three bytes. Shaving the chunk to 65534 leaves 1470 = 0x62 0x62, so the
+        // whole thing is five bytes, not six.
+        let (bytes, commands) = encode_wait(65_535 + 1469);
+        assert_eq!(bytes.len(), 5);
+        assert_eq!(commands, 3);
+        assert_eq!(total(65_535 + 1469), 65_535 + 1469);
+
         for samples in [0, 1, 16, 17, 735, 882, 1000, 65_535, 65_536, 200_000] {
             assert_eq!(total(samples), samples, "sample total for {samples}");
+        }
+    }
+
+    /// The encoder is provably minimal for values needing at most one `0x61`
+    /// (`<= 2000`): its byte count matches the best over every "at most two
+    /// single-byte commands, then one `0x61` for the rest" split, which is the
+    /// whole optimum (three single-byte commands never beat a `0x61`).
+    #[test]
+    fn encode_wait_is_byte_minimal_for_small_waits() {
+        use std::collections::HashMap;
+        let shorts = short_waits();
+        // The fewest single-byte commands to sum to each reachable value (<= 2 of
+        // them; more can never help).
+        let mut by_short: HashMap<u64, usize> = HashMap::from([(0, 0)]);
+        for &(v, _) in &shorts {
+            by_short.entry(v).or_insert(1);
+        }
+        for &(v1, _) in &shorts {
+            for &(v2, _) in &shorts {
+                by_short.entry(v1 + v2).or_insert(2);
+            }
+        }
+        for samples in 0..=2000u64 {
+            let reference = by_short
+                .iter()
+                .filter(|&(&value, _)| value <= samples)
+                .map(|(&value, &count)| count + if value == samples { 0 } else { 3 })
+                .min()
+                .expect("the zero tail always qualifies");
+            assert_eq!(
+                encode_wait(samples).0.len(),
+                reference,
+                "not minimal for {samples} samples"
+            );
         }
     }
 }
