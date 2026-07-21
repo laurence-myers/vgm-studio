@@ -1,3 +1,0 @@
-PyAudio ~= 0.2.14
-PyOPL ~= 2.0.0
-wxPython ~= 4.2.5
