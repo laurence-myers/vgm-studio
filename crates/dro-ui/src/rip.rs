@@ -648,11 +648,15 @@ pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8
     dro_core::io::write_song(&song).map_err(|error| error.to_string())
 }
 
-// GD3 field indices (file order), for the bulk-tag seeding below.
+// GD3 field indices (file order), for the bulk-tag seeding below. The "native"
+// fields are GD3's original-language variants, paired with their English siblings.
 mod gd3_index {
     pub(super) const GAME_NAME_EN: usize = 2;
+    pub(super) const GAME_NAME_NATIVE: usize = 3;
     pub(super) const SYSTEM_NAME_EN: usize = 4;
+    pub(super) const SYSTEM_NAME_NATIVE: usize = 5;
     pub(super) const TRACK_AUTHOR_EN: usize = 6;
+    pub(super) const TRACK_AUTHOR_NATIVE: usize = 7;
     pub(super) const RELEASE_DATE: usize = 8;
     pub(super) const CREATOR: usize = 9;
 }
@@ -697,17 +701,24 @@ impl BulkTagOverlay {
 ///
 /// Game, system, composer, release date and ripper are pre-filled and
 /// pre-checked when present, so opening the dialog on a filled-in pack and
-/// hitting Apply writes them to every track with no extra clicks. To tag a
-/// subset with a different value (say, the half of the pack a second composer
-/// wrote), edit the value and deselect the tracks it does not apply to. Track
-/// titles are never seeded: they are per-track by definition.
+/// hitting Apply writes them to every track with no extra clicks. The
+/// original-language ("orig") variants of game, system and composer are seeded
+/// with the same values -- the pack metadata holds no separate native names,
+/// and this app's PC/AT games rarely have one, so mirroring the English value
+/// keeps both variants filled. The two track-name fields are never seeded: a
+/// title is per-track by definition. To tag a subset with a different value
+/// (say, the half of the pack a second composer wrote), edit the value and
+/// deselect the tracks it does not apply to.
 #[must_use]
 pub fn seed_from_meta(meta: &RipMeta) -> BulkTagOverlay {
     let mut overlay = BulkTagOverlay::default();
     let seeds = [
         (gd3_index::GAME_NAME_EN, &meta.game_name),
+        (gd3_index::GAME_NAME_NATIVE, &meta.game_name),
         (gd3_index::SYSTEM_NAME_EN, &meta.system),
+        (gd3_index::SYSTEM_NAME_NATIVE, &meta.system),
         (gd3_index::TRACK_AUTHOR_EN, &meta.music_authors),
+        (gd3_index::TRACK_AUTHOR_NATIVE, &meta.music_authors),
         (gd3_index::RELEASE_DATE, &meta.release_date),
         (gd3_index::CREATOR, &meta.creator),
     ];
@@ -1305,20 +1316,28 @@ mod tests {
         };
         let overlay = seed_from_meta(&meta);
 
-        // Every shared pack field -- composer included -- is pre-filled and
-        // pre-checked, so "apply to all" needs no extra clicks.
+        // Every shared pack field -- composer and the orig variants included --
+        // is pre-filled and pre-checked, so "apply to all" needs no extra clicks.
         for index in [
             gd3_index::GAME_NAME_EN,
+            gd3_index::GAME_NAME_NATIVE,
             gd3_index::SYSTEM_NAME_EN,
+            gd3_index::SYSTEM_NAME_NATIVE,
             gd3_index::TRACK_AUTHOR_EN,
+            gd3_index::TRACK_AUTHOR_NATIVE,
             gd3_index::RELEASE_DATE,
             gd3_index::CREATOR,
         ] {
             assert!(overlay.apply[index], "field {index} pre-checked");
         }
+        // The orig variants mirror their English siblings' pack values.
         assert_eq!(overlay.values[gd3_index::TRACK_AUTHOR_EN], "Ada, Bob");
-        // Titles are never seeded.
-        assert!(overlay.values[0].is_empty() && !overlay.apply[0]);
+        assert_eq!(overlay.values[gd3_index::TRACK_AUTHOR_NATIVE], "Ada, Bob");
+        assert_eq!(overlay.values[gd3_index::GAME_NAME_NATIVE], "Cool Game");
+        // Neither track-name field is ever seeded (EN index 0, orig index 1).
+        for index in [0, 1] {
+            assert!(overlay.values[index].is_empty() && !overlay.apply[index]);
+        }
     }
 
     #[test]
