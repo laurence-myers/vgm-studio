@@ -1,16 +1,25 @@
 # Skin engine — implementation plan (2026-07)
 
 Replace the current theme system with a skin engine capable of rendering the
-"Variation 2" Bassoon-style skin and its eleven case-colour sub-variations
-(including the cream light case and the sunburst / verdigris material
-finishes). Reference mock-ups:
+"Variation 2" Bassoon-style skin and its case-colour sub-variations
+(including the cream light case and the verdigris metal finish; the sunburst
+finish is dropped — see below). Reference mock-ups:
 <https://claude.ai/code/artifact/5549555a-52f1-4cff-a5d0-d74019d73243>
 (sections "Variation 2" and "Variation 2C").
 
-The existing FT2 look is re-expressed as two skins on the new engine rather
-than deleted: it costs one const each, keeps user configs valid, and — more
-importantly — keeps the current snapshot baselines as the regression harness
-for the refactor. Dropping them later is a one-commit decision.
+Two scope decisions, both subtractive:
+
+- **The FT2 chrome is discarded, its palettes kept.** There is one chrome —
+  the plate look — and the old clone-dark / ft2-classic colour schemes
+  survive only as two more case colours on it. No `Ft2 | Plate` branch, no
+  dual-chrome maintenance. The old snapshot baselines still earn their keep
+  once: they guard the mechanical threading phase (which is visually a
+  no-op), and are retired when the plate chrome lands.
+- **Sunburst is dropped.** It was the only case needing a radial-burst
+  texture and its cache machinery — the one genuinely new rendering
+  mechanism in the plan. Without it, every plate is a simple vertical
+  gradient (verdigris adds one mid-stop), and the texture system disappears
+  from the plan entirely.
 
 ---
 
@@ -29,7 +38,7 @@ From the mock-ups, beyond what the FT2 theme can express today:
 | Status LEDs | none | small lit/unlit dots (loop, perc) |
 | Table text | 3 roles | per-column roles (pos / bank / reg / value / description) |
 | Branding | none | logo strip with two-tone chrome lettering |
-| Cases | n/a | 11 case colour sets over fixed "hardware" colours; 2 material finishes (radial burst, two-stop metal) |
+| Cases | n/a | 12 case colour sets over fixed "hardware" colours (10 Bassoon cases incl. cream + verdigris, plus the two legacy palettes recast as cases) |
 
 Everything else (menus, dialogs, scrollbars, separators) restyles through the
 same roles it uses today.
@@ -41,10 +50,10 @@ egui_kittest snapshot suite:
 
 - **Stay on egui 0.35 (recommended).** Every V2 need reduces to painter work
   we control: `Mesh` with per-vertex colours gives gradients; glow and drop
-  shadows are double-painted galleys/strokes; the radial burst is a small
-  generated texture. `bevel.rs` already proves the pattern — we bypassed
-  egui's stock button chrome once and can branch that same code on a chrome
-  style. Snapshot infra, wasm path, and the whole app carry over untouched.
+  shadows are double-painted galleys/strokes. `bevel.rs` already proves the
+  pattern — we bypassed egui's stock button chrome once and can repaint that
+  same code as plates. Snapshot infra, wasm path, and the whole app carry
+  over untouched.
 - **iced** — has native gradient backgrounds and a theme system, but custom
   widgets (LED readouts, scope, VU) are more ceremony than egui's painter,
   snapshot testing is DIY, and it's a full rewrite of dro-ui. Rewrite cost
@@ -77,26 +86,28 @@ pub struct Skin {
     pub case: CaseColors,       // per-case: plates, buttons, labels, selection
     pub hardware: HardwareColors, // fixed across cases: LED amber, scope green,
                                   // brass latch, VU zones, LED dots
-    pub chrome: Chrome,          // shapes & behaviours, not colours
-}
-
-pub struct Chrome {
-    pub bevel: BevelStyle,        // Ft2 | Plate
-    pub material: Material,       // Flat | VGradient | Metal { mid: f32 } | RadialBurst
-    pub corner_radius: u8,        // 0 for FT2, 3 for plates
-    pub emboss: Emboss,           // None | ShadowOnDark | EmbossOnLight (cream)
-    pub label_case: LabelCase,    // Normal | Upper (V2 uppercases chrome text)
-    pub logo_strip: bool,
-    pub scope_grid: bool,
-    pub vu_strip: bool,
 }
 ```
 
-- The 11 cases = 11 `CaseColors` consts sharing one `HARDWARE` const — the
+There is one chrome, so what was a `Chrome` struct of shape options reduces
+to constants in the paint code (3px radius, plate edges, uppercase labels,
+logo strip / scope grid / VU strip always on) plus two per-case knobs that
+live in `CaseColors`:
+
+- `plate: PlateFill` — the gradient stops. A 2-stop vertical gradient for
+  every case except verdigris, which uses 3 stops (the copper mid-band). No
+  material enum, no textures.
+- `emboss: Emboss` — `ShadowOnDark` for dark cases, `EmbossOnLight` for
+  cream *and* the recast ft2-classic palette (steel-blue face, near-black
+  silkscreen — it was always a light-ish case).
+
+Structure notes:
+
+- The 12 cases = 12 `CaseColors` consts sharing one `HARDWARE` const — the
   "case changes, displays don't" rule from the mock-ups becomes structural.
-- The two FT2 skins are `Skin`s with `bevel: Ft2, material: Flat,
-  corner_radius: 0, emboss: None` and a `CaseColors` carrying today's palette
-  values. Pixel-identical output is the Phase-1 acceptance test.
+  Ten Bassoon cases (navy, moss, plum, rust, cream, petrol, slate, olive,
+  wine, verdigris) plus `CLONE_TEAL` and `FT2_STEEL` carrying today's two
+  palettes onto the new chrome.
 - `Palette` (the ~40-role struct) survives, reorganised into
   `CaseColors`/`HardwareColors`; widgets keep taking one borrowed argument —
   now `&Skin` — so the 30 call-site files change mechanically.
@@ -111,32 +122,32 @@ HardwareColors adds: `latch_hi/lo/text`, `led_well/ghost/lit/glow`,
 
 ## 4. Painters (skin/paint.rs)
 
-1. **Plate painter** — fills a rect per `Material`:
-   - `VGradient`: one 4-vertex `Mesh` quad, top vertices `plate_hi`, bottom
-     `plate_lo`.
-   - `Metal { mid }`: two stacked gradient quads (the verdigris copper).
-   - `RadialBurst`: generate a `ColorImage` once per (bucketed size, skin
-     generation), cache as a texture, draw stretched. Buckets: panel heights
-     round to 8px so the cache stays small. (Sunburst only; do last.)
-   - Then the lit top hline, shadow bottom hline, and a rounded 1px border
-     stroke. At 3px radius the sharp-cornered gradient under a rounded border
-     is visually clean — no rounded-gradient tessellation needed.
+1. **Plate painter** — fills a rect from the case's `PlateFill` stops: one
+   `Mesh` quad per gradient segment with per-vertex colours (one quad for the
+   normal 2-stop cases, two for verdigris's 3 stops). Then the lit top hline,
+   shadow bottom hline, and a rounded 1px border stroke. At 3px radius the
+   sharp-cornered gradient under a rounded border is visually clean — no
+   rounded-gradient tessellation needed.
 2. **Glow strokes** — helper that paints a shape 2× (wide translucent, then
    core). Used by LED digits, lit LED dots, latched-key glow.
 3. **Shadow label** — lays out one galley, paints it twice (1px offset in the
-   emboss colour, then ink). Emboss direction/colour from `Chrome::emboss`.
-   Becomes the one label helper all chrome text goes through, so the cream
-   flip is a data change.
+   emboss colour, then ink). Emboss direction/colour from the case's
+   `emboss`. Becomes the one label helper all chrome text goes through, so
+   the cream / ft2-steel flip is a data change.
 4. **Chrome logo** — galley painted twice with two clip rects (light upper
    half, dark lower half) plus offset shadow: a credible two-tone chrome with
    zero assets. If we later want the full multi-stop look, swap to a
    pre-rendered PNG via the already-installed image loaders. Logo colours are
    hardware (identical in every case).
 
-`bevel.rs` keeps its FT2 painters verbatim; `button`/`toggle` gain a
-`match skin.chrome.bevel` at their paint step (geometry/interaction code is
-shared). Menus/popups/windows stay flat `plate_lo` — matching the mock-ups,
-which only gradient the fascia plates.
+`bevel.rs`'s `button`/`toggle` keep their geometry, interaction and
+accessibility code and get their paint step rewritten as plates; the FT2
+bevel painters themselves are deleted in the cleanup phase. The groove
+separators (`groove_h`/`groove_v`, `separator*` in `theme/mod.rs`) lose
+their reason to exist — plate gaps do that job — so panel boundaries become
+gaps against the desk colour, and the separator helpers reduce to spacing.
+Menus/popups/windows stay flat `plate_lo` — matching the mock-ups, which
+only gradient the fascia plates.
 
 ## 5. Widgets
 
@@ -157,31 +168,35 @@ open but Phase 3 does not add a face.
 ## 6. Config and migration
 
 `dro-core::config::ThemeChoice` (kebab strings via `Display`/parse, stored as
-`theme=` in `[ui]`) becomes:
+`theme=` in `[ui]`) becomes a flat case enum — one skin, twelve cases:
 
 ```rust
-pub enum SkinChoice { CloneDark, Ft2Classic, Bassoon(BassoonCase) }
-pub enum BassoonCase { Navy, Moss, Plum, Rust, Cream, Petrol, Slate,
-                       Olive, Wine, Sunburst, Verdigris }
+pub enum CaseChoice { Navy, Moss, Plum, Rust, Cream, Petrol, Slate,
+                      Olive, Wine, Verdigris, CloneTeal, Ft2Steel }
 ```
 
-- Strings: existing `clone-dark` / `ft2-classic` parse unchanged; new cases
-  serialise as `bassoon-navy`, `bassoon-cream`, … Unknown values keep falling
-  back to the default (now `bassoon-navy`).
-- `ALL` stays and now enumerates 13 entries — preserving the "new variant ⇒
+- Strings: new cases serialise as `navy`, `cream`, … The legacy strings
+  `clone-dark` and `ft2-classic` parse as aliases for `clone-teal` /
+  `ft2-steel`, so existing configs keep their colour family (on the new
+  chrome). Unknown values fall back to the default (now `navy`).
+- `ALL` stays and now enumerates 12 entries — preserving the "new variant ⇒
   missing-baseline test failure" mechanism.
-- Settings dialog: "Theme" dropdown becomes "Skin" + a "Case" dropdown that is
-  enabled only for Bassoon. `theme::apply_palette` → `skin::apply(ctx, choice)`.
+- Settings dialog: the "Theme" dropdown becomes "Case" — still a single
+  dropdown, no nesting. `theme::apply_palette` → `skin::apply(ctx, choice)`.
 
 ## 7. Snapshot strategy
 
-- **Full showcase snapshots** (existing mechanism) for: `clone-dark`,
-  `ft2-classic` (must stay pixel-identical through Phase 1–2 — the refactor's
-  safety rail), `bassoon-navy` (canonical), `bassoon-cream` (light-case
-  rules), `bassoon-sunburst` (texture material path).
+- **The old baselines guard exactly one phase.** Through the mechanical
+  threading phase (visually a no-op) the existing `clone-dark` /
+  `ft2-classic` showcase snapshots must stay pixel-identical. When the plate
+  chrome lands they are retired, not regenerated.
+- **Full showcase snapshots** for three representative cases: `navy`
+  (canonical), `cream` (light-case emboss rules), `verdigris` (3-stop metal
+  plate).
 - **One case-strip snapshot**: a compact fascia+transport strip rendered once
-  per case, all 11 stacked in a single PNG (mirrors the artifact's 2C
-  section). Covers the colour tables without 11 full baselines.
+  per case, all 12 stacked in a single PNG (mirrors the artifact's 2C
+  section). Covers the colour tables — including the two legacy palettes —
+  without 12 full baselines.
 - The showcase itself grows the new widgets (LED readout, VU strip, LED dots,
   logo strip, scope grid) so they are exercised for every skin.
 - Regenerate with `UPDATE_SNAPSHOTS=1` per the existing workflow.
@@ -191,24 +206,27 @@ pub enum BassoonCase { Navy, Moss, Plum, Rust, Cream, Petrol, Slate,
 1. **Characterisation** — extend the showcase with any widget not yet on it;
    regenerate baselines. Green tree before touching the engine.
 2. **Mechanical `Skin` introduction** — wrap `Palette` in
-   `Skin { case, hardware, chrome }` with FT2 values; thread `&Skin` through
-   the ~30 files; `style_for(&Skin)`. Zero visual change; old snapshots prove
-   it. (Largest diff, dumbest content.)
-3. **Plate chrome** — plate painter (VGradient), rounded borders, button/
-   toggle Plate branch, shadow labels, uppercase chrome option. Add
-   `BASSOON_NAVY`; new showcase baseline.
+   `Skin { case, hardware }` with today's values; thread `&Skin` through the
+   ~30 files; `style_for(&Skin)`. Zero visual change; the old snapshots prove
+   it — their last job. (Largest diff, dumbest content.)
+3. **Plate chrome, replacing FT2** — plate painter, rounded borders,
+   button/toggle repaint, shadow labels, uppercase chrome. The three cases
+   that exist at this point (`navy` plus `clone-teal` / `ft2-steel`, so the
+   two config values users may already have keep rendering) all use the new
+   chrome. Old showcase baselines retired; `navy` baseline added.
 4. **Display widgets** — LED readout, VU strip, LED dots, scope grid, logo
    strip, per-column table roles. Showcase grows; regenerate.
-5. **Cases** — 10 more `CaseColors` consts; cream emboss flip; `Metal`
-   material (verdigris); `RadialBurst` texture (sunburst); Settings case
-   dropdown; case-strip snapshot.
-6. **Migration & cleanup** — `SkinChoice` serde, default flip to
-   `bassoon-navy`, module rename `theme` → `skin`, docs + MEMORY update,
-   delete anything now dead.
+5. **Cases** — the remaining 9 `CaseColors` consts; cream + ft2-steel emboss
+   flip exercised; verdigris 3-stop plate; Settings case dropdown;
+   case-strip snapshot.
+6. **Migration & cleanup** — `CaseChoice` serde with legacy aliases, default
+   flip to `navy`, module rename `theme` → `skin`, delete the FT2 bevel
+   painters and groove separators, docs + MEMORY update.
 
-Estimate: 4–6 working sessions. Phases 3–5 match the artifact's own effort
-notes; Phase 2 is the one this plan adds honestly (the mock-ups never had to
-pay the threading cost).
+Estimate: 4–5 working sessions — the sunburst texture work and dual-chrome
+upkeep are gone. Phases 3–5 match the artifact's own effort notes; Phase 2
+is the one this plan adds honestly (the mock-ups never had to pay the
+threading cost).
 
 ## 9. Risks / open questions
 
@@ -217,9 +235,12 @@ pay the threading cost).
   radius is small and the mock-ups are hard-pixeled anyway; if it looks bad,
   plates fall back to square corners (the look survives — Bassoon reads
   "plate" mostly from the gradient + lit edge).
-- **Texture cache invalidation** (sunburst): key by (size bucket, skin
-  generation counter); clear on skin switch. Small and bounded.
-- **Default skin flip** is a user-visible change — do it last, in its own
-  commit, so it's trivially revertable.
+- **No FT2 fallback**: once Phase 3 lands, the old look is gone — the recast
+  `clone-teal` / `ft2-steel` cases keep the colours, not the chrome. Anyone
+  attached to the flat-bevel look has no escape hatch; that is the accepted
+  cost of dropping the dual-chrome branch (and it's this app's own theme, not
+  a shipped promise).
+- **Default case flip** to `navy` is a user-visible change — do it last, in
+  its own commit, so it's trivially revertable.
 - **Perf**: one 4-vertex mesh per plate and a couple of extra galleys per
   label are noise next to the existing per-frame table paint. No concern.
