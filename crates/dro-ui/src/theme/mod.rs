@@ -91,15 +91,11 @@ pub fn frame_scrollbar(ui: &egui::Ui, palette: &Palette, bar: egui::Rect) {
     bevel::paint_bevel(ui.painter(), bar, palette, bevel::Bevel::Sunken);
 }
 
-/// A fascia plate as a single [`egui::Shape`]: a subtle vertical brushed-metal
-/// gradient, a touch lighter at the top and darker at the bottom. The panel-seam
-/// grooves supply the lit/shadow plate edges, so this is the gradient fill only.
-/// Derived from the case's `face` for now; a future case may carry explicit
-/// plate stops.
+/// A fascia plate as a single [`egui::Shape`]: the case's vertical brushed-metal
+/// gradient from `plate_top` down to `plate_bottom`. The panel-seam grooves
+/// supply the lit/shadow plate edges, so this is the gradient fill only.
 pub fn plate_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
-    let top = paint::lighten(palette.face, 0.07);
-    let bottom = paint::darken(palette.face, 0.09);
-    paint::plate_mesh(rect, top, bottom)
+    paint::plate_mesh(rect, palette.plate_top, palette.plate_bottom)
 }
 
 /// Runs `add_contents` inside a fascia plate. Reserves a background slot up

@@ -39,6 +39,14 @@ pub struct Palette {
     /// The near-black keyline framing a raised button's shadow side.
     pub bevel_border: Color32,
 
+    // -- plate fascia (the panel gradient) --
+    /// The lit top stop of a fascia plate's vertical gradient.
+    pub plate_top: Color32,
+    /// The shaded bottom stop of a fascia plate's vertical gradient.
+    pub plate_bottom: Color32,
+    /// The dark keyline framing a plate.
+    pub plate_border: Color32,
+
     // -- data areas (table, text fields, waveform well) --
     /// The sunken data background.
     pub data_bg: Color32,
@@ -154,6 +162,12 @@ pub(crate) struct CaseColors {
     pub bevel_dark: Color32,
     /// The near-black keyline framing a raised button's shadow side.
     pub bevel_border: Color32,
+    /// The lit top stop of a fascia plate's vertical gradient.
+    pub plate_top: Color32,
+    /// The shaded bottom stop of a fascia plate's vertical gradient.
+    pub plate_bottom: Color32,
+    /// The dark keyline framing a plate.
+    pub plate_border: Color32,
     /// Text on the face (menus, dialogs, status bar).
     pub label: Color32,
     /// Dimmed text.
@@ -265,6 +279,9 @@ impl Skin {
             bevel_light: self.case.bevel_light,
             bevel_dark: self.case.bevel_dark,
             bevel_border: self.case.bevel_border,
+            plate_top: self.case.plate_top,
+            plate_bottom: self.case.plate_bottom,
+            plate_border: self.case.plate_border,
 
             data_bg: self.hardware.data_bg,
             data_stripe: self.hardware.data_stripe,
@@ -327,6 +344,11 @@ const CLONE_DARK_CASE: CaseColors = CaseColors {
     bevel_light: Color32::from_rgb(0x8F, 0xBF, 0xBF),
     bevel_dark: Color32::from_rgb(0x1A, 0x29, 0x29),
     bevel_border: Color32::from_rgb(0x07, 0x0D, 0x0D),
+
+    // A teal plate: lit along the top, sinking to a darker teal at the bottom.
+    plate_top: Color32::from_rgb(0x58, 0x84, 0x84),
+    plate_bottom: Color32::from_rgb(0x38, 0x59, 0x59),
+    plate_border: Color32::from_rgb(0x0A, 0x14, 0x14),
 
     label: Color32::from_rgb(0xDC, 0xEF, 0xEF),
     // Light enough to read as menu shortcut text on the teal face and as the
@@ -405,6 +427,11 @@ const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     bevel_light: Color32::from_rgb(0xC6, 0xD2, 0xE4),
     bevel_dark: Color32::from_rgb(0x2E, 0x3A, 0x4C),
     bevel_border: Color32::from_rgb(0x0A, 0x0D, 0x14),
+
+    // A steel-blue plate.
+    plate_top: Color32::from_rgb(0x80, 0x94, 0xB2),
+    plate_bottom: Color32::from_rgb(0x54, 0x67, 0x83),
+    plate_border: Color32::from_rgb(0x0A, 0x0D, 0x14),
 
     label: Color32::BLACK,
     muted: Color32::from_rgb(0x4A, 0x5A, 0x74),

@@ -209,7 +209,7 @@ fn section(ui: &mut egui::Ui, p: &Palette, title: &str) {
 
 /// Every [`Palette`] field, destructured without `..` so a new role added to
 /// the struct is a compile error here until it is given a swatch.
-fn roles(p: &Palette) -> [(&'static str, Color32); 46] {
+fn roles(p: &Palette) -> [(&'static str, Color32); 49] {
     let Palette {
         face,
         face_hover,
@@ -218,6 +218,9 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 46] {
         bevel_light,
         bevel_dark,
         bevel_border,
+        plate_top,
+        plate_bottom,
+        plate_border,
         data_bg,
         data_stripe,
         data_hover,
@@ -266,6 +269,9 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 46] {
         ("bevel_light", bevel_light),
         ("bevel_dark", bevel_dark),
         ("bevel_border", bevel_border),
+        ("plate_top", plate_top),
+        ("plate_bottom", plate_bottom),
+        ("plate_border", plate_border),
         ("data_bg", data_bg),
         ("data_stripe", data_stripe),
         ("data_hover", data_hover),
