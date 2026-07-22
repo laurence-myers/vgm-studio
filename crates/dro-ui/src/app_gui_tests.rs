@@ -2773,13 +2773,26 @@ const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// A folder that passes every export validation (named, numbered, with a png).
 /// The png is a real (decodable) image so the inline preview renders.
+/// A VGM fixture re-serialised under `name` carrying `tag`.
+fn vgm_with_tag(name: &str, tag: dro_core::Gd3Tag) -> PickedFile {
+    let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
+    if let Some(meta) = song.vgm_meta_mut() {
+        meta.tag = Some(tag);
+    }
+    PickedFile {
+        name: name.to_owned(),
+        path: Some(PathBuf::from(format!("C:/pack/{name}"))),
+        bytes: dro_core::io::write_song(&song).unwrap(),
+    }
+}
+
 /// A single VGM with every submission-required GD3 field filled, so the
 /// readiness checks pass clean. The track name matches the file name, and the
 /// game/system/date/ripper agree with the pack meta the app prefills.
 fn complete_vgm(name: &str) -> PickedFile {
-    let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
-    if let Some(meta) = song.vgm_meta_mut() {
-        meta.tag = Some(dro_core::Gd3Tag {
+    vgm_with_tag(
+        name,
+        dro_core::Gd3Tag {
             track_name_en: dro_core::rip::title_from_filename(name).to_owned(),
             game_name_en: "Cool Game".to_owned(),
             system_name_en: "IBM PC/AT".to_owned(),
@@ -2787,13 +2800,43 @@ fn complete_vgm(name: &str) -> PickedFile {
             release_date: "1994".to_owned(),
             creator: "Ripper".to_owned(),
             ..dro_core::Gd3Tag::default()
-        });
-    }
-    PickedFile {
-        name: name.to_owned(),
-        path: Some(PathBuf::from(format!("C:/pack/{name}"))),
-        bytes: dro_core::io::write_song(&song).unwrap(),
-    }
+        },
+    )
+}
+
+/// A pack with a spread of readiness problems across the checklist categories,
+/// for the submission-checklist tests and snapshot. Track 1 is missing its
+/// System and carries a slash-separated date (which the app also prefills into
+/// the pack meta); track 2's game name disagrees with the pack, its file name
+/// drifts from its Track Name, and it has no composer. There is no screenshot.
+fn dirty_folder() -> PickedFolder {
+    rip_folder(
+        "Cool Game",
+        vec![
+            vgm_with_tag(
+                "01 Intro.vgz",
+                dro_core::Gd3Tag {
+                    track_name_en: "Intro".to_owned(),
+                    game_name_en: "Cool Game".to_owned(),
+                    track_author_en: "Ada".to_owned(),
+                    release_date: "1994/03".to_owned(),
+                    creator: "Ripper".to_owned(),
+                    ..dro_core::Gd3Tag::default()
+                },
+            ),
+            vgm_with_tag(
+                "02 Boss.vgz",
+                dro_core::Gd3Tag {
+                    track_name_en: "Boss Theme".to_owned(),
+                    game_name_en: "Different Game".to_owned(),
+                    system_name_en: "IBM PC/AT".to_owned(),
+                    release_date: "1994/03".to_owned(),
+                    creator: "Ripper".to_owned(),
+                    ..dro_core::Gd3Tag::default()
+                },
+            ),
+        ],
+    )
 }
 
 /// A submission-ready "Cool Game" pack: one fully tagged track and a screenshot,
@@ -3012,6 +3055,81 @@ fn snapshot_rip_view_scrolled() {
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
     settled_snapshot(&mut harness, "rip_view_scrolled");
+}
+
+/// A tall interaction harness with the dirty pack open, so the whole submission
+/// checklist is on-screen and its lines are real click targets.
+fn dirty_checklist_harness() -> (Harness<'static, DroApp>, Handles) {
+    let (mut harness, handles) = build_sized(None, false, false, egui::vec2(1280.0, 1400.0));
+    open_folder(&mut harness, &handles, dirty_folder());
+    harness.run();
+    (harness, handles)
+}
+
+#[test]
+fn the_submission_checklist_lists_the_readiness_problems() {
+    let (harness, _handles) = dirty_checklist_harness();
+    // A line from each of several categories: track tags, consistency, files.
+    let _ = harness.get_by_label_contains("01 Intro: missing System");
+    let _ = harness.get_by_label_contains("differs from the pack's");
+    let _ = harness.get_by_label_contains("There is no screenshot");
+}
+
+#[test]
+fn clicking_a_checklist_track_item_opens_that_tracks_quick_edit() {
+    let (mut harness, _handles) = dirty_checklist_harness();
+    // The consistency line belongs to track 2 ("02 Boss.vgz").
+    harness
+        .get_by_label_contains("differs from the pack's")
+        .click();
+    harness.run();
+    let state = harness.state();
+    let dialog = state
+        .dialogs
+        .track_edit
+        .as_ref()
+        .expect("the quick-edit dialog opened");
+    assert_eq!(dialog.original_name(), "02 Boss.vgz");
+}
+
+#[test]
+fn clicking_a_meta_checklist_item_focuses_its_form_field() {
+    let (mut harness, _handles) = dirty_checklist_harness();
+    // The bad pack date is a Package-info line targeting the release-date field.
+    harness
+        .get_by_label_contains("should be a hyphen-separated date")
+        .click();
+    harness.run();
+    // The form consumed the focus request (so it does not re-fire next frame)...
+    assert!(
+        harness.state().rip.as_ref().unwrap().focus_field.is_none(),
+        "the form takes focus_field the frame after the click"
+    );
+    // ...and a form field now holds keyboard focus.
+    assert!(
+        harness.ctx.memory(|memory| memory.focused()).is_some(),
+        "a field took focus"
+    );
+}
+
+#[test]
+fn snapshot_rip_checklist_dirty() {
+    // Wider than the other rip snapshots so the crowded toolbar fits and the
+    // checklist's glyphs and category headings are all in frame.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1200.0));
+    open_folder(&mut harness, &handles, dirty_folder());
+    harness.run();
+    settled_snapshot(&mut harness, "rip_checklist_dirty");
+}
+
+#[test]
+fn snapshot_rip_checklist_clean() {
+    // A submission-ready pack: the checklist collapses to ticks (the single
+    // non-looping track leaves just the optional Loops note).
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1000.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    harness.run();
+    settled_snapshot(&mut harness, "rip_checklist_clean");
 }
 
 #[test]

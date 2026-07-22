@@ -53,6 +53,13 @@ impl TrackEditDialog {
         }
     }
 
+    /// The file name the dialog opened on -- the track's identity. Exposed for
+    /// tests that assert a click opened the quick-edit on the right track.
+    #[cfg(test)]
+    pub(crate) fn original_name(&self) -> &str {
+        &self.original_name
+    }
+
     /// The file name derived from the track number and the Track Name (EN)
     /// field, keeping the original extension. This is what Save writes.
     fn derived_name(&self) -> String {

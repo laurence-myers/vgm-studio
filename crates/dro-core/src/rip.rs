@@ -711,10 +711,52 @@ pub enum Severity {
     Note,
 }
 
+/// The checklist group a [`ReadinessItem`] belongs to, so the submission
+/// checklist can show one line per group (a tick when the group is clean). The
+/// content checks here fill the middle three groups and [`Loops`](Self::Loops);
+/// the app fills [`Files`](Self::Files) with its file-level shape checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessCategory {
+    /// Package header fields (creator, date, authors, history, game name).
+    PackInfo,
+    /// Per-track GD3 tag completeness.
+    TrackTags,
+    /// Per-track GD3 fields that must agree with the pack meta.
+    Consistency,
+    /// Tracks with no loop point.
+    Loops,
+    /// File-level shape: readable songs, `NN Title` naming, screenshot.
+    Files,
+}
+
+impl ReadinessCategory {
+    /// The categories in checklist display order.
+    pub const ALL: [ReadinessCategory; 5] = [
+        ReadinessCategory::PackInfo,
+        ReadinessCategory::TrackTags,
+        ReadinessCategory::Consistency,
+        ReadinessCategory::Loops,
+        ReadinessCategory::Files,
+    ];
+
+    /// The group's heading in the checklist.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            ReadinessCategory::PackInfo => "Package info",
+            ReadinessCategory::TrackTags => "Track tags",
+            ReadinessCategory::Consistency => "Consistency with the pack",
+            ReadinessCategory::Loops => "Loops",
+            ReadinessCategory::Files => "Files & naming",
+        }
+    }
+}
+
 /// A package-metadata form field a [`ReadinessItem`] can point at, so the UI can
 /// scroll to and focus it. Only the fields the checks actually flag are modelled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetaField {
+    GameName,
     MusicAuthors,
     ReleaseDate,
     Creator,
@@ -731,11 +773,12 @@ pub enum ReadinessTarget {
     Pack,
 }
 
-/// One submission-readiness finding: its severity, the message shown to the user,
-/// and the field or track it points at.
+/// One submission-readiness finding: its severity, the checklist group it falls
+/// under, the message shown to the user, and the field or track it points at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadinessItem {
     pub severity: Severity,
+    pub category: ReadinessCategory,
     pub target: ReadinessTarget,
     pub message: String,
 }
@@ -799,17 +842,29 @@ pub fn readiness(meta: &RipMeta, tracks: &[TrackFacts]) -> Vec<ReadinessItem> {
     items
 }
 
-fn warn(items: &mut Vec<ReadinessItem>, target: ReadinessTarget, message: String) {
+fn warn(
+    items: &mut Vec<ReadinessItem>,
+    category: ReadinessCategory,
+    target: ReadinessTarget,
+    message: String,
+) {
     items.push(ReadinessItem {
         severity: Severity::Warning,
+        category,
         target,
         message,
     });
 }
 
-fn note(items: &mut Vec<ReadinessItem>, target: ReadinessTarget, message: String) {
+fn note(
+    items: &mut Vec<ReadinessItem>,
+    category: ReadinessCategory,
+    target: ReadinessTarget,
+    message: String,
+) {
     items.push(ReadinessItem {
         severity: Severity::Note,
+        category,
         target,
         message,
     });
@@ -817,9 +872,11 @@ fn note(items: &mut Vec<ReadinessItem>, target: ReadinessTarget, message: String
 
 /// P1-P4: the pack-level header fields a submission must fill.
 fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
+    let cat = ReadinessCategory::PackInfo;
     if meta.creator.trim().is_empty() {
         warn(
             items,
+            cat,
             ReadinessTarget::Meta(MetaField::Creator),
             "Package created by (the ripper) is empty.".to_owned(),
         );
@@ -828,12 +885,14 @@ fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
     if date.is_empty() {
         warn(
             items,
+            cat,
             ReadinessTarget::Meta(MetaField::ReleaseDate),
             "Game release date is empty.".to_owned(),
         );
     } else if !is_pack_date(date) {
         warn(
             items,
+            cat,
             ReadinessTarget::Meta(MetaField::ReleaseDate),
             format!(
                 "Game release date \"{date}\" should be a hyphen-separated date \
@@ -844,6 +903,7 @@ fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
     if meta.music_authors.trim().is_empty() {
         warn(
             items,
+            cat,
             ReadinessTarget::Meta(MetaField::MusicAuthors),
             "Music author is empty.".to_owned(),
         );
@@ -851,6 +911,7 @@ fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
     if meta.history.trim().is_empty() {
         warn(
             items,
+            cat,
             ReadinessTarget::Meta(MetaField::History),
             "Package history (update notes) is empty.".to_owned(),
         );
@@ -864,7 +925,12 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
 
     // T1: no GD3 tag at all -- nothing more to check on this track.
     let Some(tag) = facts.tag.as_ref() else {
-        warn(items, target, format!("{label}: has no GD3 tag."));
+        warn(
+            items,
+            ReadinessCategory::TrackTags,
+            target,
+            format!("{label}: has no GD3 tag."),
+        );
         return;
     };
 
@@ -885,6 +951,7 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
     if !missing.is_empty() {
         warn(
             items,
+            ReadinessCategory::TrackTags,
             target,
             format!("{label}: missing {}.", missing.join(", ")),
         );
@@ -895,6 +962,7 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
     if !date.is_empty() && !is_pack_date(date) {
         warn(
             items,
+            ReadinessCategory::TrackTags,
             target,
             format!("{label}: release date \"{date}\" should be hyphen-separated."),
         );
@@ -909,6 +977,7 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
         if sanitize_file_component(track_name) != file_title {
             warn(
                 items,
+                ReadinessCategory::TrackTags,
                 target,
                 format!("{label}: file name doesn't match the Track Name (rename or re-tag)."),
             );
@@ -937,6 +1006,7 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
         if !track_value.is_empty() && !meta_value.is_empty() && track_value != meta_value {
             warn(
                 items,
+                ReadinessCategory::Consistency,
                 target,
                 format!(
                     "{label}: {what} \"{track_value}\" differs from the pack's \"{meta_value}\"."
@@ -964,6 +1034,7 @@ fn check_author_consistency(meta: &RipMeta, tracks: &[TrackFacts], items: &mut V
     if !tracked.is_empty() && tracked != pack {
         note(
             items,
+            ReadinessCategory::Consistency,
             ReadinessTarget::Meta(MetaField::MusicAuthors),
             "The tracks' composers don't all match the pack's Music author list.".to_owned(),
         );
@@ -982,6 +1053,7 @@ fn check_loops(tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
     if !loopless.is_empty() {
         note(
             items,
+            ReadinessCategory::Loops,
             ReadinessTarget::Pack,
             format!(
                 "No loop point (verify these are meant to play once): {}.",
@@ -1824,5 +1896,44 @@ mod tests {
             .find(|item| item.message.contains("game name"))
             .expect("a consistency warning");
         assert_eq!(mismatch.target, ReadinessTarget::Track(2));
+    }
+
+    #[test]
+    fn items_are_filed_under_the_right_checklist_category() {
+        // A game name to compare against and a two-composer credit, but empty
+        // creator/date/history so PackInfo still fires.
+        let meta = RipMeta {
+            game_name: "Cool Game".to_owned(),
+            music_authors: "Ada & Bob".to_owned(),
+            ..RipMeta::default()
+        };
+        let tag = Gd3Tag {
+            game_name_en: "Different".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(&meta, &[facts("01 Wrong.vgz", Some(tag), false, true)]);
+
+        let category_of = |needle: &str| {
+            items
+                .iter()
+                .find(|item| item.message.contains(needle))
+                .map(|item| item.category)
+        };
+        assert_eq!(
+            category_of("Game release date is empty"),
+            Some(ReadinessCategory::PackInfo)
+        );
+        assert_eq!(
+            category_of("differs from the pack's"),
+            Some(ReadinessCategory::Consistency)
+        );
+        assert_eq!(
+            category_of("doesn't match the Track Name"),
+            Some(ReadinessCategory::TrackTags)
+        );
+        assert_eq!(category_of("No loop point"), Some(ReadinessCategory::Loops));
+        // The five display categories are distinct and labelled.
+        assert_eq!(ReadinessCategory::ALL.len(), 5);
+        assert_eq!(ReadinessCategory::TrackTags.label(), "Track tags");
     }
 }

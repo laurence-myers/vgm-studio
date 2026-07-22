@@ -16,9 +16,9 @@ use std::sync::Arc;
 use dro_synth::Peak;
 
 use dro_core::rip::{
-    DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, Severity, TrackEntry, TrackFacts, doc_file_stem,
-    format_track_time, generate_description, generate_m3u, music_hardware_suggestion,
-    parse_description, readiness,
+    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, ReadinessCategory, ReadinessItem,
+    ReadinessTarget, RipMeta, Severity, TrackEntry, TrackFacts, doc_file_stem, format_track_time,
+    generate_description, generate_m3u, music_hardware_suggestion, parse_description, readiness,
 };
 use dro_core::vgm::data::GD3_FIELD_COUNT;
 use dro_core::{Gd3Tag, OplType, Song};
@@ -89,6 +89,10 @@ pub struct RipState {
     /// track (album mode, the VGMRips convention) rather than normalising each
     /// track to its own peak.
     pub album_normalize: bool,
+    /// A metadata field the submission checklist asked to focus. The form
+    /// consumes it on the next frame (scrolling to and focusing the field), so a
+    /// checklist click can jump straight to the offending input.
+    pub focus_field: Option<MetaField>,
 }
 
 impl RipState {
@@ -157,6 +161,7 @@ impl RipState {
             preview: None,
             peaks: HashMap::new(),
             album_normalize: true,
+            focus_field: None,
         }
     }
 
@@ -344,20 +349,24 @@ impl RipState {
             .collect()
     }
 
-    /// The export gate: blocking errors, soft warnings, and optional notes.
-    ///
-    /// The file-level shape checks (game name, readable songs, `NN Title`
-    /// numbering, screenshot) live here; the GD3-tag / metadata content checks
-    /// come from the shared, wasm-clean [`dro_core::rip::readiness`], merged in by
-    /// severity. Notes are surfaced in the checklist but never gate an export.
+    /// Every submission-readiness finding, in checklist order: this app's own
+    /// file-level shape checks (readable songs, `NN Title` numbering, screenshot,
+    /// game name) followed by the shared, wasm-clean GD3 / metadata content
+    /// checks from [`dro_core::rip::readiness`]. One list feeds both the export
+    /// gate ([`Self::validations`]) and the submission checklist, so they can
+    /// never disagree.
     #[must_use]
-    pub fn validations(&self) -> RipValidations {
-        let mut errors = Vec::new();
-        let mut warnings = Vec::new();
-        let mut notes = Vec::new();
+    pub fn readiness_items(&self) -> Vec<ReadinessItem> {
+        let mut items = Vec::new();
 
         if self.meta.game_name.trim().is_empty() {
-            errors.push("Enter a game name (it names every file in the pack).".to_owned());
+            // The game name is package info (and the only file-level hard error).
+            items.push(ReadinessItem {
+                severity: Severity::Error,
+                category: ReadinessCategory::PackInfo,
+                target: ReadinessTarget::Meta(MetaField::GameName),
+                message: "Enter a game name (it names every file in the pack).".to_owned(),
+            });
         }
         let readable = self
             .tracks
@@ -365,17 +374,23 @@ impl RipState {
             .filter(|track| track.song().is_some())
             .count();
         if readable == 0 {
-            errors.push("There are no readable songs to export.".to_owned());
+            items.push(file_item(
+                Severity::Error,
+                "There are no readable songs to export.".to_owned(),
+            ));
         }
-
         if self.tracks.iter().any(|track| track.song().is_none()) {
-            warnings.push(
+            items.push(file_item(
+                Severity::Warning,
                 "Some files could not be read; they ship as-is, without a track-list entry."
                     .to_owned(),
-            );
+            ));
         }
         if self.images.is_empty() {
-            warnings.push("There is no screenshot (.png) in the folder.".to_owned());
+            items.push(file_item(
+                Severity::Warning,
+                "There is no screenshot (.png) in the folder.".to_owned(),
+            ));
         }
 
         let numbers: Vec<u32> = self
@@ -384,26 +399,45 @@ impl RipState {
             .filter_map(|track| track_number(&track.file_name))
             .collect();
         if numbers.len() != self.tracks.len() {
-            warnings.push("Some files are not named \"NN Title.ext\".".to_owned());
+            items.push(file_item(
+                Severity::Warning,
+                "Some files are not named \"NN Title.ext\".".to_owned(),
+            ));
         }
         let mut unique = numbers.clone();
         unique.sort_unstable();
         unique.dedup();
         if unique.len() != numbers.len() {
-            warnings.push("Some track numbers are duplicated.".to_owned());
+            items.push(file_item(
+                Severity::Warning,
+                "Some track numbers are duplicated.".to_owned(),
+            ));
         } else if !numbers.is_empty() && unique != (1..=numbers.len() as u32).collect::<Vec<_>>() {
-            warnings.push("Track numbers are not a contiguous 01, 02, 03... sequence.".to_owned());
+            items.push(file_item(
+                Severity::Warning,
+                "Track numbers are not a contiguous 01, 02, 03... sequence.".to_owned(),
+            ));
         }
 
-        // The GD3 / metadata content checks, merged in by severity.
-        for item in readiness(&self.meta, &self.track_facts()) {
+        items.extend(readiness(&self.meta, &self.track_facts()));
+        items
+    }
+
+    /// The export gate: blocking errors, soft warnings, and optional notes,
+    /// bucketed from [`Self::readiness_items`] by severity. Notes are surfaced in
+    /// the checklist but never gate an export.
+    #[must_use]
+    pub fn validations(&self) -> RipValidations {
+        let mut errors = Vec::new();
+        let mut warnings = Vec::new();
+        let mut notes = Vec::new();
+        for item in self.readiness_items() {
             match item.severity {
                 Severity::Error => errors.push(item.message),
                 Severity::Warning => warnings.push(item.message),
                 Severity::Note => notes.push(item.message),
             }
         }
-
         RipValidations {
             errors,
             warnings,
@@ -460,6 +494,17 @@ pub struct RipValidations {
     /// Optional observations (the note tier): surfaced in the submission
     /// checklist, but never shown in the export dialog and never gating.
     pub notes: Vec<String>,
+}
+
+/// A file-level ([`ReadinessCategory::Files`]) readiness item, targeting the pack
+/// as a whole (there is no single field or track to jump to).
+fn file_item(severity: Severity, message: String) -> ReadinessItem {
+    ReadinessItem {
+        severity,
+        category: ReadinessCategory::Files,
+        target: ReadinessTarget::Pack,
+        message,
+    }
 }
 
 /// The `NN` from a `NN Title.ext` file name, if present.
@@ -724,20 +769,32 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
     }
     crate::theme::separator_full(ui, palette);
 
+    // The checklist may have asked (last frame) to focus a field; take that
+    // request now so the form honours it this frame and it does not re-fire.
+    let focus = state.focus_field.take();
     let scroll_out = egui::ScrollArea::vertical().show(ui, |ui| {
         let mut dirty = false;
         egui::Grid::new("rip-meta")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
-                dirty |= field(ui, palette, "Game name:", &mut state.meta.game_name);
-                dirty |= field(ui, palette, "System:", &mut state.meta.system);
-                dirty |= field(ui, palette, "OS:", &mut state.meta.os);
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Game name:",
+                    &mut state.meta.game_name,
+                    Some(MetaField::GameName),
+                    focus,
+                );
+                dirty |= field(ui, palette, "System:", &mut state.meta.system, None, focus);
+                dirty |= field(ui, palette, "OS:", &mut state.meta.os, None, focus);
                 dirty |= field(
                     ui,
                     palette,
                     "Music hardware:",
                     &mut state.meta.music_hardware,
+                    None,
+                    focus,
                 );
                 // One-click chip presets for the three fields above.
                 ui.label("Presets:");
@@ -759,22 +816,66 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                     }
                 });
                 ui.end_row();
-                dirty |= field(ui, palette, "Music author:", &mut state.meta.music_authors);
-                dirty |= field(ui, palette, "Game developer:", &mut state.meta.developer);
-                dirty |= field(ui, palette, "Game publisher:", &mut state.meta.publisher);
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Music author:",
+                    &mut state.meta.music_authors,
+                    Some(MetaField::MusicAuthors),
+                    focus,
+                );
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Game developer:",
+                    &mut state.meta.developer,
+                    None,
+                    focus,
+                );
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Game publisher:",
+                    &mut state.meta.publisher,
+                    None,
+                    focus,
+                );
                 dirty |= field(
                     ui,
                     palette,
                     "Game release date:",
                     &mut state.meta.release_date,
+                    Some(MetaField::ReleaseDate),
+                    focus,
                 );
-                dirty |= field(ui, palette, "Package created by:", &mut state.meta.creator);
-                dirty |= field(ui, palette, "Package version:", &mut state.meta.version);
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Package created by:",
+                    &mut state.meta.creator,
+                    Some(MetaField::Creator),
+                    focus,
+                );
+                dirty |= field(
+                    ui,
+                    palette,
+                    "Package version:",
+                    &mut state.meta.version,
+                    None,
+                    focus,
+                );
             });
 
         ui.add_space(4.0);
-        dirty |= multiline(ui, palette, "Notes:", &mut state.meta.notes);
-        dirty |= multiline(ui, palette, "Package history:", &mut state.meta.history);
+        dirty |= multiline(ui, palette, "Notes:", &mut state.meta.notes, None, focus);
+        dirty |= multiline(
+            ui,
+            palette,
+            "Package history:",
+            &mut state.meta.history,
+            Some(MetaField::History),
+            focus,
+        );
         if dirty {
             state.dirty = true;
         }
@@ -782,7 +883,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
         // A clipped divider (not separator_full): inside the scroll area it must
         // not bleed over the status bar below or past the scrollbar beside it.
         crate::theme::separator_clipped(ui, palette);
-        track_table(ui, state, palette, actions);
+        // The submission checklist and the track table's status glyphs read the
+        // same readiness list, computed once here so they can never disagree.
+        let items = state.readiness_items();
+        submission_checklist(ui, state, &items, palette, actions);
+        crate::theme::separator_clipped(ui, palette);
+        track_table(ui, state, &items, palette, actions);
         screenshots(ui, state, palette, actions);
     });
 
@@ -904,19 +1010,36 @@ pub fn seed_from_meta(meta: &RipMeta) -> BulkTagOverlay {
     overlay
 }
 
-/// A labelled single-line field. Returns whether it changed.
-fn field(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) -> bool {
+/// A labelled single-line field. `meta_field` names it so the submission
+/// checklist can jump here: when it matches `focus`, the field grabs keyboard
+/// focus and scrolls into view this frame. Returns whether it changed.
+fn field(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    value: &mut String,
+    meta_field: Option<MetaField>,
+    focus: Option<MetaField>,
+) -> bool {
     ui.label(label);
     let response = ui.add(
         egui::TextEdit::singleline(value)
             .desired_width(340.0)
             .text_color(palette.data_text),
     );
+    focus_if_targeted(&response, meta_field, focus);
     ui.end_row();
     response.changed()
 }
 
-fn multiline(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut String) -> bool {
+fn multiline(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    label: &str,
+    value: &mut String,
+    meta_field: Option<MetaField>,
+    focus: Option<MetaField>,
+) -> bool {
     ui.label(label);
     let response = ui.add(
         egui::TextEdit::multiline(value)
@@ -925,10 +1048,192 @@ fn multiline(ui: &mut egui::Ui, palette: &Palette, label: &str, value: &mut Stri
             .font(egui::TextStyle::Monospace)
             .text_color(palette.data_text),
     );
+    focus_if_targeted(&response, meta_field, focus);
     response.changed()
 }
 
-fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: &mut Vec<Action>) {
+/// Grabs focus for and scrolls to a field the checklist asked to jump to.
+fn focus_if_targeted(
+    response: &egui::Response,
+    meta_field: Option<MetaField>,
+    focus: Option<MetaField>,
+) {
+    if meta_field.is_some() && meta_field == focus {
+        response.request_focus();
+        response.scroll_to_me(Some(egui::Align::Center));
+    }
+}
+
+/// The glyph and colour that mark a severity in the checklist and the track
+/// table's status column. The bundled IBM VGA font has no check/warning glyphs,
+/// so this uses a CP437 tick (`\u{221A}`, handled by the caller) and a
+/// colour-coded `!`.
+fn severity_marker(severity: Severity, palette: &Palette) -> (&'static str, egui::Color32) {
+    match severity {
+        Severity::Error => ("!", palette.meter_high),
+        Severity::Warning => ("!", palette.meter_mid),
+        Severity::Note => ("\u{00B7}", palette.data_label), // middle dot
+    }
+}
+
+/// The most severe severity among some items -- the glyph a group's heading wears.
+fn worst_severity(items: &[&ReadinessItem]) -> Severity {
+    if items.iter().any(|item| item.severity == Severity::Error) {
+        Severity::Error
+    } else if items.iter().any(|item| item.severity == Severity::Warning) {
+        Severity::Warning
+    } else {
+        Severity::Note
+    }
+}
+
+/// Draws the submission checklist: one line per category -- a green tick when the
+/// category is clean, otherwise its heading followed by each unresolved item as a
+/// clickable line that jumps to the fix (a meta field focuses in the form above;
+/// a track opens its quick-edit dialog).
+fn submission_checklist(
+    ui: &mut egui::Ui,
+    state: &mut RipState,
+    items: &[ReadinessItem],
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new("Submission checklist")
+            .color(palette.data_label)
+            .strong(),
+    );
+    ui.add_space(2.0);
+    for category in ReadinessCategory::ALL {
+        let group: Vec<&ReadinessItem> = items
+            .iter()
+            .filter(|item| item.category == category)
+            .collect();
+        if group.is_empty() {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.colored_label(palette.meter_low, "\u{221A}"); // CP437 tick
+                ui.colored_label(palette.muted, category.label());
+            });
+            continue;
+        }
+        let (glyph, color) = severity_marker(worst_severity(&group), palette);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.colored_label(color, glyph);
+            ui.colored_label(
+                palette.data_label,
+                egui::RichText::new(category.label()).strong(),
+            );
+        });
+        for item in group {
+            checklist_item(ui, state, item, palette, actions);
+        }
+    }
+}
+
+/// One checklist line under a category heading: an indented, colour-coded marker
+/// and the message, clickable when it points at a field or track to fix.
+fn checklist_item(
+    ui: &mut egui::Ui,
+    state: &mut RipState,
+    item: &ReadinessItem,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let (glyph, color) = severity_marker(item.severity, palette);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.colored_label(color, glyph);
+        match item.target {
+            ReadinessTarget::Meta(field) => {
+                if checklist_link(ui, palette, &item.message).clicked() {
+                    // Honoured next frame by the form (which takes focus_field).
+                    state.focus_field = Some(field);
+                    ui.ctx().request_repaint();
+                }
+            }
+            ReadinessTarget::Track(index) => {
+                if checklist_link(ui, palette, &item.message).clicked() {
+                    actions.push(Action::OpenTrackQuickEdit(index));
+                }
+            }
+            ReadinessTarget::Pack => {
+                ui.colored_label(palette.muted, item.message.as_str());
+            }
+        }
+    });
+}
+
+/// A clickable checklist message: a frameless button that reads as plain data
+/// text (so it is a proper click/keyboard target), with a hand cursor and a hint
+/// on hover.
+fn checklist_link(ui: &mut egui::Ui, palette: &Palette, message: &str) -> egui::Response {
+    ui.add(
+        egui::Button::new(egui::RichText::new(message).color(palette.data_text))
+            .frame(false)
+            .wrap_mode(egui::TextWrapMode::Extend),
+    )
+    .on_hover_cursor(egui::CursorIcon::PointingHand)
+    .on_hover_text("Click to jump to the fix")
+}
+
+/// The track table's status cell: a green tick when the track is submission-ready,
+/// otherwise a colour-coded `!` whose tooltip lists the track's problems and which
+/// opens the track's quick-edit on click (an unreadable track has no tag to edit,
+/// so its marker is informational only).
+fn track_status_glyph(
+    ui: &mut egui::Ui,
+    index: usize,
+    track: &RipTrack,
+    items: &[ReadinessItem],
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let unreadable = track.song().is_none();
+    let problems: Vec<&str> = items
+        .iter()
+        .filter(|item| item.target == ReadinessTarget::Track(index))
+        .map(|item| item.message.as_str())
+        .collect();
+    if !unreadable && problems.is_empty() {
+        ui.colored_label(palette.meter_low, "\u{221A}")
+            .on_hover_text("Ready for submission");
+        return;
+    }
+    let tooltip = if unreadable {
+        "This file could not be read.".to_owned()
+    } else {
+        problems.join("\n")
+    };
+    let response = ui
+        .add(
+            egui::Label::new(
+                egui::RichText::new("!")
+                    .monospace()
+                    .strong()
+                    .color(palette.meter_mid),
+            )
+            .sense(egui::Sense::click()),
+        )
+        .on_hover_text(tooltip);
+    if !unreadable {
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        if response.clicked() {
+            actions.push(Action::OpenTrackQuickEdit(index));
+        }
+    }
+}
+
+fn track_table(
+    ui: &mut egui::Ui,
+    state: &RipState,
+    items: &[ReadinessItem],
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
     ui.label(
         egui::RichText::new("Tracks (double-click to open in the editor)")
             .color(palette.data_label)
@@ -950,6 +1255,7 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .striped(true)
             .sense(egui::Sense::click())
             .vscroll(false)
+            .column(Column::auto().at_least(18.0)) // status glyph
             .column(Column::auto().at_least(30.0)) // #
             .column(Column::remainder().at_least(180.0)) // Title (GD3)
             .column(Column::auto().at_least(55.0)) // Total
@@ -957,7 +1263,7 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .column(Column::auto().at_least(60.0)) // Peak (dBFS)
             .column(Column::auto().at_least(200.0)) // actions (reorder + preview + open + tags)
             .header(row_height + 2.0, |mut header| {
-                for title in ["#", "Title (GD3)", "Total", "Loop", "Peak", ""] {
+                for title in ["", "#", "Title (GD3)", "Total", "Loop", "Peak", ""] {
                     header.col(|ui| {
                         ui.label(
                             egui::RichText::new(title)
@@ -970,6 +1276,9 @@ fn track_table(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
             .body(|mut body| {
                 for (index, track) in state.tracks.iter().enumerate() {
                     body.row(row_height, |mut row| {
+                        row.col(|ui| {
+                            track_status_glyph(ui, index, track, items, palette, actions);
+                        });
                         row.col(|ui| {
                             ui.label(
                                 egui::RichText::new(format!("{:02}", index + 1))
