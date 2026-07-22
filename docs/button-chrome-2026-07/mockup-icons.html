@@ -1,0 +1,532 @@
+<title>DRO Trimmer — icon mockups</title>
+<style>
+  :root{
+    --desktop:#263A3A; --face:#4A7373; --face-hover:#578282;
+    --bevelL:#8FBFBF; --bevelD:#1A2929; --keyline:#070D0D;
+    --btn:#9CA7A7; --btnL:#E2EAEA; --btnS:#535F5F; --btnHover:#ABB6B6;
+    --pressed:#6E7979;
+    --data:#0C1414; --yellow:#F1E67B; --label:#DCEFEF; --muted:#86A6A6;
+    --orange:#FF9E3D;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:var(--label);
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:980px;margin:0 auto}
+
+  header{margin-bottom:34px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--yellow); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--muted); max-width:64ch; margin:0}
+  .sub b{color:var(--label); font-weight:700}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--yellow); margin:42px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:var(--orange)}
+  .note{color:var(--muted); margin:0 0 14px; max-width:72ch}
+  .note b{color:var(--label)}
+  .note .y{color:var(--yellow)}
+
+  /* ---------- app chrome recreation ---------- */
+  .apanel{
+    background:var(--face);
+    border:2px solid;
+    border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:8px 10px;
+    margin-bottom:22px;
+    overflow-x:auto;
+  }
+  .cap{display:flex; gap:10px; align-items:baseline; margin:0 0 6px}
+  .cap .tag{
+    color:var(--keyline); background:var(--yellow);
+    font-weight:700; font-size:11px; letter-spacing:.08em;
+    padding:1px 7px;
+  }
+  .cap .tag.rec{background:var(--orange)}
+  .cap .txt{color:var(--muted); font-size:12px}
+
+  .trow{display:flex; align-items:center; gap:12px; min-height:30px; min-width:900px}
+  .trow.tight{gap:8px}
+  .spacer{flex:1}
+  .rowlab{color:var(--label); font-weight:700; font-size:12px}
+  .groove-h{
+    height:2px; margin:7px 0;
+    background:linear-gradient(180deg,var(--bevelD) 0 1px,var(--bevelL) 1px 2px);
+  }
+  .groove-v{
+    width:2px; align-self:stretch; margin:1px 0;
+    background:linear-gradient(90deg,var(--bevelD) 0 1px,var(--bevelL) 1px 2px);
+  }
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    min-height:26px; padding:2px 9px;
+    background:var(--btn); color:#000;
+    border:2px solid; border-color:var(--btnL) var(--btnS) var(--btnS) var(--btnL);
+    box-shadow:1px 1px 0 var(--keyline);
+    font:700 12px var(--mono); white-space:nowrap;
+    user-select:none; cursor:default;
+  }
+  .btn:hover{background:var(--btnHover)}
+  .btn.down{
+    background:var(--pressed); color:#fff;
+    border-color:var(--btnS) var(--btnL) var(--btnL) var(--btnS);
+    box-shadow:none; transform:translate(1px,1px);
+  }
+  .btn.sq{width:26px; padding:2px 0}
+  .btn.narrow{width:22px; padding:2px 0}
+  .btn svg{display:block; flex:none}
+
+  .well{
+    background:var(--data); color:var(--yellow);
+    border:2px solid; border-color:var(--btnS) var(--btnL) var(--btnL) var(--btnS);
+    padding:3px 8px; font:700 12px var(--mono);
+    font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  .knob{
+    width:16px; height:16px; border-radius:50%; flex:none;
+    background:var(--data); border:1px solid var(--bevelL);
+    position:relative;
+  }
+  .knob::after{
+    content:""; position:absolute; left:50%; top:1px;
+    width:2px; height:6px; background:var(--label);
+    transform:translateX(-50%);
+  }
+  .knobs{display:flex; gap:7px; align-items:center}
+
+  /* icon sizing + stroke weight control (inherits into <use> content) */
+  .ic{stroke-width:1.5}
+  .sw2 .ic{stroke-width:2}
+  .i16{width:16px;height:16px}
+  .i12{width:12px;height:12px}
+  .i48{width:48px;height:48px; stroke-width:1.5}
+  .i32{width:32px;height:32px}
+
+  /* ---------- glossary ---------- */
+  .cards{
+    display:grid; gap:14px;
+    grid-template-columns:repeat(auto-fill,minmax(215px,1fr));
+  }
+  .card{
+    background:var(--face);
+    border:2px solid; border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:10px 12px 12px;
+  }
+  .card .icons{display:flex; gap:10px; align-items:center; margin-bottom:8px}
+  .chip{
+    width:64px;height:64px; display:flex; align-items:center; justify-content:center;
+    background:var(--btn); color:#000;
+    border:2px solid; border-color:var(--btnL) var(--btnS) var(--btnS) var(--btnL);
+    box-shadow:1px 1px 0 var(--keyline);
+  }
+  .chip.down{
+    background:var(--pressed); color:#fff;
+    border-color:var(--btnS) var(--btnL) var(--btnL) var(--btnS);
+    box-shadow:none;
+  }
+  .card h3{margin:0 0 2px; font-size:13px; color:var(--yellow); font-weight:700}
+  .card h3 s{color:var(--muted); font-weight:400; margin-left:6px; font-size:11px; text-decoration:none}
+  .card p{margin:0; color:var(--label); font-size:11.5px; line-height:1.5}
+
+  /* alternates */
+  .altrow{display:flex; gap:14px; flex-wrap:wrap}
+  .alt{
+    background:var(--face);
+    border:2px solid; border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:10px 12px; flex:1 1 300px;
+  }
+  .alt .opts{display:flex; gap:12px; margin:8px 0 6px}
+  .alt .pick{outline:2px solid var(--orange); outline-offset:2px}
+  .alt h3{margin:0; font-size:12px; color:var(--yellow); text-transform:uppercase; letter-spacing:.1em}
+  .alt p{margin:4px 0 0; color:var(--muted); font-size:11.5px}
+  .alt p b{color:var(--label)}
+
+  /* classic palette override */
+  .classic{
+    --face:#6E82A0; --face-hover:#7B90B0;
+    --bevelL:#C6D2E4; --bevelD:#2E3A4C; --keyline:#0A0D14;
+    --btn:#ACB1B8; --btnL:#ECEFF4; --btnS:#585E68; --btnHover:#BABFC6;
+    --pressed:#787E87;
+    --data:#1A2238; --yellow:#EFE27A; --label:#000; --muted:#2E3A4C;
+  }
+  .classic .rowlab{color:#000}
+
+  footer{
+    margin-top:46px; color:var(--muted); font-size:12px;
+    border-top:1px solid var(--bevelD); padding-top:14px; max-width:76ch;
+  }
+  footer b{color:var(--label)}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- Line set, squared: butt caps, miter joins, no stroke-width on paths
+         (inherited from the .ic class so one symbol serves every weight). -->
+    <symbol id="s-play" viewBox="0 0 16 16">
+      <path d="M4.5 2.75 13 8 4.5 13.25Z" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-stop" viewBox="0 0 16 16">
+      <rect x="4.25" y="4.25" width="7.5" height="7.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-del" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2.5 4.25h11M6 4.25V2.5h4v1.75M4.25 4.25l.55 9.25h6.4l.55-9.25M6.9 6.75v4.5M9.1 6.75v4.5"/>
+    </symbol>
+    <symbol id="s-tail" viewBox="0 0 16 16">
+      <path d="M3.5 4.25 10 8 3.5 11.75Z" fill="currentColor" stroke="none"/>
+      <rect x="12" y="3" width="1.8" height="10" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-seam" viewBox="0 0 16 16">
+      <!-- outward-facing brackets: ]  [ , then the arrow across the join -->
+      <path fill="none" stroke="currentColor"
+        d="M2 1.5h2.25v7H2M14 1.5h-2.25v7H14M3.5 13.25h7.25M10 11.5l2.25 1.75L10 15"/>
+    </symbol>
+    <symbol id="s-loop" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M3.5 6.5a5 5 0 0 1 9-1.5M12.5 1.75V5H9.25M12.5 9.5a5 5 0 0 1-9 1.5M3.5 14.25V11h3.25"/>
+    </symbol>
+    <symbol id="s-loop-rect" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M8 4.25H2.75v7.5h10.5v-7.5h-2.5M8.5 2l2.25 2.25L8.5 6.5"/>
+    </symbol>
+    <symbol id="s-lock" viewBox="0 0 16 16">
+      <rect x="3.25" y="7" width="9.5" height="6.5" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7"/>
+      <rect x="7.35" y="9.25" width="1.3" height="2.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-unlock" viewBox="0 0 16 16">
+      <rect x="3.25" y="7" width="9.5" height="6.5" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M5.5 7V4.75a2.5 2.5 0 0 1 5 0v.75"/>
+      <rect x="7.35" y="9.25" width="1.3" height="2.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-match" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2.5 2.25h11M2.5 13.75h11M8 4.5v7M5.75 6.5 8 4.25l2.25 2.25M5.75 9.5 8 11.75l2.25-2.25"/>
+    </symbol>
+    <symbol id="s-custom" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M4 2.5v11M8 2.5v11M12 2.5v11"/>
+      <rect x="2.75" y="4.25" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+      <rect x="6.75" y="8.75" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+      <rect x="10.75" y="5.25" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-reset" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 8a5 5 0 1 0 5-5M10.25 1.25 8 3l2.25 1.75"/>
+    </symbol>
+    <symbol id="s-reset-rect" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M9.5 3.25H3.25v9.5h9.5V6.75M10.75 9l2-2.25L14.75 9"/>
+    </symbol>
+    <symbol id="s-perc" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M2.5 1.5 7 7.5M13.5 1.5 9 7.5"/>
+      <ellipse cx="8" cy="9.5" rx="5" ry="1.75" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M3 9.5v3.25c2 1.5 8 1.5 10 0V9.5"/>
+    </symbol>
+    <symbol id="s-all" viewBox="0 0 16 16">
+      <g fill="currentColor" stroke="none">
+        <rect x="2" y="2" width="2.5" height="2.5"/><rect x="6.75" y="2" width="2.5" height="2.5"/><rect x="11.5" y="2" width="2.5" height="2.5"/>
+        <rect x="2" y="6.75" width="2.5" height="2.5"/><rect x="6.75" y="6.75" width="2.5" height="2.5"/><rect x="11.5" y="6.75" width="2.5" height="2.5"/>
+        <rect x="2" y="11.5" width="2.5" height="2.5"/><rect x="6.75" y="11.5" width="2.5" height="2.5"/><rect x="11.5" y="11.5" width="2.5" height="2.5"/>
+      </g>
+    </symbol>
+    <symbol id="s-up" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 10.5 8 5.5l5 5"/>
+    </symbol>
+    <symbol id="s-dn" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 5.5 8 10.5l5-5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+<header>
+  <h1>DRO Trimmer &mdash; icon pass 2</h1>
+  <p class="sub">The line set, revised per feedback: <b>butt caps and miter joins</b>
+  (no rounding), the seam brackets now <b>face outwards</b> like the pixel version,
+  and every button is icon-only &mdash; the existing hover tooltips carry the full meaning.
+  One symbol source serves both weights below; only <b>stroke-width</b> changes.</p>
+</header>
+
+<h2>The strips</h2>
+<p class="note">Current text version on top for reference, then the icon strip at two
+stroke weights. <b>1.5&nbsp;px</b> keeps detail crisp (trash slots, seam brackets);
+<b>2&nbsp;px</b> is heavier and closer to the bitmap chrome, at the cost of some
+tightness in the busier glyphs. The <span class="y">&minus; &infin; +</span> counter and
+the volume value stay as they are.</p>
+
+<div>
+  <div class="cap"><span class="tag">0 &middot; CURRENT</span><span class="txt">as shipped</span></div>
+  <div class="apanel">
+    <div class="trow">
+      <span class="btn">Del.</span>
+      <span class="btn">Play</span>
+      <span class="btn">Stop</span>
+      <span class="btn">Tail</span>
+      <span class="btn">Seam</span>
+      <span class="btn down">Loop</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow">&minus;</span><span class="well">&infin;</span><span class="btn narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="btn">Match</span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow">&#9650;</span><span class="btn narrow">&#9660;</span>
+      </span>
+      <span class="btn">Lock</span>
+    </div>
+  </div>
+</div>
+
+<div>
+  <div class="cap"><span class="tag rec">B1 &middot; LINE 1.5&nbsp;px</span><span class="txt">squared caps, outward seam brackets</span></div>
+  <div class="apanel">
+    <div class="trow">
+      <span class="btn sq" title="Delete the selected instruction(s)"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="btn sq" title="Play the song from the current position"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="btn sq" title="Stop playback"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="btn sq" title="Play last 3 seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="btn sq" title="Play the loop join: the last seconds of the region, repeating"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="btn sq down" title="Repeat the marked region"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow">&minus;</span><span class="well">&infin;</span><span class="btn narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="btn sq" title="Measure the song's loudest peak and set the volume to bring it to full scale"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow" title="Louder"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="btn narrow" title="Quieter"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="btn sq" title="Keep this volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow">
+      <span class="rowlab">Pan:</span>
+      <span class="knobs"><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span></span>
+      <span class="btn sq" title="Custom panning"><svg class="ic i16"><use href="#s-custom"/></svg></span>
+      <span class="rowlab">Spread:</span><span class="knob"></span>
+      <span class="btn sq" title="Reset panning"><svg class="ic i16"><use href="#s-reset"/></svg></span>
+      <span class="spacer"></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="btn sq">1</span><span class="btn sq">2</span><span class="btn sq">3</span><span class="btn sq">4</span><span class="btn sq">5</span><span class="btn sq">6</span><span class="btn sq">7</span><span class="btn sq">8</span><span class="btn sq">9</span>
+      <span class="btn sq" title="Percussion channels"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="btn sq" title="All channels on"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+    </div>
+  </div>
+</div>
+
+<div class="sw2">
+  <div class="cap"><span class="tag">B2 &middot; LINE 2&nbsp;px</span><span class="txt">same symbols, heavier stroke</span></div>
+  <div class="apanel">
+    <div class="trow">
+      <span class="btn sq" title="Delete"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="btn sq" title="Play"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="btn sq" title="Stop"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="btn sq" title="Play last seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="btn sq" title="Play the loop join"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="btn sq down" title="Loop"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow">&minus;</span><span class="well">&infin;</span><span class="btn narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="btn sq" title="Match volume"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="btn narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="btn sq" title="Lock volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow">
+      <span class="rowlab">Pan:</span>
+      <span class="knobs"><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span></span>
+      <span class="btn sq" title="Custom panning"><svg class="ic i16"><use href="#s-custom"/></svg></span>
+      <span class="rowlab">Spread:</span><span class="knob"></span>
+      <span class="btn sq" title="Reset panning"><svg class="ic i16"><use href="#s-reset"/></svg></span>
+      <span class="spacer"></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="btn sq">1</span><span class="btn sq">2</span><span class="btn sq">3</span><span class="btn sq">4</span><span class="btn sq">5</span><span class="btn sq">6</span><span class="btn sq">7</span><span class="btn sq">8</span><span class="btn sq">9</span>
+      <span class="btn sq" title="Percussion"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="btn sq" title="All channels"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+    </div>
+  </div>
+</div>
+
+<!-- ================= toggle states ================= -->
+<h2>Toggle states</h2>
+<p class="note">Icons ride <b>currentColor</b>: black raised, white latched. The lock can
+optionally swap to an open shackle when the volume is per-song.</p>
+<div class="apanel" style="max-width:640px">
+  <div class="trow" style="min-width:0; gap:22px">
+    <span style="color:var(--muted);font-size:12px">Loop</span>
+    <span class="btn sq"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+    <span class="btn sq down"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+    <span class="groove-v"></span>
+    <span style="color:var(--muted);font-size:12px">Lock</span>
+    <span class="btn sq"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    <span class="btn sq down"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    <span class="groove-v"></span>
+    <span style="color:var(--muted);font-size:12px">Lock, glyph-swap</span>
+    <span class="btn sq"><svg class="ic i16"><use href="#s-unlock"/></svg></span>
+    <span class="btn sq down"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+  </div>
+</div>
+
+<!-- ================= glossary ================= -->
+<h2>Icon glossary</h2>
+<p class="note">All at 1.5&nbsp;px. Tooltips keep the exact current wording, so nothing
+is lost going icon-only.</p>
+<div class="cards">
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-del"/></svg></span></div>
+    <h3>Delete<s>was &ldquo;Del.&rdquo;</s></h3>
+    <p>Bin with slots, squared shoulders.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-play"/></svg></span></div>
+    <h3>Play<s>was &ldquo;Play&rdquo;</s></h3>
+    <p>Filled, sharp-cornered triangle.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-stop"/></svg></span></div>
+    <h3>Stop<s>was &ldquo;Stop&rdquo;</s></h3>
+    <p>Solid square, no radius, weighted to match Play.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-tail"/></svg></span></div>
+    <h3>Tail<s>was &ldquo;Tail&rdquo;</s></h3>
+    <p>Play pressed against the end bar: the last stretch before the end.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-seam"/></svg></span></div>
+    <h3>Seam<s>was &ldquo;Seam&rdquo;</s></h3>
+    <p>Outward brackets <b>]&thinsp;[</b> &mdash; region end, region start &mdash; with the
+    arrow playing across the join. Matches the waveform overlay's bracket direction.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-loop"/></svg></span><span class="chip down"><svg class="ic i48"><use href="#s-loop"/></svg></span></div>
+    <h3>Loop<s>toggle</s></h3>
+    <p>Two chasing arcs, squared arrowheads. Rectangular alternate below.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-match"/></svg></span></div>
+    <h3>Match<s>was &ldquo;Match&rdquo;</s></h3>
+    <p>Expand-to-rails: bring the peak to full scale.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-lock"/></svg></span><span class="chip down"><svg class="ic i48"><use href="#s-lock"/></svg></span></div>
+    <h3>Lock<s>toggle</s></h3>
+    <p>Padlock with a slot keyhole (squared, echoing the pixel set).</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-custom"/></svg></span></div>
+    <h3>Custom<s>pan row</s></h3>
+    <p>Mixer sliders with square thumbs.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-reset"/></svg></span></div>
+    <h3>Reset<s>pan row</s></h3>
+    <p>Counter-clockwise return arrow. Squared alternate below.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-perc"/></svg></span></div>
+    <h3>Perc.<s>channel row</s></h3>
+    <p>Drum and sticks: the OPL rhythm-mode channels.</p>
+  </div>
+  <div class="card">
+    <div class="icons"><span class="chip"><svg class="ic i48"><use href="#s-all"/></svg></span></div>
+    <h3>All<s>channel row</s></h3>
+    <p>Full 3&times;3 grid of square cells = every channel on.</p>
+  </div>
+</div>
+
+<!-- ================= alternates ================= -->
+<h2>Squared-ring alternates</h2>
+<p class="note">Dropping round caps pushes the whole set toward a squarer language, so the
+two circular glyphs get rectangular candidates &mdash; closer kin to the pixel set and the
+bevel chrome. Orange marks what the strips above use; swapping is a one-symbol change.</p>
+<div class="altrow">
+  <div class="alt">
+    <h3>Loop</h3>
+    <div class="opts">
+      <span class="chip pick" style="width:52px;height:52px"><svg class="ic i32"><use href="#s-loop"/></svg></span>
+      <span class="chip" style="width:52px;height:52px"><svg class="ic i32"><use href="#s-loop-rect"/></svg></span>
+    </div>
+    <p><b>Circular</b> is the universally-read repeat glyph; <b>rectangular</b> echoes the
+    pixel set and the boxy chrome. Both survive 2&nbsp;px at 16&nbsp;px.</p>
+  </div>
+  <div class="alt">
+    <h3>Reset</h3>
+    <div class="opts">
+      <span class="chip pick" style="width:52px;height:52px"><svg class="ic i32"><use href="#s-reset"/></svg></span>
+      <span class="chip" style="width:52px;height:52px"><svg class="ic i32"><use href="#s-reset-rect"/></svg></span>
+    </div>
+    <p>Same trade. If the rectangular Loop wins, take the rectangular Reset with it &mdash;
+    the two should agree.</p>
+  </div>
+</div>
+
+<!-- ================= classic check ================= -->
+<h2>FT2-classic check</h2>
+<p class="note">The 1.5&nbsp;px set on the steel-blue palette &mdash; <b>currentColor</b> on the
+shared grey button face, so nothing needs re-tuning.</p>
+<div class="classic">
+  <div class="apanel">
+    <div class="trow">
+      <span class="btn sq"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="btn sq down"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow">&minus;</span><span class="well">&infin;</span><span class="btn narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="btn narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="btn narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="btn sq"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <b>Implementation notes.</b> One 16&times;16 <b>currentColor</b> symbol per verb; stroke
+  weight is a single inherited property, so B1 vs B2 is one constant in code. In egui:
+  rasterize per theme with <b>egui_extras</b> (svg feature) into an <b>egui::Image</b>, or
+  port to <b>epaint</b> strokes &mdash; every glyph here is line segments plus at most one arc,
+  a direct fit for <b>Painter::line_segment</b> / <b>add(PathShape)</b> with
+  <b>StrokeKind</b> butt caps. Draw at even multiples of 16&nbsp;px so the 1.5&nbsp;px strokes
+  land on half-pixels consistently. Every button keeps its existing <b>on_hover_text</b>.
+</footer>
+</div>

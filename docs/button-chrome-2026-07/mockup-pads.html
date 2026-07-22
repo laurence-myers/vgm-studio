@@ -1,0 +1,466 @@
+<title>DRO Trimmer — button styles</title>
+<style>
+  :root{
+    --desktop:#263A3A;
+    --face:#1E2929; --bevelL:#324444; --bevelD:#0D1414; --keyline:#040808;
+    --data:#0C1414; --yellow:#F1E67B;
+    --btnL:#324444; --btnS:#070C0C;
+    --lab:#B8D0D0; --mut:#6E8888; --orange:#FF9E3D;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCEFEF;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:980px;margin:0 auto}
+
+  header{margin-bottom:34px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--yellow); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:#86A6A6; max-width:66ch; margin:0}
+  .sub b{color:#DCEFEF; font-weight:700}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--yellow); margin:42px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:var(--orange)}
+  .note{color:#86A6A6; margin:0 0 14px; max-width:72ch}
+  .note b{color:#DCEFEF}
+
+  .apanel{
+    background:var(--face);
+    border:2px solid;
+    border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:8px 10px;
+    margin-bottom:8px;
+    overflow-x:auto;
+  }
+  .cap{display:flex; gap:10px; align-items:baseline; margin:18px 0 6px}
+  .cap .tag{
+    color:#070D0D; background:var(--yellow);
+    font-weight:700; font-size:11px; letter-spacing:.08em;
+    padding:1px 7px;
+  }
+  .cap .txt{color:#86A6A6; font-size:12px}
+  .verdict{color:#86A6A6; font-size:11.5px; margin:0 0 4px; max-width:76ch}
+  .verdict b{color:#DCEFEF}
+
+  .trow{display:flex; align-items:center; gap:12px; min-height:30px; min-width:900px}
+  .trow.tight{gap:8px}
+  .spacer{flex:1}
+  .rowlab{color:var(--lab); font-weight:700; font-size:12px}
+  .groove-h{
+    height:2px; margin:7px 0;
+    background:linear-gradient(180deg,var(--bevelD) 0 1px,var(--bevelL) 1px 2px);
+  }
+  .groove-v{
+    width:2px; align-self:stretch; margin:1px 0;
+    background:linear-gradient(90deg,var(--bevelD) 0 1px,var(--bevelL) 1px 2px);
+  }
+  .well{
+    background:var(--data); color:var(--yellow);
+    border:2px solid; border-color:var(--btnS) var(--btnL) var(--btnL) var(--btnS);
+    padding:3px 8px; font:700 12px var(--mono);
+    font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+  .knob{
+    width:16px; height:16px; border-radius:50%; flex:none;
+    background:var(--data); border:1px solid var(--bevelL);
+    position:relative;
+  }
+  .knob::after{
+    content:""; position:absolute; left:50%; top:1px;
+    width:2px; height:6px; background:var(--lab);
+    transform:translateX(-50%);
+  }
+  .knobs{display:flex; gap:7px; align-items:center}
+  .ic{stroke-width:1.5}
+  .i16{width:16px;height:16px}
+  .i12{width:12px;height:12px}
+
+  .states{display:flex; gap:16px; align-items:flex-start; min-width:0}
+  .state{display:flex; flex-direction:column; align-items:center; gap:5px}
+  .state em{font-style:normal; font-size:10px; letter-spacing:.08em; color:var(--mut)}
+
+  /* ---------- pad base (shared) ---------- */
+  .pad{
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    width:26px; min-height:26px; padding:2px 0;
+    border:1px solid; border-radius:3px;
+    font:700 12px var(--mono); user-select:none; cursor:default;
+    position:relative; flex:none;
+  }
+  .pad.narrow{width:22px}
+  .pad.wide{width:auto; padding:2px 9px}
+  .pad svg{display:block; flex:none}
+
+  /* ================= P1: lit cap, charcoal ================= */
+  .v1 .pad{
+    background:#131C1C; color:#54706E; border-color:#050909;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .v1 .pad:hover, .v1 .pad.hov{
+    background:#182322; color:#9EC2C0;
+  }
+  .v1 .pad:active, .v1 .pad.press{
+    background:#0E1515; color:#7E9E9C;
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.6);
+    transform:translateY(1px);
+  }
+  .v1 .pad.lat{
+    background:radial-gradient(circle at 50% 42%, #F8EFA0 0%, #D9C75B 68%, #B5A33E 100%);
+    color:#241D06; border-color:#6B5F1E;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 0 3px rgba(255,255,255,.6);
+  }
+
+  /* ================= P2: cream keys ================= */
+  .v2 .pad{
+    background:linear-gradient(180deg, #F0E8D3 0%, #E5DCC5 100%);
+    color:#38352A; border-color:#55503C;
+    box-shadow:0 1px 2px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.55), inset 0 -2px 0 rgba(0,0,0,.12);
+  }
+  .v2 .pad:hover, .v2 .pad.hov{
+    background:linear-gradient(180deg, #F8F1DF 0%, #EEE6D0 100%);
+  }
+  .v2 .pad:active, .v2 .pad.press{
+    background:#D8CFB6; color:#2E2B22;
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.28);
+    transform:translateY(1px);
+  }
+  .v2 .pad.lat{
+    background:radial-gradient(circle at 50% 42%, #FCE79A 0%, #EFC658 65%, #DCAE3E 100%);
+    color:#3F2E08; border-color:#8A6D28;
+    box-shadow:0 1px 2px rgba(0,0,0,.6), inset 0 1px 2px rgba(255,255,255,.5);
+  }
+
+  /* ================= P3: backlit legend ================= */
+  .v3 .pad{
+    background:#131C1C; color:#4E6866; border-color:#050909;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .v3 .pad:hover, .v3 .pad.hov{
+    background:#172120; color:#A8CCCA;
+  }
+  .v3 .pad:active, .v3 .pad.press{
+    background:#0E1515; color:#8AACAA;
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.6);
+    transform:translateY(1px);
+  }
+  .v3 .pad.lat{
+    background:#1B2420; color:#F6EB86; border-color:#0A0F0C;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 0 8px rgba(241,230,123,.1);
+  }
+  .v3 .pad.lat svg{filter:drop-shadow(0 0 2px rgba(241,230,123,.55))}
+
+  /* ================= P4: edge-lit rim ================= */
+  .v4 .pad{
+    background:#131C1C; color:#54706E; border-color:#050909;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .v4 .pad:hover, .v4 .pad.hov{
+    background:#182322; color:#9EC2C0; border-color:#3A5654;
+  }
+  .v4 .pad:active, .v4 .pad.press{
+    background:#0E1515; color:#7E9E9C;
+    box-shadow:inset 0 2px 3px rgba(0,0,0,.6);
+    transform:translateY(1px);
+  }
+  .v4 .pad.lat{
+    background:#161F1E; color:#F1E67B; border-color:#C7BC55;
+    box-shadow:0 1px 2px rgba(0,0,0,.55), inset 0 0 0 1px rgba(241,230,123,.4), inset 0 0 6px rgba(241,230,123,.22);
+  }
+
+  footer{
+    margin-top:46px; color:#86A6A6; font-size:12px;
+    border-top:1px solid #1A2929; padding-top:14px; max-width:76ch;
+  }
+  footer b{color:#DCEFEF}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="s-play" viewBox="0 0 16 16">
+      <path d="M4.5 2.75 13 8 4.5 13.25Z" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-stop" viewBox="0 0 16 16">
+      <rect x="4.25" y="4.25" width="7.5" height="7.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-del" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2.5 4.25h11M6 4.25V2.5h4v1.75M4.25 4.25l.55 9.25h6.4l.55-9.25M6.9 6.75v4.5M9.1 6.75v4.5"/>
+    </symbol>
+    <symbol id="s-tail" viewBox="0 0 16 16">
+      <path d="M3.5 4.25 10 8 3.5 11.75Z" fill="currentColor" stroke="none"/>
+      <rect x="12" y="3" width="1.8" height="10" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-seam" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2 1.5h2.25v7H2M14 1.5h-2.25v7H14M3.5 13.25h7.25M10 11.5l2.25 1.75L10 15"/>
+    </symbol>
+    <symbol id="s-loop" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M3.5 6.5a5 5 0 0 1 9-1.5M12.5 1.75V5H9.25M12.5 9.5a5 5 0 0 1-9 1.5M3.5 14.25V11h3.25"/>
+    </symbol>
+    <symbol id="s-lock" viewBox="0 0 16 16">
+      <rect x="3.25" y="7" width="9.5" height="6.5" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7"/>
+      <rect x="7.35" y="9.25" width="1.3" height="2.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-match" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2.5 2.25h11M2.5 13.75h11M8 4.5v7M5.75 6.5 8 4.25l2.25 2.25M5.75 9.5 8 11.75l2.25-2.25"/>
+    </symbol>
+    <symbol id="s-custom" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M4 2.5v11M8 2.5v11M12 2.5v11"/>
+      <rect x="2.75" y="4.25" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+      <rect x="6.75" y="8.75" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+      <rect x="10.75" y="5.25" width="2.5" height="2.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-reset" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 8a5 5 0 1 0 5-5M10.25 1.25 8 3l2.25 1.75"/>
+    </symbol>
+    <symbol id="s-perc" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M2.5 1.5 7 7.5M13.5 1.5 9 7.5"/>
+      <ellipse cx="8" cy="9.5" rx="5" ry="1.75" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M3 9.5v3.25c2 1.5 8 1.5 10 0V9.5"/>
+    </symbol>
+    <symbol id="s-all" viewBox="0 0 16 16">
+      <g fill="currentColor" stroke="none">
+        <rect x="2" y="2" width="2.5" height="2.5"/><rect x="6.75" y="2" width="2.5" height="2.5"/><rect x="11.5" y="2" width="2.5" height="2.5"/>
+        <rect x="2" y="6.75" width="2.5" height="2.5"/><rect x="6.75" y="6.75" width="2.5" height="2.5"/><rect x="11.5" y="6.75" width="2.5" height="2.5"/>
+        <rect x="2" y="11.5" width="2.5" height="2.5"/><rect x="6.75" y="11.5" width="2.5" height="2.5"/><rect x="11.5" y="11.5" width="2.5" height="2.5"/>
+      </g>
+    </symbol>
+    <symbol id="s-up" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 10.5 8 5.5l5 5"/>
+    </symbol>
+    <symbol id="s-dn" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M3 5.5 8 10.5l5-5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+<header>
+  <h1>DRO Trimmer &mdash; backlit pads &times;4</h1>
+  <p class="sub">Direction 3 developed: four pad treatments, <b>no outer glows</b> &mdash;
+  everything paints inside the button rect, which also kills the halo-clipping problem on
+  tight groups (the steppers, the channel digits). Same rubber deck under all four.
+  Hover and press are live. In every strip <b>Loop and channel 6 are latched</b>.</p>
+</header>
+
+<!-- ============ P1 ============ -->
+<div class="v1">
+  <div class="cap"><span class="tag">P1 &middot; LIT CAP</span><span class="txt">the original: latched pad lights from beneath, icon as silhouette</span></div>
+  <p class="verdict">Charcoal rubber pads, dim icons. A latched pad is the <b>only bright
+  object on the deck</b>, so engaged state is unmissable even without a halo. The lit cap
+  keeps its radial hot-spot; the icon flips to a dark silhouette.</p>
+  <div class="apanel">
+    <div class="trow">
+      <span class="pad" title="Delete the selected instruction(s)"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="pad" title="Play"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="pad" title="Stop"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="pad" title="Play last seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="pad" title="Play the loop join"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="pad lat" title="Loop (on)"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow">&minus;</span><span class="well">&infin;</span><span class="pad narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="pad" title="Match volume"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="pad narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="pad" title="Lock volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow">
+      <span class="rowlab">Pan:</span>
+      <span class="knobs"><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span><span class="knob"></span></span>
+      <span class="pad" title="Custom panning"><svg class="ic i16"><use href="#s-custom"/></svg></span>
+      <span class="rowlab">Spread:</span><span class="knob"></span>
+      <span class="pad" title="Reset panning"><svg class="ic i16"><use href="#s-reset"/></svg></span>
+      <span class="spacer"></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="pad">1</span><span class="pad">2</span><span class="pad">3</span><span class="pad">4</span><span class="pad">5</span><span class="pad lat">6</span><span class="pad">7</span><span class="pad">8</span><span class="pad">9</span>
+      <span class="pad" title="Percussion"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="pad" title="All channels"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+      <span class="states">
+        <span class="state"><span class="pad"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>IDLE</em></span>
+        <span class="state"><span class="pad hov"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HOVER</em></span>
+        <span class="state"><span class="pad press"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HELD</em></span>
+        <span class="state"><span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>ON</em></span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ P2 ============ -->
+<div class="v2">
+  <div class="cap"><span class="tag">P2 &middot; CREAM KEYS</span><span class="txt">vintage drum-machine keycaps; latched key lights warm amber</span></div>
+  <p class="verdict">Bone-cream plastic caps on the dark deck &mdash; TR-808 / CR-78
+  territory. Best <b>idle affordance</b> of the four: every button is plainly visible
+  before you touch it, and the dark icons never dim. Latch turns the cream cap into a
+  warm lit amber, like a key with a lamp behind it.</p>
+  <div class="apanel">
+    <div class="trow">
+      <span class="pad" title="Delete"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="pad" title="Play"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="pad" title="Stop"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="pad" title="Play last seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="pad" title="Play the loop join"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="pad lat" title="Loop (on)"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow">&minus;</span><span class="well">&infin;</span><span class="pad narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="pad" title="Match volume"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="pad narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="pad" title="Lock volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="pad">1</span><span class="pad">2</span><span class="pad">3</span><span class="pad">4</span><span class="pad">5</span><span class="pad lat">6</span><span class="pad">7</span><span class="pad">8</span><span class="pad">9</span>
+      <span class="pad" title="Percussion"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="pad" title="All channels"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+      <span class="states">
+        <span class="state"><span class="pad"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>IDLE</em></span>
+        <span class="state"><span class="pad hov"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HOVER</em></span>
+        <span class="state"><span class="pad press"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HELD</em></span>
+        <span class="state"><span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>ON</em></span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ P3 ============ -->
+<div class="v3">
+  <div class="cap"><span class="tag">P3 &middot; BACKLIT LEGEND</span><span class="txt">the cap stays dark; only the legend lights</span></div>
+  <p class="verdict">Mixing-console style: the pad face barely changes, the <b>icon itself
+  is the lamp</b> &mdash; tracker yellow with a tight in-button bloom and a faint wash on
+  the face. The most restrained of the four and the closest to the app's current dark
+  look; the deck stays calm even with several toggles engaged.</p>
+  <div class="apanel">
+    <div class="trow">
+      <span class="pad" title="Delete"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="pad" title="Play"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="pad" title="Stop"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="pad" title="Play last seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="pad" title="Play the loop join"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="pad lat" title="Loop (on)"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow">&minus;</span><span class="well">&infin;</span><span class="pad narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="pad" title="Match volume"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="pad narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="pad" title="Lock volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="pad">1</span><span class="pad">2</span><span class="pad">3</span><span class="pad">4</span><span class="pad">5</span><span class="pad lat">6</span><span class="pad">7</span><span class="pad">8</span><span class="pad">9</span>
+      <span class="pad" title="Percussion"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="pad" title="All channels"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+      <span class="states">
+        <span class="state"><span class="pad"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>IDLE</em></span>
+        <span class="state"><span class="pad hov"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HOVER</em></span>
+        <span class="state"><span class="pad press"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HELD</em></span>
+        <span class="state"><span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>ON</em></span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ P4 ============ -->
+<div class="v4">
+  <div class="cap"><span class="tag">P4 &middot; EDGE-LIT RIM</span><span class="txt">the face stays dark; the border ring lights</span></div>
+  <p class="verdict">Edge-lit acrylic: a latched pad keeps its dark face but its <b>rim
+  lights yellow</b> (a 1px ring plus a soft inner inset), and the icon brightens to match.
+  Sits between P1 and P3 in loudness; the lit ring rhymes with the loop brackets on the
+  waveform overlay.</p>
+  <div class="apanel">
+    <div class="trow">
+      <span class="pad" title="Delete"><svg class="ic i16"><use href="#s-del"/></svg></span>
+      <span class="pad" title="Play"><svg class="ic i16"><use href="#s-play"/></svg></span>
+      <span class="pad" title="Stop"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+      <span class="pad" title="Play last seconds"><svg class="ic i16"><use href="#s-tail"/></svg></span>
+      <span class="pad" title="Play the loop join"><svg class="ic i16"><use href="#s-seam"/></svg></span>
+      <span class="pad lat" title="Loop (on)"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow">&minus;</span><span class="well">&infin;</span><span class="pad narrow">+</span>
+      </span>
+      <span class="spacer"></span>
+      <span class="groove-v"></span>
+      <span class="pad" title="Match volume"><svg class="ic i16"><use href="#s-match"/></svg></span>
+      <span class="rowlab">Volume</span>
+      <span class="well">1.00&times;</span>
+      <span class="trow tight" style="gap:2px;min-width:0">
+        <span class="pad narrow"><svg class="ic i12"><use href="#s-up"/></svg></span><span class="pad narrow"><svg class="ic i12"><use href="#s-dn"/></svg></span>
+      </span>
+      <span class="pad" title="Lock volume across songs"><svg class="ic i16"><use href="#s-lock"/></svg></span>
+    </div>
+    <div class="groove-h"></div>
+    <div class="trow tight">
+      <span class="rowlab">Channels:</span>
+      <span class="pad">1</span><span class="pad">2</span><span class="pad">3</span><span class="pad">4</span><span class="pad">5</span><span class="pad lat">6</span><span class="pad">7</span><span class="pad">8</span><span class="pad">9</span>
+      <span class="pad" title="Percussion"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      <span class="pad" title="All channels"><svg class="ic i16"><use href="#s-all"/></svg></span>
+      <span class="spacer"></span>
+      <span class="states">
+        <span class="state"><span class="pad"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>IDLE</em></span>
+        <span class="state"><span class="pad hov"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HOVER</em></span>
+        <span class="state"><span class="pad press"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>HELD</em></span>
+        <span class="state"><span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span><em>ON</em></span>
+      </span>
+    </div>
+  </div>
+</div>
+
+<h2>How they compare</h2>
+<p class="note"><b>P1</b> is the loudest &ldquo;on&rdquo; and the purest backlit-pad idea.
+<b>P2</b> has the most character and the best idle discoverability &mdash; buttons read as
+buttons before you hover &mdash; at the cost of a brighter, busier deck. <b>P3</b> is the
+quietest and the easiest migration from the current dark look. <b>P4</b> keeps the calm
+deck of P3 but gives latched state a stronger, shaped signal. All four use identical
+geometry, so they differ <b>only in palette-style parameters</b> &mdash; the ButtonChrome
+refactor covers any of them, and switching between them later is just numbers.</p>
+
+<footer>
+  <b>Implementation notes.</b> Without outer halos, every effect fits inside the widget
+  rect: rounded fill, 1px border, an inset highlight/shadow line, and (P1/P2) a lit cap
+  &mdash; two or three concentric fills stand in for the radial gradient at this size, or a
+  flat lit colour honestly reads fine at 26px. P3's legend bloom is the icon drawn twice
+  (once fat and translucent, once solid). No background-layer tricks, no neighbour
+  clipping. The <b>ButtonChrome::Pad</b> branch from the earlier estimate shrinks by the
+  glow code: all four variants are the same ~60&ndash;80 line painter with different
+  palette numbers.
+</footer>
+</div>
