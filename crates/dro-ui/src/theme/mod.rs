@@ -10,6 +10,8 @@ use std::sync::Arc;
 
 pub mod bevel;
 mod fonts;
+pub mod icon;
+mod paint;
 mod palette;
 mod style;
 
@@ -97,7 +99,11 @@ pub fn install(ctx: &egui::Context, choice: ThemeChoice) {
     // frame; pin Dark so our single style is always the active one.
     ctx.set_theme(egui::ThemePreference::Dark);
     ctx.set_fonts(fonts::font_definitions());
-    ctx.tessellation_options_mut(|options| options.feathering = false);
+    // The pad chrome (and, later, the plate chrome) is antialiased: rounded pad
+    // corners, latched-cap gradients and the icon arcs all want feathering on.
+    // It does not touch glyph rendering, so the DOS font stays hard-pixel, and
+    // the edge painters' `hline`/`vline` tricks stay crisp on the pixel grid.
+    ctx.tessellation_options_mut(|options| options.feathering = true);
     // Rip mode shows the pack's screenshots inline; the loader decodes the PNG
     // bytes. Installed here because every shell already calls `install`.
     egui_extras::install_image_loaders(ctx);

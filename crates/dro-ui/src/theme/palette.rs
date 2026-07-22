@@ -80,6 +80,24 @@ pub struct Palette {
     /// Text over [`Self::button_pressed`].
     pub button_pressed_text: Color32,
 
+    // -- pads (the backlit-keycap button chrome) --
+    /// The pad cap's idle gradient, top (lit) stop.
+    pub pad_cap_top: Color32,
+    /// The pad cap's idle gradient, bottom (shaded) stop.
+    pub pad_cap_bottom: Color32,
+    /// The 1px rounded border framing a pad.
+    pub pad_border: Color32,
+    /// The icon/text ink on an idle or held pad.
+    pub pad_ink: Color32,
+    /// A latched pad's lit cap, top (hot) stop -- fixed hardware amber.
+    pub latch_top: Color32,
+    /// A latched pad's lit cap, bottom stop -- fixed hardware amber.
+    pub latch_bottom: Color32,
+    /// A latched pad's border -- fixed hardware amber.
+    pub latch_border: Color32,
+    /// The ink on a latched (lit) pad -- fixed hardware dark amber.
+    pub latch_ink: Color32,
+
     // -- selection --
     /// The selection bar fill.
     pub accent: Color32,
@@ -161,6 +179,14 @@ pub(crate) struct CaseColors {
     pub button_pressed: Color32,
     /// Text over [`Self::button_pressed`].
     pub button_pressed_text: Color32,
+    /// The pad cap's idle gradient, top (lit) stop.
+    pub pad_cap_top: Color32,
+    /// The pad cap's idle gradient, bottom (shaded) stop.
+    pub pad_cap_bottom: Color32,
+    /// The 1px rounded border framing a pad.
+    pub pad_border: Color32,
+    /// The icon/text ink on an idle or held pad.
+    pub pad_ink: Color32,
     /// The selection bar fill.
     pub accent: Color32,
     /// Text drawn over the selection bar.
@@ -207,6 +233,14 @@ pub(crate) struct HardwareColors {
     pub meter_high: Color32,
     /// The peak-hold marker.
     pub meter_hold: Color32,
+    /// A latched pad's lit cap, top (hot) stop.
+    pub latch_top: Color32,
+    /// A latched pad's lit cap, bottom stop.
+    pub latch_bottom: Color32,
+    /// A latched pad's border.
+    pub latch_border: Color32,
+    /// The ink on a latched (lit) pad.
+    pub latch_ink: Color32,
 }
 
 /// A case paired with the hardware it sits in. [`compose`](Self::compose)s into
@@ -250,6 +284,15 @@ impl Skin {
             button_text: self.case.button_text,
             button_pressed: self.case.button_pressed,
             button_pressed_text: self.case.button_pressed_text,
+
+            pad_cap_top: self.case.pad_cap_top,
+            pad_cap_bottom: self.case.pad_cap_bottom,
+            pad_border: self.case.pad_border,
+            pad_ink: self.case.pad_ink,
+            latch_top: self.hardware.latch_top,
+            latch_bottom: self.hardware.latch_bottom,
+            latch_border: self.hardware.latch_border,
+            latch_ink: self.hardware.latch_ink,
 
             accent: self.case.accent,
             selection_text: self.case.selection_text,
@@ -302,6 +345,12 @@ const CLONE_DARK_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x6E, 0x79, 0x79),
     button_pressed_text: Color32::WHITE,
 
+    // Grey keycaps, evolving the flat grey FT2 buttons into rounded pads.
+    pad_cap_top: Color32::from_rgb(0xAE, 0xB8, 0xB8),
+    pad_cap_bottom: Color32::from_rgb(0x96, 0xA1, 0xA1),
+    pad_border: Color32::from_rgb(0x07, 0x0D, 0x0D),
+    pad_ink: Color32::from_rgb(0x10, 0x1A, 0x1A),
+
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
     selection_text: Color32::WHITE,
 };
@@ -329,6 +378,12 @@ const CLONE_DARK_HW: HardwareColors = HardwareColors {
     meter_mid: Color32::from_rgb(0xE6, 0xC8, 0x46),
     meter_high: Color32::from_rgb(0xE0, 0x4A, 0x4A),
     meter_hold: Color32::from_rgb(0xEA, 0xF4, 0xF4),
+
+    // Warm amber "lamp behind the key" for a latched pad (shared hardware).
+    latch_top: Color32::from_rgb(0xFB, 0xE3, 0x8C),
+    latch_bottom: Color32::from_rgb(0xDD, 0xB0, 0x47),
+    latch_border: Color32::from_rgb(0x8A, 0x6D, 0x28),
+    latch_ink: Color32::from_rgb(0x3F, 0x2E, 0x08),
 };
 
 /// The ft2-clone dark teal scheme (the default).
@@ -366,6 +421,12 @@ const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x78, 0x7E, 0x87),
     button_pressed_text: Color32::WHITE,
 
+    // Steel-grey keycaps.
+    pad_cap_top: Color32::from_rgb(0xC4, 0xC9, 0xD0),
+    pad_cap_bottom: Color32::from_rgb(0xA6, 0xAB, 0xB2),
+    pad_border: Color32::from_rgb(0x0A, 0x0D, 0x14),
+    pad_ink: Color32::from_rgb(0x0A, 0x0D, 0x14),
+
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
     selection_text: Color32::WHITE,
 };
@@ -393,6 +454,12 @@ const FT2_CLASSIC_HW: HardwareColors = HardwareColors {
     meter_mid: Color32::from_rgb(0xE0, 0xC8, 0x55),
     meter_high: Color32::from_rgb(0xDC, 0x55, 0x55),
     meter_hold: Color32::from_rgb(0xF0, 0xF2, 0xF8),
+
+    // Warm amber "lamp behind the key" for a latched pad (shared hardware).
+    latch_top: Color32::from_rgb(0xFB, 0xE3, 0x8C),
+    latch_bottom: Color32::from_rgb(0xDD, 0xB0, 0x47),
+    latch_border: Color32::from_rgb(0x8A, 0x6D, 0x28),
+    latch_ink: Color32::from_rgb(0x3F, 0x2E, 0x08),
 };
 
 /// The original DOS FastTracker II steel-blue scheme.

@@ -8,7 +8,7 @@
 use dro_core::{Bank, OplType, Song};
 use dro_synth::{Muting, Panning};
 
-use crate::theme::{Palette, bevel};
+use crate::theme::{Palette, bevel, icon::Icon};
 use crate::widgets::pan_knob;
 
 /// The centred pan byte (`0x80`), and the hard-left / hard-right extremes.
@@ -300,7 +300,7 @@ impl ChannelPanel {
                 }
                 response.muting_changed |=
                     self.percussion_toggle(ui, palette, 0, "Perc.", "Percussion (low bank)");
-                if bevel::button(ui, palette, "All")
+                if bevel::icon_button(ui, palette, Icon::All, "All")
                     .on_hover_text("Unmute every channel and drum (panning is left alone)")
                     .clicked()
                 {
@@ -361,7 +361,7 @@ impl ChannelPanel {
                 _ => "Original: mono",
             };
             let mut custom = self.custom;
-            if bevel::toggle(ui, palette, &mut custom, "Custom")
+            if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
                 .on_hover_text(hint)
                 .changed()
             {
@@ -382,7 +382,7 @@ impl ChannelPanel {
                     self.set_spread(spread);
                     changed = true;
                 }
-                if bevel::button(ui, palette, "Reset")
+                if bevel::icon_button(ui, palette, Icon::Reset, "Reset")
                     .on_hover_text("Reset panning to this song type's default (Original mode)")
                     .clicked()
                 {
@@ -400,7 +400,7 @@ impl ChannelPanel {
     fn channel_toggle(&mut self, ui: &mut egui::Ui, palette: &Palette, index: usize) -> bool {
         let label = (index % 9 + 1).to_string();
         let row_h = ui.spacing().interact_size.y;
-        let response = bevel::toggle_sized(
+        let response = bevel::mute_toggle_sized(
             ui,
             palette,
             &mut self.channels[index],
@@ -429,8 +429,8 @@ impl ChannelPanel {
         label: &str,
         hover: &str,
     ) -> bool {
-        let response =
-            bevel::toggle(ui, palette, &mut self.percussion[bank], label).on_hover_text(format!(
+        let response = bevel::icon_mute_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
+            .on_hover_text(format!(
                 "{hover}. Drums sound through channels 7-9's pans. \
                  Left-click mutes, right-click solos."
             ));

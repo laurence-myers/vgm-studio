@@ -9,6 +9,7 @@
 //! guard).
 
 use crate::action::Action;
+use crate::theme::icon::Icon;
 use crate::theme::{self, Palette};
 use dro_core::{nearest_volume_modifier, volume_modifier_factor, volume_step_down, volume_step_up};
 
@@ -57,7 +58,7 @@ pub fn boost_stepper(
         // The "Lock" toggle (rightmost): on keeps this volume across songs; off
         // lets each song set its own from its header modifier.
         let mut locked = lock;
-        if theme::bevel::toggle(ui, palette, &mut locked, "Lock")
+        if theme::bevel::icon_toggle(ui, palette, &mut locked, Icon::Lock, "Lock")
             .on_hover_text(if lock {
                 "Volume is kept across songs. Click to let each song start from \
                  its header modifier instead."
@@ -89,7 +90,7 @@ pub fn boost_stepper(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             let arrow = egui::vec2(20.0, row_h);
-            if theme::bevel::button_sized(ui, palette, "\u{25BC}", arrow)
+            if theme::bevel::icon_button_sized(ui, palette, Icon::Dn, "\u{25BC}", arrow)
                 .on_hover_text("Quieter")
                 .clicked()
                 && can_lower
@@ -108,7 +109,7 @@ pub fn boost_stepper(
             } else {
                 "At this song's clipping limit -- lower the volume to go quieter"
             };
-            if theme::bevel::button_sized(ui, palette, "\u{25B2}", arrow)
+            if theme::bevel::icon_button_sized(ui, palette, Icon::Up, "\u{25B2}", arrow)
                 .on_hover_text(up_hover)
                 .clicked()
                 && can_raise
@@ -177,7 +178,7 @@ pub fn boost_stepper(
         // ...then the "Match" button (further left in this right-to-left row, so it
         // reads "Match Volume 1.00x"): it measures the song's peak and sets the
         // volume to bring it to full scale.
-        if theme::bevel::button(ui, palette, "Match")
+        if theme::bevel::icon_button(ui, palette, Icon::Match, "Match")
             .on_hover_text(
                 "Measure the song's loudest peak and set the volume to bring it to \
                  full scale without clipping",

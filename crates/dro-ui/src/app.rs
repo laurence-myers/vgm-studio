@@ -500,38 +500,38 @@ impl DroApp {
                     ui.horizontal(|ui| {
                         ui.set_min_height(ui.spacing().interact_size.y);
                         ui.spacing_mut().item_spacing.x = 12.0;
-                        if theme::bevel::button(ui, p, "Del.")
+                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Del, "Del.")
                             .on_hover_text("Delete the selected instruction(s)")
                             .clicked()
                         {
                             actions.push(Action::DeleteSelection);
                         }
-                        if theme::bevel::button(ui, p, "Play")
+                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
                             .on_hover_text("Play the song from the current position")
                             .clicked()
                         {
                             actions.push(Action::Play);
                         }
-                        if theme::bevel::button(ui, p, "Stop")
+                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
                             .on_hover_text("Stop playback")
                             .clicked()
                         {
                             actions.push(Action::Stop);
                         }
-                        if theme::bevel::button(ui, p, "Tail")
+                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
                             .on_hover_text(self.play_tail_label())
                             .clicked()
                         {
                             actions.push(Action::PlayTail);
                         }
-                        if theme::bevel::button(ui, p, "Seam")
+                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
                             .on_hover_text(self.play_seam_label())
                             .clicked()
                         {
                             actions.push(Action::PlaySeam);
                         }
                         let mut looping = self.loop_enabled;
-                        if theme::bevel::toggle(ui, p, &mut looping, "Loop")
+                        if theme::bevel::icon_toggle(ui, p, &mut looping, theme::icon::Icon::Loop, "Loop")
                             .on_hover_text(
                                 "Repeat the marked region. Shift+click the waveform to mark \
                                  the start and Shift+right-click the end; [ and ] use the \
