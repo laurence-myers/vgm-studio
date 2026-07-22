@@ -393,19 +393,22 @@ impl ChannelPanel {
         changed
     }
 
-    /// One melodic-channel toggle: left-click mutes, right-click solos.
+    /// One melodic-channel toggle: audible is lit (amber), muting un-lights it
+    /// to a plain pad. Left-click mutes, right-click solos.
     ///
-    /// Allocated at a fixed cell size (the knob width above it) so the digit stays
-    /// centred under its knob and the column never resizes with the button state.
+    /// A fixed square cell (at least the row height wide) so the digit never
+    /// resizes with the button state and the column stays put; the pan knob
+    /// above it centres in the same column.
     fn channel_toggle(&mut self, ui: &mut egui::Ui, palette: &Palette, index: usize) -> bool {
         let label = (index % 9 + 1).to_string();
         let row_h = ui.spacing().interact_size.y;
-        let response = bevel::mute_toggle_sized(
+        let side = row_h.max(pan_knob::SIZE);
+        let response = bevel::toggle_sized(
             ui,
             palette,
             &mut self.channels[index],
             &label,
-            egui::vec2(pan_knob::SIZE, row_h),
+            egui::vec2(side, side),
         )
         .on_hover_text(format!(
             "Channel {} ({} bank). Left-click mutes, right-click solos.",
@@ -430,7 +433,7 @@ impl ChannelPanel {
         hover: &str,
     ) -> bool {
         let response =
-            bevel::icon_mute_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
+            bevel::icon_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
                 .on_hover_text(format!(
                     "{hover}. Drums sound through channels 7-9's pans. \
                  Left-click mutes, right-click solos."

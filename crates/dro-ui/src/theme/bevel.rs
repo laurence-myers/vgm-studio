@@ -71,14 +71,12 @@ pub fn groove_v(painter: &Painter, x: f32, y_range: Rangef, palette: &Palette) {
 // -- pads ------------------------------------------------------------------
 
 /// One pad's visual state for a frame. `latched` (an engage toggle that is on)
-/// lights the cap amber; `muted` (a mute toggle that is off) recesses it into a
-/// dim dark cap. The two never apply at once.
+/// lights the cap amber.
 #[derive(Debug, Clone, Copy, Default)]
 struct PadState {
     hovered: bool,
     held: bool,
     latched: bool,
-    muted: bool,
 }
 
 /// The paint result of a pad: the ink for its content and a downward nudge to
@@ -90,8 +88,7 @@ struct PadInk {
 
 /// Paints one pad into `rect` and returns its content ink + press nudge. An idle
 /// cap reads as a slightly domed keycap (lit top line, shaded bottom line);
-/// `held` presses it in, `latched` lights the cap amber, and `muted` recesses it
-/// into a dim dark cap (an off channel).
+/// `held` presses it in and `latched` lights the cap amber.
 fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> PadInk {
     let radius = CornerRadius::same(RADIUS);
     let caps = pad_caps(p);
@@ -102,15 +99,10 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
             p.latch_border,
             p.latch_ink,
         )
-    } else if state.muted {
-        // Recessed and dim: the channel is off. Ink lifts back off the dark cap
-        // so the digit stays legible.
-        let cap = darken(idle_mid, 0.34);
-        (cap, caps.border, lighten(cap, 0.5))
     } else {
         (idle_mid, caps.border, caps.ink)
     };
-    if state.hovered && !state.held && !state.muted {
+    if state.hovered && !state.held {
         mid = lighten(mid, 0.07);
     }
     if state.held {
@@ -118,18 +110,17 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
     }
     painter.rect_filled(rect, radius, mid);
 
-    // Inset dimensionality, kept clear of the rounded corners. A pressed or muted
-    // pad reads as pushed in: a shadow along the top instead of a highlight.
+    // Inset dimensionality, kept clear of the rounded corners. A pressed pad
+    // reads as pushed in: a shadow along the top instead of a highlight.
     let inset = Rangef::new(
         rect.left() + f32::from(RADIUS),
         rect.right() - f32::from(RADIUS),
     );
-    if state.held || state.muted {
-        let depth = if state.muted { 95 } else { 70 };
+    if state.held {
         painter.hline(
             inset,
             rect.top() + 1.5,
-            Stroke::new(1.0, Color32::from_black_alpha(depth)),
+            Stroke::new(1.0, Color32::from_black_alpha(70)),
         );
     } else {
         let glint = if state.latched { 128 } else { 140 };
@@ -305,7 +296,6 @@ fn toggle_impl(
             hovered: response.hovered(),
             held,
             latched: on,
-            ..PadState::default()
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         let text_pos = rect.center() - galley.size() * 0.5 + ink.offset;
@@ -329,59 +319,6 @@ pub fn icon_toggle(
             hovered: response.hovered(),
             held,
             latched: on,
-            ..PadState::default()
-        };
-        let ink = paint_pad(ui.painter(), rect, palette, state);
-        paint_icon(ui.painter(), glyph, rect, ink);
-    }
-    response
-}
-
-// -- mute toggles (channels, percussion) -----------------------------------
-
-/// A "mute" toggle: `on` (audible) shows a plain idle cap, `off` (muted) a dark
-/// recessed one -- the inverse emphasis of an engage toggle ([`toggle`]), which
-/// lights amber when on. Sized to `size`, like [`toggle_sized`].
-pub fn mute_toggle_sized(
-    ui: &mut Ui,
-    palette: &Palette,
-    on: &mut bool,
-    text: &str,
-    size: Vec2,
-) -> Response {
-    let galley = button_galley(ui, text);
-    let (response, rect, audible, held) = interact_toggle(ui, on, size, text);
-    if ui.is_rect_visible(rect) {
-        let state = PadState {
-            hovered: response.hovered(),
-            held,
-            muted: !audible,
-            ..PadState::default()
-        };
-        let ink = paint_pad(ui.painter(), rect, palette, state);
-        let text_pos = rect.center() - galley.size() * 0.5 + ink.offset;
-        ui.painter().galley(text_pos, galley, ink.color);
-    }
-    response
-}
-
-/// A square icon mute toggle: `on` (audible) a plain idle cap, `off` (muted) a
-/// dark recessed one.
-pub fn icon_mute_toggle(
-    ui: &mut Ui,
-    palette: &Palette,
-    on: &mut bool,
-    glyph: Icon,
-    label: &str,
-) -> Response {
-    let size = square(ui);
-    let (response, rect, audible, held) = interact_toggle(ui, on, size, label);
-    if ui.is_rect_visible(rect) {
-        let state = PadState {
-            hovered: response.hovered(),
-            held,
-            muted: !audible,
-            ..PadState::default()
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         paint_icon(ui.painter(), glyph, rect, ink);
