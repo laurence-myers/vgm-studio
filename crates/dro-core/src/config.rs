@@ -21,7 +21,14 @@ pub struct AudioConfig {
     /// a VGM volume modifier (below `1.0` attenuates); `1.0` is bit-transparent.
     /// The GUI snaps it to the modifier factor ladder (see
     /// [`volume`](crate::volume)), but any value in range loads.
+    ///
+    /// Only kept across songs (and persisted) when [`Self::lock_boost`] is set;
+    /// otherwise each song derives its own from its header volume modifier.
     pub boost: f32,
+    /// Whether to keep [`Self::boost`] across songs. Off by default: each song's
+    /// volume starts from its own header modifier and manual changes are
+    /// transient. On: the boost is remembered and written to `drotrim.ini`.
+    pub lock_boost: bool,
     pub buffer_size: u32,
     /// Sample rate of both the emulated chip and the audio output. 49716 is the
     /// OPL3's native rate and gives the best quality.
@@ -33,6 +40,7 @@ impl Default for AudioConfig {
         Self {
             bit_depth: 16,
             boost: 1.0,
+            lock_boost: false,
             buffer_size: 512,
             frequency: 48_000,
         }
@@ -191,6 +199,9 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "audio", "boost") {
             self.audio.boost = parse(value, "audio.boost")?;
         }
+        if let Some(value) = lookup(&ini, "audio", "lock_boost") {
+            self.audio.lock_boost = parse_bool(value, "audio.lock_boost")?;
+        }
         if let Some(value) = lookup(&ini, "audio", "buffer_size") {
             self.audio.buffer_size = parse(value, "audio.buffer_size")?;
         }
@@ -231,6 +242,9 @@ impl AppConfig {
              # louder values from clipping. Never affects the WAV render or the\n\
              # waveform display.\n\
              boost={boost}\n\
+             # Keep the volume across songs (true), or start each song from its\n\
+             # own header volume modifier (false, the default).\n\
+             lock_boost={lock_boost}\n\
              \n\
              [ui]\n\
              # Tail length is the value for the \"Play last X seconds\" button,\n\
@@ -246,6 +260,7 @@ impl AppConfig {
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
             boost = self.audio.boost,
+            lock_boost = self.audio.lock_boost,
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
@@ -308,6 +323,7 @@ mod tests {
         let config = AppConfig::default();
         assert_eq!(config.audio.bit_depth, 16);
         assert_eq!(config.audio.boost, 1.0);
+        assert!(!config.audio.lock_boost);
         assert_eq!(config.audio.buffer_size, 512);
         assert_eq!(config.audio.frequency, 48_000);
         assert!(!config.ui.dro_info_edit_enabled);
@@ -326,12 +342,13 @@ mod tests {
     #[test]
     fn values_are_read_from_the_ini() {
         let config = AppConfig::from_ini_sources(&[
-            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nboost=2.5\n\
+            "[audio]\nfrequency=49716\nbit_depth=8\nbuffer_size=2048\nboost=2.5\nlock_boost=yes\n\
              [ui]\ntail_length=5000\nmaximize_window=yes\ndro_info_edit_enabled=on\ntheme=ft2-classic\n",
         ]);
         assert_eq!(config.audio.frequency, 49_716);
         assert_eq!(config.audio.bit_depth, 8);
         assert_eq!(config.audio.boost, 2.5);
+        assert!(config.audio.lock_boost);
         assert_eq!(config.audio.buffer_size, 2048);
         assert_eq!(config.ui.tail_length, 5000);
         assert!(config.ui.maximize_window);
@@ -512,6 +529,7 @@ mod tests {
             audio: AudioConfig {
                 bit_depth: 8,
                 boost: 2.5,
+                lock_boost: true,
                 buffer_size: 2048,
                 frequency: 49_716,
             },

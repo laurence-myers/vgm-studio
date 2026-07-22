@@ -34,12 +34,15 @@ fn snapped_within_ceiling(desired: f32, ceiling: Option<f32>) -> f32 {
 /// `boost` is the current factor. `ceiling`, when set, is the level at which the
 /// limiter began clipping this song; the up arrow and typed input are capped
 /// there so the user cannot push further into the limiter. Lowering is always
-/// allowed, and a new song clears the ceiling.
+/// allowed, and a new song clears the ceiling. `lock` drives the "Lock" toggle:
+/// when set, the volume is kept across songs; when clear, each song sets its own
+/// from its header modifier.
 pub fn boost_stepper(
     ui: &mut egui::Ui,
     palette: &Palette,
     boost: f32,
     ceiling: Option<f32>,
+    lock: bool,
     actions: &mut Vec<Action>,
 ) {
     // Live playback volume, right-aligned in the row. A limiter behind it
@@ -50,6 +53,22 @@ pub fn boost_stepper(
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let row_h = ui.spacing().interact_size.y;
+
+        // The "Lock" toggle (rightmost): on keeps this volume across songs; off
+        // lets each song set its own from its header modifier.
+        let mut locked = lock;
+        if theme::bevel::toggle(ui, palette, &mut locked, "Lock")
+            .on_hover_text(if lock {
+                "Volume is kept across songs. Click to let each song start from \
+                 its header modifier instead."
+            } else {
+                "Each song starts from its header volume modifier. Click to keep \
+                 this volume across songs."
+            })
+            .clicked()
+        {
+            actions.push(Action::SetLockBoost(locked));
+        }
 
         // The lever sits on the modifier factor ladder: snap the stored factor to
         // its nearest ladder position, then step and display from there. The

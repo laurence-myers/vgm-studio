@@ -685,7 +685,7 @@ fn typing_in_the_volume_field_does_not_toggle_a_channel() {
 }
 
 #[test]
-fn boost_up_arrow_steps_up_and_persists_it() {
+fn boost_up_arrow_steps_up_the_live_volume_without_persisting_when_unlocked() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
     harness.get_by_label("\u{25B2}").click(); // ▲ louder
@@ -701,11 +701,105 @@ fn boost_up_arrow_steps_up_and_persists_it() {
     assert_eq!(
         handles.audio.borrow().boosts.last().copied(),
         Some(expected),
-        "the up arrow steps the volume up"
+        "the up arrow sets the live volume"
     );
+    assert_eq!(
+        harness.state().config.audio.boost,
+        expected,
+        "and the lever reflects it"
+    );
+    // Unlocked (the default), a volume change is per-song and is not written to
+    // drotrim.ini -- so opening another song can start it from its own modifier.
+    assert!(
+        handles.saved_configs.borrow().is_empty(),
+        "an unlocked volume change does not persist"
+    );
+}
+
+#[test]
+fn a_locked_volume_change_is_persisted() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    // Locking the volume makes changes persist and carry across songs.
+    act(&mut harness, Action::SetLockBoost(true));
+    let before = handles.saved_configs.borrow().len();
+
+    harness.get_by_label("\u{25B2}").click(); // ▲ louder
+    harness.run();
+
     let saved = handles.saved_configs.borrow();
-    assert_eq!(saved.len(), 1, "the change is persisted once");
-    assert_eq!(saved[0].audio.boost, expected);
+    assert!(
+        saved.len() > before,
+        "a locked volume change is written to drotrim.ini"
+    );
+    let last = saved.last().expect("a save");
+    assert_eq!(last.audio.boost, dro_core::volume_step_up(1.0));
+    assert!(last.audio.lock_boost, "and the lock state is saved with it");
+}
+
+/// The VGM fixture with its header volume modifier set to `modifier`.
+fn vgm_with_modifier(modifier: u8) -> Song {
+    let mut song = dro_core::io::read_song("m.vgm", VGM_FIXTURE).unwrap();
+    song.vgm_meta_mut().unwrap().volume_modifier = modifier;
+    song
+}
+
+#[test]
+fn opening_a_song_sets_the_volume_from_its_header_modifier_when_unlocked() {
+    // The header asks for a 2x volume (modifier 0x20); unlocked, opening it sets
+    // the playback volume to match, so the boost never carries over stale.
+    let song = vgm_with_modifier(0x20);
+    let (harness, _handles) = build(Some(picked(&song)), false, false);
+    assert!(
+        (harness.state().config.audio.boost - 2.0).abs() < 1e-4,
+        "the volume follows the header modifier: {}",
+        harness.state().config.audio.boost
+    );
+}
+
+#[test]
+fn a_locked_volume_ignores_the_songs_modifier_on_open() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    // Lock the volume at 4x.
+    act(&mut harness, Action::SetLockBoost(true));
+    act(
+        &mut harness,
+        Action::SetBoost {
+            value: 4.0,
+            persist: true,
+        },
+    );
+    // Opening a song whose modifier asks for 2x must not disturb the locked 4x.
+    harness
+        .state_mut()
+        .load_file(picked(&vgm_with_modifier(0x20)));
+    harness.run();
+    assert_eq!(
+        harness.state().config.audio.boost,
+        4.0,
+        "locked: the volume is kept, not reset to the song's 2x modifier"
+    );
+}
+
+#[test]
+fn unlocking_snaps_the_volume_to_the_current_songs_modifier() {
+    // Locked at 4x over a song whose modifier asks for 2x.
+    let (mut harness, _handles) = build(Some(picked(&vgm_with_modifier(0x20))), false, false);
+    act(&mut harness, Action::SetLockBoost(true));
+    act(
+        &mut harness,
+        Action::SetBoost {
+            value: 4.0,
+            persist: true,
+        },
+    );
+    assert_eq!(harness.state().config.audio.boost, 4.0);
+    // Unlocking hands control back to the song: the volume snaps to its 2x now.
+    act(&mut harness, Action::SetLockBoost(false));
+    assert!(
+        (harness.state().config.audio.boost - 2.0).abs() < 1e-4,
+        "unlocking snaps to the modifier: {}",
+        harness.state().config.audio.boost
+    );
 }
 
 #[test]
@@ -854,13 +948,11 @@ fn match_volume_measures_the_peak_and_sets_the_volume() {
         "the volume is matched to the measured peak, on the ladder; status={:?}",
         harness.state().status
     );
+    // Match Volume is a per-song action: unlocked, it sets the live volume but
+    // does not write to drotrim.ini.
     assert!(
-        handles
-            .saved_configs
-            .borrow()
-            .iter()
-            .any(|config| config.audio.boost == expected),
-        "the matched volume is persisted"
+        handles.saved_configs.borrow().is_empty(),
+        "an unlocked Match does not persist"
     );
 }
 

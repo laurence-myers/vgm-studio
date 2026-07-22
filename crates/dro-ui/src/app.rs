@@ -547,6 +547,7 @@ impl DroApp {
                             p,
                             self.config.audio.boost,
                             self.boost_ceiling,
+                            self.config.audio.lock_boost,
                             &mut actions,
                         );
                     });
@@ -782,7 +783,42 @@ impl DroApp {
         // one picks it up from `config.audio` on the next load, so this
         // deliberately does not force an audio reload.
         self.audio.set_boost(value);
-        if persist && let Err(error) = self.config_store.save(&self.config) {
+        // Only write to drotrim.ini when the volume is locked: an unlocked boost
+        // is per-song (re-derived from the modifier on the next open), so
+        // persisting it would resurrect a stale value on the next launch.
+        if persist
+            && self.config.audio.lock_boost
+            && let Err(error) = self.config_store.save(&self.config)
+        {
+            self.alerts
+                .push_back(Alert::error(format!("Could not save settings: {error}")));
+        }
+    }
+
+    /// The playback volume a freshly opened song should start at when the volume
+    /// is not locked: the factor its header volume modifier asks for (unity for a
+    /// DRO, or a VGM whose modifier is `0`).
+    fn song_modifier_boost(&self) -> f32 {
+        self.editor
+            .song()
+            .and_then(|song| song.vgm_meta())
+            .map_or(1.0, |meta| {
+                dro_core::volume_modifier_factor(meta.volume_modifier)
+            })
+    }
+
+    /// Applies the "Lock" toggle. Locking remembers the current volume across
+    /// songs (and persists it); unlocking hands control back to each song's
+    /// header modifier, snapping the current song to its modifier now so the
+    /// lever reflects the change immediately.
+    fn set_lock_boost(&mut self, lock: bool) {
+        self.config.audio.lock_boost = lock;
+        if !lock {
+            let boost = self.song_modifier_boost();
+            self.config.audio.boost = boost;
+            self.audio.set_boost(boost);
+        }
+        if let Err(error) = self.config_store.save(&self.config) {
             self.alerts
                 .push_back(Alert::error(format!("Could not save settings: {error}")));
         }
@@ -1607,6 +1643,7 @@ impl DroApp {
             Action::MutingChanged => self.audio.set_muting(self.channels.muting()),
             Action::PanningChanged => self.audio.set_panning(self.channels.panning()),
             Action::SetBoost { value, persist } => self.set_boost(value, persist),
+            Action::SetLockBoost(lock) => self.set_lock_boost(lock),
             Action::MatchVolume => self.match_volume(),
             Action::MeasureVolumeModifier => self.measure_volume_modifier(),
             Action::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
@@ -1703,6 +1740,13 @@ impl DroApp {
                 self.last_first_selected = None;
                 self.scroll_to = Some(0);
                 self.push_load_warnings(report, file_version);
+                // Unless the volume is locked, a freshly opened song starts at the
+                // volume its header modifier asks for (unity for a DRO), so the
+                // boost does not carry over from the previous song.
+                if !self.config.audio.lock_boost {
+                    let boost = self.song_modifier_boost();
+                    self.set_boost(boost, false);
+                }
             }
             Err(message) => self
                 .alerts
