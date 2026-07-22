@@ -496,11 +496,185 @@ pub(crate) const FT2_CLASSIC: Palette = Skin {
 }
 .compose();
 
+// -------------------------------------------------------------------------
+// The Bassoon "Variation 2" cases. These share ONE hardware table -- the
+// "case changes, displays don't" rule -- and differ only in the fascia plate,
+// the keycaps and the chrome ink.
+// -------------------------------------------------------------------------
+
+/// The shared display hardware for the Bassoon cases: tracker-yellow readouts,
+/// the amber latch lamp, a green/amber/red VU and a cool scope.
+const HARDWARE: HardwareColors = HardwareColors {
+    data_bg: Color32::from_rgb(0x0C, 0x14, 0x14),
+    data_stripe: Color32::from_rgb(0x14, 0x20, 0x20),
+    data_hover: Color32::from_rgb(0x1B, 0x2C, 0x2C),
+    data_text: Color32::from_rgb(0xF1, 0xE6, 0x7B),
+
+    wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
+    wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
+    wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
+    wf_start: Color32::WHITE,
+    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
+    wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
+    wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
+    wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x14, 0x05, 0x24),
+
+    meter_off: Color32::from_rgb(0x1C, 0x28, 0x3C),
+    meter_low: Color32::from_rgb(0x3C, 0xC8, 0x50),
+    meter_mid: Color32::from_rgb(0xE6, 0xC8, 0x46),
+    meter_high: Color32::from_rgb(0xE0, 0x4A, 0x4A),
+    meter_hold: Color32::from_rgb(0xEA, 0xF4, 0xF4),
+
+    latch_top: Color32::from_rgb(0xFB, 0xE3, 0x8C),
+    latch_bottom: Color32::from_rgb(0xDD, 0xB0, 0x47),
+    latch_border: Color32::from_rgb(0x8A, 0x6D, 0x28),
+    latch_ink: Color32::from_rgb(0x3F, 0x2E, 0x08),
+};
+
+/// Navy: a dark blue plate with light silkscreen and mid-blue keycaps.
+const NAVY_CASE: CaseColors = CaseColors {
+    face: Color32::from_rgb(0x34, 0x48, 0x6A),
+    face_hover: Color32::from_rgb(0x3E, 0x54, 0x78),
+    face_active: Color32::from_rgb(0x2A, 0x3C, 0x5C),
+    desktop: Color32::from_rgb(0x17, 0x1F, 0x30),
+    bevel_light: Color32::from_rgb(0x5E, 0x76, 0xA0),
+    bevel_dark: Color32::from_rgb(0x14, 0x20, 0x3A),
+    bevel_border: Color32::from_rgb(0x0A, 0x0F, 0x1A),
+
+    plate_top: Color32::from_rgb(0x3E, 0x52, 0x73),
+    plate_bottom: Color32::from_rgb(0x28, 0x3A, 0x57),
+    plate_border: Color32::from_rgb(0x10, 0x19, 0x2A),
+
+    label: Color32::from_rgb(0xD6, 0xE2, 0xF5),
+    muted: Color32::from_rgb(0x7E, 0x8F, 0xB0),
+    data_label: Color32::from_rgb(0xB8, 0xC6, 0xE0),
+    trough: Color32::from_rgb(0x1A, 0x24, 0x40),
+
+    button_face: Color32::from_rgb(0x8F, 0xA2, 0xC2),
+    button_hover: Color32::from_rgb(0x9D, 0xB0, 0xD0),
+    button_active: Color32::from_rgb(0x7E, 0x93, 0xB4),
+    button_light: Color32::from_rgb(0xC2, 0xD2, 0xEC),
+    button_shadow: Color32::from_rgb(0x4A, 0x5A, 0x7A),
+    button_text: Color32::from_rgb(0x14, 0x1E, 0x30),
+    button_pressed: Color32::from_rgb(0x5A, 0x6E, 0x92),
+    button_pressed_text: Color32::WHITE,
+
+    pad_cap_top: Color32::from_rgb(0x95, 0xA9, 0xC9),
+    pad_cap_bottom: Color32::from_rgb(0x7E, 0x93, 0xB4),
+    pad_border: Color32::from_rgb(0x35, 0x41, 0x5A),
+    pad_ink: Color32::from_rgb(0x14, 0x1E, 0x30),
+
+    accent: Color32::from_rgb(0x33, 0x55, 0xAA),
+    selection_text: Color32::WHITE,
+};
+
+/// The navy Bassoon case.
+pub(crate) const NAVY: Palette = Skin {
+    case: NAVY_CASE,
+    hardware: HARDWARE,
+}
+.compose();
+
+/// Cream: a light plate. The silkscreen flips to dark ink and the keycaps go
+/// tone-on-tone, so the amber latch and the dark wells still carry the eye.
+const CREAM_CASE: CaseColors = CaseColors {
+    face: Color32::from_rgb(0xE8, 0xDF, 0xC6),
+    face_hover: Color32::from_rgb(0xF0, 0xE8, 0xD3),
+    face_active: Color32::from_rgb(0xDC, 0xD2, 0xB8),
+    desktop: Color32::from_rgb(0x39, 0x35, 0x2A),
+    bevel_light: Color32::from_rgb(0xFF, 0xFB, 0xF0),
+    bevel_dark: Color32::from_rgb(0xA8, 0x9E, 0x82),
+    bevel_border: Color32::from_rgb(0x6E, 0x66, 0x4C),
+
+    plate_top: Color32::from_rgb(0xF0, 0xE8, 0xD3),
+    plate_bottom: Color32::from_rgb(0xDB, 0xD1, 0xB5),
+    plate_border: Color32::from_rgb(0x7C, 0x74, 0x58),
+
+    // The emboss flip: dark ink on the light plate.
+    label: Color32::from_rgb(0x38, 0x35, 0x2A),
+    muted: Color32::from_rgb(0x8A, 0x82, 0x66),
+    // Light: it still sits on the dark data well.
+    data_label: Color32::from_rgb(0xC8, 0xBE, 0x9E),
+    trough: Color32::from_rgb(0xBE, 0xB4, 0x98),
+
+    button_face: Color32::from_rgb(0xD8, 0xCD, 0xB0),
+    button_hover: Color32::from_rgb(0xE2, 0xD7, 0xBB),
+    button_active: Color32::from_rgb(0xCA, 0xBF, 0xA2),
+    button_light: Color32::from_rgb(0xF4, 0xEE, 0xDC),
+    button_shadow: Color32::from_rgb(0x8A, 0x82, 0x66),
+    button_text: Color32::from_rgb(0x33, 0x30, 0x1F),
+    button_pressed: Color32::from_rgb(0xB8, 0xAE, 0x90),
+    button_pressed_text: Color32::from_rgb(0x33, 0x30, 0x1F),
+
+    pad_cap_top: Color32::from_rgb(0xE2, 0xD7, 0xBB),
+    pad_cap_bottom: Color32::from_rgb(0xCF, 0xC3, 0xA2),
+    pad_border: Color32::from_rgb(0x6B, 0x63, 0x49),
+    pad_ink: Color32::from_rgb(0x33, 0x30, 0x1F),
+
+    accent: Color32::from_rgb(0x40, 0x56, 0xA0),
+    selection_text: Color32::WHITE,
+};
+
+/// The cream Bassoon case.
+pub(crate) const CREAM: Palette = Skin {
+    case: CREAM_CASE,
+    hardware: HARDWARE,
+}
+.compose();
+
+/// Verdigris: a patinated-copper metal plate with light silkscreen and
+/// patina-green keycaps.
+const VERDIGRIS_CASE: CaseColors = CaseColors {
+    face: Color32::from_rgb(0x3E, 0x69, 0x59),
+    face_hover: Color32::from_rgb(0x4A, 0x77, 0x68),
+    face_active: Color32::from_rgb(0x34, 0x5A, 0x4C),
+    desktop: Color32::from_rgb(0x1C, 0x2A, 0x24),
+    bevel_light: Color32::from_rgb(0x6F, 0xA0, 0x89),
+    bevel_dark: Color32::from_rgb(0x1E, 0x36, 0x2C),
+    bevel_border: Color32::from_rgb(0x0E, 0x1A, 0x14),
+
+    plate_top: Color32::from_rgb(0x4C, 0x7C, 0x6B),
+    plate_bottom: Color32::from_rgb(0x35, 0x59, 0x4A),
+    plate_border: Color32::from_rgb(0x15, 0x2A, 0x22),
+
+    label: Color32::from_rgb(0xE2, 0xED, 0xE2),
+    muted: Color32::from_rgb(0x8A, 0xA8, 0x98),
+    data_label: Color32::from_rgb(0xB8, 0xD0, 0xC2),
+    trough: Color32::from_rgb(0x1E, 0x36, 0x2C),
+
+    button_face: Color32::from_rgb(0x9A, 0xBB, 0xA8),
+    button_hover: Color32::from_rgb(0xA8, 0xC8, 0xB6),
+    button_active: Color32::from_rgb(0x88, 0xAC, 0x97),
+    button_light: Color32::from_rgb(0xC6, 0xDE, 0xD0),
+    button_shadow: Color32::from_rgb(0x4E, 0x6E, 0x5E),
+    button_text: Color32::from_rgb(0x16, 0x28, 0x1F),
+    button_pressed: Color32::from_rgb(0x60, 0x82, 0x72),
+    button_pressed_text: Color32::WHITE,
+
+    pad_cap_top: Color32::from_rgb(0xA3, 0xC4, 0xB2),
+    pad_cap_bottom: Color32::from_rgb(0x88, 0xAC, 0x97),
+    pad_border: Color32::from_rgb(0x32, 0x4A, 0x3E),
+    pad_ink: Color32::from_rgb(0x16, 0x28, 0x1F),
+
+    accent: Color32::from_rgb(0xB5, 0x84, 0x3C),
+    selection_text: Color32::from_rgb(0x16, 0x28, 0x1F),
+};
+
+/// The verdigris Bassoon case.
+pub(crate) const VERDIGRIS: Palette = Skin {
+    case: VERDIGRIS_CASE,
+    hardware: HARDWARE,
+}
+.compose();
+
 /// The palette for a configured theme.
 #[must_use]
 pub fn palette(choice: ThemeChoice) -> &'static Palette {
     match choice {
         ThemeChoice::CloneDark => &CLONE_DARK,
         ThemeChoice::Ft2Classic => &FT2_CLASSIC,
+        ThemeChoice::Navy => &NAVY,
+        ThemeChoice::Cream => &CREAM,
+        ThemeChoice::Verdigris => &VERDIGRIS,
     }
 }

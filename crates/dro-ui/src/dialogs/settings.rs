@@ -114,16 +114,9 @@ impl SettingsDialog {
                     egui::ComboBox::from_id_salt("settings-theme")
                         .selected_text(theme_label(self.theme))
                         .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                &mut self.theme,
-                                ThemeChoice::CloneDark,
-                                theme_label(ThemeChoice::CloneDark),
-                            );
-                            ui.selectable_value(
-                                &mut self.theme,
-                                ThemeChoice::Ft2Classic,
-                                theme_label(ThemeChoice::Ft2Classic),
-                            );
+                            for choice in ThemeChoice::ALL {
+                                ui.selectable_value(&mut self.theme, choice, theme_label(choice));
+                            }
                         });
                     ui.end_row();
 
@@ -228,6 +221,9 @@ fn theme_label(theme: ThemeChoice) -> &'static str {
     match theme {
         ThemeChoice::CloneDark => "Clone (dark)",
         ThemeChoice::Ft2Classic => "FastTracker II (classic)",
+        ThemeChoice::Navy => "Navy",
+        ThemeChoice::Cream => "Cream",
+        ThemeChoice::Verdigris => "Verdigris",
     }
 }
 

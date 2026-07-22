@@ -56,13 +56,25 @@ pub enum ThemeChoice {
     CloneDark,
     /// The original DOS FastTracker II steel-blue scheme.
     Ft2Classic,
+    /// Bassoon "Variation 2" navy plate.
+    Navy,
+    /// Bassoon cream: a light plate, dark silkscreen, tone-on-tone keys.
+    Cream,
+    /// Bassoon verdigris: a patinated-copper three-stop metal plate.
+    Verdigris,
 }
 
 impl ThemeChoice {
     /// Every theme, in dropdown order. Lets exhaustive consumers (the theme
     /// showcase snapshot test) iterate all themes; a new variant added here
     /// then fails that test with a missing baseline until one is generated.
-    pub const ALL: [Self; 2] = [Self::CloneDark, Self::Ft2Classic];
+    pub const ALL: [Self; 5] = [
+        Self::CloneDark,
+        Self::Ft2Classic,
+        Self::Navy,
+        Self::Cream,
+        Self::Verdigris,
+    ];
 }
 
 impl core::fmt::Display for ThemeChoice {
@@ -70,6 +82,9 @@ impl core::fmt::Display for ThemeChoice {
         f.write_str(match self {
             Self::CloneDark => "clone-dark",
             Self::Ft2Classic => "ft2-classic",
+            Self::Navy => "navy",
+            Self::Cream => "cream",
+            Self::Verdigris => "verdigris",
         })
     }
 }
@@ -84,6 +99,9 @@ impl core::str::FromStr for ThemeChoice {
         match value.trim().to_ascii_lowercase().as_str() {
             "clone-dark" | "clone_dark" | "clonedark" => Ok(Self::CloneDark),
             "ft2-classic" | "ft2_classic" | "ft2classic" => Ok(Self::Ft2Classic),
+            "navy" => Ok(Self::Navy),
+            "cream" => Ok(Self::Cream),
+            "verdigris" => Ok(Self::Verdigris),
             _ => Err(()),
         }
     }
