@@ -42,7 +42,7 @@ impl TrackEditDialog {
         // seed it from the original file name's title so the derived name starts
         // out matching the file on disk rather than blank.
         if fields[0].trim().is_empty() {
-            fields[0] = title_from_file_name(&file_name);
+            fields[0] = dro_core::rip::title_from_filename(&file_name).to_owned();
         }
         Self {
             original_name: file_name,
@@ -138,20 +138,6 @@ impl TrackEditDialog {
     }
 }
 
-/// The title embedded in a `"NN Title.ext"` file name: the stem with any leading
-/// run of digits (and the following space) and the extension stripped.
-fn title_from_file_name(name: &str) -> String {
-    let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem).trim();
-    match stem.split_once(' ') {
-        Some((number, rest))
-            if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) =>
-        {
-            rest.trim().to_owned()
-        }
-        _ => stem.to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,14 +169,6 @@ mod tests {
         let dialog = make(1, "01 Intro.vgz", &[]);
         assert_eq!(dialog.fields[0], "Intro");
         assert_eq!(dialog.derived_name(), "01 Intro.vgz");
-    }
-
-    #[test]
-    fn title_from_file_name_strips_the_number_and_extension() {
-        assert_eq!(title_from_file_name("01 Intro.vgz"), "Intro");
-        assert_eq!(title_from_file_name("12 Boss Battle.vgm"), "Boss Battle");
-        assert_eq!(title_from_file_name("noprefix.vgz"), "noprefix");
-        assert_eq!(title_from_file_name("song"), "song");
     }
 
     #[test]

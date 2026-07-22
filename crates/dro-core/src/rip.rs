@@ -15,6 +15,9 @@
 //! at column 47, and a non-looping track's `" -   "` dash landing at column 44 --
 //! are all reproduced here and pinned by the tests.
 
+use std::collections::BTreeSet;
+
+use crate::Gd3Tag;
 use crate::error::{Error, Result};
 use crate::song::{OplType, Song};
 
@@ -694,6 +697,321 @@ fn verbatim_block(lines: &[&str]) -> String {
     lines[start..=end].join("\n")
 }
 
+// -- submission readiness ----------------------------------------------------
+
+/// The severity tier of a [`ReadinessItem`], matching the export gate: an
+/// [`Error`](Severity::Error) blocks export, a [`Warning`](Severity::Warning)
+/// prompts an "export anyway?" confirm, and a [`Note`](Severity::Note) is shown
+/// in the checklist but never gates (genuinely-optional things, like a track that
+/// legitimately never loops).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+    Note,
+}
+
+/// A package-metadata form field a [`ReadinessItem`] can point at, so the UI can
+/// scroll to and focus it. Only the fields the checks actually flag are modelled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MetaField {
+    MusicAuthors,
+    ReleaseDate,
+    Creator,
+    History,
+}
+
+/// What a [`ReadinessItem`] points at, so the checklist can navigate straight to
+/// the fix: a metadata field to focus, a track (by 0-based pack index) to open in
+/// quick-edit, or the pack as a whole (an item tied to no single field or track).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessTarget {
+    Meta(MetaField),
+    Track(usize),
+    Pack,
+}
+
+/// One submission-readiness finding: its severity, the message shown to the user,
+/// and the field or track it points at.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadinessItem {
+    pub severity: Severity,
+    pub target: ReadinessTarget,
+    pub message: String,
+}
+
+/// A slim, UI-free view of one song for [`readiness`]: no egui, no app types, so
+/// the checks stay wasm-clean and table-testable. The UI builds these from its
+/// loaded tracks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrackFacts {
+    /// The file's current name on disk, `NN Title.ext`.
+    pub file_name: String,
+    /// The parsed GD3 tag, or `None` when the song carries none.
+    pub tag: Option<Gd3Tag>,
+    /// Whether the song has a loop point.
+    pub loops: bool,
+    /// Whether the song parsed. An unreadable track is skipped by every content
+    /// check here -- the file-level "could not be read" warning covers it.
+    pub readable: bool,
+}
+
+/// Whether `s` is a VGMRips-style release date: an all-digit, hyphen-separated
+/// `YYYY`, `YYYY-MM`, or `YYYY-MM-DD`. This is the wiki convention (the rerip
+/// guide converts slashes to hyphens); slashes, dots and free text all fail.
+/// Field ranges are not checked -- only the shape.
+#[must_use]
+pub fn is_pack_date(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('-').collect();
+    let widths: &[usize] = match parts.len() {
+        1 => &[4],
+        2 => &[4, 2],
+        3 => &[4, 2, 2],
+        _ => return false,
+    };
+    parts
+        .iter()
+        .zip(widths)
+        .all(|(part, &width)| part.len() == width && part.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// The submission-readiness checks the VGMRips wiki wants verified before a pack
+/// is submitted, beyond the file-level shape [`crate::rip`]'s callers already
+/// check: complete and consistent GD3 tags, hyphen-separated dates, update notes,
+/// and loops.
+///
+/// Pure over [`RipMeta`] and per-track [`TrackFacts`] -- no filesystem, no egui --
+/// so it is driven entirely by table tests and runs on the web too. Each returned
+/// [`ReadinessItem`] carries its severity, a message, and the field or track to
+/// navigate to. A `Track(index)` target is the 0-based position in `tracks`, so
+/// pass one `TrackFacts` per pack track in order and the index maps straight back.
+#[must_use]
+pub fn readiness(meta: &RipMeta, tracks: &[TrackFacts]) -> Vec<ReadinessItem> {
+    let mut items = Vec::new();
+    check_pack_meta(meta, &mut items);
+    for (index, facts) in tracks.iter().enumerate() {
+        if facts.readable {
+            check_track(index, facts, meta, &mut items);
+        }
+    }
+    check_author_consistency(meta, tracks, &mut items);
+    check_loops(tracks, &mut items);
+    items
+}
+
+fn warn(items: &mut Vec<ReadinessItem>, target: ReadinessTarget, message: String) {
+    items.push(ReadinessItem {
+        severity: Severity::Warning,
+        target,
+        message,
+    });
+}
+
+fn note(items: &mut Vec<ReadinessItem>, target: ReadinessTarget, message: String) {
+    items.push(ReadinessItem {
+        severity: Severity::Note,
+        target,
+        message,
+    });
+}
+
+/// P1-P4: the pack-level header fields a submission must fill.
+fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
+    if meta.creator.trim().is_empty() {
+        warn(
+            items,
+            ReadinessTarget::Meta(MetaField::Creator),
+            "Package created by (the ripper) is empty.".to_owned(),
+        );
+    }
+    let date = meta.release_date.trim();
+    if date.is_empty() {
+        warn(
+            items,
+            ReadinessTarget::Meta(MetaField::ReleaseDate),
+            "Game release date is empty.".to_owned(),
+        );
+    } else if !is_pack_date(date) {
+        warn(
+            items,
+            ReadinessTarget::Meta(MetaField::ReleaseDate),
+            format!(
+                "Game release date \"{date}\" should be a hyphen-separated date \
+                 (YYYY, YYYY-MM or YYYY-MM-DD)."
+            ),
+        );
+    }
+    if meta.music_authors.trim().is_empty() {
+        warn(
+            items,
+            ReadinessTarget::Meta(MetaField::MusicAuthors),
+            "Music author is empty.".to_owned(),
+        );
+    }
+    if meta.history.trim().is_empty() {
+        warn(
+            items,
+            ReadinessTarget::Meta(MetaField::History),
+            "Package history (update notes) is empty.".to_owned(),
+        );
+    }
+}
+
+/// T1-T5 and C1-C4 for one readable track.
+fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
+    let label = track_label(index, facts);
+    let target = ReadinessTarget::Track(index);
+
+    // T1: no GD3 tag at all -- nothing more to check on this track.
+    let Some(tag) = facts.tag.as_ref() else {
+        warn(items, target, format!("{label}: has no GD3 tag."));
+        return;
+    };
+
+    // T2 + T3: every required field that is empty, gathered into one line.
+    let required = [
+        ("Track Name", tag.track_name_en.as_str()),
+        ("Game Name", tag.game_name_en.as_str()),
+        ("System", tag.system_name_en.as_str()),
+        ("Composer", tag.track_author_en.as_str()),
+        ("Release Date", tag.release_date.as_str()),
+        ("Ripper", tag.creator.as_str()),
+    ];
+    let missing: Vec<&str> = required
+        .into_iter()
+        .filter(|(_, value)| value.trim().is_empty())
+        .map(|(name, _)| name)
+        .collect();
+    if !missing.is_empty() {
+        warn(
+            items,
+            target,
+            format!("{label}: missing {}.", missing.join(", ")),
+        );
+    }
+
+    // T4: a present release date must be hyphen-separated.
+    let date = tag.release_date.trim();
+    if !date.is_empty() && !is_pack_date(date) {
+        warn(
+            items,
+            target,
+            format!("{label}: release date \"{date}\" should be hyphen-separated."),
+        );
+    }
+
+    // T5: the on-disk file name must still match the Track Name it derives from.
+    // Compare against the *sanitised* track name, since that is all a file name
+    // can hold -- so a title with a `/` or `:` is not a false mismatch.
+    let track_name = tag.track_name_en.trim();
+    if !track_name.is_empty() {
+        let file_title = title_from_filename(&facts.file_name).trim();
+        if sanitize_file_component(track_name) != file_title {
+            warn(
+                items,
+                target,
+                format!("{label}: file name doesn't match the Track Name (rename or re-tag)."),
+            );
+        }
+    }
+
+    // C1-C4: fields that must agree with the pack meta -- only when both sides are
+    // set (an empty side is already covered by the missing-field checks and P1-P4).
+    let consistency = [
+        (
+            "game name",
+            tag.game_name_en.as_str(),
+            meta.game_name.as_str(),
+        ),
+        ("system", tag.system_name_en.as_str(), meta.system.as_str()),
+        ("ripper", tag.creator.as_str(), meta.creator.as_str()),
+        (
+            "release date",
+            tag.release_date.as_str(),
+            meta.release_date.as_str(),
+        ),
+    ];
+    for (what, track_value, meta_value) in consistency {
+        let track_value = track_value.trim();
+        let meta_value = meta_value.trim();
+        if !track_value.is_empty() && !meta_value.is_empty() && track_value != meta_value {
+            warn(
+                items,
+                target,
+                format!(
+                    "{label}: {what} \"{track_value}\" differs from the pack's \"{meta_value}\"."
+                ),
+            );
+        }
+    }
+}
+
+/// C5 (note): the union of the tracks' GD3 composers vs the pack's Music author
+/// list. Track authors vary legitimately, so this is only ever a note.
+fn check_author_consistency(meta: &RipMeta, tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
+    let pack: BTreeSet<String> = split_authors(&meta.music_authors).collect();
+    if pack.is_empty() {
+        return; // an empty Music author field is P3's business
+    }
+    let mut tracked: BTreeSet<String> = BTreeSet::new();
+    for facts in tracks {
+        if facts.readable
+            && let Some(tag) = &facts.tag
+        {
+            tracked.extend(split_authors(&tag.track_author_en));
+        }
+    }
+    if !tracked.is_empty() && tracked != pack {
+        note(
+            items,
+            ReadinessTarget::Meta(MetaField::MusicAuthors),
+            "The tracks' composers don't all match the pack's Music author list.".to_owned(),
+        );
+    }
+}
+
+/// L1 (note): the readable tracks with no loop point, in one line. Jingles
+/// legitimately never loop, so this only asks the packager to verify.
+fn check_loops(tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
+    let loopless: Vec<String> = tracks
+        .iter()
+        .enumerate()
+        .filter(|(_, facts)| facts.readable && !facts.loops)
+        .map(|(index, facts)| track_label(index, facts))
+        .collect();
+    if !loopless.is_empty() {
+        note(
+            items,
+            ReadinessTarget::Pack,
+            format!(
+                "No loop point (verify these are meant to play once): {}.",
+                loopless.join(", ")
+            ),
+        );
+    }
+}
+
+/// The `NN Title` label for a track in a message: its 1-based position and the
+/// GD3 English track name, falling back to the file name's title when untagged.
+fn track_label(index: usize, facts: &TrackFacts) -> String {
+    let title = facts
+        .tag
+        .as_ref()
+        .map(|tag| tag.track_name_en.trim())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| title_from_filename(&facts.file_name));
+    format!("{:02} {title}", index + 1)
+}
+
+/// Splits a `Music author` / composer string into individual names on commas and
+/// ampersands, trimmed, dropping empties.
+fn split_authors(text: &str) -> impl Iterator<Item = String> + '_ {
+    text.split([',', '&'])
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1179,5 +1497,332 @@ mod tests {
             TrackEntry::from_song(&tagged, "01 Fallback Title.vgm").title,
             "Real Title"
         );
+    }
+
+    // -- submission readiness --------------------------------------------------
+
+    fn facts(file_name: &str, tag: Option<Gd3Tag>, loops: bool, readable: bool) -> TrackFacts {
+        TrackFacts {
+            file_name: file_name.to_owned(),
+            tag,
+            loops,
+            readable,
+        }
+    }
+
+    /// A track that passes every content check against [`full_meta`].
+    fn full_tag() -> Gd3Tag {
+        Gd3Tag {
+            track_name_en: "Intro".to_owned(),
+            game_name_en: "Cool Game".to_owned(),
+            system_name_en: "IBM PC/AT".to_owned(),
+            track_author_en: "Ada".to_owned(),
+            release_date: "1994-03-01".to_owned(),
+            creator: "Ripper".to_owned(),
+            ..Gd3Tag::default()
+        }
+    }
+
+    fn full_meta() -> RipMeta {
+        RipMeta {
+            game_name: "Cool Game".to_owned(),
+            system: "IBM PC/AT".to_owned(),
+            music_authors: "Ada".to_owned(),
+            release_date: "1994-03-01".to_owned(),
+            creator: "Ripper".to_owned(),
+            history: "1.00 1994-03-01 Ripper: Initial release.".to_owned(),
+            ..RipMeta::default()
+        }
+    }
+
+    fn messages(items: &[ReadinessItem], severity: Severity) -> Vec<&str> {
+        items
+            .iter()
+            .filter(|item| item.severity == severity)
+            .map(|item| item.message.as_str())
+            .collect()
+    }
+
+    fn has(items: &[ReadinessItem], severity: Severity, needle: &str) -> bool {
+        messages(items, severity)
+            .iter()
+            .any(|message| message.contains(needle))
+    }
+
+    #[test]
+    fn is_pack_date_accepts_hyphenated_dates_and_rejects_the_rest() {
+        for good in ["1994", "1994-03", "1994-03-01", "0000", "2026-12-31"] {
+            assert!(is_pack_date(good), "{good:?} should be a valid pack date");
+        }
+        for bad in [
+            "",
+            "199",
+            "94",
+            "1994-3",
+            "1994-03-1",
+            "1994-",
+            "1994/03/01",
+            "1994.03.01",
+            "March 1994",
+            "1994-03-01-01",
+            "199a",
+        ] {
+            assert!(!is_pack_date(bad), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn a_complete_pack_reports_nothing() {
+        let tracks = [facts("01 Intro.vgz", Some(full_tag()), true, true)];
+        assert!(
+            readiness(&full_meta(), &tracks).is_empty(),
+            "a clean pack yields no items"
+        );
+    }
+
+    #[test]
+    fn empty_pack_meta_warns_on_every_required_header_field() {
+        // Default meta: no creator, date, author or history. One readable, fully
+        // tagged track keeps the per-track checks quiet so only P1-P4 show.
+        let meta = RipMeta::default();
+        let tracks = [facts("01 Intro.vgz", Some(full_tag()), true, true)];
+        let items = readiness(&meta, &tracks);
+        assert!(has(&items, Severity::Warning, "Package created by"));
+        assert!(has(&items, Severity::Warning, "release date is empty"));
+        assert!(has(&items, Severity::Warning, "Music author is empty"));
+        assert!(has(&items, Severity::Warning, "Package history"));
+    }
+
+    #[test]
+    fn a_slash_separated_pack_date_warns_but_a_hyphenated_one_does_not() {
+        let mut meta = full_meta();
+        meta.release_date = "1994/03/01".to_owned();
+        let tracks = [facts("01 Intro.vgz", Some(full_tag()), true, true)];
+        let items = readiness(&meta, &tracks);
+        assert!(has(&items, Severity::Warning, "hyphen-separated"));
+        assert_eq!(
+            items[0].target,
+            ReadinessTarget::Meta(MetaField::ReleaseDate)
+        );
+
+        meta.release_date = "1994-03-01".to_owned();
+        assert!(
+            readiness(
+                &meta,
+                &[facts("01 Intro.vgz", Some(full_tag()), true, true)]
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn an_untagged_readable_track_is_flagged() {
+        let tracks = [facts("01 Intro.vgz", None, true, true)];
+        let items = readiness(&full_meta(), &tracks);
+        assert!(has(&items, Severity::Warning, "has no GD3 tag"));
+        // And the target is the track itself, for click-to-fix.
+        let tagless: Vec<_> = items
+            .iter()
+            .filter(|item| item.message.contains("no GD3 tag"))
+            .collect();
+        assert_eq!(tagless[0].target, ReadinessTarget::Track(0));
+    }
+
+    #[test]
+    fn missing_required_gd3_fields_are_listed_in_one_line() {
+        let tag = Gd3Tag {
+            track_name_en: "Intro".to_owned(),
+            game_name_en: "Cool Game".to_owned(),
+            system_name_en: "IBM PC/AT".to_owned(),
+            // no composer, no ripper
+            release_date: "1994-03-01".to_owned(),
+            ..Gd3Tag::default()
+        };
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Intro.vgz", Some(tag), true, true)],
+        );
+        let missing: Vec<&str> = messages(&items, Severity::Warning)
+            .into_iter()
+            .filter(|message| message.contains("missing"))
+            .collect();
+        assert_eq!(missing.len(), 1, "one combined missing-fields line");
+        assert!(missing[0].contains("Composer"));
+        assert!(missing[0].contains("Ripper"));
+        assert!(!missing[0].contains("Game Name"), "present fields omitted");
+    }
+
+    #[test]
+    fn a_track_release_date_with_slashes_warns() {
+        let tag = Gd3Tag {
+            release_date: "1994/03".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Intro.vgz", Some(tag), true, true)],
+        );
+        assert!(has(&items, Severity::Warning, "should be hyphen-separated"));
+    }
+
+    #[test]
+    fn a_file_name_that_drifts_from_the_track_name_warns() {
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Wrong Name.vgz", Some(full_tag()), true, true)],
+        );
+        assert!(has(
+            &items,
+            Severity::Warning,
+            "doesn't match the Track Name"
+        ));
+    }
+
+    #[test]
+    fn a_sanitised_title_is_not_a_false_file_name_mismatch() {
+        // Track name "A/B" can only ever be "A_B" in a file name -- not a drift.
+        let tag = Gd3Tag {
+            track_name_en: "A/B".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(&full_meta(), &[facts("01 A_B.vgz", Some(tag), true, true)]);
+        assert!(
+            !has(&items, Severity::Warning, "doesn't match the Track Name"),
+            "the sanitised title matches the file name"
+        );
+    }
+
+    #[test]
+    fn gd3_fields_inconsistent_with_the_pack_are_flagged_per_track() {
+        let tag = Gd3Tag {
+            game_name_en: "Different Game".to_owned(),
+            creator: "Other Ripper".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Intro.vgz", Some(tag), true, true)],
+        );
+        assert!(has(&items, Severity::Warning, "game name"));
+        assert!(has(&items, Severity::Warning, "differs from the pack's"));
+        assert!(has(&items, Severity::Warning, "ripper"));
+    }
+
+    #[test]
+    fn a_matching_gd3_field_raises_no_consistency_warning() {
+        // Same game name as the pack: no C1 warning (the only difference here is a
+        // composer, which never triggers consistency -- that is a note, C5).
+        let tag = Gd3Tag {
+            track_author_en: "Bob".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Intro.vgz", Some(tag), true, true)],
+        );
+        assert!(!has(&items, Severity::Warning, "differs from the pack's"));
+    }
+
+    #[test]
+    fn composer_set_mismatch_is_a_note_not_a_warning() {
+        // The pack credits Ada & Bob; the tracks only ever credit Ada.
+        let mut meta = full_meta();
+        meta.music_authors = "Ada & Bob".to_owned();
+        let items = readiness(
+            &meta,
+            &[facts("01 Intro.vgz", Some(full_tag()), true, true)],
+        );
+        assert!(has(&items, Severity::Note, "composers don't all match"));
+        assert!(!has(&items, Severity::Warning, "composers"));
+    }
+
+    #[test]
+    fn a_matching_composer_set_raises_no_note() {
+        // Split on both comma and ampersand, order-insensitive.
+        let mut meta = full_meta();
+        meta.music_authors = "Bob & Ada".to_owned();
+        let tracks = [
+            facts(
+                "01 Intro.vgz",
+                Some(Gd3Tag {
+                    track_author_en: "Ada".to_owned(),
+                    ..full_tag()
+                }),
+                true,
+                true,
+            ),
+            facts(
+                "02 Boss.vgz",
+                Some(Gd3Tag {
+                    track_name_en: "Boss".to_owned(),
+                    track_author_en: "Bob".to_owned(),
+                    ..full_tag()
+                }),
+                true,
+                true,
+            ),
+        ];
+        assert!(!has(
+            &readiness(&meta, &tracks),
+            Severity::Note,
+            "composers"
+        ));
+    }
+
+    #[test]
+    fn loopless_readable_tracks_get_a_single_note() {
+        let tracks = [
+            facts("01 Intro.vgz", Some(full_tag()), false, true),
+            facts(
+                "02 Loop.vgz",
+                Some(Gd3Tag {
+                    track_name_en: "Loop".to_owned(),
+                    ..full_tag()
+                }),
+                true,
+                true,
+            ),
+        ];
+        let items = readiness(&full_meta(), &tracks);
+        let loop_notes: Vec<&str> = messages(&items, Severity::Note)
+            .into_iter()
+            .filter(|message| message.contains("No loop point"))
+            .collect();
+        assert_eq!(loop_notes.len(), 1, "one aggregate loop note");
+        assert!(loop_notes[0].contains("01 Intro"));
+        assert!(
+            !loop_notes[0].contains("02 Loop"),
+            "the looping track is out"
+        );
+    }
+
+    #[test]
+    fn unreadable_tracks_are_skipped_and_track_targets_keep_their_index() {
+        // A readable-but-broken track sits at index 2, behind an unreadable one at
+        // index 1. Its Track target must be 2 (the pack position), so click-to-fix
+        // opens the right track.
+        let broken = Gd3Tag {
+            game_name_en: "Wrong Game".to_owned(),
+            ..full_tag()
+        };
+        let tracks = [
+            facts("01 Intro.vgz", Some(full_tag()), true, true),
+            facts("02 Broken.vgz", None, false, false),
+            facts("03 Boss.vgz", Some(broken), true, true),
+        ];
+        let items = readiness(&full_meta(), &tracks);
+        // Nothing points at the unreadable track...
+        assert!(
+            !items
+                .iter()
+                .any(|item| item.target == ReadinessTarget::Track(1)),
+            "the unreadable track is not content-checked"
+        );
+        // ...and the game-name mismatch points at index 2.
+        let mismatch = items
+            .iter()
+            .find(|item| item.message.contains("game name"))
+            .expect("a consistency warning");
+        assert_eq!(mismatch.target, ReadinessTarget::Track(2));
     }
 }
