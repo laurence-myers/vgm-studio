@@ -73,6 +73,18 @@
       but other players restart at the end-of-data command whatever the header
       says. A crop/trim would make it universal, and the `RangeMarkers` the loop
       uses were built to be reused for exactly that.
+  - Find Loop -- done. Edit > Find Loop searches the command stream for a block
+    of writes that repeats later in the song -- the shape a raw rip has when the
+    capture ran through the loop more than once -- and lists the repeats it
+    finds, best-first, with vgmlpfnd's `e`/`f`/`!` quality flags. Clicking a
+    candidate drops the editor's loop markers on it; Audition plays the seam;
+    Apply writes it into the VGM metadata (VGM only, like Apply Loop). The search
+    (`dro_core::find_loops`) strips delays before matching, so a body and its
+    repeat match through timing jitter, buckets window starts by a rolling hash
+    for near-linear candidate finding, and runs in a background task
+    (`TaskKind::LoopSearch`) so the UI never blocks. On the YM3812/YMF262 corpus
+    it recovers the tagged loop within a command or two, in a few milliseconds
+    even for 100k-command captures. See `docs/vgm-lpfnd-2026-07/HANDOVER.md`.
   - Volume -- done. A bidirectional playback "volume" lever in the transport
     row, sitting on the VGM volume-modifier factor ladder (0.25x..64x, shown to
     two decimals) so every position is a real modifier value. By default the
