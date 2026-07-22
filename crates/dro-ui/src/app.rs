@@ -366,9 +366,11 @@ impl DroApp {
         self.gather_key_input(&ctx, &mut actions);
 
         let p = self.palette();
-        // Chrome panels sit on the face colour; the waveform is a data well, so
-        // its margins take the main dark background rather than the chrome tint.
-        let chrome = egui::Frame::side_top_panel(ui.style()).fill(p.face);
+        // Chrome panels are fascia plates: a transparent frame, with the plate
+        // gradient painted behind the content inside each panel (see the
+        // `theme::plate` calls below). The waveform is a data well, so its
+        // margins take the main dark background rather than the chrome tint.
+        let chrome = egui::Frame::side_top_panel(ui.style()).fill(egui::Color32::TRANSPARENT);
         // No side margins: the reset button owns the left edge and the waveform
         // runs flush to the right edge.
         let well = egui::Frame::side_top_panel(ui.style())
@@ -384,7 +386,9 @@ impl DroApp {
             .frame(chrome)
             .show_separator_line(false)
             .show(ui, |ui| {
-                menus::bar(ui, p, &self.menu_state(), &mut actions);
+                theme::plate_panel(ui, p, |ui| {
+                    menus::bar(ui, p, &self.menu_state(), &mut actions);
+                });
             });
         // The tab strip switches the editor and rip views; shown only while a
         // rip project is open (otherwise the app is always the editor).
@@ -393,13 +397,15 @@ impl DroApp {
                 .frame(chrome)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Rip, "Rip")] {
-                            if ui.selectable_label(self.active_tab == tab, label).clicked() {
-                                actions.push(Action::SelectTab(tab));
+                    theme::plate_panel(ui, p, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Rip, "Rip")] {
+                                if ui.selectable_label(self.active_tab == tab, label).clicked() {
+                                    actions.push(Action::SelectTab(tab));
+                                }
                             }
-                        }
+                        });
                     });
                 })
         });
@@ -448,26 +454,28 @@ impl DroApp {
             .frame(chrome)
             .show_separator_line(false)
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(&self.status);
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.rip_service.is_busy() {
-                            // The status text names the operation (export or a
-                            // screenshot optimise); this just shows liveness.
-                            ui.label("Working...");
-                        }
-                        // Name the job rather than just "busy": a WAV render can
-                        // take a while, and the waveform's own render runs after
-                        // every edit.
-                        if self.tasks.is_busy_kind(TaskKind::RenderWav) {
-                            ui.label("Rendering WAV...");
-                        }
-                        if self.tasks.is_busy_kind(TaskKind::Split) {
-                            ui.label("Splitting channels...");
-                        }
-                        if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
-                            ui.label("Rendering waveform...");
-                        }
+                theme::plate_panel(ui, p, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(&self.status);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if self.rip_service.is_busy() {
+                                // The status text names the operation (export or a
+                                // screenshot optimise); this just shows liveness.
+                                ui.label("Working...");
+                            }
+                            // Name the job rather than just "busy": a WAV render can
+                            // take a while, and the waveform's own render runs after
+                            // every edit.
+                            if self.tasks.is_busy_kind(TaskKind::RenderWav) {
+                                ui.label("Rendering WAV...");
+                            }
+                            if self.tasks.is_busy_kind(TaskKind::Split) {
+                                ui.label("Splitting channels...");
+                            }
+                            if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
+                                ui.label("Rendering waveform...");
+                            }
+                        });
                     });
                 });
             });
@@ -476,14 +484,16 @@ impl DroApp {
                 .frame(chrome)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    self.position.show(ui, p);
+                    theme::plate_panel(ui, p, |ui| {
+                        self.position.show(ui, p);
+                    });
                 })
         });
         let controls = editor_tab.then(|| {
             // The controls own their vertical spacing (equal padding above and
             // below each row band), so drop the frame's vertical margin/spacing.
             let controls_frame = egui::Frame::side_top_panel(ui.style())
-                .fill(p.face)
+                .fill(egui::Color32::TRANSPARENT)
                 .inner_margin(egui::Margin {
                     left: 8,
                     right: 8,
@@ -494,75 +504,83 @@ impl DroApp {
                 .frame(controls_frame)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    const PAD: f32 = 6.0;
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    ui.add_space(PAD);
-                    ui.horizontal(|ui| {
-                        ui.set_min_height(ui.spacing().interact_size.y);
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Del, "Del.")
-                            .on_hover_text("Delete the selected instruction(s)")
-                            .clicked()
-                        {
-                            actions.push(Action::DeleteSelection);
-                        }
-                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
-                            .on_hover_text("Play the song from the current position")
-                            .clicked()
-                        {
-                            actions.push(Action::Play);
-                        }
-                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
-                            .on_hover_text("Stop playback")
-                            .clicked()
-                        {
-                            actions.push(Action::Stop);
-                        }
-                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
-                            .on_hover_text(self.play_tail_label())
-                            .clicked()
-                        {
-                            actions.push(Action::PlayTail);
-                        }
-                        if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
-                            .on_hover_text(self.play_seam_label())
-                            .clicked()
-                        {
-                            actions.push(Action::PlaySeam);
-                        }
-                        let mut looping = self.loop_enabled;
-                        if theme::bevel::icon_toggle(ui, p, &mut looping, theme::icon::Icon::Loop, "Loop")
+                    theme::plate_panel(ui, p, |ui| {
+                        const PAD: f32 = 6.0;
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.add_space(PAD);
+                        ui.horizontal(|ui| {
+                            ui.set_min_height(ui.spacing().interact_size.y);
+                            ui.spacing_mut().item_spacing.x = 12.0;
+                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Del, "Del.")
+                                .on_hover_text("Delete the selected instruction(s)")
+                                .clicked()
+                            {
+                                actions.push(Action::DeleteSelection);
+                            }
+                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
+                                .on_hover_text("Play the song from the current position")
+                                .clicked()
+                            {
+                                actions.push(Action::Play);
+                            }
+                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
+                                .on_hover_text("Stop playback")
+                                .clicked()
+                            {
+                                actions.push(Action::Stop);
+                            }
+                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
+                                .on_hover_text(self.play_tail_label())
+                                .clicked()
+                            {
+                                actions.push(Action::PlayTail);
+                            }
+                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
+                                .on_hover_text(self.play_seam_label())
+                                .clicked()
+                            {
+                                actions.push(Action::PlaySeam);
+                            }
+                            let mut looping = self.loop_enabled;
+                            if theme::bevel::icon_toggle(
+                                ui,
+                                p,
+                                &mut looping,
+                                theme::icon::Icon::Loop,
+                                "Loop",
+                            )
                             .on_hover_text(
                                 "Repeat the marked region. Shift+click the waveform to mark \
                                  the start and Shift+right-click the end; [ and ] use the \
                                  selected row.",
                             )
                             .clicked()
-                        {
-                            actions.push(Action::ToggleLoopPlayback);
+                            {
+                                actions.push(Action::ToggleLoopPlayback);
+                            }
+                            loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
+                            boost_stepper::boost_stepper(
+                                ui,
+                                p,
+                                self.config.audio.boost,
+                                self.boost_ceiling,
+                                self.config.audio.lock_boost,
+                                &mut actions,
+                            );
+                        });
+                        ui.add_space(PAD);
+                        theme::separator_full(ui, p);
+                        ui.add_space(PAD);
+                        // The panel hides its own high bank for a plain OPL2 song.
+                        let channels = self.channels.show(ui, p);
+                        if channels.muting_changed {
+                            actions.push(Action::MutingChanged);
                         }
-                        loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
-                        boost_stepper::boost_stepper(
-                            ui,
-                            p,
-                            self.config.audio.boost,
-                            self.boost_ceiling,
-                            self.config.audio.lock_boost,
-                            &mut actions,
-                        );
+                        if channels.panning_changed {
+                            actions.push(Action::PanningChanged);
+                        }
+                        ui.add_space(PAD);
                     });
-                    ui.add_space(PAD);
-                    theme::separator_full(ui, p);
-                    ui.add_space(PAD);
-                    // The panel hides its own high bank for a plain OPL2 song.
-                    let channels = self.channels.show(ui, p);
-                    if channels.muting_changed {
-                        actions.push(Action::MutingChanged);
-                    }
-                    if channels.panning_changed {
-                        actions.push(Action::PanningChanged);
-                    }
-                    ui.add_space(PAD);
                 })
         });
         // The editor's central panel is one big data well; the rip view sits on

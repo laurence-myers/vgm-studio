@@ -429,11 +429,12 @@ impl ChannelPanel {
         label: &str,
         hover: &str,
     ) -> bool {
-        let response = bevel::icon_mute_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
-            .on_hover_text(format!(
-                "{hover}. Drums sound through channels 7-9's pans. \
+        let response =
+            bevel::icon_mute_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
+                .on_hover_text(format!(
+                    "{hover}. Drums sound through channels 7-9's pans. \
                  Left-click mutes, right-click solos."
-            ));
+                ));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_percussion(bank);

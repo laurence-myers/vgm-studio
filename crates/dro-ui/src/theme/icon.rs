@@ -45,7 +45,13 @@ pub enum Icon {
 /// Draws `icon` centred in `rect` (the largest centred square is used), inked in
 /// `color` at `stroke_width` pixels. `rect` need not be square; the glyph keeps
 /// its aspect on the 16-grid.
-pub(crate) fn draw(painter: &egui::Painter, icon: Icon, rect: Rect, color: Color32, stroke_width: f32) {
+pub(crate) fn draw(
+    painter: &egui::Painter,
+    icon: Icon,
+    rect: Rect,
+    color: Color32,
+    stroke_width: f32,
+) {
     // Fit the 16-grid into the largest centred square of `rect`.
     let side = rect.width().min(rect.height());
     let s = side / 16.0;
@@ -81,18 +87,37 @@ fn poly(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke, pts
 }
 
 /// A single straight segment.
-fn seg(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke, a: (f32, f32), b: (f32, f32)) {
+fn seg(
+    painter: &egui::Painter,
+    p: &impl Fn(f32, f32) -> Pos2,
+    pen: Stroke,
+    a: (f32, f32),
+    b: (f32, f32),
+) {
     painter.line_segment([p(a.0, a.1), p(b.0, b.1)], pen);
 }
 
 /// A filled triangle.
-fn fill_tri(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, fill: Color32, pts: [(f32, f32); 3]) {
+fn fill_tri(
+    painter: &egui::Painter,
+    p: &impl Fn(f32, f32) -> Pos2,
+    fill: Color32,
+    pts: [(f32, f32); 3],
+) {
     let points = pts.iter().map(|&(x, y)| p(x, y)).collect();
     painter.add(Shape::convex_polygon(points, fill, Stroke::NONE));
 }
 
 /// A filled axis-aligned rect given as grid `x, y, w, h`.
-fn fill_rect(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, fill: Color32, x: f32, y: f32, w: f32, h: f32) {
+fn fill_rect(
+    painter: &egui::Painter,
+    p: &impl Fn(f32, f32) -> Pos2,
+    fill: Color32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) {
     painter.add(Shape::convex_polygon(
         vec![p(x, y), p(x + w, y), p(x + w, y + h), p(x, y + h)],
         fill,
@@ -113,7 +138,14 @@ fn arc_pts(cx: f32, cy: f32, r: f32, a0: f32, a1: f32, segments: usize) -> Vec<(
 }
 
 /// A stroked open arc, centre `(cx, cy)` radius `r`, sweeping `angles.0..angles.1`.
-fn arc(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke, center: (f32, f32), r: f32, angles: (f32, f32)) {
+fn arc(
+    painter: &egui::Painter,
+    p: &impl Fn(f32, f32) -> Pos2,
+    pen: Stroke,
+    center: (f32, f32),
+    r: f32,
+    angles: (f32, f32),
+) {
     let pts = arc_pts(center.0, center.1, r, angles.0, angles.1, 24);
     poly(painter, p, pen, &pts);
 }
@@ -121,7 +153,13 @@ fn arc(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke, cent
 /// The minor circular arc between `p0` and `p1` of the given `radius`, bulging
 /// toward `toward` (all grid space). Used for the loop's two chasing arcs, whose
 /// centres are implied by their endpoints rather than given.
-fn arc_between(p0: (f32, f32), p1: (f32, f32), radius: f32, toward: (f32, f32), segments: usize) -> Vec<(f32, f32)> {
+fn arc_between(
+    p0: (f32, f32),
+    p1: (f32, f32),
+    radius: f32,
+    toward: (f32, f32),
+    segments: usize,
+) -> Vec<(f32, f32)> {
     let (mx, my) = ((p0.0 + p1.0) / 2.0, (p0.1 + p1.1) / 2.0);
     let (dx, dy) = (p1.0 - p0.0, p1.1 - p0.1);
     let len = (dx * dx + dy * dy).sqrt().max(f32::EPSILON);
@@ -160,8 +198,18 @@ use std::f32::consts::PI;
 fn del(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke) {
     // Lid line, handle, body trapezoid, two slots.
     seg(painter, p, pen, (2.5, 4.25), (13.5, 4.25));
-    poly(painter, p, pen, &[(6.0, 4.25), (6.0, 2.5), (10.0, 2.5), (10.0, 4.25)]);
-    poly(painter, p, pen, &[(4.25, 4.25), (4.8, 13.5), (11.2, 13.5), (11.75, 4.25)]);
+    poly(
+        painter,
+        p,
+        pen,
+        &[(6.0, 4.25), (6.0, 2.5), (10.0, 2.5), (10.0, 4.25)],
+    );
+    poly(
+        painter,
+        p,
+        pen,
+        &[(4.25, 4.25), (4.8, 13.5), (11.2, 13.5), (11.75, 4.25)],
+    );
     seg(painter, p, pen, (6.9, 6.75), (6.9, 11.25));
     seg(painter, p, pen, (9.1, 6.75), (9.1, 11.25));
 }
@@ -173,19 +221,44 @@ fn tail(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, fill: Color32) {
 
 fn seam(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke) {
     // Left bracket ], right bracket [, arrow shaft, arrowhead.
-    poly(painter, p, pen, &[(2.0, 1.5), (4.25, 1.5), (4.25, 8.5), (2.0, 8.5)]);
-    poly(painter, p, pen, &[(14.0, 1.5), (11.75, 1.5), (11.75, 8.5), (14.0, 8.5)]);
+    poly(
+        painter,
+        p,
+        pen,
+        &[(2.0, 1.5), (4.25, 1.5), (4.25, 8.5), (2.0, 8.5)],
+    );
+    poly(
+        painter,
+        p,
+        pen,
+        &[(14.0, 1.5), (11.75, 1.5), (11.75, 8.5), (14.0, 8.5)],
+    );
     seg(painter, p, pen, (3.5, 13.25), (10.75, 13.25));
-    poly(painter, p, pen, &[(10.0, 11.5), (12.25, 13.25), (10.0, 15.0)]);
+    poly(
+        painter,
+        p,
+        pen,
+        &[(10.0, 11.5), (12.25, 13.25), (10.0, 15.0)],
+    );
 }
 
 fn loop_icon(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke) {
     // Two chasing radius-5 arcs (each its own circle) with squared arrowheads.
     // Top arc bulges up and ends at the right, where its arrowhead sits.
-    poly(painter, p, pen, &arc_between((3.5, 6.5), (12.5, 5.0), 5.0, (8.0, 0.0), 20));
+    poly(
+        painter,
+        p,
+        pen,
+        &arc_between((3.5, 6.5), (12.5, 5.0), 5.0, (8.0, 0.0), 20),
+    );
     poly(painter, p, pen, &[(12.5, 1.75), (12.5, 5.0), (9.25, 5.0)]);
     // Bottom arc bulges down and ends at the left.
-    poly(painter, p, pen, &arc_between((12.5, 9.5), (3.5, 11.0), 5.0, (8.0, 16.0), 20));
+    poly(
+        painter,
+        p,
+        pen,
+        &arc_between((12.5, 9.5), (3.5, 11.0), 5.0, (8.0, 16.0), 20),
+    );
     poly(painter, p, pen, &[(3.5, 14.25), (3.5, 11.0), (6.75, 11.0)]);
 }
 
@@ -197,7 +270,13 @@ fn lock(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, fill: Color32, p
         painter,
         p,
         pen,
-        &[(3.25, 7.0), (12.75, 7.0), (12.75, 13.5), (3.25, 13.5), (3.25, 7.0)],
+        &[
+            (3.25, 7.0),
+            (12.75, 7.0),
+            (12.75, 13.5),
+            (3.25, 13.5),
+            (3.25, 7.0),
+        ],
     );
     seg(painter, p, pen, (5.5, 7.0), (5.5, SHACKLE_TOP));
     seg(painter, p, pen, (10.5, 7.0), (10.5, SHACKLE_TOP));
@@ -246,7 +325,13 @@ fn perc(painter: &egui::Painter, p: &impl Fn(f32, f32) -> Pos2, pen: Stroke) {
         painter,
         p,
         pen,
-        &[(3.0, 9.5), (3.0, 12.75), (8.0, 13.9), (13.0, 12.75), (13.0, 9.5)],
+        &[
+            (3.0, 9.5),
+            (3.0, 12.75),
+            (8.0, 13.9),
+            (13.0, 12.75),
+            (13.0, 9.5),
+        ],
     );
 }
 

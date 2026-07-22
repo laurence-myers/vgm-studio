@@ -11,7 +11,7 @@ use std::sync::Arc;
 pub mod bevel;
 mod fonts;
 pub mod icon;
-mod paint;
+pub(crate) mod paint;
 mod palette;
 mod style;
 
@@ -89,6 +89,37 @@ pub fn separator_clipped(ui: &mut egui::Ui, palette: &Palette) {
 /// rightmost `scroll.bar_width` of a scroll viewport).
 pub fn frame_scrollbar(ui: &egui::Ui, palette: &Palette, bar: egui::Rect) {
     bevel::paint_bevel(ui.painter(), bar, palette, bevel::Bevel::Sunken);
+}
+
+/// A fascia plate as a single [`egui::Shape`]: a subtle vertical brushed-metal
+/// gradient, a touch lighter at the top and darker at the bottom. The panel-seam
+/// grooves supply the lit/shadow plate edges, so this is the gradient fill only.
+/// Derived from the case's `face` for now; a future case may carry explicit
+/// plate stops.
+pub fn plate_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
+    let top = paint::lighten(palette.face, 0.07);
+    let bottom = paint::darken(palette.face, 0.09);
+    paint::plate_mesh(rect, top, bottom)
+}
+
+/// Runs `add_contents` inside a fascia plate. Reserves a background slot up
+/// front (egui's own `Frame` trick), runs the content, then fills the panel
+/// behind it with the plate gradient -- so the gradient sits *behind* the
+/// widgets without a second layout pass. Use as the body of a chrome panel whose
+/// `Frame` fill is transparent.
+pub fn plate_panel<R>(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let slot = ui.painter().add(egui::Shape::Noop);
+    let inner = add_contents(ui);
+    // Full panel width (the clip rect) at the content's height, grown a little to
+    // cover the frame margin so no desk shows through inside the plate.
+    let rect =
+        egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), ui.min_rect().y_range()).expand(4.0);
+    ui.painter().set(slot, plate_shape(rect, palette));
+    inner
 }
 
 /// Installs the theme: pins the dark base (so an OS light/dark flip can't swap

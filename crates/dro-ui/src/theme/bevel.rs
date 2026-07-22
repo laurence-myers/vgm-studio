@@ -96,7 +96,11 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
     let radius = CornerRadius::same(RADIUS);
     let idle_mid = lerp_color(p.pad_cap_top, p.pad_cap_bottom, 0.5);
     let (mut mid, border, ink) = if state.latched {
-        (lerp_color(p.latch_top, p.latch_bottom, 0.5), p.latch_border, p.latch_ink)
+        (
+            lerp_color(p.latch_top, p.latch_bottom, 0.5),
+            p.latch_border,
+            p.latch_ink,
+        )
     } else if state.muted {
         // Recessed and dim: the channel is off. Ink lifts back off the dark cap
         // so the digit stays legible.
@@ -115,20 +119,39 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
 
     // Inset dimensionality, kept clear of the rounded corners. A pressed or muted
     // pad reads as pushed in: a shadow along the top instead of a highlight.
-    let inset = Rangef::new(rect.left() + f32::from(RADIUS), rect.right() - f32::from(RADIUS));
+    let inset = Rangef::new(
+        rect.left() + f32::from(RADIUS),
+        rect.right() - f32::from(RADIUS),
+    );
     if state.held || state.muted {
         let depth = if state.muted { 95 } else { 70 };
-        painter.hline(inset, rect.top() + 1.5, Stroke::new(1.0, Color32::from_black_alpha(depth)));
+        painter.hline(
+            inset,
+            rect.top() + 1.5,
+            Stroke::new(1.0, Color32::from_black_alpha(depth)),
+        );
     } else {
         let glint = if state.latched { 128 } else { 140 };
-        painter.hline(inset, rect.top() + 1.5, Stroke::new(1.0, Color32::from_white_alpha(glint)));
-        painter.hline(inset, rect.bottom() - 1.5, Stroke::new(1.0, Color32::from_black_alpha(30)));
+        painter.hline(
+            inset,
+            rect.top() + 1.5,
+            Stroke::new(1.0, Color32::from_white_alpha(glint)),
+        );
+        painter.hline(
+            inset,
+            rect.bottom() - 1.5,
+            Stroke::new(1.0, Color32::from_black_alpha(30)),
+        );
     }
     painter.rect_stroke(rect, radius, Stroke::new(1.0, border), StrokeKind::Inside);
 
     PadInk {
         color: ink,
-        offset: if state.held { vec2(0.0, 1.0) } else { Vec2::ZERO },
+        offset: if state.held {
+            vec2(0.0, 1.0)
+        } else {
+            Vec2::ZERO
+        },
     }
 }
 
@@ -194,10 +217,17 @@ pub fn icon_button(ui: &mut Ui, palette: &Palette, glyph: Icon, label: &str) -> 
 }
 
 /// As [`icon_button`] but allocated at exactly `size` (e.g. a stepper arrow).
-pub fn icon_button_sized(ui: &mut Ui, palette: &Palette, glyph: Icon, label: &str, size: Vec2) -> Response {
+pub fn icon_button_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    glyph: Icon,
+    label: &str,
+    size: Vec2,
+) -> Response {
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label));
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
     if ui.is_rect_visible(rect) {
         let held = response.is_pointer_button_down_on();
         let state = PadState {
@@ -249,11 +279,23 @@ pub fn toggle(ui: &mut Ui, palette: &Palette, selected: &mut bool, text: &str) -
 
 /// As [`toggle`] but allocated at exactly `size` -- e.g. a channel digit pinned
 /// to the pan-knob width so it stays centred under its knob whatever its state.
-pub fn toggle_sized(ui: &mut Ui, palette: &Palette, selected: &mut bool, text: &str, size: Vec2) -> Response {
+pub fn toggle_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    selected: &mut bool,
+    text: &str,
+    size: Vec2,
+) -> Response {
     toggle_impl(ui, palette, selected, text, Some(size))
 }
 
-fn toggle_impl(ui: &mut Ui, palette: &Palette, selected: &mut bool, text: &str, fixed: Option<Vec2>) -> Response {
+fn toggle_impl(
+    ui: &mut Ui,
+    palette: &Palette,
+    selected: &mut bool,
+    text: &str,
+    fixed: Option<Vec2>,
+) -> Response {
     let galley = button_galley(ui, text);
     let desired = fixed.unwrap_or_else(|| content_size(ui, &galley));
     let (response, rect, on, held) = interact_toggle(ui, selected, desired, text);
@@ -272,7 +314,13 @@ fn toggle_impl(ui: &mut Ui, palette: &Palette, selected: &mut bool, text: &str, 
 }
 
 /// A square icon toggle: a latching pad drawing `glyph`, lit amber while on.
-pub fn icon_toggle(ui: &mut Ui, palette: &Palette, selected: &mut bool, glyph: Icon, label: &str) -> Response {
+pub fn icon_toggle(
+    ui: &mut Ui,
+    palette: &Palette,
+    selected: &mut bool,
+    glyph: Icon,
+    label: &str,
+) -> Response {
     let size = square(ui);
     let (response, rect, on, held) = interact_toggle(ui, selected, size, label);
     if ui.is_rect_visible(rect) {
@@ -293,7 +341,13 @@ pub fn icon_toggle(ui: &mut Ui, palette: &Palette, selected: &mut bool, glyph: I
 /// A "mute" toggle: `on` (audible) shows a plain idle cap, `off` (muted) a dark
 /// recessed one -- the inverse emphasis of an engage toggle ([`toggle`]), which
 /// lights amber when on. Sized to `size`, like [`toggle_sized`].
-pub fn mute_toggle_sized(ui: &mut Ui, palette: &Palette, on: &mut bool, text: &str, size: Vec2) -> Response {
+pub fn mute_toggle_sized(
+    ui: &mut Ui,
+    palette: &Palette,
+    on: &mut bool,
+    text: &str,
+    size: Vec2,
+) -> Response {
     let galley = button_galley(ui, text);
     let (response, rect, audible, held) = interact_toggle(ui, on, size, text);
     if ui.is_rect_visible(rect) {
@@ -312,7 +366,13 @@ pub fn mute_toggle_sized(ui: &mut Ui, palette: &Palette, on: &mut bool, text: &s
 
 /// A square icon mute toggle: `on` (audible) a plain idle cap, `off` (muted) a
 /// dark recessed one.
-pub fn icon_mute_toggle(ui: &mut Ui, palette: &Palette, on: &mut bool, glyph: Icon, label: &str) -> Response {
+pub fn icon_mute_toggle(
+    ui: &mut Ui,
+    palette: &Palette,
+    on: &mut bool,
+    glyph: Icon,
+    label: &str,
+) -> Response {
     let size = square(ui);
     let (response, rect, audible, held) = interact_toggle(ui, on, size, label);
     if ui.is_rect_visible(rect) {

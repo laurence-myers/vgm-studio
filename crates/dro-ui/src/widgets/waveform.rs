@@ -21,6 +21,7 @@ use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
 
 use crate::theme::Palette;
 use crate::theme::bevel::{self, Bevel};
+use crate::theme::paint::{gradient_quad, lerp_color};
 
 /// The fixed bucket count. The painted panel stretches these to its width.
 pub const NUM_BUCKETS: usize = 768;
@@ -274,31 +275,6 @@ fn paint_background(painter: &egui::Painter, rect: Rect, palette: &Palette) {
         edge,
     );
     painter.add(Shape::mesh(mesh));
-}
-
-/// A vertical-gradient rectangle: `top` colour at `y_top`, `bottom` at `y_bottom`.
-fn gradient_quad(
-    mesh: &mut Mesh,
-    x0: f32,
-    x1: f32,
-    y_top: f32,
-    y_bottom: f32,
-    top: Color32,
-    bottom: Color32,
-) {
-    let base = mesh.vertices.len() as u32;
-    mesh.colored_vertex(pos2(x0, y_top), top);
-    mesh.colored_vertex(pos2(x1, y_top), top);
-    mesh.colored_vertex(pos2(x1, y_bottom), bottom);
-    mesh.colored_vertex(pos2(x0, y_bottom), bottom);
-    mesh.add_triangle(base, base + 1, base + 2);
-    mesh.add_triangle(base, base + 2, base + 3);
-}
-
-/// Componentwise colour interpolation, `t` of the way from `a` to `b`.
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let mix = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t) as u8;
-    Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
 }
 
 fn x_for_ms(rect: Rect, ms: u32, total_ms: u32) -> f32 {
