@@ -124,12 +124,15 @@ strategy are useful under any resolution.
   chrome lands. Same call applies here — flip it in the same commit as the
   pad chrome, when baselines are re-cut anyway.
 
-## Open questions for the user
+## Answered by the user (2026-07-22)
 
-1. How do pads compose with the skin-engine plan (see above)?
-2. Icon stroke weight: 1.5px or 2px? (Both in `mockup-icons.html`.)
-3. Loop + Reset glyphs: circular (used in the strips) or the rectangular
-   alternates? Decide as a pair.
-4. Do icons ship first on the *current* FT2 bevel (they're independent of
-   chrome — the pads mockup's baseline strip shows them on it), or land
-   together with the pad chrome?
+- **Icon stroke weight: 1.5px.** (Not 2px.)
+- **Loop + Reset glyphs: circular** — the versions used in the strips, not
+  the rectangular alternates.
+- **Icons land together with the pad chrome** — one change, not icons-first
+  on the current FT2 bevel.
+
+## Still open for the user
+
+1. How do pads compose with the skin-engine plan (see "Relationship to the
+   skin-engine plan" above)? Ask before implementing either.
