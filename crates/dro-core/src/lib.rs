@@ -11,6 +11,7 @@ pub mod config;
 pub mod convert;
 pub mod error;
 pub mod io;
+pub mod loopfind;
 pub mod opl_state;
 pub mod optimize;
 pub mod regdata;
@@ -24,6 +25,7 @@ pub mod volume;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
 pub use error::{Error, Result};
+pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
 pub use opl_state::OplState;
 pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
 pub use rip::{RipMeta, TrackEntry};
