@@ -16,15 +16,17 @@ use egui::Color32;
 use super::paint::{darken, lighten};
 
 /// How a case paints its pads and its deck, independently of the plate.
-/// `Tint` follows the plate (the default look); `Light` and `Dark` are fixed
-/// neutral treatments, so a case can, say, mount cream keys on a dark deck over
-/// a navy plate.
+/// `Tint` follows the plate (the default look); `Light`, `Dark` and `Grey` are
+/// fixed treatments that ignore it, so a case can, say, mount cream keys on a
+/// dark deck over a navy plate, or plain grey keys on a teal plate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
     /// A fixed light (bone/cream) treatment.
     Light,
     /// A fixed dark (charcoal/rubber) treatment.
     Dark,
+    /// A fixed neutral grey treatment, ignoring the plate.
+    Grey,
     /// Tinted to match the case's plate.
     Tint,
 }
@@ -54,6 +56,12 @@ pub(crate) fn pad_caps(p: &Palette) -> PadCaps {
             border: Color32::from_rgb(0x0A, 0x0F, 0x0F),
             ink: Color32::from_rgb(0xC6, 0xD0, 0xD0),
         },
+        Surface::Grey => PadCaps {
+            top: Color32::from_rgb(0xB6, 0xBA, 0xBA),
+            bottom: Color32::from_rgb(0x9E, 0xA2, 0xA2),
+            border: Color32::from_rgb(0x0B, 0x0D, 0x0D),
+            ink: Color32::from_rgb(0x18, 0x1C, 0x1C),
+        },
         Surface::Tint => PadCaps {
             top: lighten(p.plate_top, 0.42),
             bottom: lighten(p.plate_top, 0.26),
@@ -75,6 +83,10 @@ pub(crate) fn deck_stops(p: &Palette) -> (Color32, Color32) {
         Surface::Dark => (
             Color32::from_rgb(0x24, 0x30, 0x2F),
             Color32::from_rgb(0x15, 0x1D, 0x1D),
+        ),
+        Surface::Grey => (
+            Color32::from_rgb(0x50, 0x56, 0x56),
+            Color32::from_rgb(0x38, 0x3C, 0x3C),
         ),
         Surface::Tint => (p.plate_top, p.plate_bottom),
     }
@@ -427,8 +439,8 @@ const CLONE_DARK_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x6E, 0x79, 0x79),
     button_pressed_text: Color32::WHITE,
 
-    // Teal keycaps and deck, tone-on-tone with the plate.
-    pad: Surface::Tint,
+    // Neutral grey keycaps (the classic FT2 button), on the teal plate/deck.
+    pad: Surface::Grey,
     deck: Surface::Tint,
 
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
@@ -506,8 +518,8 @@ const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x78, 0x7E, 0x87),
     button_pressed_text: Color32::WHITE,
 
-    // Steel keycaps and deck, tone-on-tone with the plate.
-    pad: Surface::Tint,
+    // Neutral grey keycaps (the classic FT2 button), on the steel plate/deck.
+    pad: Surface::Grey,
     deck: Surface::Tint,
 
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
