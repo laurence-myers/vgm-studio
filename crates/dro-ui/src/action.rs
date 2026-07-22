@@ -70,6 +70,9 @@ pub enum Action {
     Redo,
     OpenGoto,
     OpenFindRegister,
+    /// Open the Find Loop dialog (search for loop points). Works for a DRO or a
+    /// VGM; only the Apply button inside it is VGM-only.
+    OpenFindLoop,
     OpenDroInfo,
     OpenEditTag,
     OpenVgmMetadata,
@@ -184,6 +187,13 @@ pub enum Action {
     SetLoopCount(LoopCount),
     /// Write the marked region into the song's VGM loop metadata.
     ApplyLoopToMetadata,
+    /// Search the command stream for loop candidates at least `min_len_commands`
+    /// delay-stripped commands long (the Find Loop dialog's Search button).
+    FindLoopSearch {
+        min_len_commands: usize,
+    },
+    /// Cancel a running loop search.
+    CancelLoopSearch,
 
     // Table navigation
     NextDelay,

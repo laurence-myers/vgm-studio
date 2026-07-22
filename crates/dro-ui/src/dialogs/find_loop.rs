@@ -1,0 +1,466 @@
+//! The Find Loop dialog: search a captured song for its loop point. Modeless.
+//!
+//! A game rip usually contains the loop body played several times over. The
+//! dialog runs [`dro_core::find_loops`] in the background (so a long song does
+//! not freeze the UI) and lists the repeats it finds, best-first. Clicking a row
+//! drops the editor's loop markers on it -- the waveform highlights the region
+//! instantly -- and the footer buttons audition the seam or, for a VGM, write
+//! the loop into the file's metadata. Every one of those is an existing editor
+//! action; the dialog only points them at the chosen candidate.
+//!
+//! The minimum match length is entered in seconds and converted to a command
+//! count from the song's own command density, so "2 s" means roughly two
+//! seconds of music whatever the song's tempo.
+
+use std::sync::Arc;
+
+use dro_core::{Candidate, Song};
+use egui_extras::{Column, TableBuilder};
+
+use crate::action::Action;
+use crate::theme::{Palette, bevel};
+
+/// The minimum match length the dialog opens with, in seconds. A permissive
+/// floor: it only rejects repeats shorter than this, and real loops are longer.
+const DEFAULT_MIN_SECS: f32 = 2.0;
+/// The minimum-length slider's range, in seconds.
+const MIN_SECS: f32 = 0.5;
+const MAX_SECS: f32 = 30.0;
+
+#[derive(Debug)]
+pub struct FindLoopDialog {
+    /// A snapshot of the song at open, for the results' time display.
+    song: Arc<Song>,
+    /// Non-delay commands per second, for the seconds -> command-count estimate.
+    commands_per_sec: f32,
+    /// Total non-delay commands, the ceiling on the estimated minimum length.
+    total_commands: usize,
+    /// Whether the song can store a loop -- the Apply button is VGM-only.
+    is_vgm: bool,
+    /// The minimum match length the slider edits, in seconds.
+    min_secs: f32,
+    /// The candidates found so far, best-first (the task ranks them).
+    candidates: Vec<Candidate>,
+    /// The selected row, which Audition and Apply act on. Pre-set to the best
+    /// candidate whenever a fresh set arrives.
+    selected: Option<usize>,
+    /// A search is running: show the spinner, offer Cancel not Search.
+    searching: bool,
+    /// A search has finished at least once, so an empty table means "none found"
+    /// rather than "not searched yet".
+    searched: bool,
+}
+
+impl FindLoopDialog {
+    #[must_use]
+    pub fn new(song: Arc<Song>) -> Self {
+        let total_commands = song.data().iter().filter(|i| !i.is_delay()).count();
+        let total_secs = song.total_delay_ms() as f32 / 1000.0;
+        let commands_per_sec = if total_secs > 0.0 {
+            total_commands as f32 / total_secs
+        } else {
+            total_commands.max(1) as f32
+        };
+        Self {
+            is_vgm: song.is_vgm(),
+            song,
+            commands_per_sec,
+            total_commands,
+            min_secs: DEFAULT_MIN_SECS,
+            candidates: Vec::new(),
+            selected: None,
+            searching: false,
+            searched: false,
+        }
+    }
+
+    /// Replaces the candidate list from a streamed task snapshot, pre-selecting
+    /// the top (best) candidate so Apply and Audition work straight away.
+    pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
+        self.selected = (!candidates.is_empty()).then_some(0);
+        self.candidates = candidates;
+    }
+
+    /// Tracks whether the search task is still running, driven each frame from
+    /// the task service. The rising-to-falling edge marks a search complete.
+    pub fn set_busy(&mut self, busy: bool) {
+        if self.searching && !busy {
+            self.searched = true;
+        }
+        self.searching = busy;
+    }
+
+    /// The chosen minimum length in delay-stripped commands, from the seconds the
+    /// slider shows and the song's command density. Never zero, never more than
+    /// the song has.
+    fn min_len_commands(&self) -> usize {
+        let estimate = (self.min_secs * self.commands_per_sec).round();
+        (estimate as usize).clamp(1, self.total_commands.max(1))
+    }
+
+    fn selected_candidate(&self) -> Option<Candidate> {
+        self.selected
+            .and_then(|row| self.candidates.get(row).copied())
+    }
+
+    /// Submits a fresh search, clearing the old results.
+    fn on_search(&mut self, actions: &mut Vec<Action>) {
+        self.candidates.clear();
+        self.selected = None;
+        self.searching = true; // optimistic; the task service confirms it next frame
+        actions.push(Action::FindLoopSearch {
+            min_len_commands: self.min_len_commands(),
+        });
+    }
+
+    /// Sets the editor's loop markers to `candidate`.
+    fn mark(candidate: Candidate, actions: &mut Vec<Action>) {
+        actions.push(Action::SetLoopStart(candidate.loop_point));
+        actions.push(Action::SetLoopEnd(candidate.loop_end));
+    }
+
+    /// Marks the selected candidate and plays its seam.
+    fn on_audition(&self, actions: &mut Vec<Action>) {
+        if let Some(candidate) = self.selected_candidate() {
+            Self::mark(candidate, actions);
+            actions.push(Action::PlaySeam);
+        }
+    }
+
+    /// Marks the selected candidate and writes it into the VGM metadata.
+    fn on_apply(&self, actions: &mut Vec<Action>) {
+        if let Some(candidate) = self.selected_candidate() {
+            Self::mark(candidate, actions);
+            actions.push(Action::ApplyLoopToMetadata);
+        }
+    }
+
+    /// Draws the window. Returns `false` once closed.
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        area: egui::Rect,
+        actions: &mut Vec<Action>,
+    ) -> bool {
+        let mut close = false;
+        let open = super::dialog_window(ctx, "Find Loop", area, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Minimum loop length:")
+                        .color(palette.data_label)
+                        .strong(),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.min_secs)
+                        .range(MIN_SECS..=MAX_SECS)
+                        .speed(0.1)
+                        .fixed_decimals(1)
+                        .suffix(" s"),
+                );
+            });
+            ui.add_space(2.0);
+            ui.colored_label(
+                palette.muted,
+                "A repeated block must be at least this long to count as a loop.",
+            );
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if self.searching {
+                    if bevel::button(ui, palette, "Cancel").clicked() {
+                        actions.push(Action::CancelLoopSearch);
+                    }
+                    ui.spinner();
+                    ui.colored_label(
+                        palette.muted,
+                        format!("Searching... ({} found)", self.candidates.len()),
+                    );
+                } else if bevel::button(ui, palette, "Search").clicked() {
+                    self.on_search(actions);
+                }
+            });
+
+            ui.add_space(6.0);
+            crate::theme::separator_full(ui, palette);
+            self.results_table(ui, palette, actions);
+
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                let selected = self.selected_candidate();
+                ui.add_enabled_ui(selected.is_some() && self.is_vgm, |ui| {
+                    let apply = bevel::button(ui, palette, "Apply");
+                    if apply.clicked() {
+                        self.on_apply(actions);
+                    }
+                    if !self.is_vgm {
+                        apply.on_hover_text("Only VGM files store loop points.");
+                    }
+                });
+                ui.add_enabled_ui(selected.is_some(), |ui| {
+                    if bevel::button(ui, palette, "Audition").clicked() {
+                        self.on_audition(actions);
+                    }
+                });
+            });
+        });
+        open && !close
+    }
+
+    /// The scrollable results table: one row per candidate, clickable to mark it.
+    fn results_table(&mut self, ui: &mut egui::Ui, palette: &Palette, actions: &mut Vec<Action>) {
+        if self.candidates.is_empty() {
+            let message = if self.searching {
+                "Searching..."
+            } else if self.searched {
+                "No loops found. Try a shorter minimum length."
+            } else {
+                "Click Search to look for loop points."
+            };
+            ui.colored_label(palette.muted, message);
+            return;
+        }
+
+        let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
+        let frame = egui::Frame::new()
+            .fill(palette.data_bg)
+            .inner_margin(egui::Margin::same(4));
+
+        // Disjoint borrows, so the row closures can read the candidates and song
+        // while taking `selected` mutably, without touching `self`.
+        let candidates = &self.candidates;
+        let song = &self.song;
+        let selected = &mut self.selected;
+        frame.show(ui, |ui| {
+            ui.style_mut().interaction.selectable_labels = false;
+            egui::ScrollArea::vertical()
+                .max_height(220.0)
+                .show(ui, |ui| {
+                    TableBuilder::new(ui)
+                        .striped(true)
+                        .sense(egui::Sense::click())
+                        .vscroll(false)
+                        .column(Column::auto().at_least(28.0)) // #
+                        .column(Column::auto().at_least(64.0)) // Start
+                        .column(Column::auto().at_least(64.0)) // End
+                        .column(Column::auto().at_least(64.0)) // Length
+                        .column(Column::remainder().at_least(70.0)) // Quality
+                        .header(row_height + 2.0, |mut header| {
+                            for title in ["#", "Start", "End", "Length", "Quality"] {
+                                header.col(|ui| {
+                                    ui.label(
+                                        egui::RichText::new(title)
+                                            .monospace()
+                                            .color(palette.data_text),
+                                    );
+                                });
+                            }
+                        })
+                        .body(|mut body| {
+                            for (row_index, candidate) in candidates.iter().enumerate() {
+                                let start = song.ms_offset_at(candidate.loop_point).unwrap_or(0);
+                                let end = song.ms_offset_at(candidate.loop_end).unwrap_or(0);
+                                body.row(row_height, |mut row| {
+                                    row.set_selected(*selected == Some(row_index));
+                                    cell(&mut row, palette.muted, &format!("{}", row_index + 1));
+                                    cell(&mut row, palette.data_text, &fmt_time(start));
+                                    cell(&mut row, palette.data_text, &fmt_time(end));
+                                    cell(
+                                        &mut row,
+                                        palette.data_text,
+                                        &fmt_time(end.saturating_sub(start)),
+                                    );
+                                    row.col(|ui| {
+                                        ui.label(
+                                            egui::RichText::new(candidate.quality_label())
+                                                .monospace()
+                                                .color(palette.data_text),
+                                        )
+                                        .on_hover_text(quality_help(*candidate));
+                                    });
+                                    if row.response().clicked() {
+                                        *selected = Some(row_index);
+                                        Self::mark(*candidate, actions);
+                                    }
+                                });
+                            }
+                        });
+                });
+        });
+    }
+}
+
+/// One monospace table cell.
+fn cell(row: &mut egui_extras::TableRow<'_, '_>, color: egui::Color32, text: &str) {
+    row.col(|ui| {
+        ui.label(egui::RichText::new(text).monospace().color(color));
+    });
+}
+
+/// A `M:SS.s` time from a millisecond offset.
+fn fmt_time(ms: u32) -> String {
+    let total_secs = f64::from(ms) / 1000.0;
+    let minutes = (total_secs / 60.0).floor() as u32;
+    let seconds = total_secs - f64::from(minutes) * 60.0;
+    format!("{minutes}:{seconds:04.1}")
+}
+
+/// The hover text explaining a candidate's quality flags and match length.
+fn quality_help(candidate: Candidate) -> String {
+    let shape = match (candidate.ends_at_eof, candidate.clean_repeat) {
+        (true, true) => "ends at the song's end and is a clean repeat -- the ideal loop",
+        (true, false) => "the repeat runs to the end of the song",
+        (false, true) => "a clean repeat, but not at the song's end",
+        (false, false) => "a partial or overlapping repeat",
+    };
+    format!("{shape} ({} commands matched)", candidate.match_len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_song::{looping_vgm, tone_song};
+
+    fn dialog(song: Song) -> FindLoopDialog {
+        FindLoopDialog::new(Arc::new(song))
+    }
+
+    fn candidate(loop_point: usize, loop_end: usize) -> Candidate {
+        Candidate {
+            loop_point,
+            loop_end,
+            match_len: 8,
+            ends_at_eof: true,
+            clean_repeat: true,
+        }
+    }
+
+    #[test]
+    fn a_fresh_dialog_prompts_for_a_search() {
+        let dialog = dialog(looping_vgm());
+        assert!(dialog.candidates.is_empty());
+        assert!(!dialog.searched);
+        assert_eq!(dialog.selected, None);
+    }
+
+    #[test]
+    fn setting_candidates_preselects_the_best() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.set_candidates(vec![candidate(3, 9), candidate(3, 15)]);
+        assert_eq!(
+            dialog.selected,
+            Some(0),
+            "the top candidate is pre-selected"
+        );
+
+        dialog.set_candidates(Vec::new());
+        assert_eq!(
+            dialog.selected, None,
+            "an empty result clears the selection"
+        );
+    }
+
+    #[test]
+    fn searching_emits_a_command_count_from_the_seconds() {
+        let mut dialog = dialog(looping_vgm());
+        // A controlled density: 100 commands per second.
+        dialog.commands_per_sec = 100.0;
+        dialog.total_commands = 10_000;
+        dialog.min_secs = 2.0;
+
+        let mut actions = Vec::new();
+        dialog.on_search(&mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::FindLoopSearch {
+                min_len_commands: 200
+            }]
+        );
+        assert!(
+            dialog.searching,
+            "the dialog shows the spinner optimistically"
+        );
+    }
+
+    #[test]
+    fn the_minimum_length_never_exceeds_the_song() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.commands_per_sec = 1_000_000.0;
+        dialog.total_commands = 12;
+        dialog.min_secs = 30.0;
+        assert_eq!(
+            dialog.min_len_commands(),
+            12,
+            "clamped to the command count"
+        );
+
+        dialog.commands_per_sec = 0.0;
+        assert_eq!(dialog.min_len_commands(), 1, "never zero");
+    }
+
+    #[test]
+    fn selecting_a_candidate_marks_the_region() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.set_candidates(vec![candidate(3, 9)]);
+        let mut actions = Vec::new();
+        // The row-click path marks the selected candidate.
+        FindLoopDialog::mark(dialog.selected_candidate().unwrap(), &mut actions);
+        assert_eq!(
+            actions,
+            vec![Action::SetLoopStart(3), Action::SetLoopEnd(9)]
+        );
+    }
+
+    #[test]
+    fn auditioning_marks_then_plays_the_seam() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.set_candidates(vec![candidate(3, 9)]);
+        let mut actions = Vec::new();
+        dialog.on_audition(&mut actions);
+        assert_eq!(
+            actions,
+            vec![
+                Action::SetLoopStart(3),
+                Action::SetLoopEnd(9),
+                Action::PlaySeam
+            ]
+        );
+    }
+
+    #[test]
+    fn applying_marks_then_writes_the_metadata() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.set_candidates(vec![candidate(3, 9)]);
+        let mut actions = Vec::new();
+        dialog.on_apply(&mut actions);
+        assert_eq!(
+            actions,
+            vec![
+                Action::SetLoopStart(3),
+                Action::SetLoopEnd(9),
+                Action::ApplyLoopToMetadata
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dro_song_is_not_apply_capable() {
+        // Apply is VGM-only; the dialog still opens and searches for a DRO.
+        let dialog = dialog(tone_song());
+        assert!(!dialog.is_vgm);
+    }
+
+    #[test]
+    fn set_busy_marks_a_search_complete_on_its_falling_edge() {
+        let mut dialog = dialog(looping_vgm());
+        dialog.set_busy(true);
+        assert!(dialog.searching);
+        assert!(!dialog.searched);
+        dialog.set_busy(false);
+        assert!(!dialog.searching);
+        assert!(dialog.searched, "the search is now known to have finished");
+    }
+}

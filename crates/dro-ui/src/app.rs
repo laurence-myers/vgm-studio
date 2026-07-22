@@ -15,7 +15,7 @@ use egui::Key;
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    BulkTagDialog, Dialogs, DroInfoDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
+    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
     RenderWavDialog, SettingsDialog, SplitDialog, SplitSongsDialog, TrackEditDialog,
     VgmMetadataDialog,
 };
@@ -752,6 +752,12 @@ impl DroApp {
                 TaskResult::LoopCandidates(candidates) => self.handle_loop_candidates(candidates),
             }
         }
+        // Keep the Find Loop dialog's progress state in step with the task, so its
+        // spinner shows while a search runs and clears the moment it finishes.
+        let searching = self.tasks.is_busy_kind(TaskKind::LoopSearch);
+        if let Some(dialog) = self.dialogs.find_loop.as_mut() {
+            dialog.set_busy(searching);
+        }
     }
 
     /// Offers a finished render to the save dialog, or reports why there is
@@ -1427,6 +1433,13 @@ impl DroApp {
                     self.dialogs.find_reg = Some(FindRegDialog::new(song));
                 }
             }
+            Action::OpenFindLoop => {
+                if self.require_song()
+                    && let Some(song) = self.editor.snapshot()
+                {
+                    self.dialogs.find_loop = Some(FindLoopDialog::new(song));
+                }
+            }
             Action::OpenDroInfo => {
                 if self.require_song() {
                     let song = self.editor.song().expect("gated");
@@ -1639,6 +1652,11 @@ impl DroApp {
                 self.push_loop_config();
             }
             Action::ApplyLoopToMetadata => self.apply_loop_to_metadata(),
+            Action::FindLoopSearch { min_len_commands } => self.start_loop_search(min_len_commands),
+            Action::CancelLoopSearch => {
+                self.tasks.cancel(TaskKind::LoopSearch);
+                self.status = "Loop search cancelled.".to_owned();
+            }
 
             Action::ToggleChannel(channel) => {
                 self.channels.toggle_channel(channel);
@@ -2449,9 +2467,14 @@ impl DroApp {
     }
 
     /// Routes a streamed loop-search snapshot into the Find Loop dialog, if it is
-    /// still open. Wired to the dialog in lf-3; for now it just reports progress.
+    /// still open (it may have been closed mid-search, in which case the result is
+    /// simply dropped, like the volume scan's).
     fn handle_loop_candidates(&mut self, candidates: Vec<dro_core::Candidate>) {
-        self.status = format!("Found {} loop candidate(s).", candidates.len());
+        let count = candidates.len();
+        if let Some(dialog) = self.dialogs.find_loop.as_mut() {
+            dialog.set_candidates(candidates);
+        }
+        self.status = format!("Found {count} loop candidate(s).");
     }
 
     /// Stores a finished rip volume scan's peaks (keyed by file name) for the Peak
@@ -2694,6 +2717,24 @@ impl DroApp {
         } else {
             format!("Loop saved: {} - end of song.", markers.start())
         };
+    }
+
+    /// Submits a background loop search of the current song. The streamed
+    /// candidates reach the Find Loop dialog through [`Self::handle_loop_candidates`];
+    /// cancel-on-resubmit means clicking Search again just restarts it.
+    fn start_loop_search(&mut self, min_len_commands: usize) {
+        let Some(song) = self.editor.snapshot() else {
+            self.require_song();
+            return;
+        };
+        self.tasks.submit(
+            TaskRequest::LoopSearch {
+                song,
+                min_len_commands,
+            },
+            None,
+        );
+        self.status = "Searching for loops...".to_owned();
     }
 
     fn delay_navigate(&mut self, backwards: bool) {

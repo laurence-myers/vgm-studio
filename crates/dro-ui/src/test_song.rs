@@ -178,6 +178,38 @@ pub(crate) fn multi_song_capture_dro() -> Song {
     )
 }
 
+/// An OPL2 VGM whose four-write body plays twice in a row after a short intro,
+/// so the loop finder has a clean repeat to discover. The body's registers are
+/// distinct, so only the whole-body repeat matches: the search reports one loop
+/// running from the body's first write (instruction 3) to the repeat's (9).
+pub(crate) fn looping_vgm() -> Song {
+    fn write(bytes: &mut Vec<u8>, reg: u8, value: u8) {
+        bytes.extend_from_slice(&[0x5A, reg, value]);
+    }
+    let mut bytes = Vec::new();
+    // intro: two writes and a half-second delay (22050 samples)
+    write(&mut bytes, 0x20, 0x01);
+    write(&mut bytes, 0x40, 0x10);
+    bytes.extend_from_slice(&[0x61, 0x22, 0x56]);
+    // body, twice: distinct writes parted by quarter-second delays (11025 samples),
+    // so one loop body spans half a second.
+    for _ in 0..2 {
+        write(&mut bytes, 0xA0, 0x11);
+        bytes.extend_from_slice(&[0x61, 0x11, 0x2B]);
+        write(&mut bytes, 0xB0, 0x22);
+        write(&mut bytes, 0xA3, 0x33);
+        bytes.extend_from_slice(&[0x61, 0x11, 0x2B]);
+        write(&mut bytes, 0xC0, 0x44);
+    }
+    Song::vgm(
+        "looping.vgm".to_owned(),
+        0x151,
+        VgmData::new(bytes).unwrap(),
+        OplType::Opl2,
+        VgmMeta::new(synthesise_header()),
+    )
+}
+
 /// A DRO v2 song whose first instruction is a delay and whose header length
 /// disagrees with the summed delays -- both load-time warnings at once.
 pub(crate) fn bogus_leading_delay_song() -> Song {

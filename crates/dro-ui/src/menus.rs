@@ -130,6 +130,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, editor, "Find Register...", Some(&FIND_REGISTER)) {
                 actions.push(Action::OpenFindRegister);
             }
+            // Marking and looping work on a DRO too, so Find Loop is offered for
+            // both formats; only the dialog's Apply button is VGM-gated.
+            if enabled_item(ui, editor, "Find Loop...", None) {
+                actions.push(Action::OpenFindLoop);
+            }
             if is_dro && enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
                 actions.push(Action::OpenDroInfo);
             }

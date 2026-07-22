@@ -27,7 +27,7 @@ use crate::platform::{
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
-    bogus_leading_delay_song, dro_song_v2, dual_tone_song, multi_song_capture,
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, looping_vgm, multi_song_capture,
     multi_song_capture_dro, paced_song, redundant_vgm_song, tone_song,
 };
 use crate::test_support::{
@@ -3311,6 +3311,95 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
     );
     // ...and the right button does nothing at all.
     assert_eq!(waveform_action(7, 500, true, false), None);
+}
+
+// -- find loop (lf-3) --------------------------------------------------------
+
+#[test]
+fn find_loop_is_offered_for_both_dro_and_vgm() {
+    // A DRO has nowhere to store a loop, but marking and auditioning one still
+    // work, so the search is offered -- only the dialog's Apply is VGM-gated.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.get_by_label("Edit").click();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("Find Loop").is_some(),
+        "Find Loop should be on the Edit menu for a DRO"
+    );
+
+    let (mut harness, _handles) = harness_with_song(&looping_vgm());
+    harness.get_by_label("Edit").click();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("Find Loop").is_some(),
+        "Find Loop should be on the Edit menu for a VGM"
+    );
+}
+
+#[test]
+fn searching_finds_a_loop_and_applying_writes_it() {
+    // Inline tasks so the background search runs synchronously on submit.
+    let (mut harness, _handles) = build(Some(picked(&looping_vgm())), true, false);
+    act(&mut harness, Action::OpenFindLoop);
+    assert!(harness.state().dialogs.find_loop.is_some());
+
+    // Four commands is the body length; the search finds the one repeat.
+    act(
+        &mut harness,
+        Action::FindLoopSearch {
+            min_len_commands: 4,
+        },
+    );
+    harness.run(); // a poll frame delivers the streamed candidates
+
+    // The found loop renders as a row: it starts at 0.5 s and ends at 1.0 s.
+    assert!(
+        harness.query_by_label_contains("0:01.0").is_some(),
+        "the found loop's end time should be listed in the table"
+    );
+
+    // The top candidate is pre-selected, so Apply writes it straight into the
+    // VGM's loop metadata.
+    harness.get_by_label("Apply").click();
+    harness.run();
+    let song = harness.state().editor.song().unwrap();
+    let meta = song.vgm_meta().unwrap();
+    assert_eq!(
+        meta.loop_point,
+        Some(3),
+        "loop point at the body's first write"
+    );
+    assert_eq!(meta.loop_end, Some(9), "loop end where the repeat begins");
+}
+
+#[test]
+fn cancelling_a_search_stops_it() {
+    let (mut harness, handles) = build(Some(picked(&looping_vgm())), false, false);
+    act(&mut harness, Action::OpenFindLoop);
+    act(&mut harness, Action::CancelLoopSearch);
+    assert!(
+        handles
+            .tasks
+            .borrow()
+            .cancelled
+            .contains(&TaskKind::LoopSearch),
+        "Cancel should cancel the loop-search task"
+    );
+}
+
+#[test]
+fn snapshot_find_loop_dialog() {
+    // Inline tasks render a real result; wgpu renders the pixels.
+    let (mut harness, _handles) = build(Some(picked(&looping_vgm())), true, true);
+    act(&mut harness, Action::OpenFindLoop);
+    act(
+        &mut harness,
+        Action::FindLoopSearch {
+            min_len_commands: 4,
+        },
+    );
+    harness.run();
+    settled_snapshot(&mut harness, "find_loop_dialog");
 }
 
 // -- format-specific menu items ----------------------------------------------

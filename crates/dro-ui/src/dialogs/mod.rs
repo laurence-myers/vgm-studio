@@ -8,6 +8,7 @@
 
 pub mod bulk_tag;
 pub mod dro_info;
+pub mod find_loop;
 pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
@@ -20,6 +21,7 @@ pub mod vgm_metadata;
 
 pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
+pub use find_loop::FindLoopDialog;
 pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
@@ -71,6 +73,8 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::U
 pub struct Dialogs {
     pub goto: Option<GotoDialog>,
     pub find_reg: Option<FindRegDialog>,
+    /// Edit > Find Loop: the loop-point search and its results.
+    pub find_loop: Option<FindLoopDialog>,
     pub dro_info: Option<DroInfoDialog>,
     pub gd3_tag: Option<Gd3TagDialog>,
     pub vgm_metadata: Option<VgmMetadataDialog>,
@@ -96,6 +100,7 @@ impl Dialogs {
     pub fn any_open(&self) -> bool {
         self.goto.is_some()
             || self.find_reg.is_some()
+            || self.find_loop.is_some()
             || self.dro_info.is_some()
             || self.gd3_tag.is_some()
             || self.vgm_metadata.is_some()
@@ -122,6 +127,7 @@ impl Dialogs {
     ) {
         retain(&mut self.goto, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.find_reg, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.find_loop, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.dro_info, |d| d.show(ctx, palette, actions));
         retain(&mut self.gd3_tag, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.vgm_metadata, |d| {
