@@ -15,7 +15,7 @@ use egui::{
 
 use super::icon::{self, Icon};
 use super::paint::{darken, lerp_color, lighten};
-use super::palette::Palette;
+use super::palette::{Palette, pad_caps};
 
 /// The pad corner radius, in points.
 const RADIUS: u8 = 3;
@@ -94,7 +94,8 @@ struct PadInk {
 /// into a dim dark cap (an off channel).
 fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> PadInk {
     let radius = CornerRadius::same(RADIUS);
-    let idle_mid = lerp_color(p.pad_cap_top, p.pad_cap_bottom, 0.5);
+    let caps = pad_caps(p);
+    let idle_mid = lerp_color(caps.top, caps.bottom, 0.5);
     let (mut mid, border, ink) = if state.latched {
         (
             lerp_color(p.latch_top, p.latch_bottom, 0.5),
@@ -105,9 +106,9 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
         // Recessed and dim: the channel is off. Ink lifts back off the dark cap
         // so the digit stays legible.
         let cap = darken(idle_mid, 0.34);
-        (cap, p.pad_border, lighten(cap, 0.5))
+        (cap, caps.border, lighten(cap, 0.5))
     } else {
-        (idle_mid, p.pad_border, p.pad_ink)
+        (idle_mid, caps.border, caps.ink)
     };
     if state.hovered && !state.held && !state.muted {
         mid = lighten(mid, 0.07);

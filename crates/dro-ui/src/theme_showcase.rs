@@ -209,7 +209,7 @@ fn section(ui: &mut egui::Ui, p: &Palette, title: &str) {
 
 /// Every [`Palette`] field, destructured without `..` so a new role added to
 /// the struct is a compile error here until it is given a swatch.
-fn roles(p: &Palette) -> [(&'static str, Color32); 49] {
+fn roles(p: &Palette) -> [(&'static str, Color32); 45] {
     let Palette {
         face,
         face_hover,
@@ -237,10 +237,8 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 49] {
         button_text,
         button_pressed,
         button_pressed_text,
-        pad_cap_top,
-        pad_cap_bottom,
-        pad_border,
-        pad_ink,
+        pad: _,
+        deck: _,
         accent,
         selection_text,
         wf_bg,
@@ -288,10 +286,6 @@ fn roles(p: &Palette) -> [(&'static str, Color32); 49] {
         ("button_text", button_text),
         ("button_pressed", button_pressed),
         ("button_pressed_text", button_pressed_text),
-        ("pad_cap_top", pad_cap_top),
-        ("pad_cap_bottom", pad_cap_bottom),
-        ("pad_border", pad_border),
-        ("pad_ink", pad_ink),
         ("accent", accent),
         ("selection_text", selection_text),
         ("wf_bg", wf_bg),
@@ -435,25 +429,36 @@ fn pads_and_icons(ui: &mut egui::Ui, p: &Palette) {
         (Icon::Up, "Up"),
         (Icon::Dn, "Down"),
     ];
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        for (glyph, label) in GLYPHS {
-            bevel::icon_button(ui, p, glyph, label);
-        }
-    });
-    ui.add_space(4.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        // A latched icon toggle (lit amber) beside an idle one, then text pads.
-        let mut on = true;
-        let mut off = false;
-        bevel::icon_toggle(ui, p, &mut off, Icon::Loop, "Loop (off)");
-        bevel::icon_toggle(ui, p, &mut on, Icon::Loop, "Loop (on)");
-        bevel::button(ui, p, "Text pad");
-        let mut latched = true;
-        bevel::toggle(ui, p, &mut latched, "On");
-        let mut clear = false;
-        bevel::toggle(ui, p, &mut clear, "Off");
+    // Draw the pads on a deck band, so the case's deck mode -- which the app's
+    // control panel uses behind the pads -- is exercised here too (e.g. cream
+    // keys on a dark deck for the navy case). The deck slot is reserved first,
+    // then filled behind the content.
+    ui.scope(|ui| {
+        let deck = ui.painter().add(egui::Shape::Noop);
+        ui.add_space(5.0);
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            for (glyph, label) in GLYPHS {
+                bevel::icon_button(ui, p, glyph, label);
+            }
+        });
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            // A latched icon toggle (lit amber) beside an idle one, then text pads.
+            let mut on = true;
+            let mut off = false;
+            bevel::icon_toggle(ui, p, &mut off, Icon::Loop, "Loop (off)");
+            bevel::icon_toggle(ui, p, &mut on, Icon::Loop, "Loop (on)");
+            bevel::button(ui, p, "Text pad");
+            let mut latched = true;
+            bevel::toggle(ui, p, &mut latched, "On");
+            let mut clear = false;
+            bevel::toggle(ui, p, &mut clear, "Off");
+        });
+        ui.add_space(5.0);
+        let rect = ui.min_rect().expand(6.0);
+        ui.painter().set(deck, theme::deck_shape(rect, p));
     });
 }
 

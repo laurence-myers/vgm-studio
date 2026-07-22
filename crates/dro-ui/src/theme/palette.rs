@@ -13,6 +13,73 @@
 use dro_core::config::ThemeChoice;
 use egui::Color32;
 
+use super::paint::{darken, lighten};
+
+/// How a case paints its pads and its deck, independently of the plate.
+/// `Tint` follows the plate (the default look); `Light` and `Dark` are fixed
+/// neutral treatments, so a case can, say, mount cream keys on a dark deck over
+/// a navy plate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    /// A fixed light (bone/cream) treatment.
+    Light,
+    /// A fixed dark (charcoal/rubber) treatment.
+    Dark,
+    /// Tinted to match the case's plate.
+    Tint,
+}
+
+/// A resolved pad cap: the two gradient stops, the border, and the content ink.
+pub(crate) struct PadCaps {
+    pub top: Color32,
+    pub bottom: Color32,
+    pub border: Color32,
+    pub ink: Color32,
+}
+
+/// Resolves a palette's pad cap colours from its [`Surface`] mode. `Tint`
+/// derives from the plate; `Light`/`Dark` are fixed presets.
+#[must_use]
+pub(crate) fn pad_caps(p: &Palette) -> PadCaps {
+    match p.pad {
+        Surface::Light => PadCaps {
+            top: Color32::from_rgb(0xF0, 0xE8, 0xD3),
+            bottom: Color32::from_rgb(0xE5, 0xDC, 0xC5),
+            border: Color32::from_rgb(0x55, 0x50, 0x3C),
+            ink: Color32::from_rgb(0x38, 0x35, 0x2A),
+        },
+        Surface::Dark => PadCaps {
+            top: Color32::from_rgb(0x41, 0x4B, 0x4B),
+            bottom: Color32::from_rgb(0x2E, 0x38, 0x38),
+            border: Color32::from_rgb(0x0A, 0x0F, 0x0F),
+            ink: Color32::from_rgb(0xC6, 0xD0, 0xD0),
+        },
+        Surface::Tint => PadCaps {
+            top: lighten(p.plate_top, 0.42),
+            bottom: lighten(p.plate_top, 0.26),
+            border: p.plate_border,
+            ink: darken(p.plate_bottom, 0.58),
+        },
+    }
+}
+
+/// Resolves a palette's deck gradient (top, bottom) from its [`Surface`] mode.
+/// `Tint` is exactly the plate; `Light`/`Dark` are fixed presets.
+#[must_use]
+pub(crate) fn deck_stops(p: &Palette) -> (Color32, Color32) {
+    match p.deck {
+        Surface::Light => (
+            Color32::from_rgb(0xE8, 0xE0, 0xCC),
+            Color32::from_rgb(0xD4, 0xCA, 0xAE),
+        ),
+        Surface::Dark => (
+            Color32::from_rgb(0x24, 0x30, 0x2F),
+            Color32::from_rgb(0x15, 0x1D, 0x1D),
+        ),
+        Surface::Tint => (p.plate_top, p.plate_bottom),
+    }
+}
+
 /// A complete colour scheme. All FastTracker II-ish: a beige/steel "face" with
 /// two-tone bevels for chrome, and a near-black "data" area with bright text
 /// for the pattern/table/waveform, plus the six waveform-specific colours.
@@ -88,15 +155,13 @@ pub struct Palette {
     /// Text over [`Self::button_pressed`].
     pub button_pressed_text: Color32,
 
-    // -- pads (the backlit-keycap button chrome) --
-    /// The pad cap's idle gradient, top (lit) stop.
-    pub pad_cap_top: Color32,
-    /// The pad cap's idle gradient, bottom (shaded) stop.
-    pub pad_cap_bottom: Color32,
-    /// The 1px rounded border framing a pad.
-    pub pad_border: Color32,
-    /// The icon/text ink on an idle or held pad.
-    pub pad_ink: Color32,
+    // -- pads and deck (the backlit-keycap button chrome) --
+    /// How the pad keycaps are coloured, independently of the plate. Resolve to
+    /// actual cap colours with [`pad_caps`].
+    pub pad: Surface,
+    /// How the deck (the control-panel surface the pads sit on) is coloured,
+    /// independently of the plate. Resolve with [`deck_stops`].
+    pub deck: Surface,
     /// A latched pad's lit cap, top (hot) stop -- fixed hardware amber.
     pub latch_top: Color32,
     /// A latched pad's lit cap, bottom stop -- fixed hardware amber.
@@ -193,14 +258,11 @@ pub(crate) struct CaseColors {
     pub button_pressed: Color32,
     /// Text over [`Self::button_pressed`].
     pub button_pressed_text: Color32,
-    /// The pad cap's idle gradient, top (lit) stop.
-    pub pad_cap_top: Color32,
-    /// The pad cap's idle gradient, bottom (shaded) stop.
-    pub pad_cap_bottom: Color32,
-    /// The 1px rounded border framing a pad.
-    pub pad_border: Color32,
-    /// The icon/text ink on an idle or held pad.
-    pub pad_ink: Color32,
+    /// How the pad keycaps are coloured, independently of the plate.
+    pub pad: Surface,
+    /// How the deck (the control-panel surface) is coloured, independently of
+    /// the plate.
+    pub deck: Surface,
     /// The selection bar fill.
     pub accent: Color32,
     /// Text drawn over the selection bar.
@@ -302,10 +364,8 @@ impl Skin {
             button_pressed: self.case.button_pressed,
             button_pressed_text: self.case.button_pressed_text,
 
-            pad_cap_top: self.case.pad_cap_top,
-            pad_cap_bottom: self.case.pad_cap_bottom,
-            pad_border: self.case.pad_border,
-            pad_ink: self.case.pad_ink,
+            pad: self.case.pad,
+            deck: self.case.deck,
             latch_top: self.hardware.latch_top,
             latch_bottom: self.hardware.latch_bottom,
             latch_border: self.hardware.latch_border,
@@ -367,11 +427,9 @@ const CLONE_DARK_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x6E, 0x79, 0x79),
     button_pressed_text: Color32::WHITE,
 
-    // Grey keycaps, evolving the flat grey FT2 buttons into rounded pads.
-    pad_cap_top: Color32::from_rgb(0xAE, 0xB8, 0xB8),
-    pad_cap_bottom: Color32::from_rgb(0x96, 0xA1, 0xA1),
-    pad_border: Color32::from_rgb(0x07, 0x0D, 0x0D),
-    pad_ink: Color32::from_rgb(0x10, 0x1A, 0x1A),
+    // Teal keycaps and deck, tone-on-tone with the plate.
+    pad: Surface::Tint,
+    deck: Surface::Tint,
 
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
     selection_text: Color32::WHITE,
@@ -448,11 +506,9 @@ const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x78, 0x7E, 0x87),
     button_pressed_text: Color32::WHITE,
 
-    // Steel-grey keycaps.
-    pad_cap_top: Color32::from_rgb(0xC4, 0xC9, 0xD0),
-    pad_cap_bottom: Color32::from_rgb(0xA6, 0xAB, 0xB2),
-    pad_border: Color32::from_rgb(0x0A, 0x0D, 0x14),
-    pad_ink: Color32::from_rgb(0x0A, 0x0D, 0x14),
+    // Steel keycaps and deck, tone-on-tone with the plate.
+    pad: Surface::Tint,
+    deck: Surface::Tint,
 
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
     selection_text: Color32::WHITE,
@@ -559,10 +615,9 @@ const NAVY_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x5A, 0x6E, 0x92),
     button_pressed_text: Color32::WHITE,
 
-    pad_cap_top: Color32::from_rgb(0x95, 0xA9, 0xC9),
-    pad_cap_bottom: Color32::from_rgb(0x7E, 0x93, 0xB4),
-    pad_border: Color32::from_rgb(0x35, 0x41, 0x5A),
-    pad_ink: Color32::from_rgb(0x14, 0x1E, 0x30),
+    // Cream keys on a dark rubber deck, over the navy plate.
+    pad: Surface::Light,
+    deck: Surface::Dark,
 
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
     selection_text: Color32::WHITE,
@@ -606,10 +661,9 @@ const CREAM_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0xB8, 0xAE, 0x90),
     button_pressed_text: Color32::from_rgb(0x33, 0x30, 0x1F),
 
-    pad_cap_top: Color32::from_rgb(0xE2, 0xD7, 0xBB),
-    pad_cap_bottom: Color32::from_rgb(0xCF, 0xC3, 0xA2),
-    pad_border: Color32::from_rgb(0x6B, 0x63, 0x49),
-    pad_ink: Color32::from_rgb(0x33, 0x30, 0x1F),
+    // Cream keys and deck, tone-on-tone with the light plate.
+    pad: Surface::Tint,
+    deck: Surface::Tint,
 
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
     selection_text: Color32::WHITE,
@@ -651,10 +705,9 @@ const VERDIGRIS_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x60, 0x82, 0x72),
     button_pressed_text: Color32::WHITE,
 
-    pad_cap_top: Color32::from_rgb(0xA3, 0xC4, 0xB2),
-    pad_cap_bottom: Color32::from_rgb(0x88, 0xAC, 0x97),
-    pad_border: Color32::from_rgb(0x32, 0x4A, 0x3E),
-    pad_ink: Color32::from_rgb(0x16, 0x28, 0x1F),
+    // Patina keys and deck, tone-on-tone with the plate.
+    pad: Surface::Tint,
+    deck: Surface::Tint,
 
     accent: Color32::from_rgb(0xB5, 0x84, 0x3C),
     selection_text: Color32::from_rgb(0x16, 0x28, 0x1F),

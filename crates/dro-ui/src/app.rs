@@ -504,7 +504,7 @@ impl DroApp {
                 .frame(controls_frame)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    theme::plate_panel(ui, p, |ui| {
+                    theme::deck_panel(ui, p, |ui| {
                         const PAD: f32 = 6.0;
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.add_space(PAD);

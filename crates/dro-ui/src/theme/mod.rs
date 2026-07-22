@@ -16,7 +16,7 @@ mod palette;
 mod style;
 
 pub use dro_core::config::ThemeChoice;
-pub use palette::{Palette, palette};
+pub use palette::{Palette, Surface, palette};
 
 /// Restyles `ui` so a `ComboBox` reads as a dark input (like a text field)
 /// rather than a face-coloured button. Call inside a `ui.scope` around the
@@ -115,6 +115,30 @@ pub fn plate_panel<R>(
     let rect =
         egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), ui.min_rect().y_range()).expand(4.0);
     ui.painter().set(slot, plate_shape(rect, palette));
+    inner
+}
+
+/// A deck surface as a single [`egui::Shape`]: the gradient the case's `deck`
+/// mode resolves to (the plate when `Tint`, else a fixed light/dark preset).
+/// The deck is the control-panel surface the pads sit on.
+pub fn deck_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
+    let (top, bottom) = palette::deck_stops(palette);
+    paint::plate_mesh(rect, top, bottom)
+}
+
+/// Runs `add_contents` inside a deck (the control panel's surface), like
+/// [`plate_panel`] but coloured by the case's `deck` mode, so the pads can sit
+/// on a surface distinct from the surrounding plate.
+pub fn deck_panel<R>(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let slot = ui.painter().add(egui::Shape::Noop);
+    let inner = add_contents(ui);
+    let rect =
+        egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), ui.min_rect().y_range()).expand(4.0);
+    ui.painter().set(slot, deck_shape(rect, palette));
     inner
 }
 
