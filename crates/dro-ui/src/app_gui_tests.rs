@@ -1901,6 +1901,32 @@ fn scanning_rip_volumes_fills_the_peak_map() {
 }
 
 #[test]
+fn a_rip_preview_starts_at_the_tracks_modifier_volume() {
+    let (mut harness, handles) = tall_rip_harness();
+    // A one-track pack whose track's header modifier asks for 2x (0x20).
+    let track = PickedFile {
+        name: "01 Loud.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/pack/01 Loud.vgm")),
+        bytes: dro_core::io::write_song(&vgm_with_modifier(0x20)).unwrap(),
+    };
+    open_folder(&mut harness, &handles, rip_folder("Loud Pack", vec![track]));
+
+    act(&mut harness, Action::RipTrackPreview(0));
+
+    assert_eq!(
+        handles.audio.borrow().loaded_boost,
+        Some(2.0),
+        "the preview loads at the track's 2x header modifier"
+    );
+    // ...and the editor's stored volume is left untouched by the preview.
+    assert_eq!(
+        harness.state().config.audio.boost,
+        1.0,
+        "previewing does not disturb the editor volume"
+    );
+}
+
+#[test]
 fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());

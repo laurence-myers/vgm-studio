@@ -117,6 +117,9 @@ impl FileService for FakeFileService {
 #[derive(Debug, Default)]
 pub(crate) struct AudioLog {
     pub loaded: Option<Arc<Song>>,
+    /// The boost from the [`AudioConfig`] the most recent `load` was given, so a
+    /// test can check a preview loaded at the track's own volume.
+    pub loaded_boost: Option<f32>,
     pub load_count: usize,
     pub play_calls: usize,
     pub pause_calls: usize,
@@ -152,7 +155,7 @@ pub(crate) struct AudioLog {
 pub(crate) struct FakeAudioService(pub(crate) Rc<RefCell<AudioLog>>);
 
 impl AudioService for FakeAudioService {
-    fn load(&mut self, song: Arc<Song>, _config: &AudioConfig) -> Result<(), String> {
+    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String> {
         let mut log = self.0.borrow_mut();
         if core::mem::take(&mut log.fail_next_load) {
             // Mirror `NativeAudioService::load`, which unloads the prior stream
@@ -163,6 +166,7 @@ impl AudioService for FakeAudioService {
             return Err("fake load failure".to_owned());
         }
         log.loaded = Some(song);
+        log.loaded_boost = Some(config.boost);
         log.load_count += 1;
         Ok(())
     }

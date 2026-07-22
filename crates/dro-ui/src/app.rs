@@ -795,16 +795,19 @@ impl DroApp {
         }
     }
 
-    /// The playback volume a freshly opened song should start at when the volume
-    /// is not locked: the factor its header volume modifier asks for (unity for a
-    /// DRO, or a VGM whose modifier is `0`).
+    /// The playback volume `song`'s header volume modifier asks for: unity for a
+    /// DRO (no modifier) or a VGM whose modifier is `0`. What an unlocked song
+    /// starts at, in the editor and in a rip preview.
+    fn modifier_boost(song: &dro_core::Song) -> f32 {
+        song.vgm_meta().map_or(1.0, |meta| {
+            dro_core::volume_modifier_factor(meta.volume_modifier)
+        })
+    }
+
+    /// The volume a freshly opened *editor* song should start at when the volume
+    /// is not locked.
     fn song_modifier_boost(&self) -> f32 {
-        self.editor
-            .song()
-            .and_then(|song| song.vgm_meta())
-            .map_or(1.0, |meta| {
-                dro_core::volume_modifier_factor(meta.volume_modifier)
-            })
+        self.editor.song().map_or(1.0, Self::modifier_boost)
     }
 
     /// Applies the "Lock" toggle. Locking remembers the current volume across
@@ -2125,8 +2128,15 @@ impl DroApp {
         if let Some(rip) = self.rip.as_mut() {
             rip.preview = None;
         }
+        // Preview at the track's own volume: unless the volume is locked, start it
+        // from the track's header modifier -- on a copy of the config, so the
+        // preview does not disturb the editor's volume.
+        let mut preview_config = self.config.audio;
+        if !preview_config.lock_boost {
+            preview_config.boost = Self::modifier_boost(&song);
+        }
         self.audio.pause();
-        if let Err(message) = self.audio.load(song, &self.config.audio) {
+        if let Err(message) = self.audio.load(song, &preview_config) {
             self.alerts.push_back(Alert::error(message));
             return;
         }
