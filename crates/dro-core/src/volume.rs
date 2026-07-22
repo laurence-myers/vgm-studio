@@ -113,45 +113,6 @@ pub fn volume_modifier_factor(modifier: u8) -> f32 {
     2.0f32.powf(steps as f32 / 32.0)
 }
 
-/// The position of a modifier byte on the factor-ascending ladder, `0..=255`.
-///
-/// The header byte's encoding is not monotonic in factor (`0xC0` = 64x sits just
-/// before `0xC1` = 0.25x), so a stepper cannot walk raw byte values. This orders
-/// them by the gain they produce: `0xC1` (0.25x) → `0`, `0xFF` (~0.98x) → `62`,
-/// `0x00` (1x) → `63`, `0xC0` (64x) → `255`. A bijection, inverted by
-/// [`modifier_from_ordinal`].
-fn modifier_ordinal(modifier: u8) -> u8 {
-    if modifier <= MAX_GAIN_STEPS as u8 {
-        // 0x00..=0xC0 (gain) -> 63..=255.
-        modifier + 63
-    } else {
-        // 0xC1..=0xFF (attenuation) -> 0..=62.
-        modifier - 0xC1
-    }
-}
-
-/// The modifier byte at ladder position `ordinal`; the inverse of
-/// [`modifier_ordinal`].
-fn modifier_from_ordinal(ordinal: u8) -> u8 {
-    if ordinal >= 63 {
-        ordinal - 63
-    } else {
-        ordinal + 0xC1
-    }
-}
-
-/// Moves `modifier` by `steps` positions along the factor-ascending ladder,
-/// saturating at the ends (`0xC1` = 0.25x and `0xC0` = 64x).
-///
-/// One step is `2^(1/32)` -- about `0.22` dB, 32 to a doubling -- so this is the
-/// per-click move of the volume stepper. Walking the ladder (not raw bytes) is
-/// what keeps a step across the `0x00`/`0xC1` seam continuous in loudness.
-#[must_use]
-pub fn nudge_volume_modifier(modifier: u8, steps: i32) -> u8 {
-    let ordinal = i32::from(modifier_ordinal(modifier)) + steps;
-    modifier_from_ordinal(ordinal.clamp(0, 255) as u8)
-}
-
 /// The modifier byte whose playback factor is closest (in log space, so the
 /// perceptual distance is even) to `factor`, saturating past the ladder's ends.
 ///
@@ -159,16 +120,16 @@ pub fn nudge_volume_modifier(modifier: u8, steps: i32) -> u8 {
 /// `boost_for_peak` a "Match Volume" produces -- onto a real modifier value, so
 /// the stepper always sits on a ladder position and the number it shows is one a
 /// player could reproduce.
+///
+/// Because the ladder is geometric (one byte step = `2^(1/32)`), "nearest in log
+/// space" is just the step count rounded: the inverse of
+/// [`volume_modifier_factor`], with [`encode_volume_modifier`]'s clamps covering
+/// the ends (its `-63` byte `0xC1` reads back as `-64`, the clean `0.25x` floor).
+/// `max(MIN_POSITIVE)` keeps a zero or negative input finite.
 #[must_use]
 pub fn nearest_volume_modifier(factor: f32) -> u8 {
-    let target = factor.max(f32::MIN_POSITIVE).log2();
-    (0..=u8::MAX)
-        .min_by(|&a, &b| {
-            let da = (volume_modifier_factor(a).log2() - target).abs();
-            let db = (volume_modifier_factor(b).log2() - target).abs();
-            da.total_cmp(&db)
-        })
-        .expect("the 0..=255 range is non-empty")
+    let steps = factor.max(f32::MIN_POSITIVE).log2() * 32.0;
+    encode_volume_modifier(steps.round() as i32)
 }
 
 /// The next ladder volume *above* `factor`, for the volume stepper's up arrow.
@@ -372,52 +333,23 @@ mod tests {
     }
 
     #[test]
-    fn the_ladder_ordinal_is_a_monotonic_bijection() {
-        // Every byte maps to a distinct ladder position, and back.
-        let mut seen = [false; 256];
-        for byte in 0..=u8::MAX {
-            let ord = modifier_ordinal(byte);
-            assert!(!seen[ord as usize], "ordinal {ord} used twice");
-            seen[ord as usize] = true;
-            assert_eq!(modifier_from_ordinal(ord), byte, "byte {byte:#04X}");
-        }
-        // Ascending ordinal means ascending factor -- the property a stepper needs.
-        for ord in 0..u8::MAX {
-            let lo = volume_modifier_factor(modifier_from_ordinal(ord));
-            let hi = volume_modifier_factor(modifier_from_ordinal(ord + 1));
-            assert!(
-                lo < hi,
-                "factor not increasing at ordinal {ord}: {lo} !< {hi}"
-            );
-        }
-        // The anchors from the doc comment.
-        assert_eq!(modifier_ordinal(0xC1), 0, "0.25x is the bottom");
-        assert_eq!(modifier_ordinal(0x00), 63, "unity");
-        assert_eq!(modifier_ordinal(0xC0), 255, "64x is the top");
-    }
-
-    #[test]
-    fn nudging_walks_the_ladder_and_saturates() {
-        // One step up from unity is the first gain byte; one down is the last
-        // attenuation byte -- continuous across the 0x00/0xC1 seam.
-        assert_eq!(nudge_volume_modifier(0x00, 1), 0x01);
-        assert_eq!(nudge_volume_modifier(0x00, -1), 0xFF);
-        // 32 steps is a doubling: unity -> 2x (0x20), and back.
-        assert_eq!(nudge_volume_modifier(0x00, 32), 0x20);
-        assert_eq!(nudge_volume_modifier(0x20, -32), 0x00);
-        // Zero is a no-op, and the ends saturate rather than wrap.
-        assert_eq!(nudge_volume_modifier(0x40, 0), 0x40);
-        assert_eq!(nudge_volume_modifier(0xC0, 10), 0xC0, "64x is the ceiling");
-        assert_eq!(nudge_volume_modifier(0xC1, -10), 0xC1, "0.25x is the floor");
-    }
-
-    #[test]
     fn nearest_snaps_a_free_factor_onto_the_ladder() {
-        // Exact ladder values map to themselves.
+        // Exact ladder values map to themselves -- including the 0xC1 = 0.25x
+        // floor, whose byte is nominally -63 steps but decodes as -64.
         assert_eq!(nearest_volume_modifier(1.0), 0x00);
         assert_eq!(nearest_volume_modifier(2.0), 0x20);
         assert_eq!(nearest_volume_modifier(0.25), 0xC1);
         assert_eq!(nearest_volume_modifier(64.0), 0xC0);
+        // Every byte round-trips through its own factor -- including 0xC1, whose
+        // decoded -64 steps clamp back to the -63 encoding, i.e. the same byte --
+        // so the snap is exact across the whole ladder.
+        for byte in 0..=u8::MAX {
+            assert_eq!(
+                nearest_volume_modifier(volume_modifier_factor(byte)),
+                byte,
+                "byte {byte:#04X} does not round-trip"
+            );
+        }
         // Off-ladder values snap to the perceptually nearest, and out-of-range
         // values saturate at the ends.
         assert_eq!(

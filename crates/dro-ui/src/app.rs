@@ -1717,6 +1717,9 @@ impl DroApp {
                 // kinds, so this does not disturb the waveform render below.)
                 self.tasks.cancel(TaskKind::RenderWav);
                 self.tasks.cancel(TaskKind::Split);
+                // Likewise a running volume scan: its peak is the old song's,
+                // and landing late it would set this song's volume from it.
+                self.tasks.cancel(TaskKind::VolumeScan);
                 self.split_flow = None;
                 self.submit_waveform(None);
                 // Unload, not pause: the old stream's position must not leak
@@ -1936,6 +1939,11 @@ impl DroApp {
     /// redelivery of the folder already open -- rescans in place, keeping the
     /// edited metadata.
     fn open_folder(&mut self, folder: PickedFolder) {
+        // Any folder delivery invalidates a running whole-pack volume scan: a
+        // rescan may have renamed or rewritten the files it snapshotted, and a
+        // different folder's scan must never fill this one's Peak column. The
+        // peaks map itself is pruned per track in `refresh_files`.
+        self.tasks.cancel(TaskKind::RipVolumeScan);
         let same = self
             .rip
             .as_ref()
@@ -2448,6 +2456,13 @@ impl DroApp {
     fn apply_rip_modifiers(&mut self) {
         if self.rip_busy() {
             self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        // Applying mid-scan would use the peaks from *before* the scan and then
+        // discard its result (the rewrite's rescan cancels it) -- confusing both
+        // ways, so wait it out.
+        if self.tasks.is_busy_kind(TaskKind::RipVolumeScan) {
+            self.status = "Still scanning volumes...".to_owned();
             return;
         }
         self.stop_preview();

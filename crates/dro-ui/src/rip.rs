@@ -171,14 +171,28 @@ impl RipState {
             .and_then(|index| self.tracks.get(index))
             .map(|track| track.file_name.clone());
         let rescanned = Self::from_folder(folder, None);
-        self.tracks = rescanned.tracks;
+        let old_tracks = std::mem::replace(&mut self.tracks, rescanned.tracks);
         self.images = rescanned.images;
         self.preview = previewing
             .and_then(|name| self.tracks.iter().position(|track| track.file_name == name));
-        // Measured peaks survive a rescan (a header edit does not change the
-        // audio), but drop any whose track is gone -- e.g. a reorder renamed it.
-        self.peaks
-            .retain(|name, _| self.tracks.iter().any(|track| &track.file_name == name));
+        // A measured peak is a fact about the *audio* -- the command stream and
+        // chip -- so it survives a rescan only while those are unchanged. Header
+        // rewrites (a new volume modifier, GD3 tags) keep it; a track that was
+        // edited in the editor and saved back, renamed away, or replaced
+        // wholesale loses it and shows unscanned again.
+        let song_of = |tracks: &[RipTrack], name: &str| {
+            tracks
+                .iter()
+                .find(|track| track.file_name == name)
+                .and_then(RipTrack::song)
+                .cloned()
+        };
+        self.peaks.retain(|name, _| {
+            match (song_of(&old_tracks, name), song_of(&self.tracks, name)) {
+                (Some(old), Some(new)) => old.data() == new.data() && old.opl_type == new.opl_type,
+                _ => false,
+            }
+        });
     }
 
     /// The transaction that moves the track at `from` to `to`, renumbering the
@@ -1188,6 +1202,45 @@ mod tests {
             .expect("a VGM")
             .expect("writes");
         assert_eq!(modifier_of(&bytes), 0x20);
+    }
+
+    #[test]
+    fn refresh_keeps_peaks_for_header_edits_and_drops_them_for_audio_edits() {
+        let files = vec![
+            tagged_song("01 A.vgm", tag("G", "A", "R")),
+            tagged_song("02 B.vgm", tag("G", "B", "R")),
+        ];
+        let mut state = RipState::from_folder(folder("G", files), None);
+        state.peaks.insert("01 A.vgm".to_owned(), peak(0x4000));
+        state.peaks.insert("02 B.vgm".to_owned(), peak(0x2000));
+
+        // Redeliver the folder with track 1 rewritten header-only (a new volume
+        // modifier -- what Apply Modifiers produces) and track 2's audio replaced
+        // wholesale (what an editor edit saved back produces).
+        let header_edit = revolumed_bytes(state.tracks[0].song().unwrap(), 0x20)
+            .expect("a VGM")
+            .expect("writes");
+        let other_song =
+            dro_core::convert::dro_to_vgm(&crate::test_song::tone_song()).expect("converts");
+        let audio_edit = dro_core::io::write_song(&other_song).expect("writes");
+        let file = |name: &str, bytes: Vec<u8>| PickedFile {
+            name: name.to_owned(),
+            path: Some(PathBuf::from(format!("C:/pack/{name}"))),
+            bytes,
+        };
+        state.refresh_files(folder(
+            "G",
+            vec![file("01 A.vgm", header_edit), file("02 B.vgm", audio_edit)],
+        ));
+
+        assert!(
+            state.peaks.contains_key("01 A.vgm"),
+            "a header-only rewrite keeps the measured peak"
+        );
+        assert!(
+            !state.peaks.contains_key("02 B.vgm"),
+            "changed audio must drop the stale peak"
+        );
     }
 
     #[test]

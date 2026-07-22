@@ -957,6 +957,24 @@ fn match_volume_measures_the_peak_and_sets_the_volume() {
 }
 
 #[test]
+fn opening_a_song_cancels_a_running_volume_scan() {
+    // A scan started for song A must not land on song B: its stale peak would
+    // overwrite B's modifier-derived volume. Loading cancels the scan.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::MatchVolume);
+    harness.state_mut().load_file(picked(&tone_song()));
+    harness.run();
+    assert!(
+        handles
+            .tasks
+            .borrow()
+            .cancelled
+            .contains(&TaskKind::VolumeScan),
+        "loading a song cancels the in-flight volume scan"
+    );
+}
+
+#[test]
 fn match_volume_without_a_song_submits_no_scan() {
     let (mut harness, handles) = empty_harness();
     // The lever (and its Match button) render even with no song loaded; clicking
