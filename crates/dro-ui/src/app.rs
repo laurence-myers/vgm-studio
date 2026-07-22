@@ -2105,6 +2105,8 @@ impl DroApp {
                 .push_back(Alert::error(validations.errors.join("\n")));
             return;
         }
+        // Only errors block and only warnings prompt; the note tier is for the
+        // submission checklist and deliberately never reaches the export dialog.
         if !validations.warnings.is_empty() && !confirmed {
             self.alerts.push_back(Alert::confirm(
                 "Export anyway?",

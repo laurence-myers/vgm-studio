@@ -2773,11 +2773,37 @@ const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// A folder that passes every export validation (named, numbered, with a png).
 /// The png is a real (decodable) image so the inline preview renders.
+/// A single VGM with every submission-required GD3 field filled, so the
+/// readiness checks pass clean. The track name matches the file name, and the
+/// game/system/date/ripper agree with the pack meta the app prefills.
+fn complete_vgm(name: &str) -> PickedFile {
+    let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
+    if let Some(meta) = song.vgm_meta_mut() {
+        meta.tag = Some(dro_core::Gd3Tag {
+            track_name_en: dro_core::rip::title_from_filename(name).to_owned(),
+            game_name_en: "Cool Game".to_owned(),
+            system_name_en: "IBM PC/AT".to_owned(),
+            track_author_en: "Ada".to_owned(),
+            release_date: "1994".to_owned(),
+            creator: "Ripper".to_owned(),
+            ..dro_core::Gd3Tag::default()
+        });
+    }
+    PickedFile {
+        name: name.to_owned(),
+        path: Some(PathBuf::from(format!("C:/pack/{name}"))),
+        bytes: dro_core::io::write_song(&song).unwrap(),
+    }
+}
+
+/// A submission-ready "Cool Game" pack: one fully tagged track and a screenshot,
+/// so [`RipState::validations`] finds nothing to warn about and an export goes
+/// straight through without the "export anyway?" confirm.
 fn complete_folder() -> PickedFolder {
     rip_folder(
         "Cool Game",
         vec![
-            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            complete_vgm("01 Intro.vgz"),
             PickedFile {
                 name: "Cool Game.png".to_owned(),
                 path: Some(PathBuf::from("C:/Cool Game/Cool Game.png")),

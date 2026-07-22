@@ -16,8 +16,9 @@ use std::sync::Arc;
 use dro_synth::Peak;
 
 use dro_core::rip::{
-    DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, TrackEntry, doc_file_stem, format_track_time,
-    generate_description, generate_m3u, music_hardware_suggestion, parse_description,
+    DEFAULT_OS, DEFAULT_SYSTEM, PRESETS, RipMeta, Severity, TrackEntry, TrackFacts, doc_file_stem,
+    format_track_time, generate_description, generate_m3u, music_hardware_suggestion,
+    parse_description, readiness,
 };
 use dro_core::vgm::data::GD3_FIELD_COUNT;
 use dro_core::{Gd3Tag, OplType, Song};
@@ -321,11 +322,39 @@ impl RipState {
         !self.meta.game_name.trim().is_empty()
     }
 
-    /// Blocking errors and non-blocking warnings for an export.
+    /// The per-track facts the submission-readiness checks read, one entry per
+    /// track in list order -- so a readiness `Track(index)` maps straight back to
+    /// `self.tracks[index]` for click-to-fix.
+    #[must_use]
+    pub fn track_facts(&self) -> Vec<TrackFacts> {
+        self.tracks
+            .iter()
+            .map(|track| TrackFacts {
+                file_name: track.file_name.clone(),
+                tag: track
+                    .song()
+                    .and_then(|song| song.vgm_meta())
+                    .and_then(|meta| meta.tag.clone()),
+                loops: track
+                    .entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.loop_samples.is_some()),
+                readable: track.song().is_some(),
+            })
+            .collect()
+    }
+
+    /// The export gate: blocking errors, soft warnings, and optional notes.
+    ///
+    /// The file-level shape checks (game name, readable songs, `NN Title`
+    /// numbering, screenshot) live here; the GD3-tag / metadata content checks
+    /// come from the shared, wasm-clean [`dro_core::rip::readiness`], merged in by
+    /// severity. Notes are surfaced in the checklist but never gate an export.
     #[must_use]
     pub fn validations(&self) -> RipValidations {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
+        let mut notes = Vec::new();
 
         if self.meta.game_name.trim().is_empty() {
             errors.push("Enter a game name (it names every file in the pack).".to_owned());
@@ -366,7 +395,20 @@ impl RipState {
             warnings.push("Track numbers are not a contiguous 01, 02, 03... sequence.".to_owned());
         }
 
-        RipValidations { errors, warnings }
+        // The GD3 / metadata content checks, merged in by severity.
+        for item in readiness(&self.meta, &self.track_facts()) {
+            match item.severity {
+                Severity::Error => errors.push(item.message),
+                Severity::Warning => warnings.push(item.message),
+                Severity::Note => notes.push(item.message),
+            }
+        }
+
+        RipValidations {
+            errors,
+            warnings,
+            notes,
+        }
     }
 
     /// Builds the export job: every song, every screenshot, and freshly
@@ -413,8 +455,11 @@ impl RipState {
 pub struct RipValidations {
     /// Problems that block an export.
     pub errors: Vec<String>,
-    /// Advisories the user may choose to ignore.
+    /// Advisories the user may choose to ignore (the "export anyway?" confirm).
     pub warnings: Vec<String>,
+    /// Optional observations (the note tier): surfaced in the submission
+    /// checklist, but never shown in the export dialog and never gating.
+    pub notes: Vec<String>,
 }
 
 /// The `NN` from a `NN Title.ext` file name, if present.
@@ -1394,6 +1439,44 @@ mod tests {
         // An empty game name is a hard error.
         state.meta.game_name.clear();
         assert!(!state.validations().errors.is_empty());
+    }
+
+    #[test]
+    fn validations_merge_the_gd3_content_checks_as_warnings() {
+        // The fixture tag() fills game/author/creator/date but leaves Track Name
+        // and System blank, so the readiness pass adds a per-track "missing"
+        // warning beyond the file-level ones -- and never a hard error.
+        let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
+        let state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        let checks = state.validations();
+        assert!(checks.errors.is_empty());
+        assert!(
+            checks.warnings.iter().any(|w| w.contains("missing")),
+            "a merged content warning is expected: {:?}",
+            checks.warnings
+        );
+    }
+
+    #[test]
+    fn notes_are_reported_in_their_own_tier_and_never_gate() {
+        let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
+        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        // Credit a second composer the tracks never carry: a note, not a warning.
+        state.meta.music_authors = "A & B".to_owned();
+        let checks = state.validations();
+        assert!(
+            checks.notes.iter().any(|n| n.contains("composers")),
+            "the composer-set mismatch lands in notes: {:?}",
+            checks.notes
+        );
+        // A note must never leak into the gating tiers.
+        assert!(!checks.errors.iter().any(|item| item.contains("composers")));
+        assert!(
+            !checks
+                .warnings
+                .iter()
+                .any(|item| item.contains("composers"))
+        );
     }
 
     #[test]
