@@ -749,6 +749,7 @@ impl DroApp {
                 }
                 TaskResult::Peak(peak) => self.handle_volume_scan(peak),
                 TaskResult::RipPeaks(peaks) => self.handle_rip_peaks(peaks),
+                TaskResult::LoopCandidates(candidates) => self.handle_loop_candidates(candidates),
             }
         }
     }
@@ -2445,6 +2446,12 @@ impl DroApp {
             None,
         );
         self.status = format!("Scanning {count} track volume(s)...");
+    }
+
+    /// Routes a streamed loop-search snapshot into the Find Loop dialog, if it is
+    /// still open. Wired to the dialog in lf-3; for now it just reports progress.
+    fn handle_loop_candidates(&mut self, candidates: Vec<dro_core::Candidate>) {
+        self.status = format!("Found {} loop candidate(s).", candidates.len());
     }
 
     /// Stores a finished rip volume scan's peaks (keyed by file name) for the Peak

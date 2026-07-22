@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use dro_core::Song;
 use dro_core::io::write_song;
+use dro_core::loopfind::{Candidate, find_loops, rank};
 use dro_core::rip::track_file_name;
 use dro_core::split_songs::{detect_segments, materialise};
 use dro_synth::{
@@ -32,6 +33,8 @@ pub enum TaskKind {
     VolumeScan,
     /// Measuring every rip track's peak, for the rip "Scan Volumes" button.
     RipVolumeScan,
+    /// Edit > Find Loop: searching the command stream for loop candidates.
+    LoopSearch,
 }
 
 /// A unit of background work, with everything it needs captured as an
@@ -73,6 +76,13 @@ pub enum TaskRequest {
         tracks: Vec<(String, Arc<Song>)>,
         sample_rate: u32,
     },
+    /// Searches `song` for loop candidates at least `min_len_commands`
+    /// delay-stripped commands long, for the Find Loop dialog. Runs in the
+    /// background because a long song's search takes a moment.
+    LoopSearch {
+        song: Arc<Song>,
+        min_len_commands: usize,
+    },
 }
 
 impl TaskRequest {
@@ -85,6 +95,7 @@ impl TaskRequest {
             Self::SplitSongs { .. } => TaskKind::SplitSongs,
             Self::VolumeScan { .. } => TaskKind::VolumeScan,
             Self::RipVolumeScan { .. } => TaskKind::RipVolumeScan,
+            Self::LoopSearch { .. } => TaskKind::LoopSearch,
         }
     }
 }
@@ -112,6 +123,10 @@ pub enum TaskResult {
     /// One `(file_name, peak)` per rip track measured, for the rip Peak column.
     /// A cancelled scan (the folder changed) emits nothing.
     RipPeaks(Vec<(String, Peak)>),
+    /// The loop candidates found so far, best-first. Emitted as a growing ranked
+    /// snapshot while the search streams, so the dialog's table fills in live; a
+    /// cancelled search emits nothing.
+    LoopCandidates(Vec<Candidate>),
 }
 
 /// A finished split's files, ready to write, or why it failed.
@@ -253,6 +268,27 @@ pub fn run_task(
             }
             emit(TaskResult::RipPeaks(peaks));
         }
+        TaskRequest::LoopSearch {
+            song,
+            min_len_commands,
+        } => {
+            // Accumulate as the search streams, emitting a ranked snapshot each
+            // time so the dialog's table fills in best-first while it runs. A
+            // cancelled search never emits (find_loops stops before the first
+            // candidate), like the volume scans above.
+            let mut found: Vec<Candidate> = Vec::new();
+            find_loops(
+                song,
+                *min_len_commands,
+                &mut |candidate| {
+                    found.push(candidate);
+                    let mut snapshot = found.clone();
+                    rank(&mut snapshot);
+                    emit(TaskResult::LoopCandidates(snapshot));
+                },
+                is_cancelled,
+            );
+        }
     }
 }
 
@@ -387,6 +423,49 @@ mod tests {
         );
         // A cancelled scan emits nothing.
         assert!(collect(&scan, || true).is_empty());
+    }
+
+    /// Two copies of one loop body, as a VGM, so the search has a repeat to find.
+    fn looping_vgm() -> Song {
+        use dro_core::{OplType, VgmData, VgmMeta};
+        let mut stream = Vec::new();
+        for _ in 0..2 {
+            for (reg, value) in [(0xA0u8, 0x11u8), (0xB0, 0x22), (0xA0, 0x33), (0xC0, 0x44)] {
+                stream.extend_from_slice(&[0x5A, reg, value]); // OPL2 write
+                stream.extend_from_slice(&[0x61, 0x20, 0x00]); // wait 32 samples
+            }
+        }
+        let data = VgmData::new(stream).expect("valid VGM stream");
+        Song::vgm(
+            "loop.vgm".to_owned(),
+            0x151,
+            data,
+            OplType::Opl2,
+            VgmMeta::new(Vec::new()),
+        )
+    }
+
+    #[test]
+    fn the_loop_search_streams_ranked_candidates() {
+        let search = TaskRequest::LoopSearch {
+            song: Arc::new(looping_vgm()),
+            min_len_commands: 4,
+        };
+        let results = collect(&search, || false);
+        let Some(TaskResult::LoopCandidates(candidates)) = results.last() else {
+            panic!("expected loop candidates, got {results:?}");
+        };
+        // The body repeats once and runs to the end: the top candidate is "!".
+        assert_eq!(candidates.first().map(|c| c.quality_label()), Some("!"));
+    }
+
+    #[test]
+    fn a_cancelled_loop_search_emits_nothing() {
+        let search = TaskRequest::LoopSearch {
+            song: Arc::new(looping_vgm()),
+            min_len_commands: 4,
+        };
+        assert!(collect(&search, || true).is_empty());
     }
 
     #[test]
