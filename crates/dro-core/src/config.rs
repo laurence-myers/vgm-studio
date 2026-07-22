@@ -62,18 +62,39 @@ pub enum ThemeChoice {
     Cream,
     /// Bassoon verdigris: a patinated-copper three-stop metal plate.
     Verdigris,
+    /// Bassoon moss: a muted green plate.
+    Moss,
+    /// Bassoon plum: a muted purple plate.
+    Plum,
+    /// Bassoon rust: a burnt orange-brown plate.
+    Rust,
+    /// Bassoon petrol: a dark blue-green plate.
+    Petrol,
+    /// Bassoon slate: a cool blue-grey plate.
+    Slate,
+    /// Bassoon olive: a dark yellow-green plate.
+    Olive,
+    /// Bassoon wine: a deep burgundy plate.
+    Wine,
 }
 
 impl ThemeChoice {
     /// Every theme, in dropdown order. Lets exhaustive consumers (the theme
     /// showcase snapshot test) iterate all themes; a new variant added here
     /// then fails that test with a missing baseline until one is generated.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 12] = [
         Self::CloneDark,
         Self::Ft2Classic,
         Self::Navy,
         Self::Cream,
         Self::Verdigris,
+        Self::Moss,
+        Self::Plum,
+        Self::Rust,
+        Self::Petrol,
+        Self::Slate,
+        Self::Olive,
+        Self::Wine,
     ];
 }
 
@@ -85,6 +106,13 @@ impl core::fmt::Display for ThemeChoice {
             Self::Navy => "navy",
             Self::Cream => "cream",
             Self::Verdigris => "verdigris",
+            Self::Moss => "moss",
+            Self::Plum => "plum",
+            Self::Rust => "rust",
+            Self::Petrol => "petrol",
+            Self::Slate => "slate",
+            Self::Olive => "olive",
+            Self::Wine => "wine",
         })
     }
 }
@@ -102,6 +130,13 @@ impl core::str::FromStr for ThemeChoice {
             "navy" => Ok(Self::Navy),
             "cream" => Ok(Self::Cream),
             "verdigris" => Ok(Self::Verdigris),
+            "moss" => Ok(Self::Moss),
+            "plum" => Ok(Self::Plum),
+            "rust" => Ok(Self::Rust),
+            "petrol" => Ok(Self::Petrol),
+            "slate" => Ok(Self::Slate),
+            "olive" => Ok(Self::Olive),
+            "wine" => Ok(Self::Wine),
             _ => Err(()),
         }
     }

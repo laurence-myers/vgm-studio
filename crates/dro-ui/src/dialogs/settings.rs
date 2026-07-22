@@ -224,6 +224,13 @@ fn theme_label(theme: ThemeChoice) -> &'static str {
         ThemeChoice::Navy => "Navy",
         ThemeChoice::Cream => "Cream",
         ThemeChoice::Verdigris => "Verdigris",
+        ThemeChoice::Moss => "Moss",
+        ThemeChoice::Plum => "Plum",
+        ThemeChoice::Rust => "Rust",
+        ThemeChoice::Petrol => "Petrol",
+        ThemeChoice::Slate => "Slate",
+        ThemeChoice::Olive => "Olive",
+        ThemeChoice::Wine => "Wine",
     }
 }
 
