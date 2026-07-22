@@ -250,7 +250,8 @@ fn draw_buckets(
 }
 
 /// The sunken-screen background: a subtle vertical gradient, a touch lighter
-/// along the centre line and darker toward the top and bottom edges.
+/// along the centre line and darker toward the top and bottom edges, overlaid
+/// with a faint oscilloscope grid and a brighter centre line.
 fn paint_background(painter: &egui::Painter, rect: Rect, palette: &Palette) {
     let edge = palette.wf_bg;
     let centre_colour = lerp_color(palette.wf_bg, Color32::WHITE, 0.07);
@@ -275,6 +276,20 @@ fn paint_background(painter: &egui::Painter, rect: Rect, palette: &Palette) {
         edge,
     );
     painter.add(Shape::mesh(mesh));
+
+    // Scope grid: eight faint verticals and the quarter horizontals, tinted
+    // toward the wave, then a brighter centre line -- all behind the wave.
+    let grid = lerp_color(palette.wf_bg, palette.wf_wave, 0.09);
+    let centre_line = lerp_color(palette.wf_bg, Color32::WHITE, 0.18);
+    for i in 1..8 {
+        let x = rect.left() + rect.width() * i as f32 / 8.0;
+        painter.vline(x, rect.y_range(), Stroke::new(1.0, grid));
+    }
+    for i in [1.0_f32, 3.0] {
+        let y = rect.top() + rect.height() * i / 4.0;
+        painter.hline(rect.x_range(), y, Stroke::new(1.0, grid));
+    }
+    painter.hline(rect.x_range(), centre, Stroke::new(1.0, centre_line));
 }
 
 fn x_for_ms(rect: Rect, ms: u32, total_ms: u32) -> f32 {
