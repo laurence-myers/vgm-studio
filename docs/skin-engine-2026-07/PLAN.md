@@ -210,7 +210,8 @@ pub enum CaseChoice { Navy, Moss, Plum, Rust, Cream, Petrol, Slate,
    ~30 files; `style_for(&Skin)`. Zero visual change; the old snapshots prove
    it — their last job. (Largest diff, dumbest content.)
 3. **Plate chrome, replacing FT2** — plate painter, rounded borders,
-   button/toggle repaint, shadow labels, uppercase chrome. The three cases
+   button/toggle repaint, shadow labels, uppercase chrome; re-enable
+   tessellation feathering (see Risks). The three cases
    that exist at this point (`navy` plus `clone-teal` / `ft2-steel`, so the
    two config values users may already have keep rendering) all use the new
    chrome. Old showcase baselines retired; `navy` baseline added.
@@ -230,11 +231,14 @@ threading cost).
 
 ## 9. Risks / open questions
 
-- **Feathering off + rounded corners**: the app disables tessellation
-  feathering for hard pixels; 3px-radius strokes may alias. Mitigation:
-  radius is small and the mock-ups are hard-pixeled anyway; if it looks bad,
-  plates fall back to square corners (the look survives — Bassoon reads
-  "plate" mostly from the gradient + lit edge).
+- **Feathering comes back on.** `theme::install` currently sets
+  `feathering = false` for the DOS hard-pixel look — an FT2-chrome decision
+  that dies with it. The mock-ups assume antialiasing: the browser feathered
+  their rounded corners, knob circles, LED dots and glow, and only the type
+  is hard-pixel. Tessellation feathering doesn't touch glyph rendering, so
+  Px437 stays crisp with it on. Re-enable in Phase 3 (same commit as the
+  plate chrome, when every baseline is re-cut anyway); the pixel-grid
+  `hline`/`vline` tricks in the edge painters keep working feathered.
 - **No FT2 fallback**: once Phase 3 lands, the old look is gone — the recast
   `clone-teal` / `ft2-steel` cases keep the colours, not the chrome. Anyone
   attached to the flat-bevel look has no escape hatch; that is the accepted
