@@ -75,8 +75,13 @@
       uses were built to be reused for exactly that.
   - Volume -- done. A bidirectional playback "volume" lever in the transport
     row, sitting on the VGM volume-modifier factor ladder (0.25x..64x, shown to
-    two decimals) so every position is a real modifier value. Arrows step ~1.0 at
-    unity and above, ~0.1 below; a typed value snaps to the ladder. Behind it the
+    two decimals) so every position is a real modifier value. By default the
+    volume is per-song: opening a song sets it from that song's header volume
+    modifier (unity for a DRO) and manual changes are transient (not written to
+    drotrim.ini). A "Lock" toggle keeps the volume across songs and persists it,
+    like the old behaviour; unlocking snaps back to the current song's modifier.
+    Arrows step ~1.0 at unity and above, ~0.1 below; a typed value snaps to the
+    ladder. Behind it the
     peak limiter has a clipping guard: the volume cannot rise past the lowest
     boost that has driven the limiter into clipping this song (it ratchets down as
     quieter boosts still clip), reset per song. "Match Volume" measures the song's
