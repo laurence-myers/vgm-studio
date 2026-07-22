@@ -1,8 +1,14 @@
-//! The two DOS-tracker colour schemes, as static [`Palette`]s.
+//! The DOS-tracker colour schemes, as static [`Palette`]s composed from a
+//! [`Skin`].
 //!
-//! Every colour the theme needs is a named role here rather than a raw
-//! `Color32` scattered through the widgets, so the two presets are just two
-//! tables of the same shape and a future third scheme is one more `const`.
+//! Every colour the theme needs is a named role rather than a raw `Color32`
+//! scattered through the widgets. The roles split by *who may override them*:
+//! [`CaseColors`] are the per-case fascia colours (panels, buttons, chrome
+//! text, selection), and [`HardwareColors`] are the fixed "display" colours
+//! (the dark data wells, the tracker-yellow readouts, the scope, the VU meter)
+//! that stay put as the case changes. A [`Skin`] pairs one of each and
+//! [`Skin::compose`]s them into the flat [`Palette`] the widgets consume, so a
+//! future case is one more `CaseColors` const over a shared `HardwareColors`.
 
 use dro_core::config::ThemeChoice;
 use egui::Color32;
@@ -10,6 +16,10 @@ use egui::Color32;
 /// A complete colour scheme. All FastTracker II-ish: a beige/steel "face" with
 /// two-tone bevels for chrome, and a near-black "data" area with bright text
 /// for the pattern/table/waveform, plus the six waveform-specific colours.
+///
+/// This is the flat, widget-facing form. It is *composed* from a [`Skin`]
+/// ([`CaseColors`] + [`HardwareColors`]); the split lives in the authoring
+/// consts below, not in the widgets, which each take one `&Palette`.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
     // -- chrome (panels, buttons, windows, menus) --
@@ -108,8 +118,165 @@ pub struct Palette {
     pub meter_hold: Color32,
 }
 
-/// The ft2-clone dark teal scheme (the default).
-pub(crate) const CLONE_DARK: Palette = Palette {
+/// The per-case fascia colours: everything a case colour-scheme may override.
+/// Panels, buttons, chrome text and selection -- the "outside of the box".
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CaseColors {
+    /// Button and panel face.
+    pub face: Color32,
+    /// Face under a hovering pointer.
+    pub face_hover: Color32,
+    /// Face while pressed / active / a window's title bar.
+    pub face_active: Color32,
+    /// The desktop behind the panels.
+    pub desktop: Color32,
+    /// The lit bevel edge.
+    pub bevel_light: Color32,
+    /// The shadowed bevel edge; also separators and window outlines.
+    pub bevel_dark: Color32,
+    /// The near-black keyline framing a raised button's shadow side.
+    pub bevel_border: Color32,
+    /// Text on the face (menus, dialogs, status bar).
+    pub label: Color32,
+    /// Dimmed text.
+    pub muted: Color32,
+    /// Secondary data text (descriptions, the empty-state hint) -- case-tinted
+    /// even though it sits over a hardware well.
+    pub data_label: Color32,
+    /// The scrollbar trough.
+    pub trough: Color32,
+    /// The grey button face.
+    pub button_face: Color32,
+    /// The button face under a hovering pointer.
+    pub button_hover: Color32,
+    /// The button face while pressed.
+    pub button_active: Color32,
+    /// The lit inner bevel of a raised button.
+    pub button_light: Color32,
+    /// The shadowed inner bevel of a raised button.
+    pub button_shadow: Color32,
+    /// Text on a button.
+    pub button_text: Color32,
+    /// The face of a latched (pushed-in) toggle.
+    pub button_pressed: Color32,
+    /// Text over [`Self::button_pressed`].
+    pub button_pressed_text: Color32,
+    /// The selection bar fill.
+    pub accent: Color32,
+    /// Text drawn over the selection bar.
+    pub selection_text: Color32,
+}
+
+/// The fixed "display" colours: the dark data wells, the tracker-yellow
+/// readouts, the scope and the VU meter. These are the "inside the box"
+/// hardware -- they do **not** change as the case colour changes, which is the
+/// "case changes, displays don't" rule from the mock-ups made structural.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HardwareColors {
+    /// The sunken data background.
+    pub data_bg: Color32,
+    /// The alternate (striped) data row.
+    pub data_stripe: Color32,
+    /// A hovered data row.
+    pub data_hover: Color32,
+    /// Bright primary data text (the tracker "yellow").
+    pub data_text: Color32,
+    /// Waveform panel background.
+    pub wf_bg: Color32,
+    /// The wave itself.
+    pub wf_wave: Color32,
+    /// The snap-to-instruction hover line.
+    pub wf_hover: Color32,
+    /// The playback-start line.
+    pub wf_start: Color32,
+    /// The playback cursor.
+    pub wf_cursor: Color32,
+    /// The half-black overlay left of the start line.
+    pub wf_dim: Color32,
+    /// The loop-region brackets and their flags.
+    pub wf_loop: Color32,
+    /// The translucent wash over the looped region.
+    pub wf_loop_region: Color32,
+    /// An unlit meter segment.
+    pub meter_off: Color32,
+    /// Lit segments in the lower zone.
+    pub meter_low: Color32,
+    /// Lit segments in the upper-middle zone.
+    pub meter_mid: Color32,
+    /// Lit segments in the top zone.
+    pub meter_high: Color32,
+    /// The peak-hold marker.
+    pub meter_hold: Color32,
+}
+
+/// A case paired with the hardware it sits in. [`compose`](Self::compose)s into
+/// the flat [`Palette`] the widgets consume.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Skin {
+    /// The per-case fascia colours.
+    pub case: CaseColors,
+    /// The fixed display colours.
+    pub hardware: HardwareColors,
+}
+
+impl Skin {
+    /// Flattens the case + hardware split into the widget-facing [`Palette`].
+    #[must_use]
+    pub(crate) const fn compose(&self) -> Palette {
+        Palette {
+            face: self.case.face,
+            face_hover: self.case.face_hover,
+            face_active: self.case.face_active,
+            desktop: self.case.desktop,
+            bevel_light: self.case.bevel_light,
+            bevel_dark: self.case.bevel_dark,
+            bevel_border: self.case.bevel_border,
+
+            data_bg: self.hardware.data_bg,
+            data_stripe: self.hardware.data_stripe,
+            data_hover: self.hardware.data_hover,
+            data_text: self.hardware.data_text,
+            data_label: self.case.data_label,
+            trough: self.case.trough,
+
+            label: self.case.label,
+            muted: self.case.muted,
+
+            button_face: self.case.button_face,
+            button_hover: self.case.button_hover,
+            button_active: self.case.button_active,
+            button_light: self.case.button_light,
+            button_shadow: self.case.button_shadow,
+            button_text: self.case.button_text,
+            button_pressed: self.case.button_pressed,
+            button_pressed_text: self.case.button_pressed_text,
+
+            accent: self.case.accent,
+            selection_text: self.case.selection_text,
+
+            wf_bg: self.hardware.wf_bg,
+            wf_wave: self.hardware.wf_wave,
+            wf_hover: self.hardware.wf_hover,
+            wf_start: self.hardware.wf_start,
+            wf_cursor: self.hardware.wf_cursor,
+            wf_dim: self.hardware.wf_dim,
+            wf_loop: self.hardware.wf_loop,
+            wf_loop_region: self.hardware.wf_loop_region,
+
+            meter_off: self.hardware.meter_off,
+            meter_low: self.hardware.meter_low,
+            meter_mid: self.hardware.meter_mid,
+            meter_high: self.hardware.meter_high,
+            meter_hold: self.hardware.meter_hold,
+        }
+    }
+}
+
+// -------------------------------------------------------------------------
+// clone-dark: the ft2-clone dark teal scheme (the default).
+// -------------------------------------------------------------------------
+
+const CLONE_DARK_CASE: CaseColors = CaseColors {
     face: Color32::from_rgb(0x4A, 0x73, 0x73),
     face_hover: Color32::from_rgb(0x57, 0x82, 0x82),
     face_active: Color32::from_rgb(0x3E, 0x61, 0x61),
@@ -118,17 +285,12 @@ pub(crate) const CLONE_DARK: Palette = Palette {
     bevel_dark: Color32::from_rgb(0x1A, 0x29, 0x29),
     bevel_border: Color32::from_rgb(0x07, 0x0D, 0x0D),
 
-    data_bg: Color32::from_rgb(0x0C, 0x14, 0x14),
-    data_stripe: Color32::from_rgb(0x14, 0x20, 0x20),
-    data_hover: Color32::from_rgb(0x1B, 0x2C, 0x2C),
-    data_text: Color32::from_rgb(0xF1, 0xE6, 0x7B),
-    data_label: Color32::from_rgb(0xB8, 0xD0, 0xD0),
-    trough: Color32::from_rgb(0x18, 0x26, 0x26),
-
     label: Color32::from_rgb(0xDC, 0xEF, 0xEF),
     // Light enough to read as menu shortcut text on the teal face and as the
     // Bank column on the near-black data background.
     muted: Color32::from_rgb(0x86, 0xA6, 0xA6),
+    data_label: Color32::from_rgb(0xB8, 0xD0, 0xD0),
+    trough: Color32::from_rgb(0x18, 0x26, 0x26),
 
     button_face: Color32::from_rgb(0x9C, 0xA7, 0xA7),
     button_hover: Color32::from_rgb(0xAB, 0xB6, 0xB6),
@@ -142,18 +304,25 @@ pub(crate) const CLONE_DARK: Palette = Palette {
 
     accent: Color32::from_rgb(0x33, 0x55, 0xAA),
     selection_text: Color32::WHITE,
+};
+
+const CLONE_DARK_HW: HardwareColors = HardwareColors {
+    data_bg: Color32::from_rgb(0x0C, 0x14, 0x14),
+    data_stripe: Color32::from_rgb(0x14, 0x20, 0x20),
+    data_hover: Color32::from_rgb(0x1B, 0x2C, 0x2C),
+    data_text: Color32::from_rgb(0xF1, 0xE6, 0x7B),
 
     wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
     wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
     wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
     wf_start: Color32::WHITE,
+    // The wave is yellow, so the cursor moves to cyan to stay visible over it.
+    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
+    wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
     // Warm orange: the one hue not already spoken for on this panel (yellow
     // wave, cyan cursor, white start line, pale teal hover).
     wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
     wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x14, 0x05, 0x24),
-    // The wave is yellow, so the cursor moves to cyan to stay visible over it.
-    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
-    wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
 
     meter_off: Color32::from_rgb(0x1C, 0x28, 0x3C),
     meter_low: Color32::from_rgb(0x3C, 0xC8, 0x50),
@@ -162,8 +331,18 @@ pub(crate) const CLONE_DARK: Palette = Palette {
     meter_hold: Color32::from_rgb(0xEA, 0xF4, 0xF4),
 };
 
-/// The original DOS FastTracker II steel-blue scheme.
-pub(crate) const FT2_CLASSIC: Palette = Palette {
+/// The ft2-clone dark teal scheme (the default).
+pub(crate) const CLONE_DARK: Palette = Skin {
+    case: CLONE_DARK_CASE,
+    hardware: CLONE_DARK_HW,
+}
+.compose();
+
+// -------------------------------------------------------------------------
+// ft2-classic: the original DOS FastTracker II steel-blue scheme.
+// -------------------------------------------------------------------------
+
+const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     face: Color32::from_rgb(0x6E, 0x82, 0xA0),
     face_hover: Color32::from_rgb(0x7B, 0x90, 0xB0),
     face_active: Color32::from_rgb(0x5F, 0x73, 0x90),
@@ -172,15 +351,10 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
     bevel_dark: Color32::from_rgb(0x2E, 0x3A, 0x4C),
     bevel_border: Color32::from_rgb(0x0A, 0x0D, 0x14),
 
-    data_bg: Color32::from_rgb(0x1A, 0x22, 0x38),
-    data_stripe: Color32::from_rgb(0x22, 0x2C, 0x46),
-    data_hover: Color32::from_rgb(0x2A, 0x36, 0x54),
-    data_text: Color32::from_rgb(0xEF, 0xE2, 0x7A),
-    data_label: Color32::from_rgb(0xC8, 0xD4, 0xE8),
-    trough: Color32::from_rgb(0x23, 0x2D, 0x42),
-
     label: Color32::BLACK,
     muted: Color32::from_rgb(0x4A, 0x5A, 0x74),
+    data_label: Color32::from_rgb(0xC8, 0xD4, 0xE8),
+    trough: Color32::from_rgb(0x23, 0x2D, 0x42),
 
     button_face: Color32::from_rgb(0xAC, 0xB1, 0xB8),
     button_hover: Color32::from_rgb(0xBA, 0xBF, 0xC6),
@@ -194,6 +368,13 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
 
     accent: Color32::from_rgb(0x40, 0x56, 0xA0),
     selection_text: Color32::WHITE,
+};
+
+const FT2_CLASSIC_HW: HardwareColors = HardwareColors {
+    data_bg: Color32::from_rgb(0x1A, 0x22, 0x38),
+    data_stripe: Color32::from_rgb(0x22, 0x2C, 0x46),
+    data_hover: Color32::from_rgb(0x2A, 0x36, 0x54),
+    data_text: Color32::from_rgb(0xEF, 0xE2, 0x7A),
 
     wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
     wf_wave: Color32::from_rgb(0xC8, 0xD8, 0xF0),
@@ -213,6 +394,13 @@ pub(crate) const FT2_CLASSIC: Palette = Palette {
     meter_high: Color32::from_rgb(0xDC, 0x55, 0x55),
     meter_hold: Color32::from_rgb(0xF0, 0xF2, 0xF8),
 };
+
+/// The original DOS FastTracker II steel-blue scheme.
+pub(crate) const FT2_CLASSIC: Palette = Skin {
+    case: FT2_CLASSIC_CASE,
+    hardware: FT2_CLASSIC_HW,
+}
+.compose();
 
 /// The palette for a configured theme.
 #[must_use]
