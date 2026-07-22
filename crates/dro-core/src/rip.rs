@@ -818,6 +818,20 @@ pub fn is_pack_date(s: &str) -> bool {
         .all(|(part, &width)| part.len() == width && part.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// If `date` is a slash-separated date that becomes a valid [`is_pack_date`] just
+/// by swapping slashes for hyphens (e.g. `1994/03/01` -> `1994-03-01`), the
+/// hyphenated form; otherwise `None`. This is the one mechanical date fix the
+/// checklist offers -- it deliberately does not pad or reformat, so it can only
+/// ever produce a valid date and never guesses.
+#[must_use]
+pub fn hyphenate_date(date: &str) -> Option<String> {
+    if !date.contains('/') {
+        return None;
+    }
+    let hyphenated = date.replace('/', "-");
+    is_pack_date(&hyphenated).then_some(hyphenated)
+}
+
 /// The submission-readiness checks the VGMRips wiki wants verified before a pack
 /// is submitted, beyond the file-level shape [`crate::rip`]'s callers already
 /// check: complete and consistent GD3 tags, hyphen-separated dates, update notes,
@@ -1641,6 +1655,19 @@ mod tests {
         ] {
             assert!(!is_pack_date(bad), "{bad:?} should be rejected");
         }
+    }
+
+    #[test]
+    fn hyphenate_date_only_fixes_convertible_slash_dates() {
+        assert_eq!(hyphenate_date("1994/03/01").as_deref(), Some("1994-03-01"));
+        assert_eq!(hyphenate_date("1994/03").as_deref(), Some("1994-03"));
+        // Already hyphenated (or year-only): nothing to convert.
+        assert_eq!(hyphenate_date("1994-03-01"), None);
+        assert_eq!(hyphenate_date("1994"), None);
+        // Slashes that would not yield a valid pack date are left for a manual fix.
+        assert_eq!(hyphenate_date("1994/3/1"), None);
+        assert_eq!(hyphenate_date("March/1994"), None);
+        assert_eq!(hyphenate_date(""), None);
     }
 
     #[test]

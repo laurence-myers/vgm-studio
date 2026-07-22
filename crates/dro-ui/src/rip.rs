@@ -281,6 +281,80 @@ impl RipState {
         })
     }
 
+    /// Whether any pack or track release date is a slash-separated date the
+    /// "Convert dates to hyphens" fix-assist could rewrite (see
+    /// [`dro_core::rip::hyphenate_date`]).
+    #[must_use]
+    pub fn has_convertible_dates(&self) -> bool {
+        dro_core::rip::hyphenate_date(&self.meta.release_date).is_some()
+            || self.tracks.iter().any(|track| {
+                track
+                    .song()
+                    .and_then(|song| song.vgm_meta())
+                    .and_then(|meta| meta.tag.as_ref())
+                    .is_some_and(|tag| dro_core::rip::hyphenate_date(&tag.release_date).is_some())
+            })
+    }
+
+    /// Converts the pack's release date from slashes to hyphens in place, if it is
+    /// a convertible slash date. Returns whether it changed (and marks the pack
+    /// dirty). A pack-metadata edit, like typing in the form -- not a file op.
+    pub fn hyphenate_meta_date(&mut self) -> bool {
+        if let Some(hyphenated) = dro_core::rip::hyphenate_date(&self.meta.release_date) {
+            self.meta.release_date = hyphenated;
+            self.dirty = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// The transaction that rewrites every track's GD3 release date from slashes
+    /// to hyphens (`1994/03/01` -> `1994-03-01`), skipping tracks whose date needs
+    /// no change. `None` when nothing would change. Mirrors
+    /// [`Self::suggested_modifier_transaction`]: per-track `Write` mutations with
+    /// undo for free.
+    #[must_use]
+    pub fn date_hyphenation_transaction(&self) -> Option<RipTransaction> {
+        let mut forward = Vec::new();
+        let mut inverse = Vec::new();
+        for track in &self.tracks {
+            let (Some(song), Some(path)) = (track.song(), track.path.clone()) else {
+                continue;
+            };
+            let Some(tag) = song.vgm_meta().and_then(|meta| meta.tag.clone()) else {
+                continue;
+            };
+            let Some(hyphenated) = dro_core::rip::hyphenate_date(&tag.release_date) else {
+                continue;
+            };
+            let mut new_tag = tag;
+            new_tag.release_date = hyphenated;
+            if let Ok(bytes) = retagged_bytes(song, &track.file_name, new_tag) {
+                forward.push(RipMutation::Write {
+                    path: path.clone(),
+                    bytes,
+                });
+                inverse.push(RipMutation::Write {
+                    path,
+                    bytes: track.bytes.clone(),
+                });
+            }
+        }
+        if forward.is_empty() {
+            return None;
+        }
+        let count = forward.len();
+        Some(RipTransaction {
+            label: format!(
+                "Convert {count} track date{} to hyphens",
+                if count == 1 { "" } else { "s" }
+            ),
+            forward,
+            inverse,
+        })
+    }
+
     /// The track list for the description, skipping songs that failed to parse.
     #[must_use]
     pub fn track_entries(&self) -> Vec<TrackEntry> {
@@ -1099,11 +1173,24 @@ fn submission_checklist(
     actions: &mut Vec<Action>,
 ) {
     ui.add_space(2.0);
-    ui.label(
-        egui::RichText::new("Submission checklist")
-            .color(palette.data_label)
-            .strong(),
-    );
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new("Submission checklist")
+                .color(palette.data_label)
+                .strong(),
+        );
+        // A one-click fix for the most common mechanical problem: slash dates.
+        if state.has_convertible_dates()
+            && bevel::button(ui, palette, "Convert dates to hyphens")
+                .on_hover_text(
+                    "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01) in the pack \
+                     and every track, as one undoable step",
+                )
+                .clicked()
+        {
+            actions.push(Action::RipConvertDatesToHyphens);
+        }
+    });
     ui.add_space(2.0);
     for category in ReadinessCategory::ALL {
         let group: Vec<&ReadinessItem> = items
@@ -1786,6 +1873,62 @@ mod tests {
                 .iter()
                 .any(|item| item.contains("composers"))
         );
+    }
+
+    #[test]
+    fn date_hyphenation_transaction_rewrites_every_slash_date() {
+        let slash = |name: &str| {
+            tagged_song(
+                name,
+                Gd3Tag {
+                    game_name_en: "Game".to_owned(),
+                    release_date: "1994/03/01".to_owned(),
+                    ..Gd3Tag::default()
+                },
+            )
+        };
+        let files = vec![slash("01 A.vgm"), slash("02 B.vgm")];
+        let state = RipState::from_folder(folder("Game", files), None);
+        let txn = state
+            .date_hyphenation_transaction()
+            .expect("both tracks carry a slash date");
+        assert_eq!(txn.forward.len(), 2);
+        for mutation in &txn.forward {
+            let RipMutation::Write { bytes, .. } = mutation else {
+                panic!("date conversion is writes only");
+            };
+            let song = dro_core::io::read_song("x.vgm", bytes).unwrap();
+            assert_eq!(
+                song.vgm_meta().unwrap().tag.as_ref().unwrap().release_date,
+                "1994-03-01"
+            );
+        }
+    }
+
+    #[test]
+    fn date_hyphenation_transaction_is_none_when_dates_are_clean() {
+        // The fixture tag()'s release date is a hyphen-free "1994": nothing to do.
+        let files = vec![tagged_song("01 A.vgm", tag("Game", "A", "R"))];
+        let state = RipState::from_folder(folder("Game", files), None);
+        assert!(state.date_hyphenation_transaction().is_none());
+    }
+
+    #[test]
+    fn has_convertible_dates_and_meta_conversion() {
+        let files = vec![tagged_song("01 A.vgm", tag("Game", "A", "R"))];
+        let mut state = RipState::from_folder(folder("Game", files), None);
+        assert!(
+            !state.has_convertible_dates(),
+            "the fixture's dates are hyphen-free years"
+        );
+
+        state.meta.release_date = "1994/03".to_owned();
+        assert!(state.has_convertible_dates());
+        assert!(state.hyphenate_meta_date(), "the slash date converts");
+        assert_eq!(state.meta.release_date, "1994-03");
+        assert!(state.dirty);
+        // Idempotent: a second pass finds nothing left to fix.
+        assert!(!state.hyphenate_meta_date());
     }
 
     #[test]

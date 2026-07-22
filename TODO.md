@@ -36,6 +36,16 @@
   computed from each file; per-track preview, open-in-editor and quick-edit
   (rename + GD3); "Save Package Files" writes the .txt + .m3u; "Export Zip..."
   builds the submission zip (songs gzipped to .vgz, PNG optimised with oxipng).
+  A live "Submission checklist" (grouped Package info / Track tags / Consistency
+  / Loops / Files) flags what the VGMRips wiki wants verified before submission
+  -- complete and consistent GD3 tags, hyphen-separated release dates, update
+  notes, verified loops -- as three tiers (errors block export, warnings prompt,
+  notes never gate). Each unresolved item is a clickable line that jumps to its
+  fix (a meta form field focuses; a per-track item opens that track's quick-edit),
+  the track table gains a per-track status glyph, and a one-click "Convert dates
+  to hyphens" fix-assist rewrites every slash date (pack + tracks) as one undoable
+  batch. Pure rules live in `dro_core::rip::readiness`; see
+  `docs/rip-validations-2026-07/HANDOVER.md`.
   Possible follow-ups:
   - Recursive / multi-region screenshots, and per-region game titles.
   - Preserve hand-aligned multi-line author blocks verbatim (currently reflowed

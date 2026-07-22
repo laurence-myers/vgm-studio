@@ -1569,6 +1569,7 @@ impl DroApp {
             Action::RipSaveDocs => self.save_rip_docs(),
             Action::RipScanVolumes => self.scan_rip_volumes(),
             Action::RipApplySuggestedModifiers => self.apply_rip_modifiers(),
+            Action::RipConvertDatesToHyphens => self.convert_rip_dates_to_hyphens(),
             Action::RipExportZip => self.export_rip_zip(false),
             Action::ConfirmExportZip => self.export_rip_zip(true),
             Action::RipTrackOpen(index) => self.open_track_in_editor(index),
@@ -2517,6 +2518,30 @@ impl DroApp {
             return;
         };
         self.start_rip_run(transaction, RipRunKind::NewEdit);
+    }
+
+    /// The checklist's date fix-assist: rewrite every slash-separated release date
+    /// to hyphens. The pack meta's own date is a form-level edit (applied at once,
+    /// like typing); every track's GD3 date is rewritten as one undoable file
+    /// batch, mirroring [`Self::apply_rip_modifiers`].
+    fn convert_rip_dates_to_hyphens(&mut self) {
+        if self.rip_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        self.stop_preview();
+        let meta_changed = self.rip.as_mut().is_some_and(RipState::hyphenate_meta_date);
+        match self
+            .rip
+            .as_ref()
+            .and_then(RipState::date_hyphenation_transaction)
+        {
+            Some(transaction) => self.start_rip_run(transaction, RipRunKind::NewEdit),
+            None if meta_changed => {
+                self.status = "Converted the pack date to hyphens.".to_owned();
+            }
+            None => self.status = "No slash-separated dates to convert.".to_owned(),
+        }
     }
 
     /// Kicks off an explicit lossless recompression of a screenshot.

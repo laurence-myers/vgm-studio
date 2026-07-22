@@ -104,6 +104,9 @@ pub enum Action {
     /// Set each track's VGM volume modifier from the scanned peaks (album or
     /// per-track), as one undoable batch of header rewrites.
     RipApplySuggestedModifiers,
+    /// Rewrite every slash-separated release date (pack meta and each track's
+    /// GD3) to hyphens -- the checklist's one-click date fix-assist.
+    RipConvertDatesToHyphens,
     /// Build the release zip and save it (prompts first on soft warnings).
     RipExportZip,
     /// Build the release zip after the user accepted the warnings.

@@ -3113,6 +3113,88 @@ fn clicking_a_meta_checklist_item_focuses_its_form_field() {
 }
 
 #[test]
+fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
+    let (mut harness, handles) = dirty_checklist_harness();
+    // The date the app prefilled from the first track is slash-separated.
+    assert_eq!(
+        harness.state().rip.as_ref().unwrap().meta.release_date,
+        "1994/03"
+    );
+    // The fix-assist button is offered while a slash date remains.
+    let _ = harness.get_by_label("Convert dates to hyphens");
+
+    // Feed Ok save outcomes for the two track writes, then the rescan folder the
+    // batch installs -- now carrying hyphenated GD3 dates.
+    {
+        let mut files = handles.files.borrow_mut();
+        files.save_outcomes.push_back(SaveOutcome::Saved {
+            name: "01 Intro.vgz".to_owned(),
+            path: None,
+        });
+        files.save_outcomes.push_back(SaveOutcome::Saved {
+            name: "02 Boss.vgz".to_owned(),
+            path: None,
+        });
+        files.picked_folders.push_back(Ok(rip_folder(
+            "Cool Game",
+            vec![
+                vgm_with_tag(
+                    "01 Intro.vgz",
+                    dro_core::Gd3Tag {
+                        track_name_en: "Intro".to_owned(),
+                        game_name_en: "Cool Game".to_owned(),
+                        track_author_en: "Ada".to_owned(),
+                        release_date: "1994-03".to_owned(),
+                        creator: "Ripper".to_owned(),
+                        ..dro_core::Gd3Tag::default()
+                    },
+                ),
+                vgm_with_tag(
+                    "02 Boss.vgz",
+                    dro_core::Gd3Tag {
+                        track_name_en: "Boss Theme".to_owned(),
+                        game_name_en: "Different Game".to_owned(),
+                        system_name_en: "IBM PC/AT".to_owned(),
+                        release_date: "1994-03".to_owned(),
+                        creator: "Ripper".to_owned(),
+                        ..dro_core::Gd3Tag::default()
+                    },
+                ),
+            ],
+        )));
+    }
+
+    // Dispatch the fix-assist directly (as the button does), so the batch is
+    // built from the current slash dates before any frame's folder poll runs --
+    // the same pattern the reorder test uses.
+    act(&mut harness, Action::RipConvertDatesToHyphens);
+    harness.run_steps(16);
+
+    let state = harness.state();
+    let rip = state.rip.as_ref().unwrap();
+    // The pack date converted immediately (a form edit)...
+    assert_eq!(rip.meta.release_date, "1994-03");
+    // ...and the rescan installed both tracks with hyphenated GD3 dates.
+    for track in &rip.tracks {
+        let tag = track
+            .song()
+            .unwrap()
+            .vgm_meta()
+            .unwrap()
+            .tag
+            .as_ref()
+            .unwrap();
+        assert_eq!(tag.release_date, "1994-03", "{} converted", track.file_name);
+    }
+    // The track rewrites landed as one undoable batch, and no slash date is left.
+    assert_eq!(state.rip_undo.len(), 1, "one undoable batch");
+    assert!(
+        !rip.has_convertible_dates(),
+        "the fix-assist has nothing left"
+    );
+}
+
+#[test]
 fn snapshot_rip_checklist_dirty() {
     // Wider than the other rip snapshots so the crowded toolbar fits and the
     // checklist's glyphs and category headings are all in frame.
