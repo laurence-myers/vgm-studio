@@ -1,0 +1,400 @@
+<title>DRO Trimmer — case models</title>
+<style>
+  :root{
+    --desktop:#263A3A;
+    --deck:#1E2929; --deckL:#324444; --deckD:#0D1414; --keyline:#040808;
+    --data:#0C1414; --yellow:#F1E67B; --orange:#FF9E3D;
+    --lab:#DCEFEF; --mut:#86A6A6; --decklab:#B8D0D0;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:var(--lab);
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:980px;margin:0 auto}
+
+  header{margin-bottom:30px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--yellow); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:68ch; margin:0}
+  .sub b{color:var(--lab); font-weight:700}
+  .sub .y{color:var(--yellow)}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--yellow); margin:40px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:var(--orange)}
+  .note{color:var(--mut); margin:0 0 14px; max-width:74ch}
+  .note b{color:var(--lab)}
+
+  .cap{display:flex; gap:10px; align-items:baseline; margin:26px 0 4px}
+  .cap .tag{
+    color:#070D0D; background:var(--yellow);
+    font-weight:700; font-size:11px; letter-spacing:.08em;
+    padding:1px 7px;
+  }
+  .cap .txt{color:var(--mut); font-size:12px}
+  .verdict{color:var(--mut); font-size:11.5px; margin:0 0 12px; max-width:76ch}
+  .verdict b{color:var(--lab)}
+
+  /* hardware chips in the intro */
+  .hardware{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    margin:14px 0 0; padding:10px 12px;
+    background:var(--deck);
+    border:2px solid; border-color:var(--deckL) var(--deckD) var(--deckD) var(--deckL);
+    box-shadow:0 0 0 1px var(--keyline);
+    font-size:11.5px; color:var(--decklab);
+  }
+  .hardware b{color:var(--yellow); letter-spacing:.08em}
+
+  /* ---------- the case rows ---------- */
+  .row{display:flex; gap:18px; flex-wrap:wrap; align-items:flex-start}
+  .case h4{
+    margin:0 0 5px; font-size:10.5px; font-weight:700;
+    letter-spacing:.18em; text-transform:uppercase; color:var(--lab);
+  }
+  .case h4 s{color:var(--mut); text-decoration:none; font-weight:400; margin-left:6px; letter-spacing:.04em}
+  .tiny{margin:6px 0 0; font-size:10.5px; color:var(--mut); max-width:280px}
+  .tiny b{color:var(--decklab)}
+
+  /* ---------- strips: one geometry, two panel constructions ---------- */
+  .strip{padding:9px 10px}
+
+  /* the current dark rubber deck (square bevelled box) */
+  .strip.deck{
+    background:var(--deck);
+    border:2px solid; border-color:var(--deckL) var(--deckD) var(--deckD) var(--deckL);
+    box-shadow:0 0 0 1px var(--keyline);
+  }
+  /* a fascia plate (rounded, lit top edge, floats on the desk) */
+  .strip.plate{
+    border-radius:4px; border:1px solid;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.16), inset 0 -1px 0 rgba(0,0,0,.35),
+               0 1px 3px rgba(0,0,0,.45);
+  }
+  .strip.plate.navy{background:linear-gradient(180deg,#3E5273,#283A57); border-color:#10192A}
+  .strip.plate.verdi{background:linear-gradient(180deg,#4C7C6B 0%,#7FA08A 52%,#35594A 100%); border-color:#152A22}
+  .strip.plate.creamp{
+    background:linear-gradient(180deg,#F0E8D3,#DBD1B5); border-color:#7C7458;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.7), inset 0 -1px 0 rgba(0,0,0,.18),
+               0 1px 3px rgba(0,0,0,.45);
+  }
+
+  .trow{display:flex; align-items:center; gap:6px; min-height:28px}
+  /* deck rows are split by the current groove; plates just leave a gap */
+  .deck .gap{height:2px; margin:6px 0; background:linear-gradient(180deg,var(--deckD) 0 1px,var(--deckL) 1px 2px)}
+  .plate .gap{height:7px}
+
+  .rowlab{font-weight:700; font-size:12px; color:var(--decklab)}
+  /* plate silkscreen: uppercase, embossed */
+  .plate .rowlab{font-size:10px; letter-spacing:.1em; text-transform:uppercase}
+  .plate.navy .rowlab{color:#C7D3E6; text-shadow:0 1px 0 rgba(0,0,0,.55)}
+  .plate.verdi .rowlab{color:#E2EDE2; text-shadow:0 1px 0 rgba(0,0,0,.45)}
+  .plate.creamp .rowlab{color:#3A382C; text-shadow:0 1px 0 rgba(255,255,255,.65)}
+
+  .well{
+    background:var(--data); color:var(--yellow);
+    border:2px solid; border-color:#070C0C var(--deckL) var(--deckL) #070C0C;
+    padding:2px 8px; font:700 12px var(--mono);
+    font-variant-numeric:tabular-nums; white-space:nowrap;
+  }
+
+  /* ---------- keycaps: one geometry, four colourways ---------- */
+  .pad{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:26px; min-height:26px; padding:2px 0;
+    border:1px solid; border-radius:3px;
+    font:700 12px var(--mono); user-select:none; cursor:default; flex:none;
+    box-shadow:0 1px 2px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.45),
+               inset 0 -2px 0 rgba(0,0,0,.10);
+  }
+  .pad svg{display:block; flex:none}
+  .pad:hover{filter:brightness(1.06)}
+  .pad:active{filter:brightness(.92); transform:translateY(1px)}
+
+  .k-cream{background:linear-gradient(180deg,#F0E8D3,#E5DCC5); border-color:#55503C; color:#38352A}
+  .k-tan{background:linear-gradient(180deg,#E2D7BB,#CFC3A2); border-color:#6B6349; color:#33301F}
+  .k-navy{background:linear-gradient(180deg,#95A9C9,#7E93B4); border-color:#35415A; color:#141E30}
+  .k-verdi{background:linear-gradient(180deg,#A3C4B2,#88AC97); border-color:#324A3E; color:#16281F}
+
+  /* the latched key lamp: identical hardware in every option */
+  .pad.lat{
+    background:radial-gradient(circle at 50% 42%,#FCE79A 0%,#EFC658 65%,#DCAE3E 100%);
+    border-color:#8A6D28; color:#3F2E08;
+    box-shadow:0 1px 2px rgba(0,0,0,.5), inset 0 1px 2px rgba(255,255,255,.5);
+  }
+  .pad.lat:hover{filter:none}
+
+  .ic{stroke-width:1.5}
+  .i16{width:16px;height:16px}
+
+  footer{
+    margin-top:44px; color:var(--mut); font-size:12px;
+    border-top:1px solid var(--deck); padding-top:14px; max-width:76ch;
+  }
+  footer b{color:var(--lab)}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="s-del" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M2.5 4.25h11M6 4.25V2.5h4v1.75M4.25 4.25l.55 9.25h6.4l.55-9.25M6.9 6.75v4.5M9.1 6.75v4.5"/>
+    </symbol>
+    <symbol id="s-play" viewBox="0 0 16 16">
+      <path d="M4.5 2.75 13 8 4.5 13.25Z" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-stop" viewBox="0 0 16 16">
+      <rect x="4.25" y="4.25" width="7.5" height="7.5" fill="currentColor" stroke="none"/>
+    </symbol>
+    <symbol id="s-loop" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor"
+        d="M3.5 6.5a5 5 0 0 1 9-1.5M12.5 1.75V5H9.25M12.5 9.5a5 5 0 0 1-9 1.5M3.5 14.25V11h3.25"/>
+    </symbol>
+    <symbol id="s-perc" viewBox="0 0 16 16">
+      <path fill="none" stroke="currentColor" d="M2.5 1.5 7 7.5M13.5 1.5 9 7.5"/>
+      <ellipse cx="8" cy="9.5" rx="5" ry="1.75" fill="none" stroke="currentColor"/>
+      <path fill="none" stroke="currentColor" d="M3 9.5v3.25c2 1.5 8 1.5 10 0V9.5"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+<header>
+  <h1>DRO Trimmer &mdash; what does a &ldquo;case&rdquo; paint?</h1>
+  <p class="sub">Two approved designs meet here: the <b>cream-keys pad chrome</b>
+  (backlit keycaps on a dark deck) and the <b>skin-engine plan</b> (twelve case
+  colours over fixed hardware). The open question: when you pick
+  <span class="y">Navy</span>, <span class="y">Cream</span> or
+  <span class="y">Verdigris</span> in Settings, <b>which surfaces take the
+  colour?</b> Same three cases below, rendered under each answer. Hover and press
+  are live.</p>
+  <div class="hardware"><b>FIXED IN EVERY OPTION</b> &mdash; the amber latch lamp
+  &middot; dark data wells + tracker-yellow readouts &middot; the icon set
+  &middot; pad geometry. Only the <em>assignment of case colour</em> differs.</div>
+</header>
+
+<!-- ============ A ============ -->
+<div class="cap"><span class="tag">A &middot; PAD-FORWARD</span><span class="txt">the case paints the keycaps; the deck never changes</span></div>
+<p class="verdict">One dark rubber deck across all twelve cases; switching case
+re-colours the <b>keys and accents only</b>. Quietest option, and
+<b>Cream is exactly the P2 mockup you approved</b>. Case switching is subtle
+&mdash; the app's overall mood stays constant.</p>
+<div class="row">
+  <div class="case">
+    <h4>Navy</h4>
+    <div class="strip deck">
+      <div class="trow">
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-navy">1</span><span class="pad k-navy">2</span><span class="pad k-navy">3</span><span class="pad k-navy">4</span><span class="pad k-navy">5</span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">navy keys &middot; deck unchanged</p>
+  </div>
+  <div class="case">
+    <h4>Cream <s>the P2 mockup</s></h4>
+    <div class="strip deck">
+      <div class="trow">
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-cream">1</span><span class="pad k-cream">2</span><span class="pad k-cream">3</span><span class="pad k-cream">4</span><span class="pad k-cream">5</span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny"><b>exactly the approved pads mockup</b></p>
+  </div>
+  <div class="case">
+    <h4>Verdigris</h4>
+    <div class="strip deck">
+      <div class="trow">
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-verdi">1</span><span class="pad k-verdi">2</span><span class="pad k-verdi">3</span><span class="pad k-verdi">4</span><span class="pad k-verdi">5</span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">patina keys &middot; deck unchanged</p>
+  </div>
+</div>
+
+<!-- ============ B ============ -->
+<div class="cap"><span class="tag">B &middot; PLATE-FORWARD</span><span class="txt">the case paints the whole fascia plate; keys adapt to sit on it</span></div>
+<p class="verdict">The skin-engine plan's model: each case genuinely <b>re-skins the
+app</b> &mdash; rounded gradient plates floating on the desk, silkscreen labels
+embossed into them. Cream becomes a <b>light plate</b>: the text flips dark and
+the keys deepen a shade so they still read. The loudest, most transformative
+option.</p>
+<div class="row">
+  <div class="case">
+    <h4>Navy</h4>
+    <div class="strip plate navy">
+      <div class="trow">
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-navy">1</span><span class="pad k-navy">2</span><span class="pad k-navy">3</span><span class="pad k-navy">4</span><span class="pad k-navy">5</span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">navy plate &middot; keys follow the case</p>
+  </div>
+  <div class="case">
+    <h4>Cream <s>light case</s></h4>
+    <div class="strip plate creamp">
+      <div class="trow">
+        <span class="pad k-tan"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-tan"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-tan"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-tan">1</span><span class="pad k-tan">2</span><span class="pad k-tan">3</span><span class="pad k-tan">4</span><span class="pad k-tan">5</span>
+        <span class="pad k-tan"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">light plate &middot; silkscreen flips dark &middot; keys tone-on-tone</p>
+  </div>
+  <div class="case">
+    <h4>Verdigris <s>3-stop metal</s></h4>
+    <div class="strip plate verdi">
+      <div class="trow">
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-verdi">1</span><span class="pad k-verdi">2</span><span class="pad k-verdi">3</span><span class="pad k-verdi">4</span><span class="pad k-verdi">5</span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">patina plate with the lit copper mid-band</p>
+  </div>
+</div>
+
+<!-- ============ C ============ -->
+<div class="cap"><span class="tag">C &middot; HYBRID</span><span class="txt">colour plates for dark/mid cases; light cases keep the dark deck</span></div>
+<p class="verdict">Per-case judgement: <b>Navy and Verdigris get their plates</b>
+(identical to B), but <b>Cream keeps the dark deck</b> so the cream keycaps pop
+(identical to A). Best-looking result across all twelve; slightly more design
+surface, since each case declares deck-or-plate.</p>
+<div class="row">
+  <div class="case">
+    <h4>Navy <s>as B</s></h4>
+    <div class="strip plate navy">
+      <div class="trow">
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-navy">1</span><span class="pad k-navy">2</span><span class="pad k-navy">3</span><span class="pad k-navy">4</span><span class="pad k-navy">5</span>
+        <span class="pad k-navy"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">plate, as in B</p>
+  </div>
+  <div class="case">
+    <h4>Cream <s>as A</s></h4>
+    <div class="strip deck">
+      <div class="trow">
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-cream">1</span><span class="pad k-cream">2</span><span class="pad k-cream">3</span><span class="pad k-cream">4</span><span class="pad k-cream">5</span>
+        <span class="pad k-cream"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">dark deck kept &mdash; cream keys pop, as in A</p>
+  </div>
+  <div class="case">
+    <h4>Verdigris <s>as B</s></h4>
+    <div class="strip plate verdi">
+      <div class="trow">
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-del"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-play"/></svg></span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-stop"/></svg></span>
+        <span class="pad lat"><svg class="ic i16"><use href="#s-loop"/></svg></span>
+        <span class="well">&infin;</span>
+      </div>
+      <div class="gap"></div>
+      <div class="trow">
+        <span class="rowlab">CH:</span>
+        <span class="pad k-verdi">1</span><span class="pad k-verdi">2</span><span class="pad k-verdi">3</span><span class="pad k-verdi">4</span><span class="pad k-verdi">5</span>
+        <span class="pad k-verdi"><svg class="ic i16"><use href="#s-perc"/></svg></span>
+      </div>
+    </div>
+    <p class="tiny">plate, as in B</p>
+  </div>
+</div>
+
+<!-- ============ comparison ============ -->
+<h2>How to read the three</h2>
+<p class="note">Scan the <b>Cream column</b> top to bottom &mdash; it is the case
+where the models differ most: dark deck + cream keys (A), a fully light plate
+(B), or the dark deck kept on purpose (C). Then compare <b>Navy in A vs B</b>:
+keys-only versus the whole fascia. <b>B and C are identical for dark and mid
+cases</b>; they part ways only on the light ones. Geometry, icons, wells and the
+amber lamp never move &mdash; the choice is purely <em>which surfaces the case may
+paint</em>, so switching between these models later is cheap.</p>
+
+<footer>
+  <b>Implementation note.</b> All three reduce to the same code: a case supplies
+  key colours (A), plate colours (B), or both plus a deck/plate flag (C). The
+  pad painter and plate painter already exist on the <b>rust</b> branch; the
+  model picked here decides what the twelve <b>CaseColors</b> tables contain,
+  not how they are painted.
+</footer>
+</div>
