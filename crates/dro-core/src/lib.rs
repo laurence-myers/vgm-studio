@@ -9,6 +9,7 @@
 pub mod analysis;
 pub mod config;
 pub mod convert;
+pub mod crop;
 pub mod error;
 pub mod io;
 pub mod loopfind;
@@ -25,6 +26,7 @@ pub mod vgm;
 pub mod volume;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
+pub use crop::{CropOutcome, crop_to_region, delete_region};
 pub use error::{Error, Result};
 pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
 pub use opl_state::OplState;

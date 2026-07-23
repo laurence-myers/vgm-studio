@@ -617,10 +617,45 @@ impl Song {
             self.is_vgm(),
             "replace_vgm_stream is only valid for a VGM song"
         );
-        self.data = SongData::Vgm(data);
-        if let Some(meta) = self.vgm.as_deref_mut() {
-            meta.loop_point = loop_point;
-            meta.loop_end = loop_end;
+        // A VGM derives its `ms_length` from the stream, so the value passed here
+        // is ignored and refreshed by the rebuild.
+        self.replace_data(SongData::Vgm(data), 0, loop_point, loop_end);
+    }
+
+    /// Replaces the whole instruction stream, in whatever encoding the song is
+    /// already in, along with everything derived from it.
+    ///
+    /// The generalisation of [`Self::replace_vgm_stream`] to a DRO, for the edits
+    /// that splice new instructions in rather than only remove them -- the crop
+    /// edits' state patches, which no delete/insert pair can express -- and for
+    /// [`ReplaceStream`](crate::undo::ReplaceStream) to revert them.
+    ///
+    /// `ms_length` is a DRO's header field, taken as given (the caller knows what
+    /// it kept); a VGM's is derived from its sample delays, so the value passed is
+    /// ignored and recomputed. `loop_point`/`loop_end` likewise apply only to a
+    /// VGM. The new data must be the same encoding as the old: a song does not
+    /// change format under an edit.
+    pub(crate) fn replace_data(
+        &mut self,
+        data: SongData,
+        ms_length: u32,
+        loop_point: Option<usize>,
+        loop_end: Option<usize>,
+    ) {
+        debug_assert_eq!(
+            core::mem::discriminant(&self.data),
+            core::mem::discriminant(&data),
+            "an edit must not change a song's encoding"
+        );
+        self.data = data;
+        match self.vgm.as_deref_mut() {
+            Some(meta) => {
+                meta.loop_point = loop_point;
+                meta.loop_end = loop_end;
+            }
+            // A DRO: no loop to remap, and a header length only the caller knows.
+            // The rebuild below would leave a VGM's derived length correct anyway.
+            None => self.ms_length = ms_length,
         }
         self.rebuild_delay_prefix();
     }
