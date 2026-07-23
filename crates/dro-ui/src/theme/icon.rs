@@ -1,6 +1,6 @@
 //! Line-icon glyphs for the transport, pan and channel pads, painted with
 //! epaint primitives (no SVG dependency). Every glyph is authored on a 16x16
-//! grid matching the mock-up's `<defs>` (see `docs/button-chrome-2026-07`), then
+//! grid matching the mock-up's `<defs>` (see `docs/skinning/mockup-icons.html`), then
 //! mapped into whatever square rect it is drawn in. Strokes are butt-capped
 //! line segments and polylines; a few glyphs add filled triangles/rects.
 //!

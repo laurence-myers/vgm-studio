@@ -44,8 +44,7 @@
   fix (a meta form field focuses; a per-track item opens that track's quick-edit),
   the track table gains a per-track status glyph, and a one-click "Convert dates
   to hyphens" fix-assist rewrites every slash date (pack + tracks) as one undoable
-  batch. Pure rules live in `dro_core::rip::readiness`; see
-  `docs/rip-validations-2026-07/HANDOVER.md`.
+  batch. Pure rules live in `dro_core::rip::readiness`.
   Possible follow-ups:
   - Recursive / multi-region screenshots, and per-region game titles.
   - Preserve hand-aligned multi-line author blocks verbatim (currently reflowed
@@ -77,8 +76,7 @@
     Edit menu), played back with the Loop toggle and a repeat count, auditioned
     at the join with "Seam", and written to the header with Edit > Apply Loop to
     Metadata. Both markers survive trimming as instruction indices, and the
-    header's loop length is derived from them. See
-    `docs/loop-points-2026-07/HANDOVER.md`. Possible follow-ups:
+    header's loop length is derived from them. Possible follow-ups:
     - A loop end short of the song's end is honoured here and survives a save,
       but other players restart at the end-of-data command whatever the header
       says. A crop/trim would make it universal, and the `RangeMarkers` the loop
@@ -94,7 +92,7 @@
     for near-linear candidate finding, and runs in a background task
     (`TaskKind::LoopSearch`) so the UI never blocks. On the YM3812/YMF262 corpus
     it recovers the tagged loop within a command or two, in a few milliseconds
-    even for 100k-command captures. See `docs/vgm-lpfnd-2026-07/HANDOVER.md`.
+    even for 100k-command captures.
   - Volume -- done. A bidirectional playback "volume" lever in the transport
     row, sitting on the VGM volume-modifier factor ladder (0.25x..64x, shown to
     two decimals) so every position is a real modifier value. By default the
@@ -114,8 +112,7 @@
     readout. Rip mode adds "Scan Volumes" (one background task over the whole
     pack) filling a Peak column, and "Apply Modifiers" writing every track's
     `volume_modifier` to level the pack -- album mode by default (one factor from
-    the loudest peak) or per-track -- as one undoable batch. See
-    `docs/vgm-vol-2026-07/HANDOVER.md`. Follow-up: playback does NOT honour the
+    the loudest peak) or per-track -- as one undoable batch. Follow-up: playback does NOT honour the
     header `volume_modifier` (the boost lever is the playback control); the
     `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
     applies the modifier" follow-up would build on.

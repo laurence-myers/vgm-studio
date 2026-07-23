@@ -1,9 +1,10 @@
 # Skin engine — what shipped (2026-07-23)
 
-The skin engine and the pad/icon button chrome from `PLAN.md` and
-`../button-chrome-2026-07/HANDOVER.md` are implemented on the `rust` branch.
-This records what was built, the decisions that diverged from the plan, and
-what was intentionally deferred.
+The skin engine and the pad/icon button chrome (design notes and mockups in
+[`button-chrome.md`](button-chrome.md) and the sibling `mockup-*.html` files)
+are implemented on the `rust` branch. This records what was built, the
+decisions that diverged from the original plan, and what was intentionally
+deferred.
 
 ## Composition decision
 

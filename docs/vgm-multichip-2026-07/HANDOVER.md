@@ -552,7 +552,7 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 
 mc-10 can land any time after mc-4 (mc-5 makes it more valuable: deleting a
 chip's last write lets the normalise action drop the version). The loop-points
-feature (docs/loop-points-2026-07) is independent through mc-5 — with one
+feature (shipped) is independent through mc-5 — with one
 touchpoint: lp-1 and mc-5 both generalise `move_loop_point_past_deletion`;
 whichever lands second reuses the shared helper rather than forking it. If
 loop points land first, mc-6's engine mirrors its `LoopConfig` semantics for

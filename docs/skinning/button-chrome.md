@@ -70,13 +70,17 @@ P2 reference values (from `mockup-pads.html` CSS, `.v2` scope):
 | Labels on deck | `#B8D0D0`, muted `#6E8888` |
 | Wells | unchanged data-bg `#0C1414` + tracker yellow, borders `#070C0C`/`#324444` |
 
-## Relationship to the skin-engine plan (IMPORTANT, unresolved)
+## Relationship to the skin-engine plan (RESOLVED — see [`skin-engine.md`](skin-engine.md))
 
-`docs/skin-engine-2026-07/PLAN.md` (committed before this session) plans a
+> **Resolved:** shipped as resolution 1 below — the skin engine is
+> **model B, plate-forward**, and the pads are the button treatment *inside*
+> it. See [`skin-engine.md`](skin-engine.md) for what was built. The rest of
+> this section is kept for the design reasoning.
+
+The skin-engine plan (committed before this session) planned a
 *different* chrome: the Bassoon Variation-2 plate look, replacing the FT2
 theme entirely, 12 case colours. This session's pad exploration happened
-after and was not reconciled with it. Do **not** silently pick one — ask
-the user how they compose. Plausible resolutions:
+after and was not reconciled with it. Plausible resolutions were:
 
 1. Pads become the *button treatment inside* the skin engine (the plan's
    architecture — `Skin { case, hardware }`, painter helpers, phased
