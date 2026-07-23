@@ -129,6 +129,35 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 python -m src.drotrimmer.drotrim 
 ```
 
+## RetroWave OPL3 hardware output
+
+Playback can go to a RetroWave OPL3 board — a real YMF262 heard through its own
+3.5mm jack — instead of the emulator. Pick it in Settings > Output, or from the
+command line. Both board generations work; an original board's mode switch must
+be set to USB.
+
+Check that the board is found and makes sound:
+
+```PowerShell
+drotrim retrowave-probe
+```
+
+That lists every serial port with its USB descriptors, then plays a chord on each
+register bank of the first board it recognises. Add `--list` to stop after the
+listing, or `--port COM3` to choose one. On Windows a board reports the generic
+name "USB Serial Device", so it is recognised by USB ID (`04d8:e966`) instead.
+
+Play a song through it:
+
+```PowerShell
+drotrim play song.dro --retrowave
+```
+
+Note the protocol is write-only: the host cannot tell whether the board understood
+anything. If a change to the wire format goes wrong, the failure is silence, not an
+error — so listen, do not just check the exit code. The design and its reasoning are
+in `docs/retrowave-2026-07/PLAN.md`.
+
 ## Build .exe
 
 ```PowerShell

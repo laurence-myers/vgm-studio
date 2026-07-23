@@ -1,7 +1,7 @@
 # RetroWave OPL3 hardware output — implementation plan
 
-Status: **PLANNED** (2026-07-23, revised same day after a four-lens adversarial review).
-Nothing implemented yet.
+Status: **IMPLEMENTED** (2026-07-23). Planned, reviewed and built the same day; see
+§8 for what the hardware taught us and where the code diverged from this plan.
 
 Goal: let the user switch live playback from the Nuked OPL3 software emulator to a
 **RetroWave OPL3** USB device — a real YMF262 with its own 3.5mm audio output. Both the
@@ -598,7 +598,56 @@ Steps 1–4 are UI-independent; 3 depends on 1–2, 5 on 3–4, 6–7 on 5.
 - **Pump panic** is contained by `catch_unwind` + unconditional mute/reset on the exit
   path; without it a panic would leave the chip playing a stuck chord until replug.
 
-## 8. References
+## 8. What was actually built
+
+All eight steps landed on `rust` (commits `ca41084` … `791d17e`). The plan held up;
+these are the differences worth knowing.
+
+**Confirmed against the real board (the original RetroWave OPL3, 2026-07-23):**
+
+- It enumerates as **USB `04d8:e966`** (a Microchip VID) — the first published ID for
+  this hardware anywhere, as far as we can tell. `KNOWN_USB_IDS` in
+  [device.rs](../../crates/dro-retrowave/src/device.rs) carries it.
+- The §3.1 Windows caveat was exactly right, and worse than feared: the board reports
+  manufacturer "Microsoft" and product "USB Serial Device (COM3)", both from
+  `usbser.sys`. **No product-string match can ever work on Windows.** Detection is by
+  USB ID, with `is_generic_description` suppressing the placeholder so the picker shows
+  a bare port name rather than a misleading one.
+- The wire format is right: `drotrim retrowave-probe` plays a chord on each register
+  bank, and an OPL2 DRO plays in real time (2.68 s of song took 3.09 s of wall clock,
+  the difference being process startup and the connect sequence).
+
+**Design changes from the plan:**
+
+- **`hw` is `Option<u8>` per register, not a plain byte** (§3.4 as revised). A fresh
+  chip knows nothing about the hardware, so its first materialize writes the whole
+  register file. This is what lets the device persist across song loads without any
+  state handover between chips.
+- **The transient key-off ordering was inverted.** The plan built pause key-offs from
+  the shadow; the code builds them from `hw` (what is actually sounding) and updates
+  only `hw`. Same effect, but it cannot key off a note the hardware never started.
+- **`spin_sleep` was dropped** (the step-3 decision the plan left open). Since Rust
+  1.75 `std::thread::sleep` uses high-resolution timers on Windows, which is finer
+  than the 1.3 ms quantum. One less dependency.
+- **The CLI flag landed with step 3, not step 7**, because `drotrim play --retrowave`
+  is how the pump was verified on hardware in the first place.
+- **`AppConfig` lost `Copy`** — an owned port name is a `String`. Eight call sites now
+  clone, which is what they were doing implicitly anyway.
+- **`apply_settings` unloads on a backend or port change**, which §4.2 called for; the
+  plan under-sold it as "one small addition". It is the only reason switching away from
+  hardware releases the serial port without pressing Play again.
+
+**Still open** (nothing here blocks use):
+
+- The 200 ms reset settle is untuned; it is paid only on connect.
+- No monitor mode, so the VU meter stays dark during hardware playback (§3.6).
+- Pan sliders and the boost stepper are still enabled in hardware mode. They are inert
+  rather than wrong, and §3.6 wants them disabled with a tooltip.
+- The §3.5 eligibility gate is unreachable until the any-chip VGM work lands.
+- Rhythm-mode percussion on a dual-OPL2 song's *second* chip cannot sound on one
+  YMF262 — the same limit the emulator has, so not a regression.
+
+## 9. References
 
 - Provenance of every §1 fact: see §2.
 - Architecture seams verified against the repo on 2026-07-23: engine

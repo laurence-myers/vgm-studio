@@ -64,7 +64,10 @@ fn about_text() -> String {
          \n\
          This build embeds the Nuked-OPL3 emulator and is licensed\n\
          under the LGPL-2.1-or-later. Complete source code:\n\
-         https://github.com/laurence-myers/dro-trimmer",
+         https://github.com/laurence-myers/dro-trimmer\n\
+         \n\
+         RetroWave OPL3 output links the serialport crate, used under\n\
+         the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
         env!("CARGO_PKG_VERSION"),
     )
 }
