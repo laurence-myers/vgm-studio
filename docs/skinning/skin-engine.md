@@ -27,7 +27,8 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   `SurfaceChoice` (theme default / light / dark / tint), stored as
   `pad_style` / `deck_style` in `[ui]` and applied by `theme::palette_with` --
   so the app's palette is an owned per-config value, not one of the statics.
-  Light pads are a neutral white/grey; the Light *deck* is still a warm cream.
+  The Light preset is a neutral white/grey for both (a cream one fought the
+  cool plates); the deck sits a shade darker than the caps, so pads read raised.
   **Grey is a pad treatment only** (it reads flat and dirty as a deck): the deck
   dropdown iterates `SurfaceChoice::DECK`, and `for_deck()` folds a grey
   `deck_style` from a hand-edited ini back to the theme default.

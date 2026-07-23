@@ -214,7 +214,7 @@ pub enum SurfaceChoice {
     /// Use whatever the selected theme specifies.
     #[default]
     ThemeDefault,
-    /// Force a light (bone/cream) treatment.
+    /// Force a light (neutral white/grey) treatment.
     Light,
     /// Force a dark (charcoal/rubber) treatment.
     Dark,

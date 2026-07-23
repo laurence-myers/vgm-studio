@@ -22,11 +22,11 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color32 {
 
 /// How a case paints its pads and its deck, independently of the plate.
 /// `Tint` follows the plate (the default look); `Light`, `Dark` and `Grey` are
-/// fixed treatments that ignore it, so a case can, say, mount cream keys on a
+/// fixed treatments that ignore it, so a case can, say, mount pale keys on a
 /// dark deck over a navy plate, or plain grey keys on a teal plate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
-    /// A fixed light (bone/cream) treatment.
+    /// A fixed light (neutral white/grey) treatment.
     Light,
     /// A fixed dark (charcoal/rubber) treatment.
     Dark,
@@ -83,9 +83,12 @@ pub(crate) fn pad_caps(p: &Palette) -> PadCaps {
 #[must_use]
 pub(crate) fn deck_stops(p: &Palette) -> (Color32, Color32) {
     match p.deck {
+        // Neutral, like the light pad caps: a cream deck fights a cool plate,
+        // and the pads have to read as raised *on* it, so it sits a shade
+        // darker than they do.
         Surface::Light => (
-            Color32::from_rgb(0xE8, 0xE0, 0xCC),
-            Color32::from_rgb(0xD4, 0xCA, 0xAE),
+            Color32::from_rgb(0xE4, 0xE6, 0xE6),
+            Color32::from_rgb(0xCB, 0xCE, 0xCE),
         ),
         Surface::Dark => (
             Color32::from_rgb(0x24, 0x30, 0x2F),
