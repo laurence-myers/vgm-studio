@@ -310,6 +310,7 @@ impl DroApp {
         initial_file: Option<PickedFile>,
     ) -> Self {
         let config = config_store.load();
+        let initial_frequency = config.audio.frequency;
         Self {
             editor: Editor::new(),
             files,
@@ -330,7 +331,7 @@ impl DroApp {
             boost_ceiling: None,
             volume_scan_purpose: VolumeScanPurpose::MatchBoost,
             volume_field_editing: false,
-            position: PositionPanel::new(config.audio.frequency),
+            position: PositionPanel::new(initial_frequency),
             channels: ChannelPanel::new(),
             scroll_to: None,
             last_first_selected: None,
@@ -2219,7 +2220,7 @@ impl DroApp {
         // Preview at the track's own volume: unless the volume is locked, start it
         // from the track's header modifier -- on a copy of the config, so the
         // preview does not disturb the editor's volume.
-        let mut preview_config = self.config.audio;
+        let mut preview_config = self.config.audio.clone();
         if !preview_config.lock_boost {
             preview_config.boost = Self::modifier_boost(&song);
         }
@@ -2903,13 +2904,14 @@ impl DroApp {
         // theme-only change keeps the existing buckets and just recolours them.
         let audio_changed = config.audio != self.config.audio;
         let waveform_changed = config.audio.frequency != self.config.audio.frequency;
+        let new_frequency = config.audio.frequency;
         self.config = config;
         // Don't retune the position panel to the configured rate while a stream
         // is live: it reports frames at the stream's real (still-old) rate, so
         // the readout would mix a new-rate length with old-rate frames. On the
         // next reload, ensure_audio adopts the new rate from output_rate (ux-16).
         if self.audio.output_rate().is_none() {
-            self.position.set_frequency(config.audio.frequency);
+            self.position.set_frequency(new_frequency);
         }
         if let Some(song) = self.editor.song() {
             self.position.set_length_ms(song.total_delay_ms());
@@ -3019,7 +3021,7 @@ impl DroApp {
             options: SplitOptions {
                 format,
                 isolate_percussion,
-                audio: self.config.audio,
+                audio: self.config.audio.clone(),
             },
         });
     }

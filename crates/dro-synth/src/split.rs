@@ -35,7 +35,7 @@ pub struct SplitOutput {
 }
 
 /// How to split.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SplitOptions {
     pub format: SplitFormat,
     pub isolate_percussion: bool,

@@ -9,8 +9,42 @@ use ini::Ini;
 
 use crate::error::{Error, Result};
 
+/// Where playback goes: the emulator, or real hardware. Stored as
+/// `output_backend=` in `[audio]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OutputBackend {
+    /// Nuked OPL3, rendered to the sound card (the default).
+    #[default]
+    Emulated,
+    /// A RetroWave OPL3 board: a real YMF262, heard through its own output.
+    RetroWave,
+}
+
+impl core::fmt::Display for OutputBackend {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Emulated => "emulated",
+            Self::RetroWave => "retrowave",
+        })
+    }
+}
+
+impl core::str::FromStr for OutputBackend {
+    type Err = ();
+
+    /// Accepts hyphen or underscore, case-insensitively. Anything else errors,
+    /// discarding the whole config like every other malformed value here.
+    fn from_str(value: &str) -> core::result::Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "emulated" | "nuked" => Ok(Self::Emulated),
+            "retrowave" | "retro-wave" | "retro_wave" => Ok(Self::RetroWave),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Audio settings. `[audio]` in `drotrim.ini`.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AudioConfig {
     pub bit_depth: u16,
     /// Playback volume multiplier, applied through a peak limiter so a boosted
@@ -32,7 +66,18 @@ pub struct AudioConfig {
     pub buffer_size: u32,
     /// Sample rate of both the emulated chip and the audio output. 49716 is the
     /// OPL3's native rate and gives the best quality.
+    ///
+    /// Ignored by hardware output, which has no sound card to configure and
+    /// steps the song at the chip's own rate.
     pub frequency: u32,
+    /// Whether playback goes to the emulator or to RetroWave hardware.
+    ///
+    /// Applies to live playback only: rendering, splitting and converting always
+    /// use the emulator, since they need the samples themselves.
+    pub output_backend: OutputBackend,
+    /// The serial port of the RetroWave board, such as `COM3`. `None` picks the
+    /// first port that looks like one.
+    pub retrowave_port: Option<String>,
 }
 
 impl Default for AudioConfig {
@@ -43,6 +88,8 @@ impl Default for AudioConfig {
             lock_boost: false,
             buffer_size: 512,
             frequency: 48_000,
+            output_backend: OutputBackend::default(),
+            retrowave_port: None,
         }
     }
 }
@@ -233,7 +280,8 @@ impl Default for UiConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// Not `Copy`: [`AudioConfig::retrowave_port`] is an owned port name.
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct AppConfig {
     pub audio: AudioConfig,
     pub ui: UiConfig,
@@ -327,6 +375,13 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "audio", "frequency") {
             self.audio.frequency = parse(value, "audio.frequency")?;
         }
+        if let Some(value) = lookup(&ini, "audio", "output_backend") {
+            self.audio.output_backend = parse(value, "audio.output_backend")?;
+        }
+        if let Some(value) = lookup(&ini, "audio", "retrowave_port") {
+            let value = value.trim();
+            self.audio.retrowave_port = (!value.is_empty()).then(|| value.to_owned());
+        }
 
         if let Some(value) = lookup(&ini, "ui", "dro_info_edit_enabled") {
             self.ui.dro_info_edit_enabled = parse_bool(value, "ui.dro_info_edit_enabled")?;
@@ -370,6 +425,13 @@ impl AppConfig {
              # Keep the volume across songs (true), or start each song from its\n\
              # own header volume modifier (false, the default).\n\
              lock_boost={lock_boost}\n\
+             # Where live playback goes: emulated (Nuked OPL3, through the sound\n\
+             # card) or retrowave (a RetroWave OPL3 board, heard through its own\n\
+             # output). Rendering and splitting always use the emulator.\n\
+             output_backend={output_backend}\n\
+             # Serial port of the RetroWave board, e.g. COM3 or /dev/ttyACM0.\n\
+             # Leave empty to use the first one detected.\n\
+             retrowave_port={retrowave_port}\n\
              \n\
              [ui]\n\
              # Tail length is the value for the \"Play last X seconds\" button,\n\
@@ -391,6 +453,8 @@ impl AppConfig {
             buffer_size = self.audio.buffer_size,
             boost = self.audio.boost,
             lock_boost = self.audio.lock_boost,
+            output_backend = self.audio.output_backend,
+            retrowave_port = self.audio.retrowave_port.as_deref().unwrap_or_default(),
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
@@ -569,6 +633,43 @@ mod tests {
     }
 
     #[test]
+    fn the_output_backend_parses_its_spellings_and_round_trips() {
+        for text in ["emulated", "Emulated", " nuked "] {
+            assert_eq!(text.parse(), Ok(OutputBackend::Emulated), "{text}");
+        }
+        for text in ["retrowave", "RetroWave", "retro-wave", " retro_wave "] {
+            assert_eq!(text.parse(), Ok(OutputBackend::RetroWave), "{text}");
+        }
+        assert_eq!("speakers".parse::<OutputBackend>(), Err(()));
+        for choice in [OutputBackend::Emulated, OutputBackend::RetroWave] {
+            assert_eq!(choice.to_string().parse(), Ok(choice));
+        }
+    }
+
+    /// Following the convention: one bad value reverts everything to defaults,
+    /// which for the backend means the emulator — so playback still works.
+    #[test]
+    fn an_invalid_output_backend_discards_the_whole_config() {
+        let source = "[audio]\noutput_backend=parallel_port\n";
+        let config = AppConfig::from_ini_sources(&[source]);
+        assert_eq!(config, AppConfig::default());
+        assert_eq!(config.audio.output_backend, OutputBackend::Emulated);
+        let error = AppConfig::try_from_ini_sources(&[source]).unwrap_err();
+        assert!(error.to_string().contains("audio.output_backend"));
+    }
+
+    /// An unset port means "find one", which is different from a port literally
+    /// named the empty string.
+    #[test]
+    fn an_empty_retrowave_port_reads_back_as_no_port() {
+        let config = AppConfig::from_ini_sources(&["[audio]\nretrowave_port=\n"]);
+        assert_eq!(config.audio.retrowave_port, None);
+
+        let config = AppConfig::from_ini_sources(&["[audio]\nretrowave_port= COM4 \n"]);
+        assert_eq!(config.audio.retrowave_port.as_deref(), Some("COM4"));
+    }
+
+    #[test]
     fn an_invalid_theme_discards_the_whole_config() {
         // As with every malformed value, one bad `theme=` reverts to all defaults.
         let source = "[ui]\ntheme=magenta\ntail_length=5000\n";
@@ -664,6 +765,8 @@ mod tests {
                 lock_boost: true,
                 buffer_size: 2048,
                 frequency: 49_716,
+                output_backend: OutputBackend::RetroWave,
+                retrowave_port: Some("COM7".to_owned()),
             },
             ui: UiConfig {
                 dro_info_edit_enabled: true,

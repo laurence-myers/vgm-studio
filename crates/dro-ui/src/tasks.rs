@@ -217,7 +217,7 @@ pub fn run_task(
             }
         }
         TaskRequest::Split { song, options } => {
-            if let Some(result) = split_to_bytes(song, *options, is_cancelled) {
+            if let Some(result) = split_to_bytes(song, options.clone(), is_cancelled) {
                 emit(TaskResult::Split(result));
             }
         }

@@ -357,11 +357,11 @@ pub(crate) struct MemoryConfigStore {
 
 impl ConfigStore for MemoryConfigStore {
     fn load(&self) -> AppConfig {
-        self.initial
+        self.initial.clone()
     }
 
     fn save(&self, config: &AppConfig) -> dro_core::Result<()> {
-        self.saved.borrow_mut().push(*config);
+        self.saved.borrow_mut().push(config.clone());
         Ok(())
     }
 }

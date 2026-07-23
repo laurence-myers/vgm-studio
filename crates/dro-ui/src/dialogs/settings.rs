@@ -27,7 +27,7 @@ impl SettingsDialog {
     #[must_use]
     pub fn new(config: &AppConfig) -> Self {
         Self {
-            original: *config,
+            original: config.clone(),
             frequency: config.audio.frequency,
             buffer_size: config.audio.buffer_size,
             bit_depth: config.audio.bit_depth,
@@ -186,7 +186,7 @@ impl SettingsDialog {
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
         // Start from the config the dialog opened with, so fields it does not
         // edit (like `audio.boost`, driven by the transport slider) survive.
-        let mut config = self.original;
+        let mut config = self.original.clone();
         let Ok(tail_length) = self.tail_length.trim().parse::<u32>() else {
             actions.push(Action::Alert {
                 title: "Invalid settings".to_owned(),
