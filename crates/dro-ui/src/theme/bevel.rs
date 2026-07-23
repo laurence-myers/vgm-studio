@@ -2,9 +2,12 @@
 //! bevel still used for wells (the waveform, data fields, the scrollbar channel).
 //!
 //! A pad is a rounded cap with a 1px border, a lit inset line along its top edge
-//! and a shaded one along its bottom, inked with a dark glyph or label. Held
-//! pushes it in (the top line flips to a shadow and the content nudges down); a
-//! latched toggle lights its cap warm amber. Every effect paints **inside** the
+//! and a shaded one along its bottom, inked with a dark glyph or label. Pads sit
+//! **unlit** at rest and light warm amber when active; pressing one always
+//! depresses it (the top line flips to a shadow and the content nudges down).
+//! A momentary button is lit only while held. A toggle stays lit while it is on,
+//! and while held it previews what it is about to become -- press an unlit toggle
+//! and it lights, press a lit one and it un-lights. Every effect paints **inside** the
 //! widget rect -- no outer glow or drop shadow -- so tight groups (the channel
 //! digits, the steppers) never clip a neighbour's halo.
 
@@ -70,13 +73,18 @@ pub fn groove_v(painter: &Painter, x: f32, y_range: Rangef, palette: &Palette) {
 
 // -- pads ------------------------------------------------------------------
 
-/// One pad's visual state for a frame. `latched` (an engage toggle that is on)
-/// lights the cap amber.
+/// One pad's visual state for a frame.
+///
+/// `lit` lights the cap amber and `held` depresses it; the two are independent.
+/// A momentary button is lit only while held. A toggle is lit while it is on,
+/// and while held it previews the state it is about to take -- pressing an unlit
+/// toggle lights it, pressing a lit one un-lights it -- so the press always shows
+/// the outcome.
 #[derive(Debug, Clone, Copy, Default)]
 struct PadState {
     hovered: bool,
     held: bool,
-    latched: bool,
+    lit: bool,
 }
 
 /// The paint result of a pad: the ink for its content and a downward nudge to
@@ -86,14 +94,14 @@ struct PadInk {
     offset: Vec2,
 }
 
-/// Paints one pad into `rect` and returns its content ink + press nudge. An idle
-/// cap reads as a slightly domed keycap (lit top line, shaded bottom line);
-/// `held` presses it in and `latched` lights the cap amber.
+/// Paints one pad into `rect` and returns its content ink + press nudge. An
+/// unlit cap reads as a slightly domed keycap (lit top line, shaded bottom
+/// line); `lit` lights the cap amber and `held` presses it in.
 fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> PadInk {
     let radius = CornerRadius::same(RADIUS);
     let caps = pad_caps(p);
     let idle_mid = lerp_color(caps.top, caps.bottom, 0.5);
-    let (mut mid, border, ink) = if state.latched {
+    let (mut mid, border, ink) = if state.lit {
         (
             lerp_color(p.latch_top, p.latch_bottom, 0.5),
             p.latch_border,
@@ -123,7 +131,7 @@ fn paint_pad(painter: &Painter, rect: Rect, p: &Palette, state: PadState) -> Pad
             Stroke::new(1.0, Color32::from_black_alpha(70)),
         );
     } else {
-        let glint = if state.latched { 128 } else { 140 };
+        let glint = if state.lit { 128 } else { 140 };
         painter.hline(
             inset,
             rect.top() + 1.5,
@@ -191,7 +199,8 @@ fn button_impl(ui: &mut Ui, palette: &Palette, text: &str, fixed: Option<Vec2>) 
         let state = PadState {
             hovered: response.hovered(),
             held,
-            ..PadState::default()
+            // A momentary button lights only while it is being pressed.
+            lit: held,
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         let text_pos = rect.center() - galley.size() * 0.5 + ink.offset;
@@ -225,7 +234,8 @@ pub fn icon_button_sized(
         let state = PadState {
             hovered: response.hovered(),
             held,
-            ..PadState::default()
+            // A momentary button lights only while it is being pressed.
+            lit: held,
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         paint_icon(ui.painter(), glyph, rect, ink);
@@ -295,7 +305,9 @@ fn toggle_impl(
         let state = PadState {
             hovered: response.hovered(),
             held,
-            latched: on,
+            // While held, show the state the toggle is about to take, so the
+            // press previews the outcome: unlit -> lights, lit -> un-lights.
+            lit: if held { !on } else { on },
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         let text_pos = rect.center() - galley.size() * 0.5 + ink.offset;
@@ -318,7 +330,9 @@ pub fn icon_toggle(
         let state = PadState {
             hovered: response.hovered(),
             held,
-            latched: on,
+            // While held, show the state the toggle is about to take, so the
+            // press previews the outcome: unlit -> lights, lit -> un-lights.
+            lit: if held { !on } else { on },
         };
         let ink = paint_pad(ui.painter(), rect, palette, state);
         paint_icon(ui.painter(), glyph, rect, ink);
