@@ -22,7 +22,10 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   independent of the plate. `Surface = Light | Dark | Grey | Tint`: Tint follows
   the plate; Light/Dark/Grey are fixed presets. Resolved at paint time by
   `palette::pad_caps` / `palette::deck_stops`. There are **no** explicit
-  `pad_cap_*` roles.
+  `pad_cap_*` roles. Either can be **overridden from Settings** via
+  `SurfaceChoice` (theme default / light / dark / tint), stored as
+  `pad_style` / `deck_style` in `[ui]` and applied by `theme::palette_with` --
+  so the app's palette is an owned per-config value, not one of the statics.
 - `paint.rs` — colour mix + `gradient_quad`/`plate_mesh` (shared with waveform).
 - `bevel.rs` — the pad painter (`button`/`toggle`/`icon_button`/`icon_toggle`,
   engage toggles latch amber) plus the old sunken bevel for wells.
@@ -42,6 +45,14 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
 
 - Line icons + pads across transport/pan/channel strips; icon buttons keep their
   text `WidgetInfo` label (tests use `get_by_label`).
+- **Pad lighting = "active", not "latched".** Pads are unlit at rest and light
+  amber when active; pressing always depresses. A momentary button is lit only
+  while held; a toggle stays lit while on and, while held, previews the state it
+  is about to take (press a lit toggle and it un-lights). `PadState { hovered,
+  held, lit }`, with `lit` computed by the caller.
+- **Per-case display ink.** `data_text` is a case role, so each palette's table
+  and readouts read in their own colour rather than one shared tracker yellow.
+  The scope inks (wave, cursor, loop brackets) are still shared hardware.
 - Channel + Perc selectors: lit engage style, **square**; audible = amber,
   muted = plain neutral pad (not recessed).
 - Scope grid behind the waveform; brighter centre line.
