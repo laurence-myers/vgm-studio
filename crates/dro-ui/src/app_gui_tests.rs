@@ -1043,6 +1043,94 @@ fn settings_save_preserves_a_live_changed_boost() {
     );
 }
 
+/// Open Settings and pick Wine from the Theme dropdown, through the real combo
+/// -- the pick is the thing that has to fire the preview.
+fn previewing_wine() -> (Harness<'static, DroApp>, Handles) {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    assert_eq!(harness.state().config.ui.theme, ThemeChoice::Navy);
+    let config = harness.state().config.clone();
+    harness.state_mut().dialogs.settings =
+        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
+    harness.run();
+
+    // A closed combo reports its selection as its value, not its label.
+    harness.get_by_value("Navy").click();
+    harness.run();
+    // The popup's own items don't take a synthetic pointer click here (the
+    // press lands on the panel under the popup's layer), so pick through
+    // accesskit, which kittest offers for exactly this.
+    harness.get_by_label("Wine").click_accesskit();
+    harness.run();
+    // An accesskit pick doesn't dismiss the popup the way a pointer one does,
+    // and a popup left open eats the next click. Dismiss it on the inert row
+    // caption beside the dropdown.
+    harness.get_by_label("Theme").click();
+    harness.run();
+    assert_eq!(
+        harness.query_all_by_label("Petrol").count(),
+        0,
+        "the theme popup is dismissed"
+    );
+    (harness, handles)
+}
+
+#[test]
+fn a_picked_theme_previews_on_the_whole_window() {
+    // A colour scheme cannot be judged from a dropdown's label, so the pick
+    // repaints everything straight away -- without committing anything.
+    let (harness, handles) = previewing_wine();
+
+    assert_eq!(harness.state().shown_skin().0, ThemeChoice::Wine);
+    assert_eq!(
+        harness.state().config.ui.theme,
+        ThemeChoice::Navy,
+        "the preview must not reach the config"
+    );
+    assert!(
+        handles.saved_configs.borrow().is_empty(),
+        "and nothing may be written to the ini -- the volume lever persists \
+         `config` from under us, which would leak an unsaved preview"
+    );
+}
+
+#[test]
+fn closing_settings_puts_the_previewed_theme_back() {
+    // Trying themes out and then backing out must leave no trace; otherwise
+    // Close silently keeps whichever one was highlighted last.
+    let (mut harness, handles) = previewing_wine();
+
+    harness.get_by_label("Close").click();
+    harness.run();
+
+    assert!(harness.state().dialogs.settings.is_none(), "dialog closed");
+    assert_eq!(
+        harness.state().shown_skin().0,
+        ThemeChoice::Navy,
+        "the theme the dialog opened with is back"
+    );
+    assert!(harness.state().skin_preview.is_none(), "no stale preview");
+    assert!(handles.saved_configs.borrow().is_empty());
+}
+
+#[test]
+fn saving_settings_keeps_the_previewed_theme() {
+    let (mut harness, handles) = previewing_wine();
+
+    harness.get_by_label("Save").click();
+    harness.run();
+
+    assert_eq!(harness.state().config.ui.theme, ThemeChoice::Wine);
+    assert_eq!(harness.state().shown_skin().0, ThemeChoice::Wine);
+    assert!(
+        harness.state().skin_preview.is_none(),
+        "the preview became the saved skin"
+    );
+    assert_eq!(
+        handles.saved_configs.borrow().last().map(|c| c.ui.theme),
+        Some(ThemeChoice::Wine),
+    );
+}
+
 #[test]
 fn settings_do_not_retune_the_position_panel_while_a_stream_is_live() {
     // ux-16: a frequency change must not retune the panel while a stream plays

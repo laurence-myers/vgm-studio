@@ -7,6 +7,10 @@ use crate::action::Action;
 use crate::platform::HardwarePortInfo;
 use crate::theme::{Palette, bevel};
 
+/// The appearance settings, as `(theme, pad_style, deck_style)`. These three
+/// preview live, so they travel together.
+type Skin = (ThemeChoice, SurfaceChoice, SurfaceChoice);
+
 #[derive(Debug)]
 pub struct SettingsDialog {
     /// The config the dialog opened from. `save` starts here, not from the
@@ -54,6 +58,20 @@ impl SettingsDialog {
         self.output_backend == OutputBackend::Emulated
     }
 
+    /// The three appearance settings, which preview live rather than waiting for
+    /// Save -- a colour scheme can only be judged on the whole window, not on a
+    /// dropdown's label.
+    fn skin(&self) -> Skin {
+        (self.theme, self.pad_style, self.deck_style)
+    }
+
+    /// The appearance the dialog opened with, restored when it is closed without
+    /// saving.
+    fn original_skin(&self) -> Skin {
+        let ui = &self.original.ui;
+        (ui.theme, ui.pad_style, ui.deck_style)
+    }
+
     /// Draws the window. Returns `false` once closed.
     pub fn show(
         &mut self,
@@ -63,6 +81,8 @@ impl SettingsDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
+        let mut saved = false;
+        let opened_with = self.skin();
         let open = super::dialog_window(ctx, "Settings", area, |ui| {
             egui::Grid::new("settings-grid")
                 .num_columns(2)
@@ -182,8 +202,9 @@ impl SettingsDialog {
                     );
                     ui.end_row();
 
-                    ui.label("Theme")
-                        .on_hover_text("Applied on Save; no restart needed");
+                    ui.label("Theme").on_hover_text(
+                        "The case colour. Applies as you pick it; Close puts the old one back.",
+                    );
                     egui::ComboBox::from_id_salt("settings-theme")
                         .selected_text(theme_label(self.theme))
                         .show_ui(ui, |ui| {
@@ -243,11 +264,38 @@ impl SettingsDialog {
                     close = true;
                 }
                 if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                    close = true;
+                    saved = true;
                 }
             });
         });
-        open && !close
+        // `open` is false when the window's own title-bar close was used, which
+        // means the same as Close.
+        let closing = close || !open || saved;
+        actions.extend(self.preview(opened_with, closing, saved));
+        !closing
+    }
+
+    /// The preview to emit for a frame that started on `opened_with`, if any.
+    ///
+    /// Picking a skin previews it. Closing without saving discards the edits, so
+    /// the preview goes back to what the dialog opened from -- not to whatever is
+    /// picked now. Saving hands the skin to `ApplySettings` instead, so a preview
+    /// after it would only be redundant.
+    fn preview(&self, opened_with: Skin, closing: bool, saved: bool) -> Option<Action> {
+        if saved {
+            return None;
+        }
+        let wanted = if closing {
+            self.original_skin()
+        } else {
+            self.skin()
+        };
+        let (theme, pad_style, deck_style) = wanted;
+        (wanted != opened_with).then_some(Action::PreviewSkin {
+            theme,
+            pad_style,
+            deck_style,
+        })
     }
 
     /// Parses, validates and emits the new settings; `false` (with an error
@@ -522,6 +570,79 @@ mod tests {
         assert!(dialog.emulating());
         dialog.output_backend = OutputBackend::RetroWave;
         assert!(!dialog.emulating(), "hardware output renders no signal");
+    }
+
+    fn previewed(action: Option<Action>) -> Option<Skin> {
+        match action {
+            Some(Action::PreviewSkin {
+                theme,
+                pad_style,
+                deck_style,
+            }) => Some((theme, pad_style, deck_style)),
+            Some(other) => panic!("expected a preview, got {other:?}"),
+            None => None,
+        }
+    }
+
+    /// The three appearance settings apply as they are picked, so the whole
+    /// window shows what the choice actually looks like.
+    #[test]
+    fn picking_an_appearance_previews_it() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        let opened_with = dialog.skin();
+
+        // A frame that changes nothing re-previews nothing.
+        assert_eq!(previewed(dialog.preview(opened_with, false, false)), None);
+
+        dialog.theme = ThemeChoice::Wine;
+        dialog.pad_style = SurfaceChoice::Grey;
+        assert_eq!(
+            previewed(dialog.preview(opened_with, false, false)),
+            Some((ThemeChoice::Wine, SurfaceChoice::Grey, dialog.deck_style)),
+        );
+        // ...and only once: the next frame opens on what is already shown.
+        assert_eq!(previewed(dialog.preview(dialog.skin(), false, false)), None);
+    }
+
+    /// Close means "I didn't want any of this", including the previews it
+    /// applied on the way -- otherwise trying themes out would silently keep the
+    /// last one.
+    #[test]
+    fn closing_reverts_the_preview() {
+        let mut config = AppConfig::default();
+        config.ui.theme = ThemeChoice::Petrol;
+        config.ui.deck_style = SurfaceChoice::Dark;
+        let mut dialog = SettingsDialog::new(&config, Vec::new());
+
+        dialog.theme = ThemeChoice::Olive;
+        dialog.deck_style = SurfaceChoice::Light;
+        assert_eq!(
+            previewed(dialog.preview(dialog.skin(), true, false)),
+            Some((
+                ThemeChoice::Petrol,
+                SurfaceChoice::ThemeDefault,
+                SurfaceChoice::Dark
+            )),
+            "the settings the dialog opened with come back",
+        );
+    }
+
+    /// Picking a theme, changing your mind, then closing: there is nothing left
+    /// to revert, so nothing is emitted.
+    #[test]
+    fn closing_on_the_original_appearance_previews_nothing() {
+        let dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert_eq!(previewed(dialog.preview(dialog.skin(), true, false)), None);
+    }
+
+    /// Save already carries the appearance in `ApplySettings`; a preview beside
+    /// it would be redundant.
+    #[test]
+    fn saving_previews_nothing() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        let opened_with = dialog.skin();
+        dialog.theme = ThemeChoice::Moss;
+        assert_eq!(previewed(dialog.preview(opened_with, true, true)), None);
     }
 
     /// A port saved on another machine, or since unplugged, must still be named

@@ -5,7 +5,7 @@
 //! button and its keyboard shortcut all emit the same action, so they share
 //! one handler.
 
-use dro_core::config::AppConfig;
+use dro_core::config::{AppConfig, SurfaceChoice, ThemeChoice};
 use dro_core::{Gd3Tag, OplType};
 use dro_synth::LoopCount;
 
@@ -249,4 +249,12 @@ pub enum Action {
         volume_modifier: u8,
     },
     ApplySettings(Box<AppConfig>),
+    /// Repaint in a different skin without saving it, so the Settings dropdowns
+    /// show what they mean on the real UI rather than on a description of it.
+    /// Closing the dialog re-emits the settings it opened with, which reverts.
+    PreviewSkin {
+        theme: ThemeChoice,
+        pad_style: SurfaceChoice,
+        deck_style: SurfaceChoice,
+    },
 }

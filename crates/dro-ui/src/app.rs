@@ -6,7 +6,7 @@ use core::time::Duration;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
-use dro_core::config::{AppConfig, ConfigStore};
+use dro_core::config::{AppConfig, ConfigStore, SurfaceChoice, ThemeChoice};
 use dro_core::song::{DRO_FILE_V2, SongFileType};
 use dro_core::{FindTarget, Gd3Tag};
 use dro_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat, SplitOptions};
@@ -300,6 +300,10 @@ pub struct DroApp {
     /// save path; committed to the undo stack once that save succeeds (and
     /// dropped if it fails), so undo only ever reverses edits that landed.
     pending_rip_undo: Option<RipTransaction>,
+    /// A skin the Settings dialog is showing but has not saved, as
+    /// `(theme, pad_style, deck_style)`. `None` whenever the window is painted
+    /// in the saved settings. See [`Self::preview_skin`].
+    skin_preview: Option<(ThemeChoice, SurfaceChoice, SurfaceChoice)>,
 }
 
 impl DroApp {
@@ -351,18 +355,26 @@ impl DroApp {
             rip_undo: Vec::new(),
             rip_redo: Vec::new(),
             pending_rip_undo: None,
+            skin_preview: None,
         }
+    }
+
+    /// The skin on screen: the Settings dialog's live preview if one is up,
+    /// else the saved settings.
+    fn shown_skin(&self) -> (ThemeChoice, SurfaceChoice, SurfaceChoice) {
+        self.skin_preview.unwrap_or((
+            self.config.ui.theme,
+            self.config.ui.pad_style,
+            self.config.ui.deck_style,
+        ))
     }
 
     /// The active colour scheme, with the configured pad/deck overrides applied.
     /// Owned rather than borrowed: the overrides make it a per-config value, not
     /// one of the twelve static case palettes.
     fn palette(&self) -> Palette {
-        theme::palette_with(
-            self.config.ui.theme,
-            self.config.ui.pad_style,
-            self.config.ui.deck_style,
-        )
+        let (theme, pad, deck) = self.shown_skin();
+        theme::palette_with(theme, pad, deck)
     }
 
     fn update_impl(&mut self, ui: &mut egui::Ui) {
@@ -1813,6 +1825,11 @@ impl DroApp {
                 }
             }
             Action::ApplySettings(config) => self.apply_settings(ctx, *config),
+            Action::PreviewSkin {
+                theme,
+                pad_style,
+                deck_style,
+            } => self.preview_skin(ctx, theme, pad_style, deck_style),
         }
     }
 
@@ -2940,9 +2957,13 @@ impl DroApp {
                 .push_back(Alert::error(format!("Could not save settings: {error}")));
         }
         // Repaint the whole UI in the new scheme before anything else reads it.
-        if config.ui.theme != self.config.ui.theme {
+        // Compare against what is *on screen*, which a live preview may already
+        // have moved to the saved theme -- reapplying it then is just a no-op.
+        if config.ui.theme != self.shown_skin().0 {
             theme::apply_palette(ctx, config.ui.theme);
         }
+        // Whatever was being previewed is now the saved skin.
+        self.skin_preview = None;
         // Only an audio change needs an output reload or a fresh waveform; a
         // theme-only change keeps the existing buckets and just recolours them.
         let audio_changed = config.audio != self.config.audio;
@@ -2967,6 +2988,32 @@ impl DroApp {
             self.submit_waveform(None);
         }
         self.status = "Settings saved.".to_owned();
+    }
+
+    /// Repaints in a skin without committing it. A colour scheme can only really
+    /// be judged on the whole window, so the Settings dropdowns apply as they are
+    /// picked; Close re-previews the settings the dialog opened with, putting the
+    /// old skin back.
+    ///
+    /// Deliberately *not* written into `config`: that is what reaches the ini,
+    /// and the volume lever saves it from under us (see [`Self::set_boost`]), so
+    /// a preview parked there would persist itself behind the user's back.
+    fn preview_skin(
+        &mut self,
+        ctx: &egui::Context,
+        theme: ThemeChoice,
+        pad_style: SurfaceChoice,
+        deck_style: SurfaceChoice,
+    ) {
+        if self.shown_skin().0 != theme {
+            theme::apply_palette(ctx, theme);
+        }
+        // Matching the saved settings *is* no preview, so Close leaves nothing
+        // behind to go stale.
+        let ui = &self.config.ui;
+        self.skin_preview = ((theme, pad_style, deck_style)
+            != (ui.theme, ui.pad_style, ui.deck_style))
+            .then_some((theme, pad_style, deck_style));
     }
 
     // -- helpers -------------------------------------------------------------
