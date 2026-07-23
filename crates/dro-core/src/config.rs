@@ -52,11 +52,11 @@ impl Default for AudioConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeChoice {
     /// The ft2-clone dark teal scheme.
-    #[default]
     CloneDark,
     /// The original DOS FastTracker II steel-blue scheme.
     Ft2Classic,
-    /// Bassoon "Variation 2" navy plate.
+    /// Bassoon "Variation 2" navy plate (the default).
+    #[default]
     Navy,
     /// Bassoon cream: a light plate, dark silkscreen, tone-on-tone keys.
     Cream,
@@ -307,7 +307,8 @@ impl AppConfig {
              maximize_window={maximize_window}\n\
              # Set this to true/1/yes/on to enable editing the DRO metadata.\n\
              dro_info_edit_enabled={dro_info_edit_enabled}\n\
-             # Colour scheme: clone-dark or ft2-classic.\n\
+             # Colour scheme (case): navy, cream, verdigris, moss, plum, rust,\n\
+             # petrol, slate, olive, wine, clone-dark, ft2-classic.\n\
              theme={theme}\n",
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
@@ -382,7 +383,7 @@ mod tests {
         assert!(!config.ui.dro_info_edit_enabled);
         assert!(!config.ui.maximize_window);
         assert_eq!(config.ui.tail_length, 3000);
-        assert_eq!(config.ui.theme, ThemeChoice::CloneDark);
+        assert_eq!(config.ui.theme, ThemeChoice::Navy);
     }
 
     #[test]
