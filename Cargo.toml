@@ -31,6 +31,7 @@ repository = "https://github.com/laurence-myers/dro-trimmer"
 dro-core = { path = "crates/dro-core" }
 dro-synth = { path = "crates/dro-synth" }
 dro-audio-native = { path = "crates/dro-audio-native" }
+dro-retrowave = { path = "crates/dro-retrowave" }
 dro-ui = { path = "crates/dro-ui" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
@@ -79,6 +80,13 @@ thiserror = "2"
 # commands into the audio callback lock-free.
 cpal = "0.18"
 rtrb = "0.3"
+
+# Serial port access for `dro-retrowave` (native only): the RetroWave OPL3 boards
+# are USB CDC devices. MPL-2.0, so the About dialog carries its notice alongside
+# the LGPL one. On Linux the default `libudev` feature needs libudev-dev; the
+# workspace test job is Windows-only, and the Linux CI jobs are per-crate and
+# exclude this crate.
+serialport = "4.9"
 
 # CLI tooling for the `drotrim` binary (native only).
 anyhow = "1"
