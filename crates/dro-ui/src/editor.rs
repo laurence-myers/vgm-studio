@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dro_core::undo::{DeleteInstructions, OptimizeVgm, ReplaceStream, UpdateHeader};
+use dro_core::undo::{DeleteInstructions, ReplaceStream, UpdateHeader};
 use dro_core::{
     CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
     UndoController, UndoableCommand, convert, io,
@@ -220,7 +220,8 @@ impl Editor {
         let song = self.song.as_mut()?;
         let outcome = dro_core::optimize::optimize(song)?;
         let stats = (outcome.commands_removed, outcome.bytes_saved);
-        self.undo.execute(Box::new(OptimizeVgm::new(outcome)), song);
+        self.undo
+            .execute(Box::new(ReplaceStream::new("Optimize VGM", outcome)), song);
         self.markers = RangeMarkers::from_song(song);
         self.selection.clear();
         self.analysis.invalidate();

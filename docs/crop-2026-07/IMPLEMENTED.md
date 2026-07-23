@@ -18,7 +18,7 @@ unlike Apply Loop to Metadata they are not VGM-gated. Both are undoable.
 | --- | --- |
 | State fold + patch emitter | `crates/dro-core/src/state_patch.rs` (new) |
 | Crop / delete operations | `crates/dro-core/src/crop.rs` (new) |
-| `Song::replace_data` | `crates/dro-core/src/song.rs` |
+| `StreamSnapshot`, `Song::replace_data`, `capture_stream` | `crates/dro-core/src/song.rs` |
 | `ReplaceStream` undo command | `crates/dro-core/src/undo.rs` |
 | `crop_to_markers` / `delete_marked_region` | `crates/dro-ui/src/editor.rs` |
 | Actions, dispatch, menu items | `crates/dro-ui/src/{action,app,menus}.rs` |
@@ -97,10 +97,35 @@ is recomputed by the rebuild.
   bookkeeping, menu enablement, status text, and loop re-arming over the new
   stream.
 
-## Not done / possible follow-ups
+## Follow-ups, both settled
 
-- `OptimizeVgm` could now be refitted onto `ReplaceStream` (the plan called this
-  optional; it remains its own command).
-- Deleting a region that covers the whole song is allowed in the core but
-  declined by the editor, since the markers-are-full case gates both edits. Select
-  All + Delete already covers that intent.
+Both were resolved after the feature landed; nothing is left outstanding.
+
+### 1. `OptimizeVgm` folded into `ReplaceStream` — done
+
+There is now one stream-replacement path in the crate instead of two. The command
+was a near-duplicate of `ReplaceStream` restricted to VGM, so it is gone and the
+optimiser goes through `ReplaceStream::new("Optimize VGM", outcome)`.
+
+What made it fit is a named `StreamSnapshot` — a stream plus everything a song
+derives from it (a DRO's header length, a VGM's two loop markers). Both edits'
+outcomes convert into one via `From`, `ReplaceStream::new` takes anything that
+does, and `Song::{capture_stream, replace_data}` are the single capture/install
+pair. `Song::replace_vgm_stream` is gone too; `OptimizeOutcome::install` (still
+used by the CLI, rip-zip and the parity tests) goes through `replace_data`.
+
+One behavioural note: the old command silently no-op'd if applied to a DRO. That
+was unreachable — `optimize()` returns `None` for a DRO, so the command was never
+built for one — and it is now covered by `replace_data`'s debug assertion that an
+edit never changes a song's encoding, which reports the bug rather than hiding it.
+
+### 2. Deleting everything — now refused by the core too
+
+Previously `delete_region` accepted a whole-song region and returned an empty
+song; only the editor's markers-are-full guard kept it unreachable. The core now
+declines it outright, mirroring the no-op guard `crop_to_region` already had, so
+the rule is stated once rather than depended on from a layer above. Select All +
+Delete still expresses "remove everything" for anyone who wants it.
+
+`CropOutcome::is_empty` is consequently always `false`; it stays only to pair
+with `len()`, and a test sweeps every region of a fixture to hold that true.

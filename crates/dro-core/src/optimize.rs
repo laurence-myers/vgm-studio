@@ -42,7 +42,7 @@
 //! tests assert idempotence rather than looping.
 
 use crate::opl_state::OplState;
-use crate::song::{DroInstruction, Song, SongData};
+use crate::song::{DroInstruction, Song, SongData, StreamSnapshot};
 use crate::vgm::VgmData;
 use crate::vgm::data::command;
 
@@ -72,7 +72,20 @@ impl OptimizeOutcome {
     /// Installs this outcome into `song`, replacing its stream and loop markers and
     /// refreshing the derived length. `song` must be the VGM the outcome came from.
     pub fn install(self, song: &mut Song) {
-        song.replace_vgm_stream(self.data, self.loop_point, self.loop_end);
+        song.replace_data(self.into());
+    }
+}
+
+impl From<OptimizeOutcome> for StreamSnapshot {
+    fn from(outcome: OptimizeOutcome) -> Self {
+        Self {
+            data: SongData::Vgm(outcome.data),
+            // Only a VGM is ever optimised, and a VGM derives its length from the
+            // stream, so installing this recomputes it.
+            ms_length: 0,
+            loop_point: outcome.loop_point,
+            loop_end: outcome.loop_end,
+        }
     }
 }
 

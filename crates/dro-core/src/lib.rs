@@ -34,10 +34,10 @@ pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
 pub use rip::{RipMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
-    SongFileType, slide_index_past_deletion,
+    SongFileType, StreamSnapshot, slide_index_past_deletion,
 };
 pub use split_songs::{Segment, detect_segments};
-pub use undo::{OptimizeVgm, ReplaceStream, UndoController, UndoableCommand};
+pub use undo::{ReplaceStream, UndoController, UndoableCommand};
 pub use vgm::{Gd3Tag, VgmData, VgmMeta};
 pub use volume::{
     boost_for_peak, encode_volume_modifier, matched_volume, nearest_volume_modifier, peak_dbfs,

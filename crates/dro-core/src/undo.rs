@@ -5,10 +5,7 @@
 
 use core::fmt;
 
-use crate::crop::CropOutcome;
-use crate::optimize::OptimizeOutcome;
-use crate::song::{InsertEntry, OplType, Song, SongData};
-use crate::vgm::VgmData;
+use crate::song::{InsertEntry, OplType, Song, StreamSnapshot};
 
 /// A reversible edit.
 ///
@@ -277,79 +274,17 @@ impl UndoableCommand<Song> for UpdateHeader {
     }
 }
 
-/// A VGM stream and its two loop markers -- the whole of what the optimiser edits.
-type VgmSnapshot = (VgmData, Option<usize>, Option<usize>);
-
-/// Replaces a VGM's stream with an optimised one ([`crate::optimize::optimize`]),
-/// snapshotting the whole before/after stream so undo restores it exactly.
-///
-/// Unlike [`DeleteInstructions`], the optimiser also re-encodes delay runs, which
-/// no delete/insert can express -- so this snapshots the stream wholesale rather
-/// than a set of removed instructions. VGM streams are small, so the two clones
-/// are cheap, and the snapshot is a plainer inverse than replaying two phases.
-#[derive(Debug)]
-pub struct OptimizeVgm {
-    /// The optimised stream and its remapped loop markers.
-    after: VgmSnapshot,
-    /// The original stream and loop markers, captured on `apply`.
-    before: Option<VgmSnapshot>,
-}
-
-impl OptimizeVgm {
-    /// Builds the command from an [`OptimizeOutcome`]. The editor computes the
-    /// outcome first (to report what was saved) and hands it here.
-    #[must_use]
-    pub fn new(outcome: OptimizeOutcome) -> Self {
-        Self {
-            after: (outcome.data, outcome.loop_point, outcome.loop_end),
-            before: None,
-        }
-    }
-}
-
-impl UndoableCommand<Song> for OptimizeVgm {
-    fn description(&self) -> &str {
-        "Optimize VGM"
-    }
-
-    fn apply(&mut self, song: &mut Song) {
-        let SongData::Vgm(data) = song.data() else {
-            // Only a VGM has a stream to optimise; leave a DRO untouched.
-            return;
-        };
-        let meta = song.vgm_meta();
-        self.before = Some((
-            data.clone(),
-            meta.and_then(|meta| meta.loop_point),
-            meta.and_then(|meta| meta.loop_end),
-        ));
-        let (data, loop_point, loop_end) = self.after.clone();
-        song.replace_vgm_stream(data, loop_point, loop_end);
-    }
-
-    fn revert(&mut self, song: &mut Song) {
-        let (data, loop_point, loop_end) = self
-            .before
-            .clone()
-            .expect("the controller only reverts a command it has applied");
-        song.replace_vgm_stream(data, loop_point, loop_end);
-    }
-}
-
-/// A whole instruction stream and everything derived from it: the header length a
-/// DRO stores, and the two loop markers a VGM does.
-type StreamSnapshot = (SongData, u32, Option<usize>, Option<usize>);
-
 /// Swaps in a rebuilt instruction stream, snapshotting the whole of the old one
 /// so undo restores it exactly.
 ///
-/// This is how the crop edits ([`crop_to_region`](crate::crop::crop_to_region),
-/// [`delete_region`](crate::crop::delete_region)) are made undoable. Like
-/// [`OptimizeVgm`], and unlike [`DeleteInstructions`], the edit is not a set of
-/// removals: it splices new instructions -- the state patch that carries the chip
-/// across the cut -- in among the surviving ones, and moves the loop markers
-/// across them. Snapshotting both streams is a plainer inverse than trying to
-/// express that as a delete and an insert that have to undo in the right order.
+/// Every edit that rebuilds a stream wholesale uses this: the optimiser
+/// ([`optimize`](crate::optimize::optimize)), whose merge pass re-encodes delay
+/// runs, and the crop edits ([`crop_to_region`](crate::crop::crop_to_region),
+/// [`delete_region`](crate::crop::delete_region)), which splice a state patch in
+/// among the survivors and move the loop markers across it. Unlike
+/// [`DeleteInstructions`], none of those is a set of removals, and snapshotting
+/// both streams is a plainer inverse than an insert and a delete that would have
+/// to undo in the right order.
 ///
 /// Streams are small, so the two clones are cheap.
 #[derive(Debug)]
@@ -357,25 +292,23 @@ pub struct ReplaceStream {
     /// What the Undo menu item says. The edits share this command, so each names
     /// itself rather than the mechanism.
     description: &'static str,
-    /// The rebuilt stream and its derived fields.
+    /// The rebuilt stream and everything derived from it.
     after: StreamSnapshot,
     /// The original, captured on `apply`.
     before: Option<StreamSnapshot>,
 }
 
 impl ReplaceStream {
-    /// Builds the command from a [`CropOutcome`]. `description` is what Undo and
-    /// Redo call it, e.g. `"Crop to Marked Region"`.
+    /// Builds the command from whatever the edit produced -- a
+    /// [`CropOutcome`](crate::CropOutcome) or an
+    /// [`OptimizeOutcome`](crate::OptimizeOutcome), both of which convert into a
+    /// [`StreamSnapshot`]. `description` is what Undo and Redo call it, e.g.
+    /// `"Crop to Marked Region"`.
     #[must_use]
-    pub fn new(description: &'static str, outcome: CropOutcome) -> Self {
+    pub fn new(description: &'static str, after: impl Into<StreamSnapshot>) -> Self {
         Self {
             description,
-            after: (
-                outcome.data,
-                outcome.ms_length,
-                outcome.loop_point,
-                outcome.loop_end,
-            ),
+            after: after.into(),
             before: None,
         }
     }
@@ -387,23 +320,16 @@ impl UndoableCommand<Song> for ReplaceStream {
     }
 
     fn apply(&mut self, song: &mut Song) {
-        let meta = song.vgm_meta();
-        self.before = Some((
-            song.data().clone(),
-            song.ms_length,
-            meta.and_then(|meta| meta.loop_point),
-            meta.and_then(|meta| meta.loop_end),
-        ));
-        let (data, ms_length, loop_point, loop_end) = self.after.clone();
-        song.replace_data(data, ms_length, loop_point, loop_end);
+        self.before = Some(song.capture_stream());
+        song.replace_data(self.after.clone());
     }
 
     fn revert(&mut self, song: &mut Song) {
-        let (data, ms_length, loop_point, loop_end) = self
-            .before
-            .clone()
-            .expect("the controller only reverts a command it has applied");
-        song.replace_data(data, ms_length, loop_point, loop_end);
+        song.replace_data(
+            self.before
+                .clone()
+                .expect("the controller only reverts a command it has applied"),
+        );
     }
 }
 
@@ -725,7 +651,7 @@ mod tests {
         assert_eq!(song, original);
     }
 
-    // -- OptimizeVgm --------------------------------------------------------
+    // -- ReplaceStream, driven by the optimiser -----------------------------
 
     /// A VGM with a redundant register write between two delays, so the optimiser
     /// has both a write to strip and a pair of delays to merge.
@@ -758,7 +684,10 @@ mod tests {
 
         let mut song = original.clone();
         let mut undo = UndoController::new();
-        undo.execute(Box::new(OptimizeVgm::new(outcome)), &mut song);
+        undo.execute(
+            Box::new(ReplaceStream::new("Optimize VGM", outcome)),
+            &mut song,
+        );
 
         // The stream shrank, and the total delay is conserved.
         assert!(song.data().raw().len() < original.data().raw().len());
@@ -774,7 +703,28 @@ mod tests {
         assert_eq!(song, original);
     }
 
-    // -- ReplaceStream ------------------------------------------------------
+    #[test]
+    fn optimize_vgm_preserves_loop_markers_through_undo() {
+        use crate::optimize::optimize;
+        let mut original = optimisable_vgm();
+        {
+            let meta = original.vgm_meta_mut().unwrap();
+            meta.loop_point = Some(0); // loop the whole song
+        }
+        let outcome = optimize(&original).unwrap();
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(
+            Box::new(ReplaceStream::new("Optimize VGM", outcome)),
+            &mut song,
+        );
+        // The loop point is still present after the rebuild.
+        assert!(song.vgm_meta().unwrap().loop_point.is_some());
+        undo.undo(&mut song);
+        assert_eq!(song, original);
+    }
+
+    // -- ReplaceStream, driven by the crop edits ----------------------------
 
     /// Every format, so the snapshot is exercised against a derived length (VGM)
     /// and a stored one (DRO), and against a v2's codemap.
@@ -877,23 +827,5 @@ mod tests {
         assert_eq!(undo.undo_description(), Some("Delete Instruction(s)"));
         undo.undo(&mut song);
         assert_eq!(song, original, "the whole stack unwinds to the original");
-    }
-
-    #[test]
-    fn optimize_vgm_preserves_loop_markers_through_undo() {
-        use crate::optimize::optimize;
-        let mut original = optimisable_vgm();
-        {
-            let meta = original.vgm_meta_mut().unwrap();
-            meta.loop_point = Some(0); // loop the whole song
-        }
-        let outcome = optimize(&original).unwrap();
-        let mut song = original.clone();
-        let mut undo = UndoController::new();
-        undo.execute(Box::new(OptimizeVgm::new(outcome)), &mut song);
-        // The loop point is still present after the rebuild.
-        assert!(song.vgm_meta().unwrap().loop_point.is_some());
-        undo.undo(&mut song);
-        assert_eq!(song, original);
     }
 }

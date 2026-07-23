@@ -8,7 +8,7 @@
 //! Both leave an *edge* where instructions that used to run no longer do, and an
 //! OPL register is a latch: whatever survives would otherwise play on whatever
 //! the chip happened to hold at that point. So each edit splices in the writes
-//! that carry the chip across the edge -- a [`state_patch`](crate::state_patch),
+//! that carry the chip across the edge -- a *state patch*,
 //! the diff between the register state at one point in the original stream and
 //! the state at another. A crop's prelude is the diff from a blank chip to the
 //! state at `start`; a delete's seam patch is the diff from the state at `start`
@@ -22,10 +22,10 @@
 //! insert: the patch is new instructions in the middle of surviving ones, and the
 //! loop markers have to be remapped across it, which the incremental slide rule
 //! behind [`slide_index_past_deletion`](crate::slide_index_past_deletion) cannot
-//! express. [`ReplaceStream`](crate::undo::ReplaceStream) makes that undoable the
-//! way [`OptimizeVgm`](crate::undo::OptimizeVgm) does for the optimiser.
+//! express. [`ReplaceStream`](crate::undo::ReplaceStream) makes that undoable,
+//! the same command the optimiser's rebuild goes through.
 
-use crate::song::{DroDataV1, DroDataV2, Song, SongData};
+use crate::song::{DroDataV1, DroDataV2, Song, SongData, StreamSnapshot};
 use crate::state_patch::{StateFold, append_patch};
 use crate::vgm::VgmData;
 
@@ -57,8 +57,9 @@ impl CropOutcome {
         self.data.len()
     }
 
-    /// Whether the edit leaves nothing behind -- only reachable by deleting a
-    /// region that covers the whole song.
+    /// Whether the edit leaves nothing behind. Always `false` in practice: both
+    /// edits decline a region that would empty the song, so this exists to pair
+    /// with [`Self::len`] rather than to be branched on.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
@@ -66,7 +67,18 @@ impl CropOutcome {
 
     /// Installs this outcome into `song`, which must be the song it came from.
     pub fn install(self, song: &mut Song) {
-        song.replace_data(self.data, self.ms_length, self.loop_point, self.loop_end);
+        song.replace_data(self.into());
+    }
+}
+
+impl From<CropOutcome> for StreamSnapshot {
+    fn from(outcome: CropOutcome) -> Self {
+        Self {
+            data: outcome.data,
+            ms_length: outcome.ms_length,
+            loop_point: outcome.loop_point,
+            loop_end: outcome.loop_end,
+        }
     }
 }
 
@@ -115,12 +127,14 @@ pub fn crop_to_region(song: &Song, start: usize, end: usize) -> Option<CropOutco
 /// the chip's register state across the gap so what follows still plays on the
 /// state it was written against.
 ///
-/// Returns `None` for an empty or inverted range, or one reaching past the end of
-/// the song. A region covering the whole song is allowed, and leaves an empty one.
+/// Returns `None` when there is nothing sensible to do: an empty or inverted
+/// range, one reaching past the end of the song, or one covering the whole of it
+/// -- an empty song is not a useful thing to arrive at, and the same guard on
+/// [`crop_to_region`] declines the mirror-image no-op.
 #[must_use]
 pub fn delete_region(song: &Song, start: usize, end: usize) -> Option<CropOutcome> {
     let len = song.len();
-    if start >= end || end > len {
+    if start >= end || end > len || (start == 0 && end == len) {
         return None;
     }
 
@@ -482,24 +496,35 @@ mod tests {
     }
 
     #[test]
-    fn deleting_everything_leaves_an_empty_song() {
+    fn a_no_op_delete_is_declined() {
         let song = layered();
-        let outcome = delete_region(&song, 0, song.len()).expect("a real edit");
-        assert!(outcome.is_empty());
-        assert_eq!(outcome.len(), 0);
-        let (edited, _) = deleted(&song, 0, song.len());
-        assert_eq!(edited.total_delay_samples(), 0);
+        let len = song.len();
+        assert!(delete_region(&song, 3, 3).is_none(), "an empty region");
+        assert!(delete_region(&song, 5, 2).is_none(), "an inverted region");
+        assert!(delete_region(&song, 0, len + 1).is_none(), "past the end");
+        // An empty song is not a useful thing to arrive at.
+        assert!(delete_region(&song, 0, len).is_none(), "the whole song");
     }
 
     #[test]
-    fn a_no_op_delete_is_declined() {
+    fn neither_edit_can_empty_a_song() {
+        // Whatever region is asked for, anything that comes back has something
+        // left in it -- so `CropOutcome::is_empty` never fires.
         let song = layered();
-        assert!(delete_region(&song, 3, 3).is_none(), "an empty region");
-        assert!(delete_region(&song, 5, 2).is_none(), "an inverted region");
-        assert!(
-            delete_region(&song, 0, song.len() + 1).is_none(),
-            "past the end"
-        );
+        let len = song.len();
+        for start in 0..len {
+            for end in (start + 1)..=len {
+                for outcome in [
+                    crop_to_region(&song, start, end),
+                    delete_region(&song, start, end),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    assert!(!outcome.is_empty(), "{start}..{end} emptied the song");
+                }
+            }
+        }
     }
 
     // -- loop metadata -------------------------------------------------------

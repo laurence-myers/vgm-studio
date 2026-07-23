@@ -30,6 +30,25 @@ pub enum SongData {
     Vgm(VgmData),
 }
 
+/// A whole instruction stream, and everything a song derives from it: the header
+/// length a DRO stores, and the two loop markers a VGM does.
+///
+/// What every stream-rebuilding edit produces and what
+/// [`ReplaceStream`](crate::undo::ReplaceStream) snapshots to undo one, so the
+/// optimiser ([`OptimizeOutcome`](crate::OptimizeOutcome)) and the crop edits
+/// ([`CropOutcome`](crate::CropOutcome)) share a single install-and-revert path
+/// rather than each growing its own.
+#[derive(Debug, Clone)]
+pub struct StreamSnapshot {
+    pub data: SongData,
+    /// A DRO's header length. A VGM's is derived from its sample delays, so the
+    /// value here is ignored and recomputed when the stream is installed.
+    pub ms_length: u32,
+    /// The loop markers, VGM only.
+    pub loop_point: Option<usize>,
+    pub loop_end: Option<usize>,
+}
+
 impl SongData {
     /// The number of instructions.
     #[must_use]
@@ -600,48 +619,34 @@ impl Song {
         self.rebuild_delay_prefix();
     }
 
-    /// Replaces a VGM song's whole command stream and loop markers, refreshing the
-    /// derived length. This is how the optimiser installs its rebuilt stream (the
-    /// merge pass re-encodes delay runs, which no delete/insert can express), and
-    /// how [`OptimizeVgm`](crate::undo::OptimizeVgm) reverts to the original.
-    ///
-    /// Only meaningful for a VGM song; a DRO song has no `loop_point`/`loop_end` to
-    /// set and its stream stays whatever it was.
-    pub(crate) fn replace_vgm_stream(
-        &mut self,
-        data: VgmData,
-        loop_point: Option<usize>,
-        loop_end: Option<usize>,
-    ) {
-        debug_assert!(
-            self.is_vgm(),
-            "replace_vgm_stream is only valid for a VGM song"
-        );
-        // A VGM derives its `ms_length` from the stream, so the value passed here
-        // is ignored and refreshed by the rebuild.
-        self.replace_data(SongData::Vgm(data), 0, loop_point, loop_end);
+    /// Snapshots the whole stream and everything derived from it, so an edit can
+    /// put it back exactly ([`ReplaceStream`](crate::undo::ReplaceStream)).
+    pub(crate) fn capture_stream(&self) -> StreamSnapshot {
+        StreamSnapshot {
+            data: self.data.clone(),
+            ms_length: self.ms_length,
+            loop_point: self.vgm_meta().and_then(|meta| meta.loop_point),
+            loop_end: self.vgm_meta().and_then(|meta| meta.loop_end),
+        }
     }
 
-    /// Replaces the whole instruction stream, in whatever encoding the song is
-    /// already in, along with everything derived from it.
+    /// Replaces the whole instruction stream, and everything a song derives from
+    /// it.
     ///
-    /// The generalisation of [`Self::replace_vgm_stream`] to a DRO, for the edits
-    /// that splice new instructions in rather than only remove them -- the crop
-    /// edits' state patches, which no delete/insert pair can express -- and for
-    /// [`ReplaceStream`](crate::undo::ReplaceStream) to revert them.
+    /// This is how an edit that rebuilds the stream wholesale installs the
+    /// result: the optimiser, whose merge pass re-encodes delay runs, and the
+    /// crop edits, which splice a state patch in among the survivors. Neither is
+    /// expressible as a delete and an insert.
     ///
-    /// `ms_length` is a DRO's header field, taken as given (the caller knows what
-    /// it kept); a VGM's is derived from its sample delays, so the value passed is
-    /// ignored and recomputed. `loop_point`/`loop_end` likewise apply only to a
-    /// VGM. The new data must be the same encoding as the old: a song does not
-    /// change format under an edit.
-    pub(crate) fn replace_data(
-        &mut self,
-        data: SongData,
-        ms_length: u32,
-        loop_point: Option<usize>,
-        loop_end: Option<usize>,
-    ) {
+    /// The new data must be the same encoding as the old: a song does not change
+    /// format under an edit.
+    pub(crate) fn replace_data(&mut self, stream: StreamSnapshot) {
+        let StreamSnapshot {
+            data,
+            ms_length,
+            loop_point,
+            loop_end,
+        } = stream;
         debug_assert_eq!(
             core::mem::discriminant(&self.data),
             core::mem::discriminant(&data),
