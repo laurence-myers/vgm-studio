@@ -225,7 +225,7 @@ pub enum SurfaceChoice {
 }
 
 impl SurfaceChoice {
-    /// Every option, in dropdown order.
+    /// Every option, in dropdown order. What the pads offer.
     pub const ALL: [Self; 5] = [
         Self::ThemeDefault,
         Self::Light,
@@ -233,6 +233,22 @@ impl SurfaceChoice {
         Self::Grey,
         Self::Tint,
     ];
+
+    /// What the *deck* offers. A grey deck reads as flat and dirty under every
+    /// plate, so it is not one of the treatments the deck can take.
+    pub const DECK: [Self; 4] = [Self::ThemeDefault, Self::Light, Self::Dark, Self::Tint];
+
+    /// `self` as the deck can express it. [`Self::Grey`] is not a deck
+    /// treatment, so it falls back to the theme's own choice -- an ini written
+    /// by hand (or by an older build) can still name it without painting one.
+    #[must_use]
+    pub fn for_deck(self) -> Self {
+        if self == Self::Grey {
+            Self::ThemeDefault
+        } else {
+            self
+        }
+    }
 }
 
 impl core::fmt::Display for SurfaceChoice {

@@ -34,7 +34,8 @@ pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice, deck: SurfaceChoice
     if let Some(s) = forced(pad) {
         p.pad = s;
     }
-    if let Some(s) = forced(deck) {
+    // Grey is not one of the deck's treatments; `for_deck` folds it away.
+    if let Some(s) = forced(deck.for_deck()) {
         p.deck = s;
     }
     p

@@ -28,6 +28,9 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   `pad_style` / `deck_style` in `[ui]` and applied by `theme::palette_with` --
   so the app's palette is an owned per-config value, not one of the statics.
   Light pads are a neutral white/grey; the Light *deck* is still a warm cream.
+  **Grey is a pad treatment only** (it reads flat and dirty as a deck): the deck
+  dropdown iterates `SurfaceChoice::DECK`, and `for_deck()` folds a grey
+  `deck_style` from a hand-edited ini back to the theme default.
 - **Live preview.** Theme/Pad/Deck apply as they are picked in Settings and
   revert on Close (`Action::PreviewSkin` → `DroApp::preview_skin`). The preview
   is held in `DroApp::skin_preview`, which `palette()` prefers, and deliberately

@@ -46,7 +46,9 @@ impl SettingsDialog {
             dro_info_edit_enabled: config.ui.dro_info_edit_enabled,
             theme: config.ui.theme,
             pad_style: config.ui.pad_style,
-            deck_style: config.ui.deck_style,
+            // The deck has no grey treatment, so a hand-edited ini naming one
+            // must not show a choice the dropdown cannot offer back.
+            deck_style: config.ui.deck_style.for_deck(),
             output_backend: config.audio.output_backend,
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
             ports,
@@ -69,7 +71,7 @@ impl SettingsDialog {
     /// saving.
     fn original_skin(&self) -> Skin {
         let ui = &self.original.ui;
-        (ui.theme, ui.pad_style, ui.deck_style)
+        (ui.theme, ui.pad_style, ui.deck_style.for_deck())
     }
 
     /// Draws the window. Returns `false` once closed.
@@ -238,7 +240,7 @@ impl SettingsDialog {
                     egui::ComboBox::from_id_salt("settings-deck-style")
                         .selected_text(surface_label(self.deck_style))
                         .show_ui(ui, |ui| {
-                            for choice in SurfaceChoice::ALL {
+                            for choice in SurfaceChoice::DECK {
                                 ui.selectable_value(
                                     &mut self.deck_style,
                                     choice,
@@ -632,6 +634,22 @@ mod tests {
     #[test]
     fn closing_on_the_original_appearance_previews_nothing() {
         let dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert_eq!(previewed(dialog.preview(dialog.skin(), true, false)), None);
+    }
+
+    /// Grey is a pad treatment only. An ini naming a grey deck must not leave
+    /// the dropdown showing a choice it cannot offer back.
+    #[test]
+    fn a_grey_deck_opens_as_the_theme_default() {
+        let mut config = AppConfig::default();
+        config.ui.pad_style = SurfaceChoice::Grey;
+        config.ui.deck_style = SurfaceChoice::Grey;
+        let dialog = SettingsDialog::new(&config, Vec::new());
+
+        assert_eq!(dialog.pad_style, SurfaceChoice::Grey, "pads keep grey");
+        assert_eq!(dialog.deck_style, SurfaceChoice::ThemeDefault);
+        assert_eq!(dialog.original_skin().2, SurfaceChoice::ThemeDefault);
+        // ...and opening then closing changes nothing.
         assert_eq!(previewed(dialog.preview(dialog.skin(), true, false)), None);
     }
 
