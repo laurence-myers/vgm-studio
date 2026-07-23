@@ -52,7 +52,11 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
   held, lit }`, with `lit` computed by the caller.
 - **Per-case display ink.** `data_text` is a case role, so each palette's table
   and readouts read in their own colour rather than one shared tracker yellow.
-  The scope inks (wave, cursor, loop brackets) are still shared hardware.
+- **Per-case scope.** `wf_bg`, `wf_wave`, `wf_cursor` and `wf_loop` are case
+  roles too, so every theme styles its own waveform: the screen tint, the wave,
+  and cursor/bracket accents picked to stay readable against that wave. The
+  neutral parts (`wf_hover`, `wf_start`, `wf_dim`, `wf_loop_region`) stay
+  hardware.
 - Channel + Perc selectors: lit engage style, **square**; audible = amber,
   muted = plain neutral pad (not recessed).
 - Scope grid behind the waveform; brighter centre line.

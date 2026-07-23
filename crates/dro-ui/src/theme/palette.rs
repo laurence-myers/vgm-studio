@@ -260,6 +260,15 @@ pub(crate) struct CaseColors {
     /// Secondary data text (descriptions, the empty-state hint) -- case-tinted
     /// even though it sits over a hardware well.
     pub data_label: Color32,
+    /// The scope (waveform) screen background.
+    pub wf_bg: Color32,
+    /// The wave itself.
+    pub wf_wave: Color32,
+    /// The playback cursor. Case-owned so it keeps reading against the wave.
+    pub wf_cursor: Color32,
+    /// The loop-region brackets and their flags. Likewise case-owned, so they
+    /// stay distinct from both the wave and the cursor.
+    pub wf_loop: Color32,
     /// The scrollbar trough.
     pub trough: Color32,
     /// The grey button face.
@@ -301,20 +310,12 @@ pub(crate) struct HardwareColors {
     pub data_stripe: Color32,
     /// A hovered data row.
     pub data_hover: Color32,
-    /// Waveform panel background.
-    pub wf_bg: Color32,
-    /// The wave itself.
-    pub wf_wave: Color32,
     /// The snap-to-instruction hover line.
     pub wf_hover: Color32,
     /// The playback-start line.
     pub wf_start: Color32,
-    /// The playback cursor.
-    pub wf_cursor: Color32,
     /// The half-black overlay left of the start line.
     pub wf_dim: Color32,
-    /// The loop-region brackets and their flags.
-    pub wf_loop: Color32,
     /// The translucent wash over the looped region.
     pub wf_loop_region: Color32,
     /// An unlit meter segment.
@@ -392,13 +393,13 @@ impl Skin {
             accent: self.case.accent,
             selection_text: self.case.selection_text,
 
-            wf_bg: self.hardware.wf_bg,
-            wf_wave: self.hardware.wf_wave,
+            wf_bg: self.case.wf_bg,
+            wf_wave: self.case.wf_wave,
             wf_hover: self.hardware.wf_hover,
             wf_start: self.hardware.wf_start,
-            wf_cursor: self.hardware.wf_cursor,
+            wf_cursor: self.case.wf_cursor,
             wf_dim: self.hardware.wf_dim,
-            wf_loop: self.hardware.wf_loop,
+            wf_loop: self.case.wf_loop,
             wf_loop_region: self.hardware.wf_loop_region,
 
             meter_off: self.hardware.meter_off,
@@ -435,6 +436,13 @@ const CLONE_DARK_CASE: CaseColors = CaseColors {
     // The classic tracker yellow.
     data_text: Color32::from_rgb(0xF1, 0xE6, 0x7B),
     data_label: Color32::from_rgb(0xB8, 0xD0, 0xD0),
+
+    // The classic scope: yellow wave, cyan cursor, warm orange brackets, on a
+    // screen tinted to the teal case.
+    wf_bg: Color32::from_rgb(0x08, 0x16, 0x18),
+    wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
+    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
+    wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
     trough: Color32::from_rgb(0x18, 0x26, 0x26),
 
     button_face: Color32::from_rgb(0x9C, 0xA7, 0xA7),
@@ -460,16 +468,9 @@ const CLONE_DARK_HW: HardwareColors = HardwareColors {
     data_stripe: Color32::from_rgb(0x14, 0x20, 0x20),
     data_hover: Color32::from_rgb(0x1B, 0x2C, 0x2C),
 
-    wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
-    wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
     wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
     wf_start: Color32::WHITE,
-    // The wave is yellow, so the cursor moves to cyan to stay visible over it.
-    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
-    // Warm orange: the one hue not already spoken for on this panel (yellow
-    // wave, cyan cursor, white start line, pale teal hover).
-    wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
     wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x14, 0x05, 0x24),
 
     meter_off: Color32::from_rgb(0x1C, 0x28, 0x3C),
@@ -514,6 +515,12 @@ const FT2_CLASSIC_CASE: CaseColors = CaseColors {
     muted: Color32::from_rgb(0x4A, 0x5A, 0x74),
     data_text: Color32::from_rgb(0xEF, 0xE2, 0x7A),
     data_label: Color32::from_rgb(0xC8, 0xD4, 0xE8),
+
+    // The classic FT2 scope: pale blue wave, yellow cursor.
+    wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
+    wf_wave: Color32::from_rgb(0xC8, 0xD8, 0xF0),
+    wf_cursor: Color32::from_rgb(0xFF, 0xFF, 0x00),
+    wf_loop: Color32::from_rgb(0xFF, 0x7A, 0x45),
     trough: Color32::from_rgb(0x23, 0x2D, 0x42),
 
     button_face: Color32::from_rgb(0xAC, 0xB1, 0xB8),
@@ -539,15 +546,9 @@ const FT2_CLASSIC_HW: HardwareColors = HardwareColors {
     data_stripe: Color32::from_rgb(0x22, 0x2C, 0x46),
     data_hover: Color32::from_rgb(0x2A, 0x36, 0x54),
 
-    wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
-    wf_wave: Color32::from_rgb(0xC8, 0xD8, 0xF0),
     wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
     wf_start: Color32::WHITE,
-    wf_cursor: Color32::from_rgb(0xFF, 0xFF, 0x00),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
-    // The cursor is yellow here, so the brackets take the cooler orange-red end
-    // to stay distinct from it.
-    wf_loop: Color32::from_rgb(0xFF, 0x7A, 0x45),
     wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x10, 0x06, 0x24),
 
     // Steel-tinted takes on the classic green/amber/red zones.
@@ -584,13 +585,9 @@ const HARDWARE: HardwareColors = HardwareColors {
     data_stripe: Color32::from_rgb(0x14, 0x20, 0x20),
     data_hover: Color32::from_rgb(0x1B, 0x2C, 0x2C),
 
-    wf_bg: Color32::from_rgb(0x0A, 0x10, 0x24),
-    wf_wave: Color32::from_rgb(0xF1, 0xE6, 0x7B),
     wf_hover: Color32::from_rgb(0xAA, 0xCC, 0xCC),
     wf_start: Color32::WHITE,
-    wf_cursor: Color32::from_rgb(0x7C, 0xE0, 0xE0),
     wf_dim: Color32::from_rgba_premultiplied(0, 0, 0, 0x7F),
-    wf_loop: Color32::from_rgb(0xFF, 0x9E, 0x3D),
     wf_loop_region: Color32::from_rgba_premultiplied(0x24, 0x14, 0x05, 0x24),
 
     meter_off: Color32::from_rgb(0x1C, 0x28, 0x3C),
@@ -624,6 +621,12 @@ const NAVY_CASE: CaseColors = CaseColors {
     // Ice blue, to sit with the navy plate.
     data_text: Color32::from_rgb(0xAE, 0xCD, 0xF5),
     data_label: Color32::from_rgb(0xB8, 0xC6, 0xE0),
+
+    // Ice-blue wave on a deep navy screen; warm cursor and brackets against it.
+    wf_bg: Color32::from_rgb(0x08, 0x10, 0x22),
+    wf_wave: Color32::from_rgb(0xAE, 0xCD, 0xF5),
+    wf_cursor: Color32::from_rgb(0xFF, 0xD3, 0x5E),
+    wf_loop: Color32::from_rgb(0xFF, 0x6B, 0x4C),
     trough: Color32::from_rgb(0x1A, 0x24, 0x40),
 
     button_face: Color32::from_rgb(0x8F, 0xA2, 0xC2),
@@ -672,6 +675,12 @@ const CREAM_CASE: CaseColors = CaseColors {
     // Warm amber, matching the cream plate.
     data_text: Color32::from_rgb(0xEB, 0xCF, 0x95),
     data_label: Color32::from_rgb(0xC8, 0xBE, 0x9E),
+
+    // Warm amber wave on a dark brown screen; cool cursor to cut through it.
+    wf_bg: Color32::from_rgb(0x17, 0x13, 0x10),
+    wf_wave: Color32::from_rgb(0xEB, 0xCF, 0x95),
+    wf_cursor: Color32::from_rgb(0x7C, 0xD8, 0xE0),
+    wf_loop: Color32::from_rgb(0xE8, 0x5D, 0x5D),
     trough: Color32::from_rgb(0xBE, 0xB4, 0x98),
 
     button_face: Color32::from_rgb(0xD8, 0xCD, 0xB0),
@@ -718,6 +727,12 @@ const VERDIGRIS_CASE: CaseColors = CaseColors {
     // Pale mint, matching the patina plate.
     data_text: Color32::from_rgb(0xA6, 0xE2, 0xC6),
     data_label: Color32::from_rgb(0xB8, 0xD0, 0xC2),
+
+    // Mint wave on a dark patina screen.
+    wf_bg: Color32::from_rgb(0x08, 0x1A, 0x14),
+    wf_wave: Color32::from_rgb(0xA6, 0xE2, 0xC6),
+    wf_cursor: Color32::from_rgb(0xFF, 0xD3, 0x5E),
+    wf_loop: Color32::from_rgb(0xE8, 0x72, 0x4C),
     trough: Color32::from_rgb(0x1E, 0x36, 0x2C),
 
     button_face: Color32::from_rgb(0x9A, 0xBB, 0xA8),
@@ -757,6 +772,7 @@ macro_rules! dark_plate_case {
         muted: $mut:expr,
         ink: $ink:expr,
         data_label: $dl:expr,
+        scope: ($wbg:expr, $wave:expr, $wcur:expr, $wloop:expr),
         trough: $tr:expr,
         knob: ($kf:expr, $kh:expr, $ka:expr, $kl:expr, $ks:expr, $kt:expr, $kp:expr),
     ) => {
@@ -775,6 +791,10 @@ macro_rules! dark_plate_case {
             muted: $mut,
             data_text: $ink,
             data_label: $dl,
+            wf_bg: $wbg,
+            wf_wave: $wave,
+            wf_cursor: $wcur,
+            wf_loop: $wloop,
             trough: $tr,
             button_face: $kf,
             button_hover: $kh,
@@ -812,6 +832,7 @@ const MOSS_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0x88, 0xA4, 0x7C),
     ink: rgb(0xCB, 0xE4, 0x9C),
     data_label: rgb(0xBE, 0xD4, 0xB2),
+    scope: (rgb(0x0B, 0x14, 0x08), rgb(0xCB, 0xE4, 0x9C), rgb(0x8F, 0xD0, 0xE8), rgb(0xFF, 0x9E, 0x3D)),
     trough: rgb(0x18, 0x26, 0x12),
     knob: (rgb(0x9A, 0xB0, 0x8C), rgb(0xA8, 0xBE, 0x9A), rgb(0x88, 0x9E, 0x7C), rgb(0xC6, 0xD8, 0xBA), rgb(0x50, 0x62, 0x44), rgb(0x16, 0x22, 0x10), rgb(0x60, 0x76, 0x52)),
 };
@@ -827,6 +848,7 @@ const PLUM_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0x9C, 0x86, 0xA6),
     ink: rgb(0xD9, 0xBE, 0xEC),
     data_label: rgb(0xCC, 0xBC, 0xD6),
+    scope: (rgb(0x14, 0x0C, 0x18), rgb(0xD9, 0xBE, 0xEC), rgb(0xFF, 0xD3, 0x5E), rgb(0x6F, 0xE0, 0xB0)),
     trough: rgb(0x22, 0x18, 0x28),
     knob: (rgb(0xAC, 0x9A, 0xB4), rgb(0xB8, 0xA8, 0xC0), rgb(0x9A, 0x88, 0xA2), rgb(0xD4, 0xC6, 0xDC), rgb(0x5E, 0x50, 0x66), rgb(0x1E, 0x16, 0x22), rgb(0x72, 0x60, 0x7C)),
 };
@@ -842,6 +864,7 @@ const RUST_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0xB0, 0x8E, 0x78),
     ink: rgb(0xF0, 0xC2, 0x89),
     data_label: rgb(0xDC, 0xC2, 0xB0),
+    scope: (rgb(0x16, 0x0C, 0x06), rgb(0xF0, 0xC2, 0x89), rgb(0x7C, 0xD8, 0xE0), rgb(0xC0, 0x8C, 0xE8)),
     trough: rgb(0x2C, 0x1C, 0x12),
     knob: (rgb(0xC2, 0xA0, 0x88), rgb(0xCE, 0xAE, 0x98), rgb(0xB0, 0x90, 0x78), rgb(0xE2, 0xCC, 0xBA), rgb(0x74, 0x56, 0x42), rgb(0x24, 0x16, 0x0E), rgb(0x8A, 0x66, 0x4E)),
 };
@@ -857,6 +880,7 @@ const PETROL_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0x76, 0xA2, 0xA4),
     ink: rgb(0x8F, 0xD9, 0xDD),
     data_label: rgb(0xB2, 0xD4, 0xD4),
+    scope: (rgb(0x06, 0x14, 0x16), rgb(0x8F, 0xD9, 0xDD), rgb(0xFF, 0xD3, 0x5E), rgb(0xFF, 0x6B, 0x6B)),
     trough: rgb(0x14, 0x28, 0x2A),
     knob: (rgb(0x86, 0xAC, 0xAE), rgb(0x96, 0xBA, 0xBC), rgb(0x76, 0x9E, 0xA0), rgb(0xBC, 0xD8, 0xD8), rgb(0x44, 0x64, 0x66), rgb(0x0E, 0x20, 0x22), rgb(0x54, 0x78, 0x7A)),
 };
@@ -872,6 +896,7 @@ const SLATE_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0x8C, 0x96, 0xA4),
     ink: rgb(0xC8, 0xD6, 0xEA),
     data_label: rgb(0xC2, 0xCA, 0xD4),
+    scope: (rgb(0x0B, 0x0F, 0x16), rgb(0xC8, 0xD6, 0xEA), rgb(0xFF, 0xD3, 0x5E), rgb(0x6F, 0xE0, 0xA8)),
     trough: rgb(0x1E, 0x24, 0x2C),
     knob: (rgb(0xA2, 0xAA, 0xB6), rgb(0xB0, 0xB8, 0xC2), rgb(0x90, 0x98, 0xA4), rgb(0xCE, 0xD4, 0xDC), rgb(0x56, 0x5E, 0x68), rgb(0x18, 0x1C, 0x22), rgb(0x68, 0x70, 0x7C)),
 };
@@ -887,6 +912,7 @@ const OLIVE_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0xA4, 0xA4, 0x78),
     ink: rgb(0xE2, 0xDE, 0x9A),
     data_label: rgb(0xD4, 0xD4, 0xB0),
+    scope: (rgb(0x11, 0x11, 0x0A), rgb(0xE2, 0xDE, 0x9A), rgb(0x8F, 0xD0, 0xE8), rgb(0xE8, 0x72, 0x4C)),
     trough: rgb(0x24, 0x24, 0x12),
     knob: (rgb(0xB2, 0xB2, 0x88), rgb(0xC0, 0xC0, 0x96), rgb(0xA0, 0xA0, 0x78), rgb(0xD8, 0xD8, 0xBA), rgb(0x62, 0x62, 0x44), rgb(0x22, 0x22, 0x10), rgb(0x78, 0x78, 0x52)),
 };
@@ -902,6 +928,7 @@ const WINE_CASE: CaseColors = dark_plate_case! {
     muted: rgb(0xAA, 0x82, 0x90),
     ink: rgb(0xEE, 0xB8, 0xC6),
     data_label: rgb(0xD8, 0xBC, 0xC4),
+    scope: (rgb(0x16, 0x0A, 0x10), rgb(0xEE, 0xB8, 0xC6), rgb(0x8F, 0xD0, 0xE8), rgb(0xE8, 0xC2, 0x4C)),
     trough: rgb(0x28, 0x16, 0x1E),
     knob: (rgb(0xBC, 0x98, 0xA4), rgb(0xC8, 0xA6, 0xB0), rgb(0xAA, 0x88, 0x94), rgb(0xDC, 0xC4, 0xCA), rgb(0x6E, 0x50, 0x5A), rgb(0x24, 0x12, 0x18), rgb(0x84, 0x60, 0x6C)),
 };
