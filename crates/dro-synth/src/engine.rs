@@ -150,6 +150,29 @@ impl Muting {
         }
     }
 
+    /// The value a *seek replay* should write for `reg` on `bank`.
+    ///
+    /// A replay must leave the chip's state complete -- instruments, frequencies,
+    /// feedback -- or unmuting a channel later would sound it half-configured. So
+    /// unlike [`Self::gate`], nothing is dropped. But it must never *arm* a key
+    /// that playback would gate: a muted channel's key-on rings the moment
+    /// samples are generated (or, on real hardware, the moment the write lands),
+    /// and every later write that would silence it is gated away -- it rings on,
+    /// drifting in pitch as the channel's `0xA0` writes keep passing. So a muted
+    /// channel's `0xB0..=0xB8` replays with the key bit cleared, and `0xBD`
+    /// replays masked, exactly as `gate` would mask it.
+    #[must_use]
+    pub fn mask_replay(&self, bank: Bank, reg: u8, value: u8) -> u8 {
+        const KEY_ON: u8 = 0x20;
+        if reg == PERCUSSION_REGISTER {
+            value & self.percussion[usize::from(bank.index())]
+        } else if CHANNEL_REGISTERS.contains(&reg) && !self.channel_allowed(bank, reg) {
+            value & !KEY_ON
+        } else {
+            value
+        }
+    }
+
     #[must_use]
     fn channel_allowed(&self, bank: Bank, channel: u8) -> bool {
         self.channels & Self::channel_bit(bank, channel) != 0
@@ -583,8 +606,11 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// Seeks to instruction `index`, rebuilding chip state by replaying every
     /// register write before it. Delays are not rendered, only counted.
     ///
-    /// Register writes during a seek are applied *unconditionally* -- muting is a
-    /// playback concern. Clamps past the end of the song.
+    /// Every write is replayed -- muting drops nothing here, so the chip state
+    /// stays complete for a later unmute -- but muted channels' key bits are
+    /// cleared on the way through ([`Muting::mask_replay`]): an armed key on a
+    /// muted channel would ring unstoppably, since playback gates the very
+    /// key-off writes that would end it. Clamps past the end of the song.
     pub fn seek_to_pos(&mut self, index: usize) {
         let index = index.min(self.song().len());
         self.reset_chip();
@@ -619,10 +645,11 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// During `playback` a muted channel's write is dropped and `0xBD` is
     /// AND-masked, and writes go through the chip's write buffer so key edges are
     /// observed at generation time (see [`OplChip::write_reg_buffered`]). While
-    /// seeking (`playback` false) every write lands unmuted and immediately --
-    /// only the final register values matter, no samples are rendered. Either way
-    /// the bank and the delay clock advance identically, so play and seek can
-    /// never diverge.
+    /// seeking (`playback` false) every write lands immediately -- only the final
+    /// register values matter, no samples are rendered -- with just the muted
+    /// channels' key bits masked off ([`Muting::mask_replay`]). Either way the
+    /// bank and the delay clock advance identically, so play and seek can never
+    /// diverge.
     fn execute(&mut self, instruction: DroInstruction, playback: bool) -> u64 {
         match instruction {
             DroInstruction::Register { reg, value, .. } => {
@@ -657,7 +684,11 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 let gated = if playback {
                     self.muting.gate(self.bank, reg, value)
                 } else {
-                    Some(value) // Seeking replays every write.
+                    // Seeking replays every write, so the chip's state stays
+                    // complete -- but with muted channels' key bits cleared, or a
+                    // seek would arm notes that playback can never silence (their
+                    // key-off writes are gated too).
+                    Some(self.muting.mask_replay(self.bank, reg, value))
                 };
                 if let Some(value) = gated {
                     let reg = self.bank.register_offset() | u16::from(reg);
@@ -978,6 +1009,76 @@ mod tests {
         let mut out = vec![0i16; 4];
         engine.render(&mut out);
         assert!(engine.chip.writes.contains(&(0xBD, 0xE0)));
+    }
+
+    /// The Princess Maker 2 bug: mute channels *first*, then seek into the song
+    /// (exactly what play-from-a-selection does on the hardware backend, where
+    /// mutes are never deferred). The replay used to arm the muted channels'
+    /// key-ons -- which playback could then never silence, since a muted
+    /// channel's key-off writes are gated too. On a real chip they rang, drifting
+    /// off-key as the still-passing 0xA0 writes moved fnum under a frozen block.
+    #[test]
+    fn a_seek_replay_never_arms_a_muted_channels_key() {
+        let song = Song::dro_v1(
+            "seek-muted.dro".to_owned(),
+            DroDataV1::new(vec![
+                0x20, 0x01, // operator write
+                0xA0, 0x98, // channel 0 fnum low
+                0xB0, 0x31, // channel 0 key on
+                0xB1, 0x35, // channel 1 key on
+                0x00, 0x00, // 1 ms delay
+            ])
+            .unwrap(),
+            1,
+            OplType::Opl2,
+        );
+
+        let mut engine = recording_engine(&song);
+        let mut muting = Muting::all();
+        muting.mute_channel(Bank::Low, 0xB0);
+        engine.set_muting(muting); // muted BEFORE the seek, as the GUI does
+        engine.seek_to_pos(5);
+
+        let writes = &engine.chip.writes;
+        assert!(
+            writes.contains(&(0xB0, 0x11)),
+            "the muted channel replays with its key bit cleared, state kept: {writes:02X?}"
+        );
+        assert!(
+            !writes
+                .iter()
+                .any(|&(reg, value)| reg == 0xB0 && value & 0x20 != 0),
+            "no key-on may reach a muted channel through a replay"
+        );
+        assert!(
+            writes.contains(&(0xB1, 0x35)),
+            "an audible channel's key-on replays intact"
+        );
+        assert!(
+            writes.contains(&(0x20, 0x01)) && writes.contains(&(0xA0, 0x98)),
+            "everything that is not a key bit replays unchanged"
+        );
+    }
+
+    #[test]
+    fn a_seek_replay_masks_percussion_like_playback_would() {
+        let song = Song::dro_v1(
+            "seek-perc.dro".to_owned(),
+            DroDataV1::new(vec![0xBD, 0x3F, 0x00, 0x00]).unwrap(),
+            1,
+            OplType::Opl2,
+        );
+        let mut engine = recording_engine(&song);
+        let mut muting = Muting::all();
+        muting.set_percussion(Bank::Low, 0xE0);
+        engine.set_muting(muting);
+        engine.seek_to_pos(1);
+
+        assert!(
+            engine.chip.writes.contains(&(0xBD, 0x20)),
+            "the replayed 0xBD keeps its control bits, drops the drum keys: {:02X?}",
+            engine.chip.writes
+        );
     }
 
     #[test]

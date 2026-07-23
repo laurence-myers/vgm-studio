@@ -543,6 +543,40 @@ mod tests {
         drop(audio);
     }
 
+    /// The Princess Maker 2 bug, end to end: mute everything, seek into the
+    /// song, play. The seek's replay used to arm the key-ons it walked over, and
+    /// with the engine already muted nothing keyed them off again — materialize
+    /// then wrote them to the real chip, which rang (and drifted off-key, since
+    /// the muted channels' pitch-low writes kept passing while their key-off
+    /// writes were gated).
+    #[test]
+    fn playing_a_selection_with_everything_muted_stays_silent() {
+        let (tx, rx) = channel();
+        let mut audio = RetroWaveAudio::new(device_with(tx), held_note(100));
+        audio.set_muting(Muting::silent());
+        let _ = drain_burst(&rx, Duration::from_millis(40));
+
+        audio.seek_pos(1); // past the key-on, exactly like play-from-selection
+        audio.play();
+        let (bytes, _) = drain_burst(&rx, Duration::from_millis(60));
+        let writes = crate::protocol::decode_writes(&bytes);
+
+        assert!(!writes.is_empty(), "playing must still reconcile the chip");
+        assert!(
+            !writes
+                .iter()
+                .any(|&(_, reg, value)| (0xB0..=0xB8).contains(&reg) && value & 0x20 != 0),
+            "no key-on may reach the hardware while every channel is muted: {writes:02X?}"
+        );
+        assert!(
+            !writes
+                .iter()
+                .any(|&(_, reg, value)| reg == 0xBD && value & 0x1F != 0),
+            "no percussion key may reach the hardware either: {writes:02X?}"
+        );
+        drop(audio);
+    }
+
     /// A paused chip must stay silent however much the user scrubs.
     #[test]
     fn scrubbing_while_paused_never_restarts_the_note() {
