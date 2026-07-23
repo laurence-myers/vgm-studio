@@ -12,6 +12,7 @@ repository.workspace = true
 dro-core.workspace = true
 dro-synth.workspace = true
 dro-audio-native.workspace = true
+dro-retrowave.workspace = true
 dro-ui.workspace = true
 anyhow.workspace = true
 chrono.workspace = true

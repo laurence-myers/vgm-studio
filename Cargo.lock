@@ -1235,6 +1235,7 @@ dependencies = [
  "clap",
  "dro-audio-native",
  "dro-core",
+ "dro-retrowave",
  "dro-synth",
  "dro-ui",
  "eframe",

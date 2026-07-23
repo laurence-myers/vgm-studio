@@ -14,6 +14,9 @@
 //! specification this code follows. See §2 there.
 
 pub mod commands;
+pub mod device;
 pub mod protocol;
+pub mod test_tone;
 
+pub use device::{Device, Error, PortInfo, SerialIo, UsbInfo, default_port, enumerate};
 pub use protocol::{Bank, CmdBuffer};

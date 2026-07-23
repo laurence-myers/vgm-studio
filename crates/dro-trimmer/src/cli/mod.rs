@@ -14,6 +14,7 @@ use clap::{Parser, Subcommand};
 pub mod optimize;
 pub mod play;
 pub mod render;
+pub mod retrowave;
 pub mod split;
 
 #[cfg(windows)]
@@ -52,6 +53,9 @@ pub enum Command {
     Split(split::Args),
     /// Strip redundant OPL writes from a VGM (the `vgm_cmp` optimisation).
     Optimize(optimize::Args),
+    /// List RetroWave OPL3 hardware and play a test chord on it.
+    #[command(name = "retrowave-probe")]
+    RetrowaveProbe(retrowave::Args),
 }
 
 /// Runs a subcommand.
@@ -65,6 +69,7 @@ pub fn run(command: Command) -> Result<()> {
         Command::Render(args) => render::run(&args),
         Command::Split(args) => split::run(&args),
         Command::Optimize(args) => optimize::run(&args),
+        Command::RetrowaveProbe(args) => retrowave::run(&args),
     }
 }
 
@@ -127,6 +132,25 @@ mod tests {
             panic!("expected an optimize command");
         };
         assert_eq!(args.output, Some(PathBuf::from("b.vgz")));
+        assert!(matches!(
+            Cli::try_parse_from(["drotrim", "retrowave-probe"])
+                .unwrap()
+                .command,
+            Some(Command::RetrowaveProbe(_))
+        ));
+    }
+
+    #[test]
+    fn the_probe_takes_a_port_and_a_list_only_flag() {
+        let Some(Command::RetrowaveProbe(args)) =
+            Cli::try_parse_from(["drotrim", "retrowave-probe", "--port", "COM3", "--list"])
+                .unwrap()
+                .command
+        else {
+            panic!("expected a retrowave-probe command");
+        };
+        assert_eq!(args.port.as_deref(), Some("COM3"));
+        assert!(args.list_only);
     }
 
     /// The old `--dro` flag, kept working for anyone with it in a script.
