@@ -109,7 +109,7 @@ impl ShowcaseState {
             meter,
             channels,
             position,
-            settings: SettingsDialog::new(&AppConfig::default()),
+            settings: SettingsDialog::new(&AppConfig::default(), Vec::new()),
             text: "Sample text".to_owned(),
             text_empty: String::new(),
             slider: 0.35,

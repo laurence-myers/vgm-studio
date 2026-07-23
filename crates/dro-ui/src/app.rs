@@ -1408,7 +1408,11 @@ impl DroApp {
             } => self.start_split_songs(threshold_native, included, trailing_tail),
             Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
             Action::OpenSettings => {
-                self.dialogs.settings = Some(SettingsDialog::new(&self.config));
+                // Listed at open, so the picker offers what is plugged in now.
+                self.dialogs.settings = Some(SettingsDialog::new(
+                    &self.config,
+                    self.audio.list_hardware_ports(),
+                ));
             }
             Action::Exit => {
                 if self.editor.is_dirty() || self.rip_is_dirty() {

@@ -1025,7 +1025,8 @@ fn settings_save_preserves_a_live_changed_boost() {
     // be reverted on Save.
     let (mut harness, handles) = harness_with_song(&tone_song());
     let config = harness.state().config.clone();
-    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.state_mut().dialogs.settings =
+        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
     harness.run();
 
     // The transport changes the boost while Settings is open.
@@ -1061,7 +1062,8 @@ fn settings_do_not_retune_the_position_panel_while_a_stream_is_live() {
     // Apply settings with a different configured frequency.
     let mut config = harness.state().config.clone();
     config.audio.frequency = 44_100;
-    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.state_mut().dialogs.settings =
+        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
     harness.run_steps(3); // the stream is playing, so `run` would spin
     harness.get_by_label("Save").click();
     harness.run_steps(3);
@@ -4030,7 +4032,8 @@ fn clicking_a_settings_caption_toggles_its_checkbox() {
     assert!(!harness.state().config.ui.dro_info_edit_enabled);
 
     let config = harness.state().config.clone();
-    harness.state_mut().dialogs.settings = Some(crate::dialogs::SettingsDialog::new(&config));
+    harness.state_mut().dialogs.settings =
+        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
     harness.run();
     harness.get_by_label("Allow editing in DRO Info").click();
     harness.run();

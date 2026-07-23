@@ -1,9 +1,10 @@
 //! The Settings dialog. The web build (Step 8) has no ini file at all, so the
 //! dialog writes through whatever `ConfigStore` the platform injected.
 
-use dro_core::config::{AppConfig, SurfaceChoice, ThemeChoice};
+use dro_core::config::{AppConfig, OutputBackend, SurfaceChoice, ThemeChoice};
 
 use crate::action::Action;
+use crate::platform::HardwarePortInfo;
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
@@ -21,11 +22,16 @@ pub struct SettingsDialog {
     theme: ThemeChoice,
     pad_style: SurfaceChoice,
     deck_style: SurfaceChoice,
+    output_backend: OutputBackend,
+    /// The chosen port, or empty for "whichever one is found".
+    retrowave_port: String,
+    /// The ports offered in the picker, listed when the dialog opened.
+    ports: Vec<HardwarePortInfo>,
 }
 
 impl SettingsDialog {
     #[must_use]
-    pub fn new(config: &AppConfig) -> Self {
+    pub fn new(config: &AppConfig, ports: Vec<HardwarePortInfo>) -> Self {
         Self {
             original: config.clone(),
             frequency: config.audio.frequency,
@@ -37,7 +43,15 @@ impl SettingsDialog {
             theme: config.ui.theme,
             pad_style: config.ui.pad_style,
             deck_style: config.ui.deck_style,
+            output_backend: config.audio.output_backend,
+            retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
+            ports,
         }
+    }
+
+    /// Whether the settings that only shape the rendered signal still apply.
+    fn emulating(&self) -> bool {
+        self.output_backend == OutputBackend::Emulated
     }
 
     /// Draws the window. Returns `false` once closed.
@@ -54,9 +68,62 @@ impl SettingsDialog {
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Frequency")
-                        .on_hover_text("49716 Hz is the OPL3's native rate");
+                    ui.label("Output").on_hover_text(
+                        "Where live playback goes. Rendering, splitting and the \
+                         waveform always use the emulator.",
+                    );
                     ui.scope(|ui| {
+                        crate::theme::style_dropdown(ui, palette);
+                        egui::ComboBox::from_id_salt("settings-output-backend")
+                            .selected_text(backend_label(self.output_backend))
+                            .show_ui(ui, |ui| {
+                                for choice in [OutputBackend::Emulated, OutputBackend::RetroWave] {
+                                    ui.selectable_value(
+                                        &mut self.output_backend,
+                                        choice,
+                                        backend_label(choice),
+                                    );
+                                }
+                            });
+                    });
+                    ui.end_row();
+
+                    if !self.emulating() {
+                        ui.label("Device").on_hover_text(
+                            "The board's serial port. On Windows these usually report \
+                             a generic name, so a recognised board is matched by its \
+                             USB ID instead.",
+                        );
+                        ui.scope(|ui| {
+                            crate::theme::style_dropdown(ui, palette);
+                            egui::ComboBox::from_id_salt("settings-retrowave-port")
+                                .selected_text(port_label(&self.retrowave_port, &self.ports))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.retrowave_port,
+                                        String::new(),
+                                        AUTO_DETECT,
+                                    );
+                                    for port in &self.ports {
+                                        ui.selectable_value(
+                                            &mut self.retrowave_port,
+                                            port.port_name.clone(),
+                                            offered_label(port),
+                                        );
+                                    }
+                                });
+                        });
+                        ui.end_row();
+                    }
+
+                    // What follows shapes the rendered signal, which hardware
+                    // output does not produce.
+                    let emulating = self.emulating();
+                    ui.add_enabled_ui(emulating, |ui| {
+                        ui.label("Frequency")
+                            .on_hover_text("49716 Hz is the OPL3's native rate");
+                    });
+                    ui.add_enabled_ui(emulating, |ui| {
                         crate::theme::style_dropdown(ui, palette);
                         egui::ComboBox::from_id_salt("settings-frequency")
                             .selected_text(frequency_label(self.frequency))
@@ -72,11 +139,13 @@ impl SettingsDialog {
                     });
                     ui.end_row();
 
-                    ui.label("Buffer size").on_hover_text(
-                        "Frames per audio callback. Smaller responds to seeking and \
-                         muting sooner; larger is safer against dropouts.",
-                    );
-                    ui.scope(|ui| {
+                    ui.add_enabled_ui(emulating, |ui| {
+                        ui.label("Buffer size").on_hover_text(
+                            "Frames per audio callback. Smaller responds to seeking and \
+                             muting sooner; larger is safer against dropouts.",
+                        );
+                    });
+                    ui.add_enabled_ui(emulating, |ui| {
                         crate::theme::style_dropdown(ui, palette);
                         egui::ComboBox::from_id_salt("settings-buffer-size")
                             .selected_text(self.buffer_size.to_string())
@@ -197,6 +266,9 @@ impl SettingsDialog {
         config.audio.frequency = self.frequency;
         config.audio.buffer_size = self.buffer_size;
         config.audio.bit_depth = self.bit_depth;
+        config.audio.output_backend = self.output_backend;
+        let port = self.retrowave_port.trim();
+        config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
         config.ui.tail_length = tail_length;
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
@@ -257,6 +329,39 @@ fn frequency_label(rate: u32) -> String {
 }
 
 /// The dropdown label for a theme.
+/// What an unset port means: pick one at load time.
+const AUTO_DETECT: &str = "Detect automatically";
+
+fn backend_label(backend: OutputBackend) -> &'static str {
+    match backend {
+        OutputBackend::Emulated => "Nuked OPL3 (emulated)",
+        OutputBackend::RetroWave => "RetroWave OPL3 (hardware)",
+    }
+}
+
+/// A port as offered in the picker, ticked when we recognise the hardware.
+fn offered_label(port: &HardwarePortInfo) -> String {
+    if port.recognised {
+        format!("{} ✓", port.label)
+    } else {
+        port.label.clone()
+    }
+}
+
+/// The picker's closed-state text.
+///
+/// A port saved from another machine may not be present here, so name it
+/// anyway rather than silently showing something else.
+fn port_label(selected: &str, ports: &[HardwarePortInfo]) -> String {
+    if selected.is_empty() {
+        return AUTO_DETECT.to_owned();
+    }
+    ports
+        .iter()
+        .find(|port| port.port_name == selected)
+        .map_or_else(|| format!("{selected} (not connected)"), offered_label)
+}
+
 fn theme_label(theme: ThemeChoice) -> &'static str {
     match theme {
         ThemeChoice::CloneDark => "Clone (dark)",
@@ -306,7 +411,7 @@ mod tests {
         // silently retune the output.
         let mut config = AppConfig::default();
         config.audio.frequency = 22_050;
-        let mut dialog = SettingsDialog::new(&config);
+        let mut dialog = SettingsDialog::new(&config, Vec::new());
         assert_eq!(frequency_label(dialog.frequency), "22050 Hz");
 
         dialog.tail_length = "2000".to_owned();
@@ -322,7 +427,7 @@ mod tests {
     #[test]
     fn picking_a_rate_applies_it() {
         let dialog_config = AppConfig::default();
-        let mut dialog = SettingsDialog::new(&dialog_config);
+        let mut dialog = SettingsDialog::new(&dialog_config, Vec::new());
         dialog.frequency = 49_716;
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
@@ -334,7 +439,7 @@ mod tests {
 
     #[test]
     fn the_checkbox_settings_reach_the_saved_config() {
-        let mut dialog = SettingsDialog::new(&AppConfig::default());
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
         assert!(!dialog.dro_info_edit_enabled, "off by default");
         dialog.dro_info_edit_enabled = true;
         dialog.maximize_window = true;
@@ -352,7 +457,7 @@ mod tests {
     fn an_unlisted_buffer_size_survives_a_save() {
         let mut config = AppConfig::default();
         config.audio.buffer_size = 384;
-        let mut dialog = SettingsDialog::new(&config);
+        let mut dialog = SettingsDialog::new(&config, Vec::new());
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         let Some(Action::ApplySettings(saved)) = actions.pop() else {
@@ -367,5 +472,66 @@ mod tests {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.buffer_size, 1024);
+    }
+
+    fn port(name: &str, recognised: bool) -> HardwarePortInfo {
+        HardwarePortInfo {
+            port_name: name.to_owned(),
+            label: name.to_owned(),
+            recognised,
+        }
+    }
+
+    #[test]
+    fn the_output_backend_and_port_reach_the_saved_config() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), vec![port("COM3", true)]);
+        assert_eq!(dialog.output_backend, OutputBackend::Emulated);
+
+        dialog.output_backend = OutputBackend::RetroWave;
+        dialog.retrowave_port = "COM3".to_owned();
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.output_backend, OutputBackend::RetroWave);
+        assert_eq!(saved.audio.retrowave_port.as_deref(), Some("COM3"));
+    }
+
+    /// An unset port means "find one at load time", not a port named "".
+    #[test]
+    fn an_unchosen_port_saves_as_no_port() {
+        let mut config = AppConfig::default();
+        config.audio.retrowave_port = Some("COM9".to_owned());
+        let mut dialog = SettingsDialog::new(&config, Vec::new());
+        assert_eq!(dialog.retrowave_port, "COM9");
+
+        dialog.retrowave_port = String::new();
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.retrowave_port, None);
+    }
+
+    #[test]
+    fn the_signal_settings_only_apply_to_the_emulator() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert!(dialog.emulating());
+        dialog.output_backend = OutputBackend::RetroWave;
+        assert!(!dialog.emulating(), "hardware output renders no signal");
+    }
+
+    /// A port saved on another machine, or since unplugged, must still be named
+    /// rather than silently reading as some other port.
+    #[test]
+    fn a_missing_port_is_named_as_missing() {
+        let ports = vec![port("COM3", true), port("COM4", false)];
+        assert_eq!(port_label("", &ports), AUTO_DETECT);
+        assert_eq!(port_label("COM3", &ports), "COM3 ✓");
+        assert_eq!(port_label("COM4", &ports), "COM4");
+        assert_eq!(port_label("COM12", &ports), "COM12 (not connected)");
     }
 }

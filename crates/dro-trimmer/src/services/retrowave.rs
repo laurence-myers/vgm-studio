@@ -58,9 +58,11 @@ impl RetroWaveAudioService {
         }
         let port = match &config.retrowave_port {
             Some(port) => port.clone(),
-            None => dro_retrowave::default_port()
-                .map_err(|error| error.to_string())?
-                .port_name,
+            None => {
+                dro_retrowave::default_port()
+                    .map_err(|error| error.to_string())?
+                    .port_name
+            }
         };
         Device::open(&port).map_err(|error| error.to_string())
     }
@@ -146,7 +148,11 @@ impl AudioService for RetroWaveAudioService {
     }
 
     fn is_playing(&self) -> bool {
-        self.playing && self.audio.as_ref().is_some_and(|audio| !audio.is_finished())
+        self.playing
+            && self
+                .audio
+                .as_ref()
+                .is_some_and(|audio| !audio.is_finished())
     }
 
     fn is_finished(&self) -> bool {
