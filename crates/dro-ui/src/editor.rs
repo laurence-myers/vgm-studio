@@ -5,10 +5,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use dro_core::undo::{DeleteInstructions, OptimizeVgm, UpdateHeader};
+use dro_core::undo::{DeleteInstructions, OptimizeVgm, ReplaceStream, UpdateHeader};
 use dro_core::{
-    DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType, UndoController,
-    UndoableCommand, convert, io,
+    CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
+    UndoController, UndoableCommand, convert, io,
 };
 
 use crate::analysis::AnalysisCache;
@@ -221,6 +221,70 @@ impl Editor {
         let outcome = dro_core::optimize::optimize(song)?;
         let stats = (outcome.commands_removed, outcome.bytes_saved);
         self.undo.execute(Box::new(OptimizeVgm::new(outcome)), song);
+        self.markers = RangeMarkers::from_song(song);
+        self.selection.clear();
+        self.analysis.invalidate();
+        self.revision += 1;
+        Some(stats)
+    }
+
+    /// Crops the song to the marked region, deleting everything outside it.
+    ///
+    /// The kept region is prefixed with the writes that recreate the register
+    /// state the stream had reached at its start, so it opens on the chip state
+    /// it would have had mid-play rather than on a silent chip.
+    ///
+    /// Returns `(kept, restored)`: how many instructions survive, and how many of
+    /// those the state prelude contributed. `None` when there is no song, or the
+    /// markers still cover all of it -- there would be nothing to crop away.
+    pub fn crop_to_markers(&mut self) -> Option<(usize, usize)> {
+        // What survives and what the patch added are exactly what the shared
+        // helper reports.
+        self.replace_stream("Crop to Marked Region", dro_core::crop::crop_to_region)
+    }
+
+    /// Deletes the marked region, keeping everything outside it.
+    ///
+    /// The writes that carry the chip's register state across the cut are spliced
+    /// in at the seam, so what follows still plays on the state it was written
+    /// against -- including the "trim the intro" case, where the region starts at
+    /// the very beginning and the patch is the whole state replay.
+    ///
+    /// Returns `(removed, bridged)`: how many instructions the region held, and
+    /// how many the seam patch contributed. `None` on the same terms as
+    /// [`Self::crop_to_markers`].
+    pub fn delete_marked_region(&mut self) -> Option<(usize, usize)> {
+        let removed = self.markers.end() - self.markers.start();
+        let (_, bridged) =
+            self.replace_stream("Delete Marked Region", dro_core::crop::delete_region)?;
+        Some((removed, bridged))
+    }
+
+    /// Runs a marked-region edit and installs its rebuilt stream undoably,
+    /// returning `(new_len, patch_len)`.
+    ///
+    /// The stream is rebuilt wholesale (a state patch is spliced in, and the loop
+    /// metadata remapped across it), so the selection is cleared and the markers
+    /// re-derived from the song's own remapped loop, exactly as
+    /// [`Self::optimize_vgm`] does.
+    ///
+    /// A region covering the whole song is declined for both edits: it marks
+    /// nothing out, so neither has anything to do -- which is also the predicate
+    /// the menu items enable on.
+    fn replace_stream(
+        &mut self,
+        description: &'static str,
+        edit: fn(&Song, usize, usize) -> Option<CropOutcome>,
+    ) -> Option<(usize, usize)> {
+        let (start, end) = (self.markers.start(), self.markers.end());
+        let song = self.song.as_mut()?;
+        if self.markers.is_full(song.len()) {
+            return None;
+        }
+        let outcome = edit(song, start, end)?;
+        let stats = (outcome.len(), outcome.patch_len);
+        self.undo
+            .execute(Box::new(ReplaceStream::new(description, outcome)), song);
         self.markers = RangeMarkers::from_song(song);
         self.selection.clear();
         self.analysis.invalidate();
@@ -759,6 +823,137 @@ mod tests {
         let meta = editor.song().unwrap().vgm_meta().unwrap();
         assert_eq!((meta.loop_point, meta.loop_end), (None, None));
         editor.save_bytes().unwrap();
+    }
+
+    // -- crop / delete marked region -----------------------------------------
+
+    #[test]
+    fn cropping_keeps_the_marked_region_behind_a_state_prelude() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        let len = editor.len();
+        editor.markers.set_start(4, len);
+        editor.markers.set_end(12, len);
+        editor.selection.select_only(13);
+        let before = editor.revision();
+
+        let (kept, restored) = editor.crop_to_markers().expect("a real crop");
+        assert!(restored > 0, "there is register state to restore");
+        assert_eq!(kept, 8 + restored, "the region, behind its prelude");
+        assert_eq!(editor.len(), kept);
+
+        // The stream was rebuilt, so nothing may still point into the old one.
+        assert!(editor.selection.is_empty());
+        assert!(editor.markers.is_full(editor.len()));
+        assert!(editor.revision() > before);
+        assert!(editor.is_dirty());
+        assert_eq!(editor.undo_description(), Some("Crop to Marked Region"));
+    }
+
+    #[test]
+    fn deleting_the_marked_region_bridges_the_seam() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        let len = editor.len();
+        editor.markers.set_start(3, len);
+        editor.markers.set_end(9, len);
+
+        let (removed, bridged) = editor.delete_marked_region().expect("a real cut");
+        assert_eq!(removed, 6, "the region held six instructions");
+        assert_eq!(editor.len(), len - removed + bridged);
+        assert_eq!(editor.undo_description(), Some("Delete Marked Region"));
+    }
+
+    #[test]
+    fn both_edits_undo_back_to_the_original_song() {
+        for crop in [true, false] {
+            let (mut editor, _) = loaded(&dro_song_v2());
+            let original = editor.song().unwrap().clone();
+            let len = editor.len();
+            editor.markers.set_start(2, len);
+            editor.markers.set_end(10, len);
+
+            let done = if crop {
+                editor.crop_to_markers()
+            } else {
+                editor.delete_marked_region()
+            };
+            assert!(done.is_some());
+            assert_ne!(editor.song().unwrap(), &original);
+
+            editor.undo();
+            assert_eq!(
+                editor.song().unwrap(),
+                &original,
+                "undo must restore the song exactly (crop: {crop})"
+            );
+            // The markers were reset by the edit, so they come back clamped to
+            // the restored song rather than to where they were.
+            assert!(editor.markers.end() <= editor.len());
+
+            editor.redo();
+            assert_ne!(editor.song().unwrap(), &original);
+        }
+    }
+
+    #[test]
+    fn neither_edit_runs_while_the_markers_cover_the_whole_song() {
+        // The markers mark nothing out, so there is nothing to keep or cut --
+        // which is also what the menu items enable on.
+        let (mut editor, _) = loaded(&dro_song_v2());
+        assert!(editor.markers.is_full(editor.len()));
+        let before = editor.revision();
+
+        assert!(editor.crop_to_markers().is_none());
+        assert!(editor.delete_marked_region().is_none());
+        assert_eq!(editor.revision(), before);
+        assert!(!editor.can_undo());
+        assert!(!editor.is_dirty());
+    }
+
+    #[test]
+    fn neither_edit_runs_without_a_song() {
+        let mut editor = Editor::new();
+        assert!(editor.crop_to_markers().is_none());
+        assert!(editor.delete_marked_region().is_none());
+    }
+
+    #[test]
+    fn cropping_a_vgm_re_derives_the_markers_from_the_remapped_loop() {
+        let (mut editor, _) = loaded(&tone_song());
+        editor.convert_to_vgm().unwrap();
+        let len = editor.len();
+        // A loop that starts inside the region being kept.
+        editor.set_vgm_metadata(Some(2), None, 0, 0, 0);
+        editor.markers.set_start(1, len);
+        editor.markers.set_end(len - 1, len);
+
+        let (kept, restored) = editor.crop_to_markers().expect("a real crop");
+        // The loop moved with the stream: down by the region's start, up past
+        // the prelude -- and the markers were re-derived from it, so they now
+        // describe the stored loop rather than the pre-crop region.
+        let loop_point = editor.song().unwrap().vgm_meta().unwrap().loop_point;
+        assert_eq!(loop_point, Some(2 - 1 + restored));
+        assert_eq!(editor.markers.start(), 2 - 1 + restored);
+        assert_eq!(editor.markers.end(), kept);
+        // And the result is still a file the writer accepts.
+        editor.save_bytes().unwrap();
+    }
+
+    #[test]
+    fn deleting_the_intro_keeps_the_rest_playing_on_the_right_state() {
+        // The case the whole state patch exists for: cut from the very start, so
+        // the surviving tail would otherwise open on a silent chip.
+        let (mut editor, _) = loaded(&dro_song_v2());
+        let len = editor.len();
+        editor.markers.set_start(0, len);
+        editor.markers.set_end(8, len);
+
+        let (removed, bridged) = editor.delete_marked_region().expect("a real cut");
+        assert_eq!(removed, 8);
+        assert!(bridged > 0, "the whole reached state has to be replayed");
+        // Every register the intro had set is restored ahead of the tail.
+        let song = editor.song().unwrap();
+        assert_eq!(editor.len(), len - removed + bridged);
+        assert!(song.instruction(0).is_some_and(|i| !i.is_delay()));
     }
 
     #[test]
