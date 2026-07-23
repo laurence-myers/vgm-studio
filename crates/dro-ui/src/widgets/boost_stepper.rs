@@ -121,28 +121,24 @@ pub fn boost_stepper(
             }
         });
 
-        // The value as an LED readout: a dark well with a faint "88.88x" ghost
-        // behind the bright tracker-yellow value. Click to type; typed input is
-        // snapped to the nearest modifier value, then capped at the ceiling.
-        let well = theme::led_well(ui, palette, egui::vec2(60.0, row_h), "88.88\u{00d7}");
-        let mut value = f64::from(factor);
-        let db = 20.0 * factor.log10();
-        let response = ui
-            .scope(|ui| {
-                // Transparent field background, so the well and its ghost show
-                // through and the bright value reads as the lit digits.
-                let widgets = &mut ui.visuals_mut().widgets;
-                for w in [
-                    &mut widgets.inactive,
-                    &mut widgets.hovered,
-                    &mut widgets.active,
-                ] {
-                    w.weak_bg_fill = egui::Color32::TRANSPARENT;
-                    w.bg_fill = egui::Color32::TRANSPARENT;
-                    w.fg_stroke.color = palette.data_text;
-                }
-                ui.put(
-                    well,
+        // The value: a dark well with the tracker-yellow digit, click to type.
+        // Typed input is read as a factor and snapped to the nearest modifier
+        // value, then capped at the ceiling.
+        ui.scope(|ui| {
+            let widgets = &mut ui.visuals_mut().widgets;
+            for w in [
+                &mut widgets.inactive,
+                &mut widgets.hovered,
+                &mut widgets.active,
+            ] {
+                w.weak_bg_fill = palette.data_bg;
+                w.bg_fill = palette.data_bg;
+                w.fg_stroke.color = palette.data_text;
+            }
+            let mut value = f64::from(factor);
+            let db = 20.0 * factor.log10();
+            let response = ui
+                .add(
                     egui::DragValue::new(&mut value)
                         .speed(0.0)
                         .update_while_editing(false)
@@ -159,24 +155,23 @@ pub fn boost_stepper(
                                 .ok()
                         }),
                 )
-                .on_hover_text(format!("{factor:.2}\u{00d7} ({db:+.1} dB)"))
-            })
-            .inner;
-        // Report whether this field holds keyboard focus, so the app yields
-        // the keyboard to it (see `gather_key_input`) -- a number typed here
-        // must change the volume, not toggle a channel. Routed as an action
-        // rather than written to egui memory here, which would deadlock the
-        // memory lock held during the draw.
-        actions.push(Action::VolumeFieldFocused(response.has_focus()));
-        // No continuous drag (speed 0), so a change is always a committed edit
-        // -- persist it once, like an arrow click. A typed value is snapped to
-        // the ladder and capped at the clipping ceiling.
-        if response.changed() {
-            actions.push(Action::SetBoost {
-                value: snapped_within_ceiling(value as f32, ceiling),
-                persist: true,
-            });
-        }
+                .on_hover_text(format!("{factor:.2}\u{00d7} ({db:+.1} dB)"));
+            // Report whether this field holds keyboard focus, so the app yields
+            // the keyboard to it (see `gather_key_input`) -- a number typed here
+            // must change the volume, not toggle a channel. Routed as an action
+            // rather than written to egui memory here, which would deadlock the
+            // memory lock held during the draw.
+            actions.push(Action::VolumeFieldFocused(response.has_focus()));
+            // No continuous drag (speed 0), so a change is always a committed edit
+            // -- persist it once, like an arrow click. A typed value is snapped to
+            // the ladder and capped at the clipping ceiling.
+            if response.changed() {
+                actions.push(Action::SetBoost {
+                    value: snapped_within_ceiling(value as f32, ceiling),
+                    persist: true,
+                });
+            }
+        });
 
         // The label sits left of the value...
         ui.label("Volume");
