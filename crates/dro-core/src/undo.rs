@@ -5,6 +5,7 @@
 
 use core::fmt;
 
+use crate::crop::CropOutcome;
 use crate::optimize::OptimizeOutcome;
 use crate::song::{InsertEntry, OplType, Song, SongData};
 use crate::vgm::VgmData;
@@ -332,6 +333,77 @@ impl UndoableCommand<Song> for OptimizeVgm {
             .clone()
             .expect("the controller only reverts a command it has applied");
         song.replace_vgm_stream(data, loop_point, loop_end);
+    }
+}
+
+/// A whole instruction stream and everything derived from it: the header length a
+/// DRO stores, and the two loop markers a VGM does.
+type StreamSnapshot = (SongData, u32, Option<usize>, Option<usize>);
+
+/// Swaps in a rebuilt instruction stream, snapshotting the whole of the old one
+/// so undo restores it exactly.
+///
+/// This is how the crop edits ([`crop_to_region`](crate::crop::crop_to_region),
+/// [`delete_region`](crate::crop::delete_region)) are made undoable. Like
+/// [`OptimizeVgm`], and unlike [`DeleteInstructions`], the edit is not a set of
+/// removals: it splices new instructions -- the state patch that carries the chip
+/// across the cut -- in among the surviving ones, and moves the loop markers
+/// across them. Snapshotting both streams is a plainer inverse than trying to
+/// express that as a delete and an insert that have to undo in the right order.
+///
+/// Streams are small, so the two clones are cheap.
+#[derive(Debug)]
+pub struct ReplaceStream {
+    /// What the Undo menu item says. The edits share this command, so each names
+    /// itself rather than the mechanism.
+    description: &'static str,
+    /// The rebuilt stream and its derived fields.
+    after: StreamSnapshot,
+    /// The original, captured on `apply`.
+    before: Option<StreamSnapshot>,
+}
+
+impl ReplaceStream {
+    /// Builds the command from a [`CropOutcome`]. `description` is what Undo and
+    /// Redo call it, e.g. `"Crop to Marked Region"`.
+    #[must_use]
+    pub fn new(description: &'static str, outcome: CropOutcome) -> Self {
+        Self {
+            description,
+            after: (
+                outcome.data,
+                outcome.ms_length,
+                outcome.loop_point,
+                outcome.loop_end,
+            ),
+            before: None,
+        }
+    }
+}
+
+impl UndoableCommand<Song> for ReplaceStream {
+    fn description(&self) -> &str {
+        self.description
+    }
+
+    fn apply(&mut self, song: &mut Song) {
+        let meta = song.vgm_meta();
+        self.before = Some((
+            song.data().clone(),
+            song.ms_length,
+            meta.and_then(|meta| meta.loop_point),
+            meta.and_then(|meta| meta.loop_end),
+        ));
+        let (data, ms_length, loop_point, loop_end) = self.after.clone();
+        song.replace_data(data, ms_length, loop_point, loop_end);
+    }
+
+    fn revert(&mut self, song: &mut Song) {
+        let (data, ms_length, loop_point, loop_end) = self
+            .before
+            .clone()
+            .expect("the controller only reverts a command it has applied");
+        song.replace_data(data, ms_length, loop_point, loop_end);
     }
 }
 
@@ -700,6 +772,111 @@ mod tests {
         assert!(song.data().raw().len() < original.data().raw().len());
         undo.undo(&mut song);
         assert_eq!(song, original);
+    }
+
+    // -- ReplaceStream ------------------------------------------------------
+
+    /// Every format, so the snapshot is exercised against a derived length (VGM)
+    /// and a stored one (DRO), and against a v2's codemap.
+    fn every_format() -> Vec<Song> {
+        vec![dro_song_v1(), dro_song_v2(), optimisable_vgm()]
+    }
+
+    #[test]
+    fn replace_stream_applies_and_reverts_every_format_exactly() {
+        for original in every_format() {
+            let len = original.len();
+            // Crop away the first instruction: short enough to be a real edit on
+            // every fixture, and it forces a state prelude on most.
+            let outcome = crate::crop::crop_to_region(&original, 1, len)
+                .expect("a crop that drops the first instruction");
+            let cropped_len = outcome.len();
+
+            let mut song = original.clone();
+            let mut undo = UndoController::new();
+            undo.execute(
+                Box::new(ReplaceStream::new("Crop to Marked Region", outcome)),
+                &mut song,
+            );
+            assert_eq!(song.len(), cropped_len, "{}", original.name);
+            assert_eq!(undo.undo_description(), Some("Crop to Marked Region"));
+
+            undo.undo(&mut song);
+            assert_eq!(
+                song, original,
+                "undo must restore {} exactly",
+                original.name
+            );
+            undo.redo(&mut song);
+            assert_eq!(song.len(), cropped_len);
+            undo.undo(&mut song);
+            assert_eq!(song, original, "and again after a redo");
+        }
+    }
+
+    #[test]
+    fn replace_stream_restores_a_dros_header_length() {
+        // A DRO's `ms_length` is a stored header field, not derived, so it is
+        // part of what the snapshot has to carry.
+        let original = dro_song_v2();
+        let before = original.ms_length;
+        let outcome = crate::crop::delete_region(&original, 0, 8).expect("a real cut");
+
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(
+            Box::new(ReplaceStream::new("Delete Marked Region", outcome)),
+            &mut song,
+        );
+        assert!(song.ms_length < before, "the cut shortened the song");
+
+        undo.undo(&mut song);
+        assert_eq!(song.ms_length, before);
+        assert_eq!(song, original);
+    }
+
+    #[test]
+    fn replace_stream_restores_loop_markers() {
+        let mut original = optimisable_vgm();
+        original.vgm_meta_mut().unwrap().loop_point = Some(3);
+        let outcome = crate::crop::delete_region(&original, 0, 2).expect("a real cut");
+
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+        undo.execute(
+            Box::new(ReplaceStream::new("Delete Marked Region", outcome)),
+            &mut song,
+        );
+        // The loop moved with the edit...
+        assert_ne!(song.vgm_meta().unwrap().loop_point, Some(3));
+
+        // ...and comes back exactly where it was.
+        undo.undo(&mut song);
+        assert_eq!(song.vgm_meta().unwrap().loop_point, Some(3));
+        assert_eq!(song, original);
+    }
+
+    #[test]
+    fn replace_stream_interleaves_with_the_other_commands() {
+        let original = dro_song_v2();
+        let mut song = original.clone();
+        let mut undo = UndoController::new();
+
+        undo.execute(Box::new(DeleteInstructions::new([0])), &mut song);
+        let outcome = crate::crop::crop_to_region(&song, 1, song.len()).expect("a real crop");
+        undo.execute(
+            Box::new(ReplaceStream::new("Crop to Marked Region", outcome)),
+            &mut song,
+        );
+        undo.execute(Box::new(UpdateHeader::new(OplType::Opl2, 42)), &mut song);
+
+        assert_eq!(undo.undo_description(), Some("DRO Header Changes"));
+        undo.undo(&mut song);
+        assert_eq!(undo.undo_description(), Some("Crop to Marked Region"));
+        undo.undo(&mut song);
+        assert_eq!(undo.undo_description(), Some("Delete Instruction(s)"));
+        undo.undo(&mut song);
+        assert_eq!(song, original, "the whole stack unwinds to the original");
     }
 
     #[test]
