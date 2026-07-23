@@ -36,6 +36,10 @@ pub struct MenuState {
     pub on_rip_tab: bool,
     /// The row the loop-marker items act on -- the same one `[` and `]` use.
     pub focused_row: Option<usize>,
+    /// Whether the markers actually mark something out, rather than covering the
+    /// whole song. The crop and cut items need a region to act on, and this is
+    /// the very predicate the editor declines them by.
+    pub has_marked_region: bool,
     /// The loaded song's format, if any. Items that only make sense for one
     /// format are hidden for the other rather than shown greyed: a VGM has no
     /// DRO header to inspect and a DRO has nowhere to put a tag, so offering
@@ -176,6 +180,16 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             // the result.
             if is_vgm && enabled_item(ui, editor, "Apply Loop to Metadata", None) {
                 actions.push(Action::ApplyLoopToMetadata);
+            }
+            // These edit the stream rather than the metadata, so unlike Apply they
+            // work on a DRO as well -- cropping a DRO down to its good part is the
+            // reason the app exists. Both need a region actually marked out.
+            let marked = editor && state.has_marked_region;
+            if enabled_item(ui, marked, "Crop to Marked Region", None) {
+                actions.push(Action::CropToMarkers);
+            }
+            if enabled_item(ui, marked, "Delete Marked Region", None) {
+                actions.push(Action::DeleteMarkedRegion);
             }
             crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint

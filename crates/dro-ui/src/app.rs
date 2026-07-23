@@ -79,6 +79,10 @@ fn about_text() -> String {
 /// markers are one gesture apart rather than one being a modifier deeper than
 /// the other. The end is the *time* clicked, hence that instruction's index
 /// taken exclusively: everything sounding before the click is inside the loop.
+/// What the crop and cut items say when there is no region to act on. Their menu
+/// items are disabled in that case, so this is the belt to that braces.
+const NOTHING_MARKED: &str = "Mark a region first -- the loop markers cover the whole song.";
+
 fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Option<Action> {
     match (shift, secondary) {
         (true, false) => Some(Action::SetLoopStart(index)),
@@ -1671,6 +1675,43 @@ impl DroApp {
                 self.push_loop_config();
             }
             Action::ApplyLoopToMetadata => self.apply_loop_to_metadata(),
+            Action::CropToMarkers => {
+                if !self.require_song() {
+                    return;
+                }
+                match self.editor.crop_to_markers() {
+                    Some((kept, restored)) => {
+                        // The restored writes are instructions the user did not
+                        // put there, so they are worth accounting for -- but only
+                        // when there were any; a "0" reads as a puzzle.
+                        self.status = match restored {
+                            0 => format!("Cropped to {kept} instruction(s)."),
+                            n => format!(
+                                "Cropped to {kept} instruction(s), including {n} that restore the chip state."
+                            ),
+                        };
+                        self.after_region_edit();
+                    }
+                    None => self.status = NOTHING_MARKED.to_owned(),
+                }
+            }
+            Action::DeleteMarkedRegion => {
+                if !self.require_song() {
+                    return;
+                }
+                match self.editor.delete_marked_region() {
+                    Some((removed, bridged)) => {
+                        self.status = match bridged {
+                            0 => format!("Deleted {removed} instruction(s)."),
+                            n => format!(
+                                "Deleted {removed} instruction(s), leaving {n} write(s) to carry the chip state across the seam."
+                            ),
+                        };
+                        self.after_region_edit();
+                    }
+                    None => self.status = NOTHING_MARKED.to_owned(),
+                }
+            }
             Action::FindLoopSearch { min_len_commands } => self.start_loop_search(min_len_commands),
             Action::CancelLoopSearch => {
                 self.tasks.cancel(TaskKind::LoopSearch);
@@ -3216,6 +3257,17 @@ impl DroApp {
             .flatten();
     }
 
+    /// The housekeeping after a crop or a cut: the usual post-edit refresh, plus
+    /// the loop config, since both edits reset the markers.
+    ///
+    /// The whole stream was rebuilt, so the view goes back to the top rather than
+    /// leave the scroll wherever the old instruction numbering had put it.
+    fn after_region_edit(&mut self) {
+        self.scroll_to = Some(0);
+        self.after_edit();
+        self.push_loop_config();
+    }
+
     /// Hands the audio service the region to repeat, or `None` when looping is
     /// off. Cheap and idempotent; call it after anything that moves the markers,
     /// changes the count, or reloads the stream.
@@ -3268,6 +3320,8 @@ impl DroApp {
             has_rip: self.rip.is_some(),
             on_rip_tab,
             focused_row: self.editor.selection.first(),
+            has_marked_region: self.editor.has_song()
+                && !self.editor.markers.is_full(self.editor.len()),
             song_type: self.editor.song().map(|song| song.file_type),
             is_dro_v2: self.editor.song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2

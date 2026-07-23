@@ -3293,6 +3293,104 @@ fn changing_the_repeat_count_re_arms_the_region() {
 }
 
 #[test]
+fn cropping_to_the_markers_keeps_only_the_region() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+    act(&mut harness, Action::SetLoopStart(2));
+    act(&mut harness, Action::SetLoopEnd(len - 1));
+
+    act(&mut harness, Action::CropToMarkers);
+    let state = harness.state();
+    assert!(state.editor.len() < len, "the song was cropped");
+    assert!(state.status.starts_with("Cropped to "), "{}", state.status);
+    // The stream was rebuilt, so the markers reset and the view goes to the top.
+    assert!(state.editor.markers.is_full(state.editor.len()));
+    assert_eq!(
+        state.editor.undo_description(),
+        Some("Crop to Marked Region")
+    );
+
+    // And it undoes back to the whole song.
+    act(&mut harness, Action::Undo);
+    assert_eq!(harness.state().editor.len(), len);
+}
+
+#[test]
+fn deleting_the_marked_region_keeps_everything_else() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::SetLoopEnd(3));
+
+    act(&mut harness, Action::DeleteMarkedRegion);
+    let state = harness.state();
+    assert!(
+        state.status.starts_with("Deleted 2 instruction(s)"),
+        "{}",
+        state.status
+    );
+    assert_eq!(
+        state.editor.undo_description(),
+        Some("Delete Marked Region")
+    );
+
+    act(&mut harness, Action::Undo);
+    assert_eq!(harness.state().editor.len(), len);
+}
+
+#[test]
+fn the_region_edits_need_a_region_to_act_on() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    // Fresh markers cover the whole song, so the menu items are disabled...
+    assert!(!harness.state().menu_state().has_marked_region);
+
+    // ...and the actions decline rather than edit anything if they fire anyway.
+    let len = harness.state().editor.len();
+    for action in [Action::CropToMarkers, Action::DeleteMarkedRegion] {
+        act(&mut harness, action);
+        let state = harness.state();
+        assert_eq!(state.editor.len(), len);
+        assert!(!state.editor.can_undo());
+        assert!(
+            state.status.starts_with("Mark a region first"),
+            "{}",
+            state.status
+        );
+    }
+
+    // Marking one enables them.
+    act(&mut harness, Action::SetLoopStart(1));
+    assert!(harness.state().menu_state().has_marked_region);
+}
+
+#[test]
+fn a_cropped_region_re_arms_looping_over_the_new_stream() {
+    // Both edits reset the markers and rebuild the stream, so a live loop must
+    // be re-armed over what is actually there now.
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::SetLoopStart(2));
+    act(&mut harness, Action::SetLoopEnd(len - 1));
+
+    act(&mut harness, Action::CropToMarkers);
+    let cropped_len = harness.state().editor.len();
+    let armed = handles
+        .audio
+        .borrow()
+        .loops
+        .last()
+        .copied()
+        .flatten()
+        .expect("looping is still on, so a region is armed");
+    assert_eq!(
+        (armed.start, armed.end),
+        (0, cropped_len),
+        "the whole cropped song, not the pre-crop region"
+    );
+}
+
+#[test]
 fn deleting_instructions_slides_the_loop_markers() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     act(&mut harness, Action::SetLoopStart(2));

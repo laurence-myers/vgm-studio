@@ -190,6 +190,10 @@ pub enum Action {
     SetLoopCount(LoopCount),
     /// Write the marked region into the song's VGM loop metadata.
     ApplyLoopToMetadata,
+    /// Keep only the marked region, deleting everything outside it.
+    CropToMarkers,
+    /// Delete the marked region, keeping everything outside it.
+    DeleteMarkedRegion,
     /// Search the command stream for loop candidates at least `min_len_commands`
     /// delay-stripped commands long (the Find Loop dialog's Search button).
     FindLoopSearch {
