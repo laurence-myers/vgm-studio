@@ -445,10 +445,18 @@ impl DroApp {
                         {
                             actions.push(Action::RewindToStart);
                         }
+                        // Hardware output sends no samples through this program,
+                        // so there is nothing to meter -- and a meter pinned at
+                        // silence through a whole song reads as a fault. Drop it
+                        // and give the waveform the room.
+                        let metered = self.config.audio.renders_samples();
                         // Reserve the peak meter's width up front: the waveform
                         // fills whatever space it is given.
-                        let wave_width =
-                            ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x;
+                        let wave_width = if metered {
+                            ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x
+                        } else {
+                            ui.available_width()
+                        };
                         ui.allocate_ui(egui::vec2(wave_width, height), |ui| {
                             let response =
                                 waveform::show(ui, &self.waveform, self.editor.song(), p);
@@ -461,7 +469,9 @@ impl DroApp {
                                 ));
                             }
                         });
-                        peak_meter::show(ui, &self.peak_meter, p);
+                        if metered {
+                            peak_meter::show(ui, &self.peak_meter, p);
+                        }
                     });
                 })
         });
@@ -574,20 +584,28 @@ impl DroApp {
                                 actions.push(Action::ToggleLoopPlayback);
                             }
                             loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
-                            boost_stepper::boost_stepper(
-                                ui,
-                                p,
-                                self.config.audio.boost,
-                                self.boost_ceiling,
-                                self.config.audio.lock_boost,
-                                &mut actions,
-                            );
+                            // The boost is applied to rendered samples, of which
+                            // hardware output produces none -- the board has its
+                            // own volume.
+                            let shapes_output = self.config.audio.renders_samples();
+                            ui.add_enabled_ui(shapes_output, |ui| {
+                                boost_stepper::boost_stepper(
+                                    ui,
+                                    p,
+                                    self.config.audio.boost,
+                                    self.boost_ceiling,
+                                    self.config.audio.lock_boost,
+                                    &mut actions,
+                                );
+                            });
                         });
                         ui.add_space(PAD);
                         theme::separator_full(ui, p);
                         ui.add_space(PAD);
                         // The panel hides its own high bank for a plain OPL2 song.
-                        let channels = self.channels.show(ui, p);
+                        let channels =
+                            self.channels
+                                .show(ui, p, self.config.audio.renders_samples());
                         if channels.muting_changed {
                             actions.push(Action::MutingChanged);
                         }

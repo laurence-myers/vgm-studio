@@ -80,6 +80,23 @@ pub struct AudioConfig {
     pub retrowave_port: Option<String>,
 }
 
+impl AudioConfig {
+    /// Whether live playback passes through this program as samples.
+    ///
+    /// False for hardware output, where the board mixes its own sound and sends
+    /// it out its own socket: nothing here can measure it (the peak meter) or
+    /// shape it (the volume boost, per-channel panning). The controls for those
+    /// are inert in that mode, so the GUI disables them rather than leaving them
+    /// looking live.
+    ///
+    /// Offline work -- WAV rendering, splitting, the waveform display -- always
+    /// uses the emulator and is unaffected either way.
+    #[must_use]
+    pub const fn renders_samples(&self) -> bool {
+        matches!(self.output_backend, OutputBackend::Emulated)
+    }
+}
+
 impl Default for AudioConfig {
     fn default() -> Self {
         Self {
@@ -660,6 +677,16 @@ mod tests {
 
     /// An unset port means "find one", which is different from a port literally
     /// named the empty string.
+    /// The GUI disables the boost, the pan knobs and the peak meter off this:
+    /// hardware output mixes on the chip, so none of them can do anything.
+    #[test]
+    fn only_the_emulator_renders_samples_this_program_can_shape() {
+        let mut config = AudioConfig::default();
+        assert!(config.renders_samples(), "the emulator renders through us");
+        config.output_backend = OutputBackend::RetroWave;
+        assert!(!config.renders_samples(), "the board mixes its own output");
+    }
+
     #[test]
     fn an_empty_retrowave_port_reads_back_as_no_port() {
         let config = AppConfig::from_ini_sources(&["[audio]\nretrowave_port=\n"]);

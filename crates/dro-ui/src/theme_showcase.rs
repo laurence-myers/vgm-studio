@@ -1,4 +1,4 @@
-//! A test-only "theme showcase": every themed surface laid out on one canvas,
+﻿//! A test-only "theme showcase": every themed surface laid out on one canvas,
 //! snapshotted once per [`ThemeChoice`] so a single test guards the whole theme.
 //!
 //! This view is **not** reachable from the application UI -- it exists purely
@@ -162,7 +162,7 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             scroll_sample(ui);
 
             section(ui, p, "Channel panel");
-            state.channels.show(ui, p);
+            state.channels.show(ui, p, true);
 
             section(ui, p, "Position panel");
             // `PositionPanel::show` centres-and-justifies within its columns,
