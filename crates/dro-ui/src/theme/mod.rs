@@ -142,6 +142,23 @@ pub fn deck_panel<R>(
     inner
 }
 
+/// Paints a sunken LED-display well: the dark data background, the sunken
+/// bevel, and a faint centred "ghost" of `ghost` (the all-lit segments) behind
+/// wherever the live value will be drawn. Returns the well rect so the caller
+/// can `put` the value on top with a transparent background.
+pub fn led_well(ui: &mut egui::Ui, palette: &Palette, size: egui::Vec2, ghost: &str) -> egui::Rect {
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, palette.data_bg);
+    bevel::paint_bevel(ui.painter(), rect, palette, bevel::Bevel::Sunken);
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let faint = palette.data_text.gamma_multiply(0.13);
+    let galley = ui.fonts_mut(|f| f.layout_no_wrap(ghost.to_owned(), font, faint));
+    let pos = rect.center() - galley.size() * 0.5;
+    ui.painter().galley(pos, galley, faint);
+    rect
+}
+
 /// Installs the theme: pins the dark base (so an OS light/dark flip can't swap
 /// it), loads the DOS font, turns off edge feathering for hard pixels, and
 /// applies the chosen palette.
