@@ -527,7 +527,9 @@ fn snapshot_theme_showcase() {
     let mut results = egui_kittest::SnapshotResults::new();
     for choice in ThemeChoice::ALL {
         let mut harness = egui_kittest::Harness::builder()
-            .with_size(egui::vec2(1024.0, 1600.0))
+            // Tall enough for the whole Settings window (its footer buttons and
+            // the pad/deck style rows sit near the bottom of the canvas).
+            .with_size(egui::vec2(1024.0, 1820.0))
             .with_max_steps(64)
             .wgpu()
             .build_ui_state(

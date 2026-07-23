@@ -350,9 +350,15 @@ impl DroApp {
         }
     }
 
-    /// The active colour scheme.
-    fn palette(&self) -> &'static Palette {
-        theme::palette(self.config.ui.theme)
+    /// The active colour scheme, with the configured pad/deck overrides applied.
+    /// Owned rather than borrowed: the overrides make it a per-config value, not
+    /// one of the twelve static case palettes.
+    fn palette(&self) -> Palette {
+        theme::palette_with(
+            self.config.ui.theme,
+            self.config.ui.pad_style,
+            self.config.ui.deck_style,
+        )
     }
 
     fn update_impl(&mut self, ui: &mut egui::Ui) {
@@ -369,7 +375,8 @@ impl DroApp {
         let mut actions: Vec<Action> = Vec::new();
         self.gather_key_input(&ctx, &mut actions);
 
-        let p = self.palette();
+        let active_palette = self.palette();
+        let p = &active_palette;
         // Chrome panels are fascia plates: a transparent frame, with the plate
         // gradient painted behind the content inside each panel (see the
         // `theme::plate` calls below). The waveform is a data well, so its

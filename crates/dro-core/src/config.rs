@@ -142,6 +142,55 @@ impl core::str::FromStr for ThemeChoice {
     }
 }
 
+/// How the buttons (pads) or the panel they sit on (the deck) are coloured,
+/// overriding what the chosen theme asks for. `ThemeDefault` leaves the theme's
+/// own choice alone; the rest force a fixed treatment on any theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SurfaceChoice {
+    /// Use whatever the selected theme specifies.
+    #[default]
+    ThemeDefault,
+    /// Force a light (bone/cream) treatment.
+    Light,
+    /// Force a dark (charcoal/rubber) treatment.
+    Dark,
+    /// Force a treatment tinted to match the theme's plate.
+    Tint,
+}
+
+impl SurfaceChoice {
+    /// Every option, in dropdown order.
+    pub const ALL: [Self; 4] = [Self::ThemeDefault, Self::Light, Self::Dark, Self::Tint];
+}
+
+impl core::fmt::Display for SurfaceChoice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::ThemeDefault => "default",
+            Self::Light => "light",
+            Self::Dark => "dark",
+            Self::Tint => "tint",
+        })
+    }
+}
+
+impl core::str::FromStr for SurfaceChoice {
+    type Err = ();
+
+    /// Accepts hyphen or underscore, case-insensitively, like [`ThemeChoice`].
+    fn from_str(value: &str) -> core::result::Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "default" | "theme-default" | "theme_default" | "themedefault" => {
+                Ok(Self::ThemeDefault)
+            }
+            "light" => Ok(Self::Light),
+            "dark" => Ok(Self::Dark),
+            "tint" => Ok(Self::Tint),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Interface settings. `[ui]` in `drotrim.ini`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiConfig {
@@ -154,6 +203,10 @@ pub struct UiConfig {
     pub tail_length: u32,
     /// The GUI colour scheme.
     pub theme: ThemeChoice,
+    /// Overrides the theme's keycap treatment.
+    pub pad_style: SurfaceChoice,
+    /// Overrides the theme's control-panel (deck) treatment.
+    pub deck_style: SurfaceChoice,
 }
 
 impl Default for UiConfig {
@@ -163,6 +216,8 @@ impl Default for UiConfig {
             maximize_window: false,
             tail_length: 3000,
             theme: ThemeChoice::default(),
+            pad_style: SurfaceChoice::default(),
+            deck_style: SurfaceChoice::default(),
         }
     }
 }
@@ -274,6 +329,12 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "ui", "theme") {
             self.ui.theme = parse(value, "ui.theme")?;
         }
+        if let Some(value) = lookup(&ini, "ui", "pad_style") {
+            self.ui.pad_style = parse(value, "ui.pad_style")?;
+        }
+        if let Some(value) = lookup(&ini, "ui", "deck_style") {
+            self.ui.deck_style = parse(value, "ui.deck_style")?;
+        }
         Ok(())
     }
 
@@ -309,7 +370,11 @@ impl AppConfig {
              dro_info_edit_enabled={dro_info_edit_enabled}\n\
              # Colour scheme (case): navy, cream, verdigris, moss, plum, rust,\n\
              # petrol, slate, olive, wine, clone-dark, ft2-classic.\n\
-             theme={theme}\n",
+             theme={theme}\n\
+             # Override the theme's keycap / control-panel treatment:\n\
+             # default (leave the theme alone), light, dark or tint.\n\
+             pad_style={pad_style}\n\
+             deck_style={deck_style}\n",
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
@@ -319,6 +384,8 @@ impl AppConfig {
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
             theme = self.ui.theme,
+            pad_style = self.ui.pad_style,
+            deck_style = self.ui.deck_style,
         )
     }
 }
@@ -592,6 +659,9 @@ mod tests {
                 maximize_window: true,
                 tail_length: 5000,
                 theme: ThemeChoice::Ft2Classic,
+                // Non-default, so the round-trip actually exercises them.
+                pad_style: SurfaceChoice::Light,
+                deck_style: SurfaceChoice::Dark,
             },
         };
         let rendered = config.to_ini_string();

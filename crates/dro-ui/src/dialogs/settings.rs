@@ -1,7 +1,7 @@
 //! The Settings dialog. The web build (Step 8) has no ini file at all, so the
 //! dialog writes through whatever `ConfigStore` the platform injected.
 
-use dro_core::config::{AppConfig, ThemeChoice};
+use dro_core::config::{AppConfig, SurfaceChoice, ThemeChoice};
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
@@ -19,6 +19,8 @@ pub struct SettingsDialog {
     maximize_window: bool,
     dro_info_edit_enabled: bool,
     theme: ThemeChoice,
+    pad_style: SurfaceChoice,
+    deck_style: SurfaceChoice,
 }
 
 impl SettingsDialog {
@@ -33,6 +35,8 @@ impl SettingsDialog {
             maximize_window: config.ui.maximize_window,
             dro_info_edit_enabled: config.ui.dro_info_edit_enabled,
             theme: config.ui.theme,
+            pad_style: config.ui.pad_style,
+            deck_style: config.ui.deck_style,
         }
     }
 
@@ -120,6 +124,40 @@ impl SettingsDialog {
                         });
                     ui.end_row();
 
+                    ui.label("Pad style").on_hover_text(
+                        "The keycap colour: follow the theme, or force light, dark \
+                         or plate-tinted keys on any theme.",
+                    );
+                    egui::ComboBox::from_id_salt("settings-pad-style")
+                        .selected_text(surface_label(self.pad_style))
+                        .show_ui(ui, |ui| {
+                            for choice in SurfaceChoice::ALL {
+                                ui.selectable_value(
+                                    &mut self.pad_style,
+                                    choice,
+                                    surface_label(choice),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
+                    ui.label("Deck style").on_hover_text(
+                        "The control panel the pads sit on: follow the theme, or \
+                         force a light, dark or plate-tinted deck.",
+                    );
+                    egui::ComboBox::from_id_salt("settings-deck-style")
+                        .selected_text(surface_label(self.deck_style))
+                        .show_ui(ui, |ui| {
+                            for choice in SurfaceChoice::ALL {
+                                ui.selectable_value(
+                                    &mut self.deck_style,
+                                    choice,
+                                    surface_label(choice),
+                                );
+                            }
+                        });
+                    ui.end_row();
+
                     checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
                     ui.end_row();
 
@@ -163,6 +201,8 @@ impl SettingsDialog {
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
         config.ui.theme = self.theme;
+        config.ui.pad_style = self.pad_style;
+        config.ui.deck_style = self.deck_style;
 
         if let Err(error) = config.validate() {
             actions.push(Action::Alert {
@@ -231,6 +271,16 @@ fn theme_label(theme: ThemeChoice) -> &'static str {
         ThemeChoice::Slate => "Slate",
         ThemeChoice::Olive => "Olive",
         ThemeChoice::Wine => "Wine",
+    }
+}
+
+/// The dropdown label for a pad/deck style override.
+fn surface_label(choice: SurfaceChoice) -> &'static str {
+    match choice {
+        SurfaceChoice::ThemeDefault => "Theme default",
+        SurfaceChoice::Light => "Light",
+        SurfaceChoice::Dark => "Dark",
+        SurfaceChoice::Tint => "Tint",
     }
 }
 

@@ -15,8 +15,29 @@ pub(crate) mod paint;
 mod palette;
 mod style;
 
-pub use dro_core::config::ThemeChoice;
+pub use dro_core::config::{SurfaceChoice, ThemeChoice};
 pub use palette::{Palette, Surface, palette};
+
+/// The palette for `choice` with the configured pad/deck overrides applied.
+/// `SurfaceChoice::ThemeDefault` leaves the case's own treatment alone, so a
+/// theme only changes where the user has asked it to.
+#[must_use]
+pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice, deck: SurfaceChoice) -> Palette {
+    let forced = |c: SurfaceChoice| match c {
+        SurfaceChoice::ThemeDefault => None,
+        SurfaceChoice::Light => Some(Surface::Light),
+        SurfaceChoice::Dark => Some(Surface::Dark),
+        SurfaceChoice::Tint => Some(Surface::Tint),
+    };
+    let mut p = *palette(choice);
+    if let Some(s) = forced(pad) {
+        p.pad = s;
+    }
+    if let Some(s) = forced(deck) {
+        p.deck = s;
+    }
+    p
+}
 
 /// Restyles `ui` so a `ComboBox` reads as a dark input (like a text field)
 /// rather than a face-coloured button. Call inside a `ui.scope` around the
