@@ -387,6 +387,15 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         self.song.borrow()
     }
 
+    /// The chip this engine drives.
+    ///
+    /// For a caller that supplied its own chip via [`Self::with_chip`] and needs
+    /// to reach it between renders -- hardware output, for one, has to hand the
+    /// chip's queued register writes to its device.
+    pub fn chip_mut(&mut self) -> &mut C {
+        &mut self.chip
+    }
+
     /// Replaces the muting configuration, immediately keying off any melodic
     /// channel that just became muted so a sounding note does not ring on.
     ///

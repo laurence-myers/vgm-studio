@@ -1206,6 +1206,7 @@ dependencies = [
  "dro-core",
  "dro-synth",
  "log",
+ "rtrb",
  "serialport",
  "thiserror 2.0.18",
 ]

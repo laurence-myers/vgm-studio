@@ -72,7 +72,7 @@ pub fn pack(payload: &[u8], out: &mut Vec<u8>) {
 /// Bank 1 is the OPL3 extension: it only accepts writes while the NEW bit
 /// (register `0x105`) is set, and it is where a dual-OPL2 song's second chip
 /// lives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Bank {
     Zero,
     One,
@@ -163,6 +163,45 @@ impl CmdBuffer {
     pub fn is_empty(&self) -> bool {
         self.payload.is_empty() && self.wire.is_empty()
     }
+}
+
+/// Decodes wire bytes back into the register writes they carry, the way the
+/// device does: strip the flag bits, reassemble whole bytes, and read the
+/// six-byte groups that follow each transaction's header.
+///
+/// Tests assert on writes rather than on byte strings, so a framing change shows
+/// up in [`pack`]'s own tests and nowhere else.
+#[cfg(test)]
+pub(crate) fn decode_writes(wire: &[u8]) -> Vec<(Bank, u8, u8)> {
+    let mut writes = Vec::new();
+    for transaction in wire.split(|&byte| byte == CS_OFF) {
+        let mut bits = Vec::new();
+        for byte in transaction
+            .iter()
+            .filter(|byte| *byte & DATA_FLAG == DATA_FLAG)
+        {
+            for shift in (1..8).rev() {
+                bits.push((byte >> shift) & 1);
+            }
+        }
+        let payload: Vec<u8> = bits
+            .chunks_exact(8)
+            .map(|chunk| chunk.iter().fold(0u8, |acc, &bit| (acc << 1) | bit))
+            .collect();
+        // Two header bytes, then one six-byte group per register write.
+        if payload.len() < 8 {
+            continue;
+        }
+        for group in payload[2..].chunks_exact(6) {
+            let bank = if group[0] == 0xE5 {
+                Bank::One
+            } else {
+                Bank::Zero
+            };
+            writes.push((bank, group[1], group[3]));
+        }
+    }
+    writes
 }
 
 #[cfg(test)]

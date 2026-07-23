@@ -11,6 +11,7 @@ repository.workspace = true
 [dependencies]
 dro-core.workspace = true
 dro-synth.workspace = true
+rtrb.workspace = true
 serialport.workspace = true
 log.workspace = true
 thiserror.workspace = true

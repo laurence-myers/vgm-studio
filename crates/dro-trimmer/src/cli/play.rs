@@ -21,9 +21,13 @@ pub struct Args {
     /// The DRO or VGM file to play.
     pub input: PathBuf,
     /// Volume boost multiplier, applied through a limiter that prevents
-    /// clipping. Overrides drotrim.ini.
+    /// clipping. Overrides drotrim.ini. Emulated output only.
     #[arg(short = 'b', long = "boost")]
     pub boost: Option<f32>,
+    /// Play through RetroWave OPL3 hardware instead of the emulator. Give a
+    /// port (COM3, /dev/ttyACM0) to choose one, or leave it bare to auto-detect.
+    #[arg(long = "retrowave", value_name = "PORT", num_args = 0..=1, default_missing_value = "")]
+    pub retrowave: Option<String>,
 }
 
 /// Plays `args.input` until it ends or the process is interrupted.
@@ -44,7 +48,34 @@ pub fn run(args: &Args) -> Result<()> {
             .with_context(|| format!("invalid --boost {boost}"))?;
     }
     let total_ms = song.total_delay_ms();
-    play(song, &config.audio, total_ms)
+    match &args.retrowave {
+        Some(port) => play_on_hardware(song, port.as_str(), total_ms),
+        None => play(song, &config.audio, total_ms),
+    }
+}
+
+/// What a backend has to offer for the progress loop below.
+trait Playable {
+    fn is_finished(&self) -> bool;
+    fn elapsed_ms(&self) -> u32;
+}
+
+impl Playable for NativeAudio {
+    fn is_finished(&self) -> bool {
+        NativeAudio::is_finished(self)
+    }
+    fn elapsed_ms(&self) -> u32 {
+        self.position().elapsed_ms
+    }
+}
+
+impl Playable for dro_retrowave::RetroWaveAudio {
+    fn is_finished(&self) -> bool {
+        dro_retrowave::RetroWaveAudio::is_finished(self)
+    }
+    fn elapsed_ms(&self) -> u32 {
+        self.position().elapsed_ms
+    }
 }
 
 /// Plays `song` through the default output device, showing progress until it
@@ -53,14 +84,40 @@ fn play(song: dro_core::Song, audio: &AudioConfig, total_ms: u32) -> Result<()> 
     let player = NativeAudio::new(Arc::new(song), audio)
         .context("opening the audio device (is one available?)")?;
     player.play()?;
+    show_progress(&player, total_ms);
+    Ok(())
+}
 
+/// Plays `song` through a RetroWave board. `port` may be empty to auto-detect.
+fn play_on_hardware(song: dro_core::Song, port: &str, total_ms: u32) -> Result<()> {
+    let port = if port.is_empty() {
+        let found = dro_retrowave::default_port()
+            .context("finding a RetroWave device (try `drotrim retrowave-probe --list`)")?;
+        println!("Using {}.", found.label);
+        found.port_name
+    } else {
+        port.to_owned()
+    };
+
+    let device = dro_retrowave::Device::open(&port).with_context(|| format!("opening {port}"))?;
+    let mut player = dro_retrowave::RetroWaveAudio::new(device, Arc::new(song));
+    player.play();
+    show_progress(&player, total_ms);
+
+    if let Some(error) = player.take_error() {
+        anyhow::bail!("{error}");
+    }
+    Ok(())
+}
+
+/// Prints elapsed time until the song ends or the process is interrupted.
+fn show_progress(player: &impl Playable, total_ms: u32) {
     let mut stdout = std::io::stdout();
     while !player.is_finished() {
-        let elapsed = player.position().elapsed_ms;
         write!(
             stdout,
             "\r{} / {}",
-            ms_to_timestr(elapsed),
+            ms_to_timestr(player.elapsed_ms()),
             ms_to_timestr(total_ms)
         )
         .ok();
@@ -72,5 +129,4 @@ fn play(song: dro_core::Song, audio: &AudioConfig, total_ms: u32) -> Result<()> 
         ms_to_timestr(total_ms),
         ms_to_timestr(total_ms)
     );
-    Ok(())
 }

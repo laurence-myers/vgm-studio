@@ -13,10 +13,15 @@
 //! LGPL-2.1-or-later, so that document — not the reference sources — is the
 //! specification this code follows. See §2 there.
 
+pub mod chip;
 pub mod commands;
 pub mod device;
+pub mod player;
 pub mod protocol;
 pub mod test_tone;
+
+pub use chip::SerialOpl3Chip;
+pub use player::RetroWaveAudio;
 
 pub use device::{Device, Error, PortInfo, SerialIo, UsbInfo, default_port, enumerate};
 pub use protocol::{Bank, CmdBuffer};
