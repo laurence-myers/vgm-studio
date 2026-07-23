@@ -280,6 +280,7 @@ fn surface_label(choice: SurfaceChoice) -> &'static str {
         SurfaceChoice::ThemeDefault => "Theme default",
         SurfaceChoice::Light => "Light",
         SurfaceChoice::Dark => "Dark",
+        SurfaceChoice::Grey => "Grey",
         SurfaceChoice::Tint => "Tint",
     }
 }

@@ -154,13 +154,21 @@ pub enum SurfaceChoice {
     Light,
     /// Force a dark (charcoal/rubber) treatment.
     Dark,
+    /// Force a neutral grey treatment, ignoring the theme's plate.
+    Grey,
     /// Force a treatment tinted to match the theme's plate.
     Tint,
 }
 
 impl SurfaceChoice {
     /// Every option, in dropdown order.
-    pub const ALL: [Self; 4] = [Self::ThemeDefault, Self::Light, Self::Dark, Self::Tint];
+    pub const ALL: [Self; 5] = [
+        Self::ThemeDefault,
+        Self::Light,
+        Self::Dark,
+        Self::Grey,
+        Self::Tint,
+    ];
 }
 
 impl core::fmt::Display for SurfaceChoice {
@@ -169,6 +177,7 @@ impl core::fmt::Display for SurfaceChoice {
             Self::ThemeDefault => "default",
             Self::Light => "light",
             Self::Dark => "dark",
+            Self::Grey => "grey",
             Self::Tint => "tint",
         })
     }
@@ -185,6 +194,8 @@ impl core::str::FromStr for SurfaceChoice {
             }
             "light" => Ok(Self::Light),
             "dark" => Ok(Self::Dark),
+            // Accept both spellings; the config is hand-edited.
+            "grey" | "gray" => Ok(Self::Grey),
             "tint" => Ok(Self::Tint),
             _ => Err(()),
         }
@@ -372,7 +383,7 @@ impl AppConfig {
              # petrol, slate, olive, wine, clone-dark, ft2-classic.\n\
              theme={theme}\n\
              # Override the theme's keycap / control-panel treatment:\n\
-             # default (leave the theme alone), light, dark or tint.\n\
+             # default (leave the theme alone), light, dark, grey or tint.\n\
              pad_style={pad_style}\n\
              deck_style={deck_style}\n",
             frequency = self.audio.frequency,

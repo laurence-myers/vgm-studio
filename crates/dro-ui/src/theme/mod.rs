@@ -27,6 +27,7 @@ pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice, deck: SurfaceChoice
         SurfaceChoice::ThemeDefault => None,
         SurfaceChoice::Light => Some(Surface::Light),
         SurfaceChoice::Dark => Some(Surface::Dark),
+        SurfaceChoice::Grey => Some(Surface::Grey),
         SurfaceChoice::Tint => Some(Surface::Tint),
     };
     let mut p = *palette(choice);
