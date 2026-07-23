@@ -18,6 +18,7 @@ pub mod regdata;
 pub mod rip;
 pub mod song;
 pub mod split_songs;
+pub(crate) mod state_patch;
 pub mod undo;
 pub mod util;
 pub mod vgm;

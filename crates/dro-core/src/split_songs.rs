@@ -13,14 +13,12 @@
 //! the chosen part.
 
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, DroDataV1, DroDataV2, DroInstruction, Song, SongData};
+use crate::song::{DroDataV1, DroDataV2, DroInstruction, Song, SongData};
+use crate::state_patch::{StateFold, append_patch};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
 use crate::vgm::{VgmData, VgmMeta};
-
-/// The size of one OPL register file (low or high), for the state-replay fold.
-const REGISTER_COUNT: usize = 256;
 
 /// One detected song within a capture: the half-open instruction range
 /// `[start, end)` that holds it, and where it sits in time.
@@ -214,55 +212,16 @@ pub fn materialise(song: &Song, segment: &Segment, state_replay: bool, trailing_
 }
 
 /// Captures the OPL state reached over `[0, start)` and appends the writes that
-/// recreate it: each touched register's last write, reused verbatim from the
-/// source, low file before high. For DRO v1 -- whose register writes carry no
-/// bank -- the current bank is tracked from the bank-switch opcodes, and the
-/// prelude emits its own switches so each write and the body land in the right
-/// bank. VGM and DRO v2 carry the bank in every write, so no switches are needed.
+/// recreate it -- the patch from a blank chip to the state at `start`. See
+/// [`append_patch`](crate::state_patch::append_patch) for how it is emitted, and
+/// how a DRO v1's bank switches are handled.
 fn append_state_prelude(bytes: &mut Vec<u8>, song: &Song, start: usize) {
-    let is_v1 = matches!(song.data(), SongData::V1(_));
-    let mut current_bank = Bank::Low;
-    // The source index of the last write to each (file, register).
-    let mut last_write = [[None::<usize>; REGISTER_COUNT]; 2];
-    for index in 0..start {
-        match song.instruction(index) {
-            Some(DroInstruction::Register { reg, bank, .. }) => {
-                let bank = bank.unwrap_or(current_bank);
-                last_write[usize::from(bank.index())][usize::from(reg)] = Some(index);
-            }
-            Some(DroInstruction::BankSwitch(bank)) => current_bank = bank,
-            _ => {}
-        }
-    }
-
-    let mut emit_bank = Bank::Low; // a DRO stream starts in the low bank
-    for file in [Bank::Low, Bank::High] {
-        let writes: Vec<usize> = (0..REGISTER_COUNT)
-            .filter_map(|reg| last_write[usize::from(file.index())][reg])
-            .collect();
-        if writes.is_empty() {
-            continue;
-        }
-        if is_v1 && emit_bank != file {
-            bytes.extend_from_slice(bank_switch_bytes(file));
-            emit_bank = file;
-        }
-        for index in writes {
-            bytes.extend_from_slice(song.data().raw_instruction(index).expect("index < start"));
-        }
-    }
-    // Leave a v1 chip in the bank the body's first (bank-less) write expects.
-    if is_v1 && emit_bank != current_bank {
-        bytes.extend_from_slice(bank_switch_bytes(current_bank));
-    }
-}
-
-/// The one-byte DRO v1 bank-switch instruction for `bank`.
-fn bank_switch_bytes(bank: Bank) -> &'static [u8] {
-    match bank {
-        Bank::Low => &[v1_opcode::BANK_LOW],
-        Bank::High => &[v1_opcode::BANK_HIGH],
-    }
+    append_patch(
+        bytes,
+        song,
+        &StateFold::blank(),
+        &StateFold::over(song, start),
+    );
 }
 
 /// Appends a delay of `native` units (VGM samples, DRO milliseconds) encoded in
@@ -369,54 +328,14 @@ fn piece_name(source_name: &str, extension: &str) -> String {
     format!("{stem}.{extension}")
 }
 
-/// The register state a naive replay of `song`'s writes over `[0, upto)` reaches,
-/// as replay triples -- the reference a materialised prelude must reproduce. The
-/// current bank is tracked from the bank-switch opcodes, so DRO v1 (whose writes
-/// carry no bank) is folded correctly too.
-#[cfg(test)]
-fn state_over(song: &Song, upto: usize) -> Vec<(Bank, u8, u8)> {
-    let mut state = crate::opl_state::OplState::new();
-    let mut current = Bank::Low;
-    for index in 0..upto {
-        match song.instruction(index) {
-            Some(DroInstruction::Register { reg, value, bank }) => {
-                state.record(Some(bank.unwrap_or(current)), reg, value);
-            }
-            Some(DroInstruction::BankSwitch(bank)) => current = bank,
-            _ => {}
-        }
-    }
-    state.replay_writes()
-}
-
-/// The state reached after folding the first `n` register writes of `song`,
-/// tracking the current bank from the bank-switch opcodes as [`state_over`] does.
-#[cfg(test)]
-fn state_after_writes(song: &Song, n: usize) -> Vec<(Bank, u8, u8)> {
-    let mut state = crate::opl_state::OplState::new();
-    let mut current = Bank::Low;
-    let mut seen = 0;
-    for index in 0..song.len() {
-        if seen == n {
-            break;
-        }
-        match song.instruction(index) {
-            Some(DroInstruction::Register { reg, value, bank }) => {
-                state.record(Some(bank.unwrap_or(current)), reg, value);
-                seen += 1;
-            }
-            Some(DroInstruction::BankSwitch(bank)) => current = bank,
-            _ => {}
-        }
-    }
-    state.replay_writes()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::io::{read_song, write_song};
-    use crate::song::OplType;
+    use crate::song::{Bank, OplType};
+    // The reference folds every state-replay assertion is written against, shared
+    // with the crop edits that emit the same patches.
+    use crate::state_patch::{state_after_writes, state_over};
     use crate::vgm::Gd3Tag;
 
     /// A low-bank OPL2 write, `0x5A reg value`.
@@ -1034,6 +953,7 @@ mod proptests {
     use super::*;
     use crate::io::{read_song, write_song};
     use crate::song::OplType;
+    use crate::state_patch::{state_after_writes, state_over};
     use proptest::prelude::*;
 
     /// A random VGM command: a low- or high-bank register write, or a wait.
