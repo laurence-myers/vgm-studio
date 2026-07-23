@@ -45,7 +45,6 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
 - Channel + Perc selectors: lit engage style, **square**; audible = amber,
   muted = plain neutral pad (not recessed).
 - Scope grid behind the waveform; brighter centre line.
-- LED-display volume readout (`led_well`: ghost "88.88x" + bright value).
 
 ## Deferred (not built; no blockers)
 
@@ -54,6 +53,12 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
 - LED readout for the position/sample counters (user: volume only).
 - Status LED dots (redundant with the lit Loop/Perc toggles).
 - Per-column table inks (low value).
+- LED-display volume readout — **attempted then reverted** (`44644aa`,
+  reverted `f989c9e`). A `theme::led_well` painted a faint "88.88x" ghost behind
+  the value, but the value (a centred `DragValue` galley of a different glyph
+  count) didn't land on the ghost's segment cells. Needs a fixed-cell renderer
+  (draw ghost + value into the same right-aligned monospace cells; use the
+  DragValue only while editing) before retrying.
 - `theme` → `skin` **module rename** (user: skip the churn). The module is still
   named `theme`; everything else uses "skin"/"case" vocabulary.
 
