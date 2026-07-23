@@ -1293,6 +1293,13 @@ impl DroApp {
         // keep repainting through its decay after playback ends, without
         // re-running the position updates (which would overwrite the exact
         // end-of-song snap).
+        // A backend can fail away from any call we made -- a device unplugged
+        // mid-song -- so its complaint has nowhere to surface but here.
+        if let Some(error) = self.audio.last_error() {
+            self.alerts
+                .push_back(Alert::error(format!("Playback stopped: {error}")));
+        }
+
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.peak_meter.update(self.audio.take_peaks(), dt);
         if self.peak_meter.is_active() {
@@ -2892,6 +2899,17 @@ impl DroApp {
         // boost, so a boost changed via the transport slider meanwhile would be
         // reverted on Save. Keep the live value (M4/ux-15).
         config.audio.boost = self.config.audio.boost;
+        // Changing where playback goes has to take effect now, not at the next
+        // Play: otherwise the old backend keeps playing and keeps hold of its
+        // device, so a user switching away from hardware output cannot get the
+        // serial port back until they press Play again.
+        if config.audio.output_backend != self.config.audio.output_backend
+            || config.audio.retrowave_port != self.config.audio.retrowave_port
+        {
+            self.audio.pause();
+            self.audio.unload();
+            self.audio_revision = None;
+        }
         if let Err(error) = self.config_store.save(&config) {
             self.alerts
                 .push_back(Alert::error(format!("Could not save settings: {error}")));

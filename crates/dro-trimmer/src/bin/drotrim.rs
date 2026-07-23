@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use dro_trimmer::cli::Cli;
 use dro_trimmer::services::{
-    IniConfigStore, NativeAudioService, NativeFileService, NativeRipService, ThreadTaskService,
+    IniConfigStore, NativeFileService, NativeRipService, SwitchingAudioService, ThreadTaskService,
 };
 use dro_ui::DroApp;
 use dro_ui::platform::FileService;
@@ -110,7 +110,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
             };
             Ok(Box::new(DroApp::new(
                 Box::new(files),
-                Box::new(NativeAudioService::new()),
+                Box::new(SwitchingAudioService::new()),
                 Box::new(ThreadTaskService::with_notifier(repaint_tasks)),
                 Box::new(NativeRipService::with_notifier(repaint_rip)),
                 Box::new(IniConfigStore::new()),

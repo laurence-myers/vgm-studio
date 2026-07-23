@@ -213,6 +213,38 @@ pub trait AudioService {
     /// down to the lowest boost that clips, so dropping the volume and still
     /// clipping lowers the cap.
     fn min_engaged_boost(&self) -> Option<f32>;
+
+    /// The output ports hardware playback could use.
+    ///
+    /// Answered without opening anything, so the settings dialog can offer a
+    /// choice while another backend is still playing. Empty on platforms with no
+    /// hardware output at all.
+    fn list_hardware_ports(&self) -> Vec<HardwarePortInfo> {
+        Vec::new()
+    }
+
+    /// Takes the last playback failure, if one is waiting. Reported once.
+    ///
+    /// For faults that happen away from a call the app made -- a device unplugged
+    /// mid-song -- which have nowhere else to surface.
+    fn last_error(&mut self) -> Option<String> {
+        None
+    }
+}
+
+/// An output port hardware playback could use.
+///
+/// Plain data: `dro-ui` stays free of the serial layer, which never builds for
+/// the web.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HardwarePortInfo {
+    /// What to store in the config, such as `COM3`.
+    pub port_name: String,
+    /// What to show in the picker.
+    pub label: String,
+    /// Whether this looks like the hardware we are after, so the picker can
+    /// default to it.
+    pub recognised: bool,
 }
 
 /// What a [`RipEntry`] is, which decides how the export job treats its bytes.
