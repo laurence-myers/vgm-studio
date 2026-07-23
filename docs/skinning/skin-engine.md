@@ -27,11 +27,17 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   `SurfaceChoice` (theme default / light / dark / tint), stored as
   `pad_style` / `deck_style` in `[ui]` and applied by `theme::palette_with` --
   so the app's palette is an owned per-config value, not one of the statics.
+  Light pads are a neutral white/grey; the Light *deck* is still a warm cream.
+- **Live preview.** Theme/Pad/Deck apply as they are picked in Settings and
+  revert on Close (`Action::PreviewSkin` → `DroApp::preview_skin`). The preview
+  is held in `DroApp::skin_preview`, which `palette()` prefers, and deliberately
+  **not** in `config` -- the volume lever persists `config` from under us, so a
+  preview parked there would write itself to the ini.
 - `paint.rs` — colour mix + `gradient_quad`/`plate_mesh` (shared with waveform).
 - `bevel.rs` — the pad painter (`button`/`toggle`/`icon_button`/`icon_toggle`,
   engage toggles latch amber) plus the old sunken bevel for wells.
 - `icon.rs` — 14 line-icon glyphs as epaint segments/arcs (no SVG dep), 1.5px.
-- `mod.rs` — `plate_shape`/`plate_panel`, `deck_shape`/`deck_panel`, `led_well`.
+- `mod.rs` — `plate_shape`/`plate_panel`, `deck_shape`/`deck_panel`, `deck_ink`.
 - `feathering` re-enabled; the DOS font stays hard-pixel.
 
 ## Cases (twelve)
@@ -51,13 +57,22 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
   while held; a toggle stays lit while on and, while held, previews the state it
   is about to take (press a lit toggle and it un-lights). `PadState { hovered,
   held, lit }`, with `lit` computed by the caller.
-- **Per-case display ink.** `data_text` is a case role, so each palette's table
-  and readouts read in their own colour rather than one shared tracker yellow.
-- **Per-case scope.** `wf_bg`, `wf_wave`, `wf_cursor` and `wf_loop` are case
-  roles too, so every theme styles its own waveform: the screen tint, the wave,
-  and cursor/bracket accents picked to stay readable against that wave. The
-  neutral parts (`wf_hover`, `wf_start`, `wf_dim`, `wf_loop_region`) stay
-  hardware.
+- **Complementary display ink.** `data_text` is a case role, and it is the
+  *complement* of the plate rather than an echo of it — the clone-dark model
+  (teal case, yellow ink) generalised: gold on navy and slate, cyan on cream and
+  rust, coral on verdigris, lime on plum, amber on petrol, lilac on olive, mint
+  on wine. `data_label` stays case-hued, as it is on clone-dark.
+- **Per-case scope.** `wf_bg`, `wf_cursor` and `wf_loop` are case roles too, so
+  every theme styles its own waveform: the screen tint plus cursor/bracket
+  accents picked to stay distinct from the wave and from each other. `wf_wave`
+  is *composed* from `data_text` (every case wanted them equal), so the wave and
+  the table read as one display. The neutral parts (`wf_hover`, `wf_start`,
+  `wf_dim`, `wf_loop_region`) stay hardware.
+- **Deck ink is contrast-picked.** The deck is coloured independently of the
+  plate, so a case's own label colour can be unreadable on it. `deck_panel` sets
+  `noninteractive.fg_stroke` to `deck_ink`: dark ink on a light deck (by Rec.601
+  luma), the case's `label` otherwise. Text that sets its own colour (the wells'
+  tracker digits) is untouched.
 - Channel + Perc selectors: lit engage style, **square**; audible = amber,
   muted = plain neutral pad (not recessed).
 - Scope grid behind the waveform; brighter centre line.
