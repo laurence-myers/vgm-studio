@@ -26,6 +26,14 @@ pub(crate) fn darken(c: Color32, t: f32) -> Color32 {
     lerp_color(c, Color32::BLACK, t)
 }
 
+/// Whether `c` is light enough that dark ink reads on it better than light ink.
+/// Rec. 601 luma, which is plenty for picking between two inks.
+#[must_use]
+pub(crate) fn is_light(c: Color32) -> bool {
+    let luma = 0.299 * f32::from(c.r()) + 0.587 * f32::from(c.g()) + 0.114 * f32::from(c.b());
+    luma > 140.0
+}
+
 /// Adds a vertical-gradient rectangle to `mesh`: `top` colour at `y_top`,
 /// `bottom` at `y_bottom`, interpolated linearly down the quad.
 pub(crate) fn gradient_quad(

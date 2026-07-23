@@ -148,6 +148,20 @@ pub fn deck_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
     paint::plate_mesh(rect, top, bottom)
 }
 
+/// The ink for chrome text sitting on the deck. The deck is coloured
+/// independently of the plate, so the case's own label colour can be quite
+/// wrong on it -- a light deck needs dark text. Picks by the deck's luminance.
+#[must_use]
+pub fn deck_ink(palette: &Palette) -> egui::Color32 {
+    let (top, bottom) = palette::deck_stops(palette);
+    let mid = paint::lerp_color(top, bottom, 0.5);
+    if paint::is_light(mid) {
+        paint::darken(mid, 0.80)
+    } else {
+        palette.label
+    }
+}
+
 /// Runs `add_contents` inside a deck (the control panel's surface), like
 /// [`plate_panel`] but coloured by the case's `deck` mode, so the pads can sit
 /// on a surface distinct from the surrounding plate.
@@ -157,6 +171,9 @@ pub fn deck_panel<R>(
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
     let slot = ui.painter().add(egui::Shape::Noop);
+    // Plain labels on the deck take the deck's own ink, so a light deck reads.
+    // Text that sets its own colour (the wells' tracker digits) is untouched.
+    ui.visuals_mut().widgets.noninteractive.fg_stroke.color = deck_ink(palette);
     let inner = add_contents(ui);
     let rect =
         egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), ui.min_rect().y_range()).expand(4.0);

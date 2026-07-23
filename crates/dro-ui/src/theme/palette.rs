@@ -49,11 +49,13 @@ pub(crate) struct PadCaps {
 #[must_use]
 pub(crate) fn pad_caps(p: &Palette) -> PadCaps {
     match p.pad {
+        // Neutral white/light grey, so "light" reads as a plain pale keycap
+        // rather than a cream one that fights a cool case.
         Surface::Light => PadCaps {
-            top: Color32::from_rgb(0xF0, 0xE8, 0xD3),
-            bottom: Color32::from_rgb(0xE5, 0xDC, 0xC5),
-            border: Color32::from_rgb(0x55, 0x50, 0x3C),
-            ink: Color32::from_rgb(0x38, 0x35, 0x2A),
+            top: Color32::from_rgb(0xF2, 0xF3, 0xF3),
+            bottom: Color32::from_rgb(0xDA, 0xDD, 0xDD),
+            border: Color32::from_rgb(0x48, 0x4C, 0x4C),
+            ink: Color32::from_rgb(0x1C, 0x1E, 0x1E),
         },
         Surface::Dark => PadCaps {
             top: Color32::from_rgb(0x41, 0x4B, 0x4B),
@@ -638,7 +640,7 @@ const NAVY_CASE: CaseColors = CaseColors {
     button_pressed: Color32::from_rgb(0x5A, 0x6E, 0x92),
     button_pressed_text: Color32::WHITE,
 
-    // Cream keys on a dark rubber deck, over the navy plate.
+    // Pale keys on a dark rubber deck, over the navy plate.
     pad: Surface::Light,
     deck: Surface::Dark,
 
