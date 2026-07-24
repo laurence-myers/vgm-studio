@@ -141,6 +141,15 @@ widget — mid-panel on the narrow Tags form — instead of at the panel edge.
 Vertical shrink stays **on**; forcing it off makes a short section claim the
 whole viewport.
 
+**Screenshots is an inspector** (mockup S5 + E, `docs/skinning/mockup-pack-screenshots.html`):
+the image in a keylined sunken well beside its record — dimensions, aspect (named
+as a PC display mode when familiar), colour format, size — from
+`dro_core::pack::PngInfo`, which reads the IHDR chunk directly rather than
+decoding (fixed offset, no decoder, wasm-clean) and is parsed once per image at
+scan. Empty state is a dashed box saying what a submission wants. The mockups'
+**Replace… / Show in folder / Add Screenshot…** pads are *not* built: each needs
+a new picker channel through `FileService` (native + web + test fake).
+
 **Alert boxes scroll.** `alert.rs` caps the message at
 `content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The
 pre-export prompt lists every failed check and used to grow a box taller than
