@@ -1777,7 +1777,7 @@ const PREVIEW_MAX_WIDTH: f32 = 360.0;
 fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions: &mut Vec<Action>) {
     ui.add_space(2.0);
     if state.images.is_empty() {
-        no_screenshot(ui, palette);
+        no_screenshot(ui, state, palette, actions);
         return;
     }
     for (index, image) in state.images.iter().enumerate() {
@@ -1902,9 +1902,14 @@ fn image_facts(
 }
 
 /// The empty state. A screenshot is required for a submission -- its absence is
-/// already a checklist warning -- so this says what is wanted rather than just
-/// reporting that nothing is there.
-fn no_screenshot(ui: &mut egui::Ui, palette: &Palette) {
+/// already a checklist warning -- so this says what is wanted and offers the fix
+/// rather than just reporting that nothing is there.
+fn no_screenshot(
+    ui: &mut egui::Ui,
+    state: &PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
     ui.add_space(8.0);
     let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 18));
     let framed = frame.show(ui, |ui| {
@@ -1919,11 +1924,21 @@ fn no_screenshot(ui: &mut egui::Ui, palette: &Palette) {
                 palette.muted,
                 "A submission needs a title-screen .png at the game's native resolution.",
             );
-            ui.add_space(2.0);
-            ui.colored_label(
-                palette.muted,
-                "Drop one into the pack folder, then reopen the pack to pick it up.",
-            );
+            ui.add_space(12.0);
+            // Name the destination up front: the file is copied in *and* renamed
+            // to the pack's convention, which should not be a surprise.
+            let stem = state.doc_stem();
+            let hover = if stem.is_empty() {
+                "Copy a .png into the pack folder".to_owned()
+            } else {
+                format!("Copy a .png into the pack folder as \"{stem}.png\"")
+            };
+            if bevel::button(ui, palette, "Add Screenshot\u{2026}")
+                .on_hover_text(hover)
+                .clicked()
+            {
+                actions.push(Action::PackAddScreenshot);
+            }
         });
     });
     // Dashed, not solid: the border marks a slot waiting to be filled rather

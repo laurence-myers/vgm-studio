@@ -135,6 +135,10 @@ enum SavePurpose {
     PackDoc,
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
+    /// A screenshot copied into the pack folder. Unlike the rewrites, this
+    /// creates a file rather than changing one, and a pack transaction has no
+    /// delete to undo it with -- so it rescans without touching the undo stack.
+    ScreenshotAdded,
     /// A screenshot rewritten in place after an explicit optimise.
     ImageOptimised,
     /// The exported release zip (a Save-As dialog).
@@ -746,6 +750,14 @@ impl DroApp {
                     .push_back(Alert::new("Failed to open file", message)),
             }
         }
+        if let Some(result) = self.files.poll_picked_image() {
+            match result {
+                Ok(file) => self.add_screenshot(file),
+                Err(message) => self
+                    .alerts
+                    .push_back(Alert::new("Failed to read image", message)),
+            }
+        }
         if let Some(result) = self.files.poll_folder() {
             match result {
                 Ok(folder) => self.open_folder(folder),
@@ -1044,6 +1056,10 @@ impl DroApp {
                         self.pack_redo.clear();
                     }
                     self.rescan_pack_folder();
+                }
+                SavePurpose::ScreenshotAdded => {
+                    self.rescan_pack_folder();
+                    self.status = format!("Added {name} to the pack folder.");
                 }
                 SavePurpose::PackOp => self.advance_pack_run(),
                 SavePurpose::ExportZip => {
@@ -1680,6 +1696,7 @@ impl DroApp {
                     pack.section = section;
                 }
             }
+            Action::PackAddScreenshot => self.files.pick_image(),
             Action::PackExportZip => self.export_pack_zip(false),
             Action::ConfirmExportZip => self.export_pack_zip(true),
             Action::PackTrackOpen(index) => self.open_track_in_editor(index),
@@ -2771,6 +2788,45 @@ impl DroApp {
         self.files.save(SaveRequest::InPlace {
             path,
             bytes: optimized.bytes,
+        });
+    }
+
+    /// Copies a picked screenshot into the open pack's folder, then rescans so
+    /// the Screenshots section picks it up.
+    ///
+    /// It lands as `<Game Name>.png`, joining the `.txt` and `.m3u` the pack
+    /// already names that way -- a screenshot straight out of DOSBox is called
+    /// something like `dosbox_000.png`, and renaming it by hand is a step this
+    /// tool exists to save. With no game name yet there is nothing to rename it
+    /// to, so it keeps its own.
+    fn add_screenshot(&mut self, file: PickedFile) {
+        let Some(pack) = self.pack.as_ref() else {
+            return;
+        };
+        let Some(folder) = pack.folder_path.clone() else {
+            // Native-only; a folder opened without a path cannot be written to.
+            return;
+        };
+        // The picker filters to .png, but a determined user can still get past
+        // that -- and a non-PNG here would ship in the zip and fail review.
+        if dro_core::pack::PngInfo::parse(&file.bytes).is_none() {
+            self.alerts.push_back(Alert::new(
+                "Not a PNG",
+                format!("{} is not a readable PNG image.", file.name),
+            ));
+            return;
+        }
+        let stem = pack.doc_stem();
+        let name = if stem.is_empty() {
+            file.name.clone()
+        } else {
+            format!("{stem}.png")
+        };
+        self.status = format!("Adding {name}...");
+        self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
+        self.files.save(SaveRequest::InPlace {
+            path: folder.join(&name),
+            bytes: file.bytes,
         });
     }
 

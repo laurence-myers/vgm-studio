@@ -3054,6 +3054,127 @@ fn a_folder_without_a_png_gets_the_empty_state() {
 }
 
 #[test]
+fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder()); // no .png
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    // The empty state's pad opens the image picker -- its own channel, so a
+    // pending screenshot is never mistaken for a song to open.
+    harness.get_by_label_contains("Add Screenshot").click();
+    harness.run();
+    assert_eq!(handles.files.borrow().pick_image_calls, 1);
+    assert_eq!(
+        handles.files.borrow().pick_open_calls,
+        0,
+        "the song picker is a different channel and must stay untouched"
+    );
+
+    // The picker delivers a PNG named nothing like the game.
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "dosbox_000.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/dosbox_000.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+
+    // It lands in the pack folder as <Game Name>.png, beside the .txt and .m3u.
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a save request") {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(
+                path.to_string_lossy().ends_with("Cool Game.png"),
+                "renamed to the pack's convention, got {}",
+                path.display()
+            );
+            assert_eq!(bytes, PNG_FIXTURE, "the picked bytes are copied verbatim");
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_picked_file_that_is_not_a_png_is_refused() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    // The picker filters to .png, but a file that only *looks* like one would
+    // otherwise ship in the zip and fail review.
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "not-really.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/not-really.png")),
+            bytes: b"GIF89a and definitely not a PNG".to_vec(),
+        }));
+    harness.run();
+
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "nothing is written when the file is not a PNG"
+    );
+    assert!(
+        harness
+            .state()
+            .alerts
+            .iter()
+            .any(|a| a.title == "Not a PNG"),
+        "the refusal is surfaced rather than silent"
+    );
+}
+
+#[test]
+fn an_added_screenshot_appears_once_the_folder_rescans() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "shot.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/shot.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+
+    // Ack the write, then hand back the folder as it now stands.
+    {
+        let mut files = handles.files.borrow_mut();
+        files.save_outcomes.push_back(SaveOutcome::Saved {
+            name: "Cool Game.png".to_owned(),
+            path: None,
+        });
+        let mut folder = single_track_folder();
+        folder.files.push(PickedFile {
+            name: "Cool Game.png".to_owned(),
+            path: Some(PathBuf::from("C:/Cool Game/Cool Game.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        });
+        files.picked_folders.push_back(Ok(folder));
+    }
+    harness.run_steps(6);
+
+    let state = harness.state();
+    let pack = state.pack.as_ref().unwrap();
+    assert_eq!(pack.images.len(), 1, "the rescan picked the screenshot up");
+    assert_eq!(pack.images[0].name, "Cool Game.png");
+    assert!(
+        pack.images[0].info.is_some_and(|info| info.width == 320),
+        "its header was read for the inspector"
+    );
+}
+
+#[test]
 fn optimize_saves_a_smaller_screenshot_in_place() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());

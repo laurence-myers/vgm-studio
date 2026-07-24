@@ -98,6 +98,20 @@ pub trait FileService {
     /// The next save outcome, oldest first. `None` when none is waiting.
     fn poll_saved(&mut self) -> Option<SaveOutcome>;
 
+    /// Opens a picker for a screenshot to copy into the open pack's folder.
+    ///
+    /// Distinct from [`Self::pick_open`], which loads a *song* into the editor:
+    /// these two run on their own channels so a pending screenshot is never
+    /// mistaken for a file to open. Defaulted to nothing at all, because a
+    /// browser has no pack folder to copy into.
+    fn pick_image(&mut self) {}
+
+    /// The image from the most recent [`Self::pick_image`], or an error to show.
+    /// `None` while nothing has arrived (including after a dismissed picker).
+    fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
+        None
+    }
+
     /// Opens the platform's folder picker (pack mode).
     fn pick_folder(&mut self);
 

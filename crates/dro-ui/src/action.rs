@@ -109,6 +109,8 @@ pub enum Action {
     PackConvertDatesToHyphens,
     /// Show a pack sub-section (the section tabs, and the deck's verdict link).
     PackSelectSection(crate::pack::PackSection),
+    /// Pick a screenshot and copy it into the open pack's folder.
+    PackAddScreenshot,
     /// Build the release zip and save it (prompts first on soft warnings).
     PackExportZip,
     /// Build the release zip after the user accepted the warnings.

@@ -23,6 +23,9 @@ const PACK_EXTENSIONS: [&str; 4] = ["vgm", "vgz", "png", "txt"];
 #[derive(Debug, Default)]
 pub struct NativeFileService {
     picked: Option<Result<PickedFile, String>>,
+    /// A screenshot picked for the open pack, on its own channel so it is never
+    /// mistaken for a song to open.
+    picked_image: Option<Result<PickedFile, String>>,
     /// One outcome per `save`, oldest first: pack mode saves the description and
     /// the playlist back to back and correlates the outcomes by this order.
     saved: VecDeque<SaveOutcome>,
@@ -75,6 +78,28 @@ impl FileService for NativeFileService {
 
     fn poll_picked(&mut self) -> Option<Result<PickedFile, String>> {
         self.picked.take()
+    }
+
+    fn pick_image(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Add screenshot")
+            .add_filter("PNG images (*.png)", &["png"])
+            .pick_file()
+        else {
+            return; // dismissed; nothing to report
+        };
+        self.picked_image = Some(match fs::read(&path) {
+            Ok(bytes) => Ok(PickedFile {
+                name: file_name(&path),
+                path: Some(path),
+                bytes,
+            }),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        });
+    }
+
+    fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
+        self.picked_image.take()
     }
 
     fn save(&mut self, request: SaveRequest) {

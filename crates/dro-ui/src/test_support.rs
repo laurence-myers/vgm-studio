@@ -42,6 +42,9 @@ pub(crate) struct FileLog {
     pub pick_output_folder_calls: usize,
     /// The answer the picker gave, waiting to be polled.
     pending_output_folder: Option<Option<PathBuf>>,
+    /// Fed to `poll_picked_image`, front first (the pack's Add Screenshot).
+    pub picked_images: VecDeque<Result<PickedFile, String>>,
+    pub pick_image_calls: usize,
     /// Fed to `poll_folder`, front first (pack mode).
     pub picked_folders: VecDeque<Result<PickedFolder, String>>,
     pub pick_folder_calls: usize,
@@ -65,6 +68,14 @@ impl FileService for FakeFileService {
 
     fn poll_picked(&mut self) -> Option<Result<PickedFile, String>> {
         self.0.borrow_mut().picked.pop_front()
+    }
+
+    fn pick_image(&mut self) {
+        self.0.borrow_mut().pick_image_calls += 1;
+    }
+
+    fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
+        self.0.borrow_mut().picked_images.pop_front()
     }
 
     fn save(&mut self, request: SaveRequest) {
