@@ -59,6 +59,39 @@ pub struct PackImage {
     pub bytes: Arc<[u8]>,
 }
 
+/// Which sub-section of the pack view is open. The pack is four separate jobs --
+/// describe it, order and level the tracks, check the screenshot, work the
+/// checklist -- and stacking all four on one scrolling page meant the one being
+/// worked on was rarely the one on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PackSection {
+    /// The package metadata form.
+    #[default]
+    Tags,
+    /// The track list, with the batch tools that act on it.
+    Tracks,
+    /// The screenshots that ship with the pack.
+    Screenshots,
+    /// Every submission-readiness finding.
+    Checklist,
+}
+
+impl PackSection {
+    /// Every section, in strip order.
+    pub const ALL: [Self; 4] = [Self::Tags, Self::Tracks, Self::Screenshots, Self::Checklist];
+
+    /// The tab label naming this section.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Tags => "Tags",
+            Self::Tracks => "Tracks",
+            Self::Screenshots => "Screenshots",
+            Self::Checklist => "Checklist",
+        }
+    }
+}
+
 /// The whole pack project: what a folder scan produced, plus the editable
 /// package metadata.
 #[derive(Debug)]
@@ -93,11 +126,10 @@ pub struct PackState {
     /// consumes it on the next frame (scrolling to and focusing the field), so a
     /// checklist click can jump straight to the offending input.
     pub focus_field: Option<MetaField>,
-    /// Set by the output deck's verdict when it asks to show the checklist. The
-    /// checklist heading consumes it on the next frame by scrolling itself into
-    /// view -- the reverse of [`Self::focus_field`], which jumps *out* of the
-    /// checklist to a field.
-    pub scroll_to_checklist: bool,
+    /// The sub-section on screen.
+    pub section: PackSection,
+    /// Whether the system / OS / music-hardware fields are unfolded for editing.
+    pub show_hardware: bool,
 }
 
 impl PackState {
@@ -167,7 +199,8 @@ impl PackState {
             peaks: HashMap::new(),
             album_normalize: true,
             focus_field: None,
-            scroll_to_checklist: false,
+            section: PackSection::default(),
+            show_hardware: false,
         }
     }
 
@@ -813,7 +846,8 @@ fn to_vgz_name(name: &str) -> String {
 
 // -- view --------------------------------------------------------------------
 
-/// Draws the pack view: the package-metadata form and the track list.
+/// Draws the pack view: the pack's name, the sub-section tabs, the batch tools
+/// that belong to the open section, and that section's body.
 pub fn show(
     ui: &mut egui::Ui,
     state: &mut PackState,
@@ -822,11 +856,8 @@ pub fn show(
 ) {
     ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
-    // Header strip: what is open, and the batch operations that edit the folder
-    // in place, grouped by what they touch. Everything that *produces* the
-    // submission lives on the output deck at the foot of the window instead --
-    // batch and export are different verbs, and mixing them in one row was what
-    // overflowed this strip.
+    // What is open, on a row of its own so the pack's identity never moves or
+    // shares space with a control that might wrap away from it.
     ui.horizontal(|ui| {
         ui.visuals_mut().override_text_color = Some(palette.data_label);
         ui.label(egui::RichText::new(&state.folder_name).strong());
@@ -834,13 +865,93 @@ pub fn show(
             ui.colored_label(palette.data_text, "\u{2022}")
                 .on_hover_text("The package metadata has unsaved edits");
         }
-        ui.add_space(6.0);
+    });
+
+    section_tabs(ui, state, palette, actions);
+
+    // The batch tools edit the *tracks*, so they live with them rather than
+    // riding above every section. Everything that produces the submission is on
+    // the output deck at the foot of the window instead -- batch and export are
+    // different verbs, and mixing them in one row was what overflowed the old
+    // header.
+    if state.section == PackSection::Tracks {
+        track_tools(ui, state, palette, actions);
+    }
+
+    if let Some(warning) = &state.parse_warning {
+        ui.colored_label(palette.muted, warning);
+    }
+    crate::theme::separator_full(ui, palette);
+
+    // Horizontal `auto_shrink` off: left on, a scroll area shrinks to its
+    // content, which would park the scrollbar against the right edge of whatever
+    // the widest widget happens to be -- in the middle of the panel on the
+    // narrow Tags form -- instead of at the panel edge. Vertical shrink stays on,
+    // so a short section does not claim the whole viewport as one big hit target.
+    let scroll_out = egui::ScrollArea::vertical()
+        .auto_shrink([false, true])
+        .show(ui, |ui| match state.section {
+            PackSection::Tags => meta_form(ui, state, palette),
+            PackSection::Tracks => {
+                // The table's status glyphs read the same readiness list the
+                // checklist does, so the two can never disagree.
+                let items = state.readiness_items();
+                track_table(ui, state, &items, palette, actions);
+            }
+            PackSection::Screenshots => screenshots(ui, state, palette, actions),
+            PackSection::Checklist => {
+                let items = state.readiness_items();
+                submission_checklist(ui, state, &items, palette, actions);
+            }
+        });
+
+    // When the section overflows, frame the vertical scrollbar's channel with the
+    // sunken well bevel, flush to the panel edge -- the same treatment the editor
+    // table's bar gets.
+    if scroll_out.content_size.y > scroll_out.inner_rect.height() {
+        let bar_width = ui.spacing().scroll.bar_width;
+        let viewport = scroll_out.inner_rect;
+        let bar = egui::Rect::from_min_max(
+            egui::pos2(viewport.right(), viewport.top()),
+            egui::pos2(viewport.right() + bar_width, viewport.bottom()),
+        );
+        crate::theme::frame_scrollbar(ui, palette, bar);
+    }
+}
+
+/// The sub-section strip. Uses the same tab chrome as the Editor/Pack strip, so
+/// switching section reads as the same gesture as switching view.
+fn section_tabs(
+    ui: &mut egui::Ui,
+    state: &PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let tabs: Vec<crate::theme::tabs::Tab> = PackSection::ALL
+        .iter()
+        .map(|section| crate::theme::tabs::Tab::new(section.label()))
+        .collect();
+    let selected = PackSection::ALL
+        .iter()
+        .position(|section| *section == state.section)
+        .unwrap_or(0);
+    if let Some(index) = crate::theme::tabs::strip(ui, palette, &tabs, selected) {
+        actions.push(Action::PackSelectSection(PackSection::ALL[index]));
+    }
+}
+
+/// The batch operations that edit the folder in place, grouped by what they
+/// touch. Shown with the track list, which is what they act on.
+fn track_tools(
+    ui: &mut egui::Ui,
+    state: &mut PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    ui.horizontal(|ui| {
         crate::theme::silkscreen_group(ui, palette.data_label, "LEVELS", |ui| {
             if bevel::button(ui, palette, "Scan Volumes")
-                .on_hover_text(
-                    "Measure every track's peak level (dBFS) for the Peak column and the \
-                     suggested volume modifiers",
-                )
+                .on_hover_text("Measure every track's peak volume (dBFS)")
                 .clicked()
             {
                 actions.push(Action::PackScanVolumes);
@@ -871,8 +982,8 @@ pub fn show(
             {
                 actions.push(Action::OpenBulkTag);
             }
-            // A fix-assist for the most common mechanical problem, offered only
-            // while there is a slash date left to convert.
+            // A fix-assist for the most common mechanical problem, greyed rather
+            // than hidden once there is no slash date left to convert.
             ui.add_enabled_ui(state.has_convertible_dates(), |ui| {
                 if bevel::button(ui, palette, "Fix Dates")
                     .on_hover_text(
@@ -886,146 +997,170 @@ pub fn show(
             });
         });
     });
-    if let Some(warning) = &state.parse_warning {
-        ui.colored_label(palette.muted, warning);
-    }
-    crate::theme::separator_full(ui, palette);
+}
 
+/// The package-metadata form: what the description file is generated from.
+fn meta_form(ui: &mut egui::Ui, state: &mut PackState, palette: &Palette) {
     // The checklist may have asked (last frame) to focus a field; take that
     // request now so the form honours it this frame and it does not re-fire.
+    // Taken here rather than in `show` so a request made from another section
+    // survives until this one is actually drawn.
     let focus = state.focus_field.take();
-    let scroll_out = egui::ScrollArea::vertical().show(ui, |ui| {
-        let mut dirty = false;
-        egui::Grid::new("pack-meta")
-            .num_columns(2)
-            .spacing([10.0, 6.0])
-            .show(ui, |ui| {
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Game name:",
-                    &mut state.meta.game_name,
-                    Some(MetaField::GameName),
-                    focus,
-                );
-                dirty |= field(ui, palette, "System:", &mut state.meta.system, None, focus);
-                dirty |= field(ui, palette, "OS:", &mut state.meta.os, None, focus);
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Music hardware:",
-                    &mut state.meta.music_hardware,
-                    None,
-                    focus,
-                );
-                // One-click chip presets for the three fields above.
-                ui.label("Presets:");
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    for preset in &PRESETS {
-                        if bevel::button(ui, palette, preset.name)
-                            .on_hover_text(format!(
-                                "{} / {} / {}",
-                                preset.system, preset.os, preset.music_hardware
-                            ))
-                            .clicked()
-                        {
-                            state.meta.system = preset.system.to_owned();
-                            state.meta.os = preset.os.to_owned();
-                            state.meta.music_hardware = preset.music_hardware.to_owned();
-                            dirty = true;
-                        }
+    let mut dirty = false;
+    egui::Grid::new("pack-meta")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
+            dirty |= field(
+                ui,
+                palette,
+                "Game name:",
+                &mut state.meta.game_name,
+                Some(MetaField::GameName),
+                focus,
+            );
+            // One-click chip presets for the three hardware fields below.
+            ui.label("Presets:");
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for preset in &PRESETS {
+                    if bevel::button(ui, palette, preset.name)
+                        .on_hover_text(format!(
+                            "{} / {} / {}",
+                            preset.system, preset.os, preset.music_hardware
+                        ))
+                        .clicked()
+                    {
+                        state.meta.system = preset.system.to_owned();
+                        state.meta.os = preset.os.to_owned();
+                        state.meta.music_hardware = preset.music_hardware.to_owned();
+                        dirty = true;
                     }
-                });
-                ui.end_row();
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Music author:",
-                    &mut state.meta.music_authors,
-                    Some(MetaField::MusicAuthors),
-                    focus,
-                );
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Game developer:",
-                    &mut state.meta.developer,
-                    None,
-                    focus,
-                );
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Game publisher:",
-                    &mut state.meta.publisher,
-                    None,
-                    focus,
-                );
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Game release date:",
-                    &mut state.meta.release_date,
-                    Some(MetaField::ReleaseDate),
-                    focus,
-                );
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Package created by:",
-                    &mut state.meta.creator,
-                    Some(MetaField::Creator),
-                    focus,
-                );
-                dirty |= field(
-                    ui,
-                    palette,
-                    "Package version:",
-                    &mut state.meta.version,
-                    None,
-                    focus,
-                );
+                }
             });
+            ui.end_row();
+            dirty |= hardware_fields(ui, state, palette, focus);
+            dirty |= field(
+                ui,
+                palette,
+                "Music author:",
+                &mut state.meta.music_authors,
+                Some(MetaField::MusicAuthors),
+                focus,
+            );
+            dirty |= field(
+                ui,
+                palette,
+                "Game developer:",
+                &mut state.meta.developer,
+                None,
+                focus,
+            );
+            dirty |= field(
+                ui,
+                palette,
+                "Game publisher:",
+                &mut state.meta.publisher,
+                None,
+                focus,
+            );
+            dirty |= field(
+                ui,
+                palette,
+                "Game release date:",
+                &mut state.meta.release_date,
+                Some(MetaField::ReleaseDate),
+                focus,
+            );
+            dirty |= field(
+                ui,
+                palette,
+                "Package created by:",
+                &mut state.meta.creator,
+                Some(MetaField::Creator),
+                focus,
+            );
+            dirty |= field(
+                ui,
+                palette,
+                "Package version:",
+                &mut state.meta.version,
+                None,
+                focus,
+            );
+        });
 
-        ui.add_space(4.0);
-        dirty |= multiline(ui, palette, "Notes:", &mut state.meta.notes, None, focus);
-        dirty |= multiline(
-            ui,
-            palette,
-            "Package history:",
-            &mut state.meta.history,
-            Some(MetaField::History),
-            focus,
-        );
-        if dirty {
-            state.dirty = true;
-        }
-
-        // A clipped divider (not separator_full): inside the scroll area it must
-        // not bleed over the status bar below or past the scrollbar beside it.
-        crate::theme::separator_clipped(ui, palette);
-        // The submission checklist and the track table's status glyphs read the
-        // same readiness list, computed once here so they can never disagree.
-        let items = state.readiness_items();
-        submission_checklist(ui, state, &items, palette, actions);
-        crate::theme::separator_clipped(ui, palette);
-        track_table(ui, state, &items, palette, actions);
-        screenshots(ui, state, palette, actions);
-    });
-
-    // When the page overflows, frame the vertical scrollbar's channel with the
-    // sunken well bevel, flush to the panel edge -- the same treatment the editor
-    // table's bar gets.
-    if scroll_out.content_size.y > scroll_out.inner_rect.height() {
-        let bar_width = ui.spacing().scroll.bar_width;
-        let viewport = scroll_out.inner_rect;
-        let bar = egui::Rect::from_min_max(
-            egui::pos2(viewport.right(), viewport.top()),
-            egui::pos2(viewport.right() + bar_width, viewport.bottom()),
-        );
-        crate::theme::frame_scrollbar(ui, palette, bar);
+    ui.add_space(4.0);
+    dirty |= multiline(ui, palette, "Notes:", &mut state.meta.notes, None, focus);
+    dirty |= multiline(
+        ui,
+        palette,
+        "Package history:",
+        &mut state.meta.history,
+        Some(MetaField::History),
+        focus,
+    );
+    if dirty {
+        state.dirty = true;
     }
+}
+
+/// System / OS / music hardware, behind a disclosure. A preset sets all three,
+/// which is how nearly every pack fills them in, so they are folded away by
+/// default -- but their current values are summarised on the disclosure row, so
+/// collapsing hides the *editing*, never the facts. Returns whether one changed.
+fn hardware_fields(
+    ui: &mut egui::Ui,
+    state: &mut PackState,
+    palette: &Palette,
+    focus: Option<MetaField>,
+) -> bool {
+    ui.label("Hardware:");
+    ui.horizontal(|ui| {
+        let arrow = if state.show_hardware {
+            "\u{25BC}"
+        } else {
+            "\u{25B6}"
+        };
+        if bevel::button(ui, palette, arrow)
+            .on_hover_text(if state.show_hardware {
+                "Hide the system, OS and music hardware fields"
+            } else {
+                "Edit the system, OS and music hardware fields"
+            })
+            .clicked()
+        {
+            state.show_hardware = !state.show_hardware;
+        }
+        if !state.show_hardware {
+            let summary = [
+                state.meta.system.as_str(),
+                state.meta.os.as_str(),
+                state.meta.music_hardware.as_str(),
+            ]
+            .iter()
+            .filter(|value| !value.trim().is_empty())
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" \u{00B7} ");
+            ui.colored_label(palette.muted, summary);
+        }
+    });
+    ui.end_row();
+    if !state.show_hardware {
+        return false;
+    }
+    let mut dirty = field(ui, palette, "System:", &mut state.meta.system, None, focus);
+    dirty |= field(ui, palette, "OS:", &mut state.meta.os, None, focus);
+    dirty |= field(
+        ui,
+        palette,
+        "Music hardware:",
+        &mut state.meta.music_hardware,
+        None,
+        focus,
+    );
+    dirty
 }
 
 /// Draws the output deck: the pack's readiness lamp on the left, and on the
@@ -1061,10 +1196,10 @@ pub fn deck(
                         .frame(false),
                 )
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Scroll the submission checklist into view")
+                .on_hover_text("Open the submission checklist")
                 .clicked()
             {
-                actions.push(Action::PackShowChecklist);
+                actions.push(Action::PackSelectSection(PackSection::Checklist));
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1290,8 +1425,8 @@ fn worst_severity(items: &[&ReadinessItem]) -> Severity {
 
 /// Draws the submission checklist: one line per category -- a green tick when the
 /// category is clean, otherwise its heading followed by each unresolved item as a
-/// clickable line that jumps to the fix (a meta field focuses in the form above;
-/// a track opens its quick-edit dialog).
+/// clickable line that jumps to the fix (a meta field opens the Tags form with
+/// that field focused; a track opens its quick-edit dialog).
 fn submission_checklist(
     ui: &mut egui::Ui,
     state: &mut PackState,
@@ -1299,17 +1434,6 @@ fn submission_checklist(
     palette: &Palette,
     actions: &mut Vec<Action>,
 ) {
-    ui.add_space(2.0);
-    let heading = ui.label(
-        egui::RichText::new("Submission checklist")
-            .color(palette.data_label)
-            .strong(),
-    );
-    // The deck's verdict asked (last frame) to show the checklist; take that
-    // request now so it scrolls once rather than pinning the view here.
-    if std::mem::take(&mut state.scroll_to_checklist) {
-        heading.scroll_to_me(Some(egui::Align::TOP));
-    }
     ui.add_space(2.0);
     for category in ReadinessCategory::ALL {
         let group: Vec<&ReadinessItem> = items
@@ -1356,7 +1480,10 @@ fn checklist_item(
         match item.target {
             ReadinessTarget::Meta(field) => {
                 if checklist_link(ui, palette, &item.message).clicked() {
-                    // Honoured next frame by the form (which takes focus_field).
+                    // The field lives on the Tags form, so the jump has to change
+                    // section as well; both are honoured next frame, when that
+                    // form draws and takes `focus_field`.
+                    state.section = PackSection::Tags;
                     state.focus_field = Some(field);
                     ui.ctx().request_repaint();
                 }
@@ -1376,11 +1503,16 @@ fn checklist_item(
 /// A clickable checklist message: a frameless button that reads as plain data
 /// text (so it is a proper click/keyboard target), with a hand cursor and a hint
 /// on hover.
+///
+/// It **wraps**. These messages are sentences, and several run past 90
+/// characters -- at the app's default 800pt window an extending line overflowed
+/// the panel and was drawn straight over the vertical scrollbar, burying the
+/// handle (which is what "the scrollbar has no puck" turned out to be).
 fn checklist_link(ui: &mut egui::Ui, palette: &Palette, message: &str) -> egui::Response {
     ui.add(
         egui::Button::new(egui::RichText::new(message).color(palette.data_text))
             .frame(false)
-            .wrap_mode(egui::TextWrapMode::Extend),
+            .wrap_mode(egui::TextWrapMode::Wrap),
     )
     .on_hover_cursor(egui::CursorIcon::PointingHand)
     .on_hover_text("Click to jump to the fix")
@@ -1596,8 +1728,11 @@ fn track_table(
                                         {
                                             actions.push(Action::PackTrackOpen(index));
                                         }
-                                        if bevel::button(ui, palette, "Tags")
-                                            .on_hover_text("Edit the track's GD3 tags")
+                                        // "Edit", not "Tags": the section strip
+                                        // above now has a Tags tab, and one label
+                                        // must not name two different things.
+                                        if bevel::button(ui, palette, "Edit\u{2026}")
+                                            .on_hover_text("Rename the file and edit its GD3 tags")
                                             .clicked()
                                         {
                                             actions.push(Action::OpenTrackQuickEdit(index));
@@ -1629,19 +1764,14 @@ fn track_table(
 }
 
 fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions: &mut Vec<Action>) {
-    // A divider sets the screenshots apart from the track list above (clipped,
-    // like the Tracks divider, so it stays inside the scroll well).
-    crate::theme::separator_clipped(ui, palette);
-    ui.add_space(6.0);
+    ui.add_space(2.0);
     if state.images.is_empty() {
-        ui.colored_label(palette.muted, "No screenshot (.png) in the folder.");
+        ui.colored_label(
+            palette.muted,
+            "No screenshot (.png) in the folder. A submission needs one.",
+        );
         return;
     }
-    ui.label(
-        egui::RichText::new("Screenshots")
-            .color(palette.data_label)
-            .strong(),
-    );
     for (index, image) in state.images.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.label(

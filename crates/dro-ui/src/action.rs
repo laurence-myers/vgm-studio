@@ -107,8 +107,8 @@ pub enum Action {
     /// Rewrite every slash-separated release date (pack meta and each track's
     /// GD3) to hyphens -- the checklist's one-click date fix-assist.
     PackConvertDatesToHyphens,
-    /// Scroll the submission checklist into view (the output deck's verdict).
-    PackShowChecklist,
+    /// Show a pack sub-section (the section tabs, and the deck's verdict link).
+    PackSelectSection(crate::pack::PackSection),
     /// Build the release zip and save it (prompts first on soft warnings).
     PackExportZip,
     /// Build the release zip after the user accepted the warnings.

@@ -186,11 +186,14 @@ pub fn deck_panel<R>(
     inner
 }
 
-/// Horizontal padding inside a [`silkscreen_group`], and the caption's inset
-/// from its left keyline.
-const GROUP_PAD_X: f32 = 8.0;
-/// Vertical padding between a group's keyline and the controls inside it.
-const GROUP_PAD_Y: f32 = 5.0;
+/// Padding between a [`silkscreen_group`]'s keyline and the controls inside it,
+/// even on all four sides, and the caption's inset from the left keyline.
+const GROUP_PAD: f32 = 10.0;
+/// The gap between adjacent controls inside a group.
+const GROUP_GAP: f32 = 4.0;
+/// A group keyline's corner radius, matching the view tabs' well so the two read
+/// as the same family of chrome.
+const GROUP_RADIUS: f32 = 3.0;
 
 /// Runs `add_contents` in a silkscreen control group: a keyline box with its
 /// caption cut into the top edge, the way a fascia labels a cluster of controls.
@@ -213,25 +216,31 @@ pub fn silkscreen_group<R>(
     // The keyline runs through the caption's middle, so half of it overhangs.
     let overhang = (galley.size().y * 0.5).round();
 
+    // `add_space` only advances the cursor, but the cursor already sits one
+    // `item_spacing` past the last *widget* -- so a trailing space measures that
+    // much wider than an identical leading one. Zero the vertical spacing and
+    // discount the row gap on the trailing side, and all four paddings come out
+    // equal.
     let out = ui.vertical(|ui| {
-        ui.add_space(overhang + GROUP_PAD_Y);
+        ui.spacing_mut().item_spacing.y = 0.0;
+        ui.add_space(overhang + GROUP_PAD);
         let inner = ui
             .horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.add_space(GROUP_PAD_X);
+                ui.spacing_mut().item_spacing.x = GROUP_GAP;
+                ui.add_space(GROUP_PAD);
                 let inner = add_contents(ui);
-                ui.add_space(GROUP_PAD_X);
+                ui.add_space(GROUP_PAD - GROUP_GAP);
                 inner
             })
             .inner;
-        ui.add_space(GROUP_PAD_Y);
+        ui.add_space(GROUP_PAD);
         inner
     });
 
     let rect = out.response.rect;
     let box_rect =
         egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + overhang), rect.max);
-    let caption_pos = egui::pos2(rect.left() + GROUP_PAD_X, rect.top());
+    let caption_pos = egui::pos2(rect.left() + GROUP_PAD, rect.top());
     let gap = egui::Rangef::new(caption_pos.x - 4.0, caption_pos.x + galley.size().x + 4.0);
     let painter = ui.painter();
     gapped_outline(painter, box_rect, gap, ink.gamma_multiply(0.4));
@@ -239,17 +248,28 @@ pub fn silkscreen_group<R>(
     out.inner
 }
 
-/// A 1px rectangle outline centred on `rect`'s edges, with the top edge broken
-/// by `gap` -- the hole a group caption sits in.
+/// A rounded 1px rectangle outline centred on `rect`'s edges, opened by `gap` in
+/// the top edge -- the hole a group caption sits in. One open polyline, walked
+/// clockwise from the gap's right lip all the way round to its left lip, since a
+/// rounded `rect_stroke` cannot be broken.
 fn gapped_outline(painter: &egui::Painter, rect: egui::Rect, gap: egui::Rangef, color: Color32) {
-    let stroke = egui::Stroke::new(1.0, color);
+    let r = GROUP_RADIUS;
     let (left, right) = (rect.left() + 0.5, rect.right() - 0.5);
     let (top, bottom) = (rect.top() + 0.5, rect.bottom() - 0.5);
-    painter.hline(egui::Rangef::new(left, gap.min), top, stroke);
-    painter.hline(egui::Rangef::new(gap.max, right), top, stroke);
-    painter.hline(egui::Rangef::new(left, right), bottom, stroke);
-    painter.vline(left, egui::Rangef::new(top, bottom), stroke);
-    painter.vline(right, egui::Rangef::new(top, bottom), stroke);
+    let mut points = vec![egui::pos2(gap.max, top)];
+    // Each corner is a quarter turn, entered and left on the edges it joins.
+    let mut corner = |cx: f32, cy: f32, from_deg: f32| {
+        for step in 0..=4_u8 {
+            let angle = (from_deg + 22.5 * f32::from(step)).to_radians();
+            points.push(egui::pos2(cx + r * angle.cos(), cy + r * angle.sin()));
+        }
+    };
+    corner(right - r, top + r, -90.0);
+    corner(right - r, bottom - r, 0.0);
+    corner(left + r, bottom - r, 90.0);
+    corner(left + r, top + r, 180.0);
+    points.push(egui::pos2(gap.min, top));
+    painter.add(egui::Shape::line(points, egui::Stroke::new(1.0, color)));
 }
 
 /// A status lamp: a domed dot in `color`, bezelled and blooming onto the surface

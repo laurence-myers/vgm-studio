@@ -1675,11 +1675,9 @@ impl DroApp {
             Action::PackScanVolumes => self.scan_pack_volumes(),
             Action::PackApplySuggestedModifiers => self.apply_pack_modifiers(),
             Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
-            Action::PackShowChecklist => {
-                // Honoured by the checklist heading on the next frame, like the
-                // checklist's own jumps to a metadata field.
+            Action::PackSelectSection(section) => {
                 if let Some(pack) = self.pack.as_mut() {
-                    pack.scroll_to_checklist = true;
+                    pack.section = section;
                 }
             }
             Action::PackExportZip => self.export_pack_zip(false),

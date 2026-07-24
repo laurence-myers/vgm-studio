@@ -22,6 +22,7 @@ use dro_synth::LoopCount;
 
 use super::DroApp;
 use crate::action::{Action, AppTab};
+use crate::pack::PackSection;
 use crate::platform::{
     OptimizedImage, PackJobOutcome, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
 };
@@ -2295,6 +2296,7 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
     open_folder(&mut harness, &handles, single_track_folder());
 
     // U+25B6 play.
+    pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label("\u{25B6}").click();
     harness.run_steps(3); // playback requests repaints; `run` would spin.
     {
@@ -2338,6 +2340,7 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
 
     // Open a pack folder and preview its OPL2 track.
     open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label("\u{25B6}").click();
     harness.run_steps(3);
 
@@ -2529,6 +2532,7 @@ fn open_button_loads_the_track_into_the_editor() {
 
     // The per-row Open button is the discoverable path to the same handler the
     // double-click drives (wd-9).
+    pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label("Open").click();
     harness.run();
 
@@ -2618,7 +2622,8 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
-    harness.get_by_label("Tags").click();
+    pack_section(&mut harness, PackSection::Tracks);
+    harness.get_by_label("Edit\u{2026}").click();
     harness.run();
     assert!(
         harness.state().dialogs.track_edit.is_some(),
@@ -2899,6 +2904,7 @@ fn bulk_tag_button_opens_a_dialog() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
+    pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label_contains("Bulk Tag").click();
     harness.run();
     assert!(
@@ -3023,6 +3029,7 @@ fn optimize_saves_a_smaller_screenshot_in_place() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
+    pack_section(&mut harness, PackSection::Screenshots);
     harness.get_by_label("Recompress").click();
     harness.run();
     {
@@ -3058,6 +3065,7 @@ fn an_already_optimal_screenshot_is_not_rewritten() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
+    pack_section(&mut harness, PackSection::Screenshots);
     harness.get_by_label("Recompress").click();
     harness.run();
     handles
@@ -3178,8 +3186,8 @@ fn a_failed_export_shows_an_alert() {
 
 #[test]
 fn snapshot_pack_view() {
-    // Tall, so the form, track list and inline screenshot are all captured.
-    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
+    // The section a pack opens on: name row, section tabs, metadata form.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 900.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
     settled_snapshot(&mut harness, "pack_view");
@@ -3187,12 +3195,41 @@ fn snapshot_pack_view() {
 
 #[test]
 fn snapshot_pack_view_scrolled() {
-    // A short viewport, so the page overflows and the outer scrollbar appears --
+    // A short viewport, so the section overflows and the outer scrollbar appears --
     // framed with the sunken well bevel, flush to the panel edge (wd-13).
-    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 560.0));
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 460.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
     settled_snapshot(&mut harness, "pack_view_scrolled");
+}
+
+#[test]
+fn snapshot_pack_tracks() {
+    // The Tracks section: the only one carrying the LEVELS and TAGS tool groups.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 500.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+    settled_snapshot(&mut harness, "pack_tracks");
+}
+
+#[test]
+fn snapshot_pack_screenshots() {
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 500.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+    settled_snapshot(&mut harness, "pack_screenshots");
+}
+
+#[test]
+fn snapshot_pack_checklist_narrow() {
+    // The app's own default window width. The checklist's longest messages run
+    // past 90 characters, and an extending line used to overflow the panel and
+    // be drawn straight over the scrollbar, burying the handle -- so this guards
+    // that they wrap.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(800.0, 600.0));
+    open_folder(&mut harness, &handles, dirty_folder());
+    pack_section(&mut harness, PackSection::Checklist);
+    settled_snapshot(&mut harness, "pack_checklist_narrow");
 }
 
 /// A tall interaction harness with the dirty pack open, so the whole submission
@@ -3201,6 +3238,7 @@ fn dirty_checklist_harness() -> (Harness<'static, DroApp>, Handles) {
     let (mut harness, handles) = build_sized(None, false, false, egui::vec2(1280.0, 1400.0));
     open_folder(&mut harness, &handles, dirty_folder());
     harness.run();
+    pack_section(&mut harness, PackSection::Checklist);
     (harness, handles)
 }
 
@@ -3263,9 +3301,10 @@ fn the_output_deck_counts_the_outstanding_work_and_jumps_to_it() {
     // ...and its link is the way from the verdict back to the detail.
     harness.get_by_label("view checklist").click();
     harness.run();
-    assert!(
-        !harness.state().pack.as_ref().unwrap().scroll_to_checklist,
-        "the checklist takes the scroll request rather than leaving it to re-fire"
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().section,
+        PackSection::Checklist,
+        "the verdict link opens the checklist section"
     );
 }
 
@@ -3314,8 +3353,9 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
         "1994/03"
     );
     // The fix-assist pad is live while a slash date remains. It keeps its place
-    // in the TAGS group either way -- greyed rather than gone -- so the header
+    // in the TAGS group either way -- greyed rather than gone -- so the tool row
     // does not reflow the moment it is used.
+    pack_section(&mut harness, PackSection::Tracks);
     assert!(
         !harness
             .get_by_label("Fix Dates")
@@ -3409,7 +3449,7 @@ fn snapshot_pack_checklist_dirty() {
     // the checklist's glyphs and category headings are all in frame.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1200.0));
     open_folder(&mut harness, &handles, dirty_folder());
-    harness.run();
+    pack_section(&mut harness, PackSection::Checklist);
     settled_snapshot(&mut harness, "pack_checklist_dirty");
 }
 
@@ -3419,7 +3459,7 @@ fn snapshot_pack_checklist_clean() {
     // non-looping track leaves just the optional Loops note).
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1000.0));
     open_folder(&mut harness, &handles, complete_folder());
-    harness.run();
+    pack_section(&mut harness, PackSection::Checklist);
     settled_snapshot(&mut harness, "pack_checklist_clean");
 }
 
@@ -3427,7 +3467,8 @@ fn snapshot_pack_checklist_clean() {
 fn snapshot_track_edit_dialog() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, single_track_folder());
-    harness.get_by_label("Tags").click();
+    pack_section(&mut harness, PackSection::Tracks);
+    harness.get_by_label("Edit\u{2026}").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
 }
@@ -3436,6 +3477,7 @@ fn snapshot_track_edit_dialog() {
 fn snapshot_bulk_tag_dialog() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label_contains("Bulk Tag").click();
     harness.run();
     settled_snapshot(&mut harness, "bulk_tag_dialog");
@@ -3447,6 +3489,20 @@ fn snapshot_bulk_tag_dialog() {
 fn act(harness: &mut Harness<'static, DroApp>, action: Action) {
     let ctx = harness.ctx.clone();
     harness.state_mut().handle_action(&ctx, action);
+}
+
+/// Opens a pack sub-section. Each section draws only its own widgets, so a test
+/// that clicks one has to be looking at the right tab first.
+///
+/// Run **twice**: egui hit-tests a click against the widget rects registered on
+/// the *previous* frame, so a control that appears for the first time on the
+/// frame the section switches is not clickable until the frame after. (A real
+/// user cannot hit that window; a synthetic click landing the same millisecond
+/// can.)
+fn pack_section(harness: &mut Harness<'static, DroApp>, section: PackSection) {
+    act(harness, Action::PackSelectSection(section));
+    harness.run();
+    harness.run();
 }
 
 #[test]
