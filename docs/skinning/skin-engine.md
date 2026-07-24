@@ -113,6 +113,39 @@ Split by verb, per `docs/skinning/mockup-pack-header.html` (variation V3):
   **Recompress** — the deck's Optimize pad is the VGM `vgm_cmp` step, and two
   different jobs must not share one word on the same screen.
 
+## Pack: sub-sections (2026-07-24)
+
+The page then split by job into **Tags / Tracks / Screenshots / Checklist**
+(`PackSection`, drawn with the same `theme::tabs` strip as Editor/Pack). The
+pack's name gets a row of its own above the strip; the output deck stays below,
+whichever section is open. Consequences worth remembering:
+
+- The LEVELS and TAGS tool groups draw **only on Tracks** — batch tools live
+  with what they act on.
+- A jump has to carry its section. The deck's verdict link selects Checklist;
+  a checklist line targeting a metadata field selects **Tags** as well as
+  setting `focus_field`, and `focus_field` is taken inside the Tags form rather
+  than in `show`, so a request made from another section survives until that
+  form actually draws.
+- The per-row **Tags** button became **Edit…** — the strip now has a Tags tab.
+
+**The scrollbar bug this fixed.** The checklist's clickable lines used
+`TextWrapMode::Extend`. Several readiness messages run past 90 characters, so at
+the app's own default 800pt window a line overflowed the panel and was painted
+straight over the vertical scrollbar, burying the handle — reported as "the
+scrollbar is overlaid on the content and has no puck". They wrap now
+(`pack_checklist_narrow` guards it at 800×600). The section scroll area also
+sets `auto_shrink([false, true])`: with horizontal shrink left on, a scroll area
+sizes to its content and parks the bar against the right edge of the widest
+widget — mid-panel on the narrow Tags form — instead of at the panel edge.
+Vertical shrink stays **on**; forcing it off makes a short section claim the
+whole viewport.
+
+**Alert boxes scroll.** `alert.rs` caps the message at
+`content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The
+pre-export prompt lists every failed check and used to grow a box taller than
+the window with its buttons off the bottom.
+
 ## Deferred (not built; no blockers)
 
 - Logo strip + horizontal VU LED strip (user: skip). The vertical peak meter
