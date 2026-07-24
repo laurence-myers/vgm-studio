@@ -93,6 +93,11 @@ pub struct PackState {
     /// consumes it on the next frame (scrolling to and focusing the field), so a
     /// checklist click can jump straight to the offending input.
     pub focus_field: Option<MetaField>,
+    /// Set by the output deck's verdict when it asks to show the checklist. The
+    /// checklist heading consumes it on the next frame by scrolling itself into
+    /// view -- the reverse of [`Self::focus_field`], which jumps *out* of the
+    /// checklist to a field.
+    pub scroll_to_checklist: bool,
 }
 
 impl PackState {
@@ -162,6 +167,7 @@ impl PackState {
             peaks: HashMap::new(),
             album_normalize: true,
             focus_field: None,
+            scroll_to_checklist: false,
         }
     }
 
@@ -519,6 +525,34 @@ impl PackState {
         }
     }
 
+    /// The output deck's verdict: the worst outstanding severity (`None` when
+    /// nothing is outstanding at all) and the phrase shown beside its lamp.
+    ///
+    /// Only errors block an export, so they are the only tier whose phrase says
+    /// so; notes are counted but read as ready, matching
+    /// [`Self::validations`]'s rule that the note tier never gates.
+    #[must_use]
+    pub fn readiness_summary(&self) -> (Option<Severity>, String) {
+        let checks = self.validations();
+        let count = |n: usize, word: &str| format!("{n} {word}{}", if n == 1 { "" } else { "s" });
+        if !checks.errors.is_empty() {
+            let n = checks.errors.len();
+            (
+                Some(Severity::Error),
+                format!("{} \u{2014} export blocked", count(n, "error")),
+            )
+        } else if !checks.warnings.is_empty() {
+            (
+                Some(Severity::Warning),
+                count(checks.warnings.len(), "warning"),
+            )
+        } else if !checks.notes.is_empty() {
+            (Some(Severity::Note), count(checks.notes.len(), "note"))
+        } else {
+            (None, "Ready to submit".to_owned())
+        }
+    }
+
     /// Builds the export job: every song, every screenshot, and freshly
     /// generated docs whose names reflect the final (post-gzip) song names.
     #[must_use]
@@ -788,31 +822,20 @@ pub fn show(
 ) {
     ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
-    // Header strip: folder name, save, and the gzip-on-export toggle.
+    // Header strip: what is open, and the batch operations that edit the folder
+    // in place, grouped by what they touch. Everything that *produces* the
+    // submission lives on the output deck at the foot of the window instead --
+    // batch and export are different verbs, and mixing them in one row was what
+    // overflowed this strip.
     ui.horizontal(|ui| {
         ui.visuals_mut().override_text_color = Some(palette.data_label);
         ui.label(egui::RichText::new(&state.folder_name).strong());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if bevel::button(ui, palette, "Export Zip\u{2026}")
-                .on_hover_text(
-                    "Build the submission zip (songs, screenshot, description, playlist)",
-                )
-                .clicked()
-            {
-                actions.push(Action::PackExportZip);
-            }
-            if bevel::button(ui, palette, "Save Package Files")
-                .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
-                .clicked()
-            {
-                actions.push(Action::PackSaveDocs);
-            }
-            if bevel::button(ui, palette, "Bulk Tag\u{2026}")
-                .on_hover_text("Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at once")
-                .clicked()
-            {
-                actions.push(Action::OpenBulkTag);
-            }
+        if state.dirty {
+            ui.colored_label(palette.data_text, "\u{2022}")
+                .on_hover_text("The package metadata has unsaved edits");
+        }
+        ui.add_space(6.0);
+        crate::theme::silkscreen_group(ui, palette.data_label, "LEVELS", |ui| {
             if bevel::button(ui, palette, "Scan Volumes")
                 .on_hover_text(
                     "Measure every track's peak level (dBFS) for the Peak column and the \
@@ -822,7 +845,7 @@ pub fn show(
             {
                 actions.push(Action::PackScanVolumes);
             }
-            if bevel::button(ui, palette, "Apply Modifiers")
+            if bevel::button(ui, palette, "Apply")
                 .on_hover_text(
                     "Set each track's VGM volume modifier from the scanned peaks to level the \
                      pack (one undoable edit)",
@@ -831,16 +854,36 @@ pub fn show(
             {
                 actions.push(Action::PackApplySuggestedModifiers);
             }
-            ui.checkbox(&mut state.album_normalize, "Album")
+            // A lit pad, not a checkbox: this modifies what Apply does, so it
+            // belongs beside it, and "lit = on" is the chrome's own rule.
+            bevel::toggle(ui, palette, &mut state.album_normalize, "Album").on_hover_text(
+                "Level the whole pack by its loudest track (album mode); off normalises each \
+                 track to its own peak",
+            );
+        });
+        crate::theme::silkscreen_group(ui, palette.data_label, "TAGS", |ui| {
+            if bevel::button(ui, palette, "Bulk Tag\u{2026}")
                 .on_hover_text(
-                    "Level the whole pack by its loudest track (album mode); off normalises each \
-                     track to its own peak",
-                );
-            ui.checkbox(&mut state.gzip_on_export, "Gzip to .vgz on export");
-            ui.checkbox(&mut state.optimize_on_export, "Optimize VGMs on export")
-                .on_hover_text(
-                    "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)",
-                );
+                    "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
+                     once",
+                )
+                .clicked()
+            {
+                actions.push(Action::OpenBulkTag);
+            }
+            // A fix-assist for the most common mechanical problem, offered only
+            // while there is a slash date left to convert.
+            ui.add_enabled_ui(state.has_convertible_dates(), |ui| {
+                if bevel::button(ui, palette, "Fix Dates")
+                    .on_hover_text(
+                        "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01) in the \
+                         pack and every track, as one undoable step",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::PackConvertDatesToHyphens);
+                }
+            });
         });
     });
     if let Some(warning) = &state.parse_warning {
@@ -982,6 +1025,85 @@ pub fn show(
             egui::pos2(viewport.right() + bar_width, viewport.bottom()),
         );
         crate::theme::frame_scrollbar(ui, palette, bar);
+    }
+}
+
+/// Draws the output deck: the pack's readiness lamp on the left, and on the
+/// right everything that turns the folder into a submission -- the two export
+/// options, the docs, and the zip itself.
+///
+/// The app hosts this as a bottom panel, so export is reachable however far the
+/// form and track list have scrolled, and the verdict sits beside the gate it
+/// reports on rather than paragraphs away from it.
+pub fn deck(
+    ui: &mut egui::Ui,
+    state: &mut PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let (severity, summary) = state.readiness_summary();
+    ui.horizontal(|ui| {
+        ui.set_min_height(ui.spacing().interact_size.y);
+        ui.spacing_mut().item_spacing.x = 6.0;
+        crate::theme::led(ui, lamp_colour(severity, palette)).on_hover_text(match severity {
+            None => "Every submission check passes",
+            Some(Severity::Error) => "This must be fixed before the pack can be exported",
+            Some(Severity::Warning) => "Exporting will ask you to confirm these first",
+            Some(Severity::Note) => "Worth a look, but nothing here blocks an export",
+        });
+        ui.label(summary);
+        // Only worth a jump when the checklist has something to say.
+        if severity.is_some() {
+            let ink = crate::theme::deck_ink(palette);
+            if ui
+                .add(
+                    egui::Button::new(egui::RichText::new("view checklist").color(ink).underline())
+                        .frame(false),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Scroll the submission checklist into view")
+                .clicked()
+            {
+                actions.push(Action::PackShowChecklist);
+            }
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            if bevel::button(ui, palette, "Export Zip\u{2026}")
+                .on_hover_text(
+                    "Build the submission zip (songs, screenshot, description, playlist)",
+                )
+                .clicked()
+            {
+                actions.push(Action::PackExportZip);
+            }
+            if bevel::button(ui, palette, "Save Package Files")
+                .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
+                .clicked()
+            {
+                actions.push(Action::PackSaveDocs);
+            }
+            crate::theme::separator(ui, palette);
+            // The two export options, as lit pads rather than the sentence-long
+            // checkboxes that used to crowd the header: the tooltip carries the
+            // detail, and "lit = on" is the same rule every other pad follows.
+            bevel::toggle(ui, palette, &mut state.optimize_on_export, "Optimize").on_hover_text(
+                "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)",
+            );
+            bevel::toggle(ui, palette, &mut state.gzip_on_export, "Gzip")
+                .on_hover_text("Gzip each .vgm to .vgz on export -- the VGMRips convention");
+        });
+    });
+}
+
+/// The colour the deck's verdict lamp burns for a readiness severity. Only an
+/// error is red: a warning merely prompts on export, and a note never gates at
+/// all, so both of those read as "the pack can ship".
+fn lamp_colour(severity: Option<Severity>, palette: &Palette) -> egui::Color32 {
+    match severity {
+        Some(Severity::Error) => palette.meter_high,
+        Some(Severity::Warning) => palette.meter_mid,
+        None | Some(Severity::Note) => palette.meter_low,
     }
 }
 
@@ -1178,24 +1300,16 @@ fn submission_checklist(
     actions: &mut Vec<Action>,
 ) {
     ui.add_space(2.0);
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new("Submission checklist")
-                .color(palette.data_label)
-                .strong(),
-        );
-        // A one-click fix for the most common mechanical problem: slash dates.
-        if state.has_convertible_dates()
-            && bevel::button(ui, palette, "Convert dates to hyphens")
-                .on_hover_text(
-                    "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01) in the pack \
-                     and every track, as one undoable step",
-                )
-                .clicked()
-        {
-            actions.push(Action::PackConvertDatesToHyphens);
-        }
-    });
+    let heading = ui.label(
+        egui::RichText::new("Submission checklist")
+            .color(palette.data_label)
+            .strong(),
+    );
+    // The deck's verdict asked (last frame) to show the checklist; take that
+    // request now so it scrolls once rather than pinning the view here.
+    if std::mem::take(&mut state.scroll_to_checklist) {
+        heading.scroll_to_me(Some(egui::Align::TOP));
+    }
     ui.add_space(2.0);
     for category in ReadinessCategory::ALL {
         let group: Vec<&ReadinessItem> = items
@@ -1538,7 +1652,10 @@ fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions:
             ui.label(
                 egui::RichText::new(format!("({} bytes)", image.bytes.len())).color(palette.muted),
             );
-            if bevel::button(ui, palette, "Optimize")
+            // "Recompress", not "Optimize": the deck's Optimize pad is the VGM
+            // pipeline's vgm_cmp step, and two different jobs must not share one
+            // word on the same screen.
+            if bevel::button(ui, palette, "Recompress")
                 .on_hover_text("Losslessly recompress with oxipng and save in place")
                 .clicked()
             {

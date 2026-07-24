@@ -629,6 +629,34 @@ impl DroApp {
                     });
                 })
         });
+        // The pack view's output deck: the readiness lamp and everything that
+        // turns the folder into a submission, pinned to the foot of the window
+        // so they stay reachable however far the form and track list scroll.
+        // The editor's transport deck occupies the same slot on the other tab.
+        let pack_deck = (!editor_tab && self.pack.is_some()).then(|| {
+            let deck_frame = egui::Frame::side_top_panel(ui.style())
+                .fill(egui::Color32::TRANSPARENT)
+                .inner_margin(egui::Margin {
+                    left: 8,
+                    right: 8,
+                    top: 0,
+                    bottom: 0,
+                });
+            egui::Panel::bottom("pack-deck")
+                .frame(deck_frame)
+                .show_separator_line(false)
+                .show(ui, |ui| {
+                    theme::deck_panel(ui, p, |ui| {
+                        const PAD: f32 = 6.0;
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.add_space(PAD);
+                        if let Some(pack) = self.pack.as_mut() {
+                            crate::pack::deck(ui, pack, p, &mut actions);
+                        }
+                        ui.add_space(PAD);
+                    });
+                })
+        });
         // The editor's central panel is one big data well; the pack view sits on
         // the FT2 desktop tint, with its own sunken wells inside.
         let central_fill = if editor_tab { p.data_bg } else { p.desktop };
@@ -675,6 +703,9 @@ impl DroApp {
         }
         if let Some(position) = &position {
             seams.push(position.response.rect.top());
+        }
+        if let Some(pack_deck) = &pack_deck {
+            seams.push(pack_deck.response.rect.top());
         }
         seams.push(status.response.rect.top());
         for seam in seams {
@@ -1644,6 +1675,13 @@ impl DroApp {
             Action::PackScanVolumes => self.scan_pack_volumes(),
             Action::PackApplySuggestedModifiers => self.apply_pack_modifiers(),
             Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
+            Action::PackShowChecklist => {
+                // Honoured by the checklist heading on the next frame, like the
+                // checklist's own jumps to a metadata field.
+                if let Some(pack) = self.pack.as_mut() {
+                    pack.scroll_to_checklist = true;
+                }
+            }
             Action::PackExportZip => self.export_pack_zip(false),
             Action::ConfirmExportZip => self.export_pack_zip(true),
             Action::PackTrackOpen(index) => self.open_track_in_editor(index),

@@ -41,7 +41,8 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
 - `bevel.rs` — the pad painter (`button`/`toggle`/`icon_button`/`icon_toggle`,
   engage toggles latch amber) plus the old sunken bevel for wells.
 - `icon.rs` — 14 line-icon glyphs as epaint segments/arcs (no SVG dep), 1.5px.
-- `mod.rs` — `plate_shape`/`plate_panel`, `deck_shape`/`deck_panel`, `deck_ink`.
+- `mod.rs` — `plate_shape`/`plate_panel`, `deck_shape`/`deck_panel`, `deck_ink`,
+  `silkscreen_group`, `led`.
 - `feathering` re-enabled; the DOS font stays hard-pixel.
 
 ## Cases (twelve)
@@ -80,6 +81,37 @@ Settings ▸ Theme iterates `ThemeChoice::ALL`.
 - Channel + Perc selectors: lit engage style, **square**; audible = amber,
   muted = plain neutral pad (not recessed).
 - Scope grid behind the waveform; brighter centre line.
+- **Silkscreen groups take their ink from the caller.** `silkscreen_group` is a
+  keyline box with the caption cut into its top edge (drawn as two segments
+  either side of the caption, so it never has to know the surface behind it);
+  the keyline is the caption ink dimmed, i.e. printed *on* the surface rather
+  than engraved into it. Pass `label` on a plate or face, `data_label` on the
+  desktop the pack view sits on — a case's `label` is dark ink meant for a light
+  plate and would vanish on the dark desk. Both combinations are in the theme
+  showcase.
+- **Status lamps are surface-independent.** `led` bezels the dot with a black
+  alpha rather than a palette role, so the amber warning lamp still reads on a
+  light deck. The colour is a `meter_*` role chosen by the caller.
+
+## Pack: the output deck (2026-07-24)
+
+The pack header used to be one `right_to_left` row of five pads and three
+sentence-long checkboxes, which overflowed and collided with the folder name.
+Split by verb, per `docs/skinning/mockup-pack-header.html` (variation V3):
+
+- The **header** keeps only batch operations that edit the folder in place, in
+  two silkscreen groups: LEVELS (Scan Volumes / Apply / Album) and TAGS (Bulk
+  Tag… / Fix Dates). "Fix Dates" moved here from the checklist heading and is
+  now greyed rather than hidden when there is nothing to convert, so the header
+  does not reflow the moment it is used.
+- The **output deck** (`pack::deck`, hosted by `app.rs` as a bottom
+  `deck_panel`, the slot the editor's transport deck occupies on the other tab)
+  carries the readiness lamp and everything that produces the submission: the
+  verdict + a "view checklist" link, then Gzip / Optimize / Save Package Files /
+  Export Zip…. Export stays put however far the form and track list scroll.
+- The three checkboxes became lit pads. The screenshot button was renamed
+  **Recompress** — the deck's Optimize pad is the VGM `vgm_cmp` step, and two
+  different jobs must not share one word on the same screen.
 
 ## Deferred (not built; no blockers)
 

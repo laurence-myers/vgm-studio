@@ -1,0 +1,511 @@
+<title>DRO Trimmer — Pack header tidy-up</title>
+<style>
+  :root{
+    /* Navy case, real engine values (palette.rs) */
+    --desktop:#171F30;
+    --plate-top:#3E5273; --plate-bot:#283A57; --plate-border:#10192A;
+    --plate-mid:#33465F;
+    --bevelL:#5E76A0; --bevelD:#14203A; --keyline:#0A0F1A;
+    --lab:#D6E2F5; --mut:#7E8FB0; --datalab:#B8C6E0; --gold:#F2C766;
+    --well:#0C1414; --trough:#1A2440;
+    --pad-top:#F2F3F3; --pad-bot:#DADDDD; --pad-border:#484C4C; --pad-ink:#1C1E1E;
+    --lit-top:#FBE38C; --lit-bot:#DDB047; --lit-border:#8A6D28; --lit-ink:#3F2E08;
+    --deck-top:#24302F; --deck-bot:#151D1D; --deck-ink:#C6D0D0;
+    --led-off:#1C283C; --green:#3CC850; --amber:#E6C846; --red:#E04A4A;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCE6F5;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:1080px;margin:0 auto}
+
+  header{margin-bottom:30px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--gold); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:74ch; margin:0 0 8px}
+  .sub b{color:#DCE6F5; font-weight:700}
+  .sub code{color:var(--gold); font-size:12px}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--gold); margin:44px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:#FF9E3D}
+  .verdict{color:var(--mut); font-size:11.5px; margin:0 0 3px; max-width:84ch}
+  .verdict b{color:#DCE6F5}
+  .verdict code{color:var(--gold); font-size:11px}
+  .roles{color:#5F7194; font-size:11px; margin:0 0 12px; max-width:84ch}
+  .roles code{color:var(--gold)}
+  .stripcap{font-size:9.5px; letter-spacing:.06em; color:#5F7194; margin:3px 0 14px}
+
+  /* ---- the mocked window strip ------------------------------------------ */
+  .strip{
+    width:960px; max-width:100%;
+    border:1px solid #000; box-shadow:0 0 0 1px var(--keyline);
+    background:var(--desktop); overflow:hidden; position:relative;
+  }
+  .strip.narrow{width:620px}
+
+  .hdr{
+    background:linear-gradient(var(--plate-top),var(--plate-bot));
+    border-bottom:1px solid var(--plate-border);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.14), inset 0 -1px 0 rgba(0,0,0,.28);
+    padding:8px 10px; display:flex; align-items:center; gap:8px;
+    position:relative; min-height:40px;
+  }
+  .hdr.tall{flex-wrap:wrap; row-gap:7px}
+  .folder{color:var(--datalab); font-weight:700; font-size:12px; white-space:nowrap}
+  .dirty{color:var(--gold); font-weight:700}
+  .spacer{flex:1}
+
+  /* content ground under the header: two form rows */
+  .bodyform{padding:9px 12px 11px; font-size:10.5px; color:var(--mut)}
+  .bodyform .row{display:flex; align-items:center; gap:8px; margin:0 0 6px}
+  .bodyform .row:last-child{margin-bottom:0}
+  .bodyform label{width:130px; color:var(--datalab); text-align:right; flex:none}
+  .fwell{
+    flex:none; width:300px; background:var(--well); color:var(--gold);
+    border:1px solid #000; box-shadow:inset 0 1px 2px rgba(0,0,0,.7);
+    padding:2px 7px; white-space:nowrap; overflow:hidden;
+  }
+
+  /* pads: the app's real button chrome (pale caps, amber latch, r3) */
+  .pad{
+    display:inline-flex; align-items:center; gap:5px;
+    font:700 11px var(--mono); color:var(--pad-ink);
+    background:linear-gradient(var(--pad-top),var(--pad-bot));
+    border:1px solid var(--pad-border); border-radius:4px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.85), 0 1px 0 rgba(0,0,0,.45);
+    padding:4px 10px; white-space:nowrap; user-select:none; cursor:default;
+  }
+  .pad.primary{padding:4px 14px}
+  .pad.lit{
+    background:linear-gradient(var(--lit-top),var(--lit-bot));
+    border-color:var(--lit-border); color:var(--lit-ink);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.6), 0 0 6px rgba(240,200,90,.35), 0 1px 0 rgba(0,0,0,.45);
+  }
+  .pad.mini{font-size:10px; padding:2px 7px; letter-spacing:.04em}
+  .pad .caret{font-size:9px; margin-left:1px}
+  .pad svg{display:block}
+  /* split button: two cells sharing a border */
+  .split{display:inline-flex}
+  .split .pad:first-child{border-top-right-radius:0;border-bottom-right-radius:0;border-right-width:0}
+  .split .pad:last-child{border-top-left-radius:0;border-bottom-left-radius:0;padding:4px 7px}
+
+  /* egui checkbox, as today: dark box + gold tick + silkscreen label */
+  .cb{display:inline-flex; align-items:center; gap:5px; color:var(--lab); font-size:11px; white-space:nowrap}
+  .cb i{
+    width:13px; height:13px; flex:none; font-style:normal; font-size:10px; line-height:12px;
+    text-align:center; color:var(--gold);
+    background:var(--trough); border:1px solid var(--keyline);
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.7);
+  }
+
+  /* silkscreen group: engraved keyline box with a cut-in caption */
+  .grp{
+    position:relative; display:inline-flex; align-items:center; gap:5px;
+    border:1px solid rgba(20,32,58,.9); border-radius:4px;
+    box-shadow:0 1px 0 rgba(94,118,160,.30), inset 0 1px 0 rgba(0,0,0,.22);
+    padding:9px 8px 7px; margin-top:5px;
+  }
+  .grp>b{
+    position:absolute; top:-7px; left:8px;
+    font:700 9px var(--mono); letter-spacing:.18em; color:var(--datalab);
+    background:var(--plate-mid); padding:0 5px; border-radius:2px;
+  }
+
+  .led{width:8px; height:8px; border-radius:50%; flex:none;
+    background:var(--led-off); border:1px solid var(--keyline);
+    box-shadow:inset 0 1px 1px rgba(0,0,0,.5)}
+  .led.g{background:var(--green); box-shadow:0 0 5px rgba(60,200,80,.7)}
+  .led.a{background:var(--amber); box-shadow:0 0 5px rgba(230,200,70,.7)}
+  .led.r{background:var(--red); box-shadow:0 0 5px rgba(224,74,74,.7)}
+  .ledlab{font-size:10.5px; color:var(--lab); white-space:nowrap}
+  .ledlab a{color:var(--gold); text-decoration:underline; cursor:pointer}
+
+  /* dropdown menu panel */
+  .menu{
+    position:absolute; z-index:5; min-width:230px;
+    background:linear-gradient(#31445F,#283A57);
+    border:1px solid var(--plate-border); border-radius:4px;
+    box-shadow:0 0 0 1px var(--keyline), 0 6px 14px rgba(0,0,0,.55),
+      inset 0 1px 0 rgba(255,255,255,.12);
+    padding:4px; font-size:11px;
+  }
+  .menu .mi{
+    display:flex; align-items:center; gap:7px; color:var(--lab);
+    padding:4px 8px; border-radius:3px; white-space:nowrap;
+  }
+  .menu .mi.hov{background:#3E5478}
+  .menu .mi.strong{color:#fff; font-weight:700}
+  .menu .mi small{color:var(--mut); margin-left:auto; padding-left:14px; font-size:10px}
+  .menu .sep{height:1px; margin:4px 6px;
+    background:linear-gradient(90deg,transparent,var(--bevelD) 20%,var(--bevelD) 80%,transparent);
+    box-shadow:0 1px 0 rgba(94,118,160,.25)}
+  .menu .cap{font-size:9px; letter-spacing:.18em; color:var(--mut); padding:3px 8px 1px; text-transform:uppercase}
+  .mtick{width:12px; flex:none; text-align:center; color:var(--gold); font-weight:700}
+  .mtick.off{color:transparent}
+
+  /* the rubber output deck (footer bar) */
+  .deck{
+    background:linear-gradient(var(--deck-top),var(--deck-bot));
+    border-top:1px solid #000;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+    padding:8px 10px; display:flex; align-items:center; gap:8px;
+  }
+  .deck .ledlab{color:var(--deck-ink)}
+
+  /* pipeline stages */
+  .stage{
+    position:relative; display:inline-flex; align-items:center; gap:5px;
+    border:1px solid rgba(20,32,58,.9); border-radius:4px;
+    box-shadow:0 1px 0 rgba(94,118,160,.30), inset 0 1px 0 rgba(0,0,0,.22);
+    padding:9px 8px 7px; margin-top:5px;
+  }
+  .stage>b{
+    position:absolute; top:-7px; left:8px; display:flex; align-items:center; gap:4px;
+    font:700 9px var(--mono); letter-spacing:.18em; color:var(--datalab);
+    background:var(--plate-mid); padding:0 5px; border-radius:2px;
+  }
+  .stage>b .led{width:6px;height:6px}
+  .chev{color:var(--mut); font-size:12px; padding:0 1px; margin-top:4px}
+
+  /* icon pads with silkscreen captions beneath */
+  .icol{display:inline-flex; flex-direction:column; align-items:center; gap:2px}
+  .icol .pad{padding:4px 6px}
+  .icol small{font-size:8px; letter-spacing:.14em; color:var(--datalab)}
+  .vsep{width:1px; align-self:stretch; margin:1px 4px;
+    background:linear-gradient(var(--bevelD),var(--bevelD));
+    box-shadow:1px 0 0 rgba(94,118,160,.3)}
+
+  /* T0 narrow break */
+  .broke .rtl{position:absolute; right:10px; top:8px; white-space:nowrap;
+    display:flex; align-items:center; gap:8px}
+</style>
+
+<div class="page">
+<header>
+  <h1>Pack — header tidy-up</h1>
+  <p class="sub">The Pack header is one <code>right_to_left</code> row holding <b>five pads and three
+  checkboxes</b>: Export Zip, Save Package Files, Bulk Tag, Scan Volumes, Apply Modifiers, then
+  Album / Gzip / Optimize. It fills the row at a comfortable window width and collides with the
+  folder name below it. Six treatments follow, all built from chrome the skin engine already has —
+  pads, the amber latch, silkscreen keylines, the rubber deck, LEDs.</p>
+  <p class="sub">Two ideas recur. <b>Latching mini pads replace checkbox prose</b>: “Gzip to .vgz on
+  export” becomes a lit <b>VGZ</b> pad (tooltip keeps the sentence) — the engine's “lit = on” rule,
+  and a huge width win. And <b>batch vs. export are different verbs</b>: batch ops edit the folder in
+  place, export produces the deliverable — they should read as separate clusters, not one queue.</p>
+</header>
+
+<h2>T0 · Today (the problem)</h2>
+<p class="verdict">One unbroken row. The three checkbox sentences alone are ~340pt; at any narrower
+width the row runs left over the folder name and clips. Nothing groups: “Album” modifies Apply
+Modifiers but sits nearer to Gzip, and Save/Export (outputs) interleave with Scan/Apply (edits).</p>
+<div class="strip">
+  <div class="hdr">
+    <span class="folder">Doom II</span>
+    <span class="spacer"></span>
+    <span class="cb"><i>√</i>Optimize VGMs on export</span>
+    <span class="cb"><i>√</i>Gzip to .vgz on export</span>
+    <span class="cb"><i>√</i>Album</span>
+    <span class="pad">Apply Modifiers</span>
+    <span class="pad">Scan Volumes</span>
+    <span class="pad">Bulk Tag…</span>
+    <span class="pad">Save Package Files</span>
+    <span class="pad">Export Zip…</span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+</div>
+<p class="stripcap">960pt — already shoulder-to-shoulder, and the verbs are shuffled.</p>
+<div class="strip narrow broke">
+  <div class="hdr" style="min-height:40px">
+    <span class="folder" style="opacity:.35">Doom II</span>
+    <div class="rtl">
+      <span class="cb"><i>√</i>Gzip to .vgz on export</span>
+      <span class="cb"><i>√</i>Album</span>
+      <span class="pad">Apply Modifiers</span>
+      <span class="pad">Scan Volumes</span>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Save Package Files</span>
+      <span class="pad">Export Zip…</span>
+    </div>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+  </div>
+</div>
+<p class="stripcap">620pt — the row tramples the folder name and the leftmost controls clip off.</p>
+
+<h2>V1 · Silkscreen tool groups (two-deck header)</h2>
+<p class="verdict"><b>Group, don't hide.</b> The header becomes two rows: a title row (folder, unsaved
+dot, a readiness LED) and a tool row of three engraved silkscreen groups — <b>LEVELS</b>,
+<b>TAGS</b>, <b>OUTPUT</b> — exactly how a fascia labels its control clusters. The checkboxes become
+latching mini pads inside their group (<code>ALBUM</code> next to the buttons it modifies,
+<code>VGZ</code>/<code>OPT</code> beside Export). Everything stays one click away.</p>
+<p class="roles">engraved keyline + cut-in caption = new silkscreen primitive · minis =
+<code>bevel::toggle</code> as-is · LED = <code>meter_low/mid/high</code> · cheapest to build</p>
+<div class="strip">
+  <div class="hdr" style="gap:10px">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="led a"></span><span class="ledlab">2 warnings</span>
+  </div>
+  <div class="hdr" style="min-height:46px; gap:12px; border-top:0">
+    <span class="grp"><b>LEVELS</b>
+      <span class="pad">Scan Volumes</span>
+      <span class="pad">Apply</span>
+      <span class="pad mini lit">ALBUM</span>
+    </span>
+    <span class="grp"><b>TAGS</b>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Dates → -</span>
+    </span>
+    <span class="spacer"></span>
+    <span class="grp"><b>OUTPUT</b>
+      <span class="pad mini lit">VGZ</span>
+      <span class="pad mini lit">OPT</span>
+      <span class="pad">Save Files</span>
+      <span class="pad primary">Export Zip…</span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+</div>
+<p class="stripcap">960pt — three clusters, outputs pinned right, options shrunk to lit minis.</p>
+<div class="strip narrow">
+  <div class="hdr" style="gap:10px">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="led a"></span><span class="ledlab">2 warnings</span>
+  </div>
+  <div class="hdr tall" style="gap:12px; border-top:0">
+    <span class="grp"><b>LEVELS</b>
+      <span class="pad">Scan Volumes</span>
+      <span class="pad">Apply</span>
+      <span class="pad mini lit">ALBUM</span>
+    </span>
+    <span class="grp"><b>TAGS</b>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Dates → -</span>
+    </span>
+    <span class="grp"><b>OUTPUT</b>
+      <span class="pad mini lit">VGZ</span>
+      <span class="pad mini lit">OPT</span>
+      <span class="pad">Save Files</span>
+      <span class="pad primary">Export Zip…</span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+  </div>
+</div>
+<p class="stripcap">620pt — groups wrap as whole units; nothing clips, nothing collides.</p>
+
+<h2>V2 · Two menus (Batch ▾ / Export split button)</h2>
+<p class="verdict"><b>Consolidate ruthlessly.</b> The header keeps exactly two controls: a
+<code>Batch ▾</code> menu pad and a <b>split Export button</b> — the wide cell fires Export Zip
+directly, the caret cell opens Save Package Files and the export options. Batch ops cost one extra
+click, which is honest about frequency: Scan/Apply/Bulk Tag run a few times per pack, Export runs
+last. Scales for free as batch ops grow (loop-detect, rerips…) without widening the header.</p>
+<p class="roles">menu = egui popup restyled as a raised plate panel · split pad = two
+<code>bevel::button_sized</code> cells sharing a border · ticks reuse the CP437 <code>√</code></p>
+<div class="strip" style="height:210px">
+  <div class="hdr">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="pad">Batch <span class="caret">▼</span></span>
+    <span class="split">
+      <span class="pad primary">Export Zip…</span>
+      <span class="pad"><span class="caret">▼</span></span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+  <div class="menu" style="top:40px; right:180px">
+    <div class="mi">Scan Volumes</div>
+    <div class="mi hov">Apply Modifiers</div>
+    <div class="mi"><span class="mtick">√</span>Album mode<small>levels by loudest</small></div>
+    <div class="sep"></div>
+    <div class="mi">Bulk Tag…</div>
+    <div class="mi">Convert dates to hyphens</div>
+  </div>
+  <div class="menu" style="top:40px; right:10px">
+    <div class="mi">Save Package Files<small>.txt + .m3u</small></div>
+    <div class="sep"></div>
+    <div class="cap">On export</div>
+    <div class="mi"><span class="mtick">√</span>Gzip songs to .vgz</div>
+    <div class="mi"><span class="mtick">√</span>Optimize VGMs (vgm_cmp)</div>
+    <div class="sep"></div>
+    <div class="mi strong">Export Zip…</div>
+  </div>
+</div>
+<p class="stripcap">Both menus shown open at once for the mockup; in the app only one drops at a time.</p>
+
+<h2>V3 · Output deck (export moves to a footer bar)</h2>
+<p class="verdict"><b>Export is the last act — put it at the end.</b> The header keeps only the batch
+clusters; a rubber <b>output deck</b> pins to the bottom, exactly the editor's transport-deck
+precedent. The readiness LED and its summary sit on the deck <i>next to the gate they control</i> —
+“2 warnings” is a link that scrolls to the checklist. The Export pad is always visible however far
+you scroll the form and track table.</p>
+<p class="roles">deck = <code>theme::deck_panel</code> as-is (dark rubber on navy) ·
+<code>deck_ink</code> for its labels · header halves; medium build (one new bottom panel)</p>
+<div class="strip">
+  <div class="hdr" style="gap:12px; min-height:46px">
+    <span class="folder" style="margin-top:4px">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="grp"><b>LEVELS</b>
+      <span class="pad">Scan Volumes</span>
+      <span class="pad">Apply</span>
+      <span class="pad mini lit">ALBUM</span>
+    </span>
+    <span class="grp"><b>TAGS</b>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Dates → -</span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+  <div class="deck">
+    <span class="led a"></span>
+    <span class="ledlab">2 warnings — <a>view checklist</a></span>
+    <span class="spacer"></span>
+    <span class="pad mini lit">VGZ</span>
+    <span class="pad mini lit">OPT</span>
+    <span class="pad">Save Files</span>
+    <span class="pad primary">EXPORT ZIP…</span>
+  </div>
+</div>
+<p class="stripcap">The deck stays put while the form and track table scroll behind it.</p>
+
+<h2>V4 · Pipeline strip (tag → level → ship)</h2>
+<p class="verdict"><b>The header teaches the workflow.</b> One full-width strip of three stages read
+left to right like a signal chain, each wearing a status LED in its silkscreen caption: TAG is green
+(GD3 checks pass), LEVEL is amber (scanned, modifiers not applied), SHIP is amber (warnings
+outstanding). Strongest for first-time pack builders; but it is the widest option, and the LEDs
+restate what the checklist below already says — status lives in two places.</p>
+<p class="roles">stage = the V1 group + an LED in the caption · LED state maps from
+<code>readiness_items()</code> buckets · widest; wraps like V1 when narrow</p>
+<div class="strip">
+  <div class="hdr" style="gap:10px">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+  </div>
+  <div class="hdr" style="min-height:46px; gap:4px; border-top:0">
+    <span class="stage"><b><span class="led g"></span>1 · TAG</b>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Dates → -</span>
+    </span>
+    <span class="chev">▸</span>
+    <span class="stage"><b><span class="led a"></span>2 · LEVEL</b>
+      <span class="pad">Scan</span>
+      <span class="pad">Apply</span>
+      <span class="pad mini lit">ALBUM</span>
+    </span>
+    <span class="chev">▸</span>
+    <span class="spacer"></span>
+    <span class="stage"><b><span class="led a"></span>3 · SHIP</b>
+      <span class="pad mini lit">VGZ</span>
+      <span class="pad mini lit">OPT</span>
+      <span class="pad">Save Files</span>
+      <span class="pad primary">Export Zip…</span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+</div>
+<p class="stripcap">Stage LEDs reuse the meter colours; the chevrons are silkscreen, not controls.</p>
+
+<h2>V5 · Icon pads + options popover (maximum density)</h2>
+<p class="verdict"><b>One row, kept honest with captions.</b> Batch ops shrink to icon pads with tiny
+silkscreen captions beneath — the hardware answer to “icons alone are unguessable”. A gear pad opens
+the options popover (Album / VGZ / OPT), leaving the two output pads as the only text buttons.
+Densest single-row layout; the line-icon set already exists. Risk: four icons to learn, and the
+captions push the header a few points taller anyway.</p>
+<p class="roles">icon pads = <code>bevel</code> icon buttons + an 8px caption row ·
+popover = the V2 menu panel · gear collects every option in one place</p>
+<div class="strip" style="height:196px">
+  <div class="hdr" style="min-height:50px">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="icol"><span class="pad"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="4"/><path d="M9 9l3.5 3.5M4 6h1l1-1.5L7 7l1-1h1"/></svg></span><small>SCAN</small></span>
+    <span class="icol"><span class="pad"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 2v10M10 2v10"/><rect x="2.5" y="7" width="3" height="2.6" fill="currentColor" stroke="none"/><rect x="8.5" y="3.5" width="3" height="2.6" fill="currentColor" stroke="none"/></svg></span><small>LEVEL</small></span>
+    <span class="icol"><span class="pad"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7.5 2H12v4.5L6.5 12 2 7.5 7.5 2z"/><circle cx="9.6" cy="4.4" r=".9" fill="currentColor" stroke="none"/></svg></span><small>TAGS</small></span>
+    <span class="icol"><span class="pad"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="10" height="9"/><path d="M2 6h10M4.5 1.5v3M9.5 1.5v3"/></svg></span><small>DATES</small></span>
+    <span class="vsep"></span>
+    <span class="icol"><span class="pad"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="2.2"/><path d="M7 1.5v2M7 10.5v2M1.5 7h2M10.5 7h2M3.2 3.2l1.4 1.4M9.4 9.4l1.4 1.4M10.8 3.2L9.4 4.6M4.6 9.4l-1.4 1.4"/></svg></span><small>OPTS</small></span>
+    <span class="icol"><span class="pad">Save Files</span><small>&nbsp;</small></span>
+    <span class="icol"><span class="pad primary">Export Zip…</span><small>&nbsp;</small></span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+  <div class="menu" style="top:50px; right:210px">
+    <div class="cap">Levelling</div>
+    <div class="mi"><span class="mtick">√</span>Album mode</div>
+    <div class="sep"></div>
+    <div class="cap">On export</div>
+    <div class="mi"><span class="mtick">√</span>Gzip songs to .vgz</div>
+    <div class="mi hov"><span class="mtick">√</span>Optimize VGMs (vgm_cmp)</div>
+  </div>
+</div>
+<p class="stripcap">The OPTS popover shown open; captions are 8px silkscreen, like fascia labels.</p>
+
+<h2>R · Recommended blend (V1 groups + V2's export split)</h2>
+<p class="verdict"><b>Groups for the verbs you repeat, a menu for the options you set once.</b> The V1
+two-deck header, but OUTPUT collapses to Save Files + the split Export button: gzip/optimize are
+per-pack decisions made once, so they belong in the caret menu, not on permanent minis. ALBUM stays
+a lit mini because it changes what Apply <i>does</i>. This is the least chrome that fixes both
+problems — grouping and width — and every piece already exists in the engine except the silkscreen
+caption box.</p>
+<p class="roles">build order: silkscreen group primitive → move checkboxes → split button + menu ·
+the readiness LED can land later without moving anything</p>
+<div class="strip">
+  <div class="hdr" style="gap:10px">
+    <span class="folder">Doom II <span class="dirty">•</span></span>
+    <span class="spacer"></span>
+    <span class="led a"></span><span class="ledlab">2 warnings</span>
+  </div>
+  <div class="hdr" style="min-height:46px; gap:12px; border-top:0">
+    <span class="grp"><b>LEVELS</b>
+      <span class="pad">Scan Volumes</span>
+      <span class="pad">Apply</span>
+      <span class="pad mini lit">ALBUM</span>
+    </span>
+    <span class="grp"><b>TAGS</b>
+      <span class="pad">Bulk Tag…</span>
+      <span class="pad">Dates → -</span>
+    </span>
+    <span class="spacer"></span>
+    <span class="grp"><b>OUTPUT</b>
+      <span class="pad">Save Files</span>
+      <span class="split">
+        <span class="pad primary">Export Zip…</span>
+        <span class="pad"><span class="caret">▼</span></span>
+      </span>
+    </span>
+  </div>
+  <div class="bodyform">
+    <div class="row"><label>Game name:</label><span class="fwell">Doom II: Hell on Earth</span></div>
+    <div class="row"><label>Music author:</label><span class="fwell">Robert Prince</span></div>
+  </div>
+</div>
+<p class="stripcap">The caret menu holds “Gzip songs to .vgz” and “Optimize VGMs”, remembered per pack as today.</p>
+
+</div>

@@ -3023,7 +3023,7 @@ fn optimize_saves_a_smaller_screenshot_in_place() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
-    harness.get_by_label("Optimize").click();
+    harness.get_by_label("Recompress").click();
     harness.run();
     {
         let pack = handles.pack.borrow();
@@ -3058,7 +3058,7 @@ fn an_already_optimal_screenshot_is_not_rewritten() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
-    harness.get_by_label("Optimize").click();
+    harness.get_by_label("Recompress").click();
     harness.run();
     handles
         .pack
@@ -3251,6 +3251,61 @@ fn clicking_a_meta_checklist_item_focuses_its_form_field() {
 }
 
 #[test]
+fn the_output_deck_counts_the_outstanding_work_and_jumps_to_it() {
+    let (mut harness, _handles) = dirty_checklist_harness();
+    let summary = harness.state().pack.as_ref().unwrap().readiness_summary().1;
+    assert!(
+        summary.contains("warning"),
+        "the dirty pack's verdict counts warnings, got {summary:?}"
+    );
+    // The deck's lamp is captioned with exactly that phrase...
+    let _ = harness.get_by_label(&summary);
+    // ...and its link is the way from the verdict back to the detail.
+    harness.get_by_label("view checklist").click();
+    harness.run();
+    assert!(
+        !harness.state().pack.as_ref().unwrap().scroll_to_checklist,
+        "the checklist takes the scroll request rather than leaving it to re-fire"
+    );
+}
+
+#[test]
+fn a_note_leaves_the_deck_reading_as_shippable() {
+    // The complete pack's only outstanding item is the optional Loops note, and
+    // notes never gate an export -- so the verdict must not read as a problem.
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    let (severity, summary) = harness.state().pack.as_ref().unwrap().readiness_summary();
+    assert!(
+        matches!(severity, Some(dro_core::pack::Severity::Note)),
+        "expected the note tier, got {severity:?} ({summary})"
+    );
+    assert!(
+        !summary.contains("blocked"),
+        "a note must not claim the export is blocked: {summary:?}"
+    );
+    let _ = harness.get_by_label(&summary);
+}
+
+#[test]
+fn the_export_options_latch_on_the_deck() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    assert!(
+        harness.state().pack.as_ref().unwrap().gzip_on_export,
+        "gzipping to .vgz is the default"
+    );
+
+    // The sentence-long checkbox is now a pad that latches.
+    harness.get_by_label("Gzip").click();
+    harness.run();
+    assert!(
+        !harness.state().pack.as_ref().unwrap().gzip_on_export,
+        "the Gzip pad unlatches the .vgz conversion"
+    );
+}
+
+#[test]
 fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
     let (mut harness, handles) = dirty_checklist_harness();
     // The date the app prefilled from the first track is slash-separated.
@@ -3258,8 +3313,16 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
         harness.state().pack.as_ref().unwrap().meta.release_date,
         "1994/03"
     );
-    // The fix-assist button is offered while a slash date remains.
-    let _ = harness.get_by_label("Convert dates to hyphens");
+    // The fix-assist pad is live while a slash date remains. It keeps its place
+    // in the TAGS group either way -- greyed rather than gone -- so the header
+    // does not reflow the moment it is used.
+    assert!(
+        !harness
+            .get_by_label("Fix Dates")
+            .accesskit_node()
+            .is_disabled(),
+        "the fix-assist is offered while a slash date remains"
+    );
 
     // Feed Ok save outcomes for the two track writes, then the rescan folder the
     // batch installs -- now carrying hyphenated GD3 dates.
@@ -3330,12 +3393,20 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
         !pack.has_convertible_dates(),
         "the fix-assist has nothing left"
     );
+    // With nothing left to convert the pad greys out rather than vanishing.
+    assert!(
+        harness
+            .get_by_label("Fix Dates")
+            .accesskit_node()
+            .is_disabled(),
+        "the spent fix-assist is greyed, not removed"
+    );
 }
 
 #[test]
 fn snapshot_pack_checklist_dirty() {
-    // Wider than the other pack snapshots so the crowded toolbar fits and the
-    // checklist's glyphs and category headings are all in frame.
+    // Wider than the other pack snapshots so the header's tool groups fit and
+    // the checklist's glyphs and category headings are all in frame.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1200.0));
     open_folder(&mut harness, &handles, dirty_folder());
     harness.run();

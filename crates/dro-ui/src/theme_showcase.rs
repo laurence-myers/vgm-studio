@@ -157,6 +157,54 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             section(ui, p, "Pads and icons");
             pads_and_icons(ui, p);
 
+            section(ui, p, "Silkscreen groups and status lamps");
+            // Each on the surface it is actually used on, so a case guards the
+            // real combination: a group takes its ink from the caller, so the
+            // face/plate uses `label` and the pack view's desktop uses
+            // `data_label`. The lamps go on a deck, where a light-deck case has
+            // to keep the amber one legible.
+            ui.horizontal(|ui| {
+                let mut lit = true;
+                theme::silkscreen_group(ui, p.label, "ON FACE", |ui| {
+                    let _ = bevel::button(ui, p, "Scan");
+                    let _ = bevel::toggle(ui, p, &mut lit, "Album");
+                });
+                ui.add_space(10.0);
+                egui::Frame::new()
+                    .fill(p.desktop)
+                    .inner_margin(egui::Margin::same(4))
+                    .show(ui, |ui| {
+                        theme::silkscreen_group(ui, p.data_label, "ON DESKTOP", |ui| {
+                            let _ = bevel::button(ui, p, "Bulk Tag\u{2026}");
+                            ui.add_enabled_ui(false, |ui| {
+                                let _ = bevel::button(ui, p, "Fix Dates");
+                            });
+                        });
+                    });
+            });
+            // Scoped: `deck_panel` fills behind its ui's whole `min_rect`, which
+            // in the app is a panel of its own. Handed this frame's ui it would
+            // paint over every section above it, so give it a child ui whose
+            // min_rect is just the deck row.
+            ui.scope(|ui| {
+                theme::deck_panel(ui, p, |ui| {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        for (color, text) in [
+                            (p.meter_low, "Ready to submit"),
+                            (p.meter_mid, "8 warnings"),
+                            (p.meter_high, "1 error \u{2014} export blocked"),
+                        ] {
+                            theme::led(ui, color);
+                            ui.label(text);
+                            ui.add_space(12.0);
+                        }
+                    });
+                    ui.add_space(4.0);
+                });
+            });
+            theme::separator_full(ui, p);
+
             section(ui, p, "View tabs");
             // All live, then one view barred, then the whole strip greyed -- so a
             // case guards the lit display ink and both routes to the dim one. The

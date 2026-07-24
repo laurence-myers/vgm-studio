@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use egui::Color32;
+
 pub mod bevel;
 mod fonts;
 pub mod icon;
@@ -155,7 +157,7 @@ pub fn deck_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
 /// independently of the plate, so the case's own label colour can be quite
 /// wrong on it -- a light deck needs dark text. Picks by the deck's luminance.
 #[must_use]
-pub fn deck_ink(palette: &Palette) -> egui::Color32 {
+pub fn deck_ink(palette: &Palette) -> Color32 {
     let (top, bottom) = deck_stops(palette);
     let mid = paint::lerp_color(top, bottom, 0.5);
     if paint::is_light(mid) {
@@ -182,6 +184,101 @@ pub fn deck_panel<R>(
         egui::Rect::from_x_y_ranges(ui.clip_rect().x_range(), ui.min_rect().y_range()).expand(4.0);
     ui.painter().set(slot, deck_shape(rect, palette));
     inner
+}
+
+/// Horizontal padding inside a [`silkscreen_group`], and the caption's inset
+/// from its left keyline.
+const GROUP_PAD_X: f32 = 8.0;
+/// Vertical padding between a group's keyline and the controls inside it.
+const GROUP_PAD_Y: f32 = 5.0;
+
+/// Runs `add_contents` in a silkscreen control group: a keyline box with its
+/// caption cut into the top edge, the way a fascia labels a cluster of controls.
+/// The contents are laid out in a row.
+///
+/// `ink` is the silkscreen colour, chosen by the caller to suit the surface
+/// underneath -- [`Palette::label`] on a plate, `data_label` on the desktop the
+/// pack view sits on. The keyline is the same ink dimmed, so the group is
+/// printed *on* the surface rather than cut into it, and needs to know nothing
+/// about what it sits on: the caption's gap is drawn as two top segments rather
+/// than by erasing a slot in the line.
+pub fn silkscreen_group<R>(
+    ui: &mut egui::Ui,
+    ink: Color32,
+    caption: &str,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let galley = ui.fonts_mut(|fonts| fonts.layout_no_wrap(caption.to_owned(), font, ink));
+    // The keyline runs through the caption's middle, so half of it overhangs.
+    let overhang = (galley.size().y * 0.5).round();
+
+    let out = ui.vertical(|ui| {
+        ui.add_space(overhang + GROUP_PAD_Y);
+        let inner = ui
+            .horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.add_space(GROUP_PAD_X);
+                let inner = add_contents(ui);
+                ui.add_space(GROUP_PAD_X);
+                inner
+            })
+            .inner;
+        ui.add_space(GROUP_PAD_Y);
+        inner
+    });
+
+    let rect = out.response.rect;
+    let box_rect =
+        egui::Rect::from_min_max(egui::pos2(rect.left(), rect.top() + overhang), rect.max);
+    let caption_pos = egui::pos2(rect.left() + GROUP_PAD_X, rect.top());
+    let gap = egui::Rangef::new(caption_pos.x - 4.0, caption_pos.x + galley.size().x + 4.0);
+    let painter = ui.painter();
+    gapped_outline(painter, box_rect, gap, ink.gamma_multiply(0.4));
+    painter.galley(caption_pos, galley, ink);
+    out.inner
+}
+
+/// A 1px rectangle outline centred on `rect`'s edges, with the top edge broken
+/// by `gap` -- the hole a group caption sits in.
+fn gapped_outline(painter: &egui::Painter, rect: egui::Rect, gap: egui::Rangef, color: Color32) {
+    let stroke = egui::Stroke::new(1.0, color);
+    let (left, right) = (rect.left() + 0.5, rect.right() - 0.5);
+    let (top, bottom) = (rect.top() + 0.5, rect.bottom() - 0.5);
+    painter.hline(egui::Rangef::new(left, gap.min), top, stroke);
+    painter.hline(egui::Rangef::new(gap.max, right), top, stroke);
+    painter.hline(egui::Rangef::new(left, right), bottom, stroke);
+    painter.vline(left, egui::Rangef::new(top, bottom), stroke);
+    painter.vline(right, egui::Rangef::new(top, bottom), stroke);
+}
+
+/// A status lamp: a domed dot in `color`, bezelled and blooming onto the surface
+/// around it, for a state that must read at a glance. Hover-only, so it takes a
+/// tooltip but is never a click target -- the lamp reports, the control beside it
+/// acts. The bezel is a shadow rather than a palette role, so the lamp sits on
+/// any surface.
+pub fn led(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let centre = rect.center();
+        // The bloom sits inside the allocated box, so a lamp never bleeds over
+        // its neighbour -- the same rule the pads' lighting follows.
+        painter.circle_filled(centre, 6.0, color.gamma_multiply(0.22));
+        painter.circle_filled(centre, 4.0, color);
+        painter.circle_stroke(
+            centre,
+            4.0,
+            egui::Stroke::new(1.0, Color32::from_black_alpha(150)),
+        );
+        // A specular glint up-left, so the lamp reads as a dome rather than a dot.
+        painter.circle_filled(
+            centre - egui::vec2(1.2, 1.2),
+            1.1,
+            Color32::from_white_alpha(110),
+        );
+    }
+    response
 }
 
 /// Installs the theme: pins the dark base (so an OS light/dark flip can't swap
