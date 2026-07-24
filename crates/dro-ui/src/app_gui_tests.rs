@@ -689,7 +689,7 @@ fn typing_in_the_volume_field_does_not_toggle_a_channel() {
 fn boost_up_arrow_steps_up_the_live_volume_without_persisting_when_unlocked() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
-    harness.get_by_label("\u{25B2}").click(); // ▲ louder
+    harness.get_by_label("\u{25B2}").click(); // â–² louder
     harness.run();
 
     // From unity the up arrow makes a coarse ~1.0 step to about 2x (snapped to the
@@ -724,7 +724,7 @@ fn a_locked_volume_change_is_persisted() {
     act(&mut harness, Action::SetLockBoost(true));
     let before = handles.saved_configs.borrow().len();
 
-    harness.get_by_label("\u{25B2}").click(); // ▲ louder
+    harness.get_by_label("\u{25B2}").click(); // â–² louder
     harness.run();
 
     let saved = handles.saved_configs.borrow();
@@ -812,7 +812,7 @@ fn the_volume_lever_cannot_rise_past_the_clipping_ceiling() {
     harness.run(); // the backend reports 1.0x as the lowest clipping level
 
     let before = harness.state().config.audio.boost;
-    harness.get_by_label("\u{25B2}").click(); // ▲ louder -- but capped
+    harness.get_by_label("\u{25B2}").click(); // â–² louder -- but capped
     harness.run();
 
     assert_eq!(
@@ -822,7 +822,7 @@ fn the_volume_lever_cannot_rise_past_the_clipping_ceiling() {
     );
 
     // Lowering is still allowed, and drops off the ceiling.
-    harness.get_by_label("\u{25BC}").click(); // ▼ quieter
+    harness.get_by_label("\u{25BC}").click(); // â–¼ quieter
     harness.run();
     assert!(
         harness.state().config.audio.boost < before,
@@ -1048,14 +1048,14 @@ fn settings_save_preserves_a_live_changed_boost() {
 /// -- the pick is the thing that has to fire the preview.
 fn previewing_wine() -> (Harness<'static, DroApp>, Handles) {
     let (mut harness, handles) = harness_with_song(&tone_song());
-    assert_eq!(harness.state().config.ui.theme, ThemeChoice::Navy);
+    assert_eq!(harness.state().config.ui.theme, ThemeChoice::Petrol);
     let config = harness.state().config.clone();
     harness.state_mut().dialogs.settings =
         Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
     harness.run();
 
     // A closed combo reports its selection as its value, not its label.
-    harness.get_by_value("Navy").click();
+    harness.get_by_value("Petrol").click();
     harness.run();
     // The popup's own items don't take a synthetic pointer click here (the
     // press lands on the panel under the popup's layer), so pick through
@@ -1068,7 +1068,7 @@ fn previewing_wine() -> (Harness<'static, DroApp>, Handles) {
     harness.get_by_label("Theme").click();
     harness.run();
     assert_eq!(
-        harness.query_all_by_label("Petrol").count(),
+        harness.query_all_by_label("Navy").count(),
         0,
         "the theme popup is dismissed"
     );
@@ -1084,7 +1084,7 @@ fn a_picked_theme_previews_on_the_whole_window() {
     assert_eq!(harness.state().shown_skin().0, ThemeChoice::Wine);
     assert_eq!(
         harness.state().config.ui.theme,
-        ThemeChoice::Navy,
+        ThemeChoice::Petrol,
         "the preview must not reach the config"
     );
     assert!(
@@ -1106,7 +1106,7 @@ fn closing_settings_puts_the_previewed_theme_back() {
     assert!(harness.state().dialogs.settings.is_none(), "dialog closed");
     assert_eq!(
         harness.state().shown_skin().0,
-        ThemeChoice::Navy,
+        ThemeChoice::Petrol,
         "the theme the dialog opened with is back"
     );
     assert!(harness.state().skin_preview.is_none(), "no stale preview");
@@ -2137,7 +2137,7 @@ fn save_package_files_writes_the_txt_and_m3u() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
-    harness.get_by_label("Save Package Files").click();
+    harness.get_by_label("Save Pack").click();
     harness.run();
 
     let files = handles.files.borrow();
@@ -2207,7 +2207,7 @@ fn saving_without_a_game_name_shows_an_alert() {
         .game_name
         .clear();
 
-    harness.get_by_label("Save Package Files").click();
+    harness.get_by_label("Save Pack").click();
     harness.run();
 
     assert!(
@@ -2237,7 +2237,7 @@ fn editor_keys_are_ignored_on_the_pack_tab() {
     );
 }
 
-/// A one-track folder, so the per-row ▶/Edit buttons are unambiguous.
+/// A one-track folder, so the per-row â–¶/Edit buttons are unambiguous.
 fn single_track_folder() -> PickedFolder {
     pack_folder(
         "Cool Game",
@@ -3501,6 +3501,26 @@ fn snapshot_pack_screenshots() {
 }
 
 #[test]
+fn snapshot_pack_tracks_scrolled() {
+    // Many tracks at the app's default window, so the Tracks section overflows.
+    // Its scrollbar handle only shows while nothing is drawn over it -- content
+    // that overflows *horizontally* lands on top of the bar and buries the
+    // handle, which is what "the scrollbar pill is missing" turned out to be.
+    let mut files: Vec<PickedFile> = (1..=12)
+        .map(|n| complete_vgm(&format!("{n:02} Track.vgz")))
+        .collect();
+    files.push(PickedFile {
+        name: "Cool Game.png".to_owned(),
+        path: Some(PathBuf::from("C:/Cool Game/Cool Game.png")),
+        bytes: PNG_FIXTURE.to_vec(),
+    });
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(800.0, 600.0));
+    open_folder(&mut harness, &handles, pack_folder("Cool Game", files));
+    pack_section(&mut harness, PackSection::Tracks);
+    settled_snapshot(&mut harness, "pack_tracks_scrolled");
+}
+
+#[test]
 fn snapshot_pack_screenshots_empty() {
     // A folder with no .png: the section says what a submission wants rather
     // than only reporting that nothing is there.
@@ -3592,6 +3612,108 @@ fn clicking_a_meta_checklist_item_focuses_its_form_field() {
 }
 
 #[test]
+fn a_checklist_category_folds_its_findings_away() {
+    let (mut harness, _handles) = dirty_checklist_harness();
+    // One of Package info's findings, to watch disappear and come back.
+    let _ = harness.get_by_label_contains("should be a hyphen-separated date");
+
+    // The heading's triangle folds the group; the count stands in for it.
+    harness.get_by_label("Hide Package info").click();
+    harness.run();
+    assert!(
+        harness.state().pack.as_ref().unwrap().collapsed[0],
+        "the category is folded"
+    );
+    assert!(
+        harness
+            .query_by_label_contains("should be a hyphen-separated date")
+            .is_none(),
+        "its findings are hidden while it is folded"
+    );
+    let _ = harness.get_by_label_contains("1 item");
+
+    harness.get_by_label("Show Package info").click();
+    harness.run();
+    let _ = harness.get_by_label_contains("should be a hyphen-separated date");
+}
+
+#[test]
+fn the_loops_heading_tallies_how_many_tracks_loop() {
+    let (harness, _handles) = dirty_checklist_harness();
+    // Neither of the dirty pack's two tracks carries a loop point.
+    assert_eq!(harness.state().pack.as_ref().unwrap().loop_tally(), (0, 2));
+    let _ = harness.get_by_label_contains("0/2 looping");
+}
+
+#[test]
+fn the_loopless_tracks_are_listed_one_per_line() {
+    let (harness, _handles) = dirty_checklist_harness();
+    let listed = harness
+        .state()
+        .pack
+        .as_ref()
+        .unwrap()
+        .readiness_items()
+        .into_iter()
+        .find(|item| item.message.starts_with("No loop point"))
+        .expect("both tracks are loopless");
+    // One line of preamble plus one line per track: a comma-joined run was what
+    // overflowed the panel and buried the scrollbar handle behind it.
+    assert_eq!(
+        listed.message.lines().count(),
+        3,
+        "expected a line each, got {:?}",
+        listed.message
+    );
+    assert!(!listed.message.contains(", "), "{:?}", listed.message);
+}
+
+#[test]
+fn the_scan_buttons_are_barred_while_their_scan_runs() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+    assert!(
+        !harness
+            .get_by_label("Scan Volumes")
+            .accesskit_node()
+            .is_disabled(),
+        "live when nothing is scanning"
+    );
+
+    // A second click would cancel the running scan and start over, which reads
+    // as the button doing nothing. Stepped rather than `run`: a task pinned busy
+    // requests a repaint every frame, so the harness never goes idle.
+    handles
+        .tasks
+        .borrow_mut()
+        .busy
+        .push(TaskKind::PackVolumeScan);
+    harness.run_steps(2);
+    assert!(
+        harness
+            .get_by_label("Scan Volumes")
+            .accesskit_node()
+            .is_disabled(),
+        "barred while the pack scan runs"
+    );
+
+    // The editor's Match button is barred by its own scan, not the pack's.
+    act(&mut harness, Action::SelectTab(AppTab::Editor));
+    harness.run_steps(2);
+    assert!(
+        !harness.get_by_label("Match").accesskit_node().is_disabled(),
+        "a pack scan does not bar the editor's Match"
+    );
+    handles.tasks.borrow_mut().busy.push(TaskKind::VolumeScan);
+    harness.run_steps(2);
+    assert!(
+        harness.get_by_label("Match").accesskit_node().is_disabled(),
+        "barred while the song scan runs"
+    );
+}
+
+#[test]
 fn the_output_deck_counts_the_outstanding_work_and_jumps_to_it() {
     let (mut harness, _handles) = dirty_checklist_harness();
     let summary = harness.state().pack.as_ref().unwrap().readiness_summary().1;
@@ -3639,11 +3761,11 @@ fn the_export_options_latch_on_the_deck() {
     );
 
     // The sentence-long checkbox is now a pad that latches.
-    harness.get_by_label("Gzip").click();
+    harness.get_by_label("VGZ").click();
     harness.run();
     assert!(
         !harness.state().pack.as_ref().unwrap().gzip_on_export,
-        "the Gzip pad unlatches the .vgz conversion"
+        "the VGZ pad unlatches the .vgz conversion"
     );
 }
 
@@ -3778,7 +3900,10 @@ fn snapshot_track_edit_dialog() {
 
 #[test]
 fn snapshot_bulk_tag_dialog() {
-    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
+    // The app's own default window: eleven GD3 fields plus a track list is more
+    // than 600pt tall, so this is the size at which the box used to run off the
+    // bottom of the screen with its Apply button beyond reach.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(800.0, 600.0));
     open_folder(&mut harness, &handles, complete_folder());
     pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label_contains("Bulk Tag").click();
@@ -4323,7 +4448,7 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
 fn convert_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
     harness.get_by_label("File").click();
     harness.run();
-    // The submenu header renders as "Convert ⏵" (with a submenu arrow); its
+    // The submenu header renders as "Convert âµ" (with a submenu arrow); its
     // children ("Convert to ...") render only once it is expanded, so until then
     // "Convert" matches the header alone.
     let present = if harness.query_by_label_contains("Convert").is_some() {

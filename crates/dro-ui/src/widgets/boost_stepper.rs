@@ -37,13 +37,15 @@ fn snapped_within_ceiling(desired: f32, ceiling: Option<f32>) -> f32 {
 /// there so the user cannot push further into the limiter. Lowering is always
 /// allowed, and a new song clears the ceiling. `lock` drives the "Lock" toggle:
 /// when set, the volume is kept across songs; when clear, each song sets its own
-/// from its header modifier.
+/// from its header modifier. `scanning` greys the Match button while its peak
+/// measurement is still running.
 pub fn boost_stepper(
     ui: &mut egui::Ui,
     palette: &Palette,
     boost: f32,
     ceiling: Option<f32>,
     lock: bool,
+    scanning: bool,
     actions: &mut Vec<Action>,
 ) {
     // Live playback volume, right-aligned in the row. A limiter behind it
@@ -178,15 +180,21 @@ pub fn boost_stepper(
         // ...then the "Match" button (further left in this right-to-left row, so it
         // reads "Match Volume 1.00x"): it measures the song's peak and sets the
         // volume to bring it to full scale.
-        if theme::bevel::icon_button(ui, palette, Icon::Match, "Match")
-            .on_hover_text(
-                "Measure the song's loudest peak and set the volume to bring it to \
-                 full scale without clipping",
-            )
-            .clicked()
-        {
-            actions.push(Action::MatchVolume);
-        }
+        // Greyed while its own measurement runs: a second click would cancel the
+        // first scan and start over, which reads as the button doing nothing.
+        ui.add_enabled_ui(!scanning, |ui| {
+            if theme::bevel::icon_button(ui, palette, Icon::Match, "Match")
+                .on_hover_text(if scanning {
+                    "Measuring the song's peak..."
+                } else {
+                    "Measure the song's loudest peak and set the volume to bring it to \
+                     full scale without clipping"
+                })
+                .clicked()
+            {
+                actions.push(Action::MatchVolume);
+            }
+        });
         // ...and a 2px beveled groove at full row height separates the volume
         // section from the transport buttons, matching the grooves between the
         // stacked panels.

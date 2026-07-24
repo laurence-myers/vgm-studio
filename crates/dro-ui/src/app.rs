@@ -635,6 +635,7 @@ impl DroApp {
                                     self.config.audio.boost,
                                     self.boost_ceiling,
                                     self.config.audio.lock_boost,
+                                    self.tasks.is_busy_kind(TaskKind::VolumeScan),
                                     &mut actions,
                                 );
                             });
@@ -707,8 +708,9 @@ impl DroApp {
                     }
                 }
                 AppTab::Pack => {
+                    let scanning = self.tasks.is_busy_kind(TaskKind::PackVolumeScan);
                     if let Some(pack) = self.pack.as_mut() {
-                        crate::pack::show(ui, pack, p, &mut actions);
+                        crate::pack::show(ui, pack, p, scanning, &mut actions);
                     }
                 }
             });

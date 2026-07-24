@@ -51,7 +51,14 @@ impl BulkTagDialog {
         Self { overlay, targets }
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the dialog. Returns `false` once closed.
+    ///
+    /// A modal rather than a floating window, and taken to most of `area`:
+    /// eleven GD3 fields plus a track list is more than the app's default 800pt
+    /// window is tall, and as a plain window the box simply ran off the bottom
+    /// of the screen with its Apply button beyond reach. The heading and the
+    /// footer are pinned; only the middle scrolls, so the buttons stay put
+    /// however many tracks the pack has.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -60,44 +67,57 @@ impl BulkTagDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "Bulk Tag Tracks", area, |ui| {
+        // Leave a margin of screen around it, and room for the pinned chrome.
+        let width = (area.width() * 0.9).min(720.0);
+        let body_height = (area.height() * 0.9 - 150.0).max(160.0);
+        let modal = egui::Modal::new(egui::Id::new("bulk-tag-modal")).show(ctx, |ui| {
+            ui.set_width(width);
+            ui.heading("Bulk Tag Tracks");
             ui.colored_label(
                 palette.muted,
                 "Check the fields to write, then choose the tracks. Unchecked fields keep \
                  each track's own value.",
             );
+            crate::theme::separator_clipped(ui, palette);
             ui.add_space(6.0);
 
-            egui::Grid::new("bulk-tag-fields")
-                .num_columns(3)
-                .spacing([8.0, 6.0])
+            egui::ScrollArea::vertical()
+                .max_height(body_height)
+                .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    for (index, label) in LABELS.iter().enumerate() {
-                        ui.checkbox(&mut self.overlay.apply[index], "");
-                        ui.label(*label);
-                        let value = &mut self.overlay.values[index];
-                        if index == GD3_FIELD_COUNT - 1 {
-                            ui.add(
-                                egui::TextEdit::multiline(value)
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0)
-                                    .desired_rows(3),
-                            );
-                        } else {
-                            ui.add(
-                                egui::TextEdit::singleline(value)
-                                    .text_color(palette.data_text)
-                                    .desired_width(250.0),
-                            );
-                        }
-                        ui.end_row();
-                    }
+                    egui::Grid::new("bulk-tag-fields")
+                        .num_columns(3)
+                        .spacing([8.0, 6.0])
+                        .show(ui, |ui| {
+                            for (index, label) in LABELS.iter().enumerate() {
+                                ui.checkbox(&mut self.overlay.apply[index], "");
+                                ui.label(*label);
+                                let value = &mut self.overlay.values[index];
+                                if index == GD3_FIELD_COUNT - 1 {
+                                    ui.add(
+                                        egui::TextEdit::multiline(value)
+                                            .text_color(palette.data_text)
+                                            .desired_width(250.0)
+                                            .desired_rows(3),
+                                    );
+                                } else {
+                                    ui.add(
+                                        egui::TextEdit::singleline(value)
+                                            .text_color(palette.data_text)
+                                            .desired_width(250.0),
+                                    );
+                                }
+                                ui.end_row();
+                            }
+                        });
+
+                    ui.add_space(8.0);
+                    crate::theme::separator_clipped(ui, palette);
+                    self.target_picker(ui, palette);
                 });
 
             ui.add_space(8.0);
-            crate::theme::separator_full(ui, palette);
-            self.target_picker(ui, palette);
-
+            crate::theme::separator_clipped(ui, palette);
             ui.add_space(8.0);
             super::dialog_footer(ui, |ui| {
                 if bevel::button(ui, palette, "Close").clicked() {
@@ -108,7 +128,8 @@ impl BulkTagDialog {
                 }
             });
         });
-        open && !close
+        // Esc or a click on the backdrop dismisses it, like the alert modal.
+        !close && !modal.should_close()
     }
 
     /// The "Apply to:" heading, All/None buttons, a running count, and the
@@ -132,17 +153,14 @@ impl BulkTagDialog {
                 format!("{selected}/{} selected", self.targets.len()),
             );
         });
-        // Bound the height so a large pack scrolls rather than growing the window.
-        egui::ScrollArea::vertical()
-            .max_height(160.0)
-            .show(ui, |ui| {
-                for target in &mut self.targets {
-                    // Clone the label so the immutable borrow ends before the
-                    // checkbox takes `selected` mutably (both live on `target`).
-                    let label = target.label.clone();
-                    ui.checkbox(&mut target.selected, label);
-                }
-            });
+        // No scroll area of its own: the whole dialog body scrolls now, and a
+        // nested one would trap the wheel over the track list.
+        for target in &mut self.targets {
+            // Clone the label so the immutable borrow ends before the checkbox
+            // takes `selected` mutably (both live on `target`).
+            let label = target.label.clone();
+            ui.checkbox(&mut target.selected, label);
+        }
     }
 
     fn set_all(&mut self, selected: bool) {

@@ -761,6 +761,7 @@ pub(crate) const VERDIGRIS: Palette = Skin {
 /// plate), light silkscreen, a hue-tinted knob-cap ramp. Only the eight anchor
 /// colours differ between these cases; the rest are their light/dark relatives.
 macro_rules! dark_plate_case {
+    // Tone-on-tone keycaps, the family default. Forwards to the arm below.
     (
         plate: ($pt:expr, $pb:expr, $pbd:expr),
         face: ($f:expr, $fh:expr, $fa:expr),
@@ -773,6 +774,36 @@ macro_rules! dark_plate_case {
         scope: ($wbg:expr, $wcur:expr, $wloop:expr),
         trough: $tr:expr,
         knob: ($kf:expr, $kh:expr, $ka:expr, $kl:expr, $ks:expr, $kt:expr, $kp:expr),
+    ) => {
+        dark_plate_case! {
+            plate: ($pt, $pb, $pbd),
+            face: ($f, $fh, $fa),
+            desktop: $desk,
+            bevel: ($bl, $bd, $bb),
+            label: $lab,
+            muted: $mut,
+            ink: $ink,
+            data_label: $dl,
+            scope: ($wbg, $wcur, $wloop),
+            trough: $tr,
+            knob: ($kf, $kh, $ka, $kl, $ks, $kt, $kp),
+            pad: Surface::Tint,
+        }
+    };
+    // ...or a case that wants its keycaps a different surface from its plate.
+    (
+        plate: ($pt:expr, $pb:expr, $pbd:expr),
+        face: ($f:expr, $fh:expr, $fa:expr),
+        desktop: $desk:expr,
+        bevel: ($bl:expr, $bd:expr, $bb:expr),
+        label: $lab:expr,
+        muted: $mut:expr,
+        ink: $ink:expr,
+        data_label: $dl:expr,
+        scope: ($wbg:expr, $wcur:expr, $wloop:expr),
+        trough: $tr:expr,
+        knob: ($kf:expr, $kh:expr, $ka:expr, $kl:expr, $ks:expr, $kt:expr, $kp:expr),
+        pad: $pad:expr,
     ) => {
         CaseColors {
             face: $f,
@@ -801,7 +832,7 @@ macro_rules! dark_plate_case {
             button_text: $kt,
             button_pressed: $kp,
             button_pressed_text: Color32::WHITE,
-            pad: Surface::Tint,
+            pad: $pad,
             deck: Surface::Tint,
             accent: Color32::from_rgb(0x33, 0x55, 0xAA),
             selection_text: Color32::WHITE,
@@ -880,6 +911,10 @@ const PETROL_CASE: CaseColors = dark_plate_case! {
     scope: (rgb(0x06, 0x14, 0x16), rgb(0xF2, 0xA0, 0xD0), rgb(0xC8, 0xE8, 0x6E)),
     trough: rgb(0x14, 0x28, 0x2A),
     knob: (rgb(0x86, 0xAC, 0xAE), rgb(0x96, 0xBA, 0xBC), rgb(0x76, 0x9E, 0xA0), rgb(0xBC, 0xD8, 0xD8), rgb(0x44, 0x64, 0x66), rgb(0x0E, 0x20, 0x22), rgb(0x54, 0x78, 0x7A)),
+    // Pale keycaps rather than tone-on-tone: petrol is the shipped default, and
+    // light caps on the dark blue-green plate are the highest-contrast pairing
+    // of the twelve.
+    pad: Surface::Light,
 };
 /// The petrol Bassoon case.
 pub(crate) const PETROL: Palette = bassoon!(PETROL_CASE);

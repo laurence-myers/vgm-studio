@@ -1166,8 +1166,12 @@ fn check_author_consistency(
     }
 }
 
-/// L1 (note): the readable tracks with no loop point, in one line. Jingles
+/// L1 (note): the readable tracks with no loop point, one per line. Jingles
 /// legitimately never loop, so this only asks the packager to verify.
+///
+/// One item listing many tracks rather than one item each: the packager checks
+/// them as a set ("are these all jingles?"), and a pack of twenty loopless
+/// tracks would otherwise bury every other finding.
 fn check_loops(tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
     let loopless: Vec<String> = tracks
         .iter()
@@ -1181,8 +1185,8 @@ fn check_loops(tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
             ReadinessCategory::Loops,
             ReadinessTarget::Pack,
             format!(
-                "No loop point (verify these are meant to play once): {}.",
-                loopless.join(", ")
+                "No loop point (verify these are meant to play once):\n{}",
+                loopless.join("\n")
             ),
         );
     }

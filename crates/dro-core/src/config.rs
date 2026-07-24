@@ -119,8 +119,7 @@ pub enum ThemeChoice {
     CloneDark,
     /// The original DOS FastTracker II steel-blue scheme.
     Ft2Classic,
-    /// Bassoon "Variation 2" navy plate (the default).
-    #[default]
+    /// Bassoon "Variation 2" navy plate.
     Navy,
     /// Bassoon cream: a light plate, dark silkscreen, tone-on-tone keys.
     Cream,
@@ -132,7 +131,8 @@ pub enum ThemeChoice {
     Plum,
     /// Bassoon rust: a burnt orange-brown plate.
     Rust,
-    /// Bassoon petrol: a dark blue-green plate.
+    /// Bassoon petrol: a dark blue-green plate (the default).
+    #[default]
     Petrol,
     /// Bassoon slate: a cool blue-grey plate.
     Slate,
@@ -558,7 +558,7 @@ mod tests {
         assert!(!config.ui.dro_info_edit_enabled);
         assert!(!config.ui.maximize_window);
         assert_eq!(config.ui.tail_length, 3000);
-        assert_eq!(config.ui.theme, ThemeChoice::Navy);
+        assert_eq!(config.ui.theme, ThemeChoice::Petrol);
     }
 
     #[test]

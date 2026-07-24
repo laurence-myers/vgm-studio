@@ -134,6 +134,9 @@ pub struct PackState {
     pub section: PackSection,
     /// Whether the system / OS / music-hardware fields are unfolded for editing.
     pub show_hardware: bool,
+    /// Which checklist categories are folded away, by their index in
+    /// [`ReadinessCategory::ALL`].
+    pub collapsed: [bool; ReadinessCategory::ALL.len()],
 }
 
 impl PackState {
@@ -206,6 +209,7 @@ impl PackState {
             focus_field: None,
             section: PackSection::default(),
             show_hardware: false,
+            collapsed: [false; ReadinessCategory::ALL.len()],
         }
     }
 
@@ -563,6 +567,25 @@ impl PackState {
         }
     }
 
+    /// How many tracks carry a loop point, out of how many there are -- the
+    /// tally beside the checklist's Loops heading. A track that failed to parse
+    /// counts in the total but can carry no loop, which is the honest reading:
+    /// the pack is not all-looping until every file in it is.
+    #[must_use]
+    pub fn loop_tally(&self) -> (usize, usize) {
+        let looping = self
+            .tracks
+            .iter()
+            .filter(|track| {
+                track
+                    .entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.loop_samples.is_some())
+            })
+            .count();
+        (looping, self.tracks.len())
+    }
+
     /// The transaction that deletes the screenshot named `name`, with the
     /// inverse that writes it back from the bytes already in memory -- so a
     /// deleted screenshot is recoverable for as long as the pack stays open.
@@ -883,6 +906,7 @@ pub fn show(
     ui: &mut egui::Ui,
     state: &mut PackState,
     palette: &Palette,
+    scanning: bool,
     actions: &mut Vec<Action>,
 ) {
     ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
@@ -906,7 +930,7 @@ pub fn show(
     // different verbs, and mixing them in one row was what overflowed the old
     // header.
     if state.section == PackSection::Tracks {
-        track_tools(ui, state, palette, actions);
+        track_tools(ui, state, palette, scanning, actions);
     }
 
     if let Some(warning) = &state.parse_warning {
@@ -977,21 +1001,27 @@ fn track_tools(
     ui: &mut egui::Ui,
     state: &mut PackState,
     palette: &Palette,
+    scanning: bool,
     actions: &mut Vec<Action>,
 ) {
     ui.horizontal(|ui| {
         crate::theme::silkscreen_group(ui, palette.data_label, "LEVELS", |ui| {
-            if bevel::button(ui, palette, "Scan Volumes")
-                .on_hover_text("Measure every track's peak volume (dBFS)")
-                .clicked()
-            {
-                actions.push(Action::PackScanVolumes);
-            }
+            // Greyed while the scan runs: clicking again would cancel it and
+            // start over, which reads as the button doing nothing.
+            ui.add_enabled_ui(!scanning, |ui| {
+                if bevel::button(ui, palette, "Scan Volumes")
+                    .on_hover_text(if scanning {
+                        "Measuring every track's peak volume..."
+                    } else {
+                        "Measure every track's peak volume (dBFS)"
+                    })
+                    .clicked()
+                {
+                    actions.push(Action::PackScanVolumes);
+                }
+            });
             if bevel::button(ui, palette, "Apply")
-                .on_hover_text(
-                    "Set each track's VGM volume modifier from the scanned peaks to level the \
-                     pack (one undoable edit)",
-                )
+                .on_hover_text("Write volume modifiers to each track")
                 .clicked()
             {
                 actions.push(Action::PackApplySuggestedModifiers);
@@ -999,8 +1029,7 @@ fn track_tools(
             // A lit pad, not a checkbox: this modifies what Apply does, so it
             // belongs beside it, and "lit = on" is the chrome's own rule.
             bevel::toggle(ui, palette, &mut state.album_normalize, "Album").on_hover_text(
-                "Level the whole pack by its loudest track (album mode); off normalises each \
-                 track to its own peak",
+                "ON: use the loudest track's peak level.\nOFF: use each track's peak level.",
             );
         });
         crate::theme::silkscreen_group(ui, palette.data_label, "TAGS", |ui| {
@@ -1243,7 +1272,7 @@ pub fn deck(
             {
                 actions.push(Action::PackExportZip);
             }
-            if bevel::button(ui, palette, "Save Package Files")
+            if bevel::button(ui, palette, "Save Pack")
                 .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
                 .clicked()
             {
@@ -1253,10 +1282,10 @@ pub fn deck(
             // The two export options, as lit pads rather than the sentence-long
             // checkboxes that used to crowd the header: the tooltip carries the
             // detail, and "lit = on" is the same rule every other pad follows.
-            bevel::toggle(ui, palette, &mut state.optimize_on_export, "Optimize").on_hover_text(
+            bevel::toggle(ui, palette, &mut state.optimize_on_export, "Opt.").on_hover_text(
                 "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)",
             );
-            bevel::toggle(ui, palette, &mut state.gzip_on_export, "Gzip")
+            bevel::toggle(ui, palette, &mut state.gzip_on_export, "VGZ")
                 .on_hover_text("Gzip each .vgm to .vgz on export -- the VGMRips convention");
         });
     });
@@ -1455,8 +1484,8 @@ fn worst_severity(items: &[&ReadinessItem]) -> Severity {
 }
 
 /// Draws the submission checklist: one line per category -- a green tick when the
-/// category is clean, otherwise its heading followed by each unresolved item as a
-/// clickable line that jumps to the fix (a meta field opens the Tags form with
+/// category is clean, otherwise a heading that folds its findings away, each one
+/// a clickable line that jumps to the fix (a meta field opens the Tags form with
 /// that field focused; a track opens its quick-edit dialog).
 fn submission_checklist(
     ui: &mut egui::Ui,
@@ -1466,32 +1495,93 @@ fn submission_checklist(
     actions: &mut Vec<Action>,
 ) {
     ui.add_space(2.0);
-    for category in ReadinessCategory::ALL {
+    let loops = state.loop_tally();
+    for (slot, category) in ReadinessCategory::ALL.into_iter().enumerate() {
         let group: Vec<&ReadinessItem> = items
             .iter()
             .filter(|item| item.category == category)
             .collect();
+        // A tally beside the heading answers "how much of this is done" without
+        // expanding the group. Only Loops has a meaningful one so far.
+        let tally = (category == ReadinessCategory::Loops)
+            .then(|| format!("{}/{} looping", loops.0, loops.1));
+
         if group.is_empty() {
+            // Nothing to fold away, so a clean category stays a plain tick line.
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
+                ui.add_space(DISCLOSURE_WIDTH);
                 ui.colored_label(palette.meter_low, "\u{221A}"); // CP437 tick
                 ui.colored_label(palette.muted, category.label());
+                if let Some(tally) = tally {
+                    ui.colored_label(palette.muted, tally);
+                }
             });
             continue;
         }
+
+        let open = !state.collapsed[slot];
         let (glyph, color) = severity_marker(worst_severity(&group), palette);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
+            if disclosure(ui, palette, open, category.label()).clicked() {
+                state.collapsed[slot] = open;
+            }
             ui.colored_label(color, glyph);
             ui.colored_label(
                 palette.data_label,
                 egui::RichText::new(category.label()).strong(),
             );
+            if let Some(tally) = tally {
+                ui.colored_label(palette.muted, tally);
+            }
+            // Collapsed, the count is the only sign of what is inside.
+            if !open {
+                ui.colored_label(
+                    palette.muted,
+                    format!(
+                        "({} item{})",
+                        group.len(),
+                        if group.len() == 1 { "" } else { "s" }
+                    ),
+                );
+            }
         });
+        if !open {
+            continue;
+        }
         for item in group {
             checklist_item(ui, state, item, palette, actions);
         }
     }
+}
+
+/// The width a disclosure triangle occupies, so a clean category's tick lines up
+/// with the ticks of the categories that have one.
+const DISCLOSURE_WIDTH: f32 = 18.0;
+
+/// A fold/unfold triangle for a checklist category. Frameless, so a row of them
+/// reads as an outline rather than a row of buttons.
+///
+/// The glyph would be its whole accessible name, so the name is set explicitly:
+/// a screen reader (and `get_by_label`) needs to know *which* group a triangle
+/// belongs to, and five identical `\u{25BC}`s say nothing.
+fn disclosure(ui: &mut egui::Ui, palette: &Palette, open: bool, label: &str) -> egui::Response {
+    let glyph = if open { "\u{25BC}" } else { "\u{25B6}" };
+    let name = if open {
+        format!("Hide {label}")
+    } else {
+        format!("Show {label}")
+    };
+    let response = ui
+        .add_sized(
+            egui::vec2(DISCLOSURE_WIDTH, ui.spacing().interact_size.y),
+            egui::Button::new(egui::RichText::new(glyph).color(palette.data_label)).frame(false),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &name));
+    response
 }
 
 /// One checklist line under a category heading: an indented, colour-coded marker
@@ -1525,7 +1615,14 @@ fn checklist_item(
                 }
             }
             ReadinessTarget::Pack => {
-                ui.colored_label(palette.muted, item.message.as_str());
+                // Wrapped explicitly: inside a row a plain label extends, and
+                // these messages are sentences -- the loop note is a whole list.
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(item.message.as_str()).color(palette.muted),
+                    )
+                    .wrap(),
+                );
             }
         }
     });
