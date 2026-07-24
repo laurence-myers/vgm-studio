@@ -178,6 +178,113 @@ pub fn format_track_time(samples: u64) -> String {
     }
 }
 
+/// Formats a byte count with thousands separators, so a six-figure screenshot
+/// can be read at a glance rather than counted.
+#[must_use]
+pub fn format_byte_count(bytes: usize) -> String {
+    let digits = bytes.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (position, digit) in digits.chars().enumerate() {
+        if position > 0 && (digits.len() - position).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// What a PNG's header says about the image.
+///
+/// Read straight from the IHDR chunk rather than by decoding the file: a PNG
+/// always carries IHDR first, at a fixed offset, so the four facts a pack cares
+/// about cost no decoder and no dependency (and stay wasm-clean).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PngInfo {
+    pub width: u32,
+    pub height: u32,
+    /// Bits per sample (1, 2, 4, 8 or 16), per the PNG spec.
+    pub bit_depth: u8,
+    /// PNG colour type: 0 greyscale, 2 truecolour, 3 palette, 4 greyscale+alpha,
+    /// 6 truecolour+alpha.
+    pub colour_type: u8,
+}
+
+/// The PC display modes a DOS-era screenshot is likely to have been taken in.
+/// Naming the mode is how you spot a screenshot that has been rescaled: a
+/// 640x400 shot of a mode 13h game is an upscale, not a capture.
+const DISPLAY_MODES: &[(u32, u32, &str)] = &[
+    (320, 200, "VGA mode 13h"),
+    (320, 240, "VGA mode X"),
+    (360, 240, "VGA mode X"),
+    (640, 200, "CGA/EGA"),
+    (640, 350, "EGA"),
+    (640, 400, "VGA"),
+    (640, 480, "VGA"),
+    (720, 400, "VGA text"),
+    (800, 600, "SVGA"),
+];
+
+impl PngInfo {
+    /// Reads the header of `bytes`, or `None` if it is not a PNG.
+    #[must_use]
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        const SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        // 8 signature + 8 chunk header + 13 IHDR bytes; the fields read below sit
+        // at 16..26.
+        if bytes.len() < 26 || bytes[..8] != SIGNATURE || &bytes[12..16] != b"IHDR" {
+            return None;
+        }
+        let word = |at: usize| {
+            u32::from_be_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+        };
+        let (width, height) = (word(16), word(20));
+        // A zero dimension is illegal, and would divide by zero in `aspect`.
+        (width > 0 && height > 0).then_some(Self {
+            width,
+            height,
+            bit_depth: bytes[24],
+            colour_type: bytes[25],
+        })
+    }
+
+    /// The colour format in words, e.g. `"8-bit palette"` or `"24-bit RGB"`.
+    /// Bit depth is per *sample*, so a truecolour depth is multiplied out to the
+    /// per-pixel figure people actually quote.
+    #[must_use]
+    pub fn colour(&self) -> String {
+        let depth = u32::from(self.bit_depth);
+        match self.colour_type {
+            0 => format!("{depth}-bit greyscale"),
+            2 => format!("{}-bit RGB", depth * 3),
+            3 => format!("{depth}-bit palette"),
+            4 => format!("{}-bit greyscale + alpha", depth * 2),
+            6 => format!("{}-bit RGBA", depth * 4),
+            other => format!("colour type {other}"),
+        }
+    }
+
+    /// The width:height ratio in lowest terms.
+    #[must_use]
+    pub fn aspect(&self) -> (u32, u32) {
+        let divisor = gcd(self.width, self.height);
+        (self.width / divisor, self.height / divisor)
+    }
+
+    /// The PC display mode these dimensions are, when they are a familiar one.
+    #[must_use]
+    pub fn display_mode(&self) -> Option<&'static str> {
+        DISPLAY_MODES
+            .iter()
+            .find(|(width, height, _)| *width == self.width && *height == self.height)
+            .map(|(_, _, name)| *name)
+    }
+}
+
+/// Greatest common divisor, for reducing an aspect ratio.
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
 /// A one-click fill for the System / OS / Music hardware fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PackPreset {
@@ -1110,6 +1217,59 @@ mod tests {
 
     const FIXTURE: &str = include_str!("../../../tests/description_vgm151_PC.txt");
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+
+    /// A PNG header (signature + IHDR) with the given shape. Only the first 26
+    /// bytes matter to [`PngInfo::parse`], so the rest of the file is elided.
+    fn png_header(width: u32, height: u32, bit_depth: u8, colour_type: u8) -> Vec<u8> {
+        let mut bytes = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend_from_slice(&13_u32.to_be_bytes());
+        bytes.extend_from_slice(b"IHDR");
+        bytes.extend_from_slice(&width.to_be_bytes());
+        bytes.extend_from_slice(&height.to_be_bytes());
+        bytes.push(bit_depth);
+        bytes.push(colour_type);
+        bytes
+    }
+
+    #[test]
+    fn png_headers_yield_the_facts_a_screenshot_is_judged_on() {
+        let info = PngInfo::parse(&png_header(320, 200, 8, 3)).expect("a PNG header");
+        assert_eq!((info.width, info.height), (320, 200));
+        assert_eq!(info.colour(), "8-bit palette");
+        assert_eq!(info.aspect(), (8, 5));
+        assert_eq!(info.display_mode(), Some("VGA mode 13h"));
+
+        // Truecolour depth is per sample, so it multiplies out per pixel.
+        let truecolour = PngInfo::parse(&png_header(640, 480, 8, 2)).expect("a PNG header");
+        assert_eq!(truecolour.colour(), "24-bit RGB");
+        assert_eq!(truecolour.aspect(), (4, 3));
+        assert_eq!(truecolour.display_mode(), Some("VGA"));
+
+        // An unfamiliar size still reports its facts, just without a mode name.
+        let odd = PngInfo::parse(&png_header(1024, 640, 8, 6)).expect("a PNG header");
+        assert_eq!(odd.colour(), "32-bit RGBA");
+        assert_eq!(odd.aspect(), (8, 5));
+        assert_eq!(odd.display_mode(), None);
+    }
+
+    #[test]
+    fn a_non_png_or_degenerate_header_is_rejected() {
+        assert!(PngInfo::parse(b"not a png at all, not even close").is_none());
+        assert!(PngInfo::parse(&[]).is_none());
+        // Truncated before the IHDR fields.
+        assert!(PngInfo::parse(&png_header(320, 200, 8, 3)[..20]).is_none());
+        // A zero dimension is illegal, and would divide by zero reducing aspect.
+        assert!(PngInfo::parse(&png_header(320, 0, 8, 3)).is_none());
+    }
+
+    #[test]
+    fn byte_counts_are_grouped_in_threes() {
+        assert_eq!(format_byte_count(0), "0");
+        assert_eq!(format_byte_count(999), "999");
+        assert_eq!(format_byte_count(1_000), "1,000");
+        assert_eq!(format_byte_count(24_806), "24,806");
+        assert_eq!(format_byte_count(1_234_567), "1,234,567");
+    }
 
     /// Samples that render as exactly `secs` seconds (`secs * 44100` rounds to
     /// itself under the +22050 rounding).

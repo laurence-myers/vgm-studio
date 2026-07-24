@@ -16,9 +16,10 @@ use std::sync::Arc;
 use dro_synth::Peak;
 
 use dro_core::pack::{
-    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, ReadinessCategory, ReadinessItem,
-    ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem, format_track_time,
-    generate_description, generate_m3u, music_hardware_suggestion, parse_description, readiness,
+    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, PngInfo, ReadinessCategory,
+    ReadinessItem, ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem,
+    format_byte_count, format_track_time, generate_description, generate_m3u,
+    music_hardware_suggestion, parse_description, readiness,
 };
 use dro_core::vgm::data::GD3_FIELD_COUNT;
 use dro_core::{Gd3Tag, OplType, Song};
@@ -57,6 +58,9 @@ pub struct PackImage {
     pub name: String,
     pub path: Option<PathBuf>,
     pub bytes: Arc<[u8]>,
+    /// The PNG header's facts, read once at scan rather than per frame. `None`
+    /// when the file is not a readable PNG, which the inspector reports.
+    pub info: Option<PngInfo>,
 }
 
 /// Which sub-section of the pack view is open. The pack is four separate jobs --
@@ -159,6 +163,7 @@ impl PackState {
                     });
                 }
                 FileClass::Image => images.push(PackImage {
+                    info: PngInfo::parse(&file.bytes),
                     name: file.name,
                     path: file.path,
                     bytes: file.bytes.into(),
@@ -1763,45 +1768,177 @@ fn track_table(
     });
 }
 
+/// The widest a screenshot preview is drawn, leaving the facts pane its room.
+const PREVIEW_MAX_WIDTH: f32 = 360.0;
+
+/// Draws the Screenshots section: each image beside the facts that decide
+/// whether it is the right picture -- dimensions above all, which the app used
+/// to leave unsaid even though it is the thing most likely to be wrong.
 fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions: &mut Vec<Action>) {
     ui.add_space(2.0);
     if state.images.is_empty() {
-        ui.colored_label(
-            palette.muted,
-            "No screenshot (.png) in the folder. A submission needs one.",
-        );
+        no_screenshot(ui, palette);
         return;
     }
     for (index, image) in state.images.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(&image.name)
-                    .monospace()
-                    .color(palette.data_text),
-            );
-            ui.label(
-                egui::RichText::new(format!("({} bytes)", image.bytes.len())).color(palette.muted),
-            );
-            // "Recompress", not "Optimize": the deck's Optimize pad is the VGM
-            // pipeline's vgm_cmp step, and two different jobs must not share one
-            // word on the same screen.
-            if bevel::button(ui, palette, "Recompress")
-                .on_hover_text("Losslessly recompress with oxipng and save in place")
-                .clicked()
-            {
-                actions.push(Action::OptimizeImage(index));
-            }
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            preview_well(ui, palette, image);
+            ui.vertical(|ui| image_facts(ui, palette, image, index, actions));
         });
-        // Inline preview at natural size (capped). The URI carries the byte
-        // length, so a freshly optimised file busts the texture cache.
+        ui.add_space(10.0);
+    }
+}
+
+/// The image in a sunken data well, keylined so a dark screenshot still has a
+/// visible edge against the well behind it.
+fn preview_well(ui: &mut egui::Ui, palette: &Palette, image: &PackImage) {
+    let frame = egui::Frame::new()
+        .fill(palette.data_bg)
+        .inner_margin(egui::Margin::same(6));
+    let framed = frame.show(ui, |ui| {
+        // The URI carries the byte length, so a freshly recompressed file busts
+        // the texture cache rather than showing the stale image.
         let uri = format!("bytes://pack/{}/{}", image.bytes.len(), image.name);
         ui.add(
             egui::Image::from_bytes(uri, image.bytes.clone())
                 .fit_to_original_size(1.0)
-                .max_width(480.0),
-        );
+                .max_width(PREVIEW_MAX_WIDTH),
+        )
+    });
+    bevel::paint_bevel(
+        ui.painter(),
+        framed.response.rect,
+        palette,
+        bevel::Bevel::Sunken,
+    );
+    // A hairline in the display ink around the image itself: the well is dark,
+    // and so are most title screens.
+    ui.painter().rect_stroke(
+        framed.inner.rect,
+        egui::CornerRadius::ZERO,
+        egui::Stroke::new(1.0, palette.data_label.gamma_multiply(0.45)),
+        egui::StrokeKind::Outside,
+    );
+}
+
+/// The record beside the preview: what the file is, and what to do about it.
+fn image_facts(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    image: &PackImage,
+    index: usize,
+    actions: &mut Vec<Action>,
+) {
+    ui.label(
+        egui::RichText::new(&image.name)
+            .monospace()
+            .color(palette.data_text)
+            .strong(),
+    );
+    ui.add_space(6.0);
+    egui::Grid::new(("screenshot-facts", index))
+        .num_columns(2)
+        .spacing([12.0, 3.0])
+        .show(ui, |ui| {
+            let mut fact = |key: &str, value: String| {
+                ui.colored_label(palette.data_label, key);
+                ui.label(
+                    egui::RichText::new(value)
+                        .monospace()
+                        .color(palette.data_text),
+                );
+                ui.end_row();
+            };
+            if let Some(info) = image.info {
+                let (wide, high) = info.aspect();
+                let aspect = match info.display_mode() {
+                    Some(mode) => format!("{wide}:{high}  ({mode})"),
+                    None => format!("{wide}:{high}"),
+                };
+                fact(
+                    "Dimensions",
+                    format!("{} \u{00D7} {}", info.width, info.height),
+                );
+                fact("Aspect", aspect);
+                fact("Colour", info.colour());
+            }
+            fact(
+                "File size",
+                format!("{} bytes", format_byte_count(image.bytes.len())),
+            );
+        });
+
+    if image.info.is_none() {
         ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.colored_label(palette.meter_mid, "!");
+            ui.colored_label(
+                palette.muted,
+                "This file's header could not be read as a PNG.",
+            );
+        });
+    } else if image.info.is_some_and(|info| info.display_mode().is_none()) {
+        // Not a rule -- VGMRips sets no resolution requirement -- but an
+        // unfamiliar size is usually a rescaled capture rather than a real one.
+        ui.add_space(6.0);
+        ui.colored_label(
+            palette.muted,
+            "Not a standard PC display mode; check it was captured, not resized.",
+        );
     }
+
+    ui.add_space(10.0);
+    // "Recompress", not "Optimize": the deck's Optimize pad is the VGM pipeline's
+    // vgm_cmp step, and two different jobs must not share one word on the same
+    // screen.
+    if bevel::button(ui, palette, "Recompress")
+        .on_hover_text("Losslessly recompress with oxipng and save in place")
+        .clicked()
+    {
+        actions.push(Action::OptimizeImage(index));
+    }
+}
+
+/// The empty state. A screenshot is required for a submission -- its absence is
+/// already a checklist warning -- so this says what is wanted rather than just
+/// reporting that nothing is there.
+fn no_screenshot(ui: &mut egui::Ui, palette: &Palette) {
+    ui.add_space(8.0);
+    let frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(20, 18));
+    let framed = frame.show(ui, |ui| {
+        ui.vertical_centered(|ui| {
+            ui.label(
+                egui::RichText::new("No screenshot in this folder")
+                    .color(palette.data_label)
+                    .strong(),
+            );
+            ui.add_space(4.0);
+            ui.colored_label(
+                palette.muted,
+                "A submission needs a title-screen .png at the game's native resolution.",
+            );
+            ui.add_space(2.0);
+            ui.colored_label(
+                palette.muted,
+                "Drop one into the pack folder, then reopen the pack to pick it up.",
+            );
+        });
+    });
+    // Dashed, not solid: the border marks a slot waiting to be filled rather
+    // than framing something that is there.
+    let rect = framed.response.rect;
+    let stroke = egui::Stroke::new(1.0, palette.data_label.gamma_multiply(0.45));
+    let corners = [
+        rect.left_top(),
+        rect.right_top(),
+        rect.right_bottom(),
+        rect.left_bottom(),
+        rect.left_top(),
+    ];
+    ui.painter()
+        .extend(egui::Shape::dashed_line(&corners, stroke, 6.0, 4.0));
 }
 
 #[cfg(test)]

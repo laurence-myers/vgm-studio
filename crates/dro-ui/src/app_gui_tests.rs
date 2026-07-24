@@ -3025,6 +3025,35 @@ fn a_chip_preset_fills_system_os_and_hardware() {
 }
 
 #[test]
+fn the_screenshot_inspector_reports_what_the_png_header_says() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    // Dimensions are the fact most likely to be wrong on a submission, and the
+    // app never used to show them at all.
+    let _ = harness.get_by_label_contains("320");
+    let _ = harness.get_by_label_contains("VGA mode 13h");
+    let _ = harness.get_by_label_contains("8-bit palette");
+
+    // With a screenshot present the empty state must be nowhere in sight.
+    assert!(
+        harness
+            .query_by_label_contains("No screenshot in this folder")
+            .is_none(),
+        "the empty state belongs to a folder with no .png"
+    );
+}
+
+#[test]
+fn a_folder_without_a_png_gets_the_empty_state() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+    let _ = harness.get_by_label_contains("No screenshot in this folder");
+}
+
+#[test]
 fn optimize_saves_a_smaller_screenshot_in_place() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
@@ -3218,6 +3247,16 @@ fn snapshot_pack_screenshots() {
     open_folder(&mut harness, &handles, complete_folder());
     pack_section(&mut harness, PackSection::Screenshots);
     settled_snapshot(&mut harness, "pack_screenshots");
+}
+
+#[test]
+fn snapshot_pack_screenshots_empty() {
+    // A folder with no .png: the section says what a submission wants rather
+    // than only reporting that nothing is there.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 400.0));
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+    settled_snapshot(&mut harness, "pack_screenshots_empty");
 }
 
 #[test]
