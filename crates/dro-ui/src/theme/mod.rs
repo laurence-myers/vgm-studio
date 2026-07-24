@@ -195,7 +195,7 @@ pub fn install(ctx: &egui::Context, choice: ThemeChoice) {
     // It does not touch glyph rendering, so the DOS font stays hard-pixel, and
     // the edge painters' `hline`/`vline` tricks stay crisp on the pixel grid.
     ctx.tessellation_options_mut(|options| options.feathering = true);
-    // Rip mode shows the pack's screenshots inline; the loader decodes the PNG
+    // Pack mode shows the pack's screenshots inline; the loader decodes the PNG
     // bytes. Installed here because every shell already calls `install`.
     egui_extras::install_image_loaders(ctx);
     apply_palette(ctx, choice);

@@ -1,4 +1,4 @@
-//! Preparing a VGMRips submission ("rip") from a folder of VGM/VGZ files.
+//! Preparing a VGMRips submission ("pack") from a folder of VGM/VGZ files.
 //!
 //! A submission is a flat zip of `NN Track Title.vgz` songs plus three text
 //! artefacts: a `Game Name.txt` *description*, a `Game Name.m3u` *playlist*, and
@@ -21,11 +21,11 @@ use crate::Gd3Tag;
 use crate::error::{Error, Result};
 use crate::song::{OplType, Song};
 
-/// The system name a fresh PC rip defaults to.
+/// The system name a fresh PC pack defaults to.
 pub const DEFAULT_SYSTEM: &str = "IBM PC/AT";
-/// The OS a fresh PC rip defaults to.
+/// The OS a fresh PC pack defaults to.
 pub const DEFAULT_OS: &str = "DOS";
-/// The song-list heading a fresh rip uses; real packs vary the wording.
+/// The song-list heading a fresh pack uses; real packs vary the wording.
 pub const DEFAULT_SONG_LIST_HEADING: &str = "Song list, in approximate game order:";
 
 /// Total line width of the description file.
@@ -45,11 +45,11 @@ const NO_LOOP: &str = " -   ";
 /// free-text Notes and Package-history sections.
 ///
 /// Parsing a description fills known fields and preserves any unrecognised
-/// `Label: value` lines in [`RipMeta::extra_fields`] so re-saving does not lose
+/// `Label: value` lines in [`PackMeta::extra_fields`] so re-saving does not lose
 /// them. Empty known fields are omitted when generating, which is how legacy
 /// packs without an `OS:` line round-trip.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RipMeta {
+pub struct PackMeta {
     pub game_name: String,
     pub system: String,
     pub os: String,
@@ -73,7 +73,7 @@ pub struct RipMeta {
     pub history: String,
 }
 
-impl Default for RipMeta {
+impl Default for PackMeta {
     fn default() -> Self {
         Self {
             game_name: String::new(),
@@ -180,7 +180,7 @@ pub fn format_track_time(samples: u64) -> String {
 
 /// A one-click fill for the System / OS / Music hardware fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RipPreset {
+pub struct PackPreset {
     /// The button label, e.g. `"OPL-2"`.
     pub name: &'static str,
     pub system: &'static str,
@@ -188,22 +188,22 @@ pub struct RipPreset {
     pub music_hardware: &'static str,
 }
 
-/// The chip presets, in OPL order. All PC rips share the system and OS; the
+/// The chip presets, in OPL order. All PC packs share the system and OS; the
 /// hardware line names the chip.
-pub const PRESETS: [RipPreset; 3] = [
-    RipPreset {
+pub const PRESETS: [PackPreset; 3] = [
+    PackPreset {
         name: "OPL-2",
         system: DEFAULT_SYSTEM,
         os: DEFAULT_OS,
         music_hardware: "AdLib/Sound Blaster (YM3812)",
     },
-    RipPreset {
+    PackPreset {
         name: "Dual OPL-2",
         system: DEFAULT_SYSTEM,
         os: DEFAULT_OS,
         music_hardware: "Dual OPL2 (2x YM3812)",
     },
-    RipPreset {
+    PackPreset {
         name: "OPL-3",
         system: DEFAULT_SYSTEM,
         os: DEFAULT_OS,
@@ -213,7 +213,7 @@ pub const PRESETS: [RipPreset; 3] = [
 
 /// The preset matching a chip type.
 #[must_use]
-pub const fn preset_for(opl: OplType) -> &'static RipPreset {
+pub const fn preset_for(opl: OplType) -> &'static PackPreset {
     match opl {
         OplType::Opl2 => &PRESETS[0],
         OplType::DualOpl2 => &PRESETS[1],
@@ -221,7 +221,7 @@ pub const fn preset_for(opl: OplType) -> &'static RipPreset {
     }
 }
 
-/// A suggested (editable) `Music hardware:` value for the chip a rip targets.
+/// A suggested (editable) `Music hardware:` value for the chip a pack targets.
 #[must_use]
 pub fn music_hardware_suggestion(opl: OplType) -> &'static str {
     preset_for(opl).music_hardware
@@ -250,7 +250,7 @@ pub fn doc_file_stem(game_name: &str) -> String {
 
 /// Builds a VGMRips track file name from its 1-based `number`, `title`, and
 /// `ext` (the extension without the dot, e.g. `"vgz"`): `"NN Title.ext"`, the
-/// title sanitised of characters a file name cannot hold. Shared by the rip
+/// title sanitised of characters a file name cannot hold. Shared by the pack
 /// quick-edit dialog (which derives the name from the GD3 tag) and reordering.
 #[must_use]
 pub fn track_file_name(number: usize, title: &str, ext: &str) -> String {
@@ -270,18 +270,18 @@ pub fn generate_m3u(file_names: &[String]) -> String {
 
 /// One header field: the label [`generate_description`] prints (with its colon),
 /// the lowercased labels [`parse_description`] accepts (canonical first), and typed
-/// access to its [`RipMeta`] slot. One ordered table drives both directions, so the
+/// access to its [`PackMeta`] slot. One ordered table drives both directions, so the
 /// generated labels and the parsed aliases can never drift apart.
 struct HeaderField {
     label: &'static str,
     aliases: &'static [&'static str],
-    get: fn(&RipMeta) -> &str,
-    set: fn(&mut RipMeta) -> &mut String,
+    get: fn(&PackMeta) -> &str,
+    set: fn(&mut PackMeta) -> &mut String,
 }
 
 /// The header fields in file order, split into the three blank-separated groups the
 /// template uses (identity, credits, packaging). Any unrecognised `Label: value`
-/// lines trail the last group as [`RipMeta::extra_fields`].
+/// lines trail the last group as [`PackMeta::extra_fields`].
 const HEADER_GROUPS: [&[HeaderField]; 3] = [
     &[
         HeaderField {
@@ -360,7 +360,7 @@ const HEADER_GROUPS: [&[HeaderField]; 3] = [
 /// preserved, but manual whitespace alignment is not. The result is stable --
 /// saving it again is a no-op.
 #[must_use]
-pub fn generate_description(meta: &RipMeta, tracks: &[TrackEntry]) -> String {
+pub fn generate_description(meta: &PackMeta, tracks: &[TrackEntry]) -> String {
     // Banner.
     let mut lines: Vec<String> = vec![
         "*".repeat(LINE_WIDTH),
@@ -411,14 +411,14 @@ pub fn generate_description(meta: &RipMeta, tracks: &[TrackEntry]) -> String {
     out
 }
 
-/// Parses a description back into [`RipMeta`], tolerantly.
+/// Parses a description back into [`PackMeta`], tolerantly.
 ///
 /// Accepts CRLF or LF, any banner URL, missing fields, the compact one-line song
 /// header some old packs use, and a single blank line before the section markers.
 /// The song-list block is skipped -- track timings are recomputed from the files.
 /// Returns [`Error::File`] only when the text carries no recognisable field or
 /// section at all.
-pub fn parse_description(text: &str) -> Result<RipMeta> {
+pub fn parse_description(text: &str) -> Result<PackMeta> {
     let normalised = text.replace("\r\n", "\n").replace('\r', "\n");
     let lines: Vec<&str> = normalised.split('\n').collect();
 
@@ -436,7 +436,7 @@ pub fn parse_description(text: &str) -> Result<RipMeta> {
         .min()
         .unwrap_or(lines.len());
 
-    let mut meta = RipMeta::default();
+    let mut meta = PackMeta::default();
     let mut matched_known = false;
 
     for (label, value) in parse_header_fields(&lines[..header_end]) {
@@ -833,17 +833,17 @@ pub fn hyphenate_date(date: &str) -> Option<String> {
 }
 
 /// The submission-readiness checks the VGMRips wiki wants verified before a pack
-/// is submitted, beyond the file-level shape [`crate::rip`]'s callers already
+/// is submitted, beyond the file-level shape [`crate::pack`]'s callers already
 /// check: complete and consistent GD3 tags, hyphen-separated dates, update notes,
 /// and loops.
 ///
-/// Pure over [`RipMeta`] and per-track [`TrackFacts`] -- no filesystem, no egui --
+/// Pure over [`PackMeta`] and per-track [`TrackFacts`] -- no filesystem, no egui --
 /// so it is driven entirely by table tests and runs on the web too. Each returned
 /// [`ReadinessItem`] carries its severity, a message, and the field or track to
 /// navigate to. A `Track(index)` target is the 0-based position in `tracks`, so
 /// pass one `TrackFacts` per pack track in order and the index maps straight back.
 #[must_use]
-pub fn readiness(meta: &RipMeta, tracks: &[TrackFacts]) -> Vec<ReadinessItem> {
+pub fn readiness(meta: &PackMeta, tracks: &[TrackFacts]) -> Vec<ReadinessItem> {
     let mut items = Vec::new();
     check_pack_meta(meta, &mut items);
     for (index, facts) in tracks.iter().enumerate() {
@@ -885,7 +885,7 @@ fn note(
 }
 
 /// P1-P4: the pack-level header fields a submission must fill.
-fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
+fn check_pack_meta(meta: &PackMeta, items: &mut Vec<ReadinessItem>) {
     let cat = ReadinessCategory::PackInfo;
     if meta.creator.trim().is_empty() {
         warn(
@@ -933,7 +933,7 @@ fn check_pack_meta(meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
 }
 
 /// T1-T5 and C1-C4 for one readable track.
-fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec<ReadinessItem>) {
+fn check_track(index: usize, facts: &TrackFacts, meta: &PackMeta, items: &mut Vec<ReadinessItem>) {
     let label = track_label(index, facts);
     let target = ReadinessTarget::Track(index);
 
@@ -1032,7 +1032,11 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &RipMeta, items: &mut Vec
 
 /// C5 (note): the union of the tracks' GD3 composers vs the pack's Music author
 /// list. Track authors vary legitimately, so this is only ever a note.
-fn check_author_consistency(meta: &RipMeta, tracks: &[TrackFacts], items: &mut Vec<ReadinessItem>) {
+fn check_author_consistency(
+    meta: &PackMeta,
+    tracks: &[TrackFacts],
+    items: &mut Vec<ReadinessItem>,
+) {
     let pack: BTreeSet<String> = split_authors(&meta.music_authors).collect();
     if pack.is_empty() {
         return; // an empty Music author field is P3's business
@@ -1164,7 +1168,7 @@ mod tests {
 
     #[test]
     fn generates_a_full_description_with_wrapping_and_totals() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "Test Game".to_owned(),
             system: "IBM PC/AT".to_owned(),
             os: "DOS".to_owned(),
@@ -1177,7 +1181,7 @@ mod tests {
             version: "1.00".to_owned(),
             notes: "Line one.\nLine two.".to_owned(),
             history: "1.00 2020-01-01 Ripper: Initial release.".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let tracks = [
             TrackEntry {
@@ -1390,7 +1394,7 @@ mod tests {
 
     #[test]
     fn parse_of_generate_is_the_identity_on_meta() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "Commander Keen in Goodbye, Galaxy! Episode IV: Secret of the Oracle"
                 .to_owned(),
             system: "IBM PC/AT".to_owned(),
@@ -1404,7 +1408,7 @@ mod tests {
             version: "1.50".to_owned(),
             notes: "First line.\n\nThird line after a blank.".to_owned(),
             history: "1.00 2014-08-24 The Green Herring: Initial\n release.".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let tracks = [TrackEntry {
             title: "Some Track".to_owned(),
@@ -1418,12 +1422,12 @@ mod tests {
 
     #[test]
     fn empty_os_round_trips() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "Legacy".to_owned(),
             system: "PC / DOS".to_owned(),
             music_authors: "Someone".to_owned(),
             version: "1.00".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let round_tripped = parse_description(&generate_description(&meta, &[])).unwrap();
         assert_eq!(round_tripped.os, "");
@@ -1440,7 +1444,7 @@ mod tests {
                 plays: 1,
             })
             .collect();
-        let out = generate_description(&RipMeta::default(), &tracks);
+        let out = generate_description(&PackMeta::default(), &tracks);
         assert!(
             out.contains("\r\n001 Track with a fairly long title"),
             "three-digit prefix"
@@ -1451,7 +1455,7 @@ mod tests {
 
     #[test]
     fn long_notes_and_history_lines_wrap_at_the_file_width() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "G".to_owned(),
             notes: "This pack was made using DOSBox and a whole lot of patience, because \
                     the game only plays each song once per boot and refuses to loop."
@@ -1459,7 +1463,7 @@ mod tests {
             history: "1.00 2026-07-16 Someone: Initial release, with a remark long enough \
                       that it has to wrap onto a continuation line."
                 .to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let text = generate_description(&meta, &[]);
         let lines: Vec<&str> = text.split("\r\n").collect();
@@ -1487,10 +1491,10 @@ mod tests {
 
     #[test]
     fn an_unbreakable_word_is_hard_split_rather_than_overflowing() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "G".to_owned(),
             notes: format!("See {}", "x".repeat(60)),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let text = generate_description(&meta, &[]);
         for line in text.split("\r\n") {
@@ -1609,15 +1613,15 @@ mod tests {
         }
     }
 
-    fn full_meta() -> RipMeta {
-        RipMeta {
+    fn full_meta() -> PackMeta {
+        PackMeta {
             game_name: "Cool Game".to_owned(),
             system: "IBM PC/AT".to_owned(),
             music_authors: "Ada".to_owned(),
             release_date: "1994-03-01".to_owned(),
             creator: "Ripper".to_owned(),
             history: "1.00 1994-03-01 Ripper: Initial release.".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         }
     }
 
@@ -1683,7 +1687,7 @@ mod tests {
     fn empty_pack_meta_warns_on_every_required_header_field() {
         // Default meta: no creator, date, author or history. One readable, fully
         // tagged track keeps the per-track checks quiet so only P1-P4 show.
-        let meta = RipMeta::default();
+        let meta = PackMeta::default();
         let tracks = [facts("01 Intro.vgz", Some(full_tag()), true, true)];
         let items = readiness(&meta, &tracks);
         assert!(has(&items, Severity::Warning, "Package created by"));
@@ -1929,10 +1933,10 @@ mod tests {
     fn items_are_filed_under_the_right_checklist_category() {
         // A game name to compare against and a two-composer credit, but empty
         // creator/date/history so PackInfo still fires.
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "Cool Game".to_owned(),
             music_authors: "Ada & Bob".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let tag = Gd3Tag {
             game_name_en: "Different".to_owned(),

@@ -16,7 +16,7 @@ Confirm the remaining §2.2 recommendations with the user, then begin at mc-1
 Today the app only opens VGM files that declare an OPL2/OPL3 clock; everything
 else fails with "No OPL2 or OPL3 data detected." The user's requirements:
 
-1. **Minimum (required):** open a Rip containing *any* VGM — all 42 chips the
+1. **Minimum (required):** open a Pack containing *any* VGM — all 42 chips the
    spec covers, versions 1.00–1.72 — and edit each file's tags/metadata (GD3).
 2. **Ideal:** preview (play) any track. Chip emulators **must compile to WASM**
    (the wasm32-unknown-unknown web build is a first-class target).
@@ -86,14 +86,14 @@ it.
    lands with the
    first GPL-licensed vendored core. §7 has the per-chip audit table (and the
    Genesis Plus GX linking caveat, §2.1.9).
-3. **The rip retag path stays byte-exact** outside the GD3 block. Header
+3. **The pack retag path stays byte-exact** outside the GD3 block. Header
    version normalisation (min-version rewrite) is *opt-in* — applied when the
    app synthesises a header anyway (DRO→VGM conversion, editor save of a
    restructured file) and offered as an explicit "normalise header" action at
-   rip export; never silently applied to a foreign file being retagged.
+   pack export; never silently applied to a foreign file being retagged.
 4. **Foreign VGMs are a separate type**, not forced through `Song`.
    `Song`/`DroInstruction` stay the OPL editing model; a new chip-agnostic
-   `VgmFile` carries everything else. Rip tracks hold an enum of the two.
+   `VgmFile` carries everything else. Pack tracks hold an enum of the two.
 5. **Corpus-ordered core rollout** (§5, mc-8/mc-9): SN76489 + YM2413 + YM2612
    + AY8910 + Game Boy + NES first — that covers the overwhelming majority of
    VGMRips packs — then FM heavies, then wavetable/PCM exotics. "Every chip
@@ -320,9 +320,9 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
   1.70+extra, 1.71); data-at-0x60 minimal header; GD3-before-data relocation;
   byte-exact retag round-trips; proptest over synthetic headers.
 
-#### mc-2 · rip mode: any VGM in, tags editable, graceful preview gating
+#### mc-2 · pack mode: any VGM in, tags editable, graceful preview gating
 
-- `RipTrack.song` becomes `RipSong::Opl(Arc<Song>) | Foreign(Arc<VgmFile>) |
+- `PackTrack.song` becomes `PackSong::Opl(Arc<Song>) | Foreign(Arc<VgmFile>) |
   Unreadable(String)`. `from_folder` tries the OPL reader first (unchanged
   behaviour for OPL files), falls back to the foreign reader; only true parse
   failures land in `Unreadable`.
@@ -331,7 +331,7 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
   vgm_stat trusts these header fields too).
 - Description/preset generalisation: the chips line derives from
   `VgmHeader::chips()` joined display names; `preset_for`/`highest_opl`
-  keep working for OPL rips and fall back to the derived chip string
+  keep working for OPL packs and fall back to the derived chip string
   otherwise. `unique_authors`/prefill already read GD3 — unchanged.
 - Quick-edit (GD3) works for foreign tracks via the mc-1 writer, including
   rename; `gzip_on_export` honoured (VGZ = gzip, unchanged).
@@ -340,17 +340,17 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
   supported yet"; "unreadable" styling now only for `Unreadable`.
 - `validations()` updated: foreign tracks are full citizens (counted, listed,
   exported); keep a soft note listing not-previewable chips.
-- Tests: rip open with a mixed OPL + Mega Drive + corrupt folder; quick-edit
-  round-trip on a foreign track; description output for a non-OPL rip.
+- Tests: pack open with a mixed OPL + Mega Drive + corrupt folder; quick-edit
+  round-trip on a foreign track; description output for a non-OPL pack.
 
 #### mc-3 · editor gating + open-file behaviour
 
 - `load_file` (app.rs ~line 1260): when the OPL reader rejects but the foreign
   reader succeeds, replace the raw error alert with a friendly dialog: chip
   list, version, duration, GD3 title, and "The editor supports OPL2/OPL3 songs
-  only — open this file inside a Rip to edit its tags." (No hidden partial
+  only — open this file inside a Pack to edit its tags." (No hidden partial
   editor state.)
-- Rip tab: activating Editor for a foreign track stays impossible — the
+- Pack tab: activating Editor for a foreign track stays impossible — the
   per-track "open in editor" action is hidden/disabled for `Foreign`.
   (Interim state: mc-5 flips both this and the dialog to open the generic
   editor instead.)
@@ -424,7 +424,7 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   no-edit save stays byte-identical.
 - **Dialogs:** GD3 dialog already works; the VGM metadata dialog's loop field
   works once its prefix-sum lookup goes through the shared trait.
-- **Gating flip:** mc-3's info dialog and the rip row's disabled action now
+- **Gating flip:** mc-3's info dialog and the pack row's disabled action now
   open the generic editor. Transport / waveform / position / channels panels
   stay hidden for foreign docs via a capability-flags struct on the loaded
   doc (the mc-3 gating generalised — this is also what mc-7 later toggles).
@@ -472,7 +472,7 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   `Arc<VgmFile>`); NativeAudio hosts either engine behind the existing rtrb
   command/position plumbing (loop/mute/pan commands no-op for foreign
   sources). Update dro-ui mocks/test_support.
-- Rip preview button enabled per `is_playable`; transport inside the rip tab
+- Pack preview button enabled per `is_playable`; transport inside the pack tab
   stays the existing minimal preview UX.
 - Generic editor gains its playback slice (the bolt-on deferred from mc-5):
   capability flags flip transport/position/waveform on for playable foreign
@@ -493,7 +493,7 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   Nuked-OPN2 (LGPL-2.1). Includes the DAC + 0x80–0x8F fast path and 0xE0
   seeks.
 - **YM2413** — port emu2413 (MIT, single C file) to Rust.
-- Acceptance: an SMS rip and a Mega Drive rip preview correctly A/B'd against
+- Acceptance: an SMS pack and a Mega Drive pack preview correctly A/B'd against
   VGMPlay; wasm build renders identical samples (hash a short render in a
   wasm-bindgen test, mirroring the c-parity idea).
 
@@ -527,7 +527,7 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 
 - Implement §3.5 as `VgmHeader::minimum_version(&VgmStream)`. Apply it where
   headers are synthesised (DRO→VGM conversion keeps emitting 1.51 — already
-  minimal) and behind an explicit "Normalise headers" rip-export option that
+  minimal) and behind an explicit "Normalise headers" pack-export option that
   rewrites version + header size bucket + zero-pads, refusing (with a listed
   reason) when a higher-version field/command blocks a downgrade.
 - This also delivers the TODO "emit a higher-version header" bullet: a
@@ -540,13 +540,13 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 | Step | Scope | Landable alone? |
 |------|-------|-----------------|
 | mc-1 | dro-core: full header parse, `VgmFile` (opaque body), GD3 retag writer | yes |
-| mc-2 | rip mode: foreign tracks first-class, preview gated, descriptions | yes |
+| mc-2 | pack mode: foreign tracks first-class, preview gated, descriptions | yes |
 | mc-3 | editor gating + friendly non-OPL open dialog | yes — **Phase A done: minimum requirement met** |
 | mc-4 | full command-stream parser (also closes both reader TODOs for OPL) | yes |
 | mc-5 | generic delete-only editor + foreign save path (no emulation) | yes — **any-chip trimming works** |
 | mc-6 | `ChipCore` trait, `VgmEngine`, DAC streams, mixer | yes (no cores yet) |
-| mc-7 | AudioService source enum, rip preview + editor playback wiring | yes |
-| mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD rips play | yes |
+| mc-7 | AudioService source enum, pack preview + editor playback wiring | yes |
+| mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | yes |
 | mc-9 | core waves 1–4, one confirmed step per core | per-core |
 | mc-10 | minimum-version writer + normalise-header export option | yes |
 
@@ -657,8 +657,8 @@ re-syncing a Rust port is a re-porting exercise.
 | VGM header read/write, OPL gate, GD3 | `crates/dro-core/src/vgm/io.rs` |
 | Command table, `VgmData`, `VgmMeta`, `Gd3Tag` | `crates/dro-core/src/vgm/data.rs` |
 | `Song`, `SongData`, prefix sums, deletion sliding | `crates/dro-core/src/song.rs` |
-| Rip data model, description/presets | `crates/dro-core/src/rip.rs` |
-| Rip UI state, track rows, quick-edit | `crates/dro-ui/src/rip.rs` |
+| Pack data model, description/presets | `crates/dro-core/src/pack.rs` |
+| Pack UI state, track rows, quick-edit | `crates/dro-ui/src/pack.rs` |
 | Track quick-edit dialog | `crates/dro-ui/src/dialogs/track_edit.rs` |
 | Pull engine, `OplChip` wrap, muting/panning | `crates/dro-synth/src/engine.rs`, `opl.rs` |
 | cpal callback + command queue | `crates/dro-audio-native/src/lib.rs` |

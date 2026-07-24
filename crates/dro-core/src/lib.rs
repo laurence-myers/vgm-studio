@@ -15,8 +15,8 @@ pub mod io;
 pub mod loopfind;
 pub mod opl_state;
 pub mod optimize;
+pub mod pack;
 pub mod regdata;
-pub mod rip;
 pub mod song;
 pub mod split_songs;
 pub(crate) mod state_patch;
@@ -31,7 +31,7 @@ pub use error::{Error, Result};
 pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
 pub use opl_state::OplState;
 pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
-pub use rip::{RipMeta, TrackEntry};
+pub use pack::{PackMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, DroInstruction, FindTarget, OplType, Song, SongData,
     SongFileType, StreamSnapshot, slide_index_past_deletion,

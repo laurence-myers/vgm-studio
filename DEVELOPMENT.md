@@ -70,7 +70,7 @@ GPU-specific. Regenerate them after an intentional UI change:
 $env:UPDATE_SNAPSHOTS='1'; cargo test -p dro-ui; Remove-Item Env:\UPDATE_SNAPSHOTS
 ```
 
-Rip mode's zip export pulls native-only crates: `zip`, `oxipng` (which builds
+Pack mode's zip export pulls native-only crates: `zip`, `oxipng` (which builds
 the C `libdeflate` via `cc`) and `chrono`. The MSVC build tools below already
 satisfy the C toolchain; `dro-core`/`dro-synth` stay free of them and wasm-clean.
 

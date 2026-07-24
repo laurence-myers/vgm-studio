@@ -17,7 +17,7 @@ becomes a real gate when the any-chip VGM plan
 ([docs/vgm-multichip-2026-07/HANDOVER.md](../vgm-multichip-2026-07/HANDOVER.md)) lands;
 see §3.5 for the required seam.
 
-Out of scope: render/split/convert/rip-mode (these need PCM and stay on Nuked), audio
+Out of scope: render/split/convert/pack-mode (these need PCM and stay on Nuked), audio
 *capture* from the device (sound leaves via its 3.5mm jack, not USB), non-OPL3
 RetroWave boards (MiniBlaster, MasterGear), and any non-OPL chip data (above).
 

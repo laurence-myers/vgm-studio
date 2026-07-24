@@ -1,4 +1,4 @@
-//! The native `RipService`: one `std::thread` per export job, superseded on
+//! The native `PackService`: one `std::thread` per export job, superseded on
 //! resubmit. Simpler than [`super::task::ThreadTaskService`] -- a single job at a
 //! time, no debounce -- but the same shape: a cooperative cancel flag, a
 //! generation number so a superseded job's late result is dropped, and a repaint
@@ -11,13 +11,13 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use chrono::{Datelike as _, Local};
-use dro_ui::{OptimizedImage, RipJobOutcome, RipJobRequest, RipService};
+use dro_ui::{OptimizedImage, PackJobOutcome, PackJobRequest, PackService};
 
-use crate::rip_zip::{build_rip_zip, png_options};
+use crate::pack_zip::{build_pack_zip, png_options};
 
-pub struct NativeRipService {
-    sender: Sender<(u64, RipJobOutcome)>,
-    receiver: Receiver<(u64, RipJobOutcome)>,
+pub struct NativePackService {
+    sender: Sender<(u64, PackJobOutcome)>,
+    receiver: Receiver<(u64, PackJobOutcome)>,
     /// Screenshot optimisations report on their own channel; they never
     /// supersede one another, so no generation is needed.
     optimize_sender: Sender<Result<OptimizedImage, String>>,
@@ -31,7 +31,7 @@ pub struct NativeRipService {
     notify: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-impl Default for NativeRipService {
+impl Default for NativePackService {
     fn default() -> Self {
         let (sender, receiver) = channel();
         let (optimize_sender, optimize_receiver) = channel();
@@ -48,15 +48,15 @@ impl Default for NativeRipService {
     }
 }
 
-impl fmt::Debug for NativeRipService {
+impl fmt::Debug for NativePackService {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NativeRipService")
+        f.debug_struct("NativePackService")
             .field("generation", &self.generation)
             .finish_non_exhaustive()
     }
 }
 
-impl NativeRipService {
+impl NativePackService {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -71,7 +71,7 @@ impl NativeRipService {
         }
     }
 
-    fn spawn(&mut self, request: RipJobRequest, generation: u64) {
+    fn spawn(&mut self, request: PackJobRequest, generation: u64) {
         let cancelled = Arc::new(AtomicBool::new(false));
         self.cancelled = Some(Arc::clone(&cancelled));
 
@@ -81,19 +81,19 @@ impl NativeRipService {
         live.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
             let is_cancelled = || cancelled.load(Ordering::Relaxed);
-            let outcome = match build_rip_zip(
+            let outcome = match build_pack_zip(
                 &request.entries,
                 request.gzip_vgms,
                 request.optimize_vgms,
                 &is_cancelled,
             ) {
-                Ok(Some(output)) => Some(RipJobOutcome::Done {
+                Ok(Some(output)) => Some(PackJobOutcome::Done {
                     zip_name: request.zip_name,
                     bytes: output.bytes,
                     log: output.log,
                 }),
                 Ok(None) => None, // cancelled partway through
-                Err(error) => Some(RipJobOutcome::Failed(format!("{error:#}"))),
+                Err(error) => Some(PackJobOutcome::Failed(format!("{error:#}"))),
             };
             // A superseded job's cancel flag is set; drop its late result rather
             // than deliver it (the generation filter in `poll` is the backstop).
@@ -111,15 +111,15 @@ impl NativeRipService {
     }
 }
 
-impl RipService for NativeRipService {
-    fn submit(&mut self, request: RipJobRequest) {
+impl PackService for NativePackService {
+    fn submit(&mut self, request: PackJobRequest) {
         self.cancel();
         self.generation += 1;
         let generation = self.generation;
         self.spawn(request, generation);
     }
 
-    fn poll(&mut self) -> Option<RipJobOutcome> {
+    fn poll(&mut self) -> Option<PackJobOutcome> {
         let latest = self.generation;
         let mut outcome = None;
         while let Ok((generation, result)) = self.receiver.try_recv() {
@@ -182,15 +182,15 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
-    use dro_ui::{RipEntry, RipEntryKind};
+    use dro_ui::{PackEntry, PackEntryKind};
 
-    fn doc_job(name: &str) -> RipJobRequest {
-        RipJobRequest {
+    fn doc_job(name: &str) -> PackJobRequest {
+        PackJobRequest {
             zip_name: format!("{name}.zip"),
-            entries: vec![RipEntry {
+            entries: vec![PackEntry {
                 name: format!("{name}.txt"),
                 bytes: b"description".to_vec(),
-                kind: RipEntryKind::Doc,
+                kind: PackEntryKind::Doc,
             }],
             gzip_vgms: false,
             optimize_vgms: false,
@@ -199,9 +199,9 @@ mod tests {
 
     /// Polls until an outcome arrives or the deadline passes.
     fn wait_for_outcome(
-        service: &mut NativeRipService,
+        service: &mut NativePackService,
         timeout: Duration,
-    ) -> Option<RipJobOutcome> {
+    ) -> Option<PackJobOutcome> {
         let deadline = Instant::now() + timeout;
         loop {
             if let Some(outcome) = service.poll() {
@@ -216,11 +216,11 @@ mod tests {
 
     #[test]
     fn a_submitted_job_builds_and_delivers_a_zip() {
-        let mut service = NativeRipService::new();
+        let mut service = NativePackService::new();
         service.submit(doc_job("Game"));
         assert!(service.is_busy());
         match wait_for_outcome(&mut service, Duration::from_secs(10)) {
-            Some(RipJobOutcome::Done {
+            Some(PackJobOutcome::Done {
                 zip_name, bytes, ..
             }) => {
                 assert_eq!(zip_name, "Game.zip");
@@ -241,7 +241,7 @@ mod tests {
         let fired = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&fired);
         let mut service =
-            NativeRipService::with_notifier(move || flag.store(true, Ordering::Relaxed));
+            NativePackService::with_notifier(move || flag.store(true, Ordering::Relaxed));
         service.submit(doc_job("Game"));
         assert!(wait_for_outcome(&mut service, Duration::from_secs(10)).is_some());
         assert!(fired.load(Ordering::Relaxed));
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn today_reports_a_plausible_date() {
-        let (year, month, day) = NativeRipService::new().today().unwrap();
+        let (year, month, day) = NativePackService::new().today().unwrap();
         assert!(year >= 2024, "year was {year}");
         assert!((1..=12).contains(&month), "month was {month}");
         assert!((1..=31).contains(&day), "day was {day}");
@@ -257,7 +257,7 @@ mod tests {
 
     /// Polls until an optimisation result arrives or the deadline passes.
     fn wait_for_optimized(
-        service: &mut NativeRipService,
+        service: &mut NativePackService,
         timeout: Duration,
     ) -> Result<OptimizedImage, String> {
         let deadline = Instant::now() + timeout;
@@ -276,7 +276,7 @@ mod tests {
     #[test]
     fn optimize_shrinks_the_deliberately_suboptimal_fixture() {
         const PNG: &[u8] = include_bytes!("../../../../tests/screenshot.png");
-        let mut service = NativeRipService::new();
+        let mut service = NativePackService::new();
         service.optimize("shot.png".to_owned(), PNG.to_vec());
         let optimized = wait_for_optimized(&mut service, Duration::from_secs(30)).unwrap();
         assert_eq!(optimized.name, "shot.png");
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn optimize_reports_a_corrupt_png_as_an_error() {
-        let mut service = NativeRipService::new();
+        let mut service = NativePackService::new();
         service.optimize("bad.png".to_owned(), b"not a png".to_vec());
         assert!(wait_for_optimized(&mut service, Duration::from_secs(30)).is_err());
     }

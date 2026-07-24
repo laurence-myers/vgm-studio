@@ -9,11 +9,11 @@ use dro_core::io::read_song;
 
 pub mod cli;
 pub mod config;
-pub mod rip_zip;
+pub mod pack_zip;
 pub mod services;
 
 pub use config::load_config;
-pub use rip_zip::{RipZipOutput, build_rip_zip};
+pub use pack_zip::{PackZipOutput, build_pack_zip};
 
 /// Reads and parses the song at `path`, naming it after the file (falling back to
 /// `input.dro`) so format detection follows the file's extension. Every

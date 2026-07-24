@@ -1,4 +1,4 @@
-//! Rip mode's quick-edit dialog: rename a track's file and edit its GD3 tag
+//! Pack mode's quick-edit dialog: rename a track's file and edit its GD3 tag
 //! without loading it into the editor. It is the GD3 dialog plus a leading
 //! "File name" field; Save emits [`Action::QuickEditSubmitted`], which rewrites
 //! the file's bytes and, if the name changed, renames it.
@@ -42,7 +42,7 @@ impl TrackEditDialog {
         // seed it from the original file name's title so the derived name starts
         // out matching the file on disk rather than blank.
         if fields[0].trim().is_empty() {
-            fields[0] = dro_core::rip::title_from_filename(&file_name).to_owned();
+            fields[0] = dro_core::pack::title_from_filename(&file_name).to_owned();
         }
         Self {
             original_name: file_name,
@@ -63,7 +63,7 @@ impl TrackEditDialog {
     /// The file name derived from the track number and the Track Name (EN)
     /// field, keeping the original extension. This is what Save writes.
     fn derived_name(&self) -> String {
-        dro_core::rip::track_file_name(self.track_number, &self.fields[0], &self.ext)
+        dro_core::pack::track_file_name(self.track_number, &self.fields[0], &self.ext)
     }
 
     /// Draws the window. Returns `false` once closed.

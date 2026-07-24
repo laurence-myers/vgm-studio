@@ -18,8 +18,8 @@ use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
 use dro_synth::{Muting, Panning};
 
 use crate::platform::{
-    AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome,
-    RipJobRequest, RipService, SaveOutcome, SaveRequest,
+    AudioService, FileService, OptimizedImage, PackJobOutcome, PackJobRequest, PackService,
+    PickedFile, PickedFolder, SaveOutcome, SaveRequest,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
@@ -42,7 +42,7 @@ pub(crate) struct FileLog {
     pub pick_output_folder_calls: usize,
     /// The answer the picker gave, waiting to be polled.
     pending_output_folder: Option<Option<PathBuf>>,
-    /// Fed to `poll_folder`, front first (rip mode).
+    /// Fed to `poll_folder`, front first (pack mode).
     pub picked_folders: VecDeque<Result<PickedFolder, String>>,
     pub pick_folder_calls: usize,
     pub opened_folder_paths: Vec<PathBuf>,
@@ -141,7 +141,7 @@ pub(crate) struct AudioLog {
     /// rising past the lowest level that bit the limiter).
     pub min_engaged_boost: Option<f32>,
     /// When set, the next `load` fails (and clears the flag), letting a test
-    /// exercise the failed-load paths -- e.g. a rip preview that can't decode.
+    /// exercise the failed-load paths -- e.g. a pack preview that can't decode.
     pub fail_next_load: bool,
     /// When set, the next `play` fails (and clears the flag), for the
     /// load-succeeds-but-playback-won't-start paths (e.g. no audio device).
@@ -366,15 +366,15 @@ impl ConfigStore for MemoryConfigStore {
     }
 }
 
-// -- rip ---------------------------------------------------------------------
+// -- pack ---------------------------------------------------------------------
 
-/// Export jobs submitted to a [`FakeRipService`], the outcomes it will hand
+/// Export jobs submitted to a [`FakePackService`], the outcomes it will hand
 /// back, and the scriptable `today`/`busy` state the app reads.
 #[derive(Debug)]
-pub(crate) struct RipLog {
-    pub submitted: Vec<RipJobRequest>,
+pub(crate) struct PackLog {
+    pub submitted: Vec<PackJobRequest>,
     /// Fed to `poll`, front first.
-    pub outcomes: VecDeque<RipJobOutcome>,
+    pub outcomes: VecDeque<PackJobOutcome>,
     /// Screenshot optimisations requested, as `(name, byte length)`.
     pub optimize_requests: Vec<(String, usize)>,
     /// Fed to `poll_optimized`, front first.
@@ -384,7 +384,7 @@ pub(crate) struct RipLog {
     pub today: Option<(i32, u8, u8)>,
 }
 
-impl Default for RipLog {
+impl Default for PackLog {
     fn default() -> Self {
         Self {
             submitted: Vec::new(),
@@ -398,14 +398,14 @@ impl Default for RipLog {
 }
 
 #[derive(Debug)]
-pub(crate) struct FakeRipService(pub(crate) Rc<RefCell<RipLog>>);
+pub(crate) struct FakePackService(pub(crate) Rc<RefCell<PackLog>>);
 
-impl RipService for FakeRipService {
-    fn submit(&mut self, request: RipJobRequest) {
+impl PackService for FakePackService {
+    fn submit(&mut self, request: PackJobRequest) {
         self.0.borrow_mut().submitted.push(request);
     }
 
-    fn poll(&mut self) -> Option<RipJobOutcome> {
+    fn poll(&mut self) -> Option<PackJobOutcome> {
         self.0.borrow_mut().outcomes.pop_front()
     }
 

@@ -22,11 +22,11 @@ use crate::dialogs::{
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
 use crate::menus::{self, MenuState};
+use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction};
 use crate::platform::{
-    AudioService, FileService, OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, RipService,
-    SaveOutcome, SaveRequest,
+    AudioService, FileService, OptimizedImage, PackJobOutcome, PackService, PickedFile,
+    PickedFolder, SaveOutcome, SaveRequest,
 };
-use crate::rip::{BulkTagOverlay, RipMutation, RipState, RipTransaction};
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
@@ -131,16 +131,16 @@ enum SavePurpose {
     WavExport,
     /// One of the per-channel files from File > Split Channels.
     SplitFile,
-    /// A rip project's description or playlist.
-    RipDoc,
+    /// A pack project's description or playlist.
+    PackDoc,
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
     /// A screenshot rewritten in place after an explicit optimise.
     ImageOptimised,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
-    /// A `Write` step of the rip file-op executor (reorder / undo / redo).
-    RipOp,
+    /// A `Write` step of the pack file-op executor (reorder / undo / redo).
+    PackOp,
 }
 
 /// The stages shared by File > Split Channels and File > Split Songs: choose a
@@ -186,7 +186,7 @@ impl PendingSplit {
 /// Whether the running file-op sequence is a fresh edit, a redo, or an undo --
 /// deciding which stack its transaction lands on when the sequence completes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RipRunKind {
+enum PackRunKind {
     /// A brand-new edit (reorder): push to undo, clear the redo stack.
     NewEdit,
     /// Re-applying a previously undone edit: push back to undo.
@@ -195,13 +195,13 @@ enum RipRunKind {
     Undo,
 }
 
-/// A rip file-op sequence in flight: the mutations still to run, the transaction
+/// A pack file-op sequence in flight: the mutations still to run, the transaction
 /// they belong to, and where it lands on completion. Runs one mutation at a time,
 /// advancing as each rename/write outcome arrives.
-struct RipRun {
-    queue: VecDeque<RipMutation>,
-    transaction: RipTransaction,
-    kind: RipRunKind,
+struct PackRun {
+    queue: VecDeque<PackMutation>,
+    transaction: PackTransaction,
+    kind: PackRunKind,
     /// Set while a `Rename` mutation is awaiting its `poll_renamed`, so that
     /// outcome advances the run rather than the quick-edit rename path.
     rename_in_flight: bool,
@@ -222,7 +222,7 @@ pub struct DroApp {
     files: Box<dyn FileService>,
     audio: Box<dyn AudioService>,
     tasks: Box<dyn TaskService>,
-    rip_service: Box<dyn RipService>,
+    pack_service: Box<dyn PackService>,
     config_store: Box<dyn ConfigStore>,
     config: AppConfig,
 
@@ -230,9 +230,9 @@ pub struct DroApp {
     alerts: VecDeque<Alert>,
     dialogs: Dialogs,
 
-    /// The open rip project, if any.
-    rip: Option<RipState>,
-    /// The visible tab. Forced to `Editor` whenever no rip is open.
+    /// The open pack project, if any.
+    pack: Option<PackState>,
+    /// The visible tab. Forced to `Editor` whenever no pack is open.
     active_tab: AppTab,
     /// One entry per outstanding `files.save`, in order, to route its outcome.
     pending_saves: VecDeque<SavePurpose>,
@@ -287,19 +287,19 @@ pub struct DroApp {
     /// rename can't leave the old file holding bytes in the new format.
     pending_rewrite: Option<(PathBuf, Vec<u8>)>,
     /// Set if any package-doc save in the current batch failed or was cancelled,
-    /// so the rip's dirty flag is kept rather than cleared once the batch ends.
-    rip_docs_failed: bool,
-    /// The rip file-op sequence currently executing (reorder / undo / redo), if
+    /// so the pack's dirty flag is kept rather than cleared once the batch ends.
+    pack_docs_failed: bool,
+    /// The pack file-op sequence currently executing (reorder / undo / redo), if
     /// any. Only one runs at a time; edits are ignored while it is `Some`.
-    rip_run: Option<RipRun>,
-    /// Applied rip edits available to undo, oldest first.
-    rip_undo: Vec<RipTransaction>,
-    /// Undone rip edits available to redo.
-    rip_redo: Vec<RipTransaction>,
+    pack_run: Option<PackRun>,
+    /// Applied pack edits available to undo, oldest first.
+    pack_undo: Vec<PackTransaction>,
+    /// Undone pack edits available to redo.
+    pack_redo: Vec<PackTransaction>,
     /// A quick-edit / optimise transaction whose forward ran through the bespoke
     /// save path; committed to the undo stack once that save succeeds (and
     /// dropped if it fails), so undo only ever reverses edits that landed.
-    pending_rip_undo: Option<RipTransaction>,
+    pending_pack_undo: Option<PackTransaction>,
     /// A skin the Settings dialog is showing but has not saved, as
     /// `(theme, pad_style, deck_style)`. `None` whenever the window is painted
     /// in the saved settings. See [`Self::preview_skin`].
@@ -312,7 +312,7 @@ impl DroApp {
         files: Box<dyn FileService>,
         audio: Box<dyn AudioService>,
         tasks: Box<dyn TaskService>,
-        rip_service: Box<dyn RipService>,
+        pack_service: Box<dyn PackService>,
         config_store: Box<dyn ConfigStore>,
         initial_file: Option<PickedFile>,
     ) -> Self {
@@ -323,13 +323,13 @@ impl DroApp {
             files,
             audio,
             tasks,
-            rip_service,
+            pack_service,
             config_store,
             config,
             status: String::new(),
             alerts: VecDeque::new(),
             dialogs: Dialogs::default(),
-            rip: None,
+            pack: None,
             active_tab: AppTab::Editor,
             pending_saves: VecDeque::new(),
             split_flow: None,
@@ -350,11 +350,11 @@ impl DroApp {
             pending_load: None,
             quitting: false,
             pending_rewrite: None,
-            rip_docs_failed: false,
-            rip_run: None,
-            rip_undo: Vec::new(),
-            rip_redo: Vec::new(),
-            pending_rip_undo: None,
+            pack_docs_failed: false,
+            pack_run: None,
+            pack_undo: Vec::new(),
+            pack_redo: Vec::new(),
+            pending_pack_undo: None,
             skin_preview: None,
         }
     }
@@ -417,9 +417,9 @@ impl DroApp {
                     menus::bar(ui, p, &self.menu_state(), &mut actions);
                 });
             });
-        // The tab strip switches the editor and rip views; shown only while a
-        // rip project is open (otherwise the app is always the editor).
-        let tabs = self.rip.is_some().then(|| {
+        // The tab strip switches the editor and pack views; shown only while a
+        // pack project is open (otherwise the app is always the editor).
+        let tabs = self.pack.is_some().then(|| {
             egui::Panel::top("tab-strip")
                 .frame(chrome)
                 .show_separator_line(false)
@@ -427,7 +427,8 @@ impl DroApp {
                     theme::plate_panel(ui, p, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 4.0;
-                            for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Rip, "Rip")] {
+                            for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Pack, "Pack")]
+                            {
                                 if ui.selectable_label(self.active_tab == tab, label).clicked() {
                                     actions.push(Action::SelectTab(tab));
                                 }
@@ -437,7 +438,7 @@ impl DroApp {
                 })
         });
         // The editor-only panels (waveform, transport/boost, position) are hidden
-        // on the rip tab, which owns the whole central area.
+        // on the pack tab, which owns the whole central area.
         let editor_tab = self.active_tab == AppTab::Editor;
         let waveform = editor_tab.then(|| {
             egui::Panel::top("waveform")
@@ -495,7 +496,7 @@ impl DroApp {
                     ui.horizontal(|ui| {
                         ui.label(&self.status);
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if self.rip_service.is_busy() {
+                            if self.pack_service.is_busy() {
                                 // The status text names the operation (export or a
                                 // screenshot optimise); this just shows liveness.
                                 ui.label("Working...");
@@ -628,7 +629,7 @@ impl DroApp {
                     });
                 })
         });
-        // The editor's central panel is one big data well; the rip view sits on
+        // The editor's central panel is one big data well; the pack view sits on
         // the FT2 desktop tint, with its own sunken wells inside.
         let central_fill = if editor_tab { p.data_bg } else { p.desktop };
         egui::CentralPanel::default()
@@ -650,9 +651,9 @@ impl DroApp {
                         });
                     }
                 }
-                AppTab::Rip => {
-                    if let Some(rip) = self.rip.as_mut() {
-                        crate::rip::show(ui, rip, p, &mut actions);
+                AppTab::Pack => {
+                    if let Some(pack) = self.pack.as_mut() {
+                        crate::pack::show(ui, pack, p, &mut actions);
                     }
                 }
             });
@@ -728,16 +729,16 @@ impl DroApp {
             }
         }
         if let Some(result) = self.files.poll_renamed() {
-            let is_rip_op = self
-                .rip_run
+            let is_pack_op = self
+                .pack_run
                 .as_ref()
                 .is_some_and(|run| run.rename_in_flight);
             match result {
-                Ok(()) if is_rip_op => {
-                    if let Some(run) = self.rip_run.as_mut() {
+                Ok(()) if is_pack_op => {
+                    if let Some(run) = self.pack_run.as_mut() {
                         run.rename_in_flight = false;
                     }
-                    self.advance_rip_run();
+                    self.advance_pack_run();
                 }
                 Ok(()) => {
                     // A quick-edit rename paired with a byte rewrite: now that the
@@ -747,11 +748,11 @@ impl DroApp {
                         self.pending_saves.push_back(SavePurpose::TrackRewrite);
                         self.files.save(SaveRequest::InPlace { path, bytes });
                     } else {
-                        self.rescan_rip_folder();
-                        self.status = "Renamed track; rip folder rescanned.".to_owned();
+                        self.rescan_pack_folder();
+                        self.status = "Renamed track; pack folder rescanned.".to_owned();
                     }
                 }
-                Err(message) if is_rip_op => self.abort_rip_run(message),
+                Err(message) if is_pack_op => self.abort_pack_run(message),
                 Err(message) => {
                     self.pending_rewrite = None;
                     self.alerts.push_back(Alert::new("Rename failed", message));
@@ -763,13 +764,13 @@ impl DroApp {
         }
         if let Some(outcome) = self.files.poll_saved() {
             // Outcomes arrive in the order the saves were made, so a FIFO of
-            // purposes routes each one to the editor or the rip project.
+            // purposes routes each one to the editor or the pack project.
             let purpose = self.pending_saves.pop_front().unwrap_or(SavePurpose::Song);
             self.handle_save_outcome(purpose, outcome);
         }
-        if let Some(outcome) = self.rip_service.poll() {
+        if let Some(outcome) = self.pack_service.poll() {
             match outcome {
-                RipJobOutcome::Done {
+                PackJobOutcome::Done {
                     zip_name,
                     bytes,
                     log,
@@ -780,20 +781,20 @@ impl DroApp {
                         bytes,
                     });
                     self.status = if log.is_empty() {
-                        "Built the rip zip.".to_owned()
+                        "Built the pack zip.".to_owned()
                     } else {
-                        format!("Built the rip zip. {}", log.join(" "))
+                        format!("Built the pack zip. {}", log.join(" "))
                     };
                 }
-                RipJobOutcome::Failed(message) => {
-                    // Replace the stale "Building rip zip..." status (ux-11).
-                    self.status = "Rip export failed.".to_owned();
+                PackJobOutcome::Failed(message) => {
+                    // Replace the stale "Building pack zip..." status (ux-11).
+                    self.status = "Pack export failed.".to_owned();
                     self.alerts
-                        .push_back(Alert::new("Rip export failed", message));
+                        .push_back(Alert::new("Pack export failed", message));
                 }
             }
         }
-        if let Some(result) = self.rip_service.poll_optimized() {
+        if let Some(result) = self.pack_service.poll_optimized() {
             match result {
                 Ok(optimized) => self.image_optimized(optimized),
                 Err(message) => {
@@ -811,7 +812,7 @@ impl DroApp {
                     self.write_split(outputs);
                 }
                 TaskResult::Peak(peak) => self.handle_volume_scan(peak),
-                TaskResult::RipPeaks(peaks) => self.handle_rip_peaks(peaks),
+                TaskResult::PackPeaks(peaks) => self.handle_pack_peaks(peaks),
                 TaskResult::LoopCandidates(candidates) => self.handle_loop_candidates(candidates),
             }
         }
@@ -827,7 +828,7 @@ impl DroApp {
     /// nothing to offer.
     ///
     /// The picker blocks the UI thread, but only once the long part is done --
-    /// the same shape as the rip zip export.
+    /// the same shape as the pack zip export.
     fn handle_wav_result(&mut self, rendered: Result<(String, Vec<u8>), String>) {
         match rendered {
             Ok((name, bytes)) => {
@@ -867,7 +868,7 @@ impl DroApp {
 
     /// The playback volume `song`'s header volume modifier asks for: unity for a
     /// DRO (no modifier) or a VGM whose modifier is `0`. What an unlocked song
-    /// starts at, in the editor and in a rip preview.
+    /// starts at, in the editor and in a pack preview.
     fn modifier_boost(song: &dro_core::Song) -> f32 {
         song.vgm_meta().map_or(1.0, |meta| {
             dro_core::volume_modifier_factor(meta.volume_modifier)
@@ -982,25 +983,25 @@ impl DroApp {
                     self.editor.mark_saved();
                     self.status = format!("File saved to {shown}.");
                 }
-                SavePurpose::RipDoc => {
+                SavePurpose::PackDoc => {
                     // The description and playlist save back to back; report and
                     // clear the dirty flag once the last of them lands -- but only
                     // if none of the batch failed, so edits aren't lost (uishell-7).
                     let more = self
                         .pending_saves
                         .iter()
-                        .any(|purpose| *purpose == SavePurpose::RipDoc);
+                        .any(|purpose| *purpose == SavePurpose::PackDoc);
                     if !more {
                         let stem = self
-                            .rip
+                            .pack
                             .as_ref()
-                            .map_or_else(String::new, RipState::doc_stem);
-                        if self.rip_docs_failed {
+                            .map_or_else(String::new, PackState::doc_stem);
+                        if self.pack_docs_failed {
                             self.status =
                                 "Some package files could not be saved; changes kept.".to_owned();
                         } else {
-                            if let Some(rip) = self.rip.as_mut() {
-                                rip.dirty = false;
+                            if let Some(pack) = self.pack.as_mut() {
+                                pack.dirty = false;
                             }
                             self.status = format!("Saved {stem}.txt and {stem}.m3u.");
                         }
@@ -1012,13 +1013,13 @@ impl DroApp {
                     // rename, if any, rescans on its own outcome too -- both
                     // refresh in place, harmlessly. The edit landed, so its undo
                     // transaction (stashed at submit) becomes reversible.
-                    if let Some(transaction) = self.pending_rip_undo.take() {
-                        self.rip_undo.push(transaction);
-                        self.rip_redo.clear();
+                    if let Some(transaction) = self.pending_pack_undo.take() {
+                        self.pack_undo.push(transaction);
+                        self.pack_redo.clear();
                     }
-                    self.rescan_rip_folder();
+                    self.rescan_pack_folder();
                 }
-                SavePurpose::RipOp => self.advance_rip_run(),
+                SavePurpose::PackOp => self.advance_pack_run(),
                 SavePurpose::ExportZip => {
                     let shown = path
                         .as_ref()
@@ -1034,10 +1035,10 @@ impl DroApp {
                 SavePurpose::SplitFile => self.split_file_saved(true),
             },
             SaveOutcome::Cancelled => match purpose {
-                SavePurpose::RipDoc => self.rip_docs_failed = true,
-                SavePurpose::RipOp => self.abort_rip_run("The save was cancelled.".to_owned()),
+                SavePurpose::PackDoc => self.pack_docs_failed = true,
+                SavePurpose::PackOp => self.abort_pack_run("The save was cancelled.".to_owned()),
                 SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
-                    self.pending_rip_undo = None;
+                    self.pending_pack_undo = None;
                 }
                 // Split files save in place, so there is no picker to cancel --
                 // but the tally still has to move on, or the batch never ends.
@@ -1045,21 +1046,21 @@ impl DroApp {
                 _ => {}
             },
             SaveOutcome::Failed(message) => match purpose {
-                SavePurpose::RipOp => self.abort_rip_run(message),
+                SavePurpose::PackOp => self.abort_pack_run(message),
                 SavePurpose::SplitFile => {
                     // One alert at the end for the whole batch, not eighteen.
                     log::warn!("split file could not be written: {message}");
                     self.split_file_saved(false);
                 }
                 other => {
-                    if other == SavePurpose::RipDoc {
-                        self.rip_docs_failed = true;
+                    if other == SavePurpose::PackDoc {
+                        self.pack_docs_failed = true;
                     }
                     if matches!(
                         other,
                         SavePurpose::TrackRewrite | SavePurpose::ImageOptimised
                     ) {
-                        self.pending_rip_undo = None;
+                        self.pending_pack_undo = None;
                     }
                     self.alerts
                         .push_back(Alert::new("Failed to save file", message));
@@ -1103,7 +1104,7 @@ impl DroApp {
         } else if let Some(path) = file.path {
             // Native: a song opens in the editor; anything else (a folder, which
             // has no extension) is handed to the file service, which routes a
-            // directory into rip mode. A junk file surfaces the usual "bad
+            // directory into pack mode. A junk file surfaces the usual "bad
             // format" alert.
             if is_song || path.extension().is_none() {
                 self.files.open_path(path);
@@ -1120,7 +1121,7 @@ impl DroApp {
         if self.quitting || !ctx.input(|i| i.viewport().close_requested()) {
             return;
         }
-        if self.editor.is_dirty() || self.rip_is_dirty() {
+        if self.editor.is_dirty() || self.pack_is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             let already_asking = self
                 .alerts
@@ -1161,13 +1162,13 @@ impl DroApp {
         if !self.alerts.is_empty() || self.dialogs.any_open() {
             return;
         }
-        // The rip tab hides the editor, so the editor's playback/navigation keys
+        // The pack tab hides the editor, so the editor's playback/navigation keys
         // must not fire there. Save (the package files), Undo/Redo (the file
         // edits) and Help remain.
-        if self.active_tab == AppTab::Rip {
+        if self.active_tab == AppTab::Pack {
             ctx.input_mut(|input| {
                 if input.consume_shortcut(&menus::SAVE) {
-                    actions.push(Action::RipSaveDocs);
+                    actions.push(Action::PackSaveDocs);
                 }
                 // Shifted variants first (egui ignores a surplus Shift).
                 if input.consume_shortcut(&menus::REDO_ALT) {
@@ -1376,9 +1377,13 @@ impl DroApp {
                 }
                 ctx.request_repaint_after(Duration::from_millis(16));
             }
-        } else if self.rip.as_ref().is_some_and(|rip| rip.preview.is_some()) {
-            // A rip preview: clear it once it finishes, and keep the frames
-            // coming while it plays (the rip view has no position readout).
+        } else if self
+            .pack
+            .as_ref()
+            .is_some_and(|pack| pack.preview.is_some())
+        {
+            // A pack preview: clear it once it finishes, and keep the frames
+            // coming while it plays (the pack view has no position readout).
             if self.audio.is_finished() {
                 self.stop_preview();
             } else if playing {
@@ -1386,7 +1391,7 @@ impl DroApp {
             }
         }
         self.was_playing = playing;
-        if self.tasks.is_busy() || self.rip_service.is_busy() {
+        if self.tasks.is_busy() || self.pack_service.is_busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
     }
@@ -1448,7 +1453,7 @@ impl DroApp {
                 ));
             }
             Action::Exit => {
-                if self.editor.is_dirty() || self.rip_is_dirty() {
+                if self.editor.is_dirty() || self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
                         "Discard unsaved changes?",
                         "You have unsaved changes. Quit anyway?",
@@ -1469,10 +1474,10 @@ impl DroApp {
             }
 
             Action::Undo => {
-                // On the rip tab, Undo reverses the last file edit; on the editor
+                // On the pack tab, Undo reverses the last file edit; on the editor
                 // tab it reverses the last song edit.
-                if self.active_tab == AppTab::Rip {
-                    self.undo_rip_edit();
+                if self.active_tab == AppTab::Pack {
+                    self.undo_pack_edit();
                 } else if self.require_song() {
                     match self.editor.undo() {
                         Some(description) => {
@@ -1484,8 +1489,8 @@ impl DroApp {
                 }
             }
             Action::Redo => {
-                if self.active_tab == AppTab::Rip {
-                    self.redo_rip_edit();
+                if self.active_tab == AppTab::Pack {
+                    self.redo_pack_edit();
                 } else if self.require_song() {
                     match self.editor.redo() {
                         Some(description) => {
@@ -1614,43 +1619,43 @@ impl DroApp {
                 }
             }
 
-            Action::OpenRipFolder => {
-                if self.rip_is_dirty() {
+            Action::OpenPackFolder => {
+                if self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
                         "Discard unsaved package details?",
-                        "This rip has unsaved changes. Open a different folder anyway?",
-                        Action::ConfirmOpenRipFolder,
+                        "This pack has unsaved changes. Open a different folder anyway?",
+                        Action::ConfirmOpenPackFolder,
                     ));
                 } else {
                     self.files.pick_folder();
                 }
             }
-            Action::ConfirmOpenRipFolder => self.files.pick_folder(),
-            Action::OpenRipFolderAt(path) => self.files.open_folder_path(path),
+            Action::ConfirmOpenPackFolder => self.files.pick_folder(),
+            Action::OpenPackFolderAt(path) => self.files.open_folder_path(path),
             Action::SelectTab(tab) => self.select_tab(tab),
-            Action::CloseRip => {
-                if self.rip_is_dirty() {
+            Action::ClosePack => {
+                if self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
                         "Discard unsaved package details?",
-                        "This rip has unsaved changes. Close it anyway?",
-                        Action::ConfirmCloseRip,
+                        "This pack has unsaved changes. Close it anyway?",
+                        Action::ConfirmClosePack,
                     ));
                 } else {
-                    self.close_rip();
+                    self.close_pack();
                 }
             }
-            Action::ConfirmCloseRip => self.close_rip(),
-            Action::RipSaveDocs => self.save_rip_docs(),
-            Action::RipScanVolumes => self.scan_rip_volumes(),
-            Action::RipApplySuggestedModifiers => self.apply_rip_modifiers(),
-            Action::RipConvertDatesToHyphens => self.convert_rip_dates_to_hyphens(),
-            Action::RipExportZip => self.export_rip_zip(false),
-            Action::ConfirmExportZip => self.export_rip_zip(true),
-            Action::RipTrackOpen(index) => self.open_track_in_editor(index),
-            Action::RipTrackPreview(index) => self.preview_track(index),
-            Action::RipStopPreview => self.stop_preview(),
+            Action::ConfirmClosePack => self.close_pack(),
+            Action::PackSaveDocs => self.save_pack_docs(),
+            Action::PackScanVolumes => self.scan_pack_volumes(),
+            Action::PackApplySuggestedModifiers => self.apply_pack_modifiers(),
+            Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
+            Action::PackExportZip => self.export_pack_zip(false),
+            Action::ConfirmExportZip => self.export_pack_zip(true),
+            Action::PackTrackOpen(index) => self.open_track_in_editor(index),
+            Action::PackTrackPreview(index) => self.preview_track(index),
+            Action::PackStopPreview => self.stop_preview(),
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
-            Action::RipMoveTrack { index, delta } => self.move_rip_track(index, delta),
+            Action::PackMoveTrack { index, delta } => self.move_pack_track(index, delta),
             Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
                 original_name,
@@ -1836,9 +1841,9 @@ impl DroApp {
     // -- the workflows -----------------------------------------------------
 
     fn load_file(&mut self, file: PickedFile) {
-        // Loading a song belongs to the editor: stop any rip preview and show
+        // Loading a song belongs to the editor: stop any pack preview and show
         // the editor tab so the load isn't invisible (menu Open, drag-and-drop,
-        // and the CLI initial load can all fire while the rip tab is active).
+        // and the CLI initial load can all fire while the pack tab is active).
         // Idempotent with open_track_in_editor, which also sets the tab.
         self.stop_preview();
         self.active_tab = AppTab::Editor;
@@ -1932,79 +1937,79 @@ impl DroApp {
         self.files.save(request);
     }
 
-    // -- rip mode ----------------------------------------------------------
+    // -- pack mode ----------------------------------------------------------
 
-    fn rip_is_dirty(&self) -> bool {
-        self.rip.as_ref().is_some_and(|rip| rip.dirty)
+    fn pack_is_dirty(&self) -> bool {
+        self.pack.as_ref().is_some_and(|pack| pack.dirty)
     }
 
-    /// Whether any rip file mutation is in flight (a reorder/undo/redo sequence,
+    /// Whether any pack file mutation is in flight (a reorder/undo/redo sequence,
     /// or a quick-edit rewrite/rename), so a new one is deferred rather than
     /// interleaved with it.
-    fn rip_busy(&self) -> bool {
-        self.rip_run.is_some()
-            || self.pending_rip_undo.is_some()
+    fn pack_busy(&self) -> bool {
+        self.pack_run.is_some()
+            || self.pending_pack_undo.is_some()
             || self.pending_rewrite.is_some()
-            || self.rip_service.is_busy()
+            || self.pack_service.is_busy()
     }
 
     /// Starts running `transaction` -- its `forward` mutations, or (for `Undo`)
     /// its `inverse` -- one at a time through the file service.
-    fn start_rip_run(&mut self, transaction: RipTransaction, kind: RipRunKind) {
+    fn start_pack_run(&mut self, transaction: PackTransaction, kind: PackRunKind) {
         self.stop_preview();
-        let mutations = if kind == RipRunKind::Undo {
+        let mutations = if kind == PackRunKind::Undo {
             transaction.inverse.clone()
         } else {
             transaction.forward.clone()
         };
-        self.rip_run = Some(RipRun {
+        self.pack_run = Some(PackRun {
             queue: mutations.into(),
             transaction,
             kind,
             rename_in_flight: false,
         });
-        self.advance_rip_run();
+        self.advance_pack_run();
     }
 
     /// Runs the next mutation of the in-flight sequence, or -- once the queue
     /// drains -- lands its transaction on the right stack and rescans the folder.
-    fn advance_rip_run(&mut self) {
-        let next = match self.rip_run.as_mut() {
+    fn advance_pack_run(&mut self) {
+        let next = match self.pack_run.as_mut() {
             Some(run) => run.queue.pop_front(),
             None => return,
         };
         match next {
-            Some(RipMutation::Rename { from, to }) => {
-                if let Some(run) = self.rip_run.as_mut() {
+            Some(PackMutation::Rename { from, to }) => {
+                if let Some(run) = self.pack_run.as_mut() {
                     run.rename_in_flight = true;
                 }
                 self.files.rename(from, to);
             }
-            Some(RipMutation::Write { path, bytes }) => {
-                self.pending_saves.push_back(SavePurpose::RipOp);
+            Some(PackMutation::Write { path, bytes }) => {
+                self.pending_saves.push_back(SavePurpose::PackOp);
                 self.files.save(SaveRequest::InPlace { path, bytes });
             }
             None => {
-                let Some(run) = self.rip_run.take() else {
+                let Some(run) = self.pack_run.take() else {
                     return;
                 };
-                let RipRun {
+                let PackRun {
                     transaction, kind, ..
                 } = run;
                 let label = transaction.label.clone();
                 match kind {
-                    RipRunKind::NewEdit => {
-                        self.rip_undo.push(transaction);
-                        self.rip_redo.clear();
+                    PackRunKind::NewEdit => {
+                        self.pack_undo.push(transaction);
+                        self.pack_redo.clear();
                     }
-                    RipRunKind::Redo => self.rip_undo.push(transaction),
-                    RipRunKind::Undo => self.rip_redo.push(transaction),
+                    PackRunKind::Redo => self.pack_undo.push(transaction),
+                    PackRunKind::Undo => self.pack_redo.push(transaction),
                 }
-                self.rescan_rip_folder();
+                self.rescan_pack_folder();
                 self.status = match kind {
-                    RipRunKind::Undo => format!("Undone: {label}."),
-                    RipRunKind::Redo => format!("Redone: {label}."),
-                    RipRunKind::NewEdit => format!("{label}."),
+                    PackRunKind::Undo => format!("Undone: {label}."),
+                    PackRunKind::Redo => format!("Redone: {label}."),
+                    PackRunKind::NewEdit => format!("{label}."),
                 };
             }
         }
@@ -2013,68 +2018,68 @@ impl DroApp {
     /// Aborts the in-flight sequence after a failed rename/write, resyncing the
     /// folder to whatever actually landed. The transaction is discarded (not
     /// stacked), since it did not fully apply.
-    fn abort_rip_run(&mut self, message: String) {
-        self.rip_run = None;
+    fn abort_pack_run(&mut self, message: String) {
+        self.pack_run = None;
         self.alerts
             .push_back(Alert::new("Track operation failed", message));
-        self.rescan_rip_folder();
+        self.rescan_pack_folder();
     }
 
-    /// Drops the rip undo/redo history and any in-flight sequence -- for opening
+    /// Drops the pack undo/redo history and any in-flight sequence -- for opening
     /// a new project or closing the current one. (A same-folder rescan keeps it.)
-    fn clear_rip_edits(&mut self) {
-        self.rip_run = None;
-        self.rip_undo.clear();
-        self.rip_redo.clear();
-        self.pending_rip_undo = None;
+    fn clear_pack_edits(&mut self) {
+        self.pack_run = None;
+        self.pack_undo.clear();
+        self.pack_redo.clear();
+        self.pending_pack_undo = None;
     }
 
     /// Moves the track at `index` by `delta` (`-1` up, `+1` down), renumbering the
     /// affected files. Ignored while another sequence runs or the move is a no-op.
-    fn move_rip_track(&mut self, index: usize, delta: isize) {
-        if self.rip_busy() {
+    fn move_pack_track(&mut self, index: usize, delta: isize) {
+        if self.pack_busy() {
             return;
         }
         let Some(to) = index.checked_add_signed(delta) else {
             return;
         };
         let transaction = self
-            .rip
+            .pack
             .as_ref()
-            .and_then(|rip| rip.reorder_transaction(index, to));
+            .and_then(|pack| pack.reorder_transaction(index, to));
         if let Some(transaction) = transaction {
-            self.start_rip_run(transaction, RipRunKind::NewEdit);
+            self.start_pack_run(transaction, PackRunKind::NewEdit);
         }
     }
 
-    /// Undo the most recent rip edit, running its inverse. Ignored while busy.
-    fn undo_rip_edit(&mut self) {
-        if self.rip_busy() {
+    /// Undo the most recent pack edit, running its inverse. Ignored while busy.
+    fn undo_pack_edit(&mut self) {
+        if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
         }
-        if let Some(transaction) = self.rip_undo.pop() {
-            self.start_rip_run(transaction, RipRunKind::Undo);
+        if let Some(transaction) = self.pack_undo.pop() {
+            self.start_pack_run(transaction, PackRunKind::Undo);
         } else {
             self.status = "Nothing to undo.".to_owned();
         }
     }
 
-    /// Redo the most recently undone rip edit, re-running its forward. Ignored
+    /// Redo the most recently undone pack edit, re-running its forward. Ignored
     /// while busy.
-    fn redo_rip_edit(&mut self) {
-        if self.rip_busy() {
+    fn redo_pack_edit(&mut self) {
+        if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
         }
-        if let Some(transaction) = self.rip_redo.pop() {
-            self.start_rip_run(transaction, RipRunKind::Redo);
+        if let Some(transaction) = self.pack_redo.pop() {
+            self.start_pack_run(transaction, PackRunKind::Redo);
         } else {
             self.status = "Nothing to redo.".to_owned();
         }
     }
 
-    /// Installs a freshly scanned folder as the rip project, or -- when it is a
+    /// Installs a freshly scanned folder as the pack project, or -- when it is a
     /// redelivery of the folder already open -- rescans in place, keeping the
     /// edited metadata.
     fn open_folder(&mut self, folder: PickedFolder) {
@@ -2082,19 +2087,19 @@ impl DroApp {
         // rescan may have renamed or rewritten the files it snapshotted, and a
         // different folder's scan must never fill this one's Peak column. The
         // peaks map itself is pruned per track in `refresh_files`.
-        self.tasks.cancel(TaskKind::RipVolumeScan);
+        self.tasks.cancel(TaskKind::PackVolumeScan);
         let same = self
-            .rip
+            .pack
             .as_ref()
-            .is_some_and(|rip| rip.folder_path.is_some() && rip.folder_path == folder.path);
+            .is_some_and(|pack| pack.folder_path.is_some() && pack.folder_path == folder.path);
         if same {
             // Keep a running preview alive across an in-place rescan (e.g. after
             // a screenshot optimise redelivers the folder): refresh_files
             // re-matches it by name. Only stop the audio if that track vanished.
-            let preview_lost = if let Some(rip) = self.rip.as_mut() {
-                let had_preview = rip.preview.is_some();
-                rip.refresh_files(folder);
-                had_preview && rip.preview.is_none()
+            let preview_lost = if let Some(pack) = self.pack.as_mut() {
+                let had_preview = pack.preview.is_some();
+                pack.refresh_files(folder);
+                had_preview && pack.preview.is_none()
             } else {
                 false
             };
@@ -2105,24 +2110,24 @@ impl DroApp {
             }
             // A rescan can reorder or drop tracks; the quick-edit dialog is bound
             // to one track, so close it rather than let it act on a stale list (H1).
-            self.close_rip_dialogs();
+            self.close_pack_dialogs();
             return;
         }
         self.stop_preview();
         // A brand-new project starts with an empty edit history.
-        self.clear_rip_edits();
-        let today = self.rip_service.today();
-        let state = RipState::from_folder(folder, today);
+        self.clear_pack_edits();
+        let today = self.pack_service.today();
+        let state = PackState::from_folder(folder, today);
         let warning = state.parse_warning.clone();
         let name = state.folder_name.clone();
-        self.rip = Some(state);
-        self.active_tab = AppTab::Rip;
+        self.pack = Some(state);
+        self.active_tab = AppTab::Pack;
         self.close_song_dialogs();
-        self.close_rip_dialogs();
-        // The editor's audio must not keep playing under the rip view.
+        self.close_pack_dialogs();
+        // The editor's audio must not keep playing under the pack view.
         self.audio.unload();
         self.audio_revision = None;
-        self.status = format!("Opened rip project: {name}.");
+        self.status = format!("Opened pack project: {name}.");
         if let Some(warning) = warning {
             self.alerts.push_back(Alert::new(
                 "Description not parsed",
@@ -2132,7 +2137,7 @@ impl DroApp {
     }
 
     fn select_tab(&mut self, tab: AppTab) {
-        if self.rip.is_none() {
+        if self.pack.is_none() {
             self.active_tab = AppTab::Editor;
             return;
         }
@@ -2140,7 +2145,7 @@ impl DroApp {
             return;
         }
         self.stop_preview();
-        // Leaving the editor: its audio must not keep playing under the rip view
+        // Leaving the editor: its audio must not keep playing under the pack view
         // (mirrors open_folder's rule). Resetting the revision makes the next
         // editor Play reload cleanly.
         if self.active_tab == AppTab::Editor {
@@ -2148,33 +2153,33 @@ impl DroApp {
             self.audio_revision = None;
         }
         self.active_tab = tab;
-        if tab == AppTab::Rip {
+        if tab == AppTab::Pack {
             // Song-bound modeless dialogs (Find Register, DRO Info, GD3, VGM
-            // metadata) and Goto don't belong on the rip tab -- mirror the menu
+            // metadata) and Goto don't belong on the pack tab -- mirror the menu
             // gating that disables them there.
             self.close_song_dialogs();
             self.dialogs.goto = None;
-            // Returning to the rip tab re-scans the folder so edits made in the
+            // Returning to the pack tab re-scans the folder so edits made in the
             // editor (or renames) are reflected.
-            if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
+            if let Some(path) = self.pack.as_ref().and_then(|pack| pack.folder_path.clone()) {
                 self.files.open_folder_path(path);
             }
         }
     }
 
-    fn close_rip(&mut self) {
+    fn close_pack(&mut self) {
         self.stop_preview();
-        self.close_rip_dialogs();
-        self.clear_rip_edits();
-        self.rip = None;
+        self.close_pack_dialogs();
+        self.clear_pack_edits();
+        self.pack = None;
         self.active_tab = AppTab::Editor;
-        self.status = "Closed the rip project.".to_owned();
+        self.status = "Closed the pack project.".to_owned();
     }
 
     /// Saves `Game Name.txt` and `Game Name.m3u` into the folder.
-    fn save_rip_docs(&mut self) {
-        if !self.rip.as_ref().is_some_and(RipState::can_save) {
-            if self.rip.is_some() {
+    fn save_pack_docs(&mut self) {
+        if !self.pack.as_ref().is_some_and(PackState::can_save) {
+            if self.pack.is_some() {
                 self.alerts.push_back(Alert::error(
                     "Enter a game name before saving the package files.",
                 ));
@@ -2182,18 +2187,18 @@ impl DroApp {
             return;
         }
         // Fresh batch: forget any failure from a previous save-docs run.
-        self.rip_docs_failed = false;
-        let rip = self.rip.as_ref().expect("checked");
-        let stem = rip.doc_stem();
-        let description = rip.description_text().into_bytes();
-        let m3u = rip.m3u_text(false).into_bytes();
-        let folder = rip.folder_path.clone();
+        self.pack_docs_failed = false;
+        let pack = self.pack.as_ref().expect("checked");
+        let stem = pack.doc_stem();
+        let description = pack.description_text().into_bytes();
+        let m3u = pack.m3u_text(false).into_bytes();
+        let folder = pack.folder_path.clone();
         let docs = [
             (format!("{stem}.txt"), description),
             (format!("{stem}.m3u"), m3u),
         ];
         for (name, bytes) in docs {
-            self.pending_saves.push_back(SavePurpose::RipDoc);
+            self.pending_saves.push_back(SavePurpose::PackDoc);
             let request = match &folder {
                 Some(folder) => SaveRequest::InPlace {
                     path: folder.join(&name),
@@ -2210,13 +2215,13 @@ impl DroApp {
 
     /// Builds and saves the release zip. Blocking validation errors abort;
     /// non-blocking warnings prompt first unless `confirmed`.
-    fn export_rip_zip(&mut self, confirmed: bool) {
-        let Some(rip) = self.rip.as_ref() else {
+    fn export_pack_zip(&mut self, confirmed: bool) {
+        let Some(pack) = self.pack.as_ref() else {
             return;
         };
-        let validations = rip.validations();
-        let request = rip.export_request();
-        // The `rip` borrow ends here (validations and request are owned).
+        let validations = pack.validations();
+        let request = pack.export_request();
+        // The `pack` borrow ends here (validations and request are owned).
         if !validations.errors.is_empty() {
             self.alerts
                 .push_back(Alert::error(validations.errors.join("\n")));
@@ -2233,19 +2238,19 @@ impl DroApp {
             return;
         }
         // Keep the folder's own docs in step with the zip's.
-        if self.rip.as_ref().is_some_and(|rip| rip.dirty) {
-            self.save_rip_docs();
+        if self.pack.as_ref().is_some_and(|pack| pack.dirty) {
+            self.save_pack_docs();
         }
-        self.rip_service.submit(request);
-        self.status = "Building rip zip...".to_owned();
+        self.pack_service.submit(request);
+        self.status = "Building pack zip...".to_owned();
     }
 
     /// Previews a track through the audio output.
     fn preview_track(&mut self, index: usize) {
         let song = self
-            .rip
+            .pack
             .as_ref()
-            .and_then(|rip| rip.tracks.get(index))
+            .and_then(|pack| pack.tracks.get(index))
             .and_then(|track| track.song().cloned());
         let Some(song) = song else {
             return;
@@ -2263,8 +2268,8 @@ impl DroApp {
         // resuming this preview. Clear any prior preview marker up front too, so
         // a failure below can't strand a stop button on the old track.
         self.audio_revision = None;
-        if let Some(rip) = self.rip.as_mut() {
-            rip.preview = None;
+        if let Some(pack) = self.pack.as_mut() {
+            pack.preview = None;
         }
         // Preview at the track's own volume: unless the volume is locked, start it
         // from the track's header modifier -- on a copy of the config, so the
@@ -2288,29 +2293,33 @@ impl DroApp {
             self.alerts.push_back(Alert::error(message));
             return;
         }
-        if let Some(rip) = self.rip.as_mut() {
-            rip.preview = Some(index);
+        if let Some(pack) = self.pack.as_mut() {
+            pack.preview = Some(index);
         }
     }
 
     fn stop_preview(&mut self) {
-        if self.rip.as_ref().is_some_and(|rip| rip.preview.is_some()) {
+        if self
+            .pack
+            .as_ref()
+            .is_some_and(|pack| pack.preview.is_some())
+        {
             self.audio.pause();
             self.audio.rewind();
-            if let Some(rip) = self.rip.as_mut() {
-                rip.preview = None;
+            if let Some(pack) = self.pack.as_mut() {
+                pack.preview = None;
             }
             self.audio_revision = None;
         }
     }
 
-    /// Loads a track into the editor and switches to the editor tab. The rip
+    /// Loads a track into the editor and switches to the editor tab. The pack
     /// project is retained; returning to it rescans the folder.
     fn open_track_in_editor(&mut self, index: usize) {
         let file = self
-            .rip
+            .pack
             .as_ref()
-            .and_then(|rip| rip.tracks.get(index))
+            .and_then(|pack| pack.tracks.get(index))
             .map(|track| PickedFile {
                 name: track.file_name.clone(),
                 path: track.path.clone(),
@@ -2326,12 +2335,12 @@ impl DroApp {
     }
 
     fn open_track_quick_edit(&mut self, index: usize) {
-        let dialog = self.rip.as_ref().and_then(|rip| {
-            let track = rip.tracks.get(index)?;
+        let dialog = self.pack.as_ref().and_then(|pack| {
+            let track = pack.tracks.get(index)?;
             let song = track.song()?;
             let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
             // Every other track's name, so a rename can't collide with one.
-            let siblings = rip
+            let siblings = pack
                 .tracks
                 .iter()
                 .filter(|other| other.file_name != track.file_name)
@@ -2353,14 +2362,14 @@ impl DroApp {
     /// the name changed, rename the file). The list rescans on the outcomes, and
     /// the edit's inverse is stashed so it becomes undoable once it lands.
     fn quick_edit_submitted(&mut self, original_name: String, new_name: String, tag: Gd3Tag) {
-        if self.rip_busy() {
+        if self.pack_busy() {
             return;
         }
         self.stop_preview();
         // Re-resolve the target by the name the dialog opened on: a rescan may
         // have reordered the list since, so the original index is unreliable.
-        let Some(track) = self.rip.as_ref().and_then(|rip| {
-            rip.tracks
+        let Some(track) = self.pack.as_ref().and_then(|pack| {
+            pack.tracks
                 .iter()
                 .find(|track| track.file_name == original_name)
         }) else {
@@ -2374,7 +2383,7 @@ impl DroApp {
         // The bytes before this edit, for the undo transaction's inverse write.
         let old_bytes = track.bytes.clone();
         let new_bytes = match track.song() {
-            Some(song) => crate::rip::retagged_bytes(song, &new_name, tag),
+            Some(song) => crate::pack::retagged_bytes(song, &new_name, tag),
             None => return,
         };
         let new_bytes = match new_bytes {
@@ -2394,11 +2403,11 @@ impl DroApp {
         // old name and bytes. Committed to the undo stack when the save lands.
         let (forward, inverse) = if new_name == old_name {
             (
-                vec![RipMutation::Write {
+                vec![PackMutation::Write {
                     path: old_path.clone(),
                     bytes: new_bytes.clone(),
                 }],
-                vec![RipMutation::Write {
+                vec![PackMutation::Write {
                     path: old_path.clone(),
                     bytes: old_bytes,
                 }],
@@ -2406,28 +2415,28 @@ impl DroApp {
         } else {
             (
                 vec![
-                    RipMutation::Rename {
+                    PackMutation::Rename {
                         from: old_path.clone(),
                         to: new_name.clone(),
                     },
-                    RipMutation::Write {
+                    PackMutation::Write {
                         path: new_path.clone(),
                         bytes: new_bytes.clone(),
                     },
                 ],
                 vec![
-                    RipMutation::Rename {
+                    PackMutation::Rename {
                         from: new_path.clone(),
                         to: old_name.clone(),
                     },
-                    RipMutation::Write {
+                    PackMutation::Write {
                         path: old_path.clone(),
                         bytes: old_bytes,
                     },
                 ],
             )
         };
-        self.pending_rip_undo = Some(RipTransaction {
+        self.pending_pack_undo = Some(PackTransaction {
             label: format!("Edit {new_name}"),
             forward,
             inverse,
@@ -2457,12 +2466,12 @@ impl DroApp {
     }
 
     /// Opens the bulk-tag dialog over every readable track, its fields seeded
-    /// from the package metadata. A no-op with no rip open or no readable tracks.
+    /// from the package metadata. A no-op with no pack open or no readable tracks.
     fn open_bulk_tag(&mut self) {
-        let Some(rip) = self.rip.as_ref() else {
+        let Some(pack) = self.pack.as_ref() else {
             return;
         };
-        let tracks: Vec<(String, String)> = rip
+        let tracks: Vec<(String, String)> = pack
             .tracks
             .iter()
             .enumerate()
@@ -2479,7 +2488,7 @@ impl DroApp {
             self.status = "No readable tracks to tag.".to_owned();
             return;
         }
-        let overlay = crate::rip::seed_from_meta(&rip.meta);
+        let overlay = crate::pack::seed_from_meta(&pack.meta);
         self.dialogs.bulk_tag = Some(BulkTagDialog::new(tracks, overlay));
     }
 
@@ -2488,22 +2497,22 @@ impl DroApp {
     /// whose tag would not change (and any not currently VGMs) are skipped, so a
     /// no-op selection writes nothing.
     fn bulk_tag_submitted(&mut self, targets: Vec<String>, overlay: BulkTagOverlay) {
-        if self.rip_busy() {
+        if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
         }
         self.stop_preview();
-        let Some(rip) = self.rip.as_ref() else {
+        let Some(pack) = self.pack.as_ref() else {
             return;
         };
         let mut forward = Vec::new();
         let mut inverse = Vec::new();
         let mut errors: Vec<String> = Vec::new();
         for name in &targets {
-            let Some(track) = rip.tracks.iter().find(|track| &track.file_name == name) else {
+            let Some(track) = pack.tracks.iter().find(|track| &track.file_name == name) else {
                 continue;
             };
-            // Only VGMs carry a GD3 tag; the rip list is VGM/VGZ only, but guard
+            // Only VGMs carry a GD3 tag; the pack list is VGM/VGZ only, but guard
             // anyway so a non-VGM can never be rewritten by a bulk edit.
             let (Some(song), Some(path)) = (track.song(), track.path.clone()) else {
                 continue;
@@ -2519,13 +2528,13 @@ impl DroApp {
             if new_tag == current {
                 continue; // nothing changed for this track
             }
-            match crate::rip::retagged_bytes(song, &track.file_name, new_tag) {
+            match crate::pack::retagged_bytes(song, &track.file_name, new_tag) {
                 Ok(bytes) => {
-                    forward.push(RipMutation::Write {
+                    forward.push(PackMutation::Write {
                         path: path.clone(),
                         bytes,
                     });
-                    inverse.push(RipMutation::Write {
+                    inverse.push(PackMutation::Write {
                         path,
                         bytes: track.bytes.clone(),
                     });
@@ -2542,7 +2551,7 @@ impl DroApp {
             return;
         }
         let count = forward.len();
-        let transaction = RipTransaction {
+        let transaction = PackTransaction {
             label: format!(
                 "Bulk tag {count} track{}",
                 if count == 1 { "" } else { "s" }
@@ -2550,18 +2559,18 @@ impl DroApp {
             forward,
             inverse,
         };
-        self.start_rip_run(transaction, RipRunKind::NewEdit);
+        self.start_pack_run(transaction, PackRunKind::NewEdit);
     }
 
     /// Measures every readable track's peak in one background task (so the pack's
     /// many songs never freeze the UI); the results reach
-    /// [`Self::handle_rip_peaks`] through `poll_services` and fill the Peak column.
-    fn scan_rip_volumes(&mut self) {
+    /// [`Self::handle_pack_peaks`] through `poll_services` and fill the Peak column.
+    fn scan_pack_volumes(&mut self) {
         let sample_rate = self.config.audio.frequency;
-        let Some(rip) = self.rip.as_ref() else {
+        let Some(pack) = self.pack.as_ref() else {
             return;
         };
-        let tracks: Vec<(String, std::sync::Arc<dro_core::Song>)> = rip
+        let tracks: Vec<(String, std::sync::Arc<dro_core::Song>)> = pack
             .tracks
             .iter()
             .filter_map(|track| {
@@ -2576,7 +2585,7 @@ impl DroApp {
         }
         let count = tracks.len();
         self.tasks.submit(
-            TaskRequest::RipVolumeScan {
+            TaskRequest::PackVolumeScan {
                 tracks,
                 sample_rate,
             },
@@ -2596,63 +2605,66 @@ impl DroApp {
         self.status = format!("Found {count} loop candidate(s).");
     }
 
-    /// Stores a finished rip volume scan's peaks (keyed by file name) for the Peak
+    /// Stores a finished pack volume scan's peaks (keyed by file name) for the Peak
     /// column and the suggested modifiers.
-    fn handle_rip_peaks(&mut self, peaks: Vec<(String, dro_synth::Peak)>) {
-        let Some(rip) = self.rip.as_mut() else {
+    fn handle_pack_peaks(&mut self, peaks: Vec<(String, dro_synth::Peak)>) {
+        let Some(pack) = self.pack.as_mut() else {
             return;
         };
         let count = peaks.len();
         for (name, peak) in peaks {
-            rip.peaks.insert(name, peak);
+            pack.peaks.insert(name, peak);
         }
         self.status = format!("Scanned {count} track volume(s).");
     }
 
     /// Sets each scanned track's VGM volume modifier so the pack is levelled, as
     /// one undoable batch. The album-vs-per-track choice, the skip-unchanged
-    /// logic and the serialisation live in [`RipState::suggested_modifier_transaction`].
-    fn apply_rip_modifiers(&mut self) {
-        if self.rip_busy() {
+    /// logic and the serialisation live in [`PackState::suggested_modifier_transaction`].
+    fn apply_pack_modifiers(&mut self) {
+        if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
         }
         // Applying mid-scan would use the peaks from *before* the scan and then
         // discard its result (the rewrite's rescan cancels it) -- confusing both
         // ways, so wait it out.
-        if self.tasks.is_busy_kind(TaskKind::RipVolumeScan) {
+        if self.tasks.is_busy_kind(TaskKind::PackVolumeScan) {
             self.status = "Still scanning volumes...".to_owned();
             return;
         }
         self.stop_preview();
         let Some(transaction) = self
-            .rip
+            .pack
             .as_ref()
-            .and_then(RipState::suggested_modifier_transaction)
+            .and_then(PackState::suggested_modifier_transaction)
         else {
             self.status = "Volume modifiers: nothing to change (scan volumes first).".to_owned();
             return;
         };
-        self.start_rip_run(transaction, RipRunKind::NewEdit);
+        self.start_pack_run(transaction, PackRunKind::NewEdit);
     }
 
     /// The checklist's date fix-assist: rewrite every slash-separated release date
     /// to hyphens. The pack meta's own date is a form-level edit (applied at once,
     /// like typing); every track's GD3 date is rewritten as one undoable file
-    /// batch, mirroring [`Self::apply_rip_modifiers`].
-    fn convert_rip_dates_to_hyphens(&mut self) {
-        if self.rip_busy() {
+    /// batch, mirroring [`Self::apply_pack_modifiers`].
+    fn convert_pack_dates_to_hyphens(&mut self) {
+        if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
         }
         self.stop_preview();
-        let meta_changed = self.rip.as_mut().is_some_and(RipState::hyphenate_meta_date);
+        let meta_changed = self
+            .pack
+            .as_mut()
+            .is_some_and(PackState::hyphenate_meta_date);
         match self
-            .rip
+            .pack
             .as_ref()
-            .and_then(RipState::date_hyphenation_transaction)
+            .and_then(PackState::date_hyphenation_transaction)
         {
-            Some(transaction) => self.start_rip_run(transaction, RipRunKind::NewEdit),
+            Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
             None if meta_changed => {
                 self.status = "Converted the pack date to hyphens.".to_owned();
             }
@@ -2662,19 +2674,19 @@ impl DroApp {
 
     /// Kicks off an explicit lossless recompression of a screenshot.
     fn optimize_image(&mut self, index: usize) {
-        if self.rip_busy() {
+        if self.pack_busy() {
             return;
         }
         let image = self
-            .rip
+            .pack
             .as_ref()
-            .and_then(|rip| rip.images.get(index))
+            .and_then(|pack| pack.images.get(index))
             .cloned();
         let Some(image) = image else {
             return;
         };
         self.status = format!("Optimising {}...", image.name);
-        self.rip_service.optimize(image.name, image.bytes.to_vec());
+        self.pack_service.optimize(image.name, image.bytes.to_vec());
     }
 
     /// Routes a finished optimisation: save a smaller file in place, or report
@@ -2688,8 +2700,8 @@ impl DroApp {
             return;
         }
         // The path and the pre-optimise bytes (for the undo transaction's inverse).
-        let found = self.rip.as_ref().and_then(|rip| {
-            rip.images
+        let found = self.pack.as_ref().and_then(|pack| {
+            pack.images
                 .iter()
                 .find(|image| image.name == optimized.name)
                 .and_then(|image| image.path.clone().map(|path| (path, image.bytes.to_vec())))
@@ -2704,13 +2716,13 @@ impl DroApp {
             optimized.original_len,
             optimized.bytes.len()
         );
-        self.pending_rip_undo = Some(RipTransaction {
+        self.pending_pack_undo = Some(PackTransaction {
             label: format!("Optimise {}", optimized.name),
-            forward: vec![RipMutation::Write {
+            forward: vec![PackMutation::Write {
                 path: path.clone(),
                 bytes: optimized.bytes.clone(),
             }],
-            inverse: vec![RipMutation::Write {
+            inverse: vec![PackMutation::Write {
                 path: path.clone(),
                 bytes: old_bytes,
             }],
@@ -2722,16 +2734,16 @@ impl DroApp {
         });
     }
 
-    fn rescan_rip_folder(&mut self) {
-        if let Some(path) = self.rip.as_ref().and_then(|rip| rip.folder_path.clone()) {
+    fn rescan_pack_folder(&mut self) {
+        if let Some(path) = self.pack.as_ref().and_then(|pack| pack.folder_path.clone()) {
             self.files.open_folder_path(path);
         }
     }
 
-    /// Closes rip-bound dialogs (quick-edit and bulk-tag), analogous to
+    /// Closes pack-bound dialogs (quick-edit and bulk-tag), analogous to
     /// [`Self::close_song_dialogs`]. Both bind to the current track list, so a
     /// rescan that can reorder or drop tracks must dismiss them.
-    fn close_rip_dialogs(&mut self) {
+    fn close_pack_dialogs(&mut self) {
         self.dialogs.track_edit = None;
         self.dialogs.bulk_tag = None;
     }
@@ -3237,7 +3249,7 @@ impl DroApp {
             *failed = true;
         }
         // The whole batch is queued at once, so the last outcome is the one with
-        // no `SplitFile` left behind it -- the same rule rip mode's docs use.
+        // no `SplitFile` left behind it -- the same rule pack mode's docs use.
         if self
             .pending_saves
             .iter()
@@ -3255,17 +3267,17 @@ impl DroApp {
     }
 
     /// The success report once every split file has landed. A song split also
-    /// offers to open the folder it filled as a rip project.
+    /// offers to open the folder it filled as a pack project.
     fn finish_split(&mut self, dir: &Path, written: usize, songs: bool) {
         if songs {
             self.status = format!("Wrote {written} song(s) to {}.", dir.display());
             self.alerts.push_back(Alert::confirm(
                 "Songs exported",
                 format!(
-                    "Wrote {written} song(s) to {}.\n\nOpen the folder as a rip project?",
+                    "Wrote {written} song(s) to {}.\n\nOpen the folder as a pack project?",
                     dir.display()
                 ),
-                Action::OpenRipFolderAt(dir.to_path_buf()),
+                Action::OpenPackFolderAt(dir.to_path_buf()),
             ));
         } else {
             self.status = format!("Wrote {written} file(s) to {}.", dir.display());
@@ -3391,17 +3403,17 @@ impl DroApp {
     }
 
     fn menu_state(&self) -> MenuState {
-        let on_rip_tab = self.active_tab == AppTab::Rip;
-        // Undo/Redo act on whichever tab shows: the rip file-edit stacks on the
-        // rip tab, the editor's song-undo stack otherwise. On the rip tab they are
+        let on_pack_tab = self.active_tab == AppTab::Pack;
+        // Undo/Redo act on whichever tab shows: the pack file-edit stacks on the
+        // pack tab, the editor's song-undo stack otherwise. On the pack tab they are
         // held off while a sequence is still running.
-        let (can_undo, can_redo, undo_description, redo_description) = if on_rip_tab {
-            let idle = !self.rip_busy();
+        let (can_undo, can_redo, undo_description, redo_description) = if on_pack_tab {
+            let idle = !self.pack_busy();
             (
-                idle && !self.rip_undo.is_empty(),
-                idle && !self.rip_redo.is_empty(),
-                self.rip_undo.last().map(|txn| txn.label.clone()),
-                self.rip_redo.last().map(|txn| txn.label.clone()),
+                idle && !self.pack_undo.is_empty(),
+                idle && !self.pack_redo.is_empty(),
+                self.pack_undo.last().map(|txn| txn.label.clone()),
+                self.pack_redo.last().map(|txn| txn.label.clone()),
             )
         } else {
             (
@@ -3416,8 +3428,8 @@ impl DroApp {
             can_redo,
             undo_description,
             redo_description,
-            has_rip: self.rip.is_some(),
-            on_rip_tab,
+            has_pack: self.pack.is_some(),
+            on_pack_tab,
             focused_row: self.editor.selection.first(),
             has_marked_region: self.editor.has_song()
                 && !self.editor.markers.is_full(self.editor.len()),

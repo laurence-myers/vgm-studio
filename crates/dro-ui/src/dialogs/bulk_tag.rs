@@ -1,4 +1,4 @@
-//! Rip mode's bulk GD3 tag editor: write chosen fields to many tracks at once.
+//! Pack mode's bulk GD3 tag editor: write chosen fields to many tracks at once.
 //!
 //! Where the quick-edit dialog ([`super::track_edit`]) rewrites one track, this
 //! one writes a chosen set of GD3 fields across a chosen set of tracks. Each
@@ -14,7 +14,7 @@ use dro_core::vgm::data::GD3_FIELD_COUNT;
 
 use super::gd3_tag::LABELS;
 use crate::action::Action;
-use crate::rip::BulkTagOverlay;
+use crate::pack::BulkTagOverlay;
 use crate::theme::{Palette, bevel};
 
 /// One candidate track: its file name is the stable identity the app re-resolves
@@ -37,7 +37,7 @@ pub struct BulkTagDialog {
 impl BulkTagDialog {
     /// `tracks`: `(file_name, display_label)` for every readable track, in list
     /// order. `overlay`: the seeded field values and checks (see
-    /// [`crate::rip::seed_from_meta`]).
+    /// [`crate::pack::seed_from_meta`]).
     #[must_use]
     pub fn new(tracks: Vec<(String, String)>, overlay: BulkTagOverlay) -> Self {
         let targets = tracks

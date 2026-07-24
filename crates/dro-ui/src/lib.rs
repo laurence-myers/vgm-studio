@@ -17,8 +17,8 @@ pub mod dialogs;
 pub mod editor;
 pub mod markers;
 pub mod menus;
+pub mod pack;
 pub mod platform;
-pub mod rip;
 pub mod selection;
 pub mod tasks;
 #[cfg(test)]
@@ -32,9 +32,10 @@ pub mod widgets;
 
 pub use action::AppTab;
 pub use app::DroApp;
+pub use pack::PackState;
 pub use platform::{
-    AudioService, ConfigStore, FileService, OptimizedImage, PickedFile, PickedFolder, RipEntry,
-    RipEntryKind, RipJobOutcome, RipJobRequest, RipService, SaveOutcome, SaveRequest,
+    AudioService, ConfigStore, FileService, OptimizedImage, PackEntry, PackEntryKind,
+    PackJobOutcome, PackJobRequest, PackService, PickedFile, PickedFolder, SaveOutcome,
+    SaveRequest,
 };
-pub use rip::RipState;
 pub use tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use dro_trimmer::cli::Cli;
 use dro_trimmer::services::{
-    IniConfigStore, NativeFileService, NativeRipService, SwitchingAudioService, ThreadTaskService,
+    IniConfigStore, NativeFileService, NativePackService, SwitchingAudioService, ThreadTaskService,
 };
 use dro_ui::DroApp;
 use dro_ui::platform::FileService;
@@ -98,13 +98,13 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
             // The DOS-tracker look: fonts, palette and square bevelled chrome.
             dro_ui::theme::install(&cc.egui_ctx, config.ui.theme);
             // The background services poke the event loop when a render or a
-            // rip export finishes, so the result is picked up without waiting
+            // pack export finishes, so the result is picked up without waiting
             // for input.
             let repaint_tasks = {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             };
-            let repaint_rip = {
+            let repaint_pack = {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             };
@@ -112,7 +112,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
                 Box::new(files),
                 Box::new(SwitchingAudioService::new()),
                 Box::new(ThreadTaskService::with_notifier(repaint_tasks)),
-                Box::new(NativeRipService::with_notifier(repaint_rip)),
+                Box::new(NativePackService::with_notifier(repaint_pack)),
                 Box::new(IniConfigStore::new()),
                 None,
             )))

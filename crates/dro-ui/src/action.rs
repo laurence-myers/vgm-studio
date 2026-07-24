@@ -9,14 +9,14 @@ use dro_core::config::{AppConfig, SurfaceChoice, ThemeChoice};
 use dro_core::{Gd3Tag, OplType};
 use dro_synth::LoopCount;
 
-use crate::rip::BulkTagOverlay;
+use crate::pack::BulkTagOverlay;
 
-/// Which top-level view is showing. The tab strip appears only while a rip is
+/// Which top-level view is showing. The tab strip appears only while a pack is
 /// open; otherwise the app is always on [`AppTab::Editor`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppTab {
     Editor,
-    Rip,
+    Pack,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -83,44 +83,44 @@ pub enum Action {
     /// Strip redundant OPL writes and merge the delays left behind (VGM only).
     OptimizeVgm,
 
-    // Rip mode
-    /// Open the folder picker for a rip project (prompts first if the current
-    /// rip has unsaved edits).
-    OpenRipFolder,
-    /// Open the folder picker after the user confirmed discarding a dirty rip.
-    ConfirmOpenRipFolder,
-    /// Open a specific folder as a rip project (the Split Songs completion offer).
-    OpenRipFolderAt(std::path::PathBuf),
-    /// Switch the active tab (only meaningful while a rip is open).
+    // Pack mode
+    /// Open the folder picker for a pack project (prompts first if the current
+    /// pack has unsaved edits).
+    OpenPackFolder,
+    /// Open the folder picker after the user confirmed discarding a dirty pack.
+    ConfirmOpenPackFolder,
+    /// Open a specific folder as a pack project (the Split Songs completion offer).
+    OpenPackFolderAt(std::path::PathBuf),
+    /// Switch the active tab (only meaningful while a pack is open).
     SelectTab(AppTab),
-    /// Close the rip project (prompts first if it has unsaved edits).
-    CloseRip,
-    /// Close the rip project after the user confirmed discarding it.
-    ConfirmCloseRip,
+    /// Close the pack project (prompts first if it has unsaved edits).
+    ClosePack,
+    /// Close the pack project after the user confirmed discarding it.
+    ConfirmClosePack,
     /// Write the generated Game Name.txt and Game Name.m3u into the folder.
-    RipSaveDocs,
-    /// Measure every rip track's peak in the background, for the Peak column.
-    RipScanVolumes,
+    PackSaveDocs,
+    /// Measure every pack track's peak in the background, for the Peak column.
+    PackScanVolumes,
     /// Set each track's VGM volume modifier from the scanned peaks (album or
     /// per-track), as one undoable batch of header rewrites.
-    RipApplySuggestedModifiers,
+    PackApplySuggestedModifiers,
     /// Rewrite every slash-separated release date (pack meta and each track's
     /// GD3) to hyphens -- the checklist's one-click date fix-assist.
-    RipConvertDatesToHyphens,
+    PackConvertDatesToHyphens,
     /// Build the release zip and save it (prompts first on soft warnings).
-    RipExportZip,
+    PackExportZip,
     /// Build the release zip after the user accepted the warnings.
     ConfirmExportZip,
     /// Open a track in the editor (double-click / button in the track list).
-    RipTrackOpen(usize),
+    PackTrackOpen(usize),
     /// Preview a track through the audio output.
-    RipTrackPreview(usize),
+    PackTrackPreview(usize),
     /// Stop the track preview.
-    RipStopPreview,
+    PackStopPreview,
     /// Open the quick-edit dialog (rename + GD3) for a track.
     OpenTrackQuickEdit(usize),
     /// Move a track up (`-1`) or down (`+1`) one slot, renumbering the files.
-    RipMoveTrack {
+    PackMoveTrack {
         index: usize,
         delta: isize,
     },

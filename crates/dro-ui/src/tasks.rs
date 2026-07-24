@@ -11,7 +11,7 @@ use std::sync::Arc;
 use dro_core::Song;
 use dro_core::io::write_song;
 use dro_core::loopfind::{Candidate, find_loops, rank};
-use dro_core::rip::track_file_name;
+use dro_core::pack::track_file_name;
 use dro_core::split_songs::{detect_segments, materialise};
 use dro_synth::{
     Peak, RenderMix, SplitData, SplitOptions, WaveformBucket, measure_peak_cancellable,
@@ -31,8 +31,8 @@ pub enum TaskKind {
     /// Measuring a song's peak level, for the volume lever's "Match" button and
     /// the VGM volume-modifier suggestion.
     VolumeScan,
-    /// Measuring every rip track's peak, for the rip "Scan Volumes" button.
-    RipVolumeScan,
+    /// Measuring every pack track's peak, for the pack "Scan Volumes" button.
+    PackVolumeScan,
     /// Edit > Find Loop: searching the command stream for loop candidates.
     LoopSearch,
 }
@@ -69,10 +69,10 @@ pub enum TaskRequest {
     },
     /// Measures `song`'s peak level by rendering it internally at `sample_rate`.
     VolumeScan { song: Arc<Song>, sample_rate: u32 },
-    /// Measures the peak of every `(file_name, song)` at `sample_rate`, for rip
+    /// Measures the peak of every `(file_name, song)` at `sample_rate`, for pack
     /// mode's "Scan Volumes". One background task covers the whole pack so its
     /// many songs never freeze the UI.
-    RipVolumeScan {
+    PackVolumeScan {
         tracks: Vec<(String, Arc<Song>)>,
         sample_rate: u32,
     },
@@ -94,7 +94,7 @@ impl TaskRequest {
             Self::Split { .. } => TaskKind::Split,
             Self::SplitSongs { .. } => TaskKind::SplitSongs,
             Self::VolumeScan { .. } => TaskKind::VolumeScan,
-            Self::RipVolumeScan { .. } => TaskKind::RipVolumeScan,
+            Self::PackVolumeScan { .. } => TaskKind::PackVolumeScan,
             Self::LoopSearch { .. } => TaskKind::LoopSearch,
         }
     }
@@ -120,9 +120,9 @@ pub enum TaskResult {
     /// A finished volume scan's peak, for the "Match Volume" button and the VGM
     /// volume-modifier suggestion. A cancelled scan emits nothing.
     Peak(Peak),
-    /// One `(file_name, peak)` per rip track measured, for the rip Peak column.
+    /// One `(file_name, peak)` per pack track measured, for the pack Peak column.
     /// A cancelled scan (the folder changed) emits nothing.
-    RipPeaks(Vec<(String, Peak)>),
+    PackPeaks(Vec<(String, Peak)>),
     /// The loop candidates found so far, best-first. Emitted as a growing ranked
     /// snapshot while the search streams, so the dialog's table fills in live; a
     /// cancelled search emits nothing.
@@ -248,7 +248,7 @@ pub fn run_task(
                 emit(TaskResult::Peak(peak));
             }
         }
-        TaskRequest::RipVolumeScan {
+        TaskRequest::PackVolumeScan {
             tracks,
             sample_rate,
         } => {
@@ -266,7 +266,7 @@ pub fn run_task(
                 };
                 peaks.push((name.clone(), peak));
             }
-            emit(TaskResult::RipPeaks(peaks));
+            emit(TaskResult::PackPeaks(peaks));
         }
         TaskRequest::LoopSearch {
             song,
@@ -469,10 +469,10 @@ mod tests {
     }
 
     #[test]
-    fn the_rip_volume_scan_emits_a_peak_per_track() {
+    fn the_pack_volume_scan_emits_a_peak_per_track() {
         let song = Arc::new(tone_song());
         let expected = dro_synth::measure_peak(&*song, 48_000);
-        let scan = TaskRequest::RipVolumeScan {
+        let scan = TaskRequest::PackVolumeScan {
             tracks: vec![
                 ("01.vgm".to_owned(), Arc::clone(&song)),
                 ("02.vgm".to_owned(), Arc::clone(&song)),
@@ -480,8 +480,8 @@ mod tests {
             sample_rate: 48_000,
         };
         let results = collect(&scan, || false);
-        let [TaskResult::RipPeaks(peaks)] = results.as_slice() else {
-            panic!("expected one RipPeaks, got {results:?}");
+        let [TaskResult::PackPeaks(peaks)] = results.as_slice() else {
+            panic!("expected one PackPeaks, got {results:?}");
         };
         assert_eq!(peaks.len(), 2);
         assert_eq!(peaks[0].0, "01.vgm");

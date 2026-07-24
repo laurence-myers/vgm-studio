@@ -1,12 +1,12 @@
-//! Rip mode: preparing a VGMRips submission from a folder of songs.
+//! Pack mode: preparing a VGMRips submission from a folder of songs.
 //!
-//! [`RipState`] is the headless core -- the loaded folder, the editable package
+//! [`PackState`] is the headless core -- the loaded folder, the editable package
 //! metadata, and the derived track list -- with no egui, so it is testable
 //! without a window (like [`crate::editor::Editor`]). [`show`] draws the view.
 //!
 //! The description file *is* the project: opening a folder re-parses any
 //! `Game Name.txt` back into the form, so a pack can be reopened and updated.
-//! When there is no description (a fresh rip), the fields are prefilled from the
+//! When there is no description (a fresh pack), the fields are prefilled from the
 //! songs' GD3 tags.
 
 use std::collections::HashMap;
@@ -15,9 +15,9 @@ use std::sync::Arc;
 
 use dro_synth::Peak;
 
-use dro_core::rip::{
-    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, ReadinessCategory, ReadinessItem,
-    ReadinessTarget, RipMeta, Severity, TrackEntry, TrackFacts, doc_file_stem, format_track_time,
+use dro_core::pack::{
+    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, ReadinessCategory, ReadinessItem,
+    ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem, format_track_time,
     generate_description, generate_m3u, music_hardware_suggestion, parse_description, readiness,
 };
 use dro_core::vgm::data::GD3_FIELD_COUNT;
@@ -25,13 +25,13 @@ use dro_core::{Gd3Tag, OplType, Song};
 use egui_extras::{Column, TableBuilder};
 
 use crate::action::Action;
-use crate::platform::{PickedFile, PickedFolder, RipEntry, RipEntryKind, RipJobRequest};
+use crate::platform::{PackEntry, PackEntryKind, PackJobRequest, PickedFile, PickedFolder};
 use crate::theme::{Palette, bevel};
 
-/// One song file in the rip: its bytes (kept for export and opening in the
+/// One song file in the pack: its bytes (kept for export and opening in the
 /// editor) and the parse result (an error shows inline rather than aborting).
 #[derive(Debug, Clone)]
-pub struct RipTrack {
+pub struct PackTrack {
     pub file_name: String,
     pub path: Option<PathBuf>,
     pub bytes: Vec<u8>,
@@ -41,7 +41,7 @@ pub struct RipTrack {
     pub entry: Option<TrackEntry>,
 }
 
-impl RipTrack {
+impl PackTrack {
     /// The parsed song, if it loaded.
     #[must_use]
     pub fn song(&self) -> Option<&Arc<Song>> {
@@ -49,25 +49,25 @@ impl RipTrack {
     }
 }
 
-/// A screenshot in the rip folder. Its bytes are shared (`Arc<[u8]>`) so the
+/// A screenshot in the pack folder. Its bytes are shared (`Arc<[u8]>`) so the
 /// inline preview's per-frame `Image::from_bytes` clone is an Arc bump, not a
 /// full copy of the PNG (uiwidget-9).
 #[derive(Debug, Clone)]
-pub struct RipImage {
+pub struct PackImage {
     pub name: String,
     pub path: Option<PathBuf>,
     pub bytes: Arc<[u8]>,
 }
 
-/// The whole rip project: what a folder scan produced, plus the editable
+/// The whole pack project: what a folder scan produced, plus the editable
 /// package metadata.
 #[derive(Debug)]
-pub struct RipState {
+pub struct PackState {
     pub folder_name: String,
     pub folder_path: Option<PathBuf>,
-    pub meta: RipMeta,
-    pub tracks: Vec<RipTrack>,
-    pub images: Vec<RipImage>,
+    pub meta: PackMeta,
+    pub tracks: Vec<PackTrack>,
+    pub images: Vec<PackImage>,
     /// The description file that was parsed, if any.
     pub description_file: Option<String>,
     /// Set when an existing description could not be parsed; saving overwrites it.
@@ -79,7 +79,7 @@ pub struct RipState {
     /// Strip redundant OPL writes from each VGM on export (`vgm_cmp`, the final
     /// step of the VGMRips optimisation pipeline).
     pub optimize_on_export: bool,
-    /// The row currently previewing through the audio output (rip mode playback).
+    /// The row currently previewing through the audio output (pack mode playback).
     pub preview: Option<usize>,
     /// Measured peak per track, keyed by `file_name` (the stable identity that
     /// survives a rescan/reorder). Filled by "Scan Volumes"; drives the Peak
@@ -95,7 +95,7 @@ pub struct RipState {
     pub focus_field: Option<MetaField>,
 }
 
-impl RipState {
+impl PackState {
     /// Builds the state from a scanned folder. `today` prefills the initial
     /// package-history line when there is no description to parse.
     #[must_use]
@@ -113,7 +113,7 @@ impl RipState {
                         .as_ref()
                         .ok()
                         .map(|song| TrackEntry::from_song(song, &file.name));
-                    tracks.push(RipTrack {
+                    tracks.push(PackTrack {
                         file_name: file.name,
                         path: file.path,
                         bytes: file.bytes,
@@ -121,7 +121,7 @@ impl RipState {
                         entry,
                     });
                 }
-                FileClass::Image => images.push(RipImage {
+                FileClass::Image => images.push(PackImage {
                     name: file.name,
                     path: file.path,
                     bytes: file.bytes.into(),
@@ -186,11 +186,11 @@ impl RipState {
         // rewrites (a new volume modifier, GD3 tags) keep it; a track that was
         // edited in the editor and saved back, renamed away, or replaced
         // wholesale loses it and shows unscanned again.
-        let song_of = |tracks: &[RipTrack], name: &str| {
+        let song_of = |tracks: &[PackTrack], name: &str| {
             tracks
                 .iter()
                 .find(|track| track.file_name == name)
-                .and_then(RipTrack::song)
+                .and_then(PackTrack::song)
                 .cloned()
         };
         self.peaks.retain(|name, _| {
@@ -203,9 +203,9 @@ impl RipState {
 
     /// The transaction that moves the track at `from` to `to`, renumbering the
     /// affected files' names. `None` when nothing would change or the folder has
-    /// no path (the web has none, and rip mode is native-only anyway).
+    /// no path (the web has none, and pack mode is native-only anyway).
     #[must_use]
-    pub fn reorder_transaction(&self, from: usize, to: usize) -> Option<RipTransaction> {
+    pub fn reorder_transaction(&self, from: usize, to: usize) -> Option<PackTransaction> {
         let folder = self.folder_path.as_ref()?;
         let names: Vec<String> = self
             .tracks
@@ -218,7 +218,7 @@ impl RipState {
         }
         let inverse_pairs: Vec<(String, String)> =
             pairs.iter().map(|(a, b)| (b.clone(), a.clone())).collect();
-        Some(RipTransaction {
+        Some(PackTransaction {
             label: "Reorder tracks".to_owned(),
             forward: rename_batch_mutations(folder, &pairs),
             inverse: rename_batch_mutations(folder, &inverse_pairs),
@@ -234,7 +234,7 @@ impl RipState {
     /// modifier already matches its suggestion. Tracks with no peak, no path, or
     /// that are not VGMs are skipped, so the batch touches only what it must.
     #[must_use]
-    pub fn suggested_modifier_transaction(&self) -> Option<RipTransaction> {
+    pub fn suggested_modifier_transaction(&self) -> Option<PackTransaction> {
         let album_peak = self.peaks.values().map(|peak| peak.max_level).max()?;
         let album = self.album_normalize.then_some(album_peak);
         let mut forward = Vec::new();
@@ -247,7 +247,7 @@ impl RipState {
             ) else {
                 continue;
             };
-            // Only VGMs carry a volume modifier; the rip list is VGM/VGZ only, but
+            // Only VGMs carry a volume modifier; the pack list is VGM/VGZ only, but
             // guard so a non-VGM can never be rewritten.
             let Some(current) = song.vgm_meta().map(|meta| meta.volume_modifier) else {
                 continue;
@@ -257,11 +257,11 @@ impl RipState {
                 continue; // nothing changed for this track
             }
             if let Some(Ok(bytes)) = revolumed_bytes(song, new_modifier) {
-                forward.push(RipMutation::Write {
+                forward.push(PackMutation::Write {
                     path: path.clone(),
                     bytes,
                 });
-                inverse.push(RipMutation::Write {
+                inverse.push(PackMutation::Write {
                     path,
                     bytes: track.bytes.clone(),
                 });
@@ -271,7 +271,7 @@ impl RipState {
             return None;
         }
         let count = forward.len();
-        Some(RipTransaction {
+        Some(PackTransaction {
             label: format!(
                 "Set volume modifier on {count} track{}",
                 if count == 1 { "" } else { "s" }
@@ -283,16 +283,16 @@ impl RipState {
 
     /// Whether any pack or track release date is a slash-separated date the
     /// "Convert dates to hyphens" fix-assist could rewrite (see
-    /// [`dro_core::rip::hyphenate_date`]).
+    /// [`dro_core::pack::hyphenate_date`]).
     #[must_use]
     pub fn has_convertible_dates(&self) -> bool {
-        dro_core::rip::hyphenate_date(&self.meta.release_date).is_some()
+        dro_core::pack::hyphenate_date(&self.meta.release_date).is_some()
             || self.tracks.iter().any(|track| {
                 track
                     .song()
                     .and_then(|song| song.vgm_meta())
                     .and_then(|meta| meta.tag.as_ref())
-                    .is_some_and(|tag| dro_core::rip::hyphenate_date(&tag.release_date).is_some())
+                    .is_some_and(|tag| dro_core::pack::hyphenate_date(&tag.release_date).is_some())
             })
     }
 
@@ -300,7 +300,7 @@ impl RipState {
     /// a convertible slash date. Returns whether it changed (and marks the pack
     /// dirty). A pack-metadata edit, like typing in the form -- not a file op.
     pub fn hyphenate_meta_date(&mut self) -> bool {
-        if let Some(hyphenated) = dro_core::rip::hyphenate_date(&self.meta.release_date) {
+        if let Some(hyphenated) = dro_core::pack::hyphenate_date(&self.meta.release_date) {
             self.meta.release_date = hyphenated;
             self.dirty = true;
             true
@@ -315,7 +315,7 @@ impl RipState {
     /// [`Self::suggested_modifier_transaction`]: per-track `Write` mutations with
     /// undo for free.
     #[must_use]
-    pub fn date_hyphenation_transaction(&self) -> Option<RipTransaction> {
+    pub fn date_hyphenation_transaction(&self) -> Option<PackTransaction> {
         let mut forward = Vec::new();
         let mut inverse = Vec::new();
         for track in &self.tracks {
@@ -325,17 +325,17 @@ impl RipState {
             let Some(tag) = song.vgm_meta().and_then(|meta| meta.tag.clone()) else {
                 continue;
             };
-            let Some(hyphenated) = dro_core::rip::hyphenate_date(&tag.release_date) else {
+            let Some(hyphenated) = dro_core::pack::hyphenate_date(&tag.release_date) else {
                 continue;
             };
             let mut new_tag = tag;
             new_tag.release_date = hyphenated;
             if let Ok(bytes) = retagged_bytes(song, &track.file_name, new_tag) {
-                forward.push(RipMutation::Write {
+                forward.push(PackMutation::Write {
                     path: path.clone(),
                     bytes,
                 });
-                inverse.push(RipMutation::Write {
+                inverse.push(PackMutation::Write {
                     path,
                     bytes: track.bytes.clone(),
                 });
@@ -345,7 +345,7 @@ impl RipState {
             return None;
         }
         let count = forward.len();
-        Some(RipTransaction {
+        Some(PackTransaction {
             label: format!(
                 "Convert {count} track date{} to hyphens",
                 if count == 1 { "" } else { "s" }
@@ -426,7 +426,7 @@ impl RipState {
     /// Every submission-readiness finding, in checklist order: this app's own
     /// file-level shape checks (readable songs, `NN Title` numbering, screenshot,
     /// game name) followed by the shared, wasm-clean GD3 / metadata content
-    /// checks from [`dro_core::rip::readiness`]. One list feeds both the export
+    /// checks from [`dro_core::pack::readiness`]. One list feeds both the export
     /// gate ([`Self::validations`]) and the submission checklist, so they can
     /// never disagree.
     #[must_use]
@@ -501,7 +501,7 @@ impl RipState {
     /// bucketed from [`Self::readiness_items`] by severity. Notes are surfaced in
     /// the checklist but never gate an export.
     #[must_use]
-    pub fn validations(&self) -> RipValidations {
+    pub fn validations(&self) -> PackValidations {
         let mut errors = Vec::new();
         let mut warnings = Vec::new();
         let mut notes = Vec::new();
@@ -512,7 +512,7 @@ impl RipState {
                 Severity::Note => notes.push(item.message),
             }
         }
-        RipValidations {
+        PackValidations {
             errors,
             warnings,
             notes,
@@ -522,34 +522,34 @@ impl RipState {
     /// Builds the export job: every song, every screenshot, and freshly
     /// generated docs whose names reflect the final (post-gzip) song names.
     #[must_use]
-    pub fn export_request(&self) -> RipJobRequest {
+    pub fn export_request(&self) -> PackJobRequest {
         let stem = self.doc_stem();
-        let mut entries: Vec<RipEntry> = Vec::new();
+        let mut entries: Vec<PackEntry> = Vec::new();
         for track in &self.tracks {
-            entries.push(RipEntry {
+            entries.push(PackEntry {
                 name: track.file_name.clone(),
                 bytes: track.bytes.clone(),
-                kind: RipEntryKind::Song,
+                kind: PackEntryKind::Song,
             });
         }
         for image in &self.images {
-            entries.push(RipEntry {
+            entries.push(PackEntry {
                 name: image.name.clone(),
                 bytes: image.bytes.to_vec(),
-                kind: RipEntryKind::Image,
+                kind: PackEntryKind::Image,
             });
         }
-        entries.push(RipEntry {
+        entries.push(PackEntry {
             name: format!("{stem}.txt"),
             bytes: self.description_text().into_bytes(),
-            kind: RipEntryKind::Doc,
+            kind: PackEntryKind::Doc,
         });
-        entries.push(RipEntry {
+        entries.push(PackEntry {
             name: format!("{stem}.m3u"),
             bytes: self.m3u_text(true).into_bytes(),
-            kind: RipEntryKind::Doc,
+            kind: PackEntryKind::Doc,
         });
-        RipJobRequest {
+        PackJobRequest {
             zip_name: format!("{stem}.zip"),
             entries,
             gzip_vgms: self.gzip_on_export,
@@ -558,9 +558,9 @@ impl RipState {
     }
 }
 
-/// The result of [`RipState::validations`].
+/// The result of [`PackState::validations`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct RipValidations {
+pub struct PackValidations {
     /// Problems that block an export.
     pub errors: Vec<String>,
     /// Advisories the user may choose to ignore (the "export anyway?" confirm).
@@ -626,11 +626,11 @@ pub fn reorder_renames(names: &[String], from: usize, to: usize) -> Vec<(String,
         .collect()
 }
 
-/// One reversible file operation on the rip folder, the unit the app's file-op
+/// One reversible file operation on the pack folder, the unit the app's file-op
 /// executor runs. `Rename`'s `to` is a bare name in the same directory; `Write`
 /// overwrites `path` outright.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RipMutation {
+pub enum PackMutation {
     Rename { from: PathBuf, to: String },
     Write { path: PathBuf, bytes: Vec<u8> },
 }
@@ -639,10 +639,10 @@ pub enum RipMutation {
 /// that undoes it. Applying `forward` then `inverse` returns the folder to its
 /// starting state; the app replays whichever list an undo or redo needs.
 #[derive(Debug, Clone)]
-pub struct RipTransaction {
+pub struct PackTransaction {
     pub label: String,
-    pub forward: Vec<RipMutation>,
-    pub inverse: Vec<RipMutation>,
+    pub forward: Vec<PackMutation>,
+    pub inverse: Vec<PackMutation>,
 }
 
 /// The mutations that apply a set of `(src, dst)` renames without a transient
@@ -651,17 +651,17 @@ pub struct RipTransaction {
 fn rename_batch_mutations(
     folder: &std::path::Path,
     pairs: &[(String, String)],
-) -> Vec<RipMutation> {
+) -> Vec<PackMutation> {
     let temp = |i: usize| format!(".drotrim-reorder-{i}");
     let mut muts = Vec::with_capacity(pairs.len() * 2);
     for (i, (src, _)) in pairs.iter().enumerate() {
-        muts.push(RipMutation::Rename {
+        muts.push(PackMutation::Rename {
             from: folder.join(src),
             to: temp(i),
         });
     }
     for (i, (_, dst)) in pairs.iter().enumerate() {
-        muts.push(RipMutation::Rename {
+        muts.push(PackMutation::Rename {
             from: folder.join(temp(i)),
             to: dst.clone(),
         });
@@ -703,15 +703,15 @@ fn choose_description<'a>(texts: &'a [PickedFile], folder_name: &str) -> Option<
         .or_else(|| texts.first())
 }
 
-/// Default metadata for a fresh rip, seeded from the songs' GD3 tags.
-fn prefilled(tracks: &[RipTrack], today: Option<(i32, u8, u8)>) -> RipMeta {
-    let songs: Vec<&Arc<Song>> = tracks.iter().filter_map(RipTrack::song).collect();
+/// Default metadata for a fresh pack, seeded from the songs' GD3 tags.
+fn prefilled(tracks: &[PackTrack], today: Option<(i32, u8, u8)>) -> PackMeta {
+    let songs: Vec<&Arc<Song>> = tracks.iter().filter_map(PackTrack::song).collect();
 
-    let mut meta = RipMeta {
+    let mut meta = PackMeta {
         system: DEFAULT_SYSTEM.to_owned(),
         os: DEFAULT_OS.to_owned(),
         version: "1.00".to_owned(),
-        ..RipMeta::default()
+        ..PackMeta::default()
     };
     if let Some(opl) = highest_opl(&songs) {
         meta.music_hardware = music_hardware_suggestion(opl).to_owned();
@@ -779,8 +779,13 @@ fn to_vgz_name(name: &str) -> String {
 
 // -- view --------------------------------------------------------------------
 
-/// Draws the rip view: the package-metadata form and the track list.
-pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions: &mut Vec<Action>) {
+/// Draws the pack view: the package-metadata form and the track list.
+pub fn show(
+    ui: &mut egui::Ui,
+    state: &mut PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
     ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
 
     // Header strip: folder name, save, and the gzip-on-export toggle.
@@ -794,13 +799,13 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                 )
                 .clicked()
             {
-                actions.push(Action::RipExportZip);
+                actions.push(Action::PackExportZip);
             }
             if bevel::button(ui, palette, "Save Package Files")
                 .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
                 .clicked()
             {
-                actions.push(Action::RipSaveDocs);
+                actions.push(Action::PackSaveDocs);
             }
             if bevel::button(ui, palette, "Bulk Tag\u{2026}")
                 .on_hover_text("Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at once")
@@ -815,7 +820,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                 )
                 .clicked()
             {
-                actions.push(Action::RipScanVolumes);
+                actions.push(Action::PackScanVolumes);
             }
             if bevel::button(ui, palette, "Apply Modifiers")
                 .on_hover_text(
@@ -824,7 +829,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
                 )
                 .clicked()
             {
-                actions.push(Action::RipApplySuggestedModifiers);
+                actions.push(Action::PackApplySuggestedModifiers);
             }
             ui.checkbox(&mut state.album_normalize, "Album")
                 .on_hover_text(
@@ -848,7 +853,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut RipState, palette: &Palette, actions:
     let focus = state.focus_field.take();
     let scroll_out = egui::ScrollArea::vertical().show(ui, |ui| {
         let mut dirty = false;
-        egui::Grid::new("rip-meta")
+        egui::Grid::new("pack-meta")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
@@ -1065,7 +1070,7 @@ impl BulkTagOverlay {
 /// (say, the half of the pack a second composer wrote), edit the value and
 /// deselect the tracks it does not apply to.
 #[must_use]
-pub fn seed_from_meta(meta: &RipMeta) -> BulkTagOverlay {
+pub fn seed_from_meta(meta: &PackMeta) -> BulkTagOverlay {
     let mut overlay = BulkTagOverlay::default();
     let seeds = [
         (gd3_index::GAME_NAME_EN, &meta.game_name),
@@ -1167,7 +1172,7 @@ fn worst_severity(items: &[&ReadinessItem]) -> Severity {
 /// a track opens its quick-edit dialog).
 fn submission_checklist(
     ui: &mut egui::Ui,
-    state: &mut RipState,
+    state: &mut PackState,
     items: &[ReadinessItem],
     palette: &Palette,
     actions: &mut Vec<Action>,
@@ -1188,7 +1193,7 @@ fn submission_checklist(
                 )
                 .clicked()
         {
-            actions.push(Action::RipConvertDatesToHyphens);
+            actions.push(Action::PackConvertDatesToHyphens);
         }
     });
     ui.add_space(2.0);
@@ -1224,7 +1229,7 @@ fn submission_checklist(
 /// and the message, clickable when it points at a field or track to fix.
 fn checklist_item(
     ui: &mut egui::Ui,
-    state: &mut RipState,
+    state: &mut PackState,
     item: &ReadinessItem,
     palette: &Palette,
     actions: &mut Vec<Action>,
@@ -1274,7 +1279,7 @@ fn checklist_link(ui: &mut egui::Ui, palette: &Palette, message: &str) -> egui::
 fn track_status_glyph(
     ui: &mut egui::Ui,
     index: usize,
-    track: &RipTrack,
+    track: &PackTrack,
     items: &[ReadinessItem],
     palette: &Palette,
     actions: &mut Vec<Action>,
@@ -1316,7 +1321,7 @@ fn track_status_glyph(
 
 fn track_table(
     ui: &mut egui::Ui,
-    state: &RipState,
+    state: &PackState,
     items: &[ReadinessItem],
     palette: &Palette,
     actions: &mut Vec<Action>,
@@ -1448,13 +1453,14 @@ fn track_table(
                                             .on_hover_text("Move up")
                                             .clicked()
                                         {
-                                            actions.push(Action::RipMoveTrack { index, delta: -1 });
+                                            actions
+                                                .push(Action::PackMoveTrack { index, delta: -1 });
                                         }
                                         if bevel::button(ui, palette, "\u{25BC}")
                                             .on_hover_text("Move down")
                                             .clicked()
                                         {
-                                            actions.push(Action::RipMoveTrack { index, delta: 1 });
+                                            actions.push(Action::PackMoveTrack { index, delta: 1 });
                                         }
                                         let previewing = state.preview == Some(index);
                                         // U+25A0 stop / U+25B6 play.
@@ -1465,16 +1471,16 @@ fn track_table(
                                             .clicked()
                                         {
                                             actions.push(if previewing {
-                                                Action::RipStopPreview
+                                                Action::PackStopPreview
                                             } else {
-                                                Action::RipTrackPreview(index)
+                                                Action::PackTrackPreview(index)
                                             });
                                         }
                                         if bevel::button(ui, palette, "Open")
                                             .on_hover_text("Open the track in the editor")
                                             .clicked()
                                         {
-                                            actions.push(Action::RipTrackOpen(index));
+                                            actions.push(Action::PackTrackOpen(index));
                                         }
                                         if bevel::button(ui, palette, "Tags")
                                             .on_hover_text("Edit the track's GD3 tags")
@@ -1500,7 +1506,7 @@ fn track_table(
                         }
 
                         if row.response().double_clicked() {
-                            actions.push(Action::RipTrackOpen(index));
+                            actions.push(Action::PackTrackOpen(index));
                         }
                     });
                 }
@@ -1508,7 +1514,7 @@ fn track_table(
     });
 }
 
-fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: &mut Vec<Action>) {
+fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions: &mut Vec<Action>) {
     // A divider sets the screenshots apart from the track list above (clipped,
     // like the Tracks divider, so it stays inside the scroll well).
     crate::theme::separator_clipped(ui, palette);
@@ -1541,7 +1547,7 @@ fn screenshots(ui: &mut egui::Ui, state: &RipState, palette: &Palette, actions: 
         });
         // Inline preview at natural size (capped). The URI carries the byte
         // length, so a freshly optimised file busts the texture cache.
-        let uri = format!("bytes://rip/{}/{}", image.bytes.len(), image.name);
+        let uri = format!("bytes://pack/{}/{}", image.bytes.len(), image.name);
         ui.add(
             egui::Image::from_bytes(uri, image.bytes.clone())
                 .fit_to_original_size(1.0)
@@ -1604,7 +1610,7 @@ mod tests {
             tagged_song("01 Intro.vgz", tag("Cool Game", "Ada", "Ripper")),
             tagged_song("02 Level.vgz", tag("Cool Game", "Bob", "Ripper")),
         ];
-        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
 
         assert_eq!(state.meta.game_name, "Cool Game");
         assert_eq!(state.meta.creator, "Ripper");
@@ -1622,9 +1628,9 @@ mod tests {
 
     #[test]
     fn prefill_history_uses_a_placeholder_date_without_a_clock() {
-        let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "Rip"))];
-        let state = RipState::from_folder(folder("G", files), None);
-        assert_eq!(state.meta.history, "1.00 <date> Rip: Initial release.");
+        let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "Ripper"))];
+        let state = PackState::from_folder(folder("G", files), None);
+        assert_eq!(state.meta.history, "1.00 <date> Ripper: Initial release.");
     }
 
     /// The volume_modifier a set of serialised song bytes decode to.
@@ -1651,7 +1657,7 @@ mod tests {
             tagged_song("01 A.vgm", tag("G", "A", "R")),
             tagged_song("02 B.vgm", tag("G", "B", "R")),
         ];
-        let mut state = RipState::from_folder(folder("G", files), None);
+        let mut state = PackState::from_folder(folder("G", files), None);
         state.peaks.insert("01 A.vgm".to_owned(), peak(0x4000));
         state.peaks.insert("02 B.vgm".to_owned(), peak(0x2000));
 
@@ -1690,7 +1696,7 @@ mod tests {
             tagged_song("01 Loud.vgm", tag("Game", "A", "R")),
             tagged_song("02 Quiet.vgm", tag("Game", "B", "R")),
         ];
-        let mut state = RipState::from_folder(folder("Game", files), None);
+        let mut state = PackState::from_folder(folder("Game", files), None);
         // No peaks scanned yet: nothing to apply.
         assert!(state.suggested_modifier_transaction().is_none());
 
@@ -1708,8 +1714,8 @@ mod tests {
             .forward
             .iter()
             .map(|mutation| match mutation {
-                RipMutation::Write { bytes, .. } => modifier_of(bytes),
-                RipMutation::Rename { .. } => panic!("only writes"),
+                PackMutation::Write { bytes, .. } => modifier_of(bytes),
+                PackMutation::Rename { .. } => panic!("only writes"),
             })
             .collect();
         assert_eq!(
@@ -1725,7 +1731,7 @@ mod tests {
             tagged_song("01 Loud.vgm", tag("Game", "A", "R")),
             tagged_song("02 Quiet.vgm", tag("Game", "B", "R")),
         ];
-        let mut state = RipState::from_folder(folder("Game", files), None);
+        let mut state = PackState::from_folder(folder("Game", files), None);
         state.album_normalize = false;
         state.peaks.insert("01 Loud.vgm".to_owned(), peak(0x4000)); // half -> 0x20
         state.peaks.insert("02 Quiet.vgm".to_owned(), peak(0x1000)); // eighth -> 0x60
@@ -1735,8 +1741,8 @@ mod tests {
             .forward
             .iter()
             .map(|mutation| match mutation {
-                RipMutation::Write { bytes, .. } => modifier_of(bytes),
-                RipMutation::Rename { .. } => panic!("only writes"),
+                PackMutation::Write { bytes, .. } => modifier_of(bytes),
+                PackMutation::Rename { .. } => panic!("only writes"),
             })
             .collect();
         // Each track is boosted to its own full scale, so the quieter one gets the
@@ -1761,7 +1767,7 @@ mod tests {
                 bytes: description.as_bytes().to_vec(),
             },
         ];
-        let state = RipState::from_folder(folder("Existing Pack", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Existing Pack", files), Some((2026, 7, 16)));
         assert_eq!(
             state.meta.game_name, "Existing Pack",
             "the .txt wins over GD3"
@@ -1781,7 +1787,7 @@ mod tests {
                 bytes: b"total garbage\r\nnot a description".to_vec(),
             },
         ];
-        let state = RipState::from_folder(folder("Pack", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Pack", files), Some((2026, 7, 16)));
         assert!(state.parse_warning.is_some());
         assert_eq!(state.meta.game_name, "GD3 Game", "prefilled from GD3");
     }
@@ -1824,7 +1830,7 @@ mod tests {
     #[test]
     fn validations_report_hard_errors_and_soft_warnings() {
         let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
-        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        let mut state = PackState::from_folder(folder("Game", files), Some((2026, 7, 16)));
 
         // A named, single-track pack: no hard errors, but no screenshot is a
         // soft warning.
@@ -1843,7 +1849,7 @@ mod tests {
         // and System blank, so the readiness pass adds a per-track "missing"
         // warning beyond the file-level ones -- and never a hard error.
         let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
-        let state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Game", files), Some((2026, 7, 16)));
         let checks = state.validations();
         assert!(checks.errors.is_empty());
         assert!(
@@ -1856,7 +1862,7 @@ mod tests {
     #[test]
     fn notes_are_reported_in_their_own_tier_and_never_gate() {
         let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
-        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        let mut state = PackState::from_folder(folder("Game", files), Some((2026, 7, 16)));
         // Credit a second composer the tracks never carry: a note, not a warning.
         state.meta.music_authors = "A & B".to_owned();
         let checks = state.validations();
@@ -1888,13 +1894,13 @@ mod tests {
             )
         };
         let files = vec![slash("01 A.vgm"), slash("02 B.vgm")];
-        let state = RipState::from_folder(folder("Game", files), None);
+        let state = PackState::from_folder(folder("Game", files), None);
         let txn = state
             .date_hyphenation_transaction()
             .expect("both tracks carry a slash date");
         assert_eq!(txn.forward.len(), 2);
         for mutation in &txn.forward {
-            let RipMutation::Write { bytes, .. } = mutation else {
+            let PackMutation::Write { bytes, .. } = mutation else {
                 panic!("date conversion is writes only");
             };
             let song = dro_core::io::read_song("x.vgm", bytes).unwrap();
@@ -1909,14 +1915,14 @@ mod tests {
     fn date_hyphenation_transaction_is_none_when_dates_are_clean() {
         // The fixture tag()'s release date is a hyphen-free "1994": nothing to do.
         let files = vec![tagged_song("01 A.vgm", tag("Game", "A", "R"))];
-        let state = RipState::from_folder(folder("Game", files), None);
+        let state = PackState::from_folder(folder("Game", files), None);
         assert!(state.date_hyphenation_transaction().is_none());
     }
 
     #[test]
     fn has_convertible_dates_and_meta_conversion() {
         let files = vec![tagged_song("01 A.vgm", tag("Game", "A", "R"))];
-        let mut state = RipState::from_folder(folder("Game", files), None);
+        let mut state = PackState::from_folder(folder("Game", files), None);
         assert!(
             !state.has_convertible_dates(),
             "the fixture's dates are hyphen-free years"
@@ -1934,7 +1940,7 @@ mod tests {
     #[test]
     fn the_optimize_toggle_flows_into_the_export_request() {
         let files = vec![tagged_song("01 Intro.vgz", tag("Game", "A", "R"))];
-        let mut state = RipState::from_folder(folder("Game", files), Some((2026, 7, 16)));
+        let mut state = PackState::from_folder(folder("Game", files), Some((2026, 7, 16)));
         assert!(state.optimize_on_export, "defaults on");
 
         state.optimize_on_export = false;
@@ -1949,7 +1955,7 @@ mod tests {
             tagged_song("01 Intro.vgz", tag("Cool Game", "A", "R")),
             tagged_song("02 Boss.vgm", tag("Cool Game", "A", "R")),
         ];
-        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
 
         let request = state.export_request();
         assert_eq!(request.zip_name, "Cool Game.zip");
@@ -1983,7 +1989,7 @@ mod tests {
     #[test]
     fn refresh_keeps_edited_metadata_but_re_reads_files() {
         let files = vec![tagged_song("01 Intro.vgz", tag("G", "A", "R"))];
-        let mut state = RipState::from_folder(folder("G", files), Some((2026, 7, 16)));
+        let mut state = PackState::from_folder(folder("G", files), Some((2026, 7, 16)));
         state.meta.game_name = "Edited Name".to_owned();
         state.dirty = true;
 
@@ -2000,10 +2006,10 @@ mod tests {
     #[test]
     fn description_and_m3u_reflect_the_tracks() {
         let files = vec![
-            tagged_song("01 Intro.vgz", tag("Cool Game", "Ada", "Rip")),
-            tagged_song("02 Boss.vgm", tag("Cool Game", "Ada", "Rip")),
+            tagged_song("01 Intro.vgz", tag("Cool Game", "Ada", "Ripper")),
+            tagged_song("02 Boss.vgm", tag("Cool Game", "Ada", "Ripper")),
         ];
-        let state = RipState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
+        let state = PackState::from_folder(folder("Cool Game", files), Some((2026, 7, 16)));
 
         let description = state.description_text();
         assert!(description.contains("Game name:           Cool Game"));
@@ -2018,7 +2024,7 @@ mod tests {
     #[test]
     fn can_save_requires_a_game_name() {
         let files = vec![tagged_song("01 Intro.vgz", tag("", "A", "R"))];
-        let mut state = RipState::from_folder(folder("Untitled", files), None);
+        let mut state = PackState::from_folder(folder("Untitled", files), None);
         state.meta.game_name = String::new();
         assert!(!state.can_save());
         state.meta.game_name = "Named".to_owned();
@@ -2077,7 +2083,7 @@ mod tests {
             tagged_song("01 Intro.vgz", tag("G", "A", "R")),
             tagged_song("02 Boss.vgm", tag("G", "B", "R")),
         ];
-        let state = RipState::from_folder(folder("G", files), None);
+        let state = PackState::from_folder(folder("G", files), None);
 
         // Swap the two tracks: both move, so 2 renames -> a 4-step temp-then-final
         // batch, forward and inverse alike.
@@ -2087,10 +2093,10 @@ mod tests {
         assert_eq!(txn.forward.len(), 4);
         assert_eq!(txn.inverse.len(), 4);
 
-        let finals = |muts: &[RipMutation]| -> Vec<String> {
+        let finals = |muts: &[PackMutation]| -> Vec<String> {
             muts.iter()
                 .filter_map(|m| match m {
-                    RipMutation::Rename { to, .. } if !to.starts_with(".drotrim") => {
+                    PackMutation::Rename { to, .. } if !to.starts_with(".drotrim") => {
                         Some(to.clone())
                     }
                     _ => None,
@@ -2147,13 +2153,13 @@ mod tests {
 
     #[test]
     fn seed_prechecks_every_shared_field_including_the_composer() {
-        let meta = RipMeta {
+        let meta = PackMeta {
             game_name: "Cool Game".to_owned(),
             system: "IBM PC/AT".to_owned(),
             release_date: "1994-03-01".to_owned(),
             creator: "Ripper".to_owned(),
             music_authors: "Ada, Bob".to_owned(),
-            ..RipMeta::default()
+            ..PackMeta::default()
         };
         let overlay = seed_from_meta(&meta);
 
@@ -2183,7 +2189,7 @@ mod tests {
 
     #[test]
     fn seed_leaves_empty_pack_fields_unchecked() {
-        let overlay = seed_from_meta(&RipMeta::default());
+        let overlay = seed_from_meta(&PackMeta::default());
         assert!(
             !overlay.writes_anything(),
             "a blank pack pre-checks nothing"

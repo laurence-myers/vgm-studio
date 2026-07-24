@@ -18,7 +18,7 @@
   rewrite a register with the value it already holds (inaudible on a
   level-sensitive latch) and merges the delays those drops leave adjacent,
   conserving the sample total exactly. Reached three ways: Edit > Optimize VGM
-  (undoable), the "Optimize VGMs on export" rip checkbox (default on, runs before
+  (undoable), the "Optimize VGMs on export" pack checkbox (default on, runs before
   the gzip step), and `drotrim optimize <in> [out]`. Route B (independent
   implementation from chip facts, not a port of vgmtools), so the project stays
   LGPL-2.1; the correctness net is render parity through nuked-opl3 with
@@ -31,7 +31,7 @@
   plus a tail of up to two 0x62/0x63/0x7n commands, borrowing from the last chunk
   when that shaves a byte). Possible follow-up: a stronger timer-register rule
   (drop even value-changing writes to the inaudible 0x02-0x04 timer control).
-- Rip mode (VGMRips submission prep) -- done. Open a folder as a project; the
+- Pack mode (VGMRips submission prep) -- done. Open a folder as a project; the
   package .txt is re-parsed on reopen; the track list, lengths and loop times are
   computed from each file; per-track preview, open-in-editor and quick-edit
   (rename + GD3); "Save Package Files" writes the .txt + .m3u; "Export Zip..."
@@ -44,11 +44,11 @@
   fix (a meta form field focuses; a per-track item opens that track's quick-edit),
   the track table gains a per-track status glyph, and a one-click "Convert dates
   to hyphens" fix-assist rewrites every slash date (pack + tracks) as one undoable
-  batch. Pure rules live in `dro_core::rip::readiness`.
+  batch. Pure rules live in `dro_core::pack::readiness`.
   Possible follow-ups:
   - Recursive / multi-region screenshots, and per-region game titles.
   - Preserve hand-aligned multi-line author blocks verbatim (currently reflowed
-    to a greedy wrap on save; see the note in `dro-core/src/rip.rs`).
+    to a greedy wrap on save; see the note in `dro-core/src/pack.rs`).
   - Extend the VGM reader so more real PC-AT packs load (0x67 data blocks, the
     "data starts at 0x60" minimal header); today those tracks show as unreadable.
 - Multi-song splitter (`vgm_sptd` equivalent) -- done, for VGM **and** DRO
@@ -58,7 +58,7 @@
   song's start and length with an include checkbox and a Preview button, has a
   decay-tail slider (keep some of the trimmed silence after each piece, 0 s
   default), and exports `NN <stem>.vgm`/`.dro` into a chosen folder, then offers
-  to open that folder as a rip project. Each piece is prepended with the OPL
+  to open that folder as a pack project. Each piece is prepended with the OPL
   register state the capture had reached at its start -- each touched register's
   last write, reused byte for byte from the source so the encoding is exact
   whatever the format (for DRO v1 the current bank is tracked through the
@@ -109,7 +109,7 @@
     bring it to full scale. The VGM Metadata dialog's "Measure" button fills the
     header `volume_modifier` with the vgm_vol suggestion
     (`dro_core::volume::suggest_volume_modifier`) plus a decoded "= N.NNx"
-    readout. Rip mode adds "Scan Volumes" (one background task over the whole
+    readout. Pack mode adds "Scan Volumes" (one background task over the whole
     pack) filling a Peak column, and "Apply Modifiers" writing every track's
     `volume_modifier` to level the pack -- album mode by default (one factor from
     the loudest peak) or per-track -- as one undoable batch. Follow-up: playback does NOT honour the

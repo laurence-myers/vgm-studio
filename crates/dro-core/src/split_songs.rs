@@ -280,7 +280,7 @@ fn build_piece(song: &Song, bytes: Vec<u8>, total_native: u32) -> Song {
             let mut meta = VgmMeta::new(synthesise_header());
             // Copy the source GD3 but blank the track title: it names the whole
             // capture, not this one song. Game/system/author/date carry over; the
-            // per-song title is set later in rip quick-edit or bulk tag.
+            // per-song title is set later in pack quick-edit or bulk tag.
             meta.tag = song
                 .vgm_meta()
                 .and_then(|meta| meta.tag.clone())

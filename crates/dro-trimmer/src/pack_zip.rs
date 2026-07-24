@@ -3,13 +3,13 @@
 //! service layer owns the thread and the disk.
 //!
 //! The native-only crates (`zip`, `oxipng`) live here rather than in `dro-ui`'s
-//! wasm-clean `run_task`, which is why the rip export goes through its own
+//! wasm-clean `run_task`, which is why the pack export goes through its own
 //! service port instead of `TaskService`.
 
 use std::io::{Cursor, Write as _};
 
 use anyhow::Context as _;
-use dro_ui::{RipEntry, RipEntryKind};
+use dro_ui::{PackEntry, PackEntryKind};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use zip::CompressionMethod;
@@ -17,7 +17,7 @@ use zip::write::{SimpleFileOptions, ZipWriter};
 
 /// The finished archive, plus human-readable notes about what the job did.
 #[derive(Debug)]
-pub struct RipZipOutput {
+pub struct PackZipOutput {
     pub bytes: Vec<u8>,
     pub log: Vec<String>,
 }
@@ -27,12 +27,12 @@ pub struct RipZipOutput {
 ///
 /// A PNG that oxipng cannot process, or a song the optimiser cannot read, is kept
 /// verbatim and logged, never fatal: one bad file must not sink the whole export.
-pub fn build_rip_zip(
-    entries: &[RipEntry],
+pub fn build_pack_zip(
+    entries: &[PackEntry],
     gzip_vgms: bool,
     optimize_vgms: bool,
     is_cancelled: &dyn Fn() -> bool,
-) -> anyhow::Result<Option<RipZipOutput>> {
+) -> anyhow::Result<Option<PackZipOutput>> {
     let mut log: Vec<String> = Vec::new();
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
@@ -52,7 +52,7 @@ pub fn build_rip_zip(
         return Ok(None);
     }
     let cursor = zip.finish().context("finalising the zip")?;
-    Ok(Some(RipZipOutput {
+    Ok(Some(PackZipOutput {
         bytes: cursor.into_inner(),
         log,
     }))
@@ -64,13 +64,13 @@ pub fn build_rip_zip(
 /// A song is optimised first (stripping redundant OPL writes, `vgm_cmp`-style),
 /// then gzipped -- so the log shows the two savings on their own lines.
 fn process_entry(
-    entry: &RipEntry,
+    entry: &PackEntry,
     gzip_vgms: bool,
     optimize_vgms: bool,
     log: &mut Vec<String>,
 ) -> anyhow::Result<(String, Vec<u8>)> {
     match entry.kind {
-        RipEntryKind::Song => {
+        PackEntryKind::Song => {
             let bytes = if optimize_vgms {
                 optimize_song(&entry.name, &entry.bytes, log)
             } else {
@@ -95,7 +95,7 @@ fn process_entry(
                 Ok((entry.name.clone(), bytes))
             }
         }
-        RipEntryKind::Image => match oxipng::optimize_from_memory(&entry.bytes, &png_options()) {
+        PackEntryKind::Image => match oxipng::optimize_from_memory(&entry.bytes, &png_options()) {
             Ok(optimised) => {
                 log.push(format!(
                     "{}: {} -> {} bytes (oxipng)",
@@ -113,7 +113,7 @@ fn process_entry(
                 Ok((entry.name.clone(), entry.bytes.clone()))
             }
         },
-        RipEntryKind::Doc => Ok((entry.name.clone(), entry.bytes.clone())),
+        PackEntryKind::Doc => Ok((entry.name.clone(), entry.bytes.clone())),
     }
 }
 
@@ -187,11 +187,11 @@ mod tests {
 
     const PNG: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
-    fn song(name: &str, bytes: &[u8]) -> RipEntry {
-        RipEntry {
+    fn song(name: &str, bytes: &[u8]) -> PackEntry {
+        PackEntry {
             name: name.to_owned(),
             bytes: bytes.to_vec(),
-            kind: RipEntryKind::Song,
+            kind: PackEntryKind::Song,
         }
     }
 
@@ -240,7 +240,7 @@ mod tests {
         let original = optimizable_vgm_bytes();
         let entries = [song("01 Song.vgm", &original)];
         // Optimise on, gzip off: the file shrinks but keeps its .vgm name.
-        let output = build_rip_zip(&entries, false, true, &never())
+        let output = build_pack_zip(&entries, false, true, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -264,7 +264,7 @@ mod tests {
     fn an_already_optimal_vgm_passes_through_unchanged() {
         const CLEAN: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
         let entries = [song("01 Clean.vgm", CLEAN)];
-        let output = build_rip_zip(&entries, false, true, &never())
+        let output = build_pack_zip(&entries, false, true, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -283,7 +283,7 @@ mod tests {
     fn optimize_off_leaves_the_song_verbatim() {
         let original = optimizable_vgm_bytes();
         let entries = [song("01 Song.vgm", &original)];
-        let output = build_rip_zip(&entries, false, false, &never())
+        let output = build_pack_zip(&entries, false, false, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn an_unreadable_song_is_kept_verbatim_and_logged() {
         let entries = [song("01 Bad.vgm", b"not a vgm at all")];
-        let output = build_rip_zip(&entries, false, true, &never())
+        let output = build_pack_zip(&entries, false, true, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -312,7 +312,7 @@ mod tests {
     fn optimizing_then_gzipping_shrinks_and_renames() {
         let original = optimizable_vgm_bytes();
         let entries = [song("01 Song.vgm", &original)];
-        let output = build_rip_zip(&entries, true, true, &never())
+        let output = build_pack_zip(&entries, true, true, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -340,18 +340,18 @@ mod tests {
         let entries = [
             song("01 First.vgm", b"raw vgm one"),
             song("02 Second.vgm", b"raw vgm two"),
-            RipEntry {
+            PackEntry {
                 name: "Game.txt".to_owned(),
                 bytes: b"description".to_vec(),
-                kind: RipEntryKind::Doc,
+                kind: PackEntryKind::Doc,
             },
-            RipEntry {
+            PackEntry {
                 name: "Game.png".to_owned(),
                 bytes: PNG.to_vec(),
-                kind: RipEntryKind::Image,
+                kind: PackEntryKind::Image,
             },
         ];
-        let output = build_rip_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, false, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn leaves_songs_alone_when_not_gzipping() {
         let entries = [song("01 First.vgm", b"raw")];
-        let output = build_rip_zip(&entries, false, false, &never())
+        let output = build_pack_zip(&entries, false, false, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -390,7 +390,7 @@ mod tests {
     fn an_already_gzipped_vgm_is_renamed_but_not_recompressed() {
         let gzipped = gzip(b"already compressed").unwrap();
         let entries = [song("01 First.vgm", &gzipped)];
-        let output = build_rip_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, false, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -400,12 +400,12 @@ mod tests {
 
     #[test]
     fn a_corrupt_png_is_kept_verbatim_and_logged() {
-        let entries = [RipEntry {
+        let entries = [PackEntry {
             name: "Bad.png".to_owned(),
             bytes: b"not really a png".to_vec(),
-            kind: RipEntryKind::Image,
+            kind: PackEntryKind::Image,
         }];
-        let output = build_rip_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, false, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -416,7 +416,7 @@ mod tests {
     #[test]
     fn cancellation_yields_none() {
         let entries = [song("01 First.vgm", b"raw")];
-        let output = build_rip_zip(&entries, true, false, &|| true).unwrap();
+        let output = build_pack_zip(&entries, true, false, &|| true).unwrap();
         assert!(output.is_none());
     }
 }

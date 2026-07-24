@@ -23,7 +23,7 @@ use dro_synth::LoopCount;
 use super::DroApp;
 use crate::action::{Action, AppTab};
 use crate::platform::{
-    OptimizedImage, PickedFile, PickedFolder, RipJobOutcome, SaveOutcome, SaveRequest,
+    OptimizedImage, PackJobOutcome, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
@@ -31,8 +31,8 @@ use crate::test_song::{
     multi_song_capture_dro, paced_song, redundant_vgm_song, tone_song,
 };
 use crate::test_support::{
-    AudioLog, FakeAudioService, FakeFileService, FakeRipService, FileLog, InlineTaskService,
-    MemoryConfigStore, NoopTaskService, RipLog, TaskLog,
+    AudioLog, FakeAudioService, FakeFileService, FakePackService, FileLog, InlineTaskService,
+    MemoryConfigStore, NoopTaskService, PackLog, TaskLog,
 };
 
 /// Shared handles onto the fake services, for scripting and inspection.
@@ -40,7 +40,7 @@ struct Handles {
     files: Rc<RefCell<FileLog>>,
     audio: Rc<RefCell<AudioLog>>,
     tasks: Rc<RefCell<TaskLog>>,
-    rip: Rc<RefCell<RipLog>>,
+    pack: Rc<RefCell<PackLog>>,
     saved_configs: Rc<RefCell<Vec<AppConfig>>>,
 }
 
@@ -77,14 +77,14 @@ fn build_sized(
     let files = Rc::new(RefCell::new(FileLog::default()));
     let audio = Rc::new(RefCell::new(AudioLog::default()));
     let tasks = Rc::new(RefCell::new(TaskLog::default()));
-    let rip = Rc::new(RefCell::new(RipLog::default()));
+    let pack = Rc::new(RefCell::new(PackLog::default()));
     let saved_configs = Rc::new(RefCell::new(Vec::new()));
 
     let handles = Handles {
         files: files.clone(),
         audio: audio.clone(),
         tasks: tasks.clone(),
-        rip: rip.clone(),
+        pack: pack.clone(),
         saved_configs: saved_configs.clone(),
     };
 
@@ -100,7 +100,7 @@ fn build_sized(
             } else {
                 Box::new(NoopTaskService(tasks))
             },
-            Box::new(FakeRipService(rip)),
+            Box::new(FakePackService(pack)),
             Box::new(MemoryConfigStore {
                 initial: AppConfig::default(),
                 saved: saved_configs,
@@ -1652,7 +1652,7 @@ fn exporting_songs_writes_a_numbered_file_per_song() {
 }
 
 #[test]
-fn the_song_split_offers_to_open_the_folder_as_a_rip_project() {
+fn the_song_split_offers_to_open_the_folder_as_a_pack_project() {
     let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
     let dir = PathBuf::from("C:/out");
     handles
@@ -1682,17 +1682,17 @@ fn the_song_split_offers_to_open_the_folder_as_a_rip_project() {
         format!("Wrote 3 song(s) to {}.", dir.display())
     );
 
-    // The completion alert offers the rip handoff; accepting opens the folder.
+    // The completion alert offers the pack handoff; accepting opens the folder.
     assert!(
         harness
-            .query_by_label_contains("Open the folder as a rip project")
+            .query_by_label_contains("Open the folder as a pack project")
             .is_some()
     );
     harness.get_by_label("OK").click();
     harness.run();
     assert!(
         handles.files.borrow().opened_folder_paths.contains(&dir),
-        "accepting the offer opens the folder as a rip project"
+        "accepting the offer opens the folder as a pack project"
     );
 }
 
@@ -1914,12 +1914,12 @@ fn a_stray_tab_does_not_disable_the_keyboard() {
     );
 }
 
-// -- rip mode ----------------------------------------------------------------
+// -- pack mode ----------------------------------------------------------------
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 
 /// A VGM fixture re-serialised with a file name and GD3 tag, wrapped as a picked
-/// file for a rip folder.
+/// file for a pack folder.
 fn tagged_vgm(name: &str, game: &str, author: &str, creator: &str) -> PickedFile {
     let mut song = dro_core::io::read_song(name, VGM_FIXTURE).unwrap();
     if let Some(meta) = song.vgm_meta_mut() {
@@ -1937,7 +1937,7 @@ fn tagged_vgm(name: &str, game: &str, author: &str, creator: &str) -> PickedFile
     }
 }
 
-fn rip_folder(name: &str, files: Vec<PickedFile>) -> PickedFolder {
+fn pack_folder(name: &str, files: Vec<PickedFile>) -> PickedFolder {
     PickedFolder {
         name: name.to_owned(),
         path: Some(PathBuf::from(format!("C:/{name}"))),
@@ -1947,7 +1947,7 @@ fn rip_folder(name: &str, files: Vec<PickedFile>) -> PickedFolder {
 
 /// A two-track "Cool Game" folder.
 fn cool_game_folder() -> PickedFolder {
-    rip_folder(
+    pack_folder(
         "Cool Game",
         vec![
             tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
@@ -1966,42 +1966,46 @@ fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder
     harness.run();
 }
 
-/// The rip view scrolls as one page, so the track-row and screenshot buttons sit
+/// The pack view scrolls as one page, so the track-row and screenshot buttons sit
 /// well below a 720px viewport; a tall harness keeps them clickable.
-fn tall_rip_harness() -> (Harness<'static, DroApp>, Handles) {
+fn tall_pack_harness() -> (Harness<'static, DroApp>, Handles) {
     build_sized(None, false, false, egui::vec2(1000.0, 1700.0))
 }
 
 #[test]
-fn scanning_rip_volumes_fills_the_peak_map() {
+fn scanning_pack_volumes_fills_the_peak_map() {
     // Inline tasks run the whole-pack scan; a two-VGM folder.
     let (mut harness, handles) = build(None, true, false);
     open_folder(&mut harness, &handles, cool_game_folder());
 
-    act(&mut harness, Action::RipScanVolumes);
-    // The inline scan stores its RipPeaks on submit; a poll frame delivers them.
+    act(&mut harness, Action::PackScanVolumes);
+    // The inline scan stores its PackPeaks on submit; a poll frame delivers them.
     for _ in 0..4 {
         harness.step();
     }
 
-    let peaks = &harness.state().rip.as_ref().expect("a rip is open").peaks;
+    let peaks = &harness.state().pack.as_ref().expect("a pack is open").peaks;
     assert_eq!(peaks.len(), 2, "both tracks measured: {peaks:?}");
     assert!(peaks.contains_key("01 Intro.vgz"));
     assert!(peaks.contains_key("02 Boss.vgm"));
 }
 
 #[test]
-fn a_rip_preview_starts_at_the_tracks_modifier_volume() {
-    let (mut harness, handles) = tall_rip_harness();
+fn a_pack_preview_starts_at_the_tracks_modifier_volume() {
+    let (mut harness, handles) = tall_pack_harness();
     // A one-track pack whose track's header modifier asks for 2x (0x20).
     let track = PickedFile {
         name: "01 Loud.vgm".to_owned(),
         path: Some(PathBuf::from("C:/pack/01 Loud.vgm")),
         bytes: dro_core::io::write_song(&vgm_with_modifier(0x20)).unwrap(),
     };
-    open_folder(&mut harness, &handles, rip_folder("Loud Pack", vec![track]));
+    open_folder(
+        &mut harness,
+        &handles,
+        pack_folder("Loud Pack", vec![track]),
+    );
 
-    act(&mut harness, Action::RipTrackPreview(0));
+    act(&mut harness, Action::PackTrackPreview(0));
 
     assert_eq!(
         handles.audio.borrow().loaded_boost,
@@ -2017,14 +2021,14 @@ fn a_rip_preview_starts_at_the_tracks_modifier_volume() {
 }
 
 #[test]
-fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
+fn opening_a_folder_switches_to_the_pack_tab_and_prefills() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
     {
         let state = harness.state();
-        let meta = &state.rip.as_ref().expect("a rip is open").meta;
+        let meta = &state.pack.as_ref().expect("a pack is open").meta;
         assert_eq!(meta.game_name, "Cool Game");
         assert_eq!(meta.creator, "Ripper");
         assert_eq!(meta.music_authors, "Ada, Bob");
@@ -2043,22 +2047,25 @@ fn opening_a_folder_switches_to_the_rip_tab_and_prefills() {
 fn clicking_the_editor_tab_returns_to_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
 
     harness.get_by_label("Editor").click();
     harness.run();
 
     assert_eq!(harness.state().active_tab, AppTab::Editor);
-    assert!(harness.state().rip.is_some(), "the rip project is retained");
+    assert!(
+        harness.state().pack.is_some(),
+        "the pack project is retained"
+    );
     // The editor's empty-state placeholder is back.
     assert!(harness.query_by_label_contains("Open a DRO").is_some());
 }
 
 #[test]
-fn editing_a_field_marks_the_rip_dirty() {
+fn editing_a_field_marks_the_pack_dirty() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
-    assert!(!harness.state().rip.as_ref().unwrap().dirty);
+    assert!(!harness.state().pack.as_ref().unwrap().dirty);
 
     // Type into the first form field (Game name); any edit sets the dirty flag.
     let field = harness
@@ -2074,7 +2081,7 @@ fn editing_a_field_marks_the_rip_dirty() {
         .type_text("!");
     harness.run();
 
-    assert!(harness.state().rip.as_ref().unwrap().dirty);
+    assert!(harness.state().pack.as_ref().unwrap().dirty);
 }
 
 #[test]
@@ -2084,12 +2091,12 @@ fn a_scanned_track_caches_its_table_entry() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
     let state = harness.state();
-    let track = &state.rip.as_ref().unwrap().tracks[0];
+    let track = &state.pack.as_ref().unwrap().tracks[0];
     let cached = track
         .entry
         .as_ref()
         .expect("a parsed track caches its entry");
-    let fresh = dro_core::rip::TrackEntry::from_song(track.song().unwrap(), &track.file_name);
+    let fresh = dro_core::pack::TrackEntry::from_song(track.song().unwrap(), &track.file_name);
     assert_eq!(*cached, fresh);
 }
 
@@ -2126,14 +2133,14 @@ fn save_package_files_writes_the_txt_and_m3u() {
 }
 
 #[test]
-fn a_failed_package_doc_save_keeps_the_rip_dirty() {
+fn a_failed_package_doc_save_keeps_the_pack_dirty() {
     // uishell-7: if a package-doc save fails, the dirty flag must be kept, not
     // cleared when the batch's last doc lands, so the edits aren't lost.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
-    harness.state_mut().rip.as_mut().unwrap().dirty = true;
+    harness.state_mut().pack.as_mut().unwrap().dirty = true;
 
-    harness.state_mut().save_rip_docs();
+    harness.state_mut().save_pack_docs();
     handles
         .files
         .borrow_mut()
@@ -2150,8 +2157,8 @@ fn a_failed_package_doc_save_keeps_the_rip_dirty() {
     harness.run();
 
     assert!(
-        harness.state().rip.as_ref().unwrap().dirty,
-        "a failed package-doc save keeps the rip dirty so edits aren't lost"
+        harness.state().pack.as_ref().unwrap().dirty,
+        "a failed package-doc save keeps the pack dirty so edits aren't lost"
     );
 }
 
@@ -2161,7 +2168,7 @@ fn saving_without_a_game_name_shows_an_alert() {
     open_folder(&mut harness, &handles, cool_game_folder());
     harness
         .state_mut()
-        .rip
+        .pack
         .as_mut()
         .unwrap()
         .meta
@@ -2179,13 +2186,13 @@ fn saving_without_a_game_name_shows_an_alert() {
 }
 
 #[test]
-fn editor_keys_are_ignored_on_the_rip_tab() {
+fn editor_keys_are_ignored_on_the_pack_tab() {
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     let full_len = song.len();
     harness.state_mut().editor.selection.select_only(0);
     open_folder(&mut harness, &handles, cool_game_folder());
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
 
     // Delete would remove the selected editor row on the editor tab; here it
     // must do nothing, since the editor is hidden.
@@ -2200,15 +2207,15 @@ fn editor_keys_are_ignored_on_the_rip_tab() {
 
 /// A one-track folder, so the per-row ▶/Edit buttons are unambiguous.
 fn single_track_folder() -> PickedFolder {
-    rip_folder(
+    pack_folder(
         "Cool Game",
         vec![tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper")],
     )
 }
 
 #[test]
-fn switching_to_the_rip_tab_stops_editor_playback() {
-    // Regression (M2): the editor's audio must not keep playing under the rip
+fn switching_to_the_pack_tab_stops_editor_playback() {
+    // Regression (M2): the editor's audio must not keep playing under the pack
     // view. Leaving the editor tab unloads it.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
@@ -2218,18 +2225,18 @@ fn switching_to_the_rip_tab_stops_editor_playback() {
     harness.state_mut().do_play();
     assert!(handles.audio.borrow().playing);
 
-    harness.state_mut().select_tab(AppTab::Rip);
+    harness.state_mut().select_tab(AppTab::Pack);
     assert!(
         !handles.audio.borrow().playing,
-        "editor audio stops when the rip tab takes over"
+        "editor audio stops when the pack tab takes over"
     );
     assert!(harness.state().audio_revision.is_none());
 }
 
 #[test]
-fn entering_the_rip_tab_closes_song_bound_dialogs() {
+fn entering_the_pack_tab_closes_song_bound_dialogs() {
     // Regression (ux-13): Goto and the song-bound modeless dialogs are
-    // editor-only (the menu disables them on the rip tab), so entering the rip
+    // editor-only (the menu disables them on the pack tab), so entering the pack
     // tab must close any that are open.
     use crate::dialogs::{FindRegDialog, GotoDialog};
     let song = tone_song();
@@ -2240,20 +2247,20 @@ fn entering_the_rip_tab_closes_song_bound_dialogs() {
     harness.state_mut().dialogs.goto = Some(GotoDialog::new());
     harness.state_mut().dialogs.find_reg = Some(FindRegDialog::new(&song));
 
-    harness.state_mut().select_tab(AppTab::Rip);
+    harness.state_mut().select_tab(AppTab::Pack);
     assert!(
         harness.state().dialogs.goto.is_none(),
-        "Goto closes on the rip tab"
+        "Goto closes on the pack tab"
     );
     assert!(
         harness.state().dialogs.find_reg.is_none(),
-        "song-bound dialogs close on the rip tab"
+        "song-bound dialogs close on the pack tab"
     );
 }
 
 #[test]
 fn previewing_a_track_plays_it_and_stop_halts_it() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     // U+25B6 play.
@@ -2265,19 +2272,19 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
         assert_eq!(audio.play_calls, 1);
         assert!(audio.playing);
     }
-    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(0));
+    assert_eq!(harness.state().pack.as_ref().unwrap().preview, Some(0));
 
     // The button now shows U+25A0 stop.
     harness.get_by_label("\u{25A0}").click();
     harness.run_steps(3);
     assert!(!handles.audio.borrow().playing);
-    assert_eq!(harness.state().rip.as_ref().unwrap().preview, None);
+    assert_eq!(harness.state().pack.as_ref().unwrap().preview, None);
 }
 
 #[test]
 fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
     // Editor song is dual-OPL2, so its panning is the fixed hard-L/R chip image;
-    // the rip track is a mono OPL2 song, whose panning is Original. Previewing the
+    // the pack track is a mono OPL2 song, whose panning is Original. Previewing the
     // track must use the track's own panning -- leaking the editor's hard-L/R
     // image onto a mono track plays it hard left (the reported bug).
     let (mut harness, handles) = build_sized(
@@ -2298,7 +2305,7 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
         "the dual-OPL2 editor song sent the hard-L/R image"
     );
 
-    // Open a rip folder and preview its OPL2 track.
+    // Open a pack folder and preview its OPL2 track.
     open_folder(&mut harness, &handles, single_track_folder());
     harness.get_by_label("\u{25B6}").click();
     harness.run_steps(3);
@@ -2332,15 +2339,15 @@ fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
     harness.state_mut().do_play();
     assert!(handles.audio.borrow().playing);
 
-    // Preview a rip track, but force its load to fail.
+    // Preview a pack track, but force its load to fail.
     handles.audio.borrow_mut().fail_next_load = true;
-    harness.state_mut().active_tab = AppTab::Rip;
+    harness.state_mut().active_tab = AppTab::Pack;
     harness.state_mut().preview_track(0);
     assert!(
         harness.state().audio_revision.is_none(),
         "a failed preview load invalidates the editor's audio revision"
     );
-    assert!(harness.state().rip.as_ref().unwrap().preview.is_none());
+    assert!(harness.state().pack.as_ref().unwrap().preview.is_none());
 
     // The editor reloads and plays its own song instead of wedging.
     harness.state_mut().active_tab = AppTab::Editor;
@@ -2355,10 +2362,10 @@ fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
 }
 
 #[test]
-fn a_failed_preview_play_reloads_the_editor_song_not_the_rip_track() {
+fn a_failed_preview_play_reloads_the_editor_song_not_the_pack_track() {
     // Regression (H3): when preview `load` succeeds but `play` fails, the
     // half-started preview must be unloaded and the revision reset, so the next
-    // editor Play reloads the *editor's* song rather than resuming the rip track
+    // editor Play reloads the *editor's* song rather than resuming the pack track
     // the service still had loaded.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
@@ -2369,10 +2376,10 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_rip_track() {
     harness.state_mut().do_play();
 
     handles.audio.borrow_mut().fail_next_play = true;
-    harness.state_mut().active_tab = AppTab::Rip;
+    harness.state_mut().active_tab = AppTab::Pack;
     harness.state_mut().preview_track(0);
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().preview,
+        harness.state().pack.as_ref().unwrap().preview,
         None,
         "the half-started preview is dropped"
     );
@@ -2385,21 +2392,21 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_rip_track() {
     assert_eq!(
         audio.loaded.as_ref().unwrap().name,
         editor_name,
-        "the editor's own song reloaded, not the rip track"
+        "the editor's own song reloaded, not the pack track"
     );
 }
 
 #[test]
 fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
-    // Regression (M7): File>Open (or a drop) while the rip tab is active must
+    // Regression (M7): File>Open (or a drop) while the pack tab is active must
     // surface the editor tab and stop any preview, not load invisibly behind
-    // the rip view with a stranded play button.
+    // the pack view with a stranded play button.
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
 
     harness.state_mut().preview_track(0);
-    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(0));
+    assert_eq!(harness.state().pack.as_ref().unwrap().preview, Some(0));
 
     // Deliver a song the way menu Open / drag-and-drop would.
     harness.state_mut().load_file(picked(&tone_song()));
@@ -2410,7 +2417,7 @@ fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
         "the tab flips to the editor"
     );
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().preview,
+        harness.state().pack.as_ref().unwrap().preview,
         None,
         "the preview is stopped"
     );
@@ -2422,16 +2429,16 @@ fn an_in_place_refresh_keeps_a_playing_preview_by_name() {
     // Regression (ux-18): a same-folder rescan (e.g. after a screenshot optimise
     // redelivers the folder) must not cut a running preview -- it re-matches the
     // preview by file name, even when the rescan reorders the track list.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     // Preview the second track (02 Boss.vgm).
     harness.state_mut().preview_track(1);
-    assert_eq!(harness.state().rip.as_ref().unwrap().preview, Some(1));
+    assert_eq!(harness.state().pack.as_ref().unwrap().preview, Some(1));
     assert!(handles.audio.borrow().playing);
 
     // Redeliver the same folder with the files reversed, as a real rescan can.
-    let reversed = rip_folder(
+    let reversed = pack_folder(
         "Cool Game",
         vec![
             tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
@@ -2446,10 +2453,10 @@ fn an_in_place_refresh_keeps_a_playing_preview_by_name() {
     harness.run_steps(3);
 
     let state = harness.state();
-    let rip = state.rip.as_ref().unwrap();
-    assert_eq!(rip.tracks[0].file_name, "02 Boss.vgm");
+    let pack = state.pack.as_ref().unwrap();
+    assert_eq!(pack.tracks[0].file_name, "02 Boss.vgm");
     assert_eq!(
-        rip.preview,
+        pack.preview,
         Some(0),
         "the preview follows 02 Boss.vgm to its new index"
     );
@@ -2463,9 +2470,9 @@ fn an_in_place_refresh_keeps_a_playing_preview_by_name() {
 fn opening_a_track_loads_it_into_the_editor() {
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
 
-    // A row double-click emits RipTrackOpen; kittest cannot double-click, so
+    // A row double-click emits PackTrackOpen; kittest cannot double-click, so
     // drive the handler directly (the row-sense wiring is trivial UI code).
     harness.state_mut().open_track_in_editor(0);
     harness.run();
@@ -2475,16 +2482,19 @@ fn opening_a_track_loads_it_into_the_editor() {
         harness.state().editor.has_song(),
         "the track loaded into the editor"
     );
-    assert!(harness.state().rip.is_some(), "the rip project is retained");
+    assert!(
+        harness.state().pack.is_some(),
+        "the pack project is retained"
+    );
 }
 
 #[test]
 fn open_button_loads_the_track_into_the_editor() {
     // A tall harness so the track row (and its Open button) is on-screen and
     // hit-testable, as the quick-edit test needs too.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
-    assert_eq!(harness.state().active_tab, AppTab::Rip);
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
 
     // The per-row Open button is the discoverable path to the same handler the
     // double-click drives (wd-9).
@@ -2496,12 +2506,15 @@ fn open_button_loads_the_track_into_the_editor() {
         harness.state().editor.has_song(),
         "the Open button loaded the track"
     );
-    assert!(harness.state().rip.is_some(), "the rip project is retained");
+    assert!(
+        harness.state().pack.is_some(),
+        "the pack project is retained"
+    );
 }
 
 #[test]
 fn reordering_renumbers_files_and_is_undoable_and_redoable() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     // Feed Ok outcomes for every rename the batch issues, and the reordered
@@ -2511,7 +2524,7 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
         for _ in 0..8 {
             files.rename_outcomes.push_back(Ok(()));
         }
-        files.picked_folders.push_back(Ok(rip_folder(
+        files.picked_folders.push_back(Ok(pack_folder(
             "Cool Game",
             vec![
                 tagged_vgm("01 Boss.vgm", "Cool Game", "Bob", "Ripper"),
@@ -2521,7 +2534,7 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
     }
 
     // Move 01 Intro down a slot; both tracks renumber.
-    harness.state_mut().move_rip_track(0, 1);
+    harness.state_mut().move_pack_track(0, 1);
     harness.run_steps(16);
 
     {
@@ -2536,9 +2549,13 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
         assert!(finals.iter().any(|to| *to == "01 Boss.vgm"));
         assert!(finals.iter().any(|to| *to == "02 Intro.vgz"));
     }
-    assert_eq!(harness.state().rip_undo.len(), 1, "the reorder is undoable");
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().tracks[0].file_name,
+        harness.state().pack_undo.len(),
+        1,
+        "the reorder is undoable"
+    );
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().tracks[0].file_name,
         "01 Boss.vgm",
         "the rescan installed the new order"
     );
@@ -2551,15 +2568,15 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
         }
         files.picked_folders.push_back(Ok(cool_game_folder()));
     }
-    harness.state_mut().undo_rip_edit();
+    harness.state_mut().undo_pack_edit();
     harness.run_steps(16);
     assert!(
-        harness.state().rip_undo.is_empty(),
+        harness.state().pack_undo.is_empty(),
         "undo cleared the undo stack"
     );
-    assert_eq!(harness.state().rip_redo.len(), 1, "and left a redo");
+    assert_eq!(harness.state().pack_redo.len(), 1, "and left a redo");
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().tracks[0].file_name,
+        harness.state().pack.as_ref().unwrap().tracks[0].file_name,
         "01 Intro.vgz",
         "the original order is back"
     );
@@ -2567,7 +2584,7 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
 
 #[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     harness.get_by_label("Tags").click();
@@ -2608,11 +2625,11 @@ fn quick_edit_after_a_reorder_targets_the_track_by_name() {
     // Regression (H1): a rescan can reorder the name-sorted list while the
     // quick-edit dialog is open, so the submit re-resolves the track by its
     // original file name -- never a since-stale index.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     // Reorder: 02 Boss.vgm first, 01 Intro.vgz now at index 1.
-    let reversed = rip_folder(
+    let reversed = pack_folder(
         "Cool Game",
         vec![
             tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
@@ -2626,7 +2643,7 @@ fn quick_edit_after_a_reorder_targets_the_track_by_name() {
         .push_back(Ok(reversed));
     harness.run_steps(3);
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().tracks[1].file_name,
+        harness.state().pack.as_ref().unwrap().tracks[1].file_name,
         "01 Intro.vgz",
         "01 Intro is now at index 1"
     );
@@ -2655,7 +2672,7 @@ fn quick_edit_after_a_reorder_targets_the_track_by_name() {
 fn a_rescan_closes_the_open_quick_edit_dialog() {
     // Regression (H1, defensive): the quick-edit dialog is bound to one track,
     // so a rescan that can reorder or drop tracks must close it.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
     harness.state_mut().open_track_quick_edit(0);
     assert!(harness.state().dialogs.track_edit.is_some());
@@ -2678,7 +2695,7 @@ fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
     // M1/ux-9: a name change must rename first, then rewrite the target-format
     // bytes to the NEW path -- so a failed rename can't leave the old file
     // holding bytes its extension no longer matches.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     harness.state_mut().quick_edit_submitted(
@@ -2714,8 +2731,8 @@ fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
 }
 
 /// An overlay that writes one field (by GD3 index) to a given value.
-fn overlay_writing(index: usize, value: &str) -> crate::rip::BulkTagOverlay {
-    let mut overlay = crate::rip::BulkTagOverlay::default();
+fn overlay_writing(index: usize, value: &str) -> crate::pack::BulkTagOverlay {
+    let mut overlay = crate::pack::BulkTagOverlay::default();
     overlay.apply[index] = true;
     overlay.values[index] = value.to_owned();
     overlay
@@ -2732,9 +2749,9 @@ fn tag_of(name: &str, bytes: &[u8]) -> dro_core::Gd3Tag {
         .unwrap_or_default()
 }
 
-/// Drives a rip run to completion: feed one save outcome per write, plus the
+/// Drives a pack run to completion: feed one save outcome per write, plus the
 /// rescan folder, then step the frame loop.
-fn settle_rip_run(harness: &mut Harness<'static, DroApp>, handles: &Handles, writes: usize) {
+fn settle_pack_run(harness: &mut Harness<'static, DroApp>, handles: &Handles, writes: usize) {
     {
         let mut files = handles.files.borrow_mut();
         for _ in 0..writes {
@@ -2753,7 +2770,7 @@ const GD3_GAME_NAME_EN: usize = 2;
 
 #[test]
 fn bulk_tag_rewrites_every_selected_track_with_the_checked_field() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     // Push a new composer onto both tracks; every other field is left alone.
@@ -2761,7 +2778,7 @@ fn bulk_tag_rewrites_every_selected_track_with_the_checked_field() {
         vec!["01 Intro.vgz".to_owned(), "02 Boss.vgm".to_owned()],
         overlay_writing(GD3_TRACK_AUTHOR_EN, "New Composer"),
     );
-    settle_rip_run(&mut harness, &handles, 2);
+    settle_pack_run(&mut harness, &handles, 2);
 
     let files = handles.files.borrow();
     let writes: Vec<(&PathBuf, &Vec<u8>)> = files
@@ -2787,7 +2804,7 @@ fn bulk_tag_rewrites_every_selected_track_with_the_checked_field() {
     }
     // The whole bulk edit is one undoable step.
     assert_eq!(
-        harness.state().rip_undo.len(),
+        harness.state().pack_undo.len(),
         1,
         "one transaction, one undo"
     );
@@ -2796,14 +2813,14 @@ fn bulk_tag_rewrites_every_selected_track_with_the_checked_field() {
 #[test]
 fn bulk_tag_can_target_a_subset_of_tracks() {
     // The composer differs across the pack: only 02 Boss gets the new author.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     harness.state_mut().bulk_tag_submitted(
         vec!["02 Boss.vgm".to_owned()],
         overlay_writing(GD3_TRACK_AUTHOR_EN, "Only Bob"),
     );
-    settle_rip_run(&mut harness, &handles, 1);
+    settle_pack_run(&mut harness, &handles, 1);
 
     let files = handles.files.borrow();
     let writes: Vec<&PathBuf> = files
@@ -2826,7 +2843,7 @@ fn bulk_tag_can_target_a_subset_of_tracks() {
 fn bulk_tag_skips_tracks_whose_tag_would_not_change() {
     // Writing the game name every track already has changes nothing, so no file
     // is rewritten and the run never starts.
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     harness.state_mut().bulk_tag_submitted(
@@ -2843,12 +2860,12 @@ fn bulk_tag_skips_tracks_whose_tag_would_not_change() {
         "it says so; status was {:?}",
         harness.state().status
     );
-    assert!(harness.state().rip_undo.is_empty(), "nothing to undo");
+    assert!(harness.state().pack_undo.is_empty(), "nothing to undo");
 }
 
 #[test]
 fn bulk_tag_button_opens_a_dialog() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
     harness.get_by_label_contains("Bulk Tag").click();
@@ -2883,7 +2900,7 @@ fn complete_vgm(name: &str) -> PickedFile {
     vgm_with_tag(
         name,
         dro_core::Gd3Tag {
-            track_name_en: dro_core::rip::title_from_filename(name).to_owned(),
+            track_name_en: dro_core::pack::title_from_filename(name).to_owned(),
             game_name_en: "Cool Game".to_owned(),
             system_name_en: "IBM PC/AT".to_owned(),
             track_author_en: "Ada".to_owned(),
@@ -2900,7 +2917,7 @@ fn complete_vgm(name: &str) -> PickedFile {
 /// the pack meta); track 2's game name disagrees with the pack, its file name
 /// drifts from its Track Name, and it has no composer. There is no screenshot.
 fn dirty_folder() -> PickedFolder {
-    rip_folder(
+    pack_folder(
         "Cool Game",
         vec![
             vgm_with_tag(
@@ -2930,10 +2947,10 @@ fn dirty_folder() -> PickedFolder {
 }
 
 /// A submission-ready "Cool Game" pack: one fully tagged track and a screenshot,
-/// so [`RipState::validations`] finds nothing to warn about and an export goes
+/// so [`PackState::validations`] finds nothing to warn about and an export goes
 /// straight through without the "export anyway?" confirm.
 fn complete_folder() -> PickedFolder {
-    rip_folder(
+    pack_folder(
         "Cool Game",
         vec![
             complete_vgm("01 Intro.vgz"),
@@ -2952,40 +2969,40 @@ fn a_chip_preset_fills_system_os_and_hardware() {
     open_folder(&mut harness, &handles, single_track_folder());
     {
         // Blank the fields so the preset's effect is unambiguous.
-        let rip = harness.state_mut().rip.as_mut().unwrap();
-        rip.meta.system.clear();
-        rip.meta.os.clear();
-        rip.meta.music_hardware.clear();
-        rip.dirty = false;
+        let pack = harness.state_mut().pack.as_mut().unwrap();
+        pack.meta.system.clear();
+        pack.meta.os.clear();
+        pack.meta.music_hardware.clear();
+        pack.dirty = false;
     }
 
     harness.get_by_label("OPL-3").click();
     harness.run();
 
     let state = harness.state();
-    let rip = state.rip.as_ref().unwrap();
-    assert_eq!(rip.meta.system, "IBM PC/AT");
-    assert_eq!(rip.meta.os, "DOS");
-    assert_eq!(rip.meta.music_hardware, "Sound Blaster Pro 2 (YMF262)");
-    assert!(rip.dirty, "a preset counts as an edit");
+    let pack = state.pack.as_ref().unwrap();
+    assert_eq!(pack.meta.system, "IBM PC/AT");
+    assert_eq!(pack.meta.os, "DOS");
+    assert_eq!(pack.meta.music_hardware, "Sound Blaster Pro 2 (YMF262)");
+    assert!(pack.dirty, "a preset counts as an edit");
 }
 
 #[test]
 fn optimize_saves_a_smaller_screenshot_in_place() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
     harness.get_by_label("Optimize").click();
     harness.run();
     {
-        let rip = handles.rip.borrow();
-        assert_eq!(rip.optimize_requests.len(), 1);
-        assert_eq!(rip.optimize_requests[0].0, "Cool Game.png");
+        let pack = handles.pack.borrow();
+        assert_eq!(pack.optimize_requests.len(), 1);
+        assert_eq!(pack.optimize_requests[0].0, "Cool Game.png");
     }
 
     // The service returns smaller bytes: they are saved over the original.
     handles
-        .rip
+        .pack
         .borrow_mut()
         .optimized_outcomes
         .push_back(Ok(OptimizedImage {
@@ -3007,13 +3024,13 @@ fn optimize_saves_a_smaller_screenshot_in_place() {
 
 #[test]
 fn an_already_optimal_screenshot_is_not_rewritten() {
-    let (mut harness, handles) = tall_rip_harness();
+    let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
 
     harness.get_by_label("Optimize").click();
     harness.run();
     handles
-        .rip
+        .pack
         .borrow_mut()
         .optimized_outcomes
         .push_back(Ok(OptimizedImage {
@@ -3039,9 +3056,9 @@ fn exporting_submits_a_job_and_saves_the_returned_zip() {
     harness.run();
 
     {
-        let rip = handles.rip.borrow();
-        assert_eq!(rip.submitted.len(), 1, "a build job was submitted");
-        let job = &rip.submitted[0];
+        let pack = handles.pack.borrow();
+        assert_eq!(pack.submitted.len(), 1, "a build job was submitted");
+        let job = &pack.submitted[0];
         assert_eq!(job.zip_name, "Cool Game.zip");
         assert!(job.gzip_vgms);
         assert!(job.optimize_vgms, "optimise-on-export defaults on");
@@ -3062,10 +3079,10 @@ fn exporting_submits_a_job_and_saves_the_returned_zip() {
 
     // The service returns the finished zip; the app saves it via a dialog.
     handles
-        .rip
+        .pack
         .borrow_mut()
         .outcomes
-        .push_back(RipJobOutcome::Done {
+        .push_back(PackJobOutcome::Done {
             zip_name: "Cool Game.zip".to_owned(),
             bytes: b"PK\x03\x04".to_vec(),
             log: vec!["Cool Game.png: 100 -> 80 bytes".to_owned()],
@@ -3087,7 +3104,7 @@ fn exporting_without_a_screenshot_prompts_first() {
     harness.get_by_label("Export Zip\u{2026}").click();
     harness.run();
     assert!(
-        handles.rip.borrow().submitted.is_empty(),
+        handles.pack.borrow().submitted.is_empty(),
         "no job until confirmed"
     );
     assert!(
@@ -3098,7 +3115,7 @@ fn exporting_without_a_screenshot_prompts_first() {
     harness.get_by_label("OK").click();
     harness.run();
     assert_eq!(
-        handles.rip.borrow().submitted.len(),
+        handles.pack.borrow().submitted.len(),
         1,
         "confirming submits the job"
     );
@@ -3112,10 +3129,10 @@ fn a_failed_export_shows_an_alert() {
     harness.get_by_label("Export Zip\u{2026}").click();
     harness.run();
     handles
-        .rip
+        .pack
         .borrow_mut()
         .outcomes
-        .push_back(RipJobOutcome::Failed("disk full".to_owned()));
+        .push_back(PackJobOutcome::Failed("disk full".to_owned()));
     harness.run();
 
     assert!(
@@ -3123,28 +3140,28 @@ fn a_failed_export_shows_an_alert() {
             .state()
             .alerts
             .iter()
-            .any(|alert| alert.title == "Rip export failed"),
+            .any(|alert| alert.title == "Pack export failed"),
         "the failure is surfaced as an alert"
     );
 }
 
 #[test]
-fn snapshot_rip_view() {
+fn snapshot_pack_view() {
     // Tall, so the form, track list and inline screenshot are all captured.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
-    settled_snapshot(&mut harness, "rip_view");
+    settled_snapshot(&mut harness, "pack_view");
 }
 
 #[test]
-fn snapshot_rip_view_scrolled() {
+fn snapshot_pack_view_scrolled() {
     // A short viewport, so the page overflows and the outer scrollbar appears --
     // framed with the sunken well bevel, flush to the panel edge (wd-13).
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 560.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
-    settled_snapshot(&mut harness, "rip_view_scrolled");
+    settled_snapshot(&mut harness, "pack_view_scrolled");
 }
 
 /// A tall interaction harness with the dirty pack open, so the whole submission
@@ -3192,7 +3209,7 @@ fn clicking_a_meta_checklist_item_focuses_its_form_field() {
     harness.run();
     // The form consumed the focus request (so it does not re-fire next frame)...
     assert!(
-        harness.state().rip.as_ref().unwrap().focus_field.is_none(),
+        harness.state().pack.as_ref().unwrap().focus_field.is_none(),
         "the form takes focus_field the frame after the click"
     );
     // ...and a form field now holds keyboard focus.
@@ -3207,7 +3224,7 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
     let (mut harness, handles) = dirty_checklist_harness();
     // The date the app prefilled from the first track is slash-separated.
     assert_eq!(
-        harness.state().rip.as_ref().unwrap().meta.release_date,
+        harness.state().pack.as_ref().unwrap().meta.release_date,
         "1994/03"
     );
     // The fix-assist button is offered while a slash date remains.
@@ -3225,7 +3242,7 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
             name: "02 Boss.vgz".to_owned(),
             path: None,
         });
-        files.picked_folders.push_back(Ok(rip_folder(
+        files.picked_folders.push_back(Ok(pack_folder(
             "Cool Game",
             vec![
                 vgm_with_tag(
@@ -3257,15 +3274,15 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
     // Dispatch the fix-assist directly (as the button does), so the batch is
     // built from the current slash dates before any frame's folder poll runs --
     // the same pattern the reorder test uses.
-    act(&mut harness, Action::RipConvertDatesToHyphens);
+    act(&mut harness, Action::PackConvertDatesToHyphens);
     harness.run_steps(16);
 
     let state = harness.state();
-    let rip = state.rip.as_ref().unwrap();
+    let pack = state.pack.as_ref().unwrap();
     // The pack date converted immediately (a form edit)...
-    assert_eq!(rip.meta.release_date, "1994-03");
+    assert_eq!(pack.meta.release_date, "1994-03");
     // ...and the rescan installed both tracks with hyphenated GD3 dates.
-    for track in &rip.tracks {
+    for track in &pack.tracks {
         let tag = track
             .song()
             .unwrap()
@@ -3277,31 +3294,31 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
         assert_eq!(tag.release_date, "1994-03", "{} converted", track.file_name);
     }
     // The track rewrites landed as one undoable batch, and no slash date is left.
-    assert_eq!(state.rip_undo.len(), 1, "one undoable batch");
+    assert_eq!(state.pack_undo.len(), 1, "one undoable batch");
     assert!(
-        !rip.has_convertible_dates(),
+        !pack.has_convertible_dates(),
         "the fix-assist has nothing left"
     );
 }
 
 #[test]
-fn snapshot_rip_checklist_dirty() {
-    // Wider than the other rip snapshots so the crowded toolbar fits and the
+fn snapshot_pack_checklist_dirty() {
+    // Wider than the other pack snapshots so the crowded toolbar fits and the
     // checklist's glyphs and category headings are all in frame.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1200.0));
     open_folder(&mut harness, &handles, dirty_folder());
     harness.run();
-    settled_snapshot(&mut harness, "rip_checklist_dirty");
+    settled_snapshot(&mut harness, "pack_checklist_dirty");
 }
 
 #[test]
-fn snapshot_rip_checklist_clean() {
+fn snapshot_pack_checklist_clean() {
     // A submission-ready pack: the checklist collapses to ticks (the single
     // non-looping track leaves just the optional Loops note).
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1280.0, 1000.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
-    settled_snapshot(&mut harness, "rip_checklist_clean");
+    settled_snapshot(&mut harness, "pack_checklist_clean");
 }
 
 #[test]

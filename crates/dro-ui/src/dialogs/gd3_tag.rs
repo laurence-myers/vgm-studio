@@ -72,7 +72,7 @@ impl Gd3TagDialog {
 
 /// Draws the GD3 tag fields as label + text-edit rows into an already-open
 /// two-column grid: the Notes field (last) is a 4-row multiline, the rest are
-/// single-line. Shared with the rip quick-edit dialog, which prepends its own
+/// single-line. Shared with the pack quick-edit dialog, which prepends its own
 /// File-name row before calling this.
 pub(crate) fn gd3_fields(
     ui: &mut egui::Ui,

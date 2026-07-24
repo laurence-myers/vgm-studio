@@ -79,9 +79,9 @@ pub struct Dialogs {
     pub gd3_tag: Option<Gd3TagDialog>,
     pub vgm_metadata: Option<VgmMetadataDialog>,
     pub settings: Option<SettingsDialog>,
-    /// Rip mode's per-track quick edit (rename + GD3).
+    /// Pack mode's per-track quick edit (rename + GD3).
     pub track_edit: Option<TrackEditDialog>,
-    /// Rip mode's bulk GD3 editor (chosen fields, chosen tracks).
+    /// Pack mode's bulk GD3 editor (chosen fields, chosen tracks).
     pub bulk_tag: Option<BulkTagDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,

@@ -29,11 +29,11 @@ pub struct PickedFile {
     pub bytes: Vec<u8>,
 }
 
-/// A folder the user opened as a rip project: its name, path (native only), and
+/// A folder the user opened as a pack project: its name, path (native only), and
 /// the relevant files it holds, each with bytes already read.
 ///
 /// The native scan is non-recursive and keeps only `.vgm`/`.vgz`/`.png`/`.txt`,
-/// sorted case-insensitively by name -- everything rip mode needs to show a track
+/// sorted case-insensitively by name -- everything pack mode needs to show a track
 /// list, the screenshots, and any existing description.
 #[derive(Debug, Clone)]
 pub struct PickedFolder {
@@ -89,7 +89,7 @@ pub trait FileService {
 
     /// Starts a save.
     ///
-    /// Saves are honoured in order, one [`SaveOutcome`] per call: rip mode fires
+    /// Saves are honoured in order, one [`SaveOutcome`] per call: pack mode fires
     /// the description and the playlist back to back and correlates the outcomes
     /// by that FIFO order, so an implementation must not coalesce or drop a
     /// pending outcome when a second save arrives before the first is polled.
@@ -98,7 +98,7 @@ pub trait FileService {
     /// The next save outcome, oldest first. `None` when none is waiting.
     fn poll_saved(&mut self) -> Option<SaveOutcome>;
 
-    /// Opens the platform's folder picker (rip mode).
+    /// Opens the platform's folder picker (pack mode).
     fn pick_folder(&mut self);
 
     /// Scans the folder at `path` -- the drag-and-drop / command-line case, where
@@ -110,7 +110,7 @@ pub trait FileService {
     fn poll_folder(&mut self) -> Option<Result<PickedFolder, String>>;
 
     /// Renames the file at `from` to the bare name `to_name`, in the same
-    /// directory (rip mode's quick-edit). Must fail rather than overwrite an
+    /// directory (pack mode's quick-edit). Must fail rather than overwrite an
     /// existing file.
     fn rename(&mut self, from: PathBuf, to_name: String);
 
@@ -120,7 +120,7 @@ pub trait FileService {
     /// Asks where to put a batch of new files -- the split's one directory for
     /// its per-channel outputs.
     ///
-    /// Distinct from [`Self::pick_folder`], which *reads* a folder in as a rip
+    /// Distinct from [`Self::pick_folder`], which *reads* a folder in as a pack
     /// project. Defaulted to nothing at all, because a browser has no directory
     /// to write into; a web build offers its outputs some other way.
     fn pick_output_folder(&mut self) {}
@@ -247,9 +247,9 @@ pub struct HardwarePortInfo {
     pub recognised: bool,
 }
 
-/// What a [`RipEntry`] is, which decides how the export job treats its bytes.
+/// What a [`PackEntry`] is, which decides how the export job treats its bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RipEntryKind {
+pub enum PackEntryKind {
     /// A `.vgm`/`.vgz` song. Gzipped to `.vgz` when the job asks for it.
     Song,
     /// A `.png` screenshot. Optimised with oxipng.
@@ -260,19 +260,19 @@ pub enum RipEntryKind {
 
 /// One file bound for the release zip.
 #[derive(Debug, Clone)]
-pub struct RipEntry {
+pub struct PackEntry {
     /// The name inside the zip (flat -- no directories).
     pub name: String,
     pub bytes: Vec<u8>,
-    pub kind: RipEntryKind,
+    pub kind: PackEntryKind,
 }
 
 /// A request to build a release zip. The entries are already in final order.
 #[derive(Debug, Clone)]
-pub struct RipJobRequest {
+pub struct PackJobRequest {
     /// The suggested file name for the finished archive, e.g. `"Game Name.zip"`.
     pub zip_name: String,
-    pub entries: Vec<RipEntry>,
+    pub entries: Vec<PackEntry>,
     /// Whether to gzip `.vgm` songs to `.vgz` (renaming the entry).
     pub gzip_vgms: bool,
     /// Whether to strip redundant OPL writes from each VGM before packing it
@@ -280,9 +280,9 @@ pub struct RipJobRequest {
     pub optimize_vgms: bool,
 }
 
-/// What became of a [`RipJobRequest`].
+/// What became of a [`PackJobRequest`].
 #[derive(Debug, Clone)]
-pub enum RipJobOutcome {
+pub enum PackJobOutcome {
     Done {
         zip_name: String,
         bytes: Vec<u8>,
@@ -292,7 +292,7 @@ pub enum RipJobOutcome {
     Failed(String),
 }
 
-/// The result of an explicit screenshot optimisation ([`RipService::optimize`]).
+/// The result of an explicit screenshot optimisation ([`PackService::optimize`]).
 #[derive(Debug, Clone)]
 pub struct OptimizedImage {
     /// The file name the request carried.
@@ -303,16 +303,16 @@ pub struct OptimizedImage {
     pub bytes: Vec<u8>,
 }
 
-/// Runs the rip export off the UI thread: optimise PNGs, optionally gzip songs,
+/// Runs the pack export off the UI thread: optimise PNGs, optionally gzip songs,
 /// and build the zip. Kept separate from [`crate::tasks::TaskService`] because
 /// its job body needs native-only crates (zip, oxipng) that must not reach the
 /// wasm-clean `run_task`.
-pub trait RipService {
+pub trait PackService {
     /// Starts building a release zip, superseding any job already running.
-    fn submit(&mut self, request: RipJobRequest);
+    fn submit(&mut self, request: PackJobRequest);
 
     /// The finished archive (or a failure), once ready. `None` until then.
-    fn poll(&mut self) -> Option<RipJobOutcome>;
+    fn poll(&mut self) -> Option<PackJobOutcome>;
 
     /// Whether a job is in flight, for the status line.
     fn is_busy(&self) -> bool;

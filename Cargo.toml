@@ -39,7 +39,7 @@ dro-ui = { path = "crates/dro-ui" }
 # feature set, so drotrim renders via DX12/Vulkan on Windows.
 eframe = "0.35"
 egui = "0.35"
-# `image` enables the byte-image loader for rip mode's inline screenshots; the
+# `image` enables the byte-image loader for pack mode's inline screenshots; the
 # codecs come from the `image` crate below (png only), so this stays wasm-clean.
 egui_extras = { version = "0.35", features = ["image"] }
 # PNG decoding for the screenshot previews. egui_extras declares `image` with no
@@ -100,7 +100,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
 ] }
 
-# Rip-mode packaging (native only; never dro-core/dro-ui/wasm).
+# Pack-mode packaging (native only; never dro-core/dro-ui/wasm).
 # `deflate-flate2` only, never the defaults: zip 8's default set enables
 # `deflate-flate2-zlib-rs`, which would flip flate2 to its zlib-rs backend
 # workspace-wide and *silently* break dro-core's native-vs-wasm VGZ byte parity

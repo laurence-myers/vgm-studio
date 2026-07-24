@@ -1,11 +1,11 @@
-//! End-to-end rip export: scan an in-memory folder into a `RipState`, build the
+//! End-to-end pack export: scan an in-memory folder into a `PackState`, build the
 //! release zip, and reopen it -- exercising dro-core's description generation,
-//! dro-ui's RipState, and dro-trimmer's zip/oxipng/gzip assembly together.
+//! dro-ui's PackState, and dro-trimmer's zip/oxipng/gzip assembly together.
 
 use std::io::{Cursor, Read as _};
 
-use dro_trimmer::build_rip_zip;
-use dro_ui::{PickedFile, PickedFolder, RipState};
+use dro_trimmer::build_pack_zip;
+use dro_ui::{PackState, PickedFile, PickedFolder};
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
@@ -44,12 +44,12 @@ fn scan_build_and_reopen_a_release_zip() {
         ],
     };
 
-    let state = RipState::from_folder(folder, Some((2026, 7, 16)));
+    let state = PackState::from_folder(folder, Some((2026, 7, 16)));
     assert_eq!(state.meta.game_name, "Cool Game", "prefilled from GD3");
     assert_eq!(state.meta.music_authors, "Ada, Bob");
 
     let request = state.export_request();
-    let output = build_rip_zip(
+    let output = build_pack_zip(
         &request.entries,
         request.gzip_vgms,
         request.optimize_vgms,
@@ -87,7 +87,7 @@ fn scan_build_and_reopen_a_release_zip() {
         .unwrap()
         .read_to_string(&mut txt)
         .unwrap();
-    let reparsed = dro_core::rip::parse_description(&txt).unwrap();
+    let reparsed = dro_core::pack::parse_description(&txt).unwrap();
     assert_eq!(reparsed.game_name, "Cool Game");
     assert!(txt.contains("01 Intro"), "the track list is present");
 

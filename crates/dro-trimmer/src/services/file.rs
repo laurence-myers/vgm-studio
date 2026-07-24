@@ -17,13 +17,13 @@ const FILTERS: [(&str, &[&str]); 4] = [
     ("All Files", &["*"]),
 ];
 
-/// Extensions a rip project folder scan keeps, lower-cased.
-const RIP_EXTENSIONS: [&str; 4] = ["vgm", "vgz", "png", "txt"];
+/// Extensions a pack project folder scan keeps, lower-cased.
+const PACK_EXTENSIONS: [&str; 4] = ["vgm", "vgz", "png", "txt"];
 
 #[derive(Debug, Default)]
 pub struct NativeFileService {
     picked: Option<Result<PickedFile, String>>,
-    /// One outcome per `save`, oldest first: rip mode saves the description and
+    /// One outcome per `save`, oldest first: pack mode saves the description and
     /// the playlist back to back and correlates the outcomes by this order.
     saved: VecDeque<SaveOutcome>,
     folder: Option<Result<PickedFolder, String>>,
@@ -39,8 +39,8 @@ impl NativeFileService {
         Self::default()
     }
 
-    /// Reads `path`. A directory is scanned as a rip project folder instead --
-    /// this is what makes dropping a folder (or `drotrim <folder>`) open rip
+    /// Reads `path`. A directory is scanned as a pack project folder instead --
+    /// this is what makes dropping a folder (or `drotrim <folder>`) open pack
     /// mode, without `dro-ui` ever touching the filesystem.
     fn read(&mut self, path: PathBuf) {
         if path.is_dir() {
@@ -111,7 +111,7 @@ impl FileService for NativeFileService {
 
     fn pick_folder(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_title("Open rip project folder")
+            .set_title("Open pack project folder")
             .pick_folder()
         {
             self.folder = Some(scan_folder(&path));
@@ -149,7 +149,7 @@ impl FileService for NativeFileService {
     }
 }
 
-/// Reads a folder's rip-relevant files (non-recursive), sorted by lower-cased
+/// Reads a folder's pack-relevant files (non-recursive), sorted by lower-cased
 /// name. An empty result is still `Ok`; the UI validates the contents.
 fn scan_folder(path: &Path) -> Result<PickedFolder, String> {
     let entries = fs::read_dir(path).map_err(|error| format!("{}: {error}", path.display()))?;
@@ -163,7 +163,7 @@ fn scan_folder(path: &Path) -> Result<PickedFolder, String> {
             .extension()
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| {
-                RIP_EXTENSIONS
+                PACK_EXTENSIONS
                     .iter()
                     .any(|want| ext.eq_ignore_ascii_case(want))
             });

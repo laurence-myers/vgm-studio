@@ -30,10 +30,10 @@ pub struct MenuState {
     /// The command the next Undo would revert, for the item label.
     pub undo_description: Option<String>,
     pub redo_description: Option<String>,
-    /// Whether a rip project is open (enables the Rip menu's project items).
-    pub has_rip: bool,
-    /// Whether the Rip tab is showing (disables the song-bound File/Edit items).
-    pub on_rip_tab: bool,
+    /// Whether a pack project is open (enables the Pack menu's project items).
+    pub has_pack: bool,
+    /// Whether the Pack tab is showing (disables the song-bound File/Edit items).
+    pub on_pack_tab: bool,
     /// The row the loop-marker items act on -- the same one `[` and `]` use.
     pub focused_row: Option<usize>,
     /// Whether the markers actually mark something out, rather than covering the
@@ -53,8 +53,8 @@ pub struct MenuState {
 /// Draws the bar, pushing whatever the user picked onto `actions`.
 pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mut Vec<Action>) {
     // The song-bound File and Edit items act on the editor's song, which the
-    // Rip tab hides; disable them there so they cannot edit an unseen song.
-    let editor = !state.on_rip_tab;
+    // Pack tab hides; disable them there so they cannot edit an unseen song.
+    let editor = !state.on_pack_tab;
     // Format-specific items are shown only for the format they apply to: a VGM
     // has no DRO header to inspect, a DRO has nowhere to store a tag, and only a
     // DRO can be converted to another format.
@@ -84,7 +84,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             // Convert to another format, in an expanding submenu. DRO only: a VGM
             // has no format this app can convert it to, and which conversions a
-            // DRO offers depends on its version. Disabled on the rip tab, like its
+            // DRO offers depends on its version. Disabled on the pack tab, like its
             // File-menu siblings.
             if is_dro {
                 ui.add_enabled_ui(editor, |ui| {
@@ -120,7 +120,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 None => "Redo".to_owned(),
             };
             // Undo/Redo work on both tabs: the app fills can_undo/can_redo from
-            // the editor's song history or the rip file-edit history to match.
+            // the editor's song history or the pack file-edit history to match.
             if enabled_item(ui, state.can_undo, &undo_label, Some(&UNDO)) {
                 actions.push(Action::Undo);
             }
@@ -205,19 +205,19 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
         });
 
-        ui.menu_button("Rip", |ui| {
-            if item(ui, "Open Rip Folder...", None) {
-                actions.push(Action::OpenRipFolder);
+        ui.menu_button("Pack", |ui| {
+            if item(ui, "Open Pack Folder...", None) {
+                actions.push(Action::OpenPackFolder);
             }
-            if enabled_item(ui, state.has_rip, "Save Package Files", None) {
-                actions.push(Action::RipSaveDocs);
+            if enabled_item(ui, state.has_pack, "Save Package Files", None) {
+                actions.push(Action::PackSaveDocs);
             }
-            if enabled_item(ui, state.has_rip, "Export Zip...", None) {
-                actions.push(Action::RipExportZip);
+            if enabled_item(ui, state.has_pack, "Export Zip...", None) {
+                actions.push(Action::PackExportZip);
             }
             crate::theme::separator(ui, palette);
-            if enabled_item(ui, state.has_rip, "Close Rip", None) {
-                actions.push(Action::CloseRip);
+            if enabled_item(ui, state.has_pack, "Close Pack", None) {
+                actions.push(Action::ClosePack);
             }
         });
 
