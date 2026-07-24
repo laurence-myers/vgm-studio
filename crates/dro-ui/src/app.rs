@@ -425,15 +425,15 @@ impl DroApp {
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     theme::plate_panel(ui, p, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            for (tab, label) in [(AppTab::Editor, "Editor"), (AppTab::Pack, "Pack")]
-                            {
-                                if ui.selectable_label(self.active_tab == tab, label).clicked() {
-                                    actions.push(Action::SelectTab(tab));
-                                }
-                            }
-                        });
+                        // The views, and the labels naming them, in strip order.
+                        const VIEWS: [AppTab; 2] = [AppTab::Editor, AppTab::Pack];
+                        const LABELS: [&str; 2] = ["Editor", "Pack"];
+                        let selected = VIEWS.iter().position(|t| *t == self.active_tab);
+                        if let Some(i) =
+                            theme::tabs::strip(ui, p, &LABELS, selected.unwrap_or(0))
+                        {
+                            actions.push(Action::SelectTab(VIEWS[i]));
+                        }
                     });
                 })
         });

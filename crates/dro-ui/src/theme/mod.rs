@@ -14,6 +14,7 @@ pub mod icon;
 pub(crate) mod paint;
 mod palette;
 mod style;
+pub mod tabs;
 
 pub use dro_core::config::{SurfaceChoice, ThemeChoice};
 pub use palette::{Palette, Surface, palette};

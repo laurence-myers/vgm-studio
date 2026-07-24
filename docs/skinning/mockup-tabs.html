@@ -1,0 +1,532 @@
+<title>DRO Trimmer — tab strip styles</title>
+<style>
+  :root{
+    --desktop:#263A3A;
+    --face:#1E2929; --bevelL:#324444; --bevelD:#0D1414; --keyline:#040808;
+    --data:#0C1414; --yellow:#F1E67B;
+    --lab:#B8D0D0; --mut:#86A6A6; --orange:#FF9E3D;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCEFEF;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:1080px;margin:0 auto}
+
+  header{margin-bottom:30px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--yellow); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:72ch; margin:0 0 8px}
+  .sub b{color:#DCEFEF; font-weight:700}
+  .sub code{color:var(--yellow); font-size:12px}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--yellow); margin:44px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:var(--orange)}
+  h3{
+    font-size:11px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--orange); margin:40px 0 10px; font-weight:700;
+    border-top:1px solid #3A5252; padding-top:14px;
+  }
+  .note{color:var(--mut); margin:0 0 12px; max-width:78ch}
+  .note b{color:#DCEFEF}
+  .note code{color:var(--yellow); font-size:12px}
+
+  .verdict{color:var(--mut); font-size:11.5px; margin:0 0 3px; max-width:82ch}
+  .verdict b{color:#DCEFEF}
+  .roles{color:#6E8888; font-size:11px; margin:0 0 4px; max-width:82ch}
+  .roles code{color:var(--yellow)}
+  .offrule{color:#6E8888; font-size:11px; margin:0 0 12px; max-width:82ch}
+  .offrule b{color:#9EC2C0}
+  .offrule code{color:var(--yellow)}
+
+  .legend{display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:8px; margin:14px 0 0}
+  .chip{
+    background:var(--face);
+    border:2px solid; border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:7px 9px; font-size:11px; color:var(--mut);
+  }
+  .chip b{color:#DCEFEF; display:block; font-size:11.5px; margin-bottom:3px}
+  .chip .sw{display:inline-block; width:11px; height:11px; margin:0 3px -2px 0; border:1px solid #040808}
+
+  .caserow{display:flex; align-items:flex-start; gap:11px; margin-bottom:10px; overflow-x:auto}
+  .caselab{
+    width:140px; flex:none; font-size:10.5px; letter-spacing:.06em; font-weight:700;
+    color:var(--lab); line-height:1.4; padding-top:6px;
+  }
+  .caselab small{display:block; font-weight:400; color:#6E8888; letter-spacing:.02em}
+  .stripwrap{flex:none; width:268px}
+  .stripcap{font-size:9.5px; letter-spacing:.06em; color:#6E8888; margin:3px 0 0}
+
+  /* the app strip: a plate band carrying the tabs, over the content it opens */
+  .strip{border:1px solid #000; overflow:hidden}
+  .plate{
+    display:flex; align-items:flex-end; gap:4px;
+    padding:9px 10px 0; position:relative; min-height:44px;
+  }
+  .seam{position:absolute; left:0; right:0; bottom:0; height:2px; z-index:1}
+  .content{
+    padding:7px 10px 9px; font-size:10.5px; letter-spacing:.04em;
+    font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden;
+  }
+  .tab{font:700 12px var(--mono); white-space:nowrap; user-select:none; cursor:default}
+</style>
+
+<div class="page">
+<header>
+  <h1>DRO Trimmer — tab strip styles</h1>
+  <p class="sub">The Editor / Pack tabs are still bare <code>ui.selectable_label</code>s
+  (<code>app.rs</code>), so the active one paints egui's <code>visuals.selection.bg_fill</code>: a flat
+  square <b>accent</b> rectangle. That is generic egui — it shares no vocabulary with the plate, pads,
+  wells or knobs around it, and the accent blue is a <i>selection</i> colour borrowed from the table,
+  not a chrome colour. Eight replacements below, each built only from roles the skin engine already has.</p>
+  <p class="sub">Every strip is the real layout: a fascia <b>plate</b> band carrying the tabs, the panel
+  <b>seam groove</b> the app already draws at its bottom, and the content well beneath. Colours are
+  computed as the engine computes them — plate gradient, <code>pad_caps</code>, <code>trough</code>,
+  the case's complementary <code>data_text</code>, and the shared hardware latch amber.</p>
+  <p class="sub"><b>Disabled is shown for every variation</b> (third strip in each row) — a real state
+  once a pack is open but no track has been opened into the editor. All eight obey one rule, borrowed
+  from the pan knob's greyed state: <b>flatten toward the surface, dim the ink, never light.</b> A
+  disabled tab loses its dimensionality rather than gaining a new colour, so nothing has to be invented
+  per case.</p>
+
+  <div class="legend" id="legend"></div>
+</header>
+
+<h2>T0 · Today (the problem)</h2>
+<p class="note">Square accent block, no bevel, no gradient, no border — it reads as a selected
+<b>table row</b> that wandered up onto the fascia. On the cream case it is worse: a saturated blue
+block on a warm ivory plate. Disabled has no treatment at all beyond egui's generic text fade.</p>
+<div id="t0"></div>
+
+<h3>Round one</h3>
+
+<h2>T1 · Backlit pad tabs</h2>
+<p class="verdict"><b>The tabs become pads.</b> Same rounded cap, border, glint and press language as
+every other button; the active tab is <b>lit amber</b>, exactly the engine's existing "pad lighting =
+active" rule. Cheapest to build and the most obviously part of the same machine — the risk is that a
+whole lit tab is a lot of amber, and amber already means "engaged" on the transport and channel pads.</p>
+<p class="roles">unlit = <code>pad_caps</code> gradient + border + ink · lit =
+<code>latch_top/bottom/border/ink</code> · one call to <code>bevel::toggle</code></p>
+<p class="offrule"><b>Disabled:</b> the cap sinks toward the plate and the ink fades into it — the pan
+knob's exact greyed recipe. It can never light.</p>
+<div id="t1"></div>
+
+<h2>T2 · Folder tabs, skeuomorphic</h2>
+<p class="verdict"><b>The active tab breaks the seam.</b> Raised plate tongues with rounded shoulders:
+the active one is lifted (lighter gradient, lit top bevel) and its foot <i>covers</i> the panel groove,
+so it joins the surface that owns the content; the inactive one sits lower and darker with the groove
+running unbroken across it, reading as tucked behind. The most literal hardware/folder metaphor, and it
+reuses the seam groove the app already paints.</p>
+<p class="roles">active = <code>lighten(plate_top,.12)→plate_top</code>, <code>bevel_light</code> top
+inset · inactive = <code>darken(plate_bottom,…)</code> · both framed <code>plate_border</code> ·
+groove = <code>bevel::groove_h</code></p>
+<p class="offrule"><b>Disabled:</b> the tongue flattens into the plate — no lit top edge, no shoulder
+shadow, border dimmed. It reads as moulded-in rather than a separate part.</p>
+<div id="t2"></div>
+
+<h2>T3 · Inset segmented selector, modern VST</h2>
+<p class="verdict"><b>A recessed track with a raised cap sliding in it.</b> The pair sits in one sunken
+channel (the case's own <code>trough</code>, shadowed top, lit bottom); the active view is a raised pad
+cap inside it, the inactive one is just a label on the dark track. This is the segmented control every
+modern plugin uses, said in this app's materials — and it stays neutral, so amber keeps meaning
+"engaged" everywhere else.</p>
+<p class="roles">track = <code>trough</code> + sunken bevel + <code>plate_border</code> · cap =
+<code>pad_caps</code> gradient/border/ink · inactive label = <code>muted</code></p>
+<p class="offrule"><b>Disabled:</b> the label sinks toward the track it sits on, so the segment reads as
+an empty stretch of channel.</p>
+<div id="t3"></div>
+
+<h2>T4 · Silkscreen + indicator LED</h2>
+<p class="verdict"><b>No button at all.</b> The view names are silkscreened straight onto the plate,
+letterspaced, with a small lens beside each: dark and dead when inactive, lit amber when live. The
+active name brightens from <code>muted</code> to the case's <code>label</code>. Quietest of the four and
+the most like real rack gear — the trade is that the hit target is invisible, so it leans entirely on
+the hover state to say "clickable".</p>
+<p class="roles">lens unlit = <code>darken(plate_bottom,.55)</code> + inner shadow · lit =
+<code>latch_top→latch_bottom</code> (glow kept inside the lens) · labels =
+<code>label</code> / <code>muted</code></p>
+<p class="offrule"><b>Disabled:</b> the lens goes fully dead — it loses its rim and its inner shadow,
+becoming a flat dark blank — and the silkscreen fades toward the plate, like unprinted panel.</p>
+<div id="t4"></div>
+
+<h3>Round two</h3>
+
+<h2>T5 · Engraved plate</h2>
+<p class="verdict"><b>Machined, not mounted.</b> Nothing is added to the fascia — the tabs are cut into
+it. Inactive views are debossed pockets (shadow on the top lip, highlight on the bottom) with engraved
+labels; the active view is a polished raised boss. Pure light and shadow, no second colour at all, so
+it is the only variation that is guaranteed to sit correctly on <i>any</i> future case.</p>
+<p class="roles">pocket = <code>darken(plate_*)</code> + inset shadow / bottom highlight · boss =
+<code>lighten(plate_top,.14)→plate_top</code> + <code>bevel_light</code> top · engraved label =
+1px light text-shadow below the glyphs</p>
+<p class="offrule"><b>Disabled:</b> the engraving gets shallow — the pocket keeps its shape but loses
+most of its shadow depth, so it reads as a blank milled recess with no label worth reading.</p>
+<div id="t5"></div>
+
+<h2>T6 · Display tabs</h2>
+<p class="verdict"><b>Navigation moves into the screen.</b> The tabs sit in a dark well like the readout
+wells, and the active label burns in the case's complementary <code>data_text</code> — gold on navy,
+tracker yellow on teal, cyan on cream and rust. It borrows the one colour that is already a signature of
+this skin engine, and it makes the tab strip read as part of the instrument's display rather than its
+casework.</p>
+<p class="roles">well = <code>data_bg</code> + sunken bevel · active cell = <code>data_stripe</code>,
+label <code>data_text</code> · inactive label = <code>data_label</code></p>
+<p class="offrule"><b>Disabled:</b> the label falls toward <code>data_bg</code> — a display segment that
+simply is not being driven, which is exactly what a dark LCD cell looks like.</p>
+<div id="t6"></div>
+
+<h2>T7 · Lit rail, modern VST</h2>
+<p class="verdict"><b>One bar carries the state.</b> Flat labels on the plate with a recessed rail
+running beneath them; the active tab lights its length of that rail in <code>data_text</code> and
+brightens its label. The most restrained and the most scalable — it stays legible at three, four or six
+views where every raised-cap variation starts to crowd — and the recessed rail keeps it from looking
+like flat web chrome dropped onto a hardware fascia.</p>
+<p class="roles">rail channel = <code>darken(plate_bottom,.45)</code> inset · lit length =
+<code>data_text</code> · labels = <code>label</code> / <code>muted</code></p>
+<p class="offrule"><b>Disabled:</b> the rail stays dark under it and the label fades into the plate;
+with no cap or box to flatten, the absence of light <i>is</i> the disabled state.</p>
+<div id="t7"></div>
+
+<h2>T8 · Rocker selector</h2>
+<p class="verdict"><b>A real two-position switch.</b> A recessed housing split by a pivot line: the
+chosen side is <i>pressed in</i> (darkened, shadowed along its top lip) and the other stands proud. It
+inverts the usual "active = raised" convention on purpose, because that is how a rocker physically
+works, and it is the most tactile thing on the sheet. The honest caveat: it only makes sense for
+<b>exactly two</b> views — a third would need a different control entirely.</p>
+<p class="roles">housing = <code>darken(plate_bottom,.35)</code> + <code>plate_border</code> · pressed =
+darkened plate + top inset shadow · proud = <code>lighten(plate_top,.10)</code> +
+<code>bevel_light</code> top</p>
+<p class="offrule"><b>Disabled:</b> the half goes flat — neither pressed nor proud — so the rocker reads
+as seized, with a dimmed label.</p>
+<div id="t8"></div>
+</div>
+
+<script>
+// ---- engine colours -------------------------------------------------------
+const LATCH={top:'#FBE38C', bot:'#DDB047', border:'#8A6D28', ink:'#3F2E08'};
+const DATA_BG='#0C1414', DATA_STRIPE='#142020';
+
+const hex2=n=>n.toString(16).padStart(2,'0');
+const rgb=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+function lerp(a,b,t){const A=rgb(a),B=rgb(b);
+  return '#'+A.map((x,i)=>hex2(Math.round(x+(B[i]-x)*Math.min(1,Math.max(0,t))))).join('');}
+const darken=(c,t)=>lerp(c,'#000000',t), lighten=(c,t)=>lerp(c,'#ffffff',t);
+const isLight=c=>{const[r,g,b]=rgb(c); return .299*r+.587*g+.114*b>140;};
+
+// The four cases, verbatim from palette.rs.
+const CTX=[
+  {name:'Navy — default', sub:'pad Light · plate navy',
+   plateTop:'#3E5273', plateBot:'#283A57', plateBorder:'#10192A',
+   bevelLight:'#5E76A0', bevelDark:'#14203A',
+   label:'#D6E2F5', muted:'#7E8FB0', dataText:'#F2C766', dataLabel:'#B8C6E0',
+   trough:'#1A2440', accent:'#3355AA', selText:'#FFFFFF',
+   faceHover:'#3E5478', pad:'Light'},
+  {name:'Clone-dark', sub:'pad Grey · plate teal',
+   plateTop:'#588484', plateBot:'#385959', plateBorder:'#0A1414',
+   bevelLight:'#8FBFBF', bevelDark:'#1A2929',
+   label:'#DCEFEF', muted:'#86A6A6', dataText:'#F1E67B', dataLabel:'#B8D0D0',
+   trough:'#182626', accent:'#3355AA', selText:'#FFFFFF',
+   faceHover:'#578282', pad:'Grey'},
+  {name:'Cream', sub:'pad Tint · light plate',
+   plateTop:'#F0E8D3', plateBot:'#DBD1B5', plateBorder:'#7C7458',
+   bevelLight:'#FFFBF0', bevelDark:'#A89E82',
+   label:'#38352A', muted:'#8A8266', dataText:'#74CFE6', dataLabel:'#C8BE9E',
+   trough:'#BEB498', accent:'#4056A0', selText:'#FFFFFF',
+   faceHover:'#F0E8D3', pad:'Tint'},
+  {name:'Rust', sub:'pad Tint · dark plate',
+   plateTop:'#7A4E36', plateBot:'#55341F', plateBorder:'#26160C',
+   bevelLight:'#A07456', bevelDark:'#301E12',
+   label:'#F0E0D2', muted:'#B08E78', dataText:'#74D6E8', dataLabel:'#DCC2B0',
+   trough:'#2C1C12', accent:'#3355AA', selText:'#FFFFFF',
+   faceHover:'#704A34', pad:'Tint'},
+];
+
+// pad_caps(): the Surface presets, or derived from the plate for Tint.
+function caps(C){
+  switch(C.pad){
+    case 'Light': return {top:'#F2F3F3',bottom:'#DADDDD',border:'#484C4C',ink:'#1C1E1E'};
+    case 'Dark' : return {top:'#414B4B',bottom:'#2E3838',border:'#0A0F0F',ink:'#C6D0D0'};
+    case 'Grey' : return {top:'#B6BABA',bottom:'#9EA2A2',border:'#0B0D0D',ink:'#181C1C'};
+    default     : return {top:lighten(C.plateTop,.42), bottom:lighten(C.plateTop,.26),
+                          border:C.plateBorder, ink:darken(C.plateBot,.58)};
+  }
+}
+
+// The one disabled rule, shared by every variation: flatten toward whatever
+// surface the tab sits on, and dim the ink into it. Mirrors the pan knob's
+// greyed state (`lerp(cap_mid, deck_mid, .45)` / `lerp(ink, dim, .5)`).
+const plateMid = C => lerp(C.plateTop, C.plateBot, .5);
+const sink = (c, surface, t) => lerp(c, surface, t===undefined?.55:t);
+// A disabled label dims toward the surface it actually sits on -- its own cap or
+// pocket, not the plate behind it -- and stops short of vanishing. A disabled tab
+// must still read as a tab you may not use; blend it all the way out and a pale
+// case (cream) simply loses the word.
+const offInk = (ink, surface) => lerp(ink, surface, .45);
+// Ink for a surface that is not the plate itself (a raised rocker half, a milled
+// pocket). `theme::deck_ink` picks between dark and light ink with a luma
+// threshold, which is enough for a deck but fails on a mid-tone surface: on
+// clone-dark a proud teal half lands at luma ~126 and the case's own `muted` at
+// ~157, so the threshold keeps a label with almost no separation. Choose by
+// actual distance instead, so every case gets the more legible of the two.
+const luma = c => {const[r,g,b]=rgb(c); return .299*r+.587*g+.114*b;};
+function inkFor(surface, C, dim){
+  const dark  = darken(C.plateBot, dim?.42:.62);
+  const light = dim ? C.muted : C.label;
+  return Math.abs(luma(dark)-luma(surface)) >= Math.abs(luma(light)-luma(surface))
+    ? dark : light;
+}
+
+// The engraved-label shadow: a 1px light line under the glyphs on a light plate,
+// a subtle one on a dark plate.
+const etch = C => isLight(plateMid(C))
+  ? '0 1px 0 rgba(255,255,255,.85)' : '0 1px 0 rgba(255,255,255,.10)';
+
+const TABS=['Editor','Pack'];
+
+// ---- the shared strip shell ----------------------------------------------
+// `inner` is the tab row. The seam groove always paints at z-index 1; a variant
+// "breaks" it simply by standing a tab at z-index 2 whose foot reaches the
+// plate's bottom edge (T2), which is exactly how it would work in egui.
+function shell(C, inner){
+  const seam=`<div class="seam" style="background:linear-gradient(180deg,${C.bevelDark} 0 1px,${C.bevelLight} 1px 2px)"></div>`;
+  return `<div class="strip">
+    <div class="plate" style="background:linear-gradient(180deg,${C.plateTop},${C.plateBot})">
+      ${seam}${inner}
+    </div>
+    <div class="content" style="background:${DATA_BG};color:${C.dataLabel}">
+      <span style="color:${C.dataText}">0000</span>&nbsp; 0 &nbsp;
+      <span style="color:${C.dataText}">20</span>&nbsp; 01 (1) &nbsp; Tremolo / Vibrato …
+    </div>
+  </div>`;
+}
+
+// Per-tab state for a strip. A disabled tab is never the active one -- you
+// cannot be standing on a view you are not allowed to enter.
+function states(active, hover, dis){
+  return TABS.map((t,i)=>({
+    t, on:i===active, off:i===dis, hov:i===hover && i!==active && i!==dis,
+  }));
+}
+
+// ---- T0: today's selectable_label ----------------------------------------
+function t0(C,active,hover,dis){
+  return shell(C, states(active,hover,dis).map(s=>`
+    <div class="tab" style="
+      margin-bottom:8px; padding:4px 9px; border-radius:0;
+      background:${s.on?C.accent:(s.hov?C.faceHover:'transparent')};
+      border:1px solid ${s.on?'transparent':(s.hov?C.bevelLight:'transparent')};
+      color:${s.on?C.selText:(s.off?offInk(C.label,plateMid(C)):C.label)};">${s.t}</div>`).join(''));
+}
+
+// ---- T1: pad tabs ---------------------------------------------------------
+function t1(C,active,hover,dis){
+  const k=caps(C), P=plateMid(C);
+  return shell(C, states(active,hover,dis).map(s=>{
+    let top=k.top, bot=k.bottom, bd=k.border, ink=k.ink;
+    if(s.on){ top=LATCH.top; bot=LATCH.bot; bd=LATCH.border; ink=LATCH.ink; }
+    else if(s.hov){ top=lighten(k.top,.07); bot=lighten(k.bottom,.07); }
+    if(s.off){
+      top=sink(k.top,P); bot=sink(k.bottom,P); bd=sink(k.border,P,.45);
+      ink=offInk(k.ink, lerp(top,bot,.5));   // dim into the sunken cap it sits on
+    }
+    return `<div class="tab" style="
+      margin-bottom:8px; padding:5px 13px; border-radius:3px;
+      background:linear-gradient(180deg,${top},${bot});
+      border:1px solid ${bd};
+      box-shadow:${s.off?'none':`inset 0 1px 0 rgba(255,255,255,${s.on?.50:.55}), inset 0 -1px 0 rgba(0,0,0,.12)`};
+      color:${ink};">${s.t}</div>`;}).join(''));
+}
+
+// ---- T2: folder tabs ------------------------------------------------------
+function t2(C,active,hover,dis){
+  const P=plateMid(C);
+  return shell(C, states(active,hover,dis).map(s=>{
+    const top=s.on?lighten(C.plateTop,.12)
+             :s.off?sink(darken(C.plateBot,.12),P,.70)
+             :darken(C.plateBot,s.hov?.04:.12);
+    const bot=s.on?C.plateTop
+             :s.off?sink(darken(C.plateBot,.20),P,.70)
+             :darken(C.plateBot,s.hov?.12:.20);
+    return `<div class="tab" style="
+      position:relative; z-index:2;
+      margin-bottom:${s.on?0:2}px; margin-top:${s.on?0:3}px;
+      padding:${s.on?'6px 15px 8px':'4px 13px 6px'};
+      background:linear-gradient(180deg,${top},${bot});
+      border:1px solid ${s.off?sink(C.plateBorder,P,.55):C.plateBorder}; border-bottom:none;
+      border-radius:5px 5px 0 0;
+      box-shadow:${s.off?'none':`inset 0 1px 0 ${s.on?C.bevelLight:'rgba(255,255,255,.05)'}`};
+      color:${s.on?C.label:(s.off?offInk(C.muted,lerp(top,bot,.5)):C.muted)};">${s.t}</div>`;}).join(''));
+}
+
+// ---- T3: inset segmented selector -----------------------------------------
+function t3(C,active,hover,dis){
+  const k=caps(C);
+  const segs=states(active,hover,dis).map(s=>`
+    <div class="tab" style="
+      padding:4px 14px; border-radius:3px;
+      background:${s.on?`linear-gradient(180deg,${k.top},${k.bottom})`
+                    :(s.hov?'rgba(255,255,255,.06)':'transparent')};
+      border:1px solid ${s.on?k.border:'transparent'};
+      box-shadow:${s.on?'inset 0 1px 0 rgba(255,255,255,.55), inset 0 -1px 0 rgba(0,0,0,.12)':'none'};
+      color:${s.on?k.ink:(s.off?offInk(C.muted,C.trough):C.muted)};">${s.t}</div>`).join('');
+  return shell(C,`<div style="
+      display:flex; gap:2px; padding:2px; margin-bottom:8px;
+      background:${C.trough}; border-radius:5px;
+      border:1px solid ${C.plateBorder};
+      box-shadow:inset 0 2px 3px rgba(0,0,0,.45), inset 0 -1px 0 rgba(255,255,255,.10);
+    ">${segs}</div>`);
+}
+
+// ---- T4: silkscreen + LED -------------------------------------------------
+function t4(C,active,hover,dis){
+  const P=plateMid(C);
+  return shell(C, states(active,hover,dis).map(s=>{
+    const lens = s.on
+      ? `background:radial-gradient(circle at 42% 34%, ${LATCH.top} 0%, ${LATCH.bot} 62%, ${LATCH.border} 100%);
+         border:1px solid ${LATCH.border}; box-shadow:inset 0 0 2px rgba(255,255,255,.55);`
+      : s.off
+      ? `background:${sink(darken(C.plateBot,.55),P,.42)}; border:1px solid transparent;`
+      : `background:${darken(C.plateBot,.55)};
+         border:1px solid ${darken(C.plateBot,.70)}; box-shadow:inset 0 1px 2px rgba(0,0,0,.55);`;
+    return `<div class="tab" style="
+      display:flex; align-items:center; gap:7px;
+      margin-bottom:8px; padding:4px 12px 4px 9px;
+      letter-spacing:.16em; text-transform:uppercase; font-size:11px;
+      background:${s.hov?'rgba(255,255,255,.06)':'transparent'};
+      border-radius:3px;
+      color:${s.on?C.label:(s.off?offInk(C.muted,P):C.muted)};">
+      <span style="width:7px;height:7px;border-radius:50%;flex:none;${lens}"></span>${s.t}</div>`;
+  }).join(''));
+}
+
+// ---- T5: engraved plate ---------------------------------------------------
+function t5(C,active,hover,dis){
+  const P=plateMid(C);
+  return shell(C, states(active,hover,dis).map(s=>{
+    let bg, shadow, col=C.muted;
+    if(s.on){
+      bg=`linear-gradient(180deg,${lighten(C.plateTop,.14)},${C.plateTop})`;
+      shadow=`inset 0 1px 0 ${C.bevelLight}, 0 1px 2px rgba(0,0,0,.40)`;
+      col=C.label;
+    } else if(s.off){
+      // Shallow milling: the pocket survives, its depth does not. The label dims
+      // into that pocket -- on a pale case `muted` already sits close to the
+      // plate, so dimming toward the plate instead would erase the word.
+      bg=darken(C.plateBot,.06);
+      shadow='inset 0 1px 1px rgba(0,0,0,.16)';
+      col=offInk(inkFor(bg,C,true), bg);
+    } else {
+      bg=darken(C.plateBot,s.hov?.06:.14);
+      shadow='inset 0 2px 3px rgba(0,0,0,.45), inset 0 -1px 0 rgba(255,255,255,.14)';
+      col=inkFor(bg,C,true);
+    }
+    return `<div class="tab" style="
+      margin-bottom:8px; padding:5px 14px; border-radius:3px;
+      background:${bg}; box-shadow:${shadow};
+      border:1px solid ${s.on?C.plateBorder:'transparent'};
+      text-shadow:${s.on?'none':etch(C)};
+      color:${col};">${s.t}</div>`;}).join(''));
+}
+
+// ---- T6: display tabs -----------------------------------------------------
+function t6(C,active,hover,dis){
+  const cells=states(active,hover,dis).map(s=>`
+    <div class="tab" style="
+      padding:4px 14px; border-radius:2px;
+      background:${s.on?DATA_STRIPE:(s.hov?'rgba(255,255,255,.05)':'transparent')};
+      box-shadow:${s.on?`inset 0 0 0 1px ${sink(C.dataText,DATA_BG,.72)}`:'none'};
+      color:${s.on?C.dataText:(s.off?offInk(C.dataLabel,DATA_BG):C.dataLabel)};">${s.t}</div>`).join('');
+  return shell(C,`<div style="
+      display:flex; gap:3px; padding:3px; margin-bottom:8px;
+      background:${DATA_BG}; border-radius:3px;
+      border:1px solid ${C.plateBorder};
+      box-shadow:inset 0 2px 3px rgba(0,0,0,.55);
+    ">${cells}</div>`);
+}
+
+// ---- T7: lit rail ---------------------------------------------------------
+function t7(C,active,hover,dis){
+  const P=plateMid(C);
+  return shell(C, states(active,hover,dis).map(s=>`
+    <div class="tab" style="
+      margin-bottom:6px; padding:4px 14px 0;
+      background:${s.hov?'rgba(255,255,255,.05)':'transparent'};
+      border-radius:3px 3px 0 0;
+      color:${s.on?C.label:(s.off?offInk(C.muted,P):C.muted)};">
+      ${s.t}
+      <div style="
+        height:3px; margin-top:5px; border-radius:1px;
+        background:${s.on?C.dataText:(s.hov?sink(C.dataText,darken(C.plateBot,.45),.55):darken(C.plateBot,.45))};
+        box-shadow:inset 0 1px 1px rgba(0,0,0,.45);"></div>
+    </div>`).join(''));
+}
+
+// ---- T8: rocker selector --------------------------------------------------
+function t8(C,active,hover,dis){
+  const P=plateMid(C);
+  const halves=states(active,hover,dis).map((s,i)=>{
+    let bg, shadow, col;
+    if(s.on){                      // the chosen side is pressed in
+      bg=`linear-gradient(180deg,${darken(C.plateBot,.30)},${darken(C.plateBot,.16)})`;
+      shadow='inset 0 2px 3px rgba(0,0,0,.55)';
+      col=C.label;
+    } else if(s.off){              // seized: neither pressed nor proud
+      const flat=sink(darken(C.plateBot,.08),P,.55);
+      bg=flat; shadow='none';
+      col=offInk(inkFor(flat,C,true), flat);
+    } else {                       // the other side stands proud
+      const proud=lighten(C.plateTop,s.hov?.18:.10);
+      bg=`linear-gradient(180deg,${proud},${C.plateTop})`;
+      shadow=`inset 0 1px 0 ${C.bevelLight}, 0 1px 2px rgba(0,0,0,.35)`;
+      // A proud half sits lighter than the plate, so a case whose `muted` is a
+      // pale tone (clone-dark) would leave the label fainter than the disabled
+      // one. Pick by luma, as the deck does.
+      col=inkFor(lerp(proud,C.plateTop,.5),C,true);
+    }
+    return `<div class="tab" style="
+      padding:${s.on?'6px 15px 4px':'5px 15px 5px'};
+      background:${bg}; box-shadow:${shadow}; color:${col};
+      border-radius:${i===0?'3px 0 0 3px':'0 3px 3px 0'};
+      ${i===1?`border-left:1px solid ${darken(C.plateBot,.55)};`:''}">${s.t}</div>`;
+  }).join('');
+  return shell(C,`<div style="
+      display:flex; align-items:stretch; margin-bottom:8px; border-radius:4px;
+      background:${darken(C.plateBot,.35)};
+      border:1px solid ${C.plateBorder}; padding:1px;
+      box-shadow:inset 0 1px 2px rgba(0,0,0,.50);
+    ">${halves}</div>`);
+}
+
+// ---- assembly -------------------------------------------------------------
+function section(id,draw){
+  document.getElementById(id).innerHTML = CTX.map(C=>`
+    <div class="caserow">
+      <div class="caselab">${C.name}<small>${C.sub}</small></div>
+      <div class="stripwrap">${draw(C,0,-1,-1)}<p class="stripcap">Editor active</p></div>
+      <div class="stripwrap">${draw(C,1,0,-1)}<p class="stripcap">Pack active · Editor hovered</p></div>
+      <div class="stripwrap">${draw(C,1,-1,0)}<p class="stripcap">Pack active · Editor disabled</p></div>
+    </div>`).join('');
+}
+
+[['t0',t0],['t1',t1],['t2',t2],['t3',t3],['t4',t4],
+ ['t5',t5],['t6',t6],['t7',t7],['t8',t8]].forEach(([id,fn])=>section(id,fn));
+
+document.getElementById('legend').innerHTML = CTX.map(C=>{
+  const k=caps(C);
+  return `<div class="chip"><b>${C.name} — ${C.sub}</b>
+    plate <span class="sw" style="background:linear-gradient(180deg,${C.plateTop},${C.plateBot})"></span>${C.plateTop}→${C.plateBot}<br>
+    pad cap <span class="sw" style="background:linear-gradient(180deg,${k.top},${k.bottom})"></span>${k.top}
+    · trough <span class="sw" style="background:${C.trough}"></span>${C.trough}<br>
+    display ink <span class="sw" style="background:${C.dataText}"></span>${C.dataText}
+    · accent (today) <span class="sw" style="background:${C.accent}"></span>${C.accent}
+  </div>`;}).join('');
+</script>

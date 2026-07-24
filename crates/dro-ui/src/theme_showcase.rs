@@ -156,6 +156,18 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
 
             section(ui, p, "Pads and icons");
             pads_and_icons(ui, p);
+
+            section(ui, p, "View tabs");
+            // Live then greyed, so a case guards both the lit display ink and the
+            // disabled one. The return value is the app's business, not the
+            // showcase's.
+            ui.horizontal(|ui| {
+                let _ = theme::tabs::strip(ui, p, &["Editor", "Pack"], 0);
+                ui.add_space(12.0);
+                ui.add_enabled_ui(false, |ui| {
+                    let _ = theme::tabs::strip(ui, p, &["Editor", "Pack"], 0);
+                });
+            });
             theme::separator_full(ui, p);
 
             section(ui, p, "Scroll area (striped, solid scrollbar)");
