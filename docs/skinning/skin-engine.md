@@ -146,9 +146,14 @@ the image in a keylined sunken well beside its record — dimensions, aspect (na
 as a PC display mode when familiar), colour format, size — from
 `dro_core::pack::PngInfo`, which reads the IHDR chunk directly rather than
 decoding (fixed offset, no decoder, wasm-clean) and is parsed once per image at
-scan. Empty state is a dashed box saying what a submission wants. The mockups'
-**Replace… / Show in folder / Add Screenshot…** pads are *not* built: each needs
-a new picker channel through `FileService` (native + web + test fake).
+scan. The empty state is a dashed box with an **Add Screenshot…** pad: it picks a
+`.png` through `FileService::pick_image` / `poll_picked_image` (its own channel,
+so a screenshot is never mistaken for a song to open; defaulted to nothing on the
+trait, so the web build is unaffected), checks it parses as a PNG, and copies it
+in as `<Game Name>.png` — the tooltip names that destination up front rather than
+renaming silently. Saves route through `SavePurpose::ScreenshotAdded`, which
+rescans and stops: it creates a file, and a pack transaction has no delete to undo
+that with. The mockups' **Replace… / Show in folder** pads are still not built.
 
 **Alert boxes scroll.** `alert.rs` caps the message at
 `content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The
