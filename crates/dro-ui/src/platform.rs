@@ -112,6 +112,20 @@ pub trait FileService {
         None
     }
 
+    /// Removes `path` from disk (a pack `Delete` mutation).
+    ///
+    /// Only ever issued by the pack file-op executor, whose transaction carries
+    /// the inverse `Write` that puts the file back, so this is the one deletion
+    /// the app can undo. Defaulted to nothing: the web has no pack folder.
+    fn delete(&mut self, path: PathBuf) {
+        let _ = path;
+    }
+
+    /// The outcome of the most recent [`Self::delete`]. `None` until one lands.
+    fn poll_deleted(&mut self) -> Option<Result<(), String>> {
+        None
+    }
+
     /// Opens the platform's folder picker (pack mode).
     fn pick_folder(&mut self);
 

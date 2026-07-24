@@ -136,11 +136,13 @@ enum SavePurpose {
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
     /// A screenshot copied into the pack folder. Unlike the rewrites, this
-    /// creates a file rather than changing one, and a pack transaction has no
-    /// delete to undo it with -- so it rescans without touching the undo stack.
+    /// A screenshot copied into the pack folder. Unlike a replace, there is no
+    /// previous file whose bytes could serve as an inverse, so it rescans
+    /// without touching the undo stack.
     ScreenshotAdded,
-    /// A screenshot rewritten in place after an explicit optimise.
-    ImageOptimised,
+    /// A screenshot rewritten in place -- a recompress, or a replace. Both hold
+    /// the old bytes, so both land a reversible transaction.
+    ImageWritten,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
     /// A `Write` step of the pack file-op executor (reorder / undo / redo).
@@ -199,9 +201,27 @@ enum PackRunKind {
     Undo,
 }
 
+/// A path's file name, for a status line or an undo label.
+fn file_label(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
+}
+
+/// What the screenshot picker's result will be used for. The pick is async, so
+/// the intent has to outlive the click that started it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ScreenshotPick {
+    /// Copy in as `<Game Name>.png` (the empty state's Add).
+    Add,
+    /// Overwrite this file, keeping its name (the inspector's Replace).
+    Replace(PathBuf),
+}
+
 /// A pack file-op sequence in flight: the mutations still to run, the transaction
 /// they belong to, and where it lands on completion. Runs one mutation at a time,
-/// advancing as each rename/write outcome arrives.
+/// advancing as each rename/write/delete outcome arrives.
 struct PackRun {
     queue: VecDeque<PackMutation>,
     transaction: PackTransaction,
@@ -240,6 +260,8 @@ pub struct DroApp {
     active_tab: AppTab,
     /// One entry per outstanding `files.save`, in order, to route its outcome.
     pending_saves: VecDeque<SavePurpose>,
+    /// What the in-flight screenshot pick, if any, will do when it lands.
+    pending_screenshot: Option<ScreenshotPick>,
     /// How far along File > Split Channels is, if it is running at all. Doubles
     /// as the in-flight guard and as the gate that drops a result belonging to a
     /// split the user has since abandoned.
@@ -324,6 +346,7 @@ impl DroApp {
         let initial_frequency = config.audio.frequency;
         Self {
             editor: Editor::new(),
+            pending_screenshot: None,
             files,
             audio,
             tasks,
@@ -797,6 +820,14 @@ impl DroApp {
                 }
             }
         }
+        if let Some(result) = self.files.poll_deleted() {
+            // Deletes are only ever issued by the pack file-op executor, so an
+            // outcome always belongs to the run in flight.
+            match result {
+                Ok(()) => self.advance_pack_run(),
+                Err(message) => self.abort_pack_run(message),
+            }
+        }
         if let Some(chosen) = self.files.poll_output_folder() {
             self.split_into(chosen);
         }
@@ -1045,7 +1076,7 @@ impl DroApp {
                         }
                     }
                 }
-                SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
+                SavePurpose::TrackRewrite | SavePurpose::ImageWritten => {
                     // The file's bytes were rewritten; rescan so the list (or
                     // the inline screenshot and its size) reflects the change. A
                     // rename, if any, rescans on its own outcome too -- both
@@ -1079,7 +1110,7 @@ impl DroApp {
             SaveOutcome::Cancelled => match purpose {
                 SavePurpose::PackDoc => self.pack_docs_failed = true,
                 SavePurpose::PackOp => self.abort_pack_run("The save was cancelled.".to_owned()),
-                SavePurpose::TrackRewrite | SavePurpose::ImageOptimised => {
+                SavePurpose::TrackRewrite | SavePurpose::ImageWritten => {
                     self.pending_pack_undo = None;
                 }
                 // Split files save in place, so there is no picker to cancel --
@@ -1098,10 +1129,7 @@ impl DroApp {
                     if other == SavePurpose::PackDoc {
                         self.pack_docs_failed = true;
                     }
-                    if matches!(
-                        other,
-                        SavePurpose::TrackRewrite | SavePurpose::ImageOptimised
-                    ) {
+                    if matches!(other, SavePurpose::TrackRewrite | SavePurpose::ImageWritten) {
                         self.pending_pack_undo = None;
                     }
                     self.alerts
@@ -1696,7 +1724,13 @@ impl DroApp {
                     pack.section = section;
                 }
             }
-            Action::PackAddScreenshot => self.files.pick_image(),
+            Action::PackAddScreenshot => {
+                self.pending_screenshot = Some(ScreenshotPick::Add);
+                self.files.pick_image();
+            }
+            Action::PackReplaceScreenshot(index) => self.replace_screenshot(index),
+            Action::PackDeleteScreenshot(index) => self.confirm_delete_screenshot(index),
+            Action::ConfirmDeleteScreenshot(name) => self.delete_screenshot(&name),
             Action::PackExportZip => self.export_pack_zip(false),
             Action::ConfirmExportZip => self.export_pack_zip(true),
             Action::PackTrackOpen(index) => self.open_track_in_editor(index),
@@ -2037,6 +2071,7 @@ impl DroApp {
                 self.pending_saves.push_back(SavePurpose::PackOp);
                 self.files.save(SaveRequest::InPlace { path, bytes });
             }
+            Some(PackMutation::Delete { path }) => self.files.delete(path),
             None => {
                 let Some(run) = self.pack_run.take() else {
                     return;
@@ -2784,7 +2819,7 @@ impl DroApp {
                 bytes: old_bytes,
             }],
         });
-        self.pending_saves.push_back(SavePurpose::ImageOptimised);
+        self.pending_saves.push_back(SavePurpose::ImageWritten);
         self.files.save(SaveRequest::InPlace {
             path,
             bytes: optimized.bytes,
@@ -2803,31 +2838,119 @@ impl DroApp {
         let Some(pack) = self.pack.as_ref() else {
             return;
         };
-        let Some(folder) = pack.folder_path.clone() else {
-            // Native-only; a folder opened without a path cannot be written to.
-            return;
-        };
         // The picker filters to .png, but a determined user can still get past
         // that -- and a non-PNG here would ship in the zip and fail review.
         if dro_core::pack::PngInfo::parse(&file.bytes).is_none() {
+            self.pending_screenshot = None;
             self.alerts.push_back(Alert::new(
                 "Not a PNG",
                 format!("{} is not a readable PNG image.", file.name),
             ));
             return;
         }
-        let stem = pack.doc_stem();
-        let name = if stem.is_empty() {
-            file.name.clone()
-        } else {
-            format!("{stem}.png")
+        match self.pending_screenshot.take() {
+            // Replace keeps the existing file's name: that is what makes it a
+            // replacement rather than a second screenshot. Its old bytes are the
+            // inverse, so it lands on the undo stack like any other rewrite.
+            Some(ScreenshotPick::Replace(path)) => {
+                let old_bytes = pack
+                    .images
+                    .iter()
+                    .find(|image| image.path.as_ref() == Some(&path))
+                    .map(|image| image.bytes.to_vec());
+                let Some(old_bytes) = old_bytes else {
+                    return; // rescanned away while the picker was open
+                };
+                self.pending_pack_undo = Some(PackTransaction {
+                    label: format!("Replace {}", file_label(&path)),
+                    forward: vec![PackMutation::Write {
+                        path: path.clone(),
+                        bytes: file.bytes.clone(),
+                    }],
+                    inverse: vec![PackMutation::Write {
+                        path: path.clone(),
+                        bytes: old_bytes,
+                    }],
+                });
+                self.status = format!("Replacing {}...", file_label(&path));
+                self.pending_saves.push_back(SavePurpose::ImageWritten);
+                self.files.save(SaveRequest::InPlace {
+                    path,
+                    bytes: file.bytes,
+                });
+            }
+            _ => {
+                let Some(folder) = pack.folder_path.clone() else {
+                    // Native-only; a folder with no path cannot be written to.
+                    return;
+                };
+                let stem = pack.doc_stem();
+                let name = if stem.is_empty() {
+                    file.name.clone()
+                } else {
+                    format!("{stem}.png")
+                };
+                self.status = format!("Adding {name}...");
+                self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
+                self.files.save(SaveRequest::InPlace {
+                    path: folder.join(&name),
+                    bytes: file.bytes,
+                });
+            }
+        }
+    }
+
+    /// Opens the picker to overwrite the screenshot at `index`.
+    fn replace_screenshot(&mut self, index: usize) {
+        if self.pack_busy() {
+            return;
+        }
+        let path = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.images.get(index))
+            .and_then(|image| image.path.clone());
+        let Some(path) = path else {
+            return;
         };
-        self.status = format!("Adding {name}...");
-        self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
-        self.files.save(SaveRequest::InPlace {
-            path: folder.join(&name),
-            bytes: file.bytes,
-        });
+        self.pending_screenshot = Some(ScreenshotPick::Replace(path));
+        self.files.pick_image();
+    }
+
+    /// Asks before removing a screenshot from the folder. Undo can put it back
+    /// while the pack stays open, but the file does leave the disk, so this is
+    /// not something to do on a stray click.
+    fn confirm_delete_screenshot(&mut self, index: usize) {
+        if self.pack_busy() {
+            return;
+        }
+        let Some(name) = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.images.get(index))
+            .map(|image| image.name.clone())
+        else {
+            return;
+        };
+        self.alerts.push_back(Alert::confirm(
+            "Delete screenshot?",
+            format!("{name} will be deleted from the pack folder."),
+            Action::ConfirmDeleteScreenshot(name),
+        ));
+    }
+
+    /// Runs the delete as a pack transaction, so Edit > Undo writes it back.
+    fn delete_screenshot(&mut self, name: &str) {
+        if self.pack_busy() {
+            return;
+        }
+        let transaction = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.delete_image_transaction(name));
+        if let Some(transaction) = transaction {
+            self.start_pack_run(transaction, PackRunKind::NewEdit);
+        }
     }
 
     fn rescan_pack_folder(&mut self) {

@@ -3175,6 +3175,136 @@ fn an_added_screenshot_appears_once_the_folder_rescans() {
 }
 
 #[test]
+fn replacing_a_screenshot_overwrites_it_and_keeps_its_name() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label_contains("Replace").click();
+    harness.run();
+    assert_eq!(handles.files.borrow().pick_image_calls, 1);
+
+    // A differently-named PNG: a replace keeps the file it is replacing.
+    let mut replacement = PNG_FIXTURE.to_vec();
+    replacement.extend_from_slice(b"\x00trailing bytes, so it differs");
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "some other capture.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/some other capture.png")),
+            bytes: replacement.clone(),
+        }));
+    harness.run();
+
+    {
+        let files = handles.files.borrow();
+        match files.save_requests.last().expect("a save request") {
+            SaveRequest::InPlace { path, bytes } => {
+                assert!(
+                    path.to_string_lossy().ends_with("Cool Game.png"),
+                    "the replacement keeps the replaced file's name, got {}",
+                    path.display()
+                );
+                assert_eq!(bytes, &replacement);
+            }
+            other => panic!("expected an in-place save, got {other:?}"),
+        }
+    }
+
+    // The write lands, and with the old bytes as its inverse it is undoable.
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Saved {
+            name: "Cool Game.png".to_owned(),
+            path: None,
+        });
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(complete_folder()));
+    harness.run_steps(6);
+    assert_eq!(
+        harness.state().pack_undo.len(),
+        1,
+        "a replace is reversible: it holds the bytes it overwrote"
+    );
+}
+
+#[test]
+fn deleting_a_screenshot_asks_first_then_removes_the_file() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label("Delete").click();
+    harness.run();
+    // Nothing is touched until the prompt is answered.
+    assert!(
+        handles.files.borrow().delete_requests.is_empty(),
+        "the file survives until the prompt is answered"
+    );
+    assert!(
+        harness
+            .state()
+            .alerts
+            .iter()
+            .any(|alert| alert.title == "Delete screenshot?"),
+        "deleting a file asks first"
+    );
+
+    act(
+        &mut harness,
+        Action::ConfirmDeleteScreenshot("Cool Game.png".to_owned()),
+    );
+    harness.run_steps(4);
+
+    let requested = handles.files.borrow().delete_requests.clone();
+    assert_eq!(requested.len(), 1, "one file deleted");
+    assert!(requested[0].to_string_lossy().ends_with("Cool Game.png"));
+}
+
+#[test]
+fn a_deleted_screenshot_can_be_undone_back_onto_disk() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    act(
+        &mut harness,
+        Action::ConfirmDeleteScreenshot("Cool Game.png".to_owned()),
+    );
+    // The rescan after the delete: the folder no longer has the .png.
+    handles
+        .files
+        .borrow_mut()
+        .picked_folders
+        .push_back(Ok(single_track_folder()));
+    harness.run_steps(6);
+    assert!(
+        harness.state().pack.as_ref().unwrap().images.is_empty(),
+        "the screenshot is gone from the pack"
+    );
+    assert_eq!(harness.state().pack_undo.len(), 1, "and it is undoable");
+
+    // Undo writes the bytes the app still held straight back to the same path.
+    act(&mut harness, Action::Undo);
+    harness.run_steps(4);
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("the restoring write") {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(path.to_string_lossy().ends_with("Cool Game.png"));
+            assert_eq!(bytes, PNG_FIXTURE, "restored byte for byte");
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+}
+
+#[test]
 fn optimize_saves_a_smaller_screenshot_in_place() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());

@@ -52,6 +52,11 @@ pub(crate) struct FileLog {
     /// Fed to `poll_renamed`, front first.
     pub rename_outcomes: VecDeque<Result<(), String>>,
     pub rename_requests: Vec<(PathBuf, String)>,
+    /// Answers for `delete`, front first; an empty queue succeeds.
+    pub delete_outcomes: VecDeque<Result<(), String>>,
+    pub delete_requests: Vec<PathBuf>,
+    /// The answer to the last `delete`, waiting to be polled.
+    pending_delete: Option<Result<(), String>>,
 }
 
 #[derive(Debug)]
@@ -76,6 +81,18 @@ impl FileService for FakeFileService {
 
     fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
         self.0.borrow_mut().picked_images.pop_front()
+    }
+
+    fn delete(&mut self, path: PathBuf) {
+        let mut log = self.0.borrow_mut();
+        log.delete_requests.push(path);
+        // Deletes succeed unless a test says otherwise, like renames.
+        let outcome = log.delete_outcomes.pop_front().unwrap_or(Ok(()));
+        log.pending_delete = Some(outcome);
+    }
+
+    fn poll_deleted(&mut self) -> Option<Result<(), String>> {
+        self.0.borrow_mut().pending_delete.take()
     }
 
     fn save(&mut self, request: SaveRequest) {

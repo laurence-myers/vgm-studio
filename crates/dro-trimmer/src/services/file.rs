@@ -26,6 +26,7 @@ pub struct NativeFileService {
     /// A screenshot picked for the open pack, on its own channel so it is never
     /// mistaken for a song to open.
     picked_image: Option<Result<PickedFile, String>>,
+    deleted: Option<Result<(), String>>,
     /// One outcome per `save`, oldest first: pack mode saves the description and
     /// the playlist back to back and correlates the outcomes by this order.
     saved: VecDeque<SaveOutcome>,
@@ -100,6 +101,17 @@ impl FileService for NativeFileService {
 
     fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
         self.picked_image.take()
+    }
+
+    fn delete(&mut self, path: PathBuf) {
+        self.deleted = Some(match fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        });
+    }
+
+    fn poll_deleted(&mut self) -> Option<Result<(), String>> {
+        self.deleted.take()
     }
 
     fn save(&mut self, request: SaveRequest) {

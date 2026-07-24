@@ -563,6 +563,27 @@ impl PackState {
         }
     }
 
+    /// The transaction that deletes the screenshot named `name`, with the
+    /// inverse that writes it back from the bytes already in memory -- so a
+    /// deleted screenshot is recoverable for as long as the pack stays open.
+    ///
+    /// Keyed by file name rather than index because a confirm prompt sits
+    /// between the click and the deletion, and a rescan in between can reorder
+    /// the list. `None` when no such image is loaded, or the folder has no path.
+    #[must_use]
+    pub fn delete_image_transaction(&self, name: &str) -> Option<PackTransaction> {
+        let image = self.images.iter().find(|image| image.name == name)?;
+        let path = image.path.clone()?;
+        Some(PackTransaction {
+            label: format!("Delete {name}"),
+            forward: vec![PackMutation::Delete { path: path.clone() }],
+            inverse: vec![PackMutation::Write {
+                path,
+                bytes: image.bytes.to_vec(),
+            }],
+        })
+    }
+
     /// The output deck's verdict: the worst outstanding severity (`None` when
     /// nothing is outstanding at all) and the phrase shown beside its lamp.
     ///
@@ -700,11 +721,16 @@ pub fn reorder_renames(names: &[String], from: usize, to: usize) -> Vec<(String,
 
 /// One reversible file operation on the pack folder, the unit the app's file-op
 /// executor runs. `Rename`'s `to` is a bare name in the same directory; `Write`
-/// overwrites `path` outright.
+/// overwrites `path` outright; `Delete` removes it.
+///
+/// `Delete` is reversible only because its inverse is a `Write` of the bytes the
+/// app still holds in memory, which is why deleting a pack file goes through a
+/// transaction rather than straight to the filesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PackMutation {
     Rename { from: PathBuf, to: String },
     Write { path: PathBuf, bytes: Vec<u8> },
+    Delete { path: PathBuf },
 }
 
 /// A user edit as an ordered list of file mutations, with the exact `inverse`
@@ -1890,15 +1916,30 @@ fn image_facts(
     }
 
     ui.add_space(10.0);
-    // "Recompress", not "Optimize": the deck's Optimize pad is the VGM pipeline's
-    // vgm_cmp step, and two different jobs must not share one word on the same
-    // screen.
-    if bevel::button(ui, palette, "Recompress")
-        .on_hover_text("Losslessly recompress with oxipng and save in place")
-        .clicked()
-    {
-        actions.push(Action::OptimizeImage(index));
-    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        // "Recompress", not "Optimize": the deck's Optimize pad is the VGM
+        // pipeline's vgm_cmp step, and two different jobs must not share one
+        // word on the same screen.
+        if bevel::button(ui, palette, "Recompress")
+            .on_hover_text("Losslessly recompress with oxipng and save in place")
+            .clicked()
+        {
+            actions.push(Action::OptimizeImage(index));
+        }
+        if bevel::button(ui, palette, "Replace\u{2026}")
+            .on_hover_text("Overwrite this file with another .png, keeping its name")
+            .clicked()
+        {
+            actions.push(Action::PackReplaceScreenshot(index));
+        }
+        if bevel::button(ui, palette, "Delete")
+            .on_hover_text("Remove this screenshot from the pack folder (asks first)")
+            .clicked()
+        {
+            actions.push(Action::PackDeleteScreenshot(index));
+        }
+    });
 }
 
 /// The empty state. A screenshot is required for a submission -- its absence is
@@ -2114,7 +2155,7 @@ mod tests {
             .iter()
             .map(|mutation| match mutation {
                 PackMutation::Write { bytes, .. } => modifier_of(bytes),
-                PackMutation::Rename { .. } => panic!("only writes"),
+                other => panic!("only writes, got {other:?}"),
             })
             .collect();
         assert_eq!(
@@ -2141,7 +2182,7 @@ mod tests {
             .iter()
             .map(|mutation| match mutation {
                 PackMutation::Write { bytes, .. } => modifier_of(bytes),
-                PackMutation::Rename { .. } => panic!("only writes"),
+                other => panic!("only writes, got {other:?}"),
             })
             .collect();
         // Each track is boosted to its own full scale, so the quieter one gets the

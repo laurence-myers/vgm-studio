@@ -111,6 +111,14 @@ pub enum Action {
     PackSelectSection(crate::pack::PackSection),
     /// Pick a screenshot and copy it into the open pack's folder.
     PackAddScreenshot,
+    /// Pick a screenshot to overwrite the one at this index.
+    PackReplaceScreenshot(usize),
+    /// Ask whether to delete the screenshot at this index.
+    PackDeleteScreenshot(usize),
+    /// Delete the named screenshot after the user confirmed it. Carries the file
+    /// name, not the index: a rescan between the prompt and the answer can
+    /// reorder the list.
+    ConfirmDeleteScreenshot(String),
     /// Build the release zip and save it (prompts first on soft warnings).
     PackExportZip,
     /// Build the release zip after the user accepted the warnings.
