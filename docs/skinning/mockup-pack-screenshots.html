@@ -1,0 +1,394 @@
+<title>DRO Trimmer — Pack screenshots treatments</title>
+<style>
+  :root{
+    /* Navy case, real engine values (palette.rs) */
+    --desktop:#171F30;
+    --plate-top:#3E5273; --plate-bot:#283A57; --plate-border:#10192A;
+    --bevelL:#5E76A0; --bevelD:#14203A; --keyline:#0A0F1A;
+    --lab:#D6E2F5; --mut:#7E8FB0; --datalab:#B8C6E0; --gold:#F2C766;
+    --well:#0C1414; --stripe:#142020; --hover:#1B2C2C; --trough:#1A2440;
+    --pad-top:#F2F3F3; --pad-bot:#DADDDD; --pad-border:#484C4C; --pad-ink:#1C1E1E;
+    --lit-top:#FBE38C; --lit-bot:#DDB047; --lit-border:#8A6D28; --lit-ink:#3F2E08;
+    --green:#3CC850; --amber:#E6C846; --red:#E04A4A;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCE6F5;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:1080px;margin:0 auto}
+
+  header{margin-bottom:30px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--gold); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:76ch; margin:0 0 8px}
+  .sub b{color:#DCE6F5; font-weight:700}
+  .sub code{color:var(--gold); font-size:12px}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--gold); margin:46px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:#FF9E3D}
+  .verdict{color:var(--mut); font-size:11.5px; margin:0 0 3px; max-width:86ch}
+  .verdict b{color:#DCE6F5}
+  .verdict code{color:var(--gold); font-size:11px}
+  .roles{color:#5F7194; font-size:11px; margin:0 0 12px; max-width:86ch}
+  .roles code{color:var(--gold)}
+  .stripcap{font-size:9.5px; letter-spacing:.06em; color:#5F7194; margin:5px 0 14px}
+
+  /* ---- the mocked section ------------------------------------------------ */
+  .strip{
+    width:820px; max-width:100%;
+    border:1px solid #000; box-shadow:0 0 0 1px var(--keyline);
+    background:var(--desktop); overflow:hidden; position:relative;
+    padding:12px 12px 14px;
+  }
+
+  /* pads: the app's real button chrome */
+  .pad{
+    display:inline-flex; align-items:center; gap:5px;
+    font:700 11px var(--mono); color:var(--pad-ink);
+    background:linear-gradient(var(--pad-top),var(--pad-bot));
+    border:1px solid var(--pad-border); border-radius:4px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.85), 0 1px 0 rgba(0,0,0,.45);
+    padding:4px 10px; white-space:nowrap; user-select:none; cursor:default;
+  }
+  .pad.sm{padding:3px 7px; font-size:10px}
+  .pad svg{display:block}
+
+  .name{color:var(--gold); font-size:11.5px}
+  .meta{color:var(--mut); font-size:11px}
+  .lbl{font-size:9px; letter-spacing:.18em; color:var(--datalab); text-transform:uppercase}
+
+  /* the fake screenshot: a DOS-ish 320x200 title card, drawn not loaded */
+  .shot{
+    display:block; background:
+      radial-gradient(120% 90% at 50% 0%, #2A3C6B 0%, #101A33 60%, #070C18 100%);
+    position:relative; overflow:hidden;
+  }
+  .shot i{position:absolute; display:block; font-style:normal}
+  .shot .title{
+    left:0; right:0; top:26%; text-align:center;
+    font:700 20px var(--mono); letter-spacing:.22em; color:#F2C766;
+    text-shadow:0 2px 0 #7A4A10;
+  }
+  .shot .sub2{
+    left:0; right:0; top:46%; text-align:center;
+    font:700 9px var(--mono); letter-spacing:.34em; color:#8FB6E6;
+  }
+  .shot .bar{left:0; right:0; bottom:0; height:22%;
+    background:linear-gradient(#1B2E52,#0A1224); border-top:1px solid #3E5273}
+  .shot .hud{left:8px; bottom:4%; font:700 8px var(--mono); letter-spacing:.2em; color:#6FE28A}
+  .shot .hud2{right:8px; bottom:4%; font:700 8px var(--mono); letter-spacing:.2em; color:#E6C846}
+
+  /* checkerboard, so transparency and the image's own edges are legible */
+  .checker{
+    background-image:
+      linear-gradient(45deg,#0F1726 25%,transparent 25%,transparent 75%,#0F1726 75%),
+      linear-gradient(45deg,#0F1726 25%,transparent 25%,transparent 75%,#0F1726 75%);
+    background-size:12px 12px; background-position:0 0,6px 6px;
+    background-color:#0A1120;
+  }
+
+  /* S1 -- sunken well */
+  .well{
+    background:var(--well);
+    border:2px solid; border-color:var(--bevelD) var(--bevelL) var(--bevelL) var(--bevelD);
+    padding:10px;
+  }
+  .wellrow{display:flex; align-items:center; gap:8px; margin-bottom:8px}
+
+  /* S2 -- pad-chrome card */
+  .card{
+    background:linear-gradient(var(--plate-top),var(--plate-bot));
+    border:1px solid var(--plate-border); border-radius:4px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.14), 0 2px 0 rgba(0,0,0,.35);
+    padding:9px; display:inline-block;
+  }
+  .card .cap{display:flex; align-items:center; gap:8px; margin-bottom:8px}
+  .card .frame{border:1px solid var(--keyline); box-shadow:inset 0 0 0 1px rgba(94,118,160,.25)}
+  .card .foot{display:flex; align-items:center; gap:8px; margin-top:8px}
+
+  /* S3 -- contact sheet */
+  .sheet{display:flex; gap:10px; flex-wrap:wrap}
+  .cell{width:176px}
+  .cell .thumbwrap{
+    border:2px solid; border-color:var(--bevelD) var(--bevelL) var(--bevelL) var(--bevelD);
+    background:var(--well); padding:4px; position:relative;
+  }
+  .cell.sel .thumbwrap{border-color:var(--lit-border); box-shadow:0 0 0 1px var(--lit-bot)}
+  .cell .cname{font-size:10px; color:var(--gold); margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .cell .cmeta{font-size:9.5px; color:var(--mut)}
+  .badge{
+    position:absolute; top:6px; right:6px; z-index:2;
+    font:700 8px var(--mono); letter-spacing:.14em;
+    background:var(--lit-bot); color:var(--lit-ink);
+    border:1px solid var(--lit-border); border-radius:3px; padding:1px 4px;
+  }
+  .badge.ok{background:var(--green); border-color:#1F7A2E; color:#06210C}
+
+  /* S4 -- slide mount */
+  .mount{
+    display:inline-block; background:linear-gradient(#2A3550,#1D2740);
+    border:1px solid var(--keyline); border-radius:3px;
+    box-shadow:0 2px 0 rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.10);
+    padding:12px 12px 0;
+  }
+  .mount .aperture{border:1px solid #000; box-shadow:inset 0 0 12px rgba(0,0,0,.75)}
+  .mount .plate{
+    margin:0 -12px; margin-top:12px; padding:7px 12px;
+    background:linear-gradient(#222C44,#182034); border-top:1px solid var(--keyline);
+    display:flex; align-items:center; gap:8px; border-radius:0 0 3px 3px;
+  }
+
+  /* S5 -- inspector split */
+  .inspect{display:flex; gap:12px; align-items:flex-start}
+  .inspect .viewport{
+    border:2px solid; border-color:var(--bevelD) var(--bevelL) var(--bevelL) var(--bevelD);
+    background:var(--well); padding:6px;
+  }
+  .facts{flex:1; min-width:0}
+  .facts .grid{display:grid; grid-template-columns:auto 1fr; gap:3px 10px; font-size:10.5px}
+  .facts .k{color:var(--datalab); white-space:nowrap}
+  .facts .v{color:var(--gold); font-variant-numeric:tabular-nums}
+  .facts .v.warn{color:var(--amber)}
+  .facts .actions{display:flex; gap:6px; margin-top:10px; flex-wrap:wrap}
+  .rule{height:2px; margin:10px 0;
+    background:linear-gradient(90deg,var(--bevelD),var(--bevelD));
+    box-shadow:0 1px 0 rgba(94,118,160,.35)}
+
+  /* empty state */
+  .empty{
+    border:1px dashed #3A4A6A; border-radius:4px; padding:22px; text-align:center;
+    color:var(--mut); font-size:11px;
+  }
+  .empty b{display:block; color:#DCE6F5; font-size:12px; margin-bottom:4px}
+</style>
+
+<div class="page">
+<header>
+  <h1>Pack — screenshot treatments</h1>
+  <p class="sub">The Screenshots section currently draws a bare row — file name, byte count, a
+  <b>Recompress</b> pad — and then the raw <code>egui::Image</code> loose on the desktop with nothing
+  around it. At the fixture's 2&times;2 pixels that is a red dot floating in space; at a real
+  320&times;200 title card it is an unframed rectangle with no edge, so a dark screenshot bleeds into
+  the panel behind it.</p>
+  <p class="sub">Five treatments below, all built from chrome the skin engine already has. Every one
+  uses the same stand-in image — a DOS title card — and the same facts: <b>name, pixel size, byte
+  size</b>. They differ in what they optimise for: framing one image, comparing several, or reading
+  the facts that decide whether a screenshot is submission-legal.</p>
+  <p class="sub"><b>Why the facts matter.</b> VGMRips wants a title screen at the game's native
+  resolution. Byte count alone cannot tell you that; <b>pixel dimensions</b> can, and the section does
+  not show them today. Several treatments below surface them, and S5 goes further and checks them.</p>
+</header>
+
+<h2>S0 · Today</h2>
+<p class="verdict">Name, bytes, a pad, then the bare image. No frame, no dimensions, and the caption
+row reads as a sentence rather than a record. The image has no boundary of its own, so a dark
+screenshot has no visible edge against the desk.</p>
+<div class="strip">
+  <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px">
+    <span class="name">Cool Game.png</span>
+    <span class="meta">(24,806 bytes)</span>
+    <span class="pad">Recompress</span>
+  </div>
+  <div class="shot" style="width:320px; height:200px">
+    <i class="title">COOL GAME</i><i class="sub2">SIERRA ON-LINE</i>
+    <i class="bar"></i><i class="hud">SCORE 0000</i><i class="hud2">◆ 1994</i>
+  </div>
+</div>
+<p class="stripcap">The image ends where the dark blue ends — and you cannot tell where that is.</p>
+
+<h2>S1 · Sunken well</h2>
+<p class="verdict"><b>The cheapest fix, and the most consistent.</b> Drop the existing row and image
+into the same sunken data well the track table and the waveform already use. The screenshot becomes
+<i>displayed data</i>, like everything else the app shows you, and the well's dark ground gives any
+image a hard edge. A checkerboard mat behind the image makes transparency and the image's own borders
+legible.</p>
+<p class="roles">well = <code>data_bg</code> + <code>bevel::paint_bevel(Sunken)</code> — already used
+by the track table · no new primitive at all</p>
+<div class="strip">
+  <div class="well">
+    <div class="wellrow">
+      <span class="name">Cool Game.png</span>
+      <span class="meta">320 × 200 · 24,806 bytes</span>
+      <span style="flex:1"></span>
+      <span class="pad sm">Recompress</span>
+    </div>
+    <div class="checker" style="display:inline-block; padding:6px">
+      <div class="shot" style="width:320px; height:200px">
+        <i class="title">COOL GAME</i><i class="sub2">SIERRA ON-LINE</i>
+        <i class="bar"></i><i class="hud">SCORE 0000</i><i class="hud2">◆ 1994</i>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="stripcap">One well per screenshot; several stack down the section.</p>
+
+<h2>S2 · Plate card</h2>
+<p class="verdict"><b>The screenshot as a mounted print.</b> A raised plate card carries the image
+with a keyline frame, its name across the top and the actions along the bottom. It reads as an object
+you can act on rather than a region of the page — which suits a section whose whole job is "is this
+the right picture, and is it small enough". More chrome than S1 for one image; comes into its own
+with two or three.</p>
+<p class="roles">card = <code>plate_top/bottom</code> gradient + <code>plate_border</code> (the same
+recipe as <code>plate_panel</code>, at widget scale) · frame = <code>bevel_border</code> keyline</p>
+<div class="strip">
+  <div class="card">
+    <div class="cap">
+      <span class="lbl">Title screen</span>
+      <span class="name">Cool Game.png</span>
+    </div>
+    <div class="frame checker" style="padding:6px">
+      <div class="shot" style="width:320px; height:200px">
+        <i class="title">COOL GAME</i><i class="sub2">SIERRA ON-LINE</i>
+        <i class="bar"></i><i class="hud">SCORE 0000</i><i class="hud2">◆ 1994</i>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="meta">320 × 200 · 24,806 bytes</span>
+      <span style="flex:1"></span>
+      <span class="pad sm">Recompress</span>
+      <span class="pad sm">Replace…</span>
+    </div>
+  </div>
+</div>
+<p class="stripcap">The card sizes to its image, so a 640-wide shot simply makes a wider card.</p>
+
+<h2>S3 · Contact sheet</h2>
+<p class="verdict"><b>Built for more than one.</b> Fixed-width thumbnail cells in a wrapping grid,
+each with its name and size beneath and a corner badge for state — amber <code>BIG</code> when a file
+is over the submission's comfortable size, green <code>OK</code> once recompressed. The selected cell
+wears the latch amber. Scales to a folder with six screenshots without becoming a mile of scrolling;
+the cost is that no single image is shown large, so it wants a click-to-enlarge.</p>
+<p class="roles">cell = the S1 well at thumbnail scale · selection ring =
+<code>latch_border</code>/<code>latch_bottom</code> · badge = the meter roles</p>
+<div class="strip">
+  <div class="sheet">
+    <div class="cell sel">
+      <div class="thumbwrap"><span class="badge">BIG</span>
+        <div class="checker" style="padding:3px">
+          <div class="shot" style="width:160px; height:100px">
+            <i class="title" style="font-size:11px">COOL GAME</i>
+            <i class="sub2" style="font-size:6px">SIERRA ON-LINE</i>
+            <i class="bar"></i>
+          </div>
+        </div>
+      </div>
+      <div class="cname">Cool Game.png</div>
+      <div class="cmeta">320 × 200 · 24.8 kB</div>
+    </div>
+    <div class="cell">
+      <div class="thumbwrap"><span class="badge ok">OK</span>
+        <div class="checker" style="padding:3px">
+          <div class="shot" style="width:160px; height:100px; background:radial-gradient(120% 90% at 50% 0%, #6B2A2A 0%, #331010 60%, #180707 100%)">
+            <i class="title" style="font-size:11px; color:#F3D2A0">LEVEL 1</i>
+            <i class="bar" style="background:linear-gradient(#52231B,#240A08)"></i>
+          </div>
+        </div>
+      </div>
+      <div class="cname">Cool Game 2.png</div>
+      <div class="cmeta">320 × 200 · 9.1 kB</div>
+    </div>
+    <div class="cell">
+      <div class="thumbwrap"><span class="badge ok">OK</span>
+        <div class="checker" style="padding:3px">
+          <div class="shot" style="width:160px; height:100px; background:radial-gradient(120% 90% at 50% 0%, #1F5140 0%, #0C2A22 60%, #061410 100%)">
+            <i class="title" style="font-size:11px; color:#A8F0C8">ENDING</i>
+            <i class="bar" style="background:linear-gradient(#164034,#06140F)"></i>
+          </div>
+        </div>
+      </div>
+      <div class="cname">Cool Game 3.png</div>
+      <div class="cmeta">320 × 200 · 7.7 kB</div>
+    </div>
+  </div>
+</div>
+<p class="stripcap">Cells are a fixed 176pt so the grid stays on a column rhythm whatever the images do.</p>
+
+<h2>S4 · Slide mount</h2>
+<p class="verdict"><b>The skeuomorphic one.</b> A 35mm slide mount: a thick surround, a hard-shadowed
+aperture the image sits behind, and a silkscreened data plate along the bottom edge. It is the most
+characterful option and the most obviously part of a hardware fascia — and the least practical, since
+the mount costs real vertical space per screenshot and says nothing S1 does not. Worth it only if the
+Screenshots section is meant to feel like a different kind of object from the rest of the app.</p>
+<p class="roles">mount = a darker mix of the plate stops · aperture = <code>bevel_border</code> +
+an inset shadow · plate strip = the deck gradient at widget scale</p>
+<div class="strip">
+  <div class="mount">
+    <div class="aperture checker" style="padding:5px">
+      <div class="shot" style="width:320px; height:200px">
+        <i class="title">COOL GAME</i><i class="sub2">SIERRA ON-LINE</i>
+        <i class="bar"></i><i class="hud">SCORE 0000</i><i class="hud2">◆ 1994</i>
+      </div>
+    </div>
+    <div class="plate">
+      <span class="name">Cool Game.png</span>
+      <span class="meta">320 × 200 · 24,806 bytes</span>
+      <span style="flex:1"></span>
+      <span class="pad sm">Recompress</span>
+    </div>
+  </div>
+</div>
+<p class="stripcap">The mount's surround is deliberately uneven — wider at the base, like the real thing.</p>
+
+<h2>S5 · Inspector (recommended)</h2>
+<p class="verdict"><b>The image beside the facts that decide it.</b> The screenshot sits in an S1 well
+on the left; on the right, the record that actually answers "will VGMRips take this" — dimensions,
+aspect, colour depth, byte size — with anything doubtful in the warning amber and the actions beneath
+it. This is the only treatment that <i>uses</i> the section rather than just decorating it: today the
+app never tells you a screenshot's dimensions, and dimensions are the thing most likely to be wrong.
+The facts pane also gives the empty state somewhere sensible to live.</p>
+<p class="roles">well = S1 · facts = the metadata form's label/value pair, in
+<code>data_label</code>/<code>data_text</code> · warnings reuse <code>meter_mid</code>, so they read
+like the checklist · a readiness item can be added per fact later</p>
+<div class="strip">
+  <div class="inspect">
+    <div class="viewport checker">
+      <div class="shot" style="width:288px; height:180px">
+        <i class="title" style="font-size:18px">COOL GAME</i>
+        <i class="sub2">SIERRA ON-LINE</i>
+        <i class="bar"></i><i class="hud">SCORE 0000</i><i class="hud2">◆ 1994</i>
+      </div>
+    </div>
+    <div class="facts">
+      <div class="lbl" style="margin-bottom:7px">Cool Game.png</div>
+      <div class="grid">
+        <span class="k">Dimensions</span><span class="v">320 × 200</span>
+        <span class="k">Aspect</span><span class="v">8:5 &nbsp;<span style="color:var(--mut)">(VGA mode 13h)</span></span>
+        <span class="k">Colour</span><span class="v">8-bit palette</span>
+        <span class="k">File size</span><span class="v warn">24,806 bytes</span>
+      </div>
+      <div class="rule"></div>
+      <div class="meta" style="font-size:10.5px">
+        <span style="color:var(--amber)">!</span> 6,140 bytes could be saved by recompressing.
+      </div>
+      <div class="actions">
+        <span class="pad sm">Recompress</span>
+        <span class="pad sm">Replace…</span>
+        <span class="pad sm">Show in folder</span>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="stripcap">One inspector per screenshot; with several, S5 stacks or nests inside S3's grid selection.</p>
+
+<h2>E · The empty state (any treatment)</h2>
+<p class="verdict">Today an empty Screenshots section says one muted sentence. Since a screenshot is
+<b>required</b> for a submission and its absence is already a checklist warning, the empty state
+should say so and offer the fix.</p>
+<div class="strip">
+  <div class="empty">
+    <b>No screenshot in this folder</b>
+    A submission needs a title-screen .png at the game's native resolution.
+    <div style="margin-top:12px"><span class="pad">Add Screenshot…</span></div>
+  </div>
+</div>
+
+</div>
