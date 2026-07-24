@@ -152,8 +152,20 @@ so a screenshot is never mistaken for a song to open; defaulted to nothing on th
 trait, so the web build is unaffected), checks it parses as a PNG, and copies it
 in as `<Game Name>.png` — the tooltip names that destination up front rather than
 renaming silently. Saves route through `SavePurpose::ScreenshotAdded`, which
-rescans and stops: it creates a file, and a pack transaction has no delete to undo
-that with. The mockups' **Replace… / Show in folder** pads are still not built.
+rescans and stops: it creates a file, and there is no previous version whose bytes
+could serve as an inverse.
+
+The inspector's three pads are **Recompress / Replace… / Delete**, and the last
+two are reversible. Replace reuses the picker but keeps the replaced file's name,
+writing with the old bytes as its inverse. Delete asks first, then runs as a pack
+transaction — `PackMutation::Delete`, whose inverse is a `Write` of the bytes
+still in memory — so Edit ▸ Undo puts the screenshot back while the pack stays
+open. Its confirm carries the file *name*, since a rescan can reorder the list
+between prompt and answer. `FileService::delete`/`poll_deleted` are defaulted to
+nothing on the trait (web has no pack folder), and only the pack executor issues
+deletes, so an outcome always belongs to the run in flight — no in-flight flag,
+unlike renames, which the quick-edit path also issues. The mockup's **Show in
+folder** pad is still not built.
 
 **Alert boxes scroll.** `alert.rs` caps the message at
 `content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The
