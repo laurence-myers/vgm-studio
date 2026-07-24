@@ -1,20 +1,26 @@
-//! Rotary knobs: a beveled cap with a pointer. A per-channel pan knob, and a
-//! bipolar stereo-spread knob that drives all the pans at once.
+//! Rotary knobs: a domed keycap whose value reads as a 270-degree amber arc. A
+//! per-channel pan knob, and a bipolar stereo-spread knob that drives all the
+//! pans at once.
 //!
-//! Hand-painted in the chunky FT2/demoscene-tracker style of the bevel buttons --
-//! a raised `button_face` cap with a black keyline and a two-tone bevel ring (lit
-//! upper-left, shadowed lower-right), a dark centre hub, and a bright
-//! tracker-yellow pointer sweeping 270 degrees (hard left at 7:30, centre at
-//! 12:00, hard right at 4:30). They report themselves as sliders to accessibility
-//! and egui_kittest, so the GUI tests can find and drag them. Pans are bytes:
-//! `0x00` hard left, `0x80` centre, `0xFF` hard right. Spread is `-1.0..=1.0`:
-//! `0.0` mono, the extremes a wide image (its sign mirrors the sides).
+//! Painted in the pad chrome's language, so the knob follows the selected pad
+//! surface (theme default, or a Light/Dark/Grey/Tint override) exactly as the
+//! channel digits under it do: a domed cap in the [`pad_caps`] colours, sunk into
+//! a dark channel, lit from the upper-left. The value is a full-radius arc in the
+//! hardware latch amber, sweeping from 12 o'clock toward the position (hard left
+//! at 7:30, hard right at 4:30); at unity (centre / mono) the arc is unlit, so the
+//! knob rests as a plain cap, matching the pads at rest. There is no pointer or
+//! centre hub. They report themselves as sliders to accessibility and egui_kittest,
+//! so the GUI tests can find and drag them. Pans are bytes: `0x00` hard left,
+//! `0x80` centre, `0xFF` hard right. Spread is `-1.0..=1.0`: `0.0` mono, the
+//! extremes a wide image (its sign mirrors the sides).
 
 use core::cmp::Ordering;
 
-use egui::{Pos2, Response, Sense, Shape, Stroke, Ui, vec2};
+use egui::epaint::Mesh;
+use egui::{Color32, Pos2, Response, Sense, Shape, Stroke, Ui, vec2};
 
-use crate::theme::Palette;
+use crate::theme::paint::{darken, lerp_color, lighten};
+use crate::theme::{Palette, deck_stops, pad_caps};
 
 /// The knob's square side, in points. Shared with the channel grid so each digit
 /// toggle sits in a cell of exactly this width, centred under its knob.
@@ -199,8 +205,8 @@ pub fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str
     response.on_hover_text(spread_readout(*spread))
 }
 
-/// A circular arc as a stroked polyline, for the two-tone bevel ring. Angles are
-/// in degrees, clockwise from 3 o'clock in egui's y-down space.
+/// A circular arc as a stroked polyline (the value arc, the cap glint and rim).
+/// Angles are in degrees, clockwise from 3 o'clock in egui's y-down space.
 fn arc(center: Pos2, radius: f32, from_deg: f32, to_deg: f32, stroke: Stroke) -> Shape {
     const SEGMENTS: usize = 20;
     let points = (0..=SEGMENTS)
@@ -212,53 +218,100 @@ fn arc(center: Pos2, radius: f32, from_deg: f32, to_deg: f32, stroke: Stroke) ->
     Shape::line(points, stroke)
 }
 
-/// Paints the raised beveled cap, centre hub, and pointer for a pan `value`.
+/// A radially-shaded filled disc: `inner` at the centre fading to `outer` at the
+/// rim, as a triangle fan. Fakes the domed keycap's sheen (epaint has no radial
+/// gradient primitive), the way the pad caps read as slightly domed.
+fn disc(center: Pos2, radius: f32, inner: Color32, outer: Color32) -> Shape {
+    const SEGMENTS: usize = 32;
+    let mut mesh = Mesh::default();
+    let hub = mesh.vertices.len() as u32;
+    mesh.colored_vertex(center, inner);
+    for i in 0..=SEGMENTS {
+        let t = (i as f32 / SEGMENTS as f32) * std::f32::consts::TAU;
+        mesh.colored_vertex(center + vec2(t.cos() * radius, t.sin() * radius), outer);
+    }
+    for i in 0..SEGMENTS as u32 {
+        mesh.add_triangle(hub, hub + 1 + i, hub + 2 + i);
+    }
+    Shape::mesh(mesh)
+}
+
+/// Paints the domed cap and its value arc for a pan `value`.
 fn paint(ui: &Ui, rect: egui::Rect, palette: &Palette, value: u8, enabled: bool) {
     paint_dial(ui, rect, palette, dot_angle(value), enabled);
 }
 
-/// Paints the knob with its pointer at `theta` radians clockwise from straight
-/// up. Shared by the pan knob ([`dot_angle`]) and the spread knob.
+/// Paints the knob with its value arc sweeping from 12 o'clock to `theta` radians
+/// clockwise from straight up. At `theta == 0` (unity) the arc is unlit. Shared by
+/// the pan knob ([`dot_angle`]) and the spread knob.
 fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled: bool) {
     let painter = ui.painter();
     let c = rect.center();
-    let r = rect.width().min(rect.height()) / 2.0 - 1.0;
+    // Scale every measure off the drawn size, so the recipe holds at any DPI.
+    let s = rect.width().min(rect.height()) / SIZE;
+    let r = rect.width().min(rect.height()) / 2.0 - s;
+    let r_track = r - 1.7 * s;
+    let track_w = 3.0 * s;
+    let r_cap = r - 3.6 * s;
 
-    // The cap body and its black keyline.
-    let body = if enabled {
-        palette.button_face
+    // Cap colours follow the selected pad surface, as the digit pads do. Disabled
+    // sinks the cap toward the deck it sits on and shows the position in a muted
+    // ink rather than lighting the amber.
+    let caps = pad_caps(palette);
+    let (cap_top, cap_bottom, border, arc_ink) = if enabled {
+        (caps.top, caps.bottom, caps.border, palette.latch_bottom)
     } else {
-        palette.face
+        let (deck_top, deck_bottom) = deck_stops(palette);
+        let deck_mid = lerp_color(deck_top, deck_bottom, 0.5);
+        let cap_mid = lerp_color(caps.top, caps.bottom, 0.5);
+        let dim = lerp_color(cap_mid, deck_mid, 0.45);
+        (
+            lighten(dim, 0.06),
+            darken(dim, 0.06),
+            lerp_color(caps.border, deck_mid, 0.45),
+            palette.muted,
+        )
     };
-    painter.circle_filled(c, r, body);
-    painter.circle_stroke(c, r, Stroke::new(1.0, palette.bevel_border));
 
-    // The two-tone bevel ring just inside the keyline: lit on the upper-left half
-    // (135 deg -> 315 deg through the top), shadowed on the lower-right. y is down,
-    // so 270 deg is the top of the circle and 180 deg the left.
-    let (lit, shadow) = if enabled {
-        (palette.bevel_light, palette.bevel_dark)
-    } else {
-        (palette.muted, palette.bevel_dark)
-    };
-    let ring = r - 1.0;
-    painter.add(arc(c, ring, 135.0, 315.0, Stroke::new(1.5, lit)));
-    painter.add(arc(c, ring, -45.0, 135.0, Stroke::new(1.5, shadow)));
+    // The dark channel the cap sinks into: a translucent recess over the deck,
+    // framed by the cap keyline.
+    painter.circle_filled(c, r, Color32::from_black_alpha(0x60));
+    painter.circle_stroke(c, r, Stroke::new(s, border));
 
-    // The pointer: a bold radial line from the hub to the rim, capped with a bright
-    // dot, in the tracker-yellow data colour (dimmed when disabled).
-    let dir = vec2(theta.sin(), -theta.cos());
-    let ink = if enabled {
-        palette.data_text
-    } else {
-        palette.muted
-    };
-    let tip = c + dir * (r - 2.0);
-    painter.line_segment([c + dir * 2.5, tip], Stroke::new(2.0, ink));
-    painter.circle_filled(tip, 1.7, ink);
+    // The value: a full-radius arc from 12 o'clock to the position, round-capped.
+    // Nothing paints at unity, so the knob rests unlit like the pads.
+    if theta.abs() > 0.01 {
+        let to = theta.to_degrees() - 90.0;
+        painter.add(arc(c, r_track, -90.0, to, Stroke::new(track_w, arc_ink)));
+        let cap_r = track_w / 2.0;
+        painter.circle_filled(c - vec2(0.0, r_track), cap_r, arc_ink);
+        let end = c + vec2(to.to_radians().cos() * r_track, to.to_radians().sin() * r_track);
+        painter.circle_filled(end, cap_r, arc_ink);
+    }
 
-    // A small dark hub anchoring the pointer.
-    painter.circle_filled(c, 2.0, palette.bevel_dark);
+    // The domed cap: a radial disc lit from the upper-left (glint) and shaded on
+    // the lower-right (rim), in the pad language. No pointer -- the arc is the read.
+    painter.add(disc(
+        c,
+        r_cap,
+        lighten(cap_top, 0.30),
+        darken(cap_bottom, 0.18),
+    ));
+    painter.circle_stroke(c, r_cap, Stroke::new(0.8 * s, darken(cap_bottom, 0.40)));
+    painter.add(arc(
+        c,
+        r_cap - 1.1 * s,
+        -155.0,
+        -45.0,
+        Stroke::new(s, Color32::from_white_alpha(115)),
+    ));
+    painter.add(arc(
+        c,
+        r_cap,
+        -10.0,
+        100.0,
+        Stroke::new(s, Color32::from_black_alpha(64)),
+    ));
 }
 
 #[cfg(test)]

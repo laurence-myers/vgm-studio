@@ -17,6 +17,7 @@ mod style;
 
 pub use dro_core::config::{SurfaceChoice, ThemeChoice};
 pub use palette::{Palette, Surface, palette};
+pub(crate) use palette::{deck_stops, pad_caps};
 
 /// The palette for `choice` with the configured pad/deck overrides applied.
 /// `SurfaceChoice::ThemeDefault` leaves the case's own treatment alone, so a
@@ -145,7 +146,7 @@ pub fn plate_panel<R>(
 /// mode resolves to (the plate when `Tint`, else a fixed light/dark preset).
 /// The deck is the control-panel surface the pads sit on.
 pub fn deck_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
-    let (top, bottom) = palette::deck_stops(palette);
+    let (top, bottom) = deck_stops(palette);
     paint::plate_mesh(rect, top, bottom)
 }
 
@@ -154,7 +155,7 @@ pub fn deck_shape(rect: egui::Rect, palette: &Palette) -> egui::Shape {
 /// wrong on it -- a light deck needs dark text. Picks by the deck's luminance.
 #[must_use]
 pub fn deck_ink(palette: &Palette) -> egui::Color32 {
-    let (top, bottom) = palette::deck_stops(palette);
+    let (top, bottom) = deck_stops(palette);
     let mid = paint::lerp_color(top, bottom, 0.5);
     if paint::is_light(mid) {
         paint::darken(mid, 0.80)
