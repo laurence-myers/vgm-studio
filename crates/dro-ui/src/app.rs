@@ -2261,9 +2261,18 @@ impl DroApp {
         // Only errors block and only warnings prompt; the note tier is for the
         // submission checklist and deliberately never reaches the export dialog.
         if !validations.warnings.is_empty() && !confirmed {
+            // The title already asks the question, so the body is just the list
+            // -- repeating it at the end would only bury it under a scroll when
+            // a pack trips a lot of checks.
+            let listed = validations
+                .warnings
+                .iter()
+                .map(|warning| format!("\u{2022} {warning}"))
+                .collect::<Vec<_>>()
+                .join("\n");
             self.alerts.push_back(Alert::confirm(
                 "Export anyway?",
-                format!("{}\n\nExport anyway?", validations.warnings.join("\n")),
+                format!("These submission checks did not pass:\n\n{listed}"),
                 Action::ConfirmExportZip,
             ));
             return;

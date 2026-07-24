@@ -3221,6 +3221,19 @@ fn snapshot_pack_screenshots() {
 }
 
 #[test]
+fn snapshot_export_warning_dialog() {
+    // The app's own default window, and a pack that trips eight checks: the box
+    // has to stay inside the screen with its buttons reachable, which means the
+    // list scrolls rather than the box growing.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(800.0, 600.0));
+    open_folder(&mut harness, &handles, dirty_folder());
+    harness.run();
+    harness.get_by_label("Export Zip\u{2026}").click();
+    harness.run();
+    settled_snapshot(&mut harness, "export_warning_dialog");
+}
+
+#[test]
 fn snapshot_pack_checklist_narrow() {
     // The app's own default window width. The checklist's longest messages run
     // past 90 characters, and an extending line used to overflow the panel and

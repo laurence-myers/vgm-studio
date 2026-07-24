@@ -59,11 +59,24 @@ pub fn show_front(
     let is_confirm = alert.confirm.is_some();
     let mut dismissed = false;
     let mut confirmed = false;
+    // Leave room for the heading, the divider, the button row and the window
+    // margins; the body gets whatever is left of the screen.
+    const CHROME_HEIGHT: f32 = 180.0;
+    let body_height = (ctx.content_rect().height() - CHROME_HEIGHT).max(120.0);
     let modal = egui::Modal::new(egui::Id::new("alert-modal")).show(ctx, |ui| {
         ui.set_max_width(420.0);
         ui.heading(&alert.title);
         ui.separator();
-        ui.label(&alert.message);
+        // The message can be a long list -- the pre-export prompt names every
+        // check that did not pass -- so cap it and scroll rather than letting
+        // the box grow until its buttons are off the bottom of the screen.
+        // Height shrinks to fit, so a one-line alert is still a small box.
+        egui::ScrollArea::vertical()
+            .max_height(body_height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                ui.label(&alert.message);
+            });
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if is_confirm && bevel::button(ui, palette, "Cancel").clicked() {
