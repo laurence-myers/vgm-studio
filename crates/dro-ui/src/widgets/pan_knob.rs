@@ -7,8 +7,9 @@
 //! channel digits under it do: a domed cap in the [`pad_caps`] colours, sunk into
 //! a dark channel, lit from the upper-left. The value is a full-radius arc in the
 //! hardware latch amber, sweeping from 12 o'clock toward the position (hard left
-//! at 7:30, hard right at 4:30); at unity (centre / mono) the arc is unlit, so the
-//! knob rests as a plain cap, matching the pads at rest. There is no pointer or
+//! at 7:30, hard right at 4:30). A slim line on the cap marks the exact position,
+//! lining up with the arc's tip; at unity (centre / mono) the arc is unlit and the
+//! line points straight up, so the knob rests quietly like the pads. There is no
 //! centre hub. They report themselves as sliders to accessibility and egui_kittest,
 //! so the GUI tests can find and drag them. Pans are bytes: `0x00` hard left,
 //! `0x80` centre, `0xFF` hard right. Spread is `-1.0..=1.0`: `0.0` mono, the
@@ -258,8 +259,14 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
     // sinks the cap toward the deck it sits on and shows the position in a muted
     // ink rather than lighting the amber.
     let caps = pad_caps(palette);
-    let (cap_top, cap_bottom, border, arc_ink) = if enabled {
-        (caps.top, caps.bottom, caps.border, palette.latch_bottom)
+    let (cap_top, cap_bottom, border, arc_ink, pointer_ink) = if enabled {
+        (
+            caps.top,
+            caps.bottom,
+            caps.border,
+            palette.latch_bottom,
+            caps.ink,
+        )
     } else {
         let (deck_top, deck_bottom) = deck_stops(palette);
         let deck_mid = lerp_color(deck_top, deck_bottom, 0.5);
@@ -270,6 +277,7 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
             darken(dim, 0.06),
             lerp_color(caps.border, deck_mid, 0.45),
             palette.muted,
+            lerp_color(caps.ink, dim, 0.5),
         )
     };
 
@@ -290,7 +298,7 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
     }
 
     // The domed cap: a radial disc lit from the upper-left (glint) and shaded on
-    // the lower-right (rim), in the pad language. No pointer -- the arc is the read.
+    // the lower-right (rim), in the pad language.
     painter.add(disc(
         c,
         r_cap,
@@ -312,6 +320,14 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
         100.0,
         Stroke::new(s, Color32::from_black_alpha(64)),
     ));
+
+    // A slim position marker on the cap, pointing at the value so it lines up with
+    // the arc's tip (straight up, marking centre, when the arc is unlit). Drawn
+    // last, on top of the dome.
+    let dir = vec2(theta.sin(), -theta.cos());
+    let tip = c + dir * (r_cap - 0.6 * s);
+    painter.line_segment([c + dir * (1.2 * s), tip], Stroke::new(1.6 * s, pointer_ink));
+    painter.circle_filled(tip, 0.9 * s, pointer_ink);
 }
 
 #[cfg(test)]
