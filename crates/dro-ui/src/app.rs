@@ -417,26 +417,26 @@ impl DroApp {
                     menus::bar(ui, p, &self.menu_state(), &mut actions);
                 });
             });
-        // The tab strip switches the editor and pack views; shown only while a
-        // pack project is open (otherwise the app is always the editor).
-        let tabs = self.pack.is_some().then(|| {
-            egui::Panel::top("tab-strip")
-                .frame(chrome)
-                .show_separator_line(false)
-                .show(ui, |ui| {
-                    theme::plate_panel(ui, p, |ui| {
-                        // The views, and the labels naming them, in strip order.
-                        const VIEWS: [AppTab; 2] = [AppTab::Editor, AppTab::Pack];
-                        const LABELS: [&str; 2] = ["Editor", "Pack"];
-                        let selected = VIEWS.iter().position(|t| *t == self.active_tab);
-                        if let Some(i) =
-                            theme::tabs::strip(ui, p, &LABELS, selected.unwrap_or(0))
-                        {
-                            actions.push(Action::SelectTab(VIEWS[i]));
-                        }
-                    });
-                })
-        });
+        // The tab strip switches the editor and pack views. It is always present,
+        // so the app keeps one shape; Pack is simply greyed until a pack project
+        // is open, which says the view exists rather than hiding it.
+        let tabs = egui::Panel::top("tab-strip")
+            .frame(chrome)
+            .show_separator_line(false)
+            .show(ui, |ui| {
+                theme::plate_panel(ui, p, |ui| {
+                    // The views, in strip order, with the labels naming them.
+                    const VIEWS: [AppTab; 2] = [AppTab::Editor, AppTab::Pack];
+                    let strip = [
+                        theme::tabs::Tab::new("Editor"),
+                        theme::tabs::Tab::new("Pack").enabled(self.pack.is_some()),
+                    ];
+                    let selected = VIEWS.iter().position(|t| *t == self.active_tab);
+                    if let Some(i) = theme::tabs::strip(ui, p, &strip, selected.unwrap_or(0)) {
+                        actions.push(Action::SelectTab(VIEWS[i]));
+                    }
+                });
+            });
         // The editor-only panels (waveform, transport/boost, position) are hidden
         // on the pack tab, which owns the whole central area.
         let editor_tab = self.active_tab == AppTab::Editor;
@@ -666,10 +666,7 @@ impl DroApp {
         let divider = ctx.layer_painter(egui::LayerId::background());
         let x_range = ctx.viewport_rect().x_range();
         // Only the panels actually drawn this frame contribute a seam.
-        let mut seams = vec![menu.response.rect.bottom()];
-        if let Some(tabs) = &tabs {
-            seams.push(tabs.response.rect.bottom());
-        }
+        let mut seams = vec![menu.response.rect.bottom(), tabs.response.rect.bottom()];
         if let Some(waveform) = &waveform {
             seams.push(waveform.response.rect.bottom());
         }
@@ -687,9 +684,7 @@ impl DroApp {
         // Keep the modeless dialogs off the menu bar and tab strip: since
         // egui 0.35 the panels above no longer reserve context space, so an
         // unconstrained window auto-places at the top of the viewport.
-        let chrome_bottom = tabs
-            .as_ref()
-            .map_or(menu.response.rect.bottom(), |t| t.response.rect.bottom());
+        let chrome_bottom = tabs.response.rect.bottom();
         let dialog_area = egui::Rect::from_min_max(
             egui::pos2(ctx.content_rect().left(), chrome_bottom),
             ctx.content_rect().max,

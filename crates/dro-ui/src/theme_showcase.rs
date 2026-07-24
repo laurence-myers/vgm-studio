@@ -158,14 +158,24 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             pads_and_icons(ui, p);
 
             section(ui, p, "View tabs");
-            // Live then greyed, so a case guards both the lit display ink and the
-            // disabled one. The return value is the app's business, not the
-            // showcase's.
+            // All live, then one view barred, then the whole strip greyed -- so a
+            // case guards the lit display ink and both routes to the dim one. The
+            // return value is the app's business, not the showcase's.
             ui.horizontal(|ui| {
-                let _ = theme::tabs::strip(ui, p, &["Editor", "Pack"], 0);
+                let all = [
+                    theme::tabs::Tab::new("Editor"),
+                    theme::tabs::Tab::new("Pack"),
+                ];
+                let barred = [
+                    theme::tabs::Tab::new("Editor"),
+                    theme::tabs::Tab::new("Pack").enabled(false),
+                ];
+                let _ = theme::tabs::strip(ui, p, &all, 0);
+                ui.add_space(12.0);
+                let _ = theme::tabs::strip(ui, p, &barred, 0);
                 ui.add_space(12.0);
                 ui.add_enabled_ui(false, |ui| {
-                    let _ = theme::tabs::strip(ui, p, &["Editor", "Pack"], 0);
+                    let _ = theme::tabs::strip(ui, p, &all, 0);
                 });
             });
             theme::separator_full(ui, p);

@@ -34,21 +34,53 @@ const CELL_RADIUS: u8 = 2;
 /// How far a disabled label falls toward the well behind it.
 const DISABLED_SINK: f32 = 0.45;
 
-/// Draws the display tab strip for `labels`, with `selected` lit. Returns the
-/// index clicked this frame, if any.
+/// One tab in a [`strip`]: the view's name, and whether it can be entered.
+#[derive(Debug, Clone, Copy)]
+pub struct Tab<'a> {
+    /// The label, and the accessible name the GUI tests find the cell by.
+    pub label: &'a str,
+    /// Whether the view can be entered right now. A disabled tab keeps its place
+    /// in the strip -- so the app's shape does not change as state comes and
+    /// goes -- but is greyed and inert, saying the view exists yet is not
+    /// available.
+    pub enabled: bool,
+}
+
+impl<'a> Tab<'a> {
+    /// A tab whose view can be entered.
+    #[must_use]
+    pub const fn new(label: &'a str) -> Self {
+        Self {
+            label,
+            enabled: true,
+        }
+    }
+
+    /// The same tab, enterable only when `enabled`.
+    #[must_use]
+    pub const fn enabled(self, enabled: bool) -> Self {
+        Self {
+            label: self.label,
+            enabled,
+        }
+    }
+}
+
+/// Draws the display tab strip for `tabs`, with `selected` lit. Returns the
+/// index clicked this frame, if any; a disabled tab never reports a click.
 ///
-/// Wrap the call in `ui.add_enabled_ui(false, ..)` (or any disabled scope) to
-/// grey the whole strip: the labels sink toward the well and the cells stop
-/// responding to the pointer.
-pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -> Option<usize> {
+/// Disable a single view with [`Tab::enabled`], or wrap the whole call in
+/// `ui.add_enabled_ui(false, ..)` to grey the strip entire. Either way the
+/// affected labels sink toward the well and stop answering the pointer.
+pub fn strip(ui: &mut Ui, palette: &Palette, tabs: &[Tab], selected: usize) -> Option<usize> {
     let font = egui::TextStyle::Button.resolve(ui.style());
     // `PLACEHOLDER` is the recolour sentinel: the ink is chosen per cell at paint
     // time, once its lit/dim state is known.
-    let galleys: Vec<_> = labels
+    let galleys: Vec<_> = tabs
         .iter()
-        .map(|text| {
+        .map(|tab| {
             ui.fonts_mut(|fonts| {
-                fonts.layout_no_wrap((*text).to_owned(), font.clone(), Color32::PLACEHOLDER)
+                fonts.layout_no_wrap(tab.label.to_owned(), font.clone(), Color32::PLACEHOLDER)
             })
         })
         .collect();
@@ -62,8 +94,7 @@ pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -
         .iter()
         .map(|g| g.size().x + CELL_PAD_X * 2.0)
         .collect();
-    let inner_w =
-        cell_w.iter().sum::<f32>() + GAP * labels.len().saturating_sub(1) as f32;
+    let inner_w = cell_w.iter().sum::<f32>() + GAP * tabs.len().saturating_sub(1) as f32;
     // The well's own response carries a unique auto id; the cells hang off it, so
     // two strips in one `Ui` never collide.
     let (well, well_response) = ui.allocate_exact_size(
@@ -71,7 +102,7 @@ pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -
         Sense::hover(),
     );
 
-    let enabled = ui.is_enabled();
+    let strip_live = ui.is_enabled();
     if ui.is_rect_visible(well) {
         paint_well(ui, well, palette);
     }
@@ -79,14 +110,20 @@ pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -
     let mut clicked = None;
     let mut x = well.left() + WELL_PAD;
     for (i, galley) in galleys.into_iter().enumerate() {
+        let tab = tabs[i];
+        // A cell answers the pointer only if the strip is live *and* its own view
+        // is available.
+        let live = strip_live && tab.enabled;
         let cell = Rect::from_min_size(pos2(x, well.top() + WELL_PAD), vec2(cell_w[i], cell_h));
         x += cell_w[i] + GAP;
 
-        let response = ui.interact(cell, well_response.id.with(i), Sense::click());
+        // A dead cell senses hover only, so it cannot be clicked and shows no
+        // interaction cursor.
+        let sense = if live { Sense::click() } else { Sense::hover() };
+        let response = ui.interact(cell, well_response.id.with(i), sense);
         let lit = i == selected;
-        let label = labels[i];
         response.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, enabled, lit, label)
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, live, lit, tab.label)
         });
         if response.clicked() {
             clicked = Some(i);
@@ -104,10 +141,10 @@ pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -
             let ring = lerp_color(
                 palette.data_text,
                 palette.data_bg,
-                if enabled { 0.72 } else { 0.86 },
+                if live { 0.72 } else { 0.86 },
             );
             painter.rect_stroke(cell, radius, Stroke::new(1.0, ring), StrokeKind::Inside);
-        } else if response.hovered() {
+        } else if live && response.hovered() {
             painter.rect_filled(cell, radius, Color32::from_white_alpha(13));
         }
 
@@ -116,7 +153,7 @@ pub fn strip(ui: &mut Ui, palette: &Palette, labels: &[&str], selected: usize) -
         } else {
             palette.data_label
         };
-        let ink = if enabled {
+        let ink = if live {
             base
         } else {
             lerp_color(base, palette.data_bg, DISABLED_SINK)
@@ -167,32 +204,53 @@ mod tests {
     use crate::theme::ThemeChoice;
     use egui_kittest::kittest::Queryable as _;
 
-    /// What the harness drives: which view is lit, and whether the strip is live.
+    /// What the harness drives: which view is lit, whether the whole strip is
+    /// live, and whether the second view can be entered.
     struct State {
         selected: usize,
-        enabled: bool,
+        strip_enabled: bool,
+        second_enabled: bool,
+    }
+
+    impl State {
+        fn new() -> Self {
+            Self {
+                selected: 0,
+                strip_enabled: true,
+                second_enabled: true,
+            }
+        }
     }
 
     /// Renders one strip, feeding clicks back into `selected` the way the app does.
     fn show(ui: &mut Ui, state: &mut State) {
         let palette = super::super::palette::palette(ThemeChoice::Navy);
-        let enabled = state.enabled;
+        let tabs = [
+            Tab::new("Editor"),
+            Tab::new("Pack").enabled(state.second_enabled),
+        ];
+        let enabled = state.strip_enabled;
         ui.add_enabled_ui(enabled, |ui| {
-            if let Some(i) = strip(ui, palette, &["Editor", "Pack"], state.selected) {
+            if let Some(i) = strip(ui, palette, &tabs, state.selected) {
                 state.selected = i;
             }
         });
     }
 
-    #[test]
-    fn clicking_a_tab_selects_it() {
+    /// A harness over [`show`], with `tweak` applied to the initial state.
+    fn harness(tweak: impl FnOnce(&mut State)) -> egui_kittest::Harness<'static, State> {
+        let mut state = State::new();
+        tweak(&mut state);
         let mut harness = egui_kittest::Harness::builder()
             .with_size(vec2(240.0, 60.0))
-            .build_ui_state(show, State {
-                selected: 0,
-                enabled: true,
-            });
+            .build_ui_state(show, state);
         harness.run();
+        harness
+    }
+
+    #[test]
+    fn clicking_a_tab_selects_it() {
+        let mut harness = harness(|_| {});
         // The cells report as selectable labels, so the app's GUI tests can keep
         // driving them by name.
         harness.get_by_label("Pack").click();
@@ -206,13 +264,7 @@ mod tests {
 
     #[test]
     fn a_disabled_strip_ignores_clicks() {
-        let mut harness = egui_kittest::Harness::builder()
-            .with_size(vec2(240.0, 60.0))
-            .build_ui_state(show, State {
-                selected: 0,
-                enabled: false,
-            });
-        harness.run();
+        let mut harness = harness(|s| s.strip_enabled = false);
         harness.get_by_label("Pack").click();
         harness.run();
         assert_eq!(
@@ -220,5 +272,24 @@ mod tests {
             0,
             "a greyed strip cannot change the view"
         );
+    }
+
+    #[test]
+    fn a_disabled_tab_ignores_clicks_while_its_neighbour_still_works() {
+        let mut harness = harness(|s| s.second_enabled = false);
+        harness.get_by_label("Pack").click();
+        harness.run();
+        assert_eq!(
+            harness.state().selected,
+            0,
+            "an unavailable view cannot be entered"
+        );
+
+        // The rest of the strip is unaffected -- only the one view is barred.
+        harness.state_mut().selected = 1;
+        harness.run();
+        harness.get_by_label("Editor").click();
+        harness.run();
+        assert_eq!(harness.state().selected, 0, "its neighbour still selects");
     }
 }

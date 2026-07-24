@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use egui::{Key, Modifiers};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable as _;
+use egui_kittest::kittest::{NodeT as _, Queryable as _};
 
 use dro_core::Song;
 use dro_core::config::{AppConfig, ThemeChoice};
@@ -2035,12 +2035,43 @@ fn opening_a_folder_switches_to_the_pack_tab_and_prefills() {
         // The fake reports a fixed "today", so the history line is deterministic.
         assert_eq!(meta.history, "1.00 2026-07-16 Ripper: Initial release.");
     }
-    // The tab strip is now shown ("Editor" is unique to it).
+    assert!(harness.state().status.contains("Cool Game"));
+}
+
+/// Whether the Pack *tab* is greyed. The menu bar carries a "Pack" menu button
+/// with the same label, so pick the node reporting a selected state -- only the
+/// tab cells do.
+fn pack_tab_is_barred(harness: &Harness<'static, DroApp>) -> bool {
+    harness
+        .get_all_by_label("Pack")
+        .find(|node| node.accesskit_node().toggled().is_some())
+        .expect("the Pack tab cell")
+        .accesskit_node()
+        .is_disabled()
+}
+
+#[test]
+fn the_pack_tab_is_barred_until_a_pack_is_open() {
+    let (mut harness, handles) = empty_harness();
+
+    // The strip is part of the app's furniture, not something opening a pack
+    // conjures up.
     assert!(
         harness.query_by_label("Editor").is_some(),
-        "tab strip appears"
+        "the tab strip is always present"
     );
-    assert!(harness.state().status.contains("Cool Game"));
+    assert!(
+        pack_tab_is_barred(&harness),
+        "with no pack open the Pack view cannot be entered"
+    );
+    assert_eq!(harness.state().active_tab, AppTab::Editor);
+
+    open_folder(&mut harness, &handles, cool_game_folder());
+
+    assert!(
+        !pack_tab_is_barred(&harness),
+        "opening a pack frees the tab"
+    );
 }
 
 #[test]
