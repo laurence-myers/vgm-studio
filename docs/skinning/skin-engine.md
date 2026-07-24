@@ -167,6 +167,25 @@ deletes, so an outcome always belongs to the run in flight — no in-flight flag
 unlike renames, which the quick-edit path also issues. The mockup's **Show in
 folder** pad is still not built.
 
+**Scroll handles ink with `fg_stroke`, not `bg_fill`.** `spacing.scroll.
+foreground_color = true`. A solid bar defaults to the face colour, and every
+case's face sits close to its own trough — barely 1.6:1 on petrol — so the handle
+read as part of the channel. `label` is the case's silkscreen ink, dark on the
+light cases and light on the dark ones, so it always lands opposite the trough.
+The cost is no hover tint on the handle.
+
+**Nothing in a scrolling view may extend.** A widget laid out with
+`TextWrapMode::Extend` overflows the panel and is painted *over* the vertical
+scroll bar, burying the handle — diagnosed by the user by widening the window
+until the text fit and the handle reappeared. Both checklist line kinds wrap
+now (a plain `Label` extends inside a row, so it needs `.wrap()` explicitly),
+and the loop note lists its tracks one per line rather than comma-joining them.
+
+**Petrol is the default case** (2026-07-25), with `pad: Surface::Light` —
+`dark_plate_case!` takes an optional pad surface for exactly this. Flipping the
+default also needs `src/drotrim.ini` and the `dro-core` config tests, plus the
+Settings theme tests in `app_gui_tests.rs`, which name the default twice.
+
 **Alert boxes scroll.** `alert.rs` caps the message at
 `content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The
 pre-export prompt lists every failed check and used to grow a box taller than
