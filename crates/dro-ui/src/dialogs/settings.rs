@@ -196,11 +196,7 @@ impl SettingsDialog {
 
                     ui.label("Tail length (ms)")
                         .on_hover_text("How much the \"play last X seconds\" button plays");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.tail_length)
-                            .text_color(palette.data_text)
-                            .desired_width(100.0),
-                    );
+                    super::text_field(ui, palette, &mut self.tail_length, 100.0);
                     ui.end_row();
 
                     ui.label("Theme").on_hover_text(

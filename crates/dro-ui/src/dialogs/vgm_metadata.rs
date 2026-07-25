@@ -11,6 +11,11 @@ use dro_core::Song;
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
+/// These fields all hold a number, so they are sized for one rather than
+/// stretched across the dialog. They still wrap and grow rather than hiding
+/// whatever ends up typed or pasted into them.
+const FIELD_WIDTH: f32 = 160.0;
+
 #[derive(Debug)]
 pub struct VgmMetadataDialog {
     loop_point: String,
@@ -89,19 +94,17 @@ impl VgmMetadataDialog {
                 .show(ui, |ui| {
                     ui.label("Loop start (instruction):");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.loop_point)
-                            .hint_text("empty = no loop")
-                            .text_color(palette.data_text)
-                            .desired_width(160.0),
+                        super::wrapping_edit(&mut self.loop_point, palette, FIELD_WIDTH, 1)
+                            .return_key(None)
+                            .hint_text("empty = no loop"),
                     );
                     ui.end_row();
 
                     ui.label("Loop end (instruction):");
                     ui.add(
-                        egui::TextEdit::singleline(&mut self.loop_end)
-                            .hint_text("empty = end of song")
-                            .text_color(palette.data_text)
-                            .desired_width(160.0),
+                        super::wrapping_edit(&mut self.loop_end, palette, FIELD_WIDTH, 1)
+                            .return_key(None)
+                            .hint_text("empty = end of song"),
                     );
                     ui.end_row();
 
@@ -109,9 +112,7 @@ impl VgmMetadataDialog {
                     let mut samples = self.loop_samples_display();
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut samples)
-                            .text_color(palette.data_text)
-                            .desired_width(160.0),
+                        super::wrapping_edit(&mut samples, palette, FIELD_WIDTH, 1),
                     );
                     ui.end_row();
 
@@ -120,11 +121,7 @@ impl VgmMetadataDialog {
                         ("Loop modifier:", &mut self.loop_modifier),
                     ] {
                         ui.label(label);
-                        ui.add(
-                            egui::TextEdit::singleline(value)
-                                .text_color(palette.data_text)
-                                .desired_width(160.0),
-                        );
+                        super::text_field(ui, palette, value, FIELD_WIDTH);
                         ui.end_row();
                     }
 
@@ -132,11 +129,7 @@ impl VgmMetadataDialog {
                     // the song's peak, and a live gloss of what the byte means.
                     ui.label("Volume modifier:");
                     ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.volume_modifier)
-                                .text_color(palette.data_text)
-                                .desired_width(70.0),
-                        );
+                        super::text_field(ui, palette, &mut self.volume_modifier, 70.0);
                         if bevel::button(ui, palette, "Measure")
                             .on_hover_text(
                                 "Measure the song's peak and suggest a modifier that brings it \

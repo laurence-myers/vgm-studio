@@ -76,13 +76,70 @@ pub(crate) fn dialog_modal(
     palette: &crate::theme::Palette,
     body: impl FnOnce(&mut egui::Ui),
 ) -> bool {
+    let width = modal_width(ctx);
     let modal = egui::Modal::new(egui::Id::new(id)).show(ctx, |ui| {
+        ui.set_width(width);
         ui.heading(title);
         crate::theme::separator_clipped(ui, palette);
         ui.add_space(6.0);
         body(ui);
     });
     !modal.should_close()
+}
+
+/// The width a modal lays its content out at: [`MODAL_WIDTH`], or as much of a
+/// narrower window as fits.
+///
+/// Stated rather than measured. The free-text fields inside fill the dialog and
+/// wrap at its edge, so letting the content decide the width would be circular
+/// -- and a box that resized itself as you typed into it would be worse than
+/// either.
+fn modal_width(ctx: &egui::Context) -> f32 {
+    /// Wide enough for a label column plus a value that reads as a line of
+    /// text, and still a dialog rather than a window on a laptop screen.
+    const MODAL_WIDTH: f32 = 560.0;
+    /// Screen margin left around a modal on a window too narrow for the above.
+    const SCREEN_MARGIN: f32 = 48.0;
+    (ctx.content_rect().width() - SCREEN_MARGIN).clamp(240.0, MODAL_WIDTH)
+}
+
+/// A dialog text field that wraps instead of hiding what does not fit.
+///
+/// `egui`'s single-line edit clips: a value wider than its box scrolls out of
+/// sight, and can only be read by dragging the cursor through it. This is the
+/// multiline edit -- the only one that wraps -- held to a one-line value: it
+/// starts one row tall, grows downwards as the text wraps, and takes no line
+/// breaks (Enter does nothing; a pasted one is dropped).
+///
+/// `width` is where the text wraps. Free-text fields pass [`f32::INFINITY`],
+/// which fills the dialog, so they wrap at its edge; fields holding a number
+/// keep a width of their own.
+pub(crate) fn text_field(
+    ui: &mut egui::Ui,
+    palette: &crate::theme::Palette,
+    value: &mut String,
+    width: f32,
+) -> egui::Response {
+    let response = ui.add(wrapping_edit(value, palette, width, 1).return_key(None));
+    if response.changed() {
+        value.retain(|c| c != '\n' && c != '\r');
+    }
+    response
+}
+
+/// The widget behind [`text_field`], for the callers that dress it further --
+/// a hint, a disabled state, a colour of their own, or (the GD3 notes) real
+/// multi-line editing at `rows` tall.
+pub(crate) fn wrapping_edit<'t>(
+    value: &'t mut String,
+    palette: &crate::theme::Palette,
+    width: f32,
+    rows: usize,
+) -> egui::TextEdit<'t> {
+    egui::TextEdit::multiline(value)
+        .text_color(palette.data_text)
+        .desired_width(width)
+        .desired_rows(rows)
 }
 
 /// The shared right-aligned footer button row: laid out right-to-left (so the
@@ -178,5 +235,54 @@ fn retain<T>(slot: &mut Option<T>, mut show: impl FnMut(&mut T) -> bool) {
         && !show(dialog)
     {
         *slot = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dro_core::config::ThemeChoice;
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::Queryable as _;
+
+    /// Drives a lone [`super::text_field`] over `value`.
+    fn harness(value: &str) -> egui_kittest::Harness<'static, String> {
+        let palette = crate::theme::palette(ThemeChoice::Navy);
+        let mut harness = egui_kittest::Harness::new_ui_state(
+            move |ui, value: &mut String| {
+                super::text_field(ui, palette, value, 200.0);
+            },
+            value.to_owned(),
+        );
+        // The field must have the keyboard before it can be typed into.
+        harness.get_by_role(Role::MultilineTextInput).focus();
+        harness.run();
+        harness
+    }
+
+    /// The one-line fields are built on egui's *multiline* edit, since that is
+    /// the only one that wraps. Enter must not come with it: a game name split
+    /// across two lines is not a value any of these dialogs can write.
+    #[test]
+    fn a_one_line_field_takes_no_typed_newline() {
+        let mut harness = harness("Boss");
+        harness.key_press(egui::Key::Enter);
+        harness.run();
+        harness
+            .get_by_role(Role::MultilineTextInput)
+            .type_text("Battle");
+        harness.run();
+        assert_eq!(harness.state(), "BossBattle");
+    }
+
+    /// ...nor a pasted one, which the widget would otherwise take whole.
+    #[test]
+    fn a_one_line_field_drops_pasted_newlines() {
+        let mut harness = harness("");
+        harness
+            .input_mut()
+            .events
+            .push(egui::Event::Paste("Boss\r\nBattle".to_owned()));
+        harness.run();
+        assert_eq!(harness.state(), "BossBattle");
     }
 }

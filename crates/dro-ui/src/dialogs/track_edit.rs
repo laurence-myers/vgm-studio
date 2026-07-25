@@ -86,10 +86,9 @@ impl TrackEditDialog {
                         // stays in step.
                         let mut derived = self.derived_name();
                         ui.add(
-                            egui::TextEdit::singleline(&mut derived)
+                            super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
                                 .interactive(false)
-                                .text_color(palette.muted)
-                                .desired_width(250.0),
+                                .text_color(palette.muted),
                         )
                         .on_hover_text("Derived from the track number and Track Name (EN)");
                         ui.end_row();

@@ -72,12 +72,8 @@ impl RenderWavDialog {
                     &mut self.use_boost,
                 );
                 ui.add_enabled_ui(self.use_boost, |ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.boost)
-                            .text_color(palette.data_text)
-                            .desired_width(36.0),
-                    )
-                    .on_hover_text(format!("{MIN_BOOST}x to {MAX_BOOST}x"));
+                    super::text_field(ui, palette, &mut self.boost, 44.0)
+                        .on_hover_text(format!("{MIN_BOOST}x to {MAX_BOOST}x"));
                     ui.label("x");
                 });
             });

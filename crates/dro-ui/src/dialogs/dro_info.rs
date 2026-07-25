@@ -10,6 +10,11 @@ use dro_core::{OplType, Song};
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
+/// Every value here is a number, so the fields are sized for one rather than
+/// stretched across the dialog like the free-text fields elsewhere. They still
+/// wrap and grow if something longer lands in one.
+const FIELD_WIDTH: f32 = 160.0;
+
 #[derive(Debug)]
 pub struct DroInfoDialog {
     file_version: u32,
@@ -49,8 +54,12 @@ impl DroInfoDialog {
                     ui.label("DRO Version");
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut self.file_version.to_string())
-                            .text_color(palette.data_text),
+                        super::wrapping_edit(
+                            &mut self.file_version.to_string(),
+                            palette,
+                            FIELD_WIDTH,
+                            1,
+                        ),
                     );
                     ui.end_row();
 
@@ -74,16 +83,20 @@ impl DroInfoDialog {
                     ui.label("Length (MS)");
                     ui.add_enabled(
                         self.edit_mode,
-                        egui::TextEdit::singleline(&mut self.length_text)
-                            .text_color(palette.data_text),
+                        super::wrapping_edit(&mut self.length_text, palette, FIELD_WIDTH, 1)
+                            .return_key(None),
                     );
                     ui.end_row();
 
                     ui.label("Calculated Length (MS)");
                     ui.add_enabled(
                         false,
-                        egui::TextEdit::singleline(&mut self.calculated_ms.to_string())
-                            .text_color(palette.data_text),
+                        super::wrapping_edit(
+                            &mut self.calculated_ms.to_string(),
+                            palette,
+                            FIELD_WIDTH,
+                            1,
+                        ),
                     );
                     ui.end_row();
                 });

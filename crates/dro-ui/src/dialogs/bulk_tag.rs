@@ -94,18 +94,11 @@ impl BulkTagDialog {
                                 ui.label(*label);
                                 let value = &mut self.overlay.values[index];
                                 if index == GD3_FIELD_COUNT - 1 {
-                                    ui.add(
-                                        egui::TextEdit::multiline(value)
-                                            .text_color(palette.data_text)
-                                            .desired_width(250.0)
-                                            .desired_rows(3),
-                                    );
+                                    ui.add(super::wrapping_edit(value, palette, f32::INFINITY, 3));
                                 } else {
-                                    ui.add(
-                                        egui::TextEdit::singleline(value)
-                                            .text_color(palette.data_text)
-                                            .desired_width(250.0),
-                                    );
+                                    // Fills the row and wraps at the dialog's
+                                    // edge, as in the single-track editor.
+                                    super::text_field(ui, palette, value, f32::INFINITY);
                                 }
                                 ui.end_row();
                             }

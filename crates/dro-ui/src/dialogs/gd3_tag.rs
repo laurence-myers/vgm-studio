@@ -71,8 +71,12 @@ impl Gd3TagDialog {
 
 /// Draws the GD3 tag fields as label + text-edit rows into an already-open
 /// two-column grid: the Notes field (last) is a 4-row multiline, the rest are
-/// single-line. Shared with the pack quick-edit dialog, which prepends its own
-/// File-name row before calling this.
+/// one-line [`super::text_field`]s. Shared with the pack quick-edit dialog,
+/// which prepends its own File-name row before calling this.
+///
+/// Every field fills the rest of the dialog and wraps at its edge, growing
+/// downwards as it does: a long game name or credit line is not something to
+/// hide behind the right-hand side of a box.
 pub(crate) fn gd3_fields(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -82,18 +86,16 @@ pub(crate) fn gd3_fields(
         ui.label(*label);
         let is_notes = index == GD3_FIELD_COUNT - 1;
         if is_notes {
-            ui.add(
-                egui::TextEdit::multiline(&mut fields[index])
-                    .text_color(palette.data_text)
-                    .desired_width(250.0)
-                    .desired_rows(4),
-            );
+            // Notes is the one field whose value really is several lines, so it
+            // keeps its Enter and opens at four rows.
+            ui.add(super::wrapping_edit(
+                &mut fields[index],
+                palette,
+                f32::INFINITY,
+                4,
+            ));
         } else {
-            ui.add(
-                egui::TextEdit::singleline(&mut fields[index])
-                    .text_color(palette.data_text)
-                    .desired_width(250.0),
-            );
+            super::text_field(ui, palette, &mut fields[index], f32::INFINITY);
         }
         ui.end_row();
     }

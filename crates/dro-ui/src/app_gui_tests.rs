@@ -1771,6 +1771,24 @@ fn snapshot_dro_info_dialog() {
 }
 
 #[test]
+fn snapshot_gd3_tag_dialog() {
+    // The Game Name is longer than the field is wide: it must wrap at the
+    // dialog's edge and push the box taller, not scroll out of sight the way
+    // the single-line edit used to hide it.
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
+    let mut fields: [String; dro_core::vgm::data::GD3_FIELD_COUNT] =
+        core::array::from_fn(|_| String::new());
+    fields[0] = "Boss Battle".to_owned();
+    fields[2] = "A Game With A Truly Preposterous Subtitle: The Revenge".to_owned();
+    fields[6] = "Composed by somebody with an unusually long credit line".to_owned();
+    harness.state_mut().dialogs.gd3_tag = Some(crate::dialogs::Gd3TagDialog::new(Some(
+        &dro_core::Gd3Tag::from_fields(fields),
+    )));
+    harness.run();
+    settled_snapshot(&mut harness, "gd3_tag_dialog");
+}
+
+#[test]
 fn snapshot_auto_trim_alert() {
     let (mut harness, _handles) = build(Some(picked(&bogus_leading_delay_song())), false, true);
     settled_snapshot(&mut harness, "auto_trim_alert");
