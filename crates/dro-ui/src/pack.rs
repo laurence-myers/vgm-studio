@@ -1406,9 +1406,20 @@ pub fn seed_from_meta(meta: &PackMeta) -> BulkTagOverlay {
     overlay
 }
 
-/// A labelled single-line field. `meta_field` names it so the submission
+/// The width of a one-line metadata field. Kept to a readable line rather than
+/// stretched across the window the way the notes boxes below are: this is a
+/// full-width panel, not a dialog, and a game name in a 900pt box reads as a
+/// mistake. Values longer than it wrap inside it (see [`dialogs::text_field`]).
+///
+/// [`dialogs::text_field`]: crate::dialogs::text_field
+const FIELD_WIDTH: f32 = 340.0;
+
+/// A labelled one-line field. `meta_field` names it so the submission
 /// checklist can jump here: when it matches `focus`, the field grabs keyboard
 /// focus and scrolls into view this frame. Returns whether it changed.
+///
+/// The same wrapping field the dialogs use: a game name longer than the box
+/// wraps and pushes it taller instead of scrolling out of sight.
 fn field(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -1418,11 +1429,7 @@ fn field(
     focus: Option<MetaField>,
 ) -> bool {
     ui.label(label);
-    let response = ui.add(
-        egui::TextEdit::singleline(value)
-            .desired_width(340.0)
-            .text_color(palette.data_text),
-    );
+    let response = crate::dialogs::text_field(ui, palette, value, FIELD_WIDTH);
     focus_if_targeted(&response, meta_field, focus);
     ui.end_row();
     response.changed()

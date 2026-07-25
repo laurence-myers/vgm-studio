@@ -2118,14 +2118,15 @@ fn editing_a_field_marks_the_pack_dirty() {
     assert!(!harness.state().pack.as_ref().unwrap().dirty);
 
     // Type into the first form field (Game name); any edit sets the dirty flag.
+    // The metadata fields wrap, so they report as multiline inputs.
     let field = harness
-        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
         .next()
         .expect("a metadata field");
     field.focus();
     harness.run();
     harness
-        .get_all_by_role(egui::accesskit::Role::TextInput)
+        .get_all_by_role(egui::accesskit::Role::MultilineTextInput)
         .next()
         .unwrap()
         .type_text("!");
@@ -3489,6 +3490,18 @@ fn snapshot_pack_view() {
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
     settled_snapshot(&mut harness, "pack_view");
+}
+
+#[test]
+fn snapshot_pack_meta_long_value() {
+    // A game name longer than its box wraps inside the form and pushes the row
+    // taller, as the dialogs' fields do -- it is not scrolled out of sight.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 900.0));
+    open_folder(&mut harness, &handles, complete_folder());
+    harness.state_mut().pack.as_mut().unwrap().meta.game_name =
+        "A Game With A Truly Preposterous Subtitle: The Revenge".to_owned();
+    harness.run();
+    settled_snapshot(&mut harness, "pack_meta_long_value");
 }
 
 #[test]
