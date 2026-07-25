@@ -403,6 +403,62 @@ impl PackState {
         })
     }
 
+    /// The file name each track should carry, from its GD3 Track Name and its
+    /// 1-based position, paired with the name it has now -- omitting the tracks
+    /// already named correctly. See [`dro_core::pack::tag_file_name`]: the title
+    /// goes through `vgm_ren`'s replacements, so this agrees with the file-name
+    /// check by construction.
+    ///
+    /// Unreadable and untagged tracks are skipped (there is nothing to derive a
+    /// name from), as is a title `vgm_ren` would empty out entirely.
+    #[must_use]
+    pub fn tag_renames(&self) -> Vec<(String, String)> {
+        self.tracks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, track)| {
+                let wanted = wanted_file_name(index, track)?;
+                (wanted != track.file_name).then(|| (track.file_name.clone(), wanted))
+            })
+            .collect()
+    }
+
+    /// Whether any track's file name has drifted from its tag -- what greys the
+    /// "Fix Names" tool out once there is nothing left to rename.
+    #[must_use]
+    pub fn has_tag_renames(&self) -> bool {
+        self.tracks.iter().enumerate().any(|(index, track)| {
+            wanted_file_name(index, track).is_some_and(|wanted| wanted != track.file_name)
+        })
+    }
+
+    /// The transaction that renames every drifted file to the name its tag asks
+    /// for, as one undoable step. `None` when nothing would change or the folder
+    /// has no path (the web has none, and pack mode is native-only anyway).
+    ///
+    /// Every target is `NN Title.ext` for a distinct `NN`, so the batch can never
+    /// collide -- and it goes through [`rename_batch_mutations`] regardless, which
+    /// stages via temp names and so survives swaps and case-only renames.
+    #[must_use]
+    pub fn rename_from_tags_transaction(&self) -> Option<PackTransaction> {
+        let folder = self.folder_path.as_ref()?;
+        let pairs = self.tag_renames();
+        if pairs.is_empty() {
+            return None;
+        }
+        let inverse_pairs: Vec<(String, String)> =
+            pairs.iter().map(|(a, b)| (b.clone(), a.clone())).collect();
+        let count = pairs.len();
+        Some(PackTransaction {
+            label: format!(
+                "Rename {count} file{} from their tags",
+                if count == 1 { "" } else { "s" }
+            ),
+            forward: rename_batch_mutations(folder, &pairs),
+            inverse: rename_batch_mutations(folder, &inverse_pairs),
+        })
+    }
+
     /// The track list for the description, skipping songs that failed to parse.
     #[must_use]
     pub fn track_entries(&self) -> Vec<TrackEntry> {
@@ -695,6 +751,14 @@ fn file_item(severity: Severity, message: String) -> ReadinessItem {
         target: ReadinessTarget::Pack,
         message,
     }
+}
+
+/// The file name a track at 0-based pack position `index` should carry, from its
+/// GD3 Track Name. `None` when it has no readable song, no tag, or a track name
+/// no file can be named after.
+fn wanted_file_name(index: usize, track: &PackTrack) -> Option<String> {
+    let tag = track.song()?.vgm_meta()?.tag.as_ref()?;
+    dro_core::pack::tag_file_name(index + 1, tag.track_name_en.trim(), &track.file_name)
 }
 
 /// The `NN` from a `NN Title.ext` file name, if present.
@@ -1053,6 +1117,19 @@ fn track_tools(
                     .clicked()
                 {
                     actions.push(Action::PackConvertDatesToHyphens);
+                }
+            });
+            // The other mechanical fix: pull every file name back into step with
+            // the tag it should have come from.
+            ui.add_enabled_ui(state.has_tag_renames(), |ui| {
+                if bevel::button(ui, palette, "Fix Names")
+                    .on_hover_text(
+                        "Rename each file to \"NN Track Name.ext\" from its GD3 tag, using \
+                         vgm_ren's character rules, as one undoable step",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::PackRenameFromTags);
                 }
             });
         });
@@ -2619,6 +2696,85 @@ mod tests {
                 ("02 B.vgz".to_owned(), "03 B.vgz".to_owned()),
             ]
         );
+    }
+
+    /// A song tagged with `track_name`, plus the fields the pack meta wants.
+    fn named_song(file_name: &str, track_name: &str) -> PickedFile {
+        tagged_song(
+            file_name,
+            Gd3Tag {
+                track_name_en: track_name.to_owned(),
+                ..tag("Cool Game", "Ada", "Ripper")
+            },
+        )
+    }
+
+    #[test]
+    fn tag_renames_lists_only_the_files_that_drifted() {
+        let files = vec![
+            named_song("01 Intro.vgz", "Intro"), // already correct
+            named_song("02 Boss.vgm", "Boss Theme"),
+            named_song("03 Untagged.vgz", ""), // nothing to derive a name from
+        ];
+        let state = PackState::from_folder(folder("Cool Game", files), None);
+        assert!(state.has_tag_renames());
+        assert_eq!(
+            state.tag_renames(),
+            vec![("02 Boss.vgm".to_owned(), "02 Boss Theme.vgm".to_owned())],
+            "the extension is kept and the untagged track left alone"
+        );
+    }
+
+    #[test]
+    fn tag_renames_follow_the_vgm_ren_character_rules() {
+        // The names vgm_ren would write: a colon becomes " - ", a slash ", ",
+        // and '?' vanishes -- so a file already named that way is left alone.
+        let files = vec![
+            named_song("01 Boss.vgz", "Doom II: Hell on Earth"),
+            named_song("02 Hard, Soft.vgz", "Hard / Soft"),
+            named_song("03 Who.vgz", "Who?"),
+        ];
+        let state = PackState::from_folder(folder("Cool Game", files), None);
+        assert_eq!(
+            state.tag_renames(),
+            vec![(
+                "01 Boss.vgz".to_owned(),
+                "01 Doom II - Hell on Earth.vgz".to_owned()
+            )]
+        );
+    }
+
+    #[test]
+    fn rename_from_tags_transaction_is_temp_safe_and_reversible() {
+        // A swap through the tags: each file wants the other's name. Renaming
+        // straight over would clobber one, so the batch must stage via temps.
+        let files = vec![
+            named_song("01 A.vgz", "B"),
+            named_song("02 B.vgz", "A"), // wants "02 A.vgz"
+        ];
+        let state = PackState::from_folder(folder("Cool Game", files), None);
+        let txn = state
+            .rename_from_tags_transaction()
+            .expect("both names drifted");
+        assert_eq!(txn.forward.len(), 4, "a temp-then-final batch");
+        assert_eq!(txn.inverse.len(), 4);
+        let finals: Vec<&String> = txn
+            .forward
+            .iter()
+            .filter_map(|mutation| match mutation {
+                PackMutation::Rename { to, .. } if !to.starts_with(".drotrim") => Some(to),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(finals, ["01 B.vgz", "02 A.vgz"]);
+
+        // Nothing adrift -> no transaction at all.
+        let tidy = PackState::from_folder(
+            folder("Cool Game", vec![named_song("01 Intro.vgz", "Intro")]),
+            None,
+        );
+        assert!(tidy.rename_from_tags_transaction().is_none());
+        assert!(!tidy.has_tag_renames());
     }
 
     #[test]

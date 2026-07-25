@@ -113,11 +113,15 @@ impl TrackEditDialog {
     /// empty (so the derived file name would be blank) or the derived name
     /// collides with another track in the pack.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
-        // The file name is derived from the Track Name (EN), so require one.
-        if self.fields[0].trim().is_empty() {
+        // The file name is derived from the Track Name (EN), so require one that
+        // leaves something behind: "?!" is a track name, but every character of
+        // it is dropped on the way into a file name.
+        if dro_core::pack::vgm_ren_title(&self.fields[0]).is_empty() {
             actions.push(Action::Alert {
                 title: "Track name required".to_owned(),
-                message: "Enter a Track Name (EN); the file name is derived from it.".to_owned(),
+                message: "Enter a Track Name (EN) the file name can be derived from (\"?\" and \
+                          \"!\" are dropped from file names)."
+                    .to_owned(),
             });
             return false;
         }
@@ -185,6 +189,24 @@ mod tests {
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
         assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+    }
+
+    #[test]
+    fn save_rejects_a_track_name_a_file_name_cannot_keep() {
+        // Every character of "?!" is dropped by vgm_ren's rules, which would
+        // leave the file called "01 .vgz".
+        let mut dialog = make(1, "01 Intro.vgz", &[]);
+        dialog.fields[0] = "?!".to_owned();
+        let mut actions = Vec::new();
+        assert!(!dialog.save(&mut actions));
+        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+    }
+
+    #[test]
+    fn the_derived_name_follows_the_vgm_ren_rules() {
+        let mut dialog = make(2, "02 Old.vgz", &[]);
+        dialog.fields[0] = "Doom II: Hell on Earth".to_owned();
+        assert_eq!(dialog.derived_name(), "02 Doom II - Hell on Earth.vgz");
     }
 
     #[test]

@@ -3900,6 +3900,107 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
 }
 
 #[test]
+fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
+    let named = |file_name: &str, track_name: &str| {
+        vgm_with_tag(
+            file_name,
+            dro_core::Gd3Tag {
+                track_name_en: track_name.to_owned(),
+                game_name_en: "Cool Game".to_owned(),
+                system_name_en: "IBM PC/AT".to_owned(),
+                track_author_en: "Ada".to_owned(),
+                release_date: "1994".to_owned(),
+                creator: "Ripper".to_owned(),
+                ..dro_core::Gd3Tag::default()
+            },
+        )
+    };
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(
+        &mut harness,
+        &handles,
+        pack_folder(
+            "Cool Game",
+            vec![
+                named("01 Intro.vgz", "Intro"), // already correct
+                named("02 Boss.vgz", "Doom II: Hell on Earth"),
+            ],
+        ),
+    );
+    pack_section(&mut harness, PackSection::Tracks);
+
+    // The drift is on the checklist, and it names the file the fix will write.
+    assert!(
+        harness
+            .state()
+            .pack
+            .as_ref()
+            .unwrap()
+            .readiness_items()
+            .iter()
+            .any(|item| item
+                .message
+                .contains("expected \"02 Doom II - Hell on Earth.vgz\"")),
+        "the check reports the vgm_ren name"
+    );
+    assert!(
+        !harness
+            .get_by_label("Fix Names")
+            .accesskit_node()
+            .is_disabled(),
+        "the fix-assist is offered while a name has drifted"
+    );
+
+    // Ok outcomes for the temp-then-final rename pair, and the renamed folder
+    // the follow-up rescan installs.
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..4 {
+            files.rename_outcomes.push_back(Ok(()));
+        }
+        files.picked_folders.push_back(Ok(pack_folder(
+            "Cool Game",
+            vec![
+                named("01 Intro.vgz", "Intro"),
+                named("02 Doom II - Hell on Earth.vgz", "Doom II: Hell on Earth"),
+            ],
+        )));
+    }
+    // Dispatched directly (as the button does) so the batch is built before any
+    // frame's folder poll installs the rescan above -- as the reorder test does.
+    act(&mut harness, Action::PackRenameFromTags);
+    harness.run_steps(16);
+
+    {
+        let files = handles.files.borrow();
+        let finals: Vec<&String> = files
+            .rename_requests
+            .iter()
+            .map(|(_, to)| to)
+            .filter(|to| !to.starts_with(".drotrim"))
+            .collect();
+        assert_eq!(
+            finals,
+            ["02 Doom II - Hell on Earth.vgz"],
+            "only the drifted track is renamed, to its vgm_ren name"
+        );
+    }
+    let state = harness.state();
+    let pack = state.pack.as_ref().unwrap();
+    assert_eq!(state.pack_undo.len(), 1, "one undoable batch");
+    assert_eq!(pack.tracks[1].file_name, "02 Doom II - Hell on Earth.vgz");
+    assert!(!pack.has_tag_renames(), "the fix-assist has nothing left");
+    // With nothing left to rename the pad greys out rather than vanishing.
+    assert!(
+        harness
+            .get_by_label("Fix Names")
+            .accesskit_node()
+            .is_disabled(),
+        "the spent fix-assist is greyed, not removed"
+    );
+}
+
+#[test]
 fn snapshot_pack_checklist_dirty() {
     // Wider than the other pack snapshots so the header's tool groups fit and
     // the checklist's glyphs and category headings are all in frame.

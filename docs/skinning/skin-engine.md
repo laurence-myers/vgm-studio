@@ -101,9 +101,11 @@ Split by verb, per `docs/skinning/mockup-pack-header.html` (variation V3):
 
 - The **header** keeps only batch operations that edit the folder in place, in
   two silkscreen groups: LEVELS (Scan Volumes / Apply / Album) and TAGS (Bulk
-  Tag… / Fix Dates). "Fix Dates" moved here from the checklist heading and is
-  now greyed rather than hidden when there is nothing to convert, so the header
-  does not reflow the moment it is used.
+  Tag… / Fix Dates / Fix Names). "Fix Dates" moved here from the checklist
+  heading and is now greyed rather than hidden when there is nothing to convert,
+  so the header does not reflow the moment it is used; "Fix Names" (rename every
+  drifted file from its GD3 tag, `vgm_ren`'s rules) sits beside it and greys the
+  same way.
 - The **output deck** (`pack::deck`, hosted by `app.rs` as a bottom
   `deck_panel`, the slot the editor's transport deck occupies on the other tab)
   carries the readiness lamp and everything that produces the submission: the

@@ -1721,6 +1721,7 @@ impl DroApp {
             Action::PackScanVolumes => self.scan_pack_volumes(),
             Action::PackApplySuggestedModifiers => self.apply_pack_modifiers(),
             Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
+            Action::PackRenameFromTags => self.rename_pack_tracks_from_tags(),
             Action::PackSelectSection(section) => {
                 if let Some(pack) = self.pack.as_mut() {
                     pack.section = section;
@@ -2763,6 +2764,25 @@ impl DroApp {
                 self.status = "Converted the pack date to hyphens.".to_owned();
             }
             None => self.status = "No slash-separated dates to convert.".to_owned(),
+        }
+    }
+
+    /// The name fix-assist: rename every file whose name has drifted from its GD3
+    /// Track Name to the one `vgm_ren` would give it, as one undoable batch --
+    /// the bulk counterpart of the quick-edit dialog's per-track rename.
+    fn rename_pack_tracks_from_tags(&mut self) {
+        if self.pack_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        self.stop_preview();
+        match self
+            .pack
+            .as_ref()
+            .and_then(PackState::rename_from_tags_transaction)
+        {
+            Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
+            None => self.status = "Every file name already matches its tag.".to_owned(),
         }
     }
 

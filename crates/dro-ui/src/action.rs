@@ -107,6 +107,9 @@ pub enum Action {
     /// Rewrite every slash-separated release date (pack meta and each track's
     /// GD3) to hyphens -- the checklist's one-click date fix-assist.
     PackConvertDatesToHyphens,
+    /// Rename every track file that has drifted from its GD3 Track Name to
+    /// `NN Title.ext` (`vgm_ren`'s rules), as one undoable batch of renames.
+    PackRenameFromTags,
     /// Show a pack sub-section (the section tabs, and the deck's verdict link).
     PackSelectSection(crate::pack::PackSection),
     /// Pick a screenshot and copy it into the open pack's folder.

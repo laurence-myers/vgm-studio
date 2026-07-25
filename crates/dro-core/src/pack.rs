@@ -335,8 +335,8 @@ pub fn music_hardware_suggestion(opl: OplType) -> &'static str {
 }
 
 /// Replaces the characters a file name cannot hold (Windows being the strictest
-/// target) with `_`, then trims surrounding whitespace. Shared by the doc stem
-/// and the per-track file names.
+/// target) with `_`, then trims surrounding whitespace. This is the doc stem's
+/// rule; a *track* file name follows [`vgm_ren_title`] instead.
 #[must_use]
 pub fn sanitize_file_component(text: &str) -> String {
     let sanitised: String = text
@@ -355,13 +355,98 @@ pub fn doc_file_stem(game_name: &str) -> String {
     sanitize_file_component(game_name)
 }
 
+/// A GD3 track title rewritten the way `vgm_ren` (the VGMRips renamer) writes it
+/// into a file name. That tool is the reference for what a pack's files are
+/// called, so both the file-name check and the rename-from-tag fix follow its
+/// table exactly rather than inventing one:
+///
+/// ```text
+/// "  ->  '        ?  ->  [removed]     |  ->  -
+/// :  ->  " - "    !  ->  [removed]     <  ->  (
+/// /  ->  ", "     \  ->  ", "          >  ->  )
+/// ```
+///
+/// `:`, `/` and `\` also swallow the spaces that follow them, and `/` and `\`
+/// drop the spaces already written before them -- so `"Hard / Soft"` becomes
+/// `"Hard, Soft"`, not `"Hard , Soft"`. Trailing dots are then dropped, and
+/// trailing spaces after them (that order is `vgm_ren`'s, and it is why a title
+/// ending `". ."` keeps its last dot).
+///
+/// Note that `:` is replaced by `" - "` *unconditionally*: `vgm_ren` trims the
+/// spaces before a comma but not before a dash, so `"Foo : Bar"` really does
+/// become `"Foo  - Bar"`. Reproduced rather than corrected, so a folder already
+/// named by `vgm_ren` never reads as drifted.
+///
+/// Two deliberate departures from the C: leading whitespace is trimmed (rather
+/// than leaving a file called `"01  Title.vgz"`), and `*` -- which `vgm_ren`
+/// passes through even though no Windows file name may hold it -- becomes `_`,
+/// as do control characters.
+#[must_use]
+pub fn vgm_ren_title(title: &str) -> String {
+    /// Drops the spaces `vgm_ren` eats after a `:`, `/` or `\`.
+    fn skip_spaces(chars: &mut core::iter::Peekable<core::str::Chars<'_>>) {
+        while chars.next_if_eq(&' ').is_some() {}
+    }
+
+    let mut out = String::with_capacity(title.len());
+    let mut chars = title.trim_start().chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => out.push('\''),
+            ':' => {
+                out.push_str(" - ");
+                skip_spaces(&mut chars);
+            }
+            '?' | '!' => {}
+            '/' | '\\' => {
+                while out.ends_with(' ') {
+                    out.pop();
+                }
+                out.push_str(", ");
+                skip_spaces(&mut chars);
+            }
+            '|' => out.push('-'),
+            '<' => out.push('('),
+            '>' => out.push(')'),
+            '*' => out.push('_'),
+            c if c.is_control() => out.push('_'),
+            c => out.push(c),
+        }
+    }
+    while out.ends_with('.') {
+        out.pop();
+    }
+    while out.ends_with(' ') {
+        out.pop();
+    }
+    out
+}
+
 /// Builds a VGMRips track file name from its 1-based `number`, `title`, and
 /// `ext` (the extension without the dot, e.g. `"vgz"`): `"NN Title.ext"`, the
-/// title sanitised of characters a file name cannot hold. Shared by the pack
-/// quick-edit dialog (which derives the name from the GD3 tag) and reordering.
+/// title rewritten by [`vgm_ren_title`]. Shared by the pack quick-edit dialog
+/// (which derives the name from the GD3 tag) and reordering.
 #[must_use]
 pub fn track_file_name(number: usize, title: &str, ext: &str) -> String {
-    format!("{number:02} {}.{ext}", sanitize_file_component(title))
+    format!("{number:02} {}.{ext}", vgm_ren_title(title))
+}
+
+/// The file name a track *should* carry: its 1-based pack position, its GD3
+/// track name through [`vgm_ren_title`], and the extension it already has (so a
+/// rename never turns a `.vgz` into a `.vgm`).
+///
+/// `None` when the title yields nothing a file can be named after -- an empty
+/// tag, or one made only of characters `vgm_ren` removes (`"?!"`) -- since there
+/// is then no name to check against or rename to.
+#[must_use]
+pub fn tag_file_name(number: usize, track_name: &str, current_file_name: &str) -> Option<String> {
+    if vgm_ren_title(track_name).is_empty() {
+        return None;
+    }
+    let ext = current_file_name
+        .rsplit_once('.')
+        .map_or("vgz", |(_, ext)| ext);
+    Some(track_file_name(number, track_name, ext))
 }
 
 /// Builds an `.m3u` playlist: one file name per line, CRLF-terminated, no header.
@@ -1090,17 +1175,21 @@ fn check_track(index: usize, facts: &TrackFacts, meta: &PackMeta, items: &mut Ve
     }
 
     // T5: the on-disk file name must still match the Track Name it derives from.
-    // Compare against the *sanitised* track name, since that is all a file name
-    // can hold -- so a title with a `/` or `:` is not a false mismatch.
+    // Compare the *titles* -- through `vgm_ren`'s replacements, so a name that
+    // tool would have written is never read as drift -- rather than the whole
+    // file names, leaving a wrong track number to the numbering check alone.
     let track_name = tag.track_name_en.trim();
-    if !track_name.is_empty() {
+    if let Some(expected) = tag_file_name(index + 1, track_name, &facts.file_name) {
         let file_title = title_from_filename(&facts.file_name).trim();
-        if sanitize_file_component(track_name) != file_title {
+        if vgm_ren_title(track_name) != file_title {
             warn(
                 items,
                 ReadinessCategory::TrackTags,
                 target,
-                format!("{label}: file name doesn't match the Track Name (rename or re-tag)."),
+                format!(
+                    "{label}: file name doesn't match the Track Name \
+                     (expected \"{expected}\" -- rename from the tag, or re-tag)."
+                ),
             );
         }
     }
@@ -1454,8 +1543,53 @@ mod tests {
             track_file_name(12, "Boss Battle", "vgm"),
             "12 Boss Battle.vgm"
         );
-        // Forbidden characters become underscores; the title is trimmed.
-        assert_eq!(track_file_name(3, "  A/B:C  ", "vgz"), "03 A_B_C.vgz");
+        // Forbidden characters follow vgm_ren's table; the title is trimmed.
+        assert_eq!(track_file_name(3, "  A/B:C  ", "vgz"), "03 A, B - C.vgz");
+    }
+
+    #[test]
+    fn vgm_ren_title_follows_the_renamer_replacement_table() {
+        assert_eq!(vgm_ren_title("He said \"hi\""), "He said 'hi'");
+        assert_eq!(
+            vgm_ren_title("Chapter 1: The Start"),
+            "Chapter 1 - The Start"
+        );
+        assert_eq!(vgm_ren_title("Really?! Yes!"), "Really Yes");
+        assert_eq!(vgm_ren_title("Hard / Soft"), "Hard, Soft");
+        assert_eq!(vgm_ren_title("Hard\\Soft"), "Hard, Soft");
+        assert_eq!(vgm_ren_title("A|B"), "A-B");
+        assert_eq!(vgm_ren_title("<Unused>"), "(Unused)");
+        // `*` is not in vgm_ren's table but no file name may hold it.
+        assert_eq!(vgm_ren_title("Star*Field"), "Star_Field");
+    }
+
+    #[test]
+    fn vgm_ren_title_handles_the_whitespace_and_trailing_rules() {
+        // Spaces after a colon/slash are eaten, and those before a comma dropped.
+        assert_eq!(vgm_ren_title("Doom:   E1M1"), "Doom - E1M1");
+        assert_eq!(vgm_ren_title("A   /   B"), "A, B");
+        // ...but not the space *before* a colon: vgm_ren really does double it up.
+        assert_eq!(vgm_ren_title("Foo : Bar"), "Foo  - Bar");
+        // Trailing dots go first, then trailing spaces -- so ". ." keeps a dot.
+        assert_eq!(vgm_ren_title("The End..."), "The End");
+        assert_eq!(vgm_ren_title("The End. ."), "The End.");
+        assert_eq!(vgm_ren_title("  Padded  "), "Padded");
+        // A title made only of removed characters leaves nothing to name a file.
+        assert!(vgm_ren_title("?!").is_empty());
+    }
+
+    #[test]
+    fn tag_file_name_numbers_the_title_and_keeps_the_extension() {
+        assert_eq!(
+            tag_file_name(7, "Boss: Round 2", "07 Old Name.vgm").as_deref(),
+            Some("07 Boss - Round 2.vgm")
+        );
+        assert_eq!(
+            tag_file_name(1, "Intro", "whatever").as_deref(),
+            Some("01 Intro.vgz"), // no extension to keep: the pack default
+        );
+        assert_eq!(tag_file_name(1, "   ", "01 X.vgz"), None);
+        assert_eq!(tag_file_name(1, "!?", "01 X.vgz"), None);
     }
 
     #[test]
@@ -1946,17 +2080,60 @@ mod tests {
     }
 
     #[test]
-    fn a_sanitised_title_is_not_a_false_file_name_mismatch() {
-        // Track name "A/B" can only ever be "A_B" in a file name -- not a drift.
+    fn a_vgm_ren_renamed_file_is_not_a_false_file_name_mismatch() {
+        // The names vgm_ren would have written are the ones a pack carries, so
+        // none of its replacements may read as drift.
+        for (track_name, file_name) in [
+            ("A/B", "01 A, B.vgz"),
+            ("Doom II: Hell on Earth", "01 Doom II - Hell on Earth.vgz"),
+            ("Who?!", "01 Who.vgz"),
+            ("\"Quoted\"", "01 'Quoted'.vgz"),
+            ("<Unused>|Alt", "01 (Unused)-Alt.vgz"),
+        ] {
+            let tag = Gd3Tag {
+                track_name_en: track_name.to_owned(),
+                ..full_tag()
+            };
+            let items = readiness(&full_meta(), &[facts(file_name, Some(tag), true, true)]);
+            assert!(
+                !has(&items, Severity::Warning, "doesn't match the Track Name"),
+                "{track_name:?} is correctly named {file_name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_name_mismatch_names_the_file_it_expected() {
+        // The message has to carry the fix: the exact name the rename produces.
         let tag = Gd3Tag {
-            track_name_en: "A/B".to_owned(),
+            track_name_en: "Doom II: Hell on Earth".to_owned(),
             ..full_tag()
         };
-        let items = readiness(&full_meta(), &[facts("01 A_B.vgz", Some(tag), true, true)]);
-        assert!(
-            !has(&items, Severity::Warning, "doesn't match the Track Name"),
-            "the sanitised title matches the file name"
+        let items = readiness(
+            &full_meta(),
+            &[facts("01 Doom 2.vgz", Some(tag), true, true)],
         );
+        assert!(has(
+            &items,
+            Severity::Warning,
+            "expected \"01 Doom II - Hell on Earth.vgz\""
+        ));
+    }
+
+    #[test]
+    fn an_unnameable_track_name_is_not_a_file_name_mismatch() {
+        // "?!" leaves nothing for a file to be named after, so there is no name
+        // to demand -- the missing-fields check is not this check's job either.
+        let tag = Gd3Tag {
+            track_name_en: "?!".to_owned(),
+            ..full_tag()
+        };
+        let items = readiness(&full_meta(), &[facts("01 Huh.vgz", Some(tag), true, true)]);
+        assert!(!has(
+            &items,
+            Severity::Warning,
+            "doesn't match the Track Name"
+        ));
     }
 
     #[test]
