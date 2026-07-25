@@ -2239,9 +2239,9 @@ impl DroApp {
         }
         self.active_tab = tab;
         if tab == AppTab::Pack {
-            // Song-bound modeless dialogs (Find Register, DRO Info, GD3, VGM
-            // metadata) and Goto don't belong on the pack tab -- mirror the menu
-            // gating that disables them there.
+            // Song-bound dialogs (Find Register, DRO Info, GD3, VGM metadata)
+            // and Goto don't belong on the pack tab -- mirror the menu gating
+            // that disables them there.
             self.close_song_dialogs();
             self.dialogs.goto = None;
             // Returning to the pack tab re-scans the folder so edits made in the

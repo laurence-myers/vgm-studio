@@ -1,4 +1,4 @@
-//! The GD3 tag editor. Modeless; Save applies the tag (not undoably) and closes.
+//! The GD3 tag editor. Modal; Save applies the tag (not undoably) and closes.
 
 use dro_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
@@ -37,16 +37,15 @@ impl Gd3TagDialog {
         Self { fields }
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "GD3 Tag", area, |ui| {
+        let open = super::dialog_modal(ctx, "gd3-tag-modal", "GD3 Tag", palette, |ui| {
             egui::Grid::new("gd3-grid")
                 .num_columns(2)
                 .spacing([10.0, 6.0])

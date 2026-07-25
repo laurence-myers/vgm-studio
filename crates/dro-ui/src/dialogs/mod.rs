@@ -1,8 +1,10 @@
 //! The application's dialogs.
 //!
-//! DRO Info is modal; the rest are modeless
-//! windows. Each is a plain struct created at open (capturing whatever song
-//! state it edits), drawn every frame while open, and emitting [`Action`]s.
+//! All of them are modal except Goto and Find Register, which stay modeless
+//! windows: those two drive the editor behind them (jumping to a position,
+//! stepping through matches), so blocking it would defeat the point. Each
+//! dialog is a plain struct created at open (capturing whatever song state it
+//! edits), drawn every frame while open, and emitting [`Action`]s.
 //!
 //! [`Action`]: crate::action::Action
 
@@ -32,10 +34,12 @@ pub use split_songs::SplitSongsDialog;
 pub use track_edit::TrackEditDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
-/// Shared modeless-dialog chrome: a non-resizable, non-collapsible egui window
-/// with a native close (✕) button, constrained to `area`. Runs `body`, then
-/// returns whether the window is still open (its ✕ was not clicked). Each
-/// dialog ANDs this with its own Close-button flag: `dialog_window(..) && !close`.
+/// Shared modeless-dialog chrome, used by Goto and Find Register: a
+/// non-resizable, non-collapsible egui window with a native close (✕) button,
+/// constrained to `area`. Runs `body`, then returns whether the window is still
+/// open (its ✕ was not clicked). Each dialog ANDs this with its own Close-button
+/// flag: `dialog_window(..) && !close`. Every other dialog is a
+/// [`dialog_modal`].
 pub(crate) fn dialog_window(
     ctx: &egui::Context,
     title: &str,
@@ -50,6 +54,35 @@ pub(crate) fn dialog_window(
         .constrain_to(area)
         .show(ctx, body);
     open
+}
+
+/// Shared modal-dialog chrome: a centred [`egui::Modal`] with the dialog's
+/// title as a heading, the usual groove under it, and `body` below. Esc or a
+/// click on the backdrop dismisses it, as on the alert boxes -- a modal has no
+/// title bar, so there is no ✕ to close it with. Returns whether the dialog is
+/// still open; each dialog ANDs this with its own Close-button flag:
+/// `dialog_modal(..) && !close`.
+///
+/// `id` must be unique per dialog. The body is *not* wrapped in a scroll area:
+/// one around the whole modal stops clicks inside it registering at all. A
+/// modal cannot be dragged out of the way either, so a dialog whose content
+/// grows with the song caps and scrolls that part itself -- Find Loop and Split
+/// Songs cap their result tables, and Bulk Tag scrolls its own body between a
+/// pinned heading and footer.
+pub(crate) fn dialog_modal(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    palette: &crate::theme::Palette,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let modal = egui::Modal::new(egui::Id::new(id)).show(ctx, |ui| {
+        ui.heading(title);
+        crate::theme::separator_clipped(ui, palette);
+        ui.add_space(6.0);
+        body(ui);
+    });
+    !modal.should_close()
 }
 
 /// The shared right-aligned footer button row: laid out right-to-left (so the
@@ -114,10 +147,10 @@ impl Dialogs {
 
     /// Draws every open dialog, dropping the ones that closed.
     ///
-    /// `area`: where the modeless windows may live. Since egui 0.35, panels
-    /// drawn into the app's `Ui` no longer reserve space, so windows would
-    /// otherwise auto-place at the top of the viewport, over the menu bar.
-    /// (DRO Info is a centred modal and ignores it, like the alerts.)
+    /// `area`: where the two modeless windows may live. Since egui 0.35, panels
+    /// drawn into the app's `Ui` no longer reserve space, so a window would
+    /// otherwise auto-place at the top of the viewport, over the menu bar. The
+    /// modals are centred on the viewport and ignore it, like the alerts.
     pub fn show_all(
         &mut self,
         ctx: &egui::Context,
@@ -127,24 +160,16 @@ impl Dialogs {
     ) {
         retain(&mut self.goto, |d| d.show(ctx, palette, area, actions));
         retain(&mut self.find_reg, |d| d.show(ctx, palette, area, actions));
-        retain(&mut self.find_loop, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.find_loop, |d| d.show(ctx, palette, actions));
         retain(&mut self.dro_info, |d| d.show(ctx, palette, actions));
-        retain(&mut self.gd3_tag, |d| d.show(ctx, palette, area, actions));
-        retain(&mut self.vgm_metadata, |d| {
-            d.show(ctx, palette, area, actions)
-        });
-        retain(&mut self.settings, |d| d.show(ctx, palette, area, actions));
-        retain(&mut self.track_edit, |d| {
-            d.show(ctx, palette, area, actions)
-        });
+        retain(&mut self.gd3_tag, |d| d.show(ctx, palette, actions));
+        retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
+        retain(&mut self.settings, |d| d.show(ctx, palette, actions));
+        retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
         retain(&mut self.bulk_tag, |d| d.show(ctx, palette, area, actions));
-        retain(&mut self.render_wav, |d| {
-            d.show(ctx, palette, area, actions)
-        });
-        retain(&mut self.split, |d| d.show(ctx, palette, area, actions));
-        retain(&mut self.split_songs, |d| {
-            d.show(ctx, palette, area, actions)
-        });
+        retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
+        retain(&mut self.split, |d| d.show(ctx, palette, actions));
+        retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));
     }
 }
 

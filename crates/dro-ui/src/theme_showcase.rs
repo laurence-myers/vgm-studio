@@ -18,11 +18,11 @@
 //! therefore GPU/OS-specific; regenerate them there (see `DEVELOPMENT.md`).
 
 use dro_core::Song;
-use dro_core::config::{AppConfig, ThemeChoice};
+use dro_core::config::ThemeChoice;
 use dro_synth::render_waveform;
 use egui::{Color32, Sense};
 
-use crate::dialogs::SettingsDialog;
+use crate::dialogs::GotoDialog;
 use crate::editor::Editor;
 use crate::platform::PickedFile;
 use crate::test_song::tone_song;
@@ -46,7 +46,7 @@ struct ShowcaseState {
     meter: PeakMeterState,
     channels: ChannelPanel,
     position: PositionPanel,
-    settings: SettingsDialog,
+    goto: GotoDialog,
     text: String,
     text_empty: String,
     slider: f32,
@@ -109,7 +109,7 @@ impl ShowcaseState {
             meter,
             channels,
             position,
-            settings: SettingsDialog::new(&AppConfig::default(), Vec::new()),
+            goto: GotoDialog::new(),
             text: "Sample text".to_owned(),
             text_empty: String::new(),
             slider: 0.35,
@@ -248,12 +248,12 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             section(ui, p, "Instruction table");
             table_sample(ui, state, p);
 
-            // Reserve blank face for the floating Settings window below, and
+            // Reserve blank face for the floating dialog window below, and
             // report where it starts so the window's area can anchor to the
             // real layout position rather than a guessed absolute coordinate.
-            section(ui, p, "Settings dialog (window fill, title bar, inputs)");
+            section(ui, p, "Dialog window (window fill, title bar, inputs)");
             let top = ui.cursor().top();
-            ui.add_space(384.0);
+            ui.add_space(160.0);
             top
         })
         .inner;
@@ -262,11 +262,16 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
     // band reserved above. Fresh-memory auto-placement plus `constrain_to`
     // pins it to the band's top-left, the same way the app's track-edit
     // snapshot places its dialog.
+    //
+    // Goto, not Settings: every other dialog is a modal now, and a modal would
+    // lay its dimming backdrop over the entire showcase. Its frame is the same
+    // window fill this covers, and the widgets the Settings grid used to bring
+    // (dropdowns, text edits, checkboxes) each have their own section above.
     let area = egui::Rect::from_min_max(
         egui::pos2(24.0, dialog_top),
-        egui::pos2(1000.0, dialog_top + 376.0),
+        egui::pos2(1000.0, dialog_top + 152.0),
     );
-    state.settings.show(ui.ctx(), p, area, &mut Vec::new());
+    state.goto.show(ui.ctx(), p, area, &mut Vec::new());
 }
 
 /// A section heading, in the palette's chrome-label colour so it reads on the
@@ -597,9 +602,9 @@ fn snapshot_theme_showcase() {
     let mut results = egui_kittest::SnapshotResults::new();
     for choice in ThemeChoice::ALL {
         let mut harness = egui_kittest::Harness::builder()
-            // Tall enough for the whole Settings window (its footer buttons and
-            // the pad/deck style rows sit near the bottom of the canvas).
-            .with_size(egui::vec2(1024.0, 1820.0))
+            // Tall enough for the dialog window at the bottom of the canvas,
+            // footer buttons and all.
+            .with_size(egui::vec2(1024.0, 1780.0))
             .with_max_steps(64)
             .wgpu()
             .build_ui_state(

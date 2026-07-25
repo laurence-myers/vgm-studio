@@ -1,4 +1,4 @@
-//! The DRO Info dialog. Modal, unlike the others.
+//! The DRO Info dialog. Modal.
 //!
 //! View-only unless `ui.dro_info_edit_enabled` is set, in which case an
 //! Edit/Save toggle unlocks the hardware type and length. Saving goes through
@@ -41,10 +41,7 @@ impl DroInfoDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut keep_open = true;
-        let modal = egui::Modal::new(egui::Id::new("dro-info-modal")).show(ctx, |ui| {
-            ui.heading("DRO Info");
-            ui.separator();
-
+        let open = super::dialog_modal(ctx, "dro-info-modal", "DRO Info", palette, |ui| {
             egui::Grid::new("dro-info-grid")
                 .num_columns(2)
                 .spacing([16.0, 6.0])
@@ -92,8 +89,7 @@ impl DroInfoDialog {
                 });
 
             ui.add_space(8.0);
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
+            super::dialog_footer(ui, |ui| {
                 let close_label = if self.edit_mode { "Cancel" } else { "Close" };
                 if bevel::button(ui, palette, close_label).clicked() {
                     keep_open = false;
@@ -111,7 +107,7 @@ impl DroInfoDialog {
                 }
             });
         });
-        keep_open && !modal.should_close()
+        open && keep_open
     }
 
     fn save(&mut self, actions: &mut Vec<Action>) {

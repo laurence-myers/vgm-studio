@@ -74,18 +74,17 @@ impl SettingsDialog {
         (ui.theme, ui.pad_style, ui.deck_style.for_deck())
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
         let mut saved = false;
         let opened_with = self.skin();
-        let open = super::dialog_window(ctx, "Settings", area, |ui| {
+        let open = super::dialog_modal(ctx, "settings-modal", "Settings", palette, |ui| {
             egui::Grid::new("settings-grid")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
@@ -270,8 +269,8 @@ impl SettingsDialog {
                 }
             });
         });
-        // `open` is false when the window's own title-bar close was used, which
-        // means the same as Close.
+        // `open` is false when Esc or a backdrop click dismissed the modal,
+        // which means the same as Close.
         let closing = close || !open || saved;
         actions.extend(self.preview(opened_with, closing, saved));
         !closing

@@ -27,16 +27,15 @@ impl SplitDialog {
         Self::default()
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "Split Channels", area, |ui| {
+        let open = super::dialog_modal(ctx, "split-modal", "Split Channels", palette, |ui| {
             ui.label("Write each channel as:");
             ui.add_space(4.0);
             ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")

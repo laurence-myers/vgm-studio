@@ -1,4 +1,4 @@
-//! The Find Loop dialog: search a captured song for its loop point. Modeless.
+//! The Find Loop dialog: search a captured song for its loop point. Modal.
 //!
 //! A game rip usually contains the loop body played several times over. The
 //! dialog runs [`dro_core::find_loops`] in the background (so a long song does
@@ -135,16 +135,15 @@ impl FindLoopDialog {
         }
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "Find Loop", area, |ui| {
+        let open = super::dialog_modal(ctx, "find-loop-modal", "Find Loop", palette, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new("Minimum loop length:")
@@ -182,7 +181,10 @@ impl FindLoopDialog {
             });
 
             ui.add_space(6.0);
-            crate::theme::separator_full(ui, palette);
+            // Clipped, not full-width: the full-width groove paints into the
+            // background layer, which under a modal would be a line drawn right
+            // across the dimmed app behind it.
+            crate::theme::separator_clipped(ui, palette);
             self.results_table(ui, palette, actions);
 
             ui.add_space(8.0);

@@ -66,45 +66,46 @@ impl TrackEditDialog {
         dro_core::pack::track_file_name(self.track_number, &self.fields[0], &self.ext)
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "Quick Edit Track", area, |ui| {
-            egui::Grid::new("track-edit-grid")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    ui.label("File name:");
-                    // Read-only: the name is derived from the track number and
-                    // the Track Name (EN) field below, so it always stays in step.
-                    let mut derived = self.derived_name();
-                    ui.add(
-                        egui::TextEdit::singleline(&mut derived)
-                            .interactive(false)
-                            .text_color(palette.muted)
-                            .desired_width(250.0),
-                    )
-                    .on_hover_text("Derived from the track number and Track Name (EN)");
-                    ui.end_row();
+        let open =
+            super::dialog_modal(ctx, "track-edit-modal", "Quick Edit Track", palette, |ui| {
+                egui::Grid::new("track-edit-grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("File name:");
+                        // Read-only: the name is derived from the track number
+                        // and the Track Name (EN) field below, so it always
+                        // stays in step.
+                        let mut derived = self.derived_name();
+                        ui.add(
+                            egui::TextEdit::singleline(&mut derived)
+                                .interactive(false)
+                                .text_color(palette.muted)
+                                .desired_width(250.0),
+                        )
+                        .on_hover_text("Derived from the track number and Track Name (EN)");
+                        ui.end_row();
 
-                    super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
+                        super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
+                    });
+                ui.add_space(8.0);
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close = true;
+                    }
+                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
+                        close = true;
+                    }
                 });
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                    close = true;
-                }
             });
-        });
         open && !close
     }
 

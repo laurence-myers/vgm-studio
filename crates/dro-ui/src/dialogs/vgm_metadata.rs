@@ -1,4 +1,4 @@
-//! The VGM metadata dialog. Modeless.
+//! The VGM metadata dialog. Modal.
 //!
 //! - The loop start is an *instruction index* (`VgmMeta::loop_point`), not a
 //!   raw byte offset, and may be empty for "no loop".
@@ -74,16 +74,15 @@ impl VgmMetadataDialog {
         text
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "VGM Metadata", area, |ui| {
+        let open = super::dialog_modal(ctx, "vgm-metadata-modal", "VGM Metadata", palette, |ui| {
             egui::Grid::new("vgm-meta-grid")
                 .num_columns(2)
                 .spacing([10.0, 6.0])

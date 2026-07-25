@@ -394,9 +394,10 @@ impl Editor {
     /// Applies the VGM metadata dialog's Save. Not undoable.
     ///
     /// An out-of-range loop point is dropped rather than stored: the dialog
-    /// validated against the song it captured, which edits behind its
-    /// modeless window may since have shortened -- and the VGM writer panics
-    /// on a loop point past the end.
+    /// validated against the length it captured at open, and the VGM writer
+    /// panics on a loop point past the end. The dialog is modal now, so the
+    /// song is unlikely to have shortened underneath it -- but a panic in the
+    /// writer is not the way to find out otherwise.
     /// Applies the edited VGM header fields. Returns `true` if the loop point
     /// was out of range for the *current* (possibly shortened since the dialog
     /// opened) song and had to be dropped, so the caller can surface it instead
@@ -444,8 +445,8 @@ impl Editor {
                 loop_modifier,
                 volume_modifier,
             );
-        // The dialog is modeless, so the song may have been shortened behind it;
-        // the markers now describe the stored loop either way.
+        // The stored loop may have been clamped to a since-shortened song; the
+        // markers describe what was actually stored either way.
         self.markers = RangeMarkers::from_song(song);
         self.metadata_dirty |= changed;
         dropped

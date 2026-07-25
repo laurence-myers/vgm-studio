@@ -91,16 +91,15 @@ impl SplitSongsDialog {
         self.included.iter().filter(|&&on| on).count()
     }
 
-    /// Draws the window. Returns `false` once closed.
+    /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_window(ctx, "Split Songs", area, |ui| {
+        let open = super::dialog_modal(ctx, "split-songs-modal", "Split Songs", palette, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new("Gap threshold:")
@@ -143,7 +142,10 @@ impl SplitSongsDialog {
             });
 
             ui.add_space(6.0);
-            crate::theme::separator_full(ui, palette);
+            // Clipped, not full-width: the full-width groove paints into the
+            // background layer, which under a modal would be a line drawn right
+            // across the dimmed app behind it.
+            crate::theme::separator_clipped(ui, palette);
             self.boundary_table(ui, palette, actions);
 
             ui.add_space(8.0);
