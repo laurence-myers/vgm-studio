@@ -274,6 +274,13 @@ pub struct DroApp {
     /// A named screenshot waiting for its recompression to come back, so it can
     /// be written already-optimal instead of written and then rewritten.
     pending_add: Option<PendingAdd>,
+    /// Where the last Alt+arrow reorder left the track, when the edit it started
+    /// is still the top of the undo stack. A move that begins there continues
+    /// the same run and folds into it; anything else starts a new one.
+    coalesce_next_reorder: Option<usize>,
+    /// Whether the pack edit currently running folds into the one below it on
+    /// the undo stack. Set as the run starts, spent as it lands.
+    pack_run_coalesces: bool,
     /// How far along File > Split Channels is, if it is running at all. Doubles
     /// as the in-flight guard and as the gate that drops a result belonging to a
     /// split the user has since abandoned.
@@ -360,6 +367,8 @@ impl DroApp {
             editor: Editor::new(),
             pending_screenshot: None,
             pending_add: None,
+            coalesce_next_reorder: None,
+            pack_run_coalesces: false,
             files,
             audio,
             tasks,
@@ -1536,6 +1545,21 @@ impl DroApp {
             Action::OpenFile => self.files.pick_open(),
             Action::Save => self.save(false),
             Action::SaveAs => self.save(true),
+            Action::CloseFile => {
+                if !self.require_song() {
+                    return;
+                }
+                if self.editor.is_dirty() {
+                    self.alerts.push_back(Alert::confirm(
+                        "Discard unsaved changes?",
+                        "The current song has unsaved changes. Close it anyway?",
+                        Action::ConfirmCloseFile,
+                    ));
+                } else {
+                    self.close_song();
+                }
+            }
+            Action::ConfirmCloseFile => self.close_song(),
             Action::OpenRenderWav => {
                 if self.require_song() {
                     self.dialogs.render_wav = Some(RenderWavDialog::new(self.config.audio.boost));
@@ -2068,6 +2092,28 @@ impl DroApp {
         }
     }
 
+    /// Unloads the song, leaving the editor as it starts: the same teardown a
+    /// load does before installing the next song, minus the song.
+    fn close_song(&mut self) {
+        self.editor.close();
+        self.close_song_dialogs();
+        // The exports and the analysis belong to a song that has gone.
+        self.tasks.cancel(TaskKind::RenderWav);
+        self.tasks.cancel(TaskKind::Split);
+        self.tasks.cancel(TaskKind::VolumeScan);
+        self.split_flow = None;
+        self.audio.unload();
+        self.audio_revision = None;
+        self.was_playing = false;
+        self.waveform = WaveformState::default();
+        self.peak_meter = PeakMeterState::default();
+        self.boost_ceiling = None;
+        self.position.set_length_ms(0);
+        self.position.set_position_ms(0);
+        self.last_first_selected = None;
+        self.status = "Closed the song.".to_owned();
+    }
+
     fn push_load_warnings(&mut self, report: LoadReport, file_version: u32) {
         if report.auto_trimmed {
             self.alerts
@@ -2123,6 +2169,12 @@ impl DroApp {
     /// Starts running `transaction` -- its `forward` mutations, or (for `Undo`)
     /// its `inverse` -- one at a time through the file service.
     fn start_pack_run(&mut self, transaction: PackTransaction, kind: PackRunKind) {
+        // Every pack edit passes through here, so this is where a run of
+        // keyboard reorders ends: anything that is not the next press in that
+        // run -- a drag, an undo, a batch rename -- is an edit of its own.
+        if !self.pack_run_coalesces {
+            self.coalesce_next_reorder = None;
+        }
         self.stop_preview();
         let mutations = if kind == PackRunKind::Undo {
             transaction.inverse.clone()
@@ -2162,11 +2214,21 @@ impl DroApp {
                     return;
                 };
                 let PackRun {
-                    transaction, kind, ..
+                    mut transaction,
+                    kind,
+                    ..
                 } = run;
                 let label = transaction.label.clone();
                 match kind {
                     PackRunKind::NewEdit => {
+                        // A run of Alt+arrow presses on one track is one edit as
+                        // far as the user is concerned: nine presses to lift a
+                        // track to the top must not be nine undos back down.
+                        if std::mem::take(&mut self.pack_run_coalesces)
+                            && let Some(previous) = self.pack_undo.pop()
+                        {
+                            transaction = previous.then(transaction);
+                        }
                         self.pack_undo.push(transaction);
                         self.pack_redo.clear();
                     }
@@ -2239,11 +2301,18 @@ impl DroApp {
         else {
             return; // already at the end it is being pushed towards
         };
+        // Picking up where the last keyboard move left off continues that edit
+        // rather than starting another: the presses fold into one undo. Whether
+        // it folds is decided when the run lands, since that is when there is a
+        // transaction to fold into.
+        self.pack_run_coalesces = self.coalesce_next_reorder == Some(from);
         if let Some(pack) = self.pack.as_mut() {
             pack.focused_track = Some(to);
             pack.scroll_to_track = Some(to);
         }
         self.move_pack_track_to(from, to);
+        // Arm the *next* press to fold into this one.
+        self.coalesce_next_reorder = Some(to);
     }
 
     /// Moves the track at `from` to `to`, renumbering every file the move
@@ -3531,9 +3600,7 @@ impl DroApp {
                 self.editor.selection.select_only(0);
                 self.scroll_to = Some(table::ScrollTo::to_top(0));
             }
-            self.position.set_position_ms(0);
-            self.waveform.cursor_ms = 0;
-            self.audio.rewind();
+            self.reset_playback_start();
         }
         if let Some(song) = self.editor.song() {
             self.position.set_length_ms(song.total_delay_ms());
@@ -3848,12 +3915,24 @@ impl DroApp {
     /// The housekeeping after a crop or a cut: the usual post-edit refresh, plus
     /// the loop config, since both edits reset the markers.
     ///
-    /// The whole stream was rebuilt, so the view goes back to the top rather than
-    /// leave the scroll wherever the old instruction numbering had put it.
+    /// The whole stream was rebuilt, so everything that pointed into the old one
+    /// goes back to the top: the view, and the playback start (its marker on the
+    /// waveform, the readout, and the stream's own position). Row 400 of the old
+    /// numbering is a different instruction now -- or no instruction at all.
     fn after_region_edit(&mut self) {
         self.scroll_to = Some(table::ScrollTo::centered(0));
+        self.reset_playback_start();
         self.after_edit();
         self.push_loop_config();
+    }
+
+    /// Puts the playback start back at the beginning of the song: the waveform's
+    /// start marker and cursor, the position readout, and the audio stream.
+    fn reset_playback_start(&mut self) {
+        self.waveform.start_ms = 0;
+        self.waveform.cursor_ms = 0;
+        self.position.set_position_ms(0);
+        self.audio.rewind();
     }
 
     /// Hands the audio service the region to repeat, or `None` when looping is
@@ -3901,6 +3980,10 @@ impl DroApp {
             )
         };
         MenuState {
+            pack_has_peaks: self
+                .pack
+                .as_ref()
+                .is_some_and(|pack| !pack.peaks.is_empty()),
             can_undo,
             can_redo,
             undo_description,

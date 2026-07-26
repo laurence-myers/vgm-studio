@@ -261,6 +261,8 @@ fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
 
     harness.get_by_label("Edit").click();
     harness.run();
+    harness.get_by_label_contains("Find").click(); // the Find submenu
+    harness.run();
     harness.get_by_label_contains("Goto").click();
     harness.run();
 
@@ -1975,6 +1977,19 @@ fn cool_game_folder() -> PickedFolder {
     )
 }
 
+/// Four tracks, for the reorder tests that need room to walk a track up.
+fn four_track_folder() -> PickedFolder {
+    pack_folder(
+        "Cool Game",
+        vec![
+            tagged_vgm("01 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            tagged_vgm("02 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+            tagged_vgm("03 Cave.vgz", "Cool Game", "Ada", "Ripper"),
+            tagged_vgm("04 Ending.vgz", "Cool Game", "Bob", "Ripper"),
+        ],
+    )
+}
+
 /// Queues a folder and runs a frame so `poll_folder` installs it.
 fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder: PickedFolder) {
     handles
@@ -2740,6 +2755,54 @@ fn alt_arrow_moves_the_focused_track_and_keeps_it_focused() {
         harness.state().pack.as_ref().unwrap().focused_track,
         Some(1),
         "the focus followed the track, so the key can be pressed again"
+    );
+}
+
+#[test]
+fn a_run_of_keyboard_moves_on_one_track_is_one_undo() {
+    // Three presses to lift a track to the top must not be three undos back
+    // down: to the person pressing them it was one edit.
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, four_track_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+    act(&mut harness, Action::PackFocusTrack(3));
+
+    for _ in 0..3 {
+        {
+            let mut files = handles.files.borrow_mut();
+            for _ in 0..8 {
+                files.rename_outcomes.push_back(Ok(()));
+            }
+        }
+        harness.key_press_modifiers(Modifiers::ALT, Key::ArrowUp);
+        harness.run_steps(16);
+    }
+
+    assert_eq!(
+        harness.state().pack_undo.len(),
+        1,
+        "the run folded into one undoable step"
+    );
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().focused_track,
+        Some(0),
+        "and the track walked all the way up"
+    );
+
+    // A move that does not continue the run starts a new step.
+    act(&mut harness, Action::PackFocusTrack(2));
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..8 {
+            files.rename_outcomes.push_back(Ok(()));
+        }
+    }
+    harness.key_press_modifiers(Modifiers::ALT, Key::ArrowUp);
+    harness.run_steps(16);
+    assert_eq!(
+        harness.state().pack_undo.len(),
+        2,
+        "a new track, a new step"
     );
 }
 
@@ -4731,18 +4794,23 @@ fn an_edit_that_outruns_the_playback_start_snaps_it_back_to_the_top() {
 }
 
 #[test]
-fn an_edit_that_leaves_the_playback_start_alone_does_not_move_it() {
-    // The start is inside what survives, so the crop must not disturb it.
+fn a_crop_puts_the_playback_start_back_at_the_beginning() {
+    // Even when the row it pointed at survives: the stream was rebuilt, so row
+    // 400 of the old numbering is a different instruction now, and starting
+    // there would be starting somewhere the user never chose.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
     act(&mut harness, Action::WaveformClicked { index: 1, ms: 5 });
+    assert_eq!(harness.state().position.position_ms(), 5);
 
     act(&mut harness, Action::SetLoopStart(0));
     act(&mut harness, Action::SetLoopEnd(len - 1));
     act(&mut harness, Action::CropToMarkers);
 
-    assert_eq!(harness.state().position.position_ms(), 5);
-    assert_eq!(harness.state().waveform.cursor_ms, 0);
+    let state = harness.state();
+    assert_eq!(state.position.position_ms(), 0);
+    assert_eq!(state.waveform.start_ms, 0, "the marker went with it");
+    assert_eq!(state.waveform.cursor_ms, 0);
 }
 
 #[test]
@@ -5096,21 +5164,17 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
 fn find_loop_is_offered_for_both_dro_and_vgm() {
     // A DRO has nowhere to store a loop, but marking and auditioning one still
     // work, so the search is offered -- only the dialog's Apply is VGM-gated.
-    let (mut harness, _handles) = harness_with_song(&tone_song());
-    harness.get_by_label("Edit").click();
-    harness.run();
-    assert!(
-        harness.query_by_label_contains("Find Loop").is_some(),
-        "Find Loop should be on the Edit menu for a DRO"
-    );
-
-    let (mut harness, _handles) = harness_with_song(&looping_vgm());
-    harness.get_by_label("Edit").click();
-    harness.run();
-    assert!(
-        harness.query_by_label_contains("Find Loop").is_some(),
-        "Find Loop should be on the Edit menu for a VGM"
-    );
+    for (song, what) in [(tone_song(), "DRO"), (looping_vgm(), "VGM")] {
+        let (mut harness, _handles) = harness_with_song(&song);
+        harness.get_by_label("Edit").click();
+        harness.run();
+        harness.get_by_label_contains("Find").click(); // the Find submenu
+        harness.run();
+        assert!(
+            harness.query_by_label_contains("Find Loop").is_some(),
+            "Find Loop should be under Edit > Find for a {what}"
+        );
+    }
 }
 
 #[test]
@@ -5185,12 +5249,13 @@ fn snapshot_find_loop_dialog() {
 fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
     harness.get_by_label("Edit").click();
     harness.run();
+    // The loop items live in the Loop submenu now, which is a menu of its own;
+    // this probes the Edit menu's own format-specific items.
     let present: Vec<&'static str> = [
         "DRO Info...",
         "Edit Tag",
         "Edit VGM Metadata",
         "Optimize VGM",
-        "Apply Loop to Metadata",
     ]
     .into_iter()
     // `_contains`, not an exact match: an item carrying a shortcut hint folds
@@ -5289,12 +5354,7 @@ fn a_vgm_shows_only_the_vgm_menu_items() {
     harness.run();
     assert_eq!(
         edit_menu_items(&mut harness),
-        [
-            "Edit Tag",
-            "Edit VGM Metadata",
-            "Optimize VGM",
-            "Apply Loop to Metadata"
-        ],
+        ["Edit Tag", "Edit VGM Metadata", "Optimize VGM"],
         "a VGM has no DRO header to inspect and is already converted"
     );
 }

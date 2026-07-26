@@ -256,6 +256,12 @@ impl PackState {
                 _ => false,
             }
         });
+        // A keyboard reorder finishes here, several frames after the key: the
+        // renames run, then the folder is rescanned, and only then is the moved
+        // track at its new index. Re-arm the scroll so it is *this* list the row
+        // is brought into view in -- the request made at key-press time was
+        // spent on the list as it was before the move.
+        self.scroll_to_track = self.focused_track.filter(|row| *row < self.tracks.len());
     }
 
     /// The transaction that moves the track at `from` to `to`, renumbering the
@@ -891,6 +897,27 @@ pub struct PackTransaction {
     pub inverse: Vec<PackMutation>,
 }
 
+impl PackTransaction {
+    /// This edit followed by `next`, as one step: the forwards run in order, the
+    /// inverses in reverse. Used to fold a run of keyboard reorders on one track
+    /// into a single undo -- nine Alt+Ups are one edit to the person pressing
+    /// them, however many renames they cost.
+    ///
+    /// The merged label is `next`'s, since the pair reads as "what just
+    /// happened" and the last one said it most recently.
+    #[must_use]
+    pub fn then(mut self, next: Self) -> Self {
+        let mut inverse = next.inverse;
+        inverse.append(&mut self.inverse);
+        self.forward.extend(next.forward);
+        Self {
+            label: next.label,
+            forward: self.forward,
+            inverse,
+        }
+    }
+}
+
 /// The mutations that apply a set of `(src, dst)` renames without a transient
 /// collision: rename every source to a unique temp name first, then each temp to
 /// its destination. Safe for any permutation (including cycles and swaps).
@@ -1148,19 +1175,28 @@ fn track_tools(
                     actions.push(Action::PackScanVolumes);
                 }
             });
-            if bevel::button(ui, palette, "Apply")
-                .on_hover_text("Write volume modifiers to each track")
-                .clicked()
-            {
-                actions.push(Action::PackApplySuggestedModifiers {
-                    album: state.album_normalize,
-                });
-            }
-            // A lit pad, not a checkbox: this modifies what Apply does, so it
-            // belongs beside it, and "lit = on" is the chrome's own rule.
-            bevel::toggle(ui, palette, &mut state.album_normalize, "Album").on_hover_text(
-                "ON: use the loudest track's peak level.\nOFF: use each track's peak level.",
-            );
+            // Both wait on the scan: until a peak has been measured there is
+            // nothing to level from, and Apply could only say so.
+            let scanned = !state.peaks.is_empty();
+            ui.add_enabled_ui(scanned, |ui| {
+                if bevel::button(ui, palette, "Apply")
+                    .on_hover_text(if scanned {
+                        "Write volume modifiers to each track"
+                    } else {
+                        "Scan volumes first -- there is no peak to level from yet"
+                    })
+                    .clicked()
+                {
+                    actions.push(Action::PackApplySuggestedModifiers {
+                        album: state.album_normalize,
+                    });
+                }
+                // A lit pad, not a checkbox: this modifies what Apply does, so
+                // it belongs beside it, and "lit = on" is the chrome's own rule.
+                bevel::toggle(ui, palette, &mut state.album_normalize, "Album").on_hover_text(
+                    "ON: use the loudest track's peak level.\nOFF: use each track's peak level.",
+                );
+            });
         });
         crate::theme::silkscreen_group(ui, palette.data_label, "TAGS", |ui| {
             if bevel::button(ui, palette, "Bulk Tag\u{2026}")

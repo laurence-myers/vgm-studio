@@ -34,6 +34,9 @@ pub struct MenuState {
     /// commands for the screen you are on, rather than a long list of items
     /// greyed out because the other tab owns them.
     pub on_pack_tab: bool,
+    /// Whether any pack track has a measured peak. The levelling commands have
+    /// nothing to level from until one does.
+    pub pack_has_peaks: bool,
     /// The row the loop-marker items act on -- the same one `[` and `]` use.
     pub focused_row: Option<usize>,
     /// Whether the markers actually mark something out, rather than covering the
@@ -113,6 +116,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                         }
                     });
                 }
+                crate::theme::separator(ui, palette);
+                if item(ui, "Close Song", None) {
+                    actions.push(Action::CloseFile);
+                }
             } else {
                 // The pack's own outputs, in the order they are produced.
                 if item(ui, "Save Package Files", None) {
@@ -166,10 +173,12 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                     }
                     // Two items rather than one plus a mode: which levelling ran
                     // is the whole question, and a menu cannot show a latch.
-                    if item(ui, "Apply Album Level", None) {
+                    // Both need peaks to level *from*, so both wait for the scan.
+                    let scanned = state.pack_has_peaks;
+                    if enabled_item(ui, scanned, "Apply Album Level", None) {
                         actions.push(Action::PackApplySuggestedModifiers { album: true });
                     }
-                    if item(ui, "Apply Track Levels", None) {
+                    if enabled_item(ui, scanned, "Apply Track Levels", None) {
                         actions.push(Action::PackApplySuggestedModifiers { album: false });
                     }
                 });
@@ -191,17 +200,52 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 return;
             }
             crate::theme::separator(ui, palette);
-            if enabled_item(ui, editor, "Goto...", Some(&GOTO)) {
-                actions.push(Action::OpenGoto);
-            }
-            if enabled_item(ui, editor, "Find Register...", Some(&FIND_REGISTER)) {
-                actions.push(Action::OpenFindRegister);
-            }
-            // Marking and looping work on a DRO too, so Find Loop is offered for
-            // both formats; only the dialog's Apply button is VGM-gated.
-            if enabled_item(ui, editor, "Find Loop...", None) {
-                actions.push(Action::OpenFindLoop);
-            }
+            // Navigation and search, which find a row rather than change one.
+            ui.menu_button("Find", |ui| {
+                widen(ui);
+                if item(ui, "Goto...", Some(&GOTO)) {
+                    actions.push(Action::OpenGoto);
+                }
+                if item(ui, "Find Register...", Some(&FIND_REGISTER)) {
+                    actions.push(Action::OpenFindRegister);
+                }
+                // Marking and looping work on a DRO too, so Find Loop is offered
+                // for both formats; only the dialog's Apply button is VGM-gated.
+                if item(ui, "Find Loop...", None) {
+                    actions.push(Action::OpenFindLoop);
+                }
+            });
+            // Everything about the loop region in one place: the two markers, the
+            // clear, and the one thing that writes them into the file. The
+            // gestures ([ and ], and modifier-clicks on the waveform) are the
+            // fast path; this submenu is how they are discovered.
+            ui.menu_button("Loop", |ui| {
+                widen(ui);
+                if ui
+                    .add(egui::Button::new("Set Loop Start").shortcut_text("["))
+                    .clicked()
+                    && let Some(row) = state.focused_row
+                {
+                    actions.push(Action::SetLoopStart(row));
+                }
+                if ui
+                    .add(egui::Button::new("Set Loop End").shortcut_text("]"))
+                    .clicked()
+                    && let Some(row) = state.focused_row
+                {
+                    actions.push(Action::SetLoopEnd(row + 1));
+                }
+                if item(ui, "Clear Loop Markers", None) {
+                    actions.push(Action::ClearLoopMarkers);
+                }
+                // Marking and looping work on a DRO too -- auditioning a region
+                // is useful whatever the format -- but only a VGM has anywhere
+                // to store the result.
+                if is_vgm && item(ui, "Apply Loop to Metadata", None) {
+                    actions.push(Action::ApplyLoopToMetadata);
+                }
+            });
+            crate::theme::separator(ui, palette);
             if is_dro && enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
                 actions.push(Action::OpenDroInfo);
             }
@@ -215,38 +259,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 actions.push(Action::OptimizeVgm);
             }
             crate::theme::separator(ui, palette);
-            // The loop markers. The gestures ([ and ], and modifier-clicks on the
-            // waveform) are the fast path; these are how they are discovered, and
-            // the only way to reach Apply at all.
-            if ui
-                .add_enabled(
-                    editor,
-                    egui::Button::new("Set Loop Start").shortcut_text("["),
-                )
-                .clicked()
-                && let Some(row) = state.focused_row
-            {
-                actions.push(Action::SetLoopStart(row));
-            }
-            if ui
-                .add_enabled(editor, egui::Button::new("Set Loop End").shortcut_text("]"))
-                .clicked()
-                && let Some(row) = state.focused_row
-            {
-                actions.push(Action::SetLoopEnd(row + 1));
-            }
-            if enabled_item(ui, editor, "Clear Loop Markers", None) {
-                actions.push(Action::ClearLoopMarkers);
-            }
-            // Marking and looping work on a DRO too -- auditioning a region is
-            // useful whatever the format -- but only a VGM has anywhere to store
-            // the result.
-            if is_vgm && enabled_item(ui, editor, "Apply Loop to Metadata", None) {
-                actions.push(Action::ApplyLoopToMetadata);
-            }
-            // These edit the stream rather than the metadata, so unlike Apply they
-            // work on a DRO as well -- cropping a DRO down to its good part is the
-            // reason the app exists. Both need a region actually marked out.
+            // The three ways to take instructions out of the song, together: two
+            // act on the marked region (and need one marked), one on the
+            // selected rows. They edit the stream rather than the metadata, so
+            // unlike Apply Loop they work on a DRO as well -- cropping a DRO down
+            // to its good part is the reason this app exists.
             let marked = editor && state.has_marked_region;
             if enabled_item(ui, marked, "Crop to Marked Region", None) {
                 actions.push(Action::CropToMarkers);
@@ -254,7 +271,6 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, marked, "Delete Marked Region", None) {
                 actions.push(Action::DeleteMarkedRegion);
             }
-            crate::theme::separator(ui, palette);
             // The Del key is handled as a plain key, not a shortcut; the hint
             // matches the label "&Delete Instruction(s)\tDEL".
             if ui

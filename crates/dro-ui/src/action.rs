@@ -58,6 +58,10 @@ pub enum Action {
         use_panning: bool,
         boost: f32,
     },
+    /// Close the loaded song (prompts first if it has unsaved edits).
+    CloseFile,
+    /// Close the song after the user confirmed discarding it.
+    ConfirmCloseFile,
     OpenSettings,
     Exit,
     /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).

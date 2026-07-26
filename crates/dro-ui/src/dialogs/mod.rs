@@ -65,12 +65,16 @@ pub(crate) fn dialog_window(
 /// still open; each dialog ANDs this with its own Close-button flag:
 /// `dialog_modal(..) && !close`.
 ///
-/// `id` must be unique per dialog. The body is *not* wrapped in a scroll area:
-/// one around the whole modal stops clicks inside it registering at all. A
-/// modal cannot be dragged out of the way either, so a dialog whose content
-/// grows with the song caps and scrolls that part itself -- Find Loop and Split
-/// Songs cap their result tables, and Bulk Tag scrolls its own body between a
-/// pinned heading and footer.
+/// `id` must be unique per dialog.
+///
+/// The body scrolls when it is taller than the window can hold: a modal cannot
+/// be dragged out of the way, so a dialog that overflows a short window would
+/// otherwise have its ends -- including its buttons -- simply unreachable. The
+/// heading stays put above the scrolled part. Dialogs whose content grows with
+/// the song still cap their own tables (Find Loop, Split Songs) and Bulk Tag
+/// still scrolls its list between a pinned heading and footer; this is the
+/// backstop under all of them, for when the *window* is the thing that is too
+/// small.
 pub(crate) fn dialog_modal(
     ctx: &egui::Context,
     id: &str,
@@ -79,12 +83,39 @@ pub(crate) fn dialog_modal(
     body: impl FnOnce(&mut egui::Ui),
 ) -> bool {
     let width = modal_width(ctx);
-    let modal = egui::Modal::new(egui::Id::new(id)).show(ctx, |ui| {
+    // What is left for the body once the window's margins, the heading and its
+    // groove are accounted for. Generous rather than exact: the cost of
+    // over-estimating is a dialog that runs a little closer to the window edge.
+    let max_height = (ctx.content_rect().height() - 96.0).max(120.0);
+    // Whether to scroll is decided from what the body measured *last* frame, so
+    // a dialog that fits is drawn plainly -- no scroll area, no fixed height, no
+    // buttons floating at the bottom of an over-tall box. A dialog that has just
+    // opened measures itself on its first frame and scrolls from the second.
+    let id = egui::Id::new(id);
+    let height_id = id.with("body-height");
+    let scrolls = ctx
+        .data(|data| data.get_temp::<f32>(height_id))
+        .is_some_and(|height| height > max_height);
+    let modal = egui::Modal::new(id).show(ctx, |ui| {
         ui.set_width(width);
         ui.heading(title);
         crate::theme::separator_clipped(ui, palette);
         ui.add_space(6.0);
-        body(ui);
+        let measured = if scrolls {
+            // A viewport of a stated height, not a shrink-to-fit one: a modal
+            // blocks input outside its own rect, and a scroll area that
+            // under-reports its height leaves everything drawn past that rect
+            // visible but unclickable -- buttons included.
+            egui::ScrollArea::vertical()
+                .max_height(max_height)
+                .auto_shrink([false, false])
+                .show(ui, body)
+                .content_size
+                .y
+        } else {
+            ui.scope(body).response.rect.height()
+        };
+        ctx.data_mut(|data| data.insert_temp(height_id, measured));
     });
     !modal.should_close()
 }

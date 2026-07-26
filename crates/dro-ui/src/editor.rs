@@ -146,6 +146,24 @@ impl Editor {
         Ok(report)
     }
 
+    /// Drops the song, leaving the editor as it starts: File > Close.
+    ///
+    /// The undo history goes with it. What it holds are edits to a song that is
+    /// no longer here, and an empty editor has nothing to undo *into*.
+    pub fn close(&mut self) {
+        self.song = None;
+        self.path = None;
+        self.markers = RangeMarkers::default();
+        self.undo.reset();
+        self.selection.clear();
+        self.analysis.invalidate();
+        self.revision += 1;
+        // Nothing is loaded, so nothing is unsaved: the dirty flag must not
+        // keep prompting about a song that has gone.
+        self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
+    }
+
     /// The current song serialised in its own format, for saving.
     ///
     /// # Errors
