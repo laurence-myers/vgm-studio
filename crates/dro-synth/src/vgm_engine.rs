@@ -28,6 +28,7 @@ use dro_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 use crate::banks::{Banks, BlockKind, ram_header, rom_header};
 use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
+use crate::decompress::{DecompressionTable, decompress};
 use crate::engine::FrameClock;
 
 /// Fixed-point fractional bits for the per-chip resampler.
@@ -108,6 +109,10 @@ pub struct VgmEngine {
     file: Arc<VgmFile>,
     voices: Vec<Voice>,
     banks: Banks,
+    /// The last `0x7F` table block seen, which the table-lookup and DPCM
+    /// compression schemes decode against. A file may send several; the one in
+    /// force is the last before the block being unpacked.
+    table: Option<DecompressionTable>,
     /// The `0x90`-`0x95` streams, which write on their own clock rather than on
     /// the command stream's.
     streams: DacStreams,
@@ -189,6 +194,7 @@ impl VgmEngine {
             file,
             voices,
             banks: Banks::new(),
+            table: None,
             streams: DacStreams::new(output_rate),
             due: Vec::new(),
             clock: FrameClock::new(output_rate, dro_core::vgm::VGM_SAMPLE_RATE),
@@ -231,6 +237,7 @@ impl VgmEngine {
             voice.next = [0; 2];
         }
         self.banks.clear();
+        self.table = None;
         self.streams.clear();
         self.due.clear();
         self.clock.reset();
@@ -417,12 +424,20 @@ impl VgmEngine {
 
         match BlockKind::of(kind) {
             BlockKind::Stream => self.banks.push(kind, payload.to_vec()),
-            BlockKind::CompressedStream | BlockKind::DecompressionTable => {
-                // Decompression lands next; until then a compressed bank is
-                // stored as it arrived rather than silently dropped, so the
-                // stream engine finds *something* where it expects data.
-                self.banks
-                    .push(BlockKind::uncompressed_type(kind), payload.to_vec());
+            BlockKind::DecompressionTable => {
+                // Not a bank: the table the compressed blocks after it decode
+                // against. A malformed one is dropped rather than fatal -- the
+                // banks that need it come back empty, which is silence, and
+                // refusing to play the file over it would be worse.
+                self.table = DecompressionTable::parse(payload).ok();
+            }
+            BlockKind::CompressedStream => {
+                // Unpacked on arrival, so everything downstream sees one kind
+                // of bank -- and stored under the *uncompressed* type, so a
+                // stream bound to type 0x00 finds its data whether the file
+                // compressed it or not.
+                let data = decompress(payload, self.table.as_ref()).unwrap_or_default();
+                self.banks.push(BlockKind::uncompressed_type(kind), data);
             }
             BlockKind::Rom => {
                 if let Ok((rom, data)) = rom_header(payload) {
@@ -742,6 +757,42 @@ mod tests {
 
     /// A stream set up, bound, clocked and started reaches its chip's register
     /// on its own clock -- not the command stream's.
+    /// A compressed bank arrives unpacked, and under the type a stream binds
+    /// to -- so a file that compressed its samples is indistinguishable
+    /// downstream from one that did not.
+    #[test]
+    fn a_compressed_bank_is_unpacked_on_arrival() {
+        /// A `0x67` block of type `kind` carrying `payload`.
+        fn block(kind: u8, payload: &[u8]) -> Vec<u8> {
+            let mut bytes = vec![0x67, 0x66, kind];
+            bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(payload);
+            bytes
+        }
+
+        // Type 0x40 is a compressed 0x00: four 4-bit values shifted up to 8
+        // bits, so 1, 2, 15 -> 0x10, 0x20, 0xF0.
+        let mut sub_header = vec![0x00];
+        sub_header.extend_from_slice(&3u32.to_le_bytes()); // uncompressed size
+        sub_header.extend_from_slice(&[8, 4, 1]); // bits out, bits in, shift-left
+        sub_header.extend_from_slice(&0u16.to_le_bytes()); // add value
+        sub_header.extend_from_slice(&[0x12, 0xF0]); // 1, 2, 15, and a pad nibble
+
+        let mut stream = block(0x40, &sub_header);
+        stream.push(0x66);
+
+        let file = vgm(&[(ChipKind::Ym2612, 7_670_454)], &stream);
+        let mut engine = VgmEngine::new(file, 44_100);
+        let mut out = vec![0i16; 16];
+        engine.render(&mut out);
+
+        assert_eq!(
+            engine.banks.nth(0x00, 0),
+            Some([0x10, 0x20, 0xF0].as_slice()),
+            "unpacked, and filed under the uncompressed type"
+        );
+    }
+
     #[test]
     fn a_dac_stream_writes_its_bank_to_the_chip_it_was_pointed_at() {
         // The bank: four bytes of "PCM".
