@@ -49,8 +49,10 @@
   - Recursive / multi-region screenshots, and per-region game titles.
   - Preserve hand-aligned multi-line author blocks verbatim (currently reflowed
     to a greedy wrap on save; see the note in `dro-core/src/pack.rs`).
-  - Extend the VGM reader so more real PC-AT packs load (0x67 data blocks, the
-    "data starts at 0x60" minimal header); today those tracks show as unreadable.
+  - Extend the VGM *editor's* reader so more real PC-AT packs open for editing
+    (0x67 data blocks, the "data starts at 0x60" minimal header). Pack mode
+    already lists and tags them -- see the any-chip work below, whose Phase A
+    made every such file readable as a container. Full command parsing is mc-4.
 - Multi-song splitter (`vgm_sptd` equivalent) -- done, for VGM **and** DRO
   captures. File > Split Songs cuts one long capture -- a whole sound-test session
   logged in one go -- into its per-song files at the silent gaps. A dialog runs
@@ -116,6 +118,21 @@
     header `volume_modifier` (the boost lever is the playback control); the
     `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
     applies the modifier" follow-up would build on.
+- Any-chip VGM support -- **Phase A done** (the required minimum). Pack mode
+  opens a folder containing *any* VGM, for any of the 42 chips the spec covers,
+  versions 1.00-1.72: each track gets its title, length and loop from its
+  header, and takes part in quick edit, bulk tag, Fix Names, Fix Dates, volume
+  modifiers and export like any other. `dro_core::vgm::header` models every chip
+  clock (version-gated, and bounded by the "header ends at the data start" rule
+  that a minimal 0x60-header rip depends on), plus the v1.70 extra header;
+  `dro_core::vgm::file::VgmFile` carries the command stream as an opaque span so
+  a retag is byte-exact outside the GD3 block. The editor cannot open such a
+  file -- it decodes commands into OPL register writes -- so it says what the
+  file is and points at pack mode rather than reporting a load failure. What is
+  gated, and says why: preview (no core for those chips yet) and the export's
+  `vgm_cmp` optimiser (it folds an OPL register file). Remaining phases in
+  `docs/vgm-multichip-2026-07/HANDOVER.md`: the full command parser (mc-4), the
+  delete-only editor for any chip (mc-5), then playback (mc-6 onward).
 - Emit a higher-version VGM header when converting. The Python reserved 0x100
   bytes on purpose, leaving room for the fields later versions add (the v1.70
   extra-header offset at 0xBC, and beyond). The Rust port writes a tight 0x80

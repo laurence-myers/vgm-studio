@@ -1,4 +1,32 @@
-# HANDOVER — Any-chip VGM support (plan complete, implementation not started)
+# HANDOVER — Any-chip VGM support (Phase A shipped; Phase B next)
+
+> **Progress (branch `vgm-multichip`)**
+>
+> | Step | State | Commit |
+> |------|-------|--------|
+> | mc-1 | done | `c6db120` — `vgm/header.rs` (42-chip model, extra header), `vgm/file.rs` (`VgmFile`, opaque body, byte-exact retag writer) |
+> | mc-2 | done | `13237e6` — `PackSong::{Opl,Foreign,Unreadable}`, foreign tracks first-class in pack mode |
+> | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
+> | mc-4 … mc-10 | not started | |
+>
+> **Phase A is complete: the feature's stated minimum requirement is met.** A
+> pack containing any VGM — any chip, versions 1.00–1.72 — opens, lists,
+> tags, renames, levels and exports. No emulator and no command parsing were
+> needed. What is *not* yet possible: editing a foreign file's commands
+> (mc-5) and playing one (mc-6 onward).
+>
+> Notes from the build worth carrying forward:
+> - `read_track` in `dro-ui/src/pack.rs` tries the OPL reader first and the
+>   chip-agnostic one second. An OPL VGM the *command table* rejects (a 0x67
+>   data block, say) therefore lands as `Foreign` today — readable and
+>   taggable, not editable. mc-4 moves those back to `Opl`.
+>   That is half of the "real PC-AT packs" TODO already delivered.
+> - Foreign files must never be written by `vgm::io::write`, which re-derives
+>   the OPL clocks from `Song::opl_type`. `PackTrack::retagged`/`revolumed`
+>   dispatch to the right writer; keep any new save path going through them.
+> - The pack export's optimiser gate needed no code change (it fails safe on
+>   an unreadable file) but its log line did: a foreign VGM now reads
+>   "YM2612 is not optimised yet" rather than "could not read".
 
 **For:** a fresh Claude Code session implementing multi-chip VGM support.
 **From:** the planning session, 2026-07-20; revised against the tree 2026-07-26.
