@@ -481,7 +481,8 @@ impl DroApp {
         // A foreign VGM has no OPL stream, so the panels that exist to show or
         // drive audio have nothing to say about it. They go, rather than sit
         // there as a dead transport over a permanently flat waveform.
-        let audio_panels = editor_tab && self.editor.capabilities().playable;
+        let playable = self.editor.capabilities().playable;
+        let audio_panels = editor_tab && playable;
         let waveform = audio_panels.then(|| {
             egui::Panel::top("waveform")
                 .frame(well)
@@ -569,7 +570,7 @@ impl DroApp {
                     });
                 })
         });
-        let controls = audio_panels.then(|| {
+        let controls = editor_tab.then(|| {
             // The controls own their vertical spacing (equal padding above and
             // below each row band), so drop the frame's vertical margin/spacing.
             let controls_frame = egui::Frame::side_top_panel(ui.style())
@@ -597,63 +598,73 @@ impl DroApp {
                             {
                                 actions.push(Action::DeleteSelection);
                             }
-                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
-                                .on_hover_text("Play the song from the current position")
-                                .clicked()
-                            {
-                                actions.push(Action::Play);
-                            }
-                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
-                                .on_hover_text("Stop playback")
-                                .clicked()
-                            {
-                                actions.push(Action::Stop);
-                            }
-                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
-                                .on_hover_text(self.play_tail_label())
-                                .clicked()
-                            {
-                                actions.push(Action::PlayTail);
-                            }
-                            if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
-                                .on_hover_text(self.play_seam_label())
-                                .clicked()
-                            {
-                                actions.push(Action::PlaySeam);
-                            }
-                            let mut looping = self.loop_enabled;
-                            if theme::bevel::icon_toggle(
-                                ui,
-                                p,
-                                &mut looping,
-                                theme::icon::Icon::Loop,
-                                "Loop",
-                            )
-                            .on_hover_text(
-                                "Repeat the marked region. Shift+click the waveform to mark \
-                                 the start and Shift+right-click the end; [ and ] use the \
-                                 selected row.",
-                            )
-                            .clicked()
-                            {
-                                actions.push(Action::ToggleLoopPlayback);
-                            }
-                            loop_stepper::loop_count_stepper(ui, p, self.loop_count, &mut actions);
-                            // The boost is applied to rendered samples, of which
-                            // hardware output produces none -- the board has its
-                            // own volume.
-                            let shapes_output = self.config.audio.renders_samples();
-                            ui.add_enabled_ui(shapes_output, |ui| {
-                                boost_stepper::boost_stepper(
+                            // Delete applies to any document; everything
+                            // after it drives playback, which needs a stream
+                            // this app can render.
+                            if playable {
+                                if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
+                                    .on_hover_text("Play the song from the current position")
+                                    .clicked()
+                                {
+                                    actions.push(Action::Play);
+                                }
+                                if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
+                                    .on_hover_text("Stop playback")
+                                    .clicked()
+                                {
+                                    actions.push(Action::Stop);
+                                }
+                                if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
+                                    .on_hover_text(self.play_tail_label())
+                                    .clicked()
+                                {
+                                    actions.push(Action::PlayTail);
+                                }
+                                if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
+                                    .on_hover_text(self.play_seam_label())
+                                    .clicked()
+                                {
+                                    actions.push(Action::PlaySeam);
+                                }
+                                let mut looping = self.loop_enabled;
+                                if theme::bevel::icon_toggle(
                                     ui,
                                     p,
-                                    self.config.audio.boost,
-                                    self.boost_ceiling,
-                                    self.config.audio.lock_boost,
-                                    self.tasks.is_busy_kind(TaskKind::VolumeScan),
+                                    &mut looping,
+                                    theme::icon::Icon::Loop,
+                                    "Loop",
+                                )
+                                .on_hover_text(
+                                    "Repeat the marked region. Shift+click the waveform to mark \
+                                 the start and Shift+right-click the end; [ and ] use the \
+                                 selected row.",
+                                )
+                                .clicked()
+                                {
+                                    actions.push(Action::ToggleLoopPlayback);
+                                }
+                                loop_stepper::loop_count_stepper(
+                                    ui,
+                                    p,
+                                    self.loop_count,
                                     &mut actions,
                                 );
-                            });
+                                // The boost is applied to rendered samples, of which
+                                // hardware output produces none -- the board has its
+                                // own volume.
+                                let shapes_output = self.config.audio.renders_samples();
+                                ui.add_enabled_ui(shapes_output, |ui| {
+                                    boost_stepper::boost_stepper(
+                                        ui,
+                                        p,
+                                        self.config.audio.boost,
+                                        self.boost_ceiling,
+                                        self.config.audio.lock_boost,
+                                        self.tasks.is_busy_kind(TaskKind::VolumeScan),
+                                        &mut actions,
+                                    );
+                                });
+                            }
                         });
                         ui.add_space(PAD);
                         theme::separator_full(ui, p);
@@ -2656,17 +2667,9 @@ impl DroApp {
         let Some(track) = self.pack.as_ref().and_then(|pack| pack.tracks.get(index)) else {
             return;
         };
-        // A foreign track has nothing the editor could show. Say so and stay
-        // put: switching to an empty Editor tab to explain that pack mode is
-        // where its tags live would be the wrong way round. (Reachable by
-        // double-clicking the row; the row menu's item is already disabled.)
-        if track.foreign().is_some() {
-            self.status = format!(
-                "{} is not an OPL song; use Quick edit to change its tags.",
-                track.file_name
-            );
-            return;
-        }
+        // A foreign track opens too, for trimming: `load_file` sorts out which
+        // kind it is. Only one whose commands will not walk has nothing to
+        // show, and that one gets the dialog rather than an empty table.
         let file = PickedFile {
             name: track.file_name.clone(),
             path: track.path.clone(),

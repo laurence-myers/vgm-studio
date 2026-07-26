@@ -2353,17 +2353,16 @@ fn row_menu(
             .color(palette.data_label),
     )
     .frame(false);
-    let editable = track.song().is_some();
+    // An OPL song opens fully; a foreign one opens for trimming, so long as its
+    // commands walk. Only a file that parses as neither has nothing to show.
+    let editable =
+        track.song().is_some() || track.foreign().is_some_and(|file| file.stream().is_some());
     let response = egui::containers::menu::MenuButton::from_button(button)
         .ui(ui, |ui| {
-            // The editor decodes OPL register writes; a foreign track has
-            // nothing it could show, so the item greys out saying why rather
-            // than opening onto an error.
             let open = ui.add_enabled(editable, egui::Button::new("Open in editor"));
             if !editable {
                 open.on_disabled_hover_text(
-                    "The editor works on OPL2 and OPL3 songs only. Quick edit changes this \
-                     track's tags.",
+                    "This file's commands could not be read. Quick edit still changes its tags.",
                 );
             } else if open.clicked() {
                 actions.push(Action::PackTrackOpen(index));
