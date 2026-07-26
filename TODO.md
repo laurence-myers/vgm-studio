@@ -219,9 +219,17 @@
   write belongs to). They were the same answer for every document until a chip
   that is not OPL became playable.
 
-  Still to come: the per-chip output settings, looping for the generic engine
-  (`LoopConfig` is OPL-only), pack preview for a playable non-OPL track, and the
-  YM2612 and YM2413 cores.
+  **Output is a per-chip setting now**, which is what the whole thing started
+  from: Settings lists one row per chip this app can play -- OPL2/OPL3 keeping
+  its emulated-or-hardware choice, a chip with one core stating it, and a
+  closing line counting the chips with none, which is the honest answer to "why
+  is my Mega Drive rip silent". Pack preview plays any track with a core, and
+  the checklist names the chips that would be *missing* from a preview rather
+  than claiming there cannot be one -- a Mega Drive rip previews its PSG and not
+  its FM. A marked region loops and its seam auditions for any chip.
+
+  Still to come: more cores (the YM2612 and YM2413 are the ones that would open
+  up the most rips), and the minimum-version header writer.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

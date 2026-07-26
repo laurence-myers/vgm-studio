@@ -188,11 +188,32 @@
 > The transport actions gate on `require_playable`, between `require_song` and
 > `require_document`.
 >
-> **What is left of mc-7:** the per-chip output settings (§2.1.10, the user's
-> original ask #1), looping for `VgmEngine` (`LoopConfig` is OPL-only, so
-> Audition Seam still gates on `require_song`), and pack preview
-> (`PackTrack::is_playable` is still `opl_type().is_some()`, and
-> `playable_song()` only makes an `Arc<Song>` -- both want the source enum).
+> **mc-7 is done.** The per-chip output settings landed as
+> `widgets/chip_output.rs`: one row per chip this app can play, OPL keeping the
+> choice it always had (with the device picker under it), a chip with one core
+> stating it, and a closing line counting the chips with none. The rows come from
+> `dro_synth::core_for`, so a new core appears without anyone adding it, and a
+> test checks the rows plus the count still cover the whole chip table.
+>
+> One deviation from the plan, deliberate: the config key stays the flat
+> `audio.output_backend` rather than `audio.output.opl`. It *is* the OPL row's
+> key -- the board is an OPL3 -- and a per-chip key format while only one chip has
+> a second backend would be a migration for no behaviour. It generalises when a
+> second chip has somewhere else to go.
+>
+> Pack preview plays any track with a core, and the checklist's note changed
+> shape with it: `unplayable_chips` became `silent_chips`, because a Mega Drive
+> rip is *partly* playable (PSG yes, FM no) and the useful thing to say is which
+> chips would be missing from the preview, not that there cannot be one.
+>
+> `VgmEngine` loops, with the OPL player's three decisions carried over: no chip
+> reset at the seam, `frames_rendered` rewinds to the loop start, and a region
+> that renders no audio is dropped rather than spun on. Auditioning a seam works
+> for either document.
+>
+> The greying rules follow the document: hardware output means the board mixes
+> its own sound and nothing here can meter or shape it, but a non-OPL document
+> never reaches that board, so its meter, boost and panning stay live.
 >
 > ### Porting notes, kept because they generalise
 >
@@ -1284,7 +1305,7 @@ a deep change with no payoff, since nothing edits through it any more.
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
 | 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
-| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | editor playback **done**; per-chip settings and pack preview next |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | **done** |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
