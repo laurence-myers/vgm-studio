@@ -1,4 +1,22 @@
-# HANDOVER — Any-chip VGM support (Phases A–C shipped; playback next)
+# HANDOVER — Any-chip VGM support (Phases A–C shipped; the unification next, then playback)
+
+> **Second revision, 2026-07-26 (evening).** After mc-1..mc-5 shipped, the
+> user redirected the plan with four directives, folded in below as locked
+> decisions §2.1.13–17 and a new phase (uv-1..uv-5, §Phase C2) that now
+> precedes playback:
+>
+> 1. **No "OPL vs Foreign".** An OPL VGM is just a VGM whose chips unlock
+>    *additional* features. One abstraction holds any chip's data; features
+>    check the chips. The `Song`-vs-`VgmFile` split for VGMs (and the word
+>    "foreign") is transitional and gets dissolved (uv-1).
+> 2. **Crop / delete-marked-region is a hard requirement for every VGM**
+>    (uv-2, uv-3) — with license to rewrite the OPL-specific machinery it
+>    generalises, and undo kept to deltas, not per-row snapshots.
+> 3. **Optimize (vgm_cmp) for every chip**, not just OPL (uv-4).
+> 4. **An explicit option to correct headers that disagree with the stream**
+>    (uv-5; `vgm_ptch -Check` is the reference).
+>
+> vgmtools was re-surveyed at source level for 2–4; findings in §3.9.
 
 > **Progress (branch `vgm-multichip`)**
 >
@@ -9,7 +27,8 @@
 > | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
 > | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
 > | mc-5 | done | `be409cd` chip-selector deck, `524df5f` foreign delete + undo + header repatch, `428c57e` the foreign editor, `3a1165f` chip deck visible + pack gating flipped |
-> | mc-6 … mc-10 | not started (playback) | |
+> | uv-1 … uv-5 | **next** — the 2026-07-26 redirection (one VGM model, any-chip crop, any-chip optimise, header fix); full detail in §Phase C2 | |
+> | mc-6 … mc-10 | after the uv steps (playback, cores, min-version writer) | |
 >
 > **Phases A, B and C are complete.** A pack containing any VGM — any chip,
 > versions 1.00–1.72 — opens, lists, tags, renames, levels and exports; and
@@ -18,7 +37,9 @@
 > step. **Any-chip trimming works, with no emulator.** What remains is
 > playback (mc-6 onward) and the minimum-version writer (mc-10).
 >
-> Notes from the mc-5 build:
+> Notes from the mc-5 build (the second-slot shape below is **transitional**
+> — uv-1 replaces it with the `EditorDoc` enum, which becomes honest once the
+> split is DRO-vs-VGM rather than OPL-vs-foreign):
 > - The editor holds a **second document slot** (`foreign: Option<VgmFile>`)
 >   rather than the `EditorDoc` enum this plan proposed. At most one slot is
 >   filled. `UndoController`/`UndoableCommand` were already generic, so the
@@ -95,12 +116,19 @@ else fails with "No OPL2 or OPL3 data detected." The user's requirements:
    (the wasm32-unknown-unknown web build is a first-class target).
 3. The instruction **editor view is disabled/hidden** for non-OPL VGMs until
    the generic command editor (mc-5) lands.
-4. Extend the editor to other chips — **deleting instructions only**, plus
-   basic playback once cores exist. OPL-specific extras (volume boost,
-   panning, channel muting) explicitly need **not** be generalised.
-   Originally a stretch goal; the user promoted it ahead of playback (§2.1).
+4. Extend the editor to other chips — ~~deleting instructions only~~
+   **(scope widened 2026-07-26: deleting, plus crop/delete-marked-region as a
+   hard requirement — §2.1.14)**, plus basic playback once cores exist.
+   OPL-specific extras (volume boost, panning, channel muting) explicitly
+   need **not** be generalised.
 5. When writing a VGM, emit the **minimum version** the content requires
    (e.g. WonderSwan forces v1.71, a YMF262-only file needs only v1.51).
+6. **(2026-07-26)** One VGM model: OPL chips are one kind of VGM chip with
+   additional feature support, never a separate document type (§2.1.13).
+7. **(2026-07-26)** The `vgm_cmp`-style optimiser supports every chip it has
+   rules for, and passes the rest through untouched (§2.1.15).
+8. **(2026-07-26)** The user can correct a header that disagrees with its
+   command stream — explicitly, never silently (§2.1.16).
 
 Spec: <https://vgmrips.net/wiki/VGM_Specification> (§3 digests everything the
 implementation needs; trust the live spec over §3 if they disagree).
@@ -146,6 +174,32 @@ it. Both bullets verified still open, 2026-07-26.
     keeps the existing panel unchanged; other chips start empty — §2.1.4
     still holds, their extras need not be generalised). Detailed in mc-5.
 12. **Work on branch `vgm-multichip`** (2026-07-26), not directly on `rust`.
+13. **One VGM model** (2026-07-26, supersedes §2.2.4): every VGM is one
+    document type; OPL is a *capability* of its chip set, checked before an
+    OPL feature enables, never a separate type. The mc-5 editor's
+    song/foreign split and pack mode's `PackSong::Opl/Foreign` naming are
+    transitional and get dissolved in uv-1. The word "foreign" leaves the
+    codebase and the UI copy.
+14. **Crop and delete-marked-region work for every VGM** (2026-07-26) — a
+    hard requirement, not an OPL nicety. The OPL-only state machinery
+    (`OplState`, `state_patch::StateFold`, `crop.rs`) may be rewritten or
+    replaced to get there (uv-2/uv-3).
+15. **Optimise every chip** (2026-07-26): the vgm_cmp equivalent gains
+    per-chip redundancy rules; a chip with no rules yet passes through
+    verbatim, never corrupted (uv-4).
+16. **Header-vs-stream corrections are user-invoked** (2026-07-26): the app
+    audits and *offers* the fix (editor action + pack checklist); the writer
+    never recomputes a field the user didn't ask it to. `vgm_ptch -Check` is
+    the reference behaviour (uv-5).
+17. **Undo stays delta-shaped** (2026-07-26, user guidance): a row delete is
+    one command holding per-row `(index, bytes)` deltas — deleting 100
+    commands is 100 small deltas in one command, never 100 snapshots.
+    Wholesale rebuilds (crop, optimise) use one before/after stream-snapshot
+    pair, the existing `ReplaceStream` pattern. Derived state (sample
+    totals, loop fields, prefix sums) is *recomputed from the stream* after
+    every apply/revert rather than maintained by arithmetic — the one
+    exception stays the deleted-loop-point restore, which keeps its
+    12-byte verbatim header capture because no arithmetic can recover it.
 
 ### 2.2 Recommended (confirm with the user before mc-1)
 
@@ -184,9 +238,11 @@ it. Both bullets verified still open, 2026-07-26.
    app synthesises a header anyway (DRO→VGM conversion, editor save of a
    restructured file) and offered as an explicit "normalise header" action at
    pack export; never silently applied to a foreign file being retagged.
-4. **Foreign VGMs are a separate type**, not forced through `Song`.
-   `Song`/`DroInstruction` stay the OPL editing model; a new chip-agnostic
-   `VgmFile` carries everything else. Pack tracks hold an enum of the two.
+4. ~~**Foreign VGMs are a separate type**, not forced through `Song`.~~
+   **Superseded 2026-07-26 by §2.1.13.** This recommendation was implemented
+   through mc-5 and served as the scaffolding; the end state inverts it:
+   *every* VGM is a `VgmFile`, `Song` shrinks to the DRO model, and the OPL
+   editing features read the one stream through a projection (uv-1).
 5. **Corpus-ordered core rollout** (§5, mc-8/mc-9): SN76489 + YM2413 + YM2612
    + AY8910 + Game Boy + NES first — that covers the overwhelming majority of
    VGMRips packs — then FM heavies, then wavetable/PCM exotics. "Every chip
@@ -425,6 +481,49 @@ marked-region crops gated (see mc-5). And the loop-marker slide the plan
 said lp-1 and mc-5 would share landed as `slide_index_past_deletion`
 (`song.rs:747` — pub, pure index arithmetic); mc-5 reuses it as-is.
 
+### 3.9 What vgmtools actually does (source-verified 2026-07-26)
+
+Read at source level for uv-2..uv-5; these are the reference behaviours.
+All of vgmtools is GPL-2.0 — same Route-B posture as ever: reimplement from
+the chip facts, use the tool as the oracle, stay LGPL (§2.2.2).
+
+**`chip_cmp.c` (behind vgm_cmp)** — the redundancy model:
+- Core: a per-register last-value mirror (`RegData`) plus a first-write flag
+  (`RegFirst`); a write is droppable iff not-first and value-equal.
+- Per-chip *trigger* exceptions where rewriting the same value matters:
+  NES APU writes with bit 7 (length-counter/trigger resets) always kept;
+  Sega PCM delta-time treated as a state-machine trigger; RF5C68 channel
+  select kept only if dependent writes follow (lookahead); YM2612 DAC data
+  (0x2A) bypasses optimisation entirely; OPL 0x04 flag-*clear* writes are
+  dropped outright (no sonic effect) — an extra rule, not just a mirror.
+- SN76489: the latch/data protocol is decoded (bit 7 = latch), mirrors kept
+  per decoded register (freq LSB/MSB, volume); GG stereo cached separately.
+- Loop point: **all mirrors invalidated** (`memset 0xFF`) so the loop body
+  re-establishes its own state — with a handful of dynamic values (banking
+  modes, envelope state) deliberately preserved across the seam.
+- 0x67 / 0x90–0x95 are passed through at the vgm_cmp.c level, untouched.
+
+**`vgm_trml.c` (behind vgm_trim)** — the trim/state-restore model:
+- Pre-scan 0..start tracking per-chip register masks + values, then emit at
+  the new start: **memory first** (0x67 contents re-emitted as complete
+  images), **then registers**, per-chip write shapes.
+- Channels keyed-on at the trim point get their key-on written — the note
+  re-attacks, which is the accepted behaviour (and what our OPL fold does).
+- DAC-stream control (0x90–0x95) and 0xE0 seeks are *force-copied* through
+  rather than reconstructed. Most chips have real state tracking; a few
+  (MultiPCM, uPD7759, GA20, Mikey) are minimal or unimplemented.
+
+**`vgm_ptch -Check`** — the header auditor/fixer (the uv-5 reference): it
+verifies and can fix total samples vs summed waits, loop offset validity +
+loop samples (`-CheckO` relocates the offset), data offset, EOF, GD3
+offset/length/structure, version vs used fields (bumps to the minimum
+needed), a missing 0x66 end marker, and junk between EOD and the tag.
+
+**Adjacent tools noted, out of scope for uv-4** (each its own later feature):
+`vgm_sro` (strip unused sample-ROM regions), `optdac` (YM2612 DAC run
+cleanup), `opt_oki` (OKIM6258 → DAC-stream conversion), `vgm_dbc`
+(data-block bit-packing), `vgm_dso` (DAC-stream reordering for compression).
+
 ## 4 · Environment & workflow rules
 
 ### 4.1 PATH prelude (required before ANY cargo/rustc call)
@@ -601,18 +700,14 @@ files are never structurally rewritten beyond the GD3 block.
 > and the design notes. The section below is the plan as written; where it
 > and the build differ, the build is described in those notes.
 >
-> **Two things scoped out of it, still open:**
-> - *Marked-region crop for foreign documents.* `crop_to_region` /
->   `delete_region` splice a synthesised state patch, and `StateFold` is
->   OPL-shaped (§3.8). A foreign document gets plain row deletion. A per-chip
->   state model would generalise it; that is its own feature, not mc-5.
-> - *The OPL reader's 0x67 support* — the other half of the `TODO.md` reader
->   gap. It needs `DroInstruction` to gain a variant for a command that is
->   neither a register write nor a delay, which ripples into the table, the
->   analyser, the optimiser and the state fold. Until then an OPL VGM carrying
->   a data block opens through the *foreign* path: trimmable, but without the
->   register analysis. That is a real improvement on "unreadable", and a
->   reasonable place to leave it.
+> **The two things scoped out of it are now owned by the C2 phase
+> (2026-07-26 redirection):**
+> - *Marked-region crop for any VGM* → **uv-2 + uv-3**, promoted from
+>   "future work" to a hard requirement (§2.1.14).
+> - *The OPL reader's 0x67 support* → **solved differently by uv-1**: the
+>   projection makes a data block a non-OPL row inside an OPL document, so
+>   `DroInstruction` never needs to grow. The old note below about growing
+>   the enum is obsolete.
 
 Why this slot (user decision, §2.1): with mc-4's parser in hand, *trimming* —
 the app's core competency — works for every chip without a single emulator.
@@ -679,6 +774,149 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   kittest snapshots of foreign rows (chip labels, block rows, warnings); the
   existing OPL editor suite untouched.
 
+### Phase C2 — one VGM model (added 2026-07-26; runs before playback)
+
+The user's redirection, §2.1.13–17, turned into five steps. The architecture,
+chosen after weighing the alternatives:
+
+**A VGM's single source of truth is its byte stream** (`VgmHeader` +
+`VgmStream` + `Gd3Tag` — the `VgmFile` that exists today), for *every* VGM,
+OPL included. OPL-ness is a **projection**: a cheap per-row view that decodes
+an OPL write out of the generic command, available when the file's chips are
+OPL-family. Everything OPL-specific — the analysis columns, register
+descriptions, find-register, the synth — consumes the projection.
+`Song` shrinks to what it is honest about: the DRO model.
+
+Alternatives considered and rejected: *(a)* keep `Song` universal and grow
+`DroInstruction` with generic arms — puts non-OPL semantics inside the OPL
+type and makes every consumer learn arms it can't handle; *(b)* read DRO
+files into the VGM model too — breaks DRO round-tripping (ms delays, DRO
+headers); *(c)* cache a `Song` beside the `VgmFile` for OPL files — two
+mutable representations of one document is a sync hazard by construction.
+The projection keeps one truth and derives the view.
+
+The safety net for the whole phase: the audio/waveform/render/peak paths all
+consume **immutable `Arc<Song>` snapshots**, not the editor's document — so
+`OplProjection::to_song()` materialises one and *nothing in dro-synth or
+dro-audio-native changes at all* in this phase. Playback generalisation
+stays where it was, in mc-6/mc-7.
+
+#### uv-1 · one document model: OPL becomes a capability
+
+- `OplProjection` on `VgmFile`: available iff every clocked chip is
+  OPL-family and the body walks. Per row, `project(i) ->
+  Option<DroInstruction>` — OPL writes and waits project; a data block or
+  raw row is `None`, shown by its generic description, skipped by analysis
+  and by the synth materialisation (it has no wait, so timings hold). This
+  is what finally closes the 0x67-in-an-OPL-file gap: no `DroInstruction`
+  growth needed, the block is simply a non-OPL row.
+- **Parity gate before anything switches:** for every OPL VGM in the corpus,
+  the old reader's `Song` and the projection agree — instruction-for-
+  instruction, meta field for meta field, bytes-out for bytes-out. Property
+  test plus the corpus. This is the net under the whole phase.
+- Editor: the mc-5 `song`/`foreign` slots become `EditorDoc::{Dro(Song),
+  Vgm(VgmFile)}` — an enum that is now *honest* (a format split, not a
+  capability split) — with one undo history over the enum. Capabilities
+  derive from the chips: analysable/playable = projection present;
+  editable = walks; taggable = always.
+- Pack: `PackSong::{Dro, Vgm, Unreadable}`; preview and "open in editor"
+  gate on the projection; the word "foreign" leaves the code and the copy.
+- The full OPL-VGM feature inventory routes through the doc (checklist:
+  VGM metadata dialog, GD3 dialog, apply-loop-to-metadata, optimize, crop,
+  find loop, split songs, split channels/filter, DRO→VGM conversion output,
+  volume-modifier boost seeding, `retagged`/`revolumed`).
+- End state: `SongData::Vgm` and `VgmData` (the closed 8-opcode table) are
+  deleted; `Song` is DRO-only; the capture/convert paths build `VgmFile`s.
+- Staged, each stage green: (a) projection + parity tests, no consumers
+  switched; (b) pack switches; (c) editor switches (the big one — several
+  commits); (d) retire `VgmData`/`SongData::Vgm`, port convert/capture.
+
+#### uv-2 · chip_state: one per-chip state layer, four consumers
+
+One module serving crop (uv-3), optimize (uv-4), the split-songs prelude,
+and later the engine's fast seek (mc-6). Contents:
+
+- **Generic register-latch model**, keyed `(chip, instance, port, addr)`,
+  holding each cell's last write as its *original byte span* (the
+  `StateFold` trick — re-emitting source bytes keeps encodings exact).
+  Restore emits last-writes in the order those writes last occurred, which
+  preserves ordering constraints (mode registers before dependents) better
+  than address order can.
+- **SN76489 model**: the latch/data protocol decoded as chip_cmp does, plus
+  GG stereo and T6W28.
+- **Stream-level state** beside the chips: the catalogue of 0x67 data
+  blocks seen (for hoisting — block order is load-bearing, banks append);
+  per-stream-id DAC-stream setup/data/frequency and active flag
+  (0x90–0x95); the 0xE0 PCM seek position.
+- `OplState` + `state_patch::StateFold` fold in as the OPL instance of the
+  model (per §2.1.14's rewrite licence); the existing OPL crop/split tests
+  are the parity net, so the OPL model keeps its low-file-then-high
+  ascending emission order.
+- **Validation that needs no cores**: fold-equivalence — `fold(original,
+  0..T)` must equal `fold(prelude)` for any crop point T. Property-tested
+  over synthetic streams and the corpus.
+
+#### uv-3 · crop and delete-marked-region for every VGM (the hard requirement)
+
+- `crop_to_region(doc, start, end)`: emit hoisted data blocks (verbatim, in
+  order), DAC-stream re-setup for active streams, the 0xE0 seek if the bank
+  position is nonzero, then the state-restore writes, then
+  `body[start..end)`. Header repatched from the stream (totals; loop slid
+  or cleared), as `delete_commands` already does.
+- `delete_region(doc, start, end)`: `body[..start)` + the state *delta*
+  (cells whose value differs between `fold(start)` and `fold(end)`, emitted
+  from their last-write bytes) + blocks hoisted from the removed span +
+  `body[end..)`.
+- **Rule: region operations never silently drop a 0x67 block.** Banks are
+  cumulative (a YM2612 seek indexes the concatenation of every block so
+  far), so removed spans donate their blocks to the seam. Explicit row
+  deletion of a block stays allowed — explicit intent, status-bar warning.
+- Where vgm_trml re-emits merged memory *images*, we hoist the original
+  block commands verbatim — byte-conservation over cleverness; the merged
+  re-emission is a later optimisation if ever wanted.
+- Undo: one before/after snapshot pair over the doc (§2.1.17). Markers UI
+  already generalises (`[`/`]` work by row; waveform marking needs
+  playback, which foreign docs don't have yet).
+- Keyed-on notes at the crop point re-attack, as vgm_trml and the OPL fold
+  both do — accepted behaviour, worth one line in the Help notes.
+
+#### uv-4 · optimise every chip
+
+- The optimiser walks the stream with chip_state: a write is droppable iff
+  its chip's rule table says the register is a pure latch and the mirror
+  matches (`RegFirst` semantics). **Redundancy defaults OFF per chip** —
+  no rules, no drops, pass through verbatim — because trigger registers
+  (NES APU bit-7 writes, OKIM/uPD phrase starts, key-ons) make the generic
+  mirror unsafe as a default. Restore-for-crop and redundancy-for-optimise
+  are therefore different strictness levels of the same model.
+- At the loop point, invalidate every mirror (chip_cmp's rule and already
+  ours) so the loop body stays self-contained. Delay merging is
+  chip-neutral and the existing byte-minimal re-encoder generalises.
+- Rollout: OPL first (must reproduce today's optimiser byte-for-byte on the
+  corpus — the parity gate for the rewrite), then SN76489 + YM2612 + YM2413
+  (the big corpora), then chip-by-chip alongside the §mc-9 core waves.
+- Validation ladder: (a) fold-equivalence at every wait boundary between
+  original and optimised streams — self-checking, no cores; (b) render
+  parity where a core exists (OPL today, more after mc-8); (c) corpus A/B
+  against vgm_cmp as the external oracle.
+- The pack export toggle and Edit > Optimize VGM drop their OPL gate; the
+  log names chips passed through, as it already does.
+
+#### uv-5 · header audit, fixed only when asked
+
+- `dro_core::vgm::audit(file) -> Vec<HeaderFinding>`, mirroring
+  `vgm_ptch -Check` (§3.9): total samples vs summed waits; loop offset on a
+  command boundary and in range; loop samples vs the derived value; a
+  missing end marker; junk between EOD and the tag (we preserve it —
+  offer the strip); version vs used fields (reported here, *fixed* by
+  mc-10's normalise step, which this audit feeds).
+- Editor: a status-bar note on load when findings exist ("Header disagrees
+  with the stream — Edit > Fix Header…"), and a dialog listing each finding
+  as before → after, applied as one undoable header-patch command.
+- Pack: a per-track readiness **Warning** naming the disagreement, plus a
+  "Fix Headers" batch (transactional, undoable, mirrors Fix Dates).
+- The writer itself keeps the Phase A promise: verbatim unless asked.
+
 ### Phase D — playback
 
 #### mc-6 · dro-synth: multi-chip engine
@@ -714,9 +952,13 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   every clocked chip has a registered core — offer Partial playback with
   missing chips silent, clearly labelled, if the user wants it). It is
   backend-aware (§3.7): on the RetroWave backend only pure-OPL files are
-  playable, so foreign files always preview through the emulated engine
+  playable, so non-OPL files always preview through the emulated engine
   whatever the OPL output setting says — mc-7's per-chip output widget is
   what makes that routing legible.
+- Seek uses uv-2's chip_state where models exist: fold `0..T`, emit the
+  restore writes, and only replay verbatim for chips without a model — a
+  fast seek instead of a full-stream replay, and a third consumer proving
+  the state layer right.
 - Tests: `RecordingChip`-style fake cores asserting routing (dual-chip bit 7 /
   0xAn mirrors / SegaPCM address bit), DAC-stream timing against hand-computed
   schedules, mixer determinism across pull sizes (extend
@@ -813,18 +1055,23 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 
 ## 6 · Step sequence (confirm with the user before each)
 
-| Step | Scope | Landable alone? |
-|------|-------|-----------------|
-| mc-1 | dro-core: full header parse, `VgmFile` (opaque body), GD3 retag writer | yes |
-| mc-2 | pack mode: foreign tracks first-class, preview gated, descriptions | yes |
-| mc-3 | editor gating + friendly non-OPL open dialog | yes — **Phase A done: minimum requirement met** |
-| mc-4 | full command-stream parser (also closes both reader TODOs for OPL) | yes |
-| mc-5 | generic delete-only editor + foreign save path + chip-scoped channel panel (no emulation) | yes — **any-chip trimming works** |
-| mc-6 | `ChipCore` trait, `VgmEngine`, DAC streams, mixer | yes (no cores yet) |
-| mc-7 | AudioService source enum, per-chip output settings, pack preview + editor playback wiring | yes |
-| mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | yes |
-| mc-9 | core waves 1–4, one confirmed step per core | per-core |
-| mc-10 | minimum-version writer + normalise-header export option | yes |
+| Order | Step | Scope | State |
+|-------|------|-------|-------|
+| 1 | mc-1 | dro-core: full header parse, `VgmFile` (opaque body), GD3 retag writer | **done** |
+| 2 | mc-2 | pack mode: any-VGM tracks first-class, preview gated, descriptions | **done** |
+| 3 | mc-3 | editor gating + friendly non-OPL open dialog | **done — Phase A: minimum requirement met** |
+| 4 | mc-4 | full command-stream parser (minimal headers for OPL too) | **done** |
+| 5 | mc-5 | delete-only editor for any VGM + chip-scoped channel panel | **done — any-chip trimming works** |
+| 6 | uv-1 | one document model: `OplProjection`, editor/pack unification, retire `VgmData`/`SongData::Vgm`, "foreign" terminology dies | next |
+| 7 | uv-2 | chip_state: generic latch model + SN76489 + stream state (blocks, DAC streams, seeks); OPL fold absorbed | |
+| 8 | uv-3 | **crop + delete-marked-region for every VGM** (hard requirement) | |
+| 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | |
+| 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | |
+| 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | |
+| 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | |
+| 14 | mc-9 | core waves 1–4, one step per core | per-core |
+| 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
 
 mc-10 can land any time after mc-4 (mc-5 makes it more valuable: deleting a
 chip's last write lets the normalise action drop the version). The lp-1/mc-5
