@@ -38,6 +38,35 @@
 > the editor's two document slots and retiring `VgmData`. Nothing
 > user-visible depends on it.
 >
+> ### The collapse has a prerequisite nobody had spotted (attempted 2026-07-27)
+>
+> An attempt at it was made and **backed out deliberately**; the groundwork it
+> produced landed (`8ecc4c2`: `VgmFile::set_loop_rows`,
+> `VgmHeader::set_loop_counts`). What it found:
+>
+> **`optimize::merge_delays` only exists for `VgmData`.** It is the
+> byte-minimal delay re-encoder — full `0x61` chunks plus a tail of up to two
+> short waits, borrowing from the last chunk when that saves a byte — and it
+> is the second half of the optimiser. Route an OPL VGM through `VgmFile` and
+> it silently loses that half: the test suite caught it as 7 commands where
+> 6 were expected. **Port `merge_delays` to `VgmStream` first**, with the
+> existing OPL optimiser as the byte-exact oracle (and the corpus behind it),
+> and only then move the documents.
+>
+> Expect the same shape of gap elsewhere. Anything that consumes `&Song` and
+> rebuilds a stream needs a `VgmStream` equivalent before the slot it lives
+> in can go: the loop finder (`loopfind.rs`), the multi-song splitter
+> (`split_songs.rs`) and `convert::filter_vgm` are the candidates. Each is
+> also a feature that would then work for *any* chip, so the porting is not
+> only a tax — it is how Find Loop and Split Songs reach a Mega Drive rip.
+>
+> The rest of the collapse is understood and small by comparison: an eager,
+> revision-keyed `Arc<Song>` view materialised from the projection serves the
+> read-only consumers (analyser, find-register, waveform, synth) without a
+> second *mutable* representation, and the two undo stacks can stay behind
+> the `can_undo`/`undo` API or be unified with a pair of adapter commands
+> over an `EditorDoc` enum.
+>
 > Notes worth carrying into whatever comes next:
 > - **`chip_state` has four intended consumers, two connected.** Crop and
 >   optimise use it; the split-songs prelude and mc-6's fast seek still do
