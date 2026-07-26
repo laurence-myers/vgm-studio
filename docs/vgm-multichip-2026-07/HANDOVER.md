@@ -1,4 +1,4 @@
-# HANDOVER — Any-chip VGM support (Phases A–C shipped; the unification next, then playback)
+# HANDOVER — Any-chip VGM support (Phases A–C and the unification shipped; playback next)
 
 > **Second revision, 2026-07-26 (evening).** After mc-1..mc-5 shipped, the
 > user redirected the plan with four directives, folded in below as locked
@@ -23,70 +23,92 @@
 > | Step | State | Commit |
 > |------|-------|--------|
 > | mc-1 | done | `c6db120` — `vgm/header.rs` (42-chip model, extra header), `vgm/file.rs` (`VgmFile`, opaque body, byte-exact retag writer) |
-> | mc-2 | done | `13237e6` — `PackSong::{Opl,Foreign,Unreadable}`, foreign tracks first-class in pack mode |
-> | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
+> | mc-2 | done | `13237e6` — pack mode accepts a VGM for any chips (later unified to one `PackSong::Vgm`) |
+> | mc-3 | done | `99d0b20` — the explaining dialog + gated editor actions (later `LoadFailure::Unwalkable`) |
 > | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
-> | mc-5 | done | `be409cd` chip-selector deck, `524df5f` foreign delete + undo + header repatch, `428c57e` the foreign editor, `3a1165f` chip deck visible + pack gating flipped |
-> | uv-1 | **part done** — `621a90c` `OplProjection` + the corpus parity gate, `83cb3fe` pack mode unified, `fa62b93` editor terminology. **Remains:** collapsing the editor's two document slots, and retiring `VgmData`. |
+> | mc-5 | done | `be409cd` chip-selector deck, `524df5f` delete + undo + header repatch, `428c57e` the editor for any chips, `3a1165f` chip deck visible + pack gating flipped |
+> | uv-1 | **done** | `621a90c` `OplProjection` + the corpus parity gate, `83cb3fe` pack mode unified, `fa62b93` terminology, `7aba760` the Find Loop dialog + every edit gate, `5927d5c` the splitter, `4fa1914` tag/loop metadata, `8af87a6` **the document-model collapse**, `1318b4c` Convert to VGM, `186b769` the branches it made unreachable, `a2479aa` one optimiser, `8a7508c` the naming |
 > | uv-2 | done | `e83d8fa` — `chip_state`: generic latch model + block/DAC-stream/seek state, fold-equivalence proptests |
 > | uv-3 | done | `e83d8fa` core, `45e7a69` UI — **crop and delete-region for every VGM** |
 > | uv-4 | done | `b5e839d` — optimise for every chip it has rules for, conservative default, OPL byte-parity kept |
 > | uv-5 | done | `e9afd76` — `vgm::audit` + Edit > Fix Header, user-invoked only |
 >
-> **All four of the 2026-07-26 directives are implemented** (§2.1.13–17).
-> What remains of the redirection is the *internal* half of uv-1: collapsing
-> the editor's two document slots and retiring `VgmData`. Nothing
-> user-visible depends on it.
+> **All four of the 2026-07-26 directives are implemented** (§2.1.13–17), and
+> so is the internal half of uv-1. **Phase C2 is complete.**
 >
-> ### The collapse has a prerequisite nobody had spotted (attempted 2026-07-27)
+> ### What the unification actually looks like (finished 2026-07-27)
 >
-> An attempt at it was made and **backed out deliberately**; the groundwork it
-> produced landed (`8ecc4c2`: `VgmFile::set_loop_rows`,
-> `VgmHeader::set_loop_counts`). What it found:
+> The editor holds one document: a `Song` for a DRO, a `VgmFile` for every VGM.
+> OPL is a **projection** of a VGM -- a `Song` rebuilt from the stream whenever
+> the stream changes, served by `Editor::song()` and read by the register
+> analyser, Find Register, the waveform and the synth exactly as before. Three
+> rules keep it honest:
 >
-> **`optimize::merge_delays` only exists for `VgmData`.** It is the
-> byte-minimal delay re-encoder — full `0x61` chunks plus a tail of up to two
-> short waits, borrowing from the last chunk when that saves a byte — and it
-> is the second half of the optimiser. Route an OPL VGM through `VgmFile` and
-> it silently loses that half: the test suite caught it as 7 commands where
-> 6 were expected.
+> - Every edit bumps the revision through **one method**, which refreshes the
+>   projection and drops the row-analysis cache. Nothing can be an edit behind.
+> - Anything that asks "what does this file say" reads the **file**, never the
+>   projection: the tag, the loop, the header. The projection is a view of the
+>   *stream*.
+> - The table branches on whether there is an OPL reading, not on which slot
+>   holds the document. (It branched on the slot at first; the kittest snapshots
+>   caught it.)
 >
-> **`merge_delays` is now ported** (`b4cdc31`) — that blocker is cleared, and
-> the OPL optimiser is pinned to the new one byte-for-byte across the corpus.
-> Two bugs surfaced doing it, both caught by the oracle rather than by
-> reasoning, and the second only at corpus scale: an absolute offset passed
-> where a stream-relative one was wanted, and `optimize()` rebuilding
-> unconditionally so a file with nothing to gain came back re-spelled at the
-> same length (1121 of 3933 files). **When porting the rest, compare against
-> the OPL implementation over the corpus — not just unit fixtures.**
+> **The user-visible payoff is fidelity.** Saving used to go through the OPL
+> writer, which rebuilds a header from the decoded song -- so a round trip could
+> re-stamp a clock, drop a longer header, or quietly correct a sample total that
+> disagreed with the stream. A save now returns the file's own bytes, and
+> correcting a header is something the user asks for by name.
 >
-> **The loop finder is ported too** (`d9e39a7`): Find Loop works on any chip,
-> and applying a candidate writes through `set_loop_rows`. One last mile left
-> — `FindLoopDialog` still takes an `Arc<Song>` to put a time against each
-> candidate row, so the search is reachable through the task layer but not
-> through the dialog for a non-OPL file. It needs `total_commands`, a
-> commands-per-second figure and a per-candidate time; `VgmStream::samples_from`
-> supplies the last of those.
+> **A wrinkle worth carrying forward:** a VGM header stores a loop's *length in
+> samples*, so a loop end sharing its instant with the rows before it comes back
+> as the first of them. `apply_loop_to_metadata` re-derives the markers from what
+> was stored rather than leaving them where the user put them -- otherwise the
+> "unapplied" cue stays lit on a loop that has just been applied. The `Song`
+> model used to keep the asked-for index in memory and lose it on save; this is
+> the same information loss, made visible immediately.
 >
-> **Still to port, same shape:** the multi-song splitter (`split_songs.rs`,
-> whose prelude should become `chip_state`'s third consumer) and
-> `convert::filter_vgm`. Each is also a feature that would then work for *any*
-> chip, so the porting is not only a tax — it is how Split Songs reaches a
-> Mega Drive rip.
+> **Gates split in two.** `require_song` asks for an OPL stream (playback, the
+> WAV render, the channel split, the register analyser, Go To's delay
+> navigation); `require_document` is for everything that is not an OPL question
+> (save, close, undo/redo, delete, crop, delete-region, go-to, apply-loop, both
+> metadata dialogs, Find Loop, Split Songs). Every action went through the former
+> before, so a VGM for other chips opened in the editor and then declined to be
+> saved or edited at all. The File menu hides Render to WAV and Split Channels
+> for such a document rather than offering an item that answers "please open a
+> DRO file first".
 >
-> The rest of the collapse is understood and small by comparison: an eager,
-> revision-keyed `Arc<Song>` view materialised from the projection serves the
-> read-only consumers (analyser, find-register, waveform, synth) without a
-> second *mutable* representation, and the two undo stacks can stay behind
-> the `can_undo`/`undo` API or be unified with a pair of adapter commands
-> over an `EditorDoc` enum.
+> **What was retired with it:** the OPL-slot half of six editor operations (167
+> lines), the CLI's and the pack export's separate OPL optimiser paths, and the
+> word "foreign" from code and copy. `ForeignVgmDialog` became
+> `UnwalkableVgmDialog` -- with every VGM openable, the only one that still needs
+> an explaining dialog is one whose commands will not walk.
+>
+> ### Porting notes, kept because they generalise
+>
+> Every `&Song`-shaped stream rebuilder now has a `VgmStream` equivalent:
+> `merge_delays` (`b4cdc31`), the loop finder (`d9e39a7`), and the multi-song
+> splitter (`5927d5c`). `convert::filter_vgm` was **not** ported and does not
+> need to be: it backs the channel split, which is an OPL-only idea, and a
+> projected `Song` feeds it.
+>
+> **Diff every port against the OPL implementation over the whole corpus, not
+> just unit fixtures.** Both `merge_delays` bugs were caught that way rather than
+> by reasoning, and one only at scale (`optimize()` rebuilt unconditionally, so
+> 1121 of 3933 already-optimal files came back re-spelled at the same length).
+> The splitter's diff is in `projection_corpus.rs::compare_split`: every segment
+> boundary must match exactly, and every piece must agree on final chip state and
+> length -- *not* on bytes, because the two state preludes emit the same writes
+> in different orders and the generic one also restores a register explicitly
+> written to zero, which the OPL fold skips as unchanged from a blank chip.
 >
 > Notes worth carrying into whatever comes next:
-> - **`chip_state` has four intended consumers, two connected.** Crop and
->   optimise use it; the split-songs prelude and mc-6's fast seek still do
->   not. The OPL-specific `state_patch::StateFold` and `crop.rs` therefore
->   still exist and still serve the OPL `Song` path — folding them in is part
->   of the editor collapse, not a separate job.
+> - **`chip_state` has four intended consumers, three connected.** Crop,
+>   optimise and the splitter's prelude use it; mc-6's fast seek still does not.
+>   The OPL-specific `state_patch::StateFold` and `crop.rs` still serve the DRO
+>   path, which is the only caller left.
+> - **`optimize::optimize(&Song)` is now reference-only.** Nothing in the app
+>   reaches it; it exists as the corpus oracle. Same for the OPL splitter's
+>   `materialise`, which the DRO path still uses.
 > - **The optimiser's rule table is the thing to grow.** Four chips have
 >   rules (OPL family, YM2612, YM2413). Adding one means checking its
 >   trigger registers against `chip_cmp` and adding a line; not adding one
@@ -96,20 +118,14 @@
 >   and `0x20`-`0x28` are excluded because a wrong answer there is silent.
 >   Worth revisiting with a render oracle once those cores land (mc-8).
 >
-> **Resequencing found during uv-1 (2026-07-27):** collapsing the editor's
-> two slots is *not* a prerequisite for uv-3. Crop acts on the document the
-> editor already holds as a `VgmFile` for non-OPL files, and OPL files
-> already have crop via `crop.rs`. So uv-2/uv-3 (the user's hard
-> requirement) run next, and the editor collapse — which means porting ten
-> OPL editing operations off `Song` in one go — follows once those core
-> operations exist to wire.
->
 > **What the corpus said** (16466 files, `DROTRIM_CORPUS`): 3933 the old OPL
 > reader accepts, all 3933 now agreeing byte-for-byte through the
 > projection; **12533 openable that were not before**; 0 unreadable by both.
 > Of the OPL-accepted files, 0 carry a non-OPL command — so the strict
 > "wholly OPL" gate costs nothing real, and the corpus is what caught the
 > two files whose headers declare a chip their stream never writes to.
+> The splitter agrees with the OPL one on every segment boundary in those
+> 3933 files and on all **11388 pieces** they yield.
 > | mc-6 … mc-10 | after the uv steps (playback, cores, min-version writer) | |
 >
 > **Phases A, B and C are complete.** A pack containing any VGM — any chip,
@@ -1144,12 +1160,19 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 | 3 | mc-3 | editor gating + friendly non-OPL open dialog | **done — Phase A: minimum requirement met** |
 | 4 | mc-4 | full command-stream parser (minimal headers for OPL too) | **done** |
 | 5 | mc-5 | delete-only editor for any VGM + chip-scoped channel panel | **done — any-chip trimming works** |
-| 6 | uv-1 | one document model: `OplProjection`, editor/pack unification, retire `VgmData`/`SongData::Vgm`, "foreign" terminology dies | next |
-| 7 | uv-2 | chip_state: generic latch model + SN76489 + stream state (blocks, DAC streams, seeks); OPL fold absorbed | |
-| 8 | uv-3 | **crop + delete-marked-region for every VGM** (hard requirement) | |
-| 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | |
-| 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | |
-| 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | |
+| 6 | uv-1 | one document model: `OplProjection`, editor/pack unification, "foreign" terminology dies | **done** |
+
+`VgmData`/`SongData::Vgm` were **not** retired, and should not be: the
+projection materialises into one, so it is now the OPL *reading* of a VGM
+stream rather than a second document. Deleting it would mean making `Song`
+DRO-only and giving the synth and the analyser something else to consume --
+a deep change with no payoff, since nothing edits through it any more.
+
+| 7 | uv-2 | chip_state: generic latch model + SN76489 + stream state (blocks, DAC streams, seeks) | **done** |
+| 8 | uv-3 | **crop + delete-marked-region for every VGM** (hard requirement) | **done** |
+| 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
+| 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
+| 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **next** |
 | 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
@@ -1160,7 +1183,7 @@ chip's last write lets the normalise action drop the version). The lp-1/mc-5
 touchpoint this paragraph used to flag is resolved: loop points (and the
 crop feature after them) landed first, and the shared helper exists as
 `slide_index_past_deletion` (`song.rs:747`) — mc-5 reuses it. mc-6's engine
-mirrors the shipped `LoopConfig` semantics for foreign playback (notably: no
+mirrors the shipped `LoopConfig` semantics for playback of any chip (notably: no
 chip reset across the loop seam, `frames_rendered` rewinds to
 `start_frames` — `engine.rs:518`).
 

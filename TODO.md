@@ -14,10 +14,13 @@
 
 ## VGM
 
-- VGM optimiser (`vgm_cmp` equivalent) -- done. Strips OPL register writes that
-  rewrite a register with the value it already holds (inaudible on a
+- VGM optimiser (`vgm_cmp` equivalent) -- done, for any chip. Strips register
+  writes that rewrite a register with the value it already holds (inaudible on a
   level-sensitive latch) and merges the delays those drops leave adjacent,
-  conserving the sample total exactly. Reached three ways: Edit > Optimize VGM
+  conserving the sample total exactly. The rules are per chip and it drops
+  nothing at all from one it has no rules for, so running it over an unfamiliar
+  file is safe rather than merely likely to be; the CLI names any such chips so
+  a file that could not shrink does not look like one that had nothing to gain. Reached three ways: Edit > Optimize VGM
   (undoable), the "Optimize VGMs on export" pack checkbox (default on, runs before
   the gzip step), and `drotrim optimize <in> [out]`. Route B (independent
   implementation from chip facts, not a port of vgmtools), so the project stays
@@ -53,25 +56,31 @@
     (0x67 data blocks, the "data starts at 0x60" minimal header). Pack mode
     already lists and tags them -- see the any-chip work below, whose Phase A
     made every such file readable as a container. Full command parsing is mc-4.
-- Multi-song splitter (`vgm_sptd` equivalent) -- done, for VGM **and** DRO
+- Multi-song splitter (`vgm_sptd` equivalent) -- done, for a VGM of **any
+  chips** and for DRO
   captures. File > Split Songs cuts one long capture -- a whole sound-test session
   logged in one go -- into its per-song files at the silent gaps. A dialog runs
   the detector live as a gap-threshold slider (seconds) is dragged, lists each
   song's start and length with an include checkbox and a Preview button, has a
   decay-tail slider (keep some of the trimmed silence after each piece, 0 s
   default), and exports `NN <stem>.vgm`/`.dro` into a chosen folder, then offers
-  to open that folder as a pack project. Each piece is prepended with the OPL
-  register state the capture had reached at its start -- each touched register's
-  last write, reused byte for byte from the source so the encoding is exact
-  whatever the format (for DRO v1 the current bank is tracked through the
-  bank-switch opcodes) -- so a song taken from the middle opens on the chip state
-  it would have had mid-play rather than on silence. Detection and materialisation
-  are format-agnostic (native delay unit: samples for VGM, ms for DRO); a VGM
-  piece also copies the source GD3 with the track title blanked. Route B (gap
-  detection is one accumulator; state capture is a register-file fold), so the
-  project stays LGPL-2.1; the net is a corpus-sanity test that tripling the real
-  OPL2 rip with gaps splits back into three pieces each opening on the folded
-  register state, plus DRO v1/v2 round-trip tests.
+  to open that folder as a pack project. Each piece is prepended with the chip
+  state the capture had reached at its start -- each touched register's last
+  write, reused byte for byte from the source so the encoding is exact whatever
+  the format (for DRO v1 the current bank is tracked through the bank-switch
+  opcodes; for a VGM it is `dro_core::chip_state`, so it works for chips this
+  app has no core for) -- so a song taken from the middle opens on the chip
+  state it would have had mid-play rather than on silence. Detection is one
+  function over "how long does command N wait, and is waiting all it does",
+  which either representation answers (native delay unit: samples for VGM, ms
+  for DRO); a VGM piece declares the source's chips at the source's clocks and
+  copies its GD3 with the track title blanked. Preview is the one thing gated:
+  auditioning a piece plays it. Route B (gap detection is one accumulator; state
+  capture is a register-file fold), so the project stays LGPL-2.1; the net is a
+  corpus-sanity test that tripling the real OPL2 rip with gaps splits back into
+  three pieces each opening on the folded register state, DRO v1/v2 round-trip
+  tests, and a corpus diff against the OPL splitter over all 3933 OPL files
+  (every segment boundary, and all 11388 pieces' final chip state and length).
 - Support for header features:
   - Loop points -- done. A region is marked in the editor (Shift+click and
     Shift+right-click on the waveform, `[` and `]` on the selected row, or the
@@ -118,27 +127,51 @@
     header `volume_modifier` (the boost lever is the playback control); the
     `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
     applies the modifier" follow-up would build on.
-- Any-chip VGM support -- **one VGM model, and the chip-agnostic editing
-  operations, done.** OPL is no longer a kind of VGM but a capability of one:
-  `dro_core::vgm::projection` presents the same command stream as OPL
-  instructions when a file's chips (and every one of its commands) are OPL, and
-  that projection is what the register analyser, find-register and the synth
-  read. Everything chip-agnostic works on any VGM: **crop and delete-marked-
-  region** (via `dro_core::chip_state`, which folds a discarded span into the
-  chips' state and re-emits it as the source's own bytes, in the order it
-  happened -- data blocks included, since the banks are cumulative), the
-  **`vgm_cmp` optimiser** (per-chip redundancy rules, dropping nothing from a
-  chip it has not checked), and **Edit > Fix Header**, which reports where a
-  header disagrees with its own stream and corrects it only when asked. Pack
-  mode has one kind of track. Validated against the local corpus: of 16466
-  files, all 3933 the OPL reader accepts agree byte-for-byte through the new
-  path, and 12533 that it could not open at all now open. The chip-agnostic
-  `vgm_cmp` runs both halves -- the redundant-write strip and the byte-minimal
-  delay merge -- and a file with nothing to gain is left alone byte for byte.
-  **Find Loop** works on any chip too (a repeated block is a repeated block),
-  and applying a candidate writes the loop into the file; its dialog still
-  wants a `Song` for the per-candidate times, so that last step is reachable
-  through the task layer only. Split Songs is the remaining OPL-only tool.
+- Any-chip VGM support -- **one VGM model, and every chip-agnostic tool with
+  it, done.** OPL is no longer a kind of VGM but a capability of one. The editor
+  holds the file's own bytes whatever its chips, and
+  `dro_core::vgm::projection` presents that same command stream as OPL
+  instructions when the file's chips (and every one of its commands) are OPL --
+  a `Song` rebuilt whenever the stream changes, which the register analyser,
+  find-register, the waveform and the synth read exactly as before. A DRO stays
+  a decoded OPL stream; there is no container to keep.
+
+  Everything that is not an OPL question works on any VGM: **crop and
+  delete-marked-region** (via `dro_core::chip_state`, which folds a discarded
+  span into the chips' state and re-emits it as the source's own bytes, in the
+  order it happened -- data blocks included, since the banks are cumulative),
+  the **`vgm_cmp` optimiser** (per-chip redundancy rules, dropping nothing from
+  a chip it has not checked), **Find Loop** (a repeated block is a repeated
+  block), **Split Songs** (where a capture falls silent), **Edit Tag** and
+  **Edit VGM Metadata**, and **Edit > Fix Header**, which reports where a header
+  disagrees with its own stream and corrects it only when asked. What stays
+  OPL-only is what genuinely decodes OPL: playback, the WAV render, the channel
+  split, the register analyser and Go To's delay navigation -- and those items
+  are absent rather than dead for a file there is no core for. Pack mode has one
+  kind of track.
+
+  The user-visible half is fidelity. Opening a VGM and saving it back returns
+  the file's own bytes: the OPL writer used to rebuild a header from the decoded
+  song, so a round trip could re-stamp a clock, drop a longer header, or quietly
+  "correct" a sample total that disagreed with the stream. Correcting a header
+  is now something the user asks for by name.
+
+  Validated against the local corpus: of 16466 files, all 3933 the OPL reader
+  accepts agree byte-for-byte through the new path, and 12533 that it could not
+  open at all now open. The splitter agrees with the OPL one on every segment
+  boundary in those 3933 files and on all 11388 pieces they yield (final chip
+  state and length -- not bytes, since the two state preludes emit the same
+  writes in different orders). A file with nothing to gain from the optimiser is
+  left alone byte for byte.
+
+  One wrinkle worth knowing: a VGM header stores a loop's *length in samples*,
+  so a loop end sharing its instant with the rows before it comes back as the
+  first of them. The markers snap to what was actually stored rather than to
+  what was asked for -- the file cannot express the difference, and leaving them
+  apart would keep the "unapplied" cue lit on a loop that had just been applied.
+
+  Remaining: playback for other chips (mc-6 onward) and the minimum-version
+  writer (mc-10). See `docs/vgm-multichip-2026-07/HANDOVER.md`.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit
