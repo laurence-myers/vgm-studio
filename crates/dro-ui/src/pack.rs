@@ -31,19 +31,16 @@ use crate::theme::{Palette, bevel};
 
 /// What a scanned song file turned out to be.
 ///
-/// A pack is a folder of whatever the ripper produced, and the editor only
-/// understands OPL. Rather than write off everything else as unreadable -- which
-/// is what a failed [`Song`] parse used to mean -- a file the editor declines
-/// gets a second chance as a [`VgmFile`]: no decoded commands, but a header, a
-/// tag, a duration and a loop, which is everything pack mode needs.
+/// There is one kind of track, because a pack is a folder of VGMs -- that is
+/// what a VGMRips submission is, and what [`classify`] scans for. A VGM is a
+/// VGM whatever chips it declares; whether those chips also unlock the OPL
+/// extras is [`PackTrack::opl_type`]'s question, asked per feature, not a
+/// different kind of track.
 #[derive(Debug, Clone)]
 pub enum PackSong {
-    /// A DRO or an OPL VGM: fully modelled, editable, playable.
-    Opl(Arc<Song>),
-    /// A VGM for chips the editor cannot open. Tags are editable; playback and
-    /// the instruction editor are not, yet.
-    Foreign(Arc<VgmFile>),
-    /// Not a song this app can read at all, with the reason.
+    /// A VGM, for any chips at all.
+    Vgm(Arc<VgmFile>),
+    /// Not a VGM this app can read, with the reason.
     Unreadable(String),
 }
 
@@ -62,29 +59,16 @@ pub struct PackTrack {
 }
 
 impl PackTrack {
-    /// The parsed OPL song, if this track is one.
-    ///
-    /// This is the accessor for anything that needs *commands* -- rendering,
-    /// analysis, the editor. Tags and timings go through [`Self::tag`] and
-    /// [`Self::entry`] instead, which work for a foreign track too.
+    /// The parsed VGM, if the file parsed.
     #[must_use]
-    pub fn song(&self) -> Option<&Arc<Song>> {
+    pub fn vgm(&self) -> Option<&Arc<VgmFile>> {
         match &self.song {
-            PackSong::Opl(song) => Some(song),
-            PackSong::Foreign(_) | PackSong::Unreadable(_) => None,
+            PackSong::Vgm(file) => Some(file),
+            PackSong::Unreadable(_) => None,
         }
     }
 
-    /// The parsed foreign file, if this track is one.
-    #[must_use]
-    pub fn foreign(&self) -> Option<&Arc<VgmFile>> {
-        match &self.song {
-            PackSong::Foreign(file) => Some(file),
-            PackSong::Opl(_) | PackSong::Unreadable(_) => None,
-        }
-    }
-
-    /// Whether the file parsed at all, as either kind.
+    /// Whether the file parsed at all.
     #[must_use]
     pub const fn is_readable(&self) -> bool {
         !matches!(self.song, PackSong::Unreadable(_))
@@ -95,93 +79,89 @@ impl PackTrack {
     pub fn error(&self) -> Option<&str> {
         match &self.song {
             PackSong::Unreadable(error) => Some(error),
-            PackSong::Opl(_) | PackSong::Foreign(_) => None,
+            PackSong::Vgm(_) => None,
         }
     }
 
-    /// The track's GD3 tag, whichever kind of file carries it.
+    /// The OPL this track's chips are, or `None` when the OPL-only features do
+    /// not apply to it.
+    ///
+    /// The one question every OPL feature asks.
+    #[must_use]
+    pub fn opl_type(&self) -> Option<OplType> {
+        Some(self.vgm()?.opl()?.opl_type())
+    }
+
+    /// Whether this app can render the track: it needs an OPL stream, which is
+    /// the only kind it has a core for yet.
+    #[must_use]
+    pub fn is_playable(&self) -> bool {
+        self.opl_type().is_some()
+    }
+
+    /// Whether the editor can open the track: it needs rows to show.
+    #[must_use]
+    pub fn is_editable(&self) -> bool {
+        self.vgm().is_some_and(|file| file.stream().is_some())
+    }
+
+    /// A [`Song`] snapshot for the paths that render one -- preview, the volume
+    /// scan. `None` unless the track is playable.
+    ///
+    /// The track materialises one on demand rather than holding a second copy
+    /// of itself; this is called when a track is auditioned or scanned, not
+    /// per frame.
+    #[must_use]
+    pub fn playable_song(&self) -> Option<Arc<Song>> {
+        self.vgm()?.to_song().map(Arc::new)
+    }
+
+    /// The track's GD3 tag, if it has one.
     #[must_use]
     pub fn tag(&self) -> Option<&Gd3Tag> {
-        match &self.song {
-            PackSong::Opl(song) => song.vgm_meta().and_then(|meta| meta.tag.as_ref()),
-            PackSong::Foreign(file) => file.tag.as_ref(),
-            PackSong::Unreadable(_) => None,
-        }
+        self.vgm()?.tag.as_ref()
     }
 
     /// The chips this track declares, e.g. `"YM2612, SN76489"`, or `None` if it
     /// did not parse.
-    ///
-    /// An OPL track answers from its own chip type rather than by re-reading the
-    /// header: this is called per row per frame, and the two agree by
-    /// construction (the OPL reader derives `opl_type` from those same clocks).
     #[must_use]
     pub fn chip_list(&self) -> Option<String> {
-        match &self.song {
-            PackSong::Foreign(file) => Some(file.chip_list()),
-            PackSong::Opl(song) => Some(
-                match song.opl_type {
-                    OplType::Opl2 => "YM3812",
-                    OplType::DualOpl2 => "YM3812 x2",
-                    OplType::Opl3 => "YMF262",
-                }
-                .to_owned(),
-            ),
-            PackSong::Unreadable(_) => None,
-        }
+        Some(self.vgm()?.chip_list())
     }
 
     /// The track's VGM volume modifier, if it is a VGM.
     #[must_use]
     pub fn volume_modifier(&self) -> Option<u8> {
-        match &self.song {
-            PackSong::Opl(song) => song.vgm_meta().map(|meta| meta.volume_modifier),
-            PackSong::Foreign(file) => Some(file.header.volume_modifier()),
-            PackSong::Unreadable(_) => None,
-        }
+        Some(self.vgm()?.header.volume_modifier())
     }
 
     /// Re-serialises the track under `new_name` with `tag` applied. The name
     /// drives the output format, so a `.vgm` -> `.vgz` rename gzips the result.
     ///
-    /// `None` when the track did not parse. A foreign file goes through its own
-    /// writer, never the OPL one -- that path re-derives the OPL chip clocks
-    /// from the song's `opl_type` and would wipe the file's real ones.
+    /// `None` when the file did not parse.
     #[must_use]
     pub fn retagged(&self, new_name: &str, tag: Gd3Tag) -> Option<Result<Vec<u8>, String>> {
-        match &self.song {
-            PackSong::Opl(song) => Some(retagged_bytes(song, new_name, tag)),
-            PackSong::Foreign(file) => {
-                let mut file = VgmFile::clone(file);
-                file.name = new_name.to_owned();
-                file.tag = Some(tag);
-                Some(write_foreign(&file))
-            }
-            PackSong::Unreadable(_) => None,
-        }
+        let mut file = VgmFile::clone(self.vgm()?);
+        file.name = new_name.to_owned();
+        file.tag = Some(tag);
+        Some(write_vgm(&file))
     }
 
     /// Re-serialises the track with its VGM volume modifier set to `modifier`,
     /// keeping the file name (and thus the format). `None` if it is not a VGM.
     #[must_use]
     pub fn revolumed(&self, modifier: u8) -> Option<Result<Vec<u8>, String>> {
-        match &self.song {
-            PackSong::Opl(song) => revolumed_bytes(song, modifier),
-            PackSong::Foreign(file) => {
-                let mut file = VgmFile::clone(file);
-                // A header too short to hold the field predates it; there is
-                // nowhere to write the modifier, so the track is left alone.
-                file.header
-                    .set_volume_modifier(modifier)
-                    .then(|| write_foreign(&file))
-            }
-            PackSong::Unreadable(_) => None,
-        }
+        let mut file = VgmFile::clone(self.vgm()?);
+        // A header too short to hold the field predates it; there is nowhere to
+        // write the modifier, so the track is left alone.
+        file.header
+            .set_volume_modifier(modifier)
+            .then(|| write_vgm(&file))
     }
 }
 
-/// Writes a foreign file, gzipping when its name says `.vgz`.
-fn write_foreign(file: &VgmFile) -> Result<Vec<u8>, String> {
+/// Writes a VGM, gzipping when its name says `.vgz`.
+fn write_vgm(file: &VgmFile) -> Result<Vec<u8>, String> {
     let result = if file.name.to_ascii_lowercase().ends_with(".vgz") {
         dro_core::vgm::file::write_gzipped(file)
     } else {
@@ -377,16 +357,16 @@ impl PackState {
         // rewrites (a new volume modifier, GD3 tags) keep it; a track that was
         // edited in the editor and saved back, renamed away, or replaced
         // wholesale loses it and shows unscanned again.
-        let song_of = |tracks: &[PackTrack], name: &str| {
-            tracks
-                .iter()
-                .find(|track| track.file_name == name)
-                .and_then(PackTrack::song)
-                .cloned()
+        // The music itself, without the header a retag or a volume change
+        // rewrites: two tracks whose command bytes and chip match sound alike,
+        // so a measured peak still describes the file.
+        let audio_of = |tracks: &[PackTrack], name: &str| {
+            let track = tracks.iter().find(|track| track.file_name == name)?;
+            Some((track.opl_type(), track.vgm()?.body.raw().to_vec()))
         };
         self.peaks.retain(|name, _| {
-            match (song_of(&old_tracks, name), song_of(&self.tracks, name)) {
-                (Some(old), Some(new)) => old.data() == new.data() && old.opl_type == new.opl_type,
+            match (audio_of(&old_tracks, name), audio_of(&self.tracks, name)) {
+                (Some(old), Some(new)) => old == new,
                 _ => false,
             }
         });
@@ -675,7 +655,9 @@ impl PackState {
     pub fn unplayable_chips(&self) -> Vec<String> {
         let mut chips: Vec<String> = Vec::new();
         for track in &self.tracks {
-            if let Some(list) = track.foreign().map(|file| file.chip_list())
+            if track.is_readable()
+                && !track.is_playable()
+                && let Some(list) = track.chip_list()
                 && !list.is_empty()
                 && !chips.contains(&list)
             {
@@ -1120,25 +1102,15 @@ fn classify(name: &str) -> FileClass {
 
 /// Parses one scanned song file, and the table entry that goes with it.
 ///
-/// The OPL reader goes first, so a file it can open behaves exactly as it always
-/// has -- fully editable and playable. Only when it declines does the
-/// chip-agnostic reader get a look, and only when *that* declines too is the
-/// file really unreadable. The OPL error is the one reported in that case: for a
-/// genuinely broken file it is the more specific of the two, and for a `.dro`
-/// (which the VGM reader would reject on its magic) it is the only relevant one.
+/// One reader, for every chip -- there is no "try the OPL reader, then fall
+/// back", because a VGM is a VGM whatever chips it turns out to declare.
 fn read_track(name: &str, bytes: &[u8]) -> (PackSong, Option<TrackEntry>) {
-    match dro_core::io::read_song(name, bytes) {
-        Ok(song) => {
-            let entry = TrackEntry::from_song(&song, name);
-            (PackSong::Opl(Arc::new(song)), Some(entry))
+    match dro_core::vgm::file::read(name, bytes) {
+        Ok(file) => {
+            let entry = TrackEntry::from_vgm_file(&file);
+            (PackSong::Vgm(Arc::new(file)), Some(entry))
         }
-        Err(opl_error) => match dro_core::vgm::file::read(name, bytes) {
-            Ok(file) => {
-                let entry = TrackEntry::from_vgm_file(&file);
-                (PackSong::Foreign(Arc::new(file)), Some(entry))
-            }
-            Err(_) => (PackSong::Unreadable(opl_error.to_string()), None),
-        },
+        Err(error) => (PackSong::Unreadable(error.to_string()), None),
     }
 }
 
@@ -1159,13 +1131,14 @@ fn choose_description<'a>(texts: &'a [PickedFile], folder_name: &str) -> Option<
 /// Default metadata for a fresh pack, seeded from the songs' GD3 tags.
 ///
 /// The system and OS default to the PC ones only while the pack looks like a PC
-/// pack. A pack of foreign VGMs is some other machine entirely, and guessing
-/// "IBM PC/AT" for a Mega Drive rip would be worse than leaving the field for
-/// the checklist to ask about -- so those come from the tracks' own GD3 System
-/// Name instead, and the hardware line from the chips they declare.
+/// pack -- which is to say, while its chips are OPL. A pack of Mega Drive rips
+/// is some other machine entirely, and guessing "IBM PC/AT" for one would be
+/// worse than leaving the field for the checklist to ask about -- so those come
+/// from the tracks' own GD3 System Name instead, and the hardware line from the
+/// chips they declare.
 fn prefilled(tracks: &[PackTrack], today: Option<(i32, u8, u8)>) -> PackMeta {
-    let songs: Vec<&Arc<Song>> = tracks.iter().filter_map(PackTrack::song).collect();
-    let is_pc_pack = !songs.is_empty();
+    let opl_types: Vec<OplType> = tracks.iter().filter_map(PackTrack::opl_type).collect();
+    let is_pc_pack = !opl_types.is_empty();
 
     let mut meta = PackMeta {
         system: if is_pc_pack {
@@ -1181,7 +1154,7 @@ fn prefilled(tracks: &[PackTrack], today: Option<(i32, u8, u8)>) -> PackMeta {
         version: "1.00".to_owned(),
         ..PackMeta::default()
     };
-    if let Some(opl) = highest_opl(&songs) {
+    if let Some(opl) = highest_opl(&opl_types) {
         meta.music_hardware = music_hardware_suggestion(opl).to_owned();
     } else if let Some(chips) = tracks.iter().find_map(PackTrack::chip_list) {
         meta.music_hardware = chips;
@@ -1217,16 +1190,13 @@ fn fill_if_empty(slot: &mut String, value: &str) {
     }
 }
 
-/// The most capable chip across the songs (OPL3 > dual OPL2 > OPL2).
-fn highest_opl(songs: &[&Arc<Song>]) -> Option<OplType> {
-    songs
-        .iter()
-        .map(|song| song.opl_type)
-        .max_by_key(|opl| match opl {
-            OplType::Opl2 => 0,
-            OplType::DualOpl2 => 1,
-            OplType::Opl3 => 2,
-        })
+/// The most capable chip across the tracks (OPL3 > dual OPL2 > OPL2).
+fn highest_opl(opl_types: &[OplType]) -> Option<OplType> {
+    opl_types.iter().copied().max_by_key(|opl| match opl {
+        OplType::Opl2 => 0,
+        OplType::DualOpl2 => 1,
+        OplType::Opl3 => 2,
+    })
 }
 
 /// Distinct GD3 track authors, in track order, comma-joined.
@@ -2161,10 +2131,11 @@ fn track_table(
                             // The preview control sits with the thing it plays,
                             // as an inline glyph rather than a keycap: a row of
                             // pads is what pushed this table off its own edge.
-                            // Playable means OPL: a foreign track has no core
-                            // to render it yet, so it says so rather than
-                            // offering a button that would do nothing.
-                            if track.song().is_none() {
+                            // Playable means OPL: there is no core for any
+                            // other chip yet, so a track that needs one says
+                            // so rather than offering a button that does
+                            // nothing.
+                            if !track.is_playable() {
                                 if let Some(chips) = track.chip_list() {
                                     ui.add_enabled(
                                         false,
@@ -2353,10 +2324,7 @@ fn row_menu(
             .color(palette.data_label),
     )
     .frame(false);
-    // An OPL song opens fully; a foreign one opens for trimming, so long as its
-    // commands walk. Only a file that parses as neither has nothing to show.
-    let editable =
-        track.song().is_some() || track.foreign().is_some_and(|file| file.stream().is_some());
+    let editable = track.is_editable();
     let response = egui::containers::menu::MenuButton::from_button(button)
         .ui(ui, |ui| {
             let open = ui.add_enabled(editable, egui::Button::new("Open in editor"));
@@ -2749,7 +2717,7 @@ mod tests {
         }
     }
 
-    // -- foreign tracks (mc-2) ----------------------------------------------
+    // -- tracks of any chip --------------------------------------------------
 
     #[test]
     fn a_folder_of_mixed_chips_opens_with_every_track_placed() {
@@ -2765,16 +2733,33 @@ mod tests {
         let state = PackState::from_folder(folder("Cool Game", files), None);
         assert_eq!(state.tracks.len(), 3);
 
-        assert!(
-            state.tracks[0].song().is_some(),
-            "the OPL track is editable"
+        // Both VGMs are VGMs; only the chips they declare differ.
+        assert!(state.tracks[0].vgm().is_some());
+        assert!(state.tracks[1].vgm().is_some());
+        assert!(state.tracks[2].vgm().is_none());
+
+        assert_eq!(
+            state.tracks[0].opl_type(),
+            Some(OplType::Opl2),
+            "the OPL track unlocks the OPL features"
         );
-        assert!(state.tracks[1].song().is_none(), "the foreign one is not");
-        assert!(state.tracks[1].foreign().is_some());
-        assert!(state.tracks[2].foreign().is_none());
+        assert_eq!(
+            state.tracks[1].opl_type(),
+            None,
+            "the Mega Drive one does not"
+        );
+        assert!(state.tracks[0].is_playable());
+        assert!(!state.tracks[1].is_playable());
+        assert!(
+            state.tracks[1].is_editable(),
+            "but it still opens for trimming"
+        );
 
         assert!(state.tracks[0].is_readable());
-        assert!(state.tracks[1].is_readable(), "foreign is not unreadable");
+        assert!(
+            state.tracks[1].is_readable(),
+            "not being OPL is not a fault"
+        );
         assert!(!state.tracks[2].is_readable());
         assert!(state.tracks[2].error().is_some());
     }
@@ -2819,7 +2804,45 @@ mod tests {
             "Ripped from a cartridge"
         );
         assert_eq!(reread.chip_list(), "SN76489, YM2612");
-        assert_eq!(reread.body, track.foreign().unwrap().body);
+        assert_eq!(reread.body, track.vgm().unwrap().body);
+    }
+
+    /// Retagging an OPL track used to go through the OPL writer, which
+    /// re-derives the chip clocks from the song's chip *type* -- so a rip
+    /// logged at a non-standard clock came back canonicalised. One reader and
+    /// one writer for every VGM means the header now survives verbatim.
+    #[test]
+    fn retagging_an_opl_track_no_longer_rewrites_its_chip_clock() {
+        const ODD_CLOCK: u32 = 3_600_000; // not the canonical 3_579_545
+        let mut bytes =
+            dro_core::io::write_song(&dro_core::io::read_song("01 Tune.vgm", VGM_FIXTURE).unwrap())
+                .unwrap();
+        let at = ChipKind::Ym3812.clock_offset();
+        bytes[at..at + 4].copy_from_slice(&ODD_CLOCK.to_le_bytes());
+
+        let files = vec![PickedFile {
+            name: "01 Tune.vgm".to_owned(),
+            path: Some(PathBuf::from("C:/pack/01 Tune.vgm")),
+            bytes,
+        }];
+        let state = PackState::from_folder(folder("G", files), None);
+        let track = &state.tracks[0];
+        assert_eq!(
+            track.opl_type(),
+            Some(OplType::Opl2),
+            "an odd clock is still an OPL2"
+        );
+
+        let written = track
+            .retagged("01 Tune.vgm", tag("G", "A", "R"))
+            .unwrap()
+            .unwrap();
+        let reread = dro_core::vgm::file::read("01 Tune.vgm", &written).unwrap();
+        assert_eq!(
+            reread.header.chips()[0].clock,
+            ODD_CLOCK,
+            "the clock the file was logged at is what it keeps"
+        );
     }
 
     /// A rename to `.vgz` must gzip, exactly as the OPL path does.
@@ -3000,7 +3023,8 @@ mod tests {
         // Redeliver the folder with track 1 rewritten header-only (a new volume
         // modifier -- what Apply Modifiers produces) and track 2's audio replaced
         // wholesale (what an editor edit saved back produces).
-        let header_edit = revolumed_bytes(state.tracks[0].song().unwrap(), 0x20)
+        let header_edit = state.tracks[0]
+            .revolumed(0x20)
             .expect("a VGM")
             .expect("writes");
         let other_song =

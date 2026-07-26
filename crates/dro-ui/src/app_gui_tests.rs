@@ -2342,7 +2342,7 @@ fn a_scanned_track_caches_its_table_entry() {
         .entry
         .as_ref()
         .expect("a parsed track caches its entry");
-    let fresh = dro_core::pack::TrackEntry::from_song(track.song().unwrap(), &track.file_name);
+    let fresh = dro_core::pack::TrackEntry::from_vgm_file(track.vgm().unwrap());
     assert_eq!(*cached, fresh);
 }
 
@@ -4550,14 +4550,7 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
     assert_eq!(pack.meta.release_date, "1994-03");
     // ...and the rescan installed both tracks with hyphenated GD3 dates.
     for track in &pack.tracks {
-        let tag = track
-            .song()
-            .unwrap()
-            .vgm_meta()
-            .unwrap()
-            .tag
-            .as_ref()
-            .unwrap();
+        let tag = track.tag().unwrap();
         assert_eq!(tag.release_date, "1994-03", "{} converted", track.file_name);
     }
     // The track rewrites landed as one undoable batch, and no slash date is left.

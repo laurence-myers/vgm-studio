@@ -2599,7 +2599,7 @@ impl DroApp {
             .pack
             .as_ref()
             .and_then(|pack| pack.tracks.get(index))
-            .and_then(|track| track.song().cloned());
+            .and_then(crate::pack::PackTrack::playable_song);
         let Some(song) = song else {
             return;
         };
@@ -2919,13 +2919,13 @@ impl DroApp {
             .tracks
             .iter()
             .filter_map(|track| {
-                track
-                    .song()
-                    .map(|song| (track.file_name.clone(), std::sync::Arc::clone(song)))
+                // Measuring a peak means rendering, so only the tracks this app
+                // has a core for can be scanned.
+                Some((track.file_name.clone(), track.playable_song()?))
             })
             .collect();
         if tracks.is_empty() {
-            self.status = "No readable tracks to scan.".to_owned();
+            self.status = "No tracks this app can render to scan.".to_owned();
             return;
         }
         let count = tracks.len();
