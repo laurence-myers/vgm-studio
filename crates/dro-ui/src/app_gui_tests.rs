@@ -3166,7 +3166,7 @@ fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
     let audio = handles.audio.borrow();
     assert!(audio.playing, "the editor reloaded and plays, not wedged");
     assert_eq!(
-        audio.loaded.as_ref().unwrap().name,
+        audio.loaded.as_ref().unwrap().name(),
         editor_name,
         "the editor's own song is what reloaded"
     );
@@ -3201,7 +3201,7 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_pack_track() {
     let audio = handles.audio.borrow();
     assert!(audio.playing);
     assert_eq!(
-        audio.loaded.as_ref().unwrap().name,
+        audio.loaded.as_ref().unwrap().name(),
         editor_name,
         "the editor's own song reloaded, not the pack track"
     );

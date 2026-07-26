@@ -7,11 +7,9 @@
 //! implementation delivers whenever its future resolves.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{LoopConfig, Muting, Panning, Position};
+use dro_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
 
 pub use dro_core::config::ConfigStore;
 
@@ -167,15 +165,17 @@ pub trait FileService {
 /// implementation (Step 9) talks to an `AudioWorklet`. Errors are strings
 /// because the GUI can only show them.
 pub trait AudioService {
-    /// Prepares `song` for playback, replacing any current song, stopped and
+    /// Prepares `source` for playback, replacing any current song, stopped and
     /// positioned at the start.
     ///
-    /// The song is an immutable snapshot: edits made to the editor's copy
+    /// The source is an immutable snapshot: edits made to the editor's copy
     /// afterwards do not reach it. The app reloads before the next play.
     ///
     /// # Errors
-    /// If the platform's audio output cannot be opened.
-    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String>;
+    /// If the platform's audio output cannot be opened, or the backend cannot
+    /// play this kind of source -- the RetroWave hardware is OPL-only, so a VGM
+    /// for other chips is refused there rather than silently ignored.
+    fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String>;
 
     /// Drops the current song and closes the output.
     fn unload(&mut self);

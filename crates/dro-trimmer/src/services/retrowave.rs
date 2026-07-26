@@ -7,14 +7,9 @@
 //! shadow only, and resuming plays it out (see `SerialOpl3Chip`). A real chip
 //! sounds continuously, so a paused seek that reached it would be audible.
 
-use std::sync::Arc;
-
-use dro_core::{
-    Song,
-    config::{AudioConfig, OutputBackend},
-};
+use dro_core::config::{AudioConfig, OutputBackend};
 use dro_retrowave::{Device, RetroWaveAudio};
-use dro_synth::{LoopConfig, Muting, Panning, Position};
+use dro_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
 use dro_ui::{AudioService, platform::HardwarePortInfo};
 
 use super::NativeAudioService;
@@ -69,8 +64,16 @@ impl RetroWaveAudioService {
 }
 
 impl AudioService for RetroWaveAudioService {
-    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String> {
+    fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
         self.unload();
+        // The hardware is an OPL3. A VGM for other chips has nothing to send it,
+        // and saying so beats sending silence.
+        let Some(song) = source.opl().cloned() else {
+            return Err(format!(
+                "{} is not an OPL song, and the RetroWave output is an OPL3.",
+                source.name()
+            ));
+        };
         let device = self.acquire_device(config)?;
         self.audio = Some(RetroWaveAudio::new(device, song));
         Ok(())
@@ -243,16 +246,25 @@ impl SwitchingAudioService {
 
 impl AudioService for SwitchingAudioService {
     /// Activates the configured backend, releasing the other's device.
-    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String> {
-        if self.active != config.output_backend {
+    fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
+        // A source the hardware cannot play goes to the emulated output whatever
+        // the setting says, because the alternative is refusing to play a file
+        // this app can perfectly well render. The setting is about *OPL* output;
+        // it was never a claim about every chip.
+        let wanted = if source.opl().is_some() {
+            config.output_backend
+        } else {
+            OutputBackend::Emulated
+        };
+        if self.active != wanted {
             self.active_mut().unload();
             if self.active == OutputBackend::RetroWave {
                 // Switching away: hand the port back to the system.
                 self.retrowave.release_device();
             }
-            self.active = config.output_backend;
+            self.active = wanted;
         }
-        self.active_mut().load(song, config)
+        self.active_mut().load(source, config)
     }
 
     fn unload(&mut self) {
@@ -337,6 +349,10 @@ impl AudioService for SwitchingAudioService {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use dro_core::Song;
+
     use super::*;
     use dro_core::{DroDataV2, OplType};
 
@@ -360,10 +376,68 @@ mod tests {
             ..AudioConfig::default()
         };
         let error = service
-            .load(song(), &config)
+            .load(AudioSource::Opl(song()), &config)
             .expect_err("opening a nonexistent port must fail");
         assert!(!error.is_empty());
         assert_eq!(service.active, OutputBackend::RetroWave);
+    }
+
+    /// A VGM for chips the hardware cannot play routes to the emulated output
+    /// whatever the setting says. Refusing to play a file this app can perfectly
+    /// well render, because of a setting about *OPL* output, would be the wrong
+    /// reading of what that setting means.
+    #[test]
+    fn a_non_opl_source_goes_to_the_emulator_whatever_the_setting_says() {
+        fn mega_drive_vgm() -> Arc<dro_core::VgmFile> {
+            let mut bytes = vec![0u8; 0x100];
+            bytes[..4].copy_from_slice(b"Vgm ");
+            bytes[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
+            bytes[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+            bytes[dro_core::ChipKind::Ym2612.clock_offset()..][..4]
+                .copy_from_slice(&7_670_454u32.to_le_bytes());
+            bytes.extend_from_slice(&[0x52, 0x28, 0xF0, 0x66]);
+            let eof = bytes.len();
+            bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+            Arc::new(dro_core::vgm::file::read("md.vgm", &bytes).expect("a walkable VGM"))
+        }
+
+        let mut service = SwitchingAudioService::new();
+        let config = AudioConfig {
+            output_backend: OutputBackend::RetroWave,
+            retrowave_port: Some("NO_SUCH_PORT".to_owned()),
+            ..AudioConfig::default()
+        };
+        // It never reaches the hardware, so the nonexistent port is never opened
+        // -- the load either succeeds on the emulator or fails for want of an
+        // audio device, which is a machine fact, not a routing one.
+        let _ = service.load(AudioSource::Vgm(mega_drive_vgm()), &config);
+        assert_eq!(
+            service.active,
+            OutputBackend::Emulated,
+            "a non-OPL source never goes to an OPL3"
+        );
+    }
+
+    /// And the hardware service itself says why, rather than sending silence.
+    #[test]
+    fn the_hardware_service_refuses_a_source_it_cannot_play() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        bytes[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
+        bytes[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+        bytes[dro_core::ChipKind::Ym2612.clock_offset()..][..4]
+            .copy_from_slice(&7_670_454u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x52, 0x28, 0xF0, 0x66]);
+        let eof = bytes.len();
+        bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+        let file = Arc::new(dro_core::vgm::file::read("md.vgm", &bytes).expect("walks"));
+
+        let mut service = RetroWaveAudioService::new();
+        let error = service
+            .load(AudioSource::Vgm(file), &AudioConfig::default())
+            .expect_err("an OPL3 cannot play a YM2612");
+        assert!(error.contains("md.vgm"), "{error}");
+        assert!(error.contains("OPL"), "{error}");
     }
 
     #[test]

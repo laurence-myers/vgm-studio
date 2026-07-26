@@ -12,12 +12,9 @@
 //! seeking replays chip state from the start -- so the pending seek and the
 //! muting are flushed as two commands when playback (re)starts.
 
-use std::sync::Arc;
-
 use dro_audio_native::NativeAudio;
-use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{LoopConfig, Muting, Panning, Position};
+use dro_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
 use dro_ui::AudioService;
 
 #[derive(Debug, Clone, Copy)]
@@ -73,11 +70,11 @@ impl NativeAudioService {
 }
 
 impl AudioService for NativeAudioService {
-    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String> {
+    fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
         // Drop any current stream first: two open output streams would play
         // over each other.
         self.unload();
-        self.audio = Some(NativeAudio::new(song, config).map_err(|e| e.to_string())?);
+        self.audio = Some(NativeAudio::new(&source, config).map_err(|e| e.to_string())?);
         // Adopt the config's boost, or the play-time flush below would clobber a
         // config-loaded boost with the service's stale value.
         self.boost = config.boost;

@@ -81,7 +81,7 @@ impl Playable for dro_retrowave::RetroWaveAudio {
 /// Plays `song` through the default output device, showing progress until it
 /// finishes or the process is interrupted.
 fn play(song: dro_core::Song, audio: &AudioConfig, total_ms: u32) -> Result<()> {
-    let player = NativeAudio::new(Arc::new(song), audio)
+    let player = NativeAudio::new(&dro_synth::AudioSource::Opl(Arc::new(song)), audio)
         .context("opening the audio device (is one available?)")?;
     player.play()?;
     show_progress(&player, total_ms);

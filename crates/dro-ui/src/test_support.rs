@@ -11,11 +11,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::Arc;
 
-use dro_core::Song;
 use dro_core::config::{AppConfig, AudioConfig, ConfigStore};
-use dro_synth::{Muting, Panning};
+use dro_synth::{AudioSource, Muting, Panning};
 
 use crate::platform::{
     AudioService, FileService, OptimizedImage, PackJobOutcome, PackJobRequest, PackService,
@@ -144,7 +142,7 @@ impl FileService for FakeFileService {
 /// (`playing`, `finished`) the app reads back.
 #[derive(Debug, Default)]
 pub(crate) struct AudioLog {
-    pub loaded: Option<Arc<Song>>,
+    pub loaded: Option<AudioSource>,
     /// The boost from the [`AudioConfig`] the most recent `load` was given, so a
     /// test can check a preview loaded at the track's own volume.
     pub loaded_boost: Option<f32>,
@@ -186,7 +184,7 @@ pub(crate) struct AudioLog {
 pub(crate) struct FakeAudioService(pub(crate) Rc<RefCell<AudioLog>>);
 
 impl AudioService for FakeAudioService {
-    fn load(&mut self, song: Arc<Song>, config: &AudioConfig) -> Result<(), String> {
+    fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
         let mut log = self.0.borrow_mut();
         if core::mem::take(&mut log.fail_next_load) {
             // Mirror `NativeAudioService::load`, which unloads the prior stream
@@ -196,7 +194,7 @@ impl AudioService for FakeAudioService {
             log.playing = false;
             return Err("fake load failure".to_owned());
         }
-        log.loaded = Some(song);
+        log.loaded = Some(source);
         log.loaded_boost = Some(config.boost);
         log.load_count += 1;
         Ok(())

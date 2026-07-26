@@ -20,7 +20,8 @@ use cpal::{SampleFormat, StreamConfig};
 
 use dro_core::Song;
 use dro_core::config::AudioConfig;
-use dro_synth::{BoostLimiter, LoopConfig, Muting, Panning, PlayerEngine, Position};
+use dro_synth::vgm_engine::VgmEngine;
+use dro_synth::{AudioSource, BoostLimiter, LoopConfig, Muting, Panning, PlayerEngine, Position};
 
 /// What can go wrong opening or driving the audio device.
 #[derive(Debug, thiserror::Error)]
@@ -88,13 +89,13 @@ impl NativeAudio {
     /// Opens the default output device and prepares to play `song`.
     ///
     /// Renders at `config.frequency` if the device supports it, otherwise at the
-    /// device's default rate (the OPL core resamples either way). Playback starts
+    /// device's default rate (both engines resample either way). Playback starts
     /// paused; call [`Self::play`].
     ///
     /// # Errors
     /// If there is no output device, its configuration cannot be read, its sample
     /// format is neither f32 nor i16, or the stream cannot be built.
-    pub fn new(song: Arc<Song>, config: &AudioConfig) -> Result<Self, AudioError> {
+    pub fn new(source: &AudioSource, config: &AudioConfig) -> Result<Self, AudioError> {
         let host = cpal::default_host();
         let device = host.default_output_device().ok_or(AudioError::NoDevice)?;
         let default_config = device.default_output_config()?;
@@ -112,7 +113,7 @@ impl NativeAudio {
             &device,
             sample_format,
             sample_rate,
-            &song,
+            source,
             config,
             buffer_size,
         ) {
@@ -123,7 +124,7 @@ impl NativeAudio {
                     &device,
                     sample_format,
                     sample_rate,
-                    &song,
+                    source,
                     config,
                     cpal::BufferSize::Default,
                 )?
@@ -145,11 +146,18 @@ impl NativeAudio {
         device: &cpal::Device,
         sample_format: SampleFormat,
         sample_rate: u32,
-        song: &Arc<Song>,
+        source: &AudioSource,
         config: &AudioConfig,
         buffer_size: cpal::BufferSize,
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
-        let engine = PlayerEngine::new(Arc::clone(song), sample_rate);
+        let engine = match source {
+            AudioSource::Opl(song) => {
+                Engine::Opl(Box::new(PlayerEngine::new(Arc::clone(song), sample_rate)))
+            }
+            AudioSource::Vgm(file) => {
+                Engine::Vgm(Box::new(VgmEngine::new(Arc::clone(file), sample_rate)))
+            }
+        };
         // Boost rides the existing `&AudioConfig`, and the limiter's release is
         // derived from the *actual* negotiated rate, not the configured one.
         let limiter = BoostLimiter::new(sample_rate, config.boost);
@@ -317,6 +325,84 @@ impl fmt::Debug for NativeAudio {
     }
 }
 
+/// Whichever engine the callback is driving.
+///
+/// The callback needs five things from it -- render, seek, rewind, where it is,
+/// and whether it has finished -- and everything else it can be told is OPL
+/// register policy, which only one of them has. Those are no-ops on the other
+/// rather than an error: a mute command arriving for a Mega Drive rip means the
+/// UI has not caught up, not that anything is wrong.
+enum Engine {
+    Opl(Box<PlayerEngine<Arc<Song>>>),
+    Vgm(Box<VgmEngine>),
+}
+
+impl Engine {
+    fn render(&mut self, out: &mut [i16]) {
+        match self {
+            Self::Opl(engine) => {
+                engine.render(out);
+            }
+            Self::Vgm(engine) => {
+                engine.render(out);
+            }
+        }
+    }
+
+    fn seek_to_ms(&mut self, ms: u32) {
+        match self {
+            Self::Opl(engine) => engine.seek_to_ms(ms),
+            Self::Vgm(engine) => engine.seek_to_ms(ms),
+        }
+    }
+
+    fn seek_to_pos(&mut self, pos: usize) {
+        match self {
+            Self::Opl(engine) => engine.seek_to_pos(pos),
+            Self::Vgm(engine) => engine.seek_to_row(pos),
+        }
+    }
+
+    fn rewind(&mut self) {
+        match self {
+            Self::Opl(engine) => engine.rewind(),
+            Self::Vgm(engine) => engine.rewind(),
+        }
+    }
+
+    fn set_muting(&mut self, muting: Muting) {
+        if let Self::Opl(engine) = self {
+            engine.set_muting(muting);
+        }
+    }
+
+    fn set_panning(&mut self, panning: Panning) {
+        if let Self::Opl(engine) = self {
+            engine.set_panning(panning);
+        }
+    }
+
+    fn set_loop(&mut self, config: Option<LoopConfig>) {
+        if let Self::Opl(engine) = self {
+            engine.set_loop(config);
+        }
+    }
+
+    fn position(&self) -> Position {
+        match self {
+            Self::Opl(engine) => engine.position(),
+            Self::Vgm(engine) => engine.position(),
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        match self {
+            Self::Opl(engine) => engine.is_finished(),
+            Self::Vgm(engine) => engine.is_finished(),
+        }
+    }
+}
+
 /// Builds the output stream for one sample type, converting the engine's i16
 /// frames with `convert`.
 // A private stream-builder wiring together the callback's owned pieces; bundling
@@ -325,7 +411,7 @@ impl fmt::Debug for NativeAudio {
 fn build_stream<T, F>(
     device: &cpal::Device,
     config: &StreamConfig,
-    mut engine: PlayerEngine<Arc<Song>>,
+    mut engine: Engine,
     mut commands: rtrb::Consumer<Command>,
     shared: Arc<SharedState>,
     mut limiter: BoostLimiter,

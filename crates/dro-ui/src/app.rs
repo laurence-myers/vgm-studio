@@ -2628,7 +2628,8 @@ impl DroApp {
             preview_config.boost = Self::modifier_boost(&song);
         }
         self.audio.pause();
-        if let Err(message) = self.audio.load(song, &preview_config) {
+        let source = dro_synth::AudioSource::Opl(song);
+        if let Err(message) = self.audio.load(source, &preview_config) {
             self.alerts.push_back(Alert::error(message));
             return;
         }
@@ -3999,11 +4000,12 @@ impl DroApp {
         if self.audio_revision == Some(self.editor.revision()) {
             return Ok(());
         }
-        let snapshot = self
-            .editor
-            .snapshot()
-            .ok_or_else(|| "No song is loaded.".to_owned())?;
-        self.audio.load(snapshot, &self.config.audio)?;
+        let source = match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => dro_synth::AudioSource::Opl(song),
+            (None, Some(file)) => dro_synth::AudioSource::Vgm(std::sync::Arc::new(file.clone())),
+            (None, None) => return Err("No song is loaded.".to_owned()),
+        };
+        self.audio.load(source, &self.config.audio)?;
         self.audio.set_muting(self.channels.muting());
         self.audio.set_panning(self.channels.panning());
         self.audio_revision = Some(self.editor.revision());
