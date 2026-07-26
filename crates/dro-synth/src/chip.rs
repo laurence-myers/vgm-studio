@@ -1,0 +1,229 @@
+//! The sound chip a [`VgmEngine`](crate::vgm_engine::VgmEngine) drives, and the
+//! registry that decides which chips it can drive at all.
+//!
+//! [`OplChip`](crate::opl::OplChip) is the OPL-only equivalent, and stays: the
+//! OPL player has register policy of its own (muting, panning) that belongs
+//! nowhere near a generic engine. This trait is deliberately smaller. A core
+//! receives writes, ROM and RAM, and renders frames at whatever rate it likes;
+//! everything else -- routing, banks, timing, mixing -- is the engine's.
+//!
+//! No core is registered yet. That is mc-8's job; this is the shape they plug
+//! into, and [`RecordingChip`] is what proves the engine right without one.
+
+use dro_core::vgm::ChipKind;
+
+/// One sound chip, rendering at its own natural rate.
+///
+/// Implementors must be deterministic: the same writes and the same requested
+/// frame counts must produce the same samples however the caller chunks its
+/// [`render`](Self::render) calls. The engine relies on that to keep an audio
+/// worklet pulling 128 frames sounding identical to an offline render pulling
+/// 4096.
+pub trait ChipCore: Send {
+    /// Discards all state and re-initialises for a chip clocked at `clock` Hz.
+    ///
+    /// `variant` carries the flags the VGM header packs alongside the clock
+    /// (bit 31 for the chips that use it -- an AY8910 variant, a YM2610B, a
+    /// dual-mode T6W28). A core that has no variants ignores it.
+    fn reset(&mut self, clock: u32, variant: bool);
+
+    /// The rate this core renders at, in Hz. Usually derived from the clock it
+    /// was reset with, so call it after [`reset`](Self::reset).
+    fn native_rate(&self) -> u32;
+
+    /// Writes `data` to register `addr` on `port`.
+    ///
+    /// Ports are the chip's own: a YM2612 has two, an OPL3 has two, an SN76489
+    /// has one. `addr` is 16 bits because a few chips address more than 256
+    /// registers per port.
+    fn write(&mut self, port: u8, addr: u16, data: u16);
+
+    /// Hands the core a ROM image, or the part of one it has been given so far.
+    ///
+    /// `total_size` is the full image's size, which arrives with the first
+    /// piece; `start` is where `data` belongs in it. A core with no ROM ignores
+    /// this. The default does.
+    fn load_rom(&mut self, _block_type: u8, _total_size: u32, _start: u32, _data: &[u8]) {}
+
+    /// Writes `data` into the chip's RAM at `offset`. The default ignores it.
+    fn write_ram(&mut self, _offset: u32, _data: &[u8]) {}
+
+    /// Renders `out.len() / 2` interleaved stereo frames at
+    /// [`native_rate`](Self::native_rate).
+    ///
+    /// Samples are `i32` so a core can render at full internal precision and
+    /// leave headroom for the mixer; the engine scales and clips once, at the
+    /// end, rather than once per chip.
+    fn render(&mut self, out: &mut [i32]);
+}
+
+/// Whether this app can play a file, and what it would be missing if not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Playability {
+    /// Every chip the file clocks has a core.
+    Full,
+    /// Some chips have cores and some do not. Playing it renders what it can
+    /// and leaves the rest silent -- worth offering, but only with the missing
+    /// chips named.
+    Partial(Vec<ChipKind>),
+    /// No chip in the file has a core, so playing it would render silence.
+    None,
+}
+
+impl Playability {
+    /// Whether playing this would produce any sound at all.
+    #[must_use]
+    pub const fn can_play(&self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The chips that would be silent, if any.
+    #[must_use]
+    pub fn missing(&self) -> &[ChipKind] {
+        match self {
+            Self::Partial(chips) => chips,
+            _ => &[],
+        }
+    }
+}
+
+/// Builds a core for `kind`, or `None` when this app has none for it.
+///
+/// The one place a chip becomes playable. mc-8 adds the first arms (SN76489,
+/// YM2612, YM2413); until then every file is [`Playability::None`] through the
+/// generic engine, which is exactly what it was before this trait existed.
+///
+/// OPL is absent on purpose, and not by oversight: an OPL file plays through
+/// `PlayerEngine`, which carries the muting and panning policy this trait has
+/// no place for.
+#[must_use]
+pub fn core_for(_kind: ChipKind) -> Option<Box<dyn ChipCore>> {
+    // mc-8 turns this into a match. Deliberately not one yet: an empty match
+    // with a single wildcard arm reads as though the arms were deleted.
+    None
+}
+
+/// What playing a file with these chips would sound like.
+#[must_use]
+pub fn playability(chips: &[ChipKind]) -> Playability {
+    let missing: Vec<ChipKind> = chips
+        .iter()
+        .copied()
+        .filter(|&kind| core_for(kind).is_none())
+        .collect();
+    match (missing.len(), chips.len()) {
+        (0, _) => Playability::Full,
+        (missing_count, total) if missing_count == total => Playability::None,
+        _ => Playability::Partial(missing),
+    }
+}
+
+/// A core that renders silence and remembers everything it was told.
+///
+/// The engine's test double. Routing, banks, ROM delivery and DAC streams are
+/// all assertions about *what reached which chip*, which needs no emulation to
+/// check -- and checking them against a real core would be checking the core.
+#[derive(Debug, Default, Clone)]
+pub struct RecordingChip {
+    pub clock: u32,
+    pub variant: bool,
+    pub resets: usize,
+    /// Every `(port, addr, data)` in the order it arrived.
+    pub writes: Vec<(u8, u16, u16)>,
+    /// Every `(block_type, total_size, start, len)` handed over.
+    pub roms: Vec<(u8, u32, u32, usize)>,
+    /// Every `(offset, len)` written to RAM.
+    pub ram: Vec<(u32, usize)>,
+    /// Frames rendered so far.
+    pub frames: usize,
+    /// The rate to report. Zero means "derive from the clock", which is what a
+    /// real core usually does.
+    pub rate: u32,
+}
+
+impl RecordingChip {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A recorder that reports `rate` however it is clocked, for tests that
+    /// care about resampling rather than about clocks.
+    #[must_use]
+    pub fn at_rate(rate: u32) -> Self {
+        Self {
+            rate,
+            ..Self::default()
+        }
+    }
+}
+
+impl ChipCore for RecordingChip {
+    fn reset(&mut self, clock: u32, variant: bool) {
+        self.clock = clock;
+        self.variant = variant;
+        self.resets += 1;
+    }
+
+    fn native_rate(&self) -> u32 {
+        if self.rate > 0 {
+            self.rate
+        } else {
+            // A plausible stand-in: most cores divide their clock down by some
+            // fixed factor, and the engine only cares that it is non-zero.
+            (self.clock / 72).max(1)
+        }
+    }
+
+    fn write(&mut self, port: u8, addr: u16, data: u16) {
+        self.writes.push((port, addr, data));
+    }
+
+    fn load_rom(&mut self, block_type: u8, total_size: u32, start: u32, data: &[u8]) {
+        self.roms.push((block_type, total_size, start, data.len()));
+    }
+
+    fn write_ram(&mut self, offset: u32, data: &[u8]) {
+        self.ram.push((offset, data.len()));
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
+        self.frames += out.len() / 2;
+        out.fill(0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nothing_is_playable_until_a_core_lands() {
+        // The honest state of the world at mc-6: the engine is built, the cores
+        // are not. This test is the reminder to change it in mc-8.
+        assert!(core_for(ChipKind::Sn76489).is_none());
+        assert_eq!(playability(&[ChipKind::Sn76489]), Playability::None);
+        assert_eq!(playability(&[]), Playability::Full);
+    }
+
+    #[test]
+    fn a_recorder_reports_what_it_was_told() {
+        let mut chip = RecordingChip::new();
+        chip.reset(3_579_545, true);
+        chip.write(1, 0x28, 0xF0);
+        chip.load_rom(0x80, 1024, 0, &[0u8; 16]);
+        chip.write_ram(4, &[0u8; 8]);
+        let mut out = [1i32; 8];
+        chip.render(&mut out);
+
+        assert_eq!(
+            (chip.clock, chip.variant, chip.resets),
+            (3_579_545, true, 1)
+        );
+        assert_eq!(chip.writes, [(1, 0x28, 0xF0)]);
+        assert_eq!(chip.roms, [(0x80, 1024, 0, 16)]);
+        assert_eq!(chip.ram, [(4, 8)]);
+        assert_eq!(chip.frames, 4);
+        assert_eq!(out, [0; 8], "a recorder renders silence");
+    }
+}
