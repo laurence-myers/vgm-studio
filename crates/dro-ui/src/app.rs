@@ -16,8 +16,8 @@ use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
-    RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog, SplitSongsDialog,
-    TrackEditDialog, VgmMetadataDialog,
+    HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog,
+    SplitSongsDialog, TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -41,18 +41,6 @@ const AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
                               its first instruction. It has been automatically\n\
                               removed. (Don't forget to save!)";
 const MISMATCH_TITLE: &str = "DRO timing mismatch";
-
-const HELP_TITLE: &str = "Help";
-const HELP_TEXT: &str = "Full instructions are available online.\n\
-    https://github.com/laurence-myers/dro-trimmer\n\
-    \n\
-    1) Select an instruction.\n\
-    2) Delete via button or the Del key.\n\
-    3) Profit!\n\
-    \n\
-    If you're trimming a looping song, look for a\n\
-    whole bunch of instructions with no delays, as\n\
-    this might be where the instruments are set up.";
 
 fn about_text() -> String {
     format!(
@@ -1858,7 +1846,7 @@ impl DroApp {
                 self.bulk_tag_submitted(targets, *overlay);
             }
 
-            Action::Help => self.alerts.push_back(Alert::new(HELP_TITLE, HELP_TEXT)),
+            Action::Help => self.dialogs.help = Some(HelpDialog),
             Action::About => self.alerts.push_back(Alert::new("About", about_text())),
 
             Action::Play => self.do_play(),

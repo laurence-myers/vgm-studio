@@ -14,6 +14,7 @@ pub mod find_loop;
 pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
+pub mod help;
 pub mod render_wav;
 pub mod screenshot_rename;
 pub mod settings;
@@ -28,6 +29,7 @@ pub use find_loop::FindLoopDialog;
 pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
+pub use help::HelpDialog;
 pub use render_wav::RenderWavDialog;
 pub use screenshot_rename::ScreenshotRenameDialog;
 pub use settings::SettingsDialog;
@@ -82,7 +84,21 @@ pub(crate) fn dialog_modal(
     palette: &crate::theme::Palette,
     body: impl FnOnce(&mut egui::Ui),
 ) -> bool {
-    let width = modal_width(ctx);
+    dialog_modal_sized(ctx, id, title, palette, MODAL_WIDTH, body)
+}
+
+/// As [`dialog_modal`], but laid out at `width` rather than the usual one --
+/// for a dialog that is a reference table read across rather than a form filled
+/// in down. Still narrowed to fit a window that cannot hold it.
+pub(crate) fn dialog_modal_sized(
+    ctx: &egui::Context,
+    id: &str,
+    title: &str,
+    palette: &crate::theme::Palette,
+    width: f32,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let width = modal_width(ctx, width);
     // What is left for the body once the window's margins, the heading and its
     // groove are accounted for. Generous rather than exact: the cost of
     // over-estimating is a dialog that runs a little closer to the window edge.
@@ -127,14 +143,15 @@ pub(crate) fn dialog_modal(
 /// wrap at its edge, so letting the content decide the width would be circular
 /// -- and a box that resized itself as you typed into it would be worse than
 /// either.
-fn modal_width(ctx: &egui::Context) -> f32 {
-    /// Wide enough for a label column plus a value that reads as a line of
-    /// text, and still a dialog rather than a window on a laptop screen.
-    const MODAL_WIDTH: f32 = 560.0;
-    /// Screen margin left around a modal on a window too narrow for the above.
+fn modal_width(ctx: &egui::Context, wanted: f32) -> f32 {
+    /// Screen margin left around a modal on a window too narrow for `wanted`.
     const SCREEN_MARGIN: f32 = 48.0;
-    (ctx.content_rect().width() - SCREEN_MARGIN).clamp(240.0, MODAL_WIDTH)
+    (ctx.content_rect().width() - SCREEN_MARGIN).clamp(240.0, wanted)
 }
+
+/// Wide enough for a label column plus a value that reads as a line of text,
+/// and still a dialog rather than a window on a laptop screen.
+const MODAL_WIDTH: f32 = 560.0;
 
 /// A dialog text field that wraps instead of hiding what does not fit.
 ///
@@ -208,6 +225,8 @@ pub struct Dialogs {
     pub bulk_tag: Option<BulkTagDialog>,
     /// Pack mode's screenshot rename (named after the game, or a variant of it).
     pub screenshot_rename: Option<ScreenshotRenameDialog>,
+    /// Help > Help: what every key and gesture does.
+    pub help: Option<HelpDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,
     /// File > Split Channels: the output format and percussion handling.
@@ -233,6 +252,7 @@ impl Dialogs {
             || self.track_edit.is_some()
             || self.bulk_tag.is_some()
             || self.screenshot_rename.is_some()
+            || self.help.is_some()
             || self.render_wav.is_some()
             || self.split.is_some()
             || self.split_songs.is_some()
@@ -263,6 +283,7 @@ impl Dialogs {
         retain(&mut self.screenshot_rename, |d| {
             d.show(ctx, palette, actions)
         });
+        retain(&mut self.help, |d| d.show(ctx, palette, actions));
         retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
         retain(&mut self.split, |d| d.show(ctx, palette, actions));
         retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));

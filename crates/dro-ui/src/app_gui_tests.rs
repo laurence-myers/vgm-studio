@@ -4654,6 +4654,35 @@ fn snapshot_add_screenshot_dialog() {
 }
 
 #[test]
+fn help_opens_a_dialog_listing_the_shortcuts() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::Help);
+    harness.run();
+    assert!(harness.state().dialogs.help.is_some(), "the dialog opens");
+    // A key from each of the two screens, so the tables really are both there.
+    let _ = harness.get_by_label_contains("Alt+Up");
+    // Two rows mention the loop start (the key and the mouse tables), which is
+    // the point: the same job, listed where each is done.
+    assert!(
+        harness
+            .get_all_by_label_contains("Set the loop start")
+            .count()
+            >= 2,
+        "both the key and the gesture are documented"
+    );
+}
+
+#[test]
+fn snapshot_help_dialog() {
+    // Tall: the point of this dialog is that it holds every shortcut at once.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
+    let _ = &handles;
+    act(&mut harness, Action::Help);
+    harness.run();
+    settled_snapshot(&mut harness, "help_dialog");
+}
+
+#[test]
 fn snapshot_bulk_tag_dialog() {
     // The app's own default window: eleven GD3 fields plus a track list is more
     // than 600pt tall, so this is the size at which the box used to run off the
