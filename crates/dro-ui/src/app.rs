@@ -1292,8 +1292,11 @@ impl DroApp {
             // drag handle, and the only one, so it is offered wherever a pack is
             // open rather than only while the Tracks section is drawn.
             ctx.input_mut(|input| {
-                for (key, delta) in [(Key::ArrowUp, -1_isize), (Key::ArrowDown, 1)] {
-                    if input.consume_key(egui::Modifiers::ALT, key) {
+                for (shortcut, delta) in [
+                    (menus::MOVE_TRACK_UP, -1_isize),
+                    (menus::MOVE_TRACK_DOWN, 1),
+                ] {
+                    if input.consume_shortcut(&shortcut) {
                         actions.push(Action::PackMoveFocusedTrack { delta });
                     }
                 }
@@ -1374,25 +1377,27 @@ impl DroApp {
             if mods.command || mods.alt {
                 return;
             }
-            if input.key_pressed(Key::Delete) || input.key_pressed(Key::Backspace) {
+            if input.key_pressed(menus::DELETE_SELECTION.logical_key)
+                || input.key_pressed(menus::DELETE_SELECTION_ALT.logical_key)
+            {
                 actions.push(Action::DeleteSelection);
             }
-            if input.key_pressed(Key::Space) {
+            if input.key_pressed(menus::PLAY_STOP.logical_key) {
                 actions.push(Action::TogglePlayback);
             }
-            if input.key_pressed(Key::ArrowLeft) {
+            if input.key_pressed(menus::PREVIOUS_DELAY.logical_key) {
                 actions.push(Action::PreviousDelay);
             }
-            if input.key_pressed(Key::ArrowRight) {
+            if input.key_pressed(menus::NEXT_DELAY.logical_key) {
                 actions.push(Action::NextDelay);
             }
-            if input.key_pressed(Key::ArrowUp) {
+            if input.key_pressed(menus::SELECTION_UP.logical_key) {
                 actions.push(Action::SelectionMove {
                     delta: -1,
                     extend: mods.shift,
                 });
             }
-            if input.key_pressed(Key::ArrowDown) {
+            if input.key_pressed(menus::SELECTION_DOWN.logical_key) {
                 actions.push(Action::SelectionMove {
                     delta: 1,
                     extend: mods.shift,
@@ -1403,10 +1408,10 @@ impl DroApp {
             // found. The end is exclusive, so ] marks *past* the focused row,
             // taking it into the loop rather than stopping just short of it.
             if let Some(row) = self.editor.selection.first() {
-                if input.key_pressed(Key::OpenBracket) {
+                if input.key_pressed(menus::SET_LOOP_START.logical_key) {
                     actions.push(Action::SetLoopStart(row));
                 }
-                if input.key_pressed(Key::CloseBracket) {
+                if input.key_pressed(menus::SET_LOOP_END.logical_key) {
                     actions.push(Action::SetLoopEnd(row + 1));
                 }
             }

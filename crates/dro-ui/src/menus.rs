@@ -22,6 +22,85 @@ pub const FIND_REGISTER: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COM
 pub const DRO_INFO: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::I);
 pub const HELP: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::H);
 
+// The unmodified editor keys. They are consumed as plain `key_pressed` checks
+// rather than shortcuts (Shift is meaningful on the arrows, and the handler
+// bails out early when Command or Alt is held), so what these consts give is a
+// name for the binding -- one the Help dialog and its guard can both read.
+pub const PLAY_STOP: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Space);
+pub const DELETE_SELECTION: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::Delete);
+/// The second delete binding, for keyboards where Del is a stretch.
+pub const DELETE_SELECTION_ALT: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::NONE, Key::Backspace);
+pub const SELECTION_UP: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowUp);
+pub const SELECTION_DOWN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowDown);
+pub const PREVIOUS_DELAY: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowLeft);
+pub const NEXT_DELAY: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::ArrowRight);
+pub const SET_LOOP_START: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::NONE, Key::OpenBracket);
+pub const SET_LOOP_END: KeyboardShortcut =
+    KeyboardShortcut::new(Modifiers::NONE, Key::CloseBracket);
+
+// Pack mode's own keys.
+pub const MOVE_TRACK_UP: KeyboardShortcut = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowUp);
+pub const MOVE_TRACK_DOWN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::ALT, Key::ArrowDown);
+
+/// Every key binding the app makes, in one list.
+///
+/// This is what the Help dialog's guard reads: a binding added above and left
+/// out of the dialog's tables fails a test rather than quietly going
+/// undocumented. The channel-toggle digits are the one omission -- they are a
+/// range of nine keys (and nine more with Shift) rather than a binding, and the
+/// dialog lists them as such.
+pub const ALL_SHORTCUTS: &[KeyboardShortcut] = &[
+    OPEN,
+    SAVE,
+    SAVE_AS,
+    UNDO,
+    REDO,
+    REDO_ALT,
+    GOTO,
+    FIND_REGISTER,
+    DRO_INFO,
+    HELP,
+    PLAY_STOP,
+    DELETE_SELECTION,
+    DELETE_SELECTION_ALT,
+    SELECTION_UP,
+    SELECTION_DOWN,
+    PREVIOUS_DELAY,
+    NEXT_DELAY,
+    SET_LOOP_START,
+    SET_LOOP_END,
+    MOVE_TRACK_UP,
+    MOVE_TRACK_DOWN,
+];
+
+/// A shortcut written the way the menus and the Help dialog show it
+/// (`Ctrl+Shift+S`, `Space`, `Alt+Up`, `[`).
+///
+/// [`egui::Context::format_shortcut`] would nearly do, but it needs a context
+/// (the Help dialog's guard runs without one) and it picks either words or
+/// symbols for *everything*. This takes the symbol only where it is ASCII, so
+/// the bracket keys read as `[` and `]` while the arrows stay "Up" and "Down"
+/// -- egui's arrow glyphs are not in the bundled VGA font and would draw as
+/// tofu boxes.
+#[must_use]
+pub fn shortcut_text(shortcut: &KeyboardShortcut) -> String {
+    let names = egui::ModifierNames::NAMES;
+    let symbol = shortcut.logical_key.symbol_or_name();
+    let key = if symbol.is_ascii() {
+        symbol
+    } else {
+        shortcut.logical_key.name()
+    };
+    let modifiers = names.format(&shortcut.modifiers, cfg!(target_os = "macos"));
+    if modifiers.is_empty() {
+        key.to_owned()
+    } else {
+        format!("{modifiers}{}{key}", names.concat)
+    }
+}
+
 /// What the menu bar needs to know about the app to draw itself.
 #[derive(Debug, Clone, Default)]
 pub struct MenuState {
@@ -222,14 +301,20 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             ui.menu_button("Loop", |ui| {
                 widen(ui);
                 if ui
-                    .add(egui::Button::new("Set Loop Start").shortcut_text("["))
+                    .add(
+                        egui::Button::new("Set Loop Start")
+                            .shortcut_text(shortcut_text(&SET_LOOP_START)),
+                    )
                     .clicked()
                     && let Some(row) = state.focused_row
                 {
                     actions.push(Action::SetLoopStart(row));
                 }
                 if ui
-                    .add(egui::Button::new("Set Loop End").shortcut_text("]"))
+                    .add(
+                        egui::Button::new("Set Loop End")
+                            .shortcut_text(shortcut_text(&SET_LOOP_END)),
+                    )
                     .clicked()
                     && let Some(row) = state.focused_row
                 {
@@ -276,7 +361,8 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if ui
                 .add_enabled(
                     editor,
-                    egui::Button::new("Delete Instruction(s)").shortcut_text("Del"),
+                    egui::Button::new("Delete Instruction(s)")
+                        .shortcut_text(shortcut_text(&DELETE_SELECTION)),
                 )
                 .clicked()
             {
@@ -319,7 +405,9 @@ fn enabled_item(
 ) -> bool {
     let mut button = egui::Button::new(label);
     if let Some(shortcut) = shortcut {
-        button = button.shortcut_text(ui.ctx().format_shortcut(shortcut));
+        // The app's own formatter, not the context's: the menu hint and the Help
+        // dialog's key column must read the same.
+        button = button.shortcut_text(shortcut_text(shortcut));
     }
     ui.add_enabled(enabled, button).clicked()
 }

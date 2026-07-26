@@ -6,15 +6,45 @@
 //! package files in pack mode). Anything the app listens for is listed; a
 //! shortcut that is not in this file is not implemented.
 
+use egui::KeyboardShortcut;
+
 use crate::action::Action;
+use crate::menus::{self, shortcut_text};
 use crate::theme::{Palette, bevel};
+
+/// What a row's key column says.
+///
+/// `Bound` names the app's own binding constants, so the text shown is
+/// generated from the binding itself: rebind a key and this dialog follows it,
+/// and [`menus::ALL_SHORTCUTS`] is checked against these entries so a new
+/// binding cannot go undocumented. `Text` is for the gestures and key *ranges*
+/// that are not single bindings -- a mouse click, the nine channel digits.
+enum Keys {
+    /// One binding, or several shown as alternatives (`Del / Backspace`).
+    Bound(&'static [KeyboardShortcut]),
+    Text(&'static str),
+}
+
+impl Keys {
+    /// The key column's text: the bindings formatted and joined, or the literal.
+    fn text(&self) -> String {
+        match self {
+            Self::Bound(shortcuts) => shortcuts
+                .iter()
+                .map(shortcut_text)
+                .collect::<Vec<_>>()
+                .join(" / "),
+            Self::Text(text) => (*text).to_owned(),
+        }
+    }
+}
 
 /// One table in the dialog: a heading, an optional line of context, and its
 /// key/meaning rows.
 struct Section {
     title: &'static str,
     note: Option<&'static str>,
-    rows: &'static [(&'static str, &'static str)],
+    rows: &'static [(Keys, &'static str)],
 }
 
 const SECTIONS: &[Section] = &[
@@ -22,47 +52,80 @@ const SECTIONS: &[Section] = &[
         title: "Anywhere",
         note: None,
         rows: &[
-            ("Ctrl+O", "Open a song (.dro, .vgm, .vgz)"),
             (
-                "Ctrl+Z",
+                Keys::Bound(&[menus::OPEN]),
+                "Open a song (.dro, .vgm, .vgz)",
+            ),
+            (
+                Keys::Bound(&[menus::UNDO]),
                 "Undo -- the song in the editor, the file edits in pack mode",
             ),
-            ("Ctrl+Y", "Redo"),
-            ("Ctrl+Shift+Z", "Redo (the other convention)"),
-            ("Ctrl+H", "This dialog"),
-            ("Esc", "Close the dialog on screen"),
+            (Keys::Bound(&[menus::REDO]), "Redo"),
+            (
+                Keys::Bound(&[menus::REDO_ALT]),
+                "Redo (the other convention)",
+            ),
+            (Keys::Bound(&[menus::HELP]), "This dialog"),
+            (Keys::Text("Esc"), "Close the dialog on screen"),
         ],
     },
     Section {
         title: "Editor: playback",
         note: None,
         rows: &[
-            ("Space", "Play / stop"),
-            ("1 - 9", "Mute or unmute channels 1 to 9"),
-            ("Shift+1 - 9", "Mute or unmute channels 10 to 18 (OPL3)"),
+            (Keys::Bound(&[menus::PLAY_STOP]), "Play / stop"),
+            (Keys::Text("1 - 9"), "Mute or unmute channels 1 to 9"),
+            (
+                Keys::Text("Shift+1 - 9"),
+                "Mute or unmute channels 10 to 18 (OPL3)",
+            ),
         ],
     },
     Section {
         title: "Editor: moving about",
         note: Some("The selected row is where playback starts."),
         rows: &[
-            ("Up / Down", "Move the selection one instruction"),
-            ("Shift+Up / Down", "Extend the selection"),
-            ("Left / Right", "Jump to the previous / next delay"),
-            ("Ctrl+G", "Go to an instruction by position"),
-            ("Ctrl+F", "Find a register write"),
-            ("Ctrl+I", "DRO header info (DRO only)"),
+            (
+                Keys::Bound(&[menus::SELECTION_UP, menus::SELECTION_DOWN]),
+                "Move the selection one instruction",
+            ),
+            (Keys::Text("Shift+Up / Down"), "Extend the selection"),
+            (
+                Keys::Bound(&[menus::PREVIOUS_DELAY, menus::NEXT_DELAY]),
+                "Jump to the previous / next delay",
+            ),
+            (
+                Keys::Bound(&[menus::GOTO]),
+                "Go to an instruction by position",
+            ),
+            (
+                Keys::Bound(&[menus::FIND_REGISTER]),
+                "Find a register write",
+            ),
+            (
+                Keys::Bound(&[menus::DRO_INFO]),
+                "DRO header info (DRO only)",
+            ),
         ],
     },
     Section {
         title: "Editor: editing",
         note: Some("Every edit here is undoable."),
         rows: &[
-            ("Del / Backspace", "Delete the selected instructions"),
-            ("[", "Set the loop start at the selected row"),
-            ("]", "Set the loop end just past the selected row"),
-            ("Ctrl+S", "Save"),
-            ("Ctrl+Shift+S", "Save as..."),
+            (
+                Keys::Bound(&[menus::DELETE_SELECTION, menus::DELETE_SELECTION_ALT]),
+                "Delete the selected instructions",
+            ),
+            (
+                Keys::Bound(&[menus::SET_LOOP_START]),
+                "Set the loop start at the selected row",
+            ),
+            (
+                Keys::Bound(&[menus::SET_LOOP_END]),
+                "Set the loop end just past the selected row",
+            ),
+            (Keys::Bound(&[menus::SAVE]), "Save"),
+            (Keys::Bound(&[menus::SAVE_AS]), "Save as..."),
         ],
     },
     Section {
@@ -70,32 +133,41 @@ const SECTIONS: &[Section] = &[
         note: Some("The waveform is the strip above the instruction table."),
         rows: &[
             (
-                "Click the waveform",
+                Keys::Text("Click the waveform"),
                 "Start playback there, and scroll the table to it",
             ),
-            ("Shift+click", "Set the loop start"),
-            ("Shift+right-click", "Set the loop end"),
-            ("Click a row", "Select it"),
+            (Keys::Text("Shift+click"), "Set the loop start"),
+            (Keys::Text("Shift+right-click"), "Set the loop end"),
+            (Keys::Text("Click a row"), "Select it"),
             (
-                "Ctrl+click a row",
+                Keys::Text("Ctrl+click a row"),
                 "Add it to (or take it out of) the selection",
             ),
-            ("Shift+click a row", "Extend the selection to it"),
+            (
+                Keys::Text("Shift+click a row"),
+                "Extend the selection to it",
+            ),
         ],
     },
     Section {
         title: "Pack mode",
         note: Some("The tab appears once a pack folder is open."),
         rows: &[
-            ("Ctrl+S", "Save the package .txt and .m3u"),
-            ("Ctrl+Z / Ctrl+Y", "Undo / redo the folder's file edits"),
-            ("Click a track", "Focus it for the keys below"),
             (
-                "Alt+Up / Alt+Down",
+                Keys::Bound(&[menus::SAVE]),
+                "Save the package .txt and .m3u",
+            ),
+            (
+                Keys::Bound(&[menus::UNDO, menus::REDO]),
+                "Undo / redo the folder's file edits",
+            ),
+            (Keys::Text("Click a track"), "Focus it for the keys below"),
+            (
+                Keys::Bound(&[menus::MOVE_TRACK_UP, menus::MOVE_TRACK_DOWN]),
                 "Move the focused track up or down the order",
             ),
-            ("Drag the grip", "Reorder a track by hand"),
-            ("Double-click a track", "Open it in the editor"),
+            (Keys::Text("Drag the grip"), "Reorder a track by hand"),
+            (Keys::Text("Double-click a track"), "Open it in the editor"),
         ],
     },
 ];
@@ -150,7 +222,7 @@ impl HelpDialog {
                     .show(ui, |ui| {
                         for (keys, meaning) in section.rows {
                             ui.label(
-                                egui::RichText::new(*keys)
+                                egui::RichText::new(keys.text())
                                     .monospace()
                                     .color(palette.data_text),
                             );
@@ -180,10 +252,15 @@ mod tests {
         for section in SECTIONS {
             assert!(!section.rows.is_empty(), "{} has no rows", section.title);
             for (keys, meaning) in section.rows {
-                assert!(!keys.trim().is_empty(), "{} has a blank key", section.title);
+                assert!(
+                    !keys.text().trim().is_empty(),
+                    "{} has a blank key",
+                    section.title
+                );
                 assert!(
                     !meaning.trim().is_empty(),
-                    "{keys} in {} says nothing",
+                    "{} in {} says nothing",
+                    keys.text(),
                     section.title
                 );
             }
@@ -191,28 +268,37 @@ mod tests {
     }
 
     #[test]
-    fn the_shortcuts_match_the_ones_the_app_binds() {
-        // The menus own the real bindings; this dialog must not drift from them.
-        let listed: Vec<&str> = SECTIONS
+    fn every_binding_the_app_makes_is_documented() {
+        // Derived from the bindings themselves: a shortcut added to
+        // `ALL_SHORTCUTS` and left out of the tables above fails here rather
+        // than going quietly undocumented.
+        let documented: Vec<KeyboardShortcut> = SECTIONS
             .iter()
-            .flat_map(|section| section.rows.iter().map(|(keys, _)| *keys))
+            .flat_map(|section| section.rows)
+            .filter_map(|(keys, _)| match keys {
+                Keys::Bound(shortcuts) => Some(shortcuts.iter().copied()),
+                Keys::Text(_) => None,
+            })
+            .flatten()
             .collect();
-        for expected in [
-            "Ctrl+O",
-            "Ctrl+S",
-            "Ctrl+Shift+S",
-            "Ctrl+Z",
-            "Ctrl+Y",
-            "Ctrl+G",
-            "Ctrl+F",
-            "Ctrl+I",
-            "Ctrl+H",
-            "Alt+Up / Alt+Down",
-        ] {
+        for shortcut in menus::ALL_SHORTCUTS {
             assert!(
-                listed.contains(&expected),
-                "{expected} is bound but not documented"
+                documented.contains(shortcut),
+                "{} is bound but the Help dialog does not list it",
+                shortcut_text(shortcut)
             );
         }
+    }
+
+    #[test]
+    fn the_key_column_is_written_from_the_binding() {
+        // Not a literal that happens to match: rebinding a key has to move the
+        // text in the dialog with it.
+        assert_eq!(Keys::Bound(&[menus::SAVE_AS]).text(), "Ctrl+Shift+S");
+        assert_eq!(
+            Keys::Bound(&[menus::MOVE_TRACK_UP, menus::MOVE_TRACK_DOWN]).text(),
+            "Alt+Up / Alt+Down"
+        );
+        assert_eq!(Keys::Bound(&[menus::PLAY_STOP]).text(), "Space");
     }
 }
