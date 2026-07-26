@@ -16,6 +16,7 @@ use crate::error::{Error, Result};
 use crate::io::ByteReader;
 use crate::song::{OplType, Song, SongData};
 use crate::vgm::data::{GD3_FIELD_COUNT, Gd3Tag, VgmData, VgmMeta, command};
+use crate::vgm::header::offset;
 
 /// `Vgm `.
 pub const MAGIC: &[u8; 4] = b"Vgm ";
@@ -29,32 +30,17 @@ pub const CONVERSION_VERSION: u32 = 0x0000_0151;
 const GD3_SUPPORTED_VERSION: u32 = 0x0000_0100;
 const GD3_ENCODING_UNITS: usize = 2;
 
-/// Header field offsets, as the VGM spec numbers them.
-mod offset {
-    pub(super) const MAGIC: usize = 0x00;
-    pub(super) const EOF: usize = 0x04;
-    pub(super) const VERSION: usize = 0x08;
-    pub(super) const GD3: usize = 0x14;
-    pub(super) const TOTAL_SAMPLES: usize = 0x18;
-    pub(super) const LOOP_OFFSET: usize = 0x1C;
-    pub(super) const LOOP_NUM_SAMPLES: usize = 0x20;
-    pub(super) const RATE: usize = 0x24;
-    pub(super) const DATA_OFFSET: usize = 0x34;
-    pub(super) const YM3812_CLOCK: usize = 0x50;
-    pub(super) const YMF262_CLOCK: usize = 0x5C;
-    pub(super) const VOLUME_MODIFIER: usize = 0x7C;
-    pub(super) const LOOP_BASE: usize = 0x7E;
-    pub(super) const LOOP_MODIFIER: usize = 0x7F;
-}
-
 /// The chip clocks, and the flag that marks a second chip.
+///
+/// The field offsets these are written to live in [`header::offset`], the one
+/// table both readers share.
 mod clock {
     pub(super) const OPL2: u32 = 3_579_545;
     /// The spec says the high bits should be `0x4000_0000`, but `dro2vgm` writes
     /// `0xC000_0000`, and files in the wild follow it.
     pub(super) const DUAL_OPL2: u32 = 3_579_545 | 0xC000_0000;
     pub(super) const OPL3: u32 = 14_318_180;
-    pub(super) const DUAL_CHIP_FLAG: u32 = 0x4000_0000;
+    pub(super) const DUAL_CHIP_FLAG: u32 = crate::vgm::header::DUAL_CHIP_FLAG;
 }
 
 /// A v1.51 header runs to 0x7F, so the data cannot start before 0x80.
@@ -385,7 +371,7 @@ fn resolve_loop_end(song: &Song, loop_point: usize, header_samples: u32) -> Opti
     Some(end)
 }
 
-fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
+pub(crate) fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
     let mut reader = ByteReader::new(bytes);
     reader.seek(offset)?;
 
@@ -439,7 +425,7 @@ fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
     Ok(Gd3Tag::from_fields(fields))
 }
 
-fn write_gd3_tag(tag: &Gd3Tag) -> Vec<u8> {
+pub(crate) fn write_gd3_tag(tag: &Gd3Tag) -> Vec<u8> {
     let mut blob = Vec::new();
     for field in tag.fields() {
         for unit in field.encode_utf16() {
