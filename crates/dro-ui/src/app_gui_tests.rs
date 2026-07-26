@@ -1894,7 +1894,7 @@ fn opening_a_foreign_vgm_opens_it_for_trimming() {
     let (harness, _handles) = build(Some(foreign_vgm_file()), false, false);
     let app = harness.state();
 
-    assert!(app.editor.foreign().is_some(), "it opened");
+    assert!(app.editor.vgm().is_some(), "it opened");
     assert!(app.editor.song().is_none(), "but not as a song");
     assert!(app.dialogs.foreign_vgm.is_none(), "no dialog was needed");
     assert!(app.alerts.is_empty(), "and no error: {:?}", app.alerts);
@@ -1917,7 +1917,7 @@ fn a_vgm_whose_commands_do_not_walk_still_gets_the_dialog() {
     let (harness, _handles) = build(Some(unwalkable_vgm_file()), false, false);
     let app = harness.state();
     assert!(app.dialogs.foreign_vgm.is_some());
-    assert!(app.editor.foreign().is_none(), "nothing was loaded");
+    assert!(app.editor.vgm().is_none(), "nothing was loaded");
     assert!(
         app.alerts.is_empty(),
         "still not an error: {:?}",
@@ -1941,7 +1941,7 @@ fn a_foreign_document_can_be_trimmed_and_undone() {
     assert_eq!(app.editor.undo_description(), Some("Delete Command(s)"));
 
     // The header followed the edit, rather than going stale.
-    let file = app.editor.foreign().unwrap();
+    let file = app.editor.vgm().unwrap();
     assert_eq!(file.header.total_samples(), 10_735 - 10_000);
     assert_eq!(file.header.loop_samples(), Some(735), "the loop shrank too");
 

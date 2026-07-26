@@ -2103,11 +2103,11 @@ impl DroApp {
             // for other chips opens for trimming -- rows, selection, delete,
             // undo and save -- with the panels that need an OPL stream gone.
             // What it cannot do it says in the status bar, not in an error.
-            Err(LoadFailure::ForeignVgm { file, folder }) => {
+            Err(LoadFailure::NotOpl { file, folder }) => {
                 let chips = file.chip_list();
                 let editable = file.stream().is_some();
                 if editable {
-                    self.open_foreign(*file, folder);
+                    self.open_as_vgm(*file, folder);
                     self.status =
                         format!("Opened {name} ({chips}); playback is not supported yet.");
                 } else {
@@ -2123,13 +2123,13 @@ impl DroApp {
         }
     }
 
-    /// Installs a VGM the OPL model cannot describe, and tears down everything
-    /// that belonged to the song it replaces.
+    /// Installs a VGM held as a VGM, and tears down everything that belonged
+    /// to the document it replaces.
     ///
     /// The same teardown as a successful [`Self::load_file`], minus the parts
     /// that only mean something for an OPL song: there is no waveform to render,
     /// no audio to load, and no channel state to seed from a chip type.
-    fn open_foreign(&mut self, file: dro_core::VgmFile, folder: Option<PathBuf>) {
+    fn open_as_vgm(&mut self, file: dro_core::VgmFile, folder: Option<PathBuf>) {
         self.close_song_dialogs();
         self.waveform = WaveformState::default();
         self.tasks.cancel(TaskKind::RenderWav);
@@ -2149,7 +2149,7 @@ impl DroApp {
         self.scroll_to = Some(table::ScrollTo::centered(0));
         // The picked file's own path, not its folder: Save writes the file.
         let path = folder.map(|folder| folder.join(&file.name));
-        self.editor.load_foreign(file, path);
+        self.editor.load_vgm(file, path);
     }
 
     /// Unloads the song, leaving the editor as it starts: the same teardown a
@@ -2667,9 +2667,9 @@ impl DroApp {
         let Some(track) = self.pack.as_ref().and_then(|pack| pack.tracks.get(index)) else {
             return;
         };
-        // A foreign track opens too, for trimming: `load_file` sorts out which
-        // kind it is. Only one whose commands will not walk has nothing to
-        // show, and that one gets the dialog rather than an empty table.
+        // Every readable track opens: `load_file` sorts out which
+        // representation it needs. Only one whose commands will not walk has
+        // nothing to show, and that gets the dialog rather than an empty table.
         let file = PickedFile {
             name: track.file_name.clone(),
             path: track.path.clone(),

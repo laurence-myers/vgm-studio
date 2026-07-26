@@ -1,10 +1,10 @@
-//! What to say when a perfectly good VGM is not one the editor can open. Modal.
+//! What to say when a perfectly good VGM has no rows to show. Modal.
 //!
-//! The editor decodes every command into an OPL register write or a delay, so a
-//! file for other chips has nothing it can show. That is a limitation, not a
-//! fault in the file -- and a bare "Failed to load" alert says the opposite.
-//! This reports what the file *is*, and points at pack mode, where its tags are
-//! editable today.
+//! Reached when a VGM's command stream will not walk -- a command with no
+//! defined length, or one running off the end -- so there is no table to put
+//! it in. That is a limitation, not a fault the user can act on, and a bare
+//! "Failed to load" alert says the opposite. This reports what the file *is*,
+//! and points at pack mode, where its tags are editable regardless.
 
 use std::path::PathBuf;
 
