@@ -248,6 +248,49 @@ impl VgmEngine {
         self.wait_50hz = WAIT_50HZ;
     }
 
+    /// Jumps to row `index`, putting the chips in the state the music expects
+    /// to find them in.
+    ///
+    /// Not by replaying the stream. The commands before `index` are folded into
+    /// a per-chip state -- each cell's last write, the data blocks (cumulative,
+    /// so all of them), the DAC-stream setup and the PCM seek -- and only those
+    /// are executed. A minute into a Mega Drive rip that is a few hundred writes
+    /// instead of a few hundred thousand.
+    ///
+    /// The fold is [`dro_core::chip_state`], the same one the crop edit and the
+    /// splitter's prelude use, so a seek and a crop agree by construction about
+    /// what "the state at row N" means. Notes sounding at `index` re-attack,
+    /// which is what `vgm_trim` does too, and a stream that was mid-playback
+    /// restarts from its own offset rather than from where it had got to.
+    pub fn seek_to_row(&mut self, index: usize) {
+        let file = Arc::clone(&self.file);
+        let Some(stream) = file.stream() else {
+            return;
+        };
+        let index = index.min(stream.len());
+        self.rewind();
+
+        let state = dro_core::chip_state::ChipState::fold(stream, index);
+        for restore in state.restore_indices() {
+            if let Some(command) = stream.get(restore) {
+                // The return is a wait length, and a restore never waits: the
+                // fold keeps writes and blocks, not the time between them.
+                self.execute(stream, restore, command);
+            }
+        }
+
+        self.index = index;
+        self.finished = index >= stream.len();
+        // The clock's carried remainder belongs to the time that was skipped.
+        self.clock.reset();
+    }
+
+    /// The row the next command will come from.
+    #[must_use]
+    pub const fn position(&self) -> usize {
+        self.index
+    }
+
     /// Fills `out` with interleaved stereo frames, returning how many frames it
     /// wrote. A short return means the stream ended.
     ///
@@ -760,6 +803,76 @@ mod tests {
     /// A compressed bank arrives unpacked, and under the type a stream binds
     /// to -- so a file that compressed its samples is indistinguishable
     /// downstream from one that did not.
+    #[test]
+    fn a_seek_restores_the_state_rather_than_replaying_the_stream() {
+        // Four writes to the same register, parted by waits, then one to
+        // another. Seeking past all of them should send the *last* value of
+        // each register, not all five writes.
+        let mut stream = Vec::new();
+        for value in [0x01, 0x02, 0x03, 0x04] {
+            stream.extend_from_slice(&[0x52, 0x30, value]);
+            stream.extend_from_slice(&[0x61, 0x44, 0xAC]);
+        }
+        stream.extend_from_slice(&[0x52, 0x40, 0x99]);
+        stream.extend_from_slice(&[0x61, 0x44, 0xAC]);
+        stream.push(0x66);
+
+        let file = vgm(&[(ChipKind::Ym2612, 7_670_454)], &stream);
+        let seen: Log<(u8, u16, u16)> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Tap(Log<(u8, u16, u16)>);
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, port: u8, addr: u16, data: u16) {
+                self.0
+                    .lock()
+                    .expect("not poisoned")
+                    .push((port, addr, data));
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+
+        let seen_for_factory = Arc::clone(&seen);
+        let mut engine = VgmEngine::with_cores(Arc::clone(&file), 44_100, move |_| {
+            Some(Box::new(Tap(Arc::clone(&seen_for_factory))))
+        });
+
+        // Row 9 is the last wait, past every write.
+        engine.seek_to_row(9);
+        assert_eq!(
+            *seen.lock().expect("not poisoned"),
+            [(0, 0x30, 0x04), (0, 0x40, 0x99)],
+            "one write per register, at its last value"
+        );
+        assert_eq!(engine.position(), 9);
+
+        // And playing on from there covers only what is left.
+        let mut out = vec![0i16; 44_100 * 4];
+        assert_eq!(engine.render(&mut out), 44_100, "the last second");
+        assert!(engine.is_finished());
+    }
+
+    #[test]
+    fn a_seek_to_the_start_is_a_rewind() {
+        let file = vgm(
+            &[(ChipKind::Sn76489, 3_579_545)],
+            &[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x66],
+        );
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        let mut out = vec![0i16; 44_100 * 2];
+        assert_eq!(engine.render(&mut out), 44_100);
+
+        engine.seek_to_row(0);
+        assert_eq!(engine.position(), 0);
+        assert!(!engine.is_finished());
+        assert_eq!(engine.render(&mut out), 44_100);
+    }
+
     #[test]
     fn a_compressed_bank_is_unpacked_on_arrival() {
         /// A `0x67` block of type `kind` carrying `payload`.
