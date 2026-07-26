@@ -3117,6 +3117,38 @@ fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
 }
 
 #[test]
+fn a_second_screenshot_lands_beside_the_first_rather_than_on_it() {
+    // A pack may want a title screen per region or graphics mode, so Add is
+    // offered once the folder already has one -- and must not overwrite it.
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder()); // has "Cool Game.png"
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label_contains("Add Screenshot").click();
+    harness.run();
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "dosbox_001.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/dosbox_001.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a save request") {
+        SaveRequest::InPlace { path, .. } => assert!(
+            path.to_string_lossy().ends_with("Cool Game (2).png"),
+            "numbered clear of the screenshot already there, got {}",
+            path.display()
+        ),
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_picked_file_that_is_not_a_png_is_refused() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());

@@ -2861,6 +2861,10 @@ impl DroApp {
     /// something like `dosbox_000.png`, and renaming it by hand is a step this
     /// tool exists to save. With no game name yet there is nothing to rename it
     /// to, so it keeps its own.
+    ///
+    /// Either way the name is made unique against the folder (`... (2).png`), so
+    /// a second screenshot never silently overwrites the first; Rename... is
+    /// then how it earns a name of its own ("Cool Game (Japan).png").
     fn add_screenshot(&mut self, file: PickedFile) {
         let Some(pack) = self.pack.as_ref() else {
             return;
@@ -2911,12 +2915,13 @@ impl DroApp {
                     // Native-only; a folder with no path cannot be written to.
                     return;
                 };
-                let stem = pack.doc_stem();
-                let name = if stem.is_empty() {
-                    file.name.clone()
-                } else {
-                    format!("{stem}.png")
-                };
+                let name = pack.next_screenshot_name().unwrap_or_else(|| {
+                    let (stem, ext) = file
+                        .name
+                        .rsplit_once('.')
+                        .unwrap_or((file.name.as_str(), "png"));
+                    pack.free_image_name(stem, ext)
+                });
                 self.status = format!("Adding {name}...");
                 self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
                 self.files.save(SaveRequest::InPlace {

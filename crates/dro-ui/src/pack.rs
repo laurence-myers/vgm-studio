@@ -665,6 +665,35 @@ impl PackState {
         })
     }
 
+    /// A screenshot file name free in this folder: `stem.ext` if nothing holds
+    /// it, else `stem (2).ext`, `stem (3).ext`... -- so adding a second
+    /// screenshot lands beside the first rather than on top of it.
+    #[must_use]
+    pub fn free_image_name(&self, stem: &str, ext: &str) -> String {
+        let taken = |name: &str| {
+            self.images
+                .iter()
+                .any(|image| image.name.eq_ignore_ascii_case(name))
+        };
+        let first = format!("{stem}.{ext}");
+        if !taken(&first) {
+            return first;
+        }
+        (2..=self.images.len() + 2)
+            .map(|n| format!("{stem} ({n}).{ext}"))
+            .find(|name| !taken(name))
+            .expect("more candidates than screenshots, so one of them is free")
+    }
+
+    /// The name the next added screenshot lands under: the pack's own file-name
+    /// stem, made unique. `None` when there is no game name to derive one from,
+    /// which is when an added file keeps the name it arrived with.
+    #[must_use]
+    pub fn next_screenshot_name(&self) -> Option<String> {
+        let stem = self.doc_stem();
+        (!stem.is_empty()).then(|| self.free_image_name(&stem, "png"))
+    }
+
     /// The transaction that renames the screenshot `name` to `new_name`, keyed
     /// by name for the same reason [`Self::delete_image_transaction`] is: the
     /// dialog sits between the click and the rename. `None` when no such image
@@ -2018,6 +2047,31 @@ fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions:
         });
         ui.add_space(10.0);
     }
+    // A pack may want more than one title screen -- a region, a graphics mode --
+    // so Add stays offered once the folder has one, not just while it is empty.
+    add_screenshot_button(ui, state, palette, actions);
+}
+
+/// The "Add Screenshot..." pad, naming the file it will write. A screenshot is
+/// copied in *and* renamed to the pack's convention, which should not be a
+/// surprise -- so both the empty state and the foot of the list say where it
+/// lands before it is picked.
+fn add_screenshot_button(
+    ui: &mut egui::Ui,
+    state: &PackState,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let hover = match state.next_screenshot_name() {
+        Some(name) => format!("Copy a .png into the pack folder as \"{name}\""),
+        None => "Copy a .png into the pack folder".to_owned(),
+    };
+    if bevel::button(ui, palette, "Add Screenshot\u{2026}")
+        .on_hover_text(hover)
+        .clicked()
+    {
+        actions.push(Action::PackAddScreenshot);
+    }
 }
 
 /// The image in a sunken data well, keylined so a dark screenshot still has a
@@ -2177,20 +2231,7 @@ fn no_screenshot(
                 "A submission needs a title-screen .png at the game's native resolution.",
             );
             ui.add_space(12.0);
-            // Name the destination up front: the file is copied in *and* renamed
-            // to the pack's convention, which should not be a surprise.
-            let stem = state.doc_stem();
-            let hover = if stem.is_empty() {
-                "Copy a .png into the pack folder".to_owned()
-            } else {
-                format!("Copy a .png into the pack folder as \"{stem}.png\"")
-            };
-            if bevel::button(ui, palette, "Add Screenshot\u{2026}")
-                .on_hover_text(hover)
-                .clicked()
-            {
-                actions.push(Action::PackAddScreenshot);
-            }
+            add_screenshot_button(ui, state, palette, actions);
         });
     });
     // Dashed, not solid: the border marks a slot waiting to be filled rather
@@ -2214,6 +2255,7 @@ mod tests {
     use dro_core::vgm::data::Gd3Tag;
 
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+    const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
     /// A VGM fixture re-serialised with a given file name and GD3 tag, wrapped as
     /// a picked file -- the same trick the editor's tests use.
@@ -2690,6 +2732,77 @@ mod tests {
                 .iter()
                 .any(|item| item.message.contains("Enter a game name")),
             "the blocking error still names the field"
+        );
+    }
+
+    /// A pack whose folder holds `images` alongside one track.
+    fn pack_with_images(names: &[&str]) -> PackState {
+        let mut files = vec![named_song("01 Intro.vgz", "Intro")];
+        files.extend(names.iter().map(|name| PickedFile {
+            name: (*name).to_owned(),
+            path: Some(PathBuf::from(format!("C:/Cool Game/{name}"))),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+        PackState::from_folder(folder("Cool Game", files), None)
+    }
+
+    #[test]
+    fn an_added_screenshot_never_lands_on_one_already_there() {
+        // Nothing in the way: the pack's own name, as before.
+        assert_eq!(
+            pack_with_images(&[]).next_screenshot_name().as_deref(),
+            Some("Cool Game.png")
+        );
+        // Taken -> numbered, so the first screenshot is not overwritten. The
+        // check is case-insensitive: Windows would treat these as one file.
+        assert_eq!(
+            pack_with_images(&["cool game.png"])
+                .next_screenshot_name()
+                .as_deref(),
+            Some("Cool Game (2).png")
+        );
+        assert_eq!(
+            pack_with_images(&["Cool Game.png", "Cool Game (2).png"])
+                .next_screenshot_name()
+                .as_deref(),
+            Some("Cool Game (3).png")
+        );
+    }
+
+    #[test]
+    fn with_no_game_name_there_is_no_name_to_propose() {
+        let mut state = pack_with_images(&[]);
+        state.meta.game_name.clear();
+        assert_eq!(state.next_screenshot_name(), None);
+        // The picked file's own name is then made unique instead.
+        assert_eq!(state.free_image_name("dosbox_000", "png"), "dosbox_000.png");
+    }
+
+    #[test]
+    fn renaming_a_screenshot_is_reversible() {
+        let state = pack_with_images(&["dosbox_000.png"]);
+        let txn = state
+            .rename_image_transaction("dosbox_000.png", "Cool Game (Japan).png")
+            .expect("the image is in the folder");
+        assert_eq!(
+            txn.forward,
+            vec![PackMutation::Rename {
+                from: PathBuf::from("C:/Cool Game/dosbox_000.png"),
+                to: "Cool Game (Japan).png".to_owned(),
+            }]
+        );
+        assert_eq!(
+            txn.inverse,
+            vec![PackMutation::Rename {
+                from: PathBuf::from("C:/Cool Game/Cool Game (Japan).png"),
+                to: "dosbox_000.png".to_owned(),
+            }]
+        );
+        // An image that rescanned away has no transaction to run.
+        assert!(
+            state
+                .rename_image_transaction("gone.png", "x.png")
+                .is_none()
         );
     }
 
