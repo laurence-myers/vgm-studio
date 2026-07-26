@@ -726,22 +726,24 @@ impl Editor {
     /// Replaces the DRO song with its VGM conversion. Not undoable: the
     /// history is wiped.
     ///
+    /// The result is a VGM like any other -- held as its own bytes -- so the
+    /// conversion is serialised and read straight back rather than left as a
+    /// VGM-flavoured `Song`. That round trip is what keeps the DRO slot holding
+    /// only DROs, and it costs one write of a file the user is about to save
+    /// anyway.
+    ///
     /// # Errors
-    /// If no song is loaded, or it is already a VGM.
+    /// If no song is loaded, it is already a VGM, or the conversion will not
+    /// serialise.
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
         let song = self.dro.as_ref().ok_or("no song is loaded")?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
-        // The instruction stream is re-encoded, so any marked region no longer
-        // means what it did; start over from the converted song's own loop.
-        self.markers = RangeMarkers::from_song(&converted);
-        self.dro = Some(converted);
-        self.path = None;
-        self.undo.reset();
-        self.selection.clear();
-        self.analysis.invalidate();
-        self.bump_revision();
-        self.saved_revision = Some(self.revision);
-        self.metadata_dirty = false;
+        let bytes = io::write_song(&converted).map_err(|e| e.to_string())?;
+        let file = dro_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
+
+        // No path: the converted song has no file yet, so Save falls through to
+        // Save As rather than writing VGM bytes over the original `.dro`.
+        self.load_vgm(file, None);
         Ok(())
     }
 
@@ -889,12 +891,24 @@ impl Editor {
         let dropped = clamped != loop_point;
         let clamped_end = clamped
             .and_then(|start| loop_end.filter(|&end| end <= len && end > start && end < len));
-        let before = (file.loop_index(), file.loop_end_index());
+        // What the header holds now, against what it holds after. The setters
+        // report whether the header had *room* for the field, not whether the
+        // value moved, so the comparison has to be made here.
+        let fields = |file: &VgmFile| {
+            (
+                file.loop_index(),
+                file.loop_end_index(),
+                file.header.loop_base(),
+                file.header.loop_modifier(),
+                file.header.volume_modifier(),
+            )
+        };
+        let before = fields(file);
 
         file.set_loop_rows(clamped, clamped_end);
-        let mut changed = (file.loop_index(), file.loop_end_index()) != before;
-        changed |= file.header.set_loop_counts(loop_base, loop_modifier);
-        changed |= file.header.set_volume_modifier(volume_modifier);
+        file.header.set_loop_counts(loop_base, loop_modifier);
+        file.header.set_volume_modifier(volume_modifier);
+        let changed = fields(file) != before;
 
         self.markers = RangeMarkers::from_vgm(file);
         self.refresh_projection();
@@ -1428,14 +1442,21 @@ mod tests {
         let len = editor.len();
 
         // Inside the song and after the start: kept, and the markers follow it.
+        //
+        // Not necessarily at the row that was asked for. A header stores the
+        // loop's *length in samples*, so an end sharing its instant with the
+        // rows before it comes back as the first row at that instant -- the
+        // file cannot express the difference. What matters is that it still
+        // bounds a real region, and that the markers say what was stored.
         editor.set_vgm_metadata(Some(1), Some(len - 1), 0, 0, 0);
-        assert_eq!(
-            editor.song().unwrap().vgm_meta().unwrap().loop_end,
-            Some(len - 1)
+        let stored = editor.song().unwrap().vgm_meta().unwrap().loop_end;
+        assert!(
+            matches!(stored, Some(end) if (2..len).contains(&end)),
+            "a real region inside the song, got {stored:?}"
         );
         assert_eq!(
             (editor.markers.start(), editor.markers.end()),
-            (1, len - 1),
+            (1, stored.unwrap()),
             "the markers describe what was just stored"
         );
 

@@ -5628,7 +5628,13 @@ fn applying_a_loop_writes_the_vgm_metadata() {
         .unwrap()
         .clone();
     assert_eq!(meta.loop_point, Some(1));
-    assert_eq!(meta.loop_end, Some(len - 1));
+    // The stored end is what the header can express: it holds the loop's length
+    // in samples, so an end sharing its instant with the rows before it comes
+    // back as the first of them. The markers snap to it, which is what keeps
+    // the "unapplied" cue from staying lit on a loop that was just applied.
+    let stored = meta.loop_end.expect("an end short of the tail is stored");
+    assert!((2..len).contains(&stored), "a real region, got {stored}");
+    assert_eq!(harness.state().editor.markers.end(), stored);
     assert!(!harness.state().editor.loop_markers_are_unapplied());
     // The end stops short of the tail, so the status says what that means.
     assert!(
