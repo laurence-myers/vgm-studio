@@ -12,9 +12,7 @@
 //! Cells report themselves as selectable labels to accessibility and
 //! egui_kittest, so `get_by_label("Editor").click()` still drives them.
 
-use egui::{
-    Color32, CornerRadius, Rangef, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use egui::{Color32, CornerRadius, Rangef, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
 use super::paint::lerp_color;
 use super::palette::Palette;
@@ -85,11 +83,7 @@ pub fn strip(ui: &mut Ui, palette: &Palette, tabs: &[Tab], selected: usize) -> O
         })
         .collect();
 
-    let cell_h = galleys
-        .iter()
-        .map(|g| g.size().y)
-        .fold(0.0_f32, f32::max)
-        + CELL_PAD_Y * 2.0;
+    let cell_h = galleys.iter().map(|g| g.size().y).fold(0.0_f32, f32::max) + CELL_PAD_Y * 2.0;
     let cell_w: Vec<f32> = galleys
         .iter()
         .map(|g| g.size().x + CELL_PAD_X * 2.0)

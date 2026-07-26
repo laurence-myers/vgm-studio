@@ -293,7 +293,10 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
         painter.add(arc(c, r_track, -90.0, to, Stroke::new(track_w, arc_ink)));
         let cap_r = track_w / 2.0;
         painter.circle_filled(c - vec2(0.0, r_track), cap_r, arc_ink);
-        let end = c + vec2(to.to_radians().cos() * r_track, to.to_radians().sin() * r_track);
+        let end = c + vec2(
+            to.to_radians().cos() * r_track,
+            to.to_radians().sin() * r_track,
+        );
         painter.circle_filled(end, cap_r, arc_ink);
     }
 
@@ -326,7 +329,10 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
     // last, on top of the dome.
     let dir = vec2(theta.sin(), -theta.cos());
     let tip = c + dir * (r_cap - 0.6 * s);
-    painter.line_segment([c + dir * (1.2 * s), tip], Stroke::new(1.6 * s, pointer_ink));
+    painter.line_segment(
+        [c + dir * (1.2 * s), tip],
+        Stroke::new(1.6 * s, pointer_ink),
+    );
     painter.circle_filled(tip, 0.9 * s, pointer_ink);
 }
 
