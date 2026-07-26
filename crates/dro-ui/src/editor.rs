@@ -53,33 +53,15 @@ pub struct DocCapabilities {
 pub enum LoadFailure {
     /// Not a song this app can read, with the reader's message.
     Unreadable(String),
-    /// A readable VGM whose chips are not OPL, so the OPL editing surface
-    /// does not apply to it.
-    NotOpl {
+    /// A readable VGM container whose command stream will not walk, so there
+    /// are no rows to show for it.
+    Unwalkable {
         /// Boxed: far larger than the other arm, and this is the rare case.
         file: Box<VgmFile>,
         /// The folder it sits in, so the dialog can offer to open that folder
         /// as a pack. `None` on the web, where a picked file has no path.
         folder: Option<PathBuf>,
     },
-}
-
-impl LoadFailure {
-    /// Decides which kind of failure a rejected file is, by offering it to the
-    /// chip-agnostic reader that pack mode uses.
-    fn classify(file: &PickedFile, opl_error: &str) -> Self {
-        match dro_core::vgm::file::read(&file.name, &file.bytes) {
-            Ok(vgm) => Self::NotOpl {
-                file: Box::new(vgm),
-                folder: file
-                    .path
-                    .as_deref()
-                    .and_then(Path::parent)
-                    .map(Path::to_path_buf),
-            },
-            Err(_) => Self::Unreadable(opl_error.to_owned()),
-        }
-    }
 }
 
 /// What loading a DRO found, for the two load-time warning dialogs.
@@ -95,19 +77,28 @@ pub struct LoadReport {
 
 #[derive(Debug, Default)]
 pub struct Editor {
-    song: Option<Song>,
-    /// A VGM held as a VGM, rather than materialised into [`Song`]'s OPL
-    /// model. **At most one of `song` and `vgm` is ever `Some`** -- a load
-    /// clears both before installing either.
+    /// A DRO, the only format this app still holds as a decoded OPL stream.
+    dro: Option<Song>,
+    /// A VGM -- every VGM, whatever its chips. **At most one of `dro` and `vgm`
+    /// is ever `Some`**; a load clears both before installing either.
     ///
-    /// The two slots are not two kinds of file. There is one kind; this is
-    /// about which representation the editor can act through. `Song` carries
-    /// the OPL editing surface -- the analyser, the optimiser, the synth --
-    /// and a VGM whose chips are not OPL has nothing to gain from it, so it
-    /// lands here where the chip-agnostic operations live. Collapsing the two
-    /// is the rest of uv-1; what they already share (the selection, the
-    /// markers, the revision and dirty tracking, the path) sits beside them.
+    /// This is the document. Editing goes through it, and the file's own bytes
+    /// are what a save writes back, so a file that is only retagged is returned
+    /// byte for byte.
     vgm: Option<VgmFile>,
+    /// The OPL view of `vgm`, for the parts of the app that read an OPL stream:
+    /// the register analyser, Find Register, the waveform, the synth.
+    ///
+    /// OPL is a capability of a VGM, not a kind of one, and this is where that
+    /// distinction is paid for. It is rebuilt eagerly whenever the stream
+    /// changes rather than derived on demand: it is asked for far more often
+    /// than it changes (every frame the table draws, every audio reload), and
+    /// `Editor::song` hands out a plain reference, which a lazily-filled cache
+    /// could not.
+    ///
+    /// `None` for a VGM whose chips are not OPL, which is exactly what makes
+    /// the OPL-only features absent for one.
+    projection: Option<Arc<Song>>,
     /// Where the song was loaded from or last saved to. `None` on the web, and
     /// after Convert to VGM -- the converted song has no file yet, so Save
     /// falls through to Save As rather than writing VGM bytes over the
@@ -150,14 +141,22 @@ impl Editor {
         Self::default()
     }
 
+    /// The loaded document as an OPL instruction stream, if it is one: a DRO,
+    /// or a VGM whose chips are OPL seen through its projection.
+    ///
+    /// Read-only by construction. The projection is a view of the VGM, so
+    /// editing through it would edit a copy; every edit goes through the
+    /// document itself.
     #[must_use]
     pub fn song(&self) -> Option<&Song> {
-        self.song.as_ref()
+        self.dro.as_ref().or(self.projection.as_deref())
     }
 
+    /// Whether there is an OPL stream to read -- what the analyser, the synth
+    /// and the waveform all need.
     #[must_use]
     pub fn has_song(&self) -> bool {
-        self.song.is_some()
+        self.song().is_some()
     }
 
     /// The loaded document as a VGM, if it is one held that way.
@@ -174,7 +173,7 @@ impl Editor {
     /// audio to render.
     #[must_use]
     pub fn has_document(&self) -> bool {
-        self.song.is_some() || self.vgm.is_some()
+        self.dro.is_some() || self.vgm.is_some()
     }
 
     /// What the loaded document can do, for the panels that only make sense
@@ -188,7 +187,7 @@ impl Editor {
             // transport lives. A document held as a VGM is one whose chips are
             // not OPL, so they go rather than sit there dead over a
             // permanently flat waveform.
-            playable: self.vgm.is_none(),
+            playable: self.has_song() || !self.has_document(),
             editable: self.has_document(),
         }
     }
@@ -196,7 +195,7 @@ impl Editor {
     /// The number of rows, `0` with nothing open.
     #[must_use]
     pub fn len(&self) -> usize {
-        match (&self.song, &self.vgm) {
+        match (&self.dro, &self.vgm) {
             (Some(song), _) => song.len(),
             (None, Some(file)) => file.len(),
             (None, None) => 0,
@@ -228,24 +227,84 @@ impl Editor {
     /// song.
     #[must_use]
     pub fn snapshot(&self) -> Option<Arc<Song>> {
-        self.song.clone().map(Arc::new)
+        // A DRO is cloned because it *is* the editable document; the projection
+        // is already a fresh song rebuilt on every edit, so it can be shared.
+        self.dro
+            .clone()
+            .map(Arc::new)
+            .or_else(|| self.projection.clone())
+    }
+
+    /// Records that the document changed, and rebuilds its OPL view with it.
+    ///
+    /// Every edit goes through here, so the projection can never be one edit
+    /// behind what the table, the analyser and the synth are reading.
+    fn bump_revision(&mut self) {
+        self.revision += 1;
+        self.refresh_projection();
+        // Rows moved, so what the cache holds against each index is stale. The
+        // DRO paths invalidate it themselves as well; doing it here is what
+        // covers the edits made through the file.
+        self.analysis.invalidate();
+    }
+
+    /// Re-derives the loop markers from the document's own stored loop, after
+    /// an edit that rebuilt the stream wholesale.
+    fn reset_markers(&mut self) {
+        self.markers = match (&self.dro, &self.vgm) {
+            (Some(song), _) => RangeMarkers::from_song(song),
+            (None, Some(file)) => RangeMarkers::from_vgm(file),
+            (None, None) => RangeMarkers::default(),
+        };
+    }
+
+    /// Rebuilds the OPL view of the loaded VGM. Called after every edit that
+    /// touches the stream, and after a load.
+    fn refresh_projection(&mut self) {
+        self.projection = self.vgm.as_ref().and_then(VgmFile::to_song).map(Arc::new);
     }
 
     // -- loading and saving --------------------------------------------------
 
-    /// Parses and installs `file`, replacing any current song and wiping the
+    /// Parses and installs `file`, replacing any current document and wiping the
     /// undo history (which makes the auto-trim non-undoable).
+    ///
+    /// A VGM is held as a VGM whatever its chips: the file's own bytes are the
+    /// document, and the OPL ones additionally get a projection. A DRO is held
+    /// as the decoded OPL stream it is -- there is no VGM container to keep.
     ///
     /// # Errors
     /// [`LoadFailure`], which distinguishes a file this app cannot read at all
-    /// from a VGM it can read but not edit. The current song is left untouched
-    /// either way.
+    /// from a VGM whose commands will not walk. The current document is left
+    /// untouched either way.
     pub fn load(&mut self, file: PickedFile) -> Result<LoadReport, LoadFailure> {
+        match dro_core::vgm::file::read(&file.name, &file.bytes) {
+            // A VGM whose commands walk: the ordinary case.
+            Ok(vgm) if vgm.stream().is_some() => {
+                self.load_vgm(vgm, file.path);
+                return Ok(LoadReport::default());
+            }
+            // A VGM container this app cannot walk the commands of. Readable
+            // enough to describe, not enough to show rows for.
+            Ok(vgm) => {
+                return Err(LoadFailure::Unwalkable {
+                    file: Box::new(vgm),
+                    folder: file
+                        .path
+                        .as_deref()
+                        .and_then(Path::parent)
+                        .map(Path::to_path_buf),
+                });
+            }
+            Err(_) => {}
+        }
+
         let mut song = match io::read_song(&file.name, &file.bytes) {
             Ok(song) => song,
-            Err(error) => return Err(LoadFailure::classify(&file, &error.to_string())),
+            Err(error) => return Err(LoadFailure::Unreadable(error.to_string())),
         };
         self.vgm = None;
+        self.projection = None;
         self.vgm_undo.reset();
 
         let mut report = LoadReport::default();
@@ -260,32 +319,33 @@ impl Editor {
         }
 
         self.markers = RangeMarkers::from_song(&song);
-        self.song = Some(song);
+        self.dro = Some(song);
         self.path = file.path;
         self.undo.reset();
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         self.saved_revision = Some(self.revision);
         self.metadata_dirty = false;
         Ok(report)
     }
 
-    /// Installs a VGM as a VGM, for the chip-agnostic operations.
+    /// Installs an already-parsed VGM: the load path pack mode's "open in
+    /// editor" takes, and the one [`Self::load`] funnels every VGM through.
     ///
-    /// The counterpart of [`Self::load`] for the other representation, and the
-    /// same teardown: any current document goes, and both undo histories with
-    /// it.
+    /// The same teardown as a DRO load: any current document goes, and both
+    /// undo histories with it.
     pub fn load_vgm(&mut self, file: VgmFile, path: Option<PathBuf>) {
-        self.song = None;
+        self.dro = None;
         self.undo.reset();
-        self.markers = RangeMarkers::default();
+        self.markers = RangeMarkers::from_vgm(&file);
         self.vgm = Some(file);
+        self.refresh_projection();
         self.vgm_undo.reset();
         self.path = path;
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         self.saved_revision = Some(self.revision);
         self.metadata_dirty = false;
     }
@@ -295,7 +355,7 @@ impl Editor {
     /// The undo history goes with it. What it holds are edits to a song that is
     /// no longer here, and an empty editor has nothing to undo *into*.
     pub fn close(&mut self) {
-        self.song = None;
+        self.dro = None;
         self.vgm = None;
         self.vgm_undo.reset();
         self.path = None;
@@ -303,7 +363,7 @@ impl Editor {
         self.undo.reset();
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         // Nothing is loaded, so nothing is unsaved: the dirty flag must not
         // keep prompting about a song that has gone.
         self.saved_revision = Some(self.revision);
@@ -325,7 +385,7 @@ impl Editor {
             };
             return bytes.map_err(|e| e.to_string());
         }
-        let song = self.song.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or("no song is loaded")?;
         io::write_song(song).map_err(|e| e.to_string())
     }
 
@@ -345,7 +405,7 @@ impl Editor {
             }
             return was_vgz != is_vgz;
         }
-        let Some(song) = self.song.as_mut() else {
+        let Some(song) = self.dro.as_mut() else {
             return false;
         };
         let was_vgz = song.name.to_ascii_lowercase().ends_with(".vgz");
@@ -372,7 +432,7 @@ impl Editor {
         if self.vgm.is_some() {
             return self.delete_vgm_selection();
         }
-        let Some(song) = self.song.as_mut() else {
+        let Some(song) = self.dro.as_mut() else {
             return false;
         };
         if self.selection.is_empty() {
@@ -391,7 +451,7 @@ impl Editor {
         self.markers.after_delete(&deleted, song.len());
         self.selection.after_delete(first_deleted, song.len());
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         true
     }
 
@@ -409,8 +469,8 @@ impl Editor {
         self.vgm_undo
             .execute(Box::new(ReplaceVgm::new("Optimize VGM", edited)), file);
         self.selection.clear();
-        self.markers = RangeMarkers::default();
-        self.revision += 1;
+        self.reset_markers();
+        self.bump_revision();
         Some((removed, saved))
     }
 
@@ -432,9 +492,13 @@ impl Editor {
             .expect("the selection was just checked non-empty");
         let deleted: Vec<usize> = self.selection.iter().collect();
         self.vgm_undo
-            .execute(Box::new(DeleteCommands::new(deleted)), file);
-        self.selection.after_delete(first_deleted, file.len());
-        self.revision += 1;
+            .execute(Box::new(DeleteCommands::new(deleted.clone())), file);
+        let len = file.len();
+        // The same rule the file's own loop point moved by, so a marked region
+        // and the metadata it may have been applied to cannot drift apart.
+        self.markers.after_delete(&deleted, len);
+        self.selection.after_delete(first_deleted, len);
+        self.bump_revision();
         true
     }
 
@@ -449,7 +513,7 @@ impl Editor {
         if self.vgm.is_some() {
             return self.optimize_vgm_document();
         }
-        let song = self.song.as_mut()?;
+        let song = self.dro.as_mut()?;
         let outcome = dro_core::optimize::optimize(song)?;
         let stats = (outcome.commands_removed, outcome.bytes_saved);
         self.undo
@@ -457,7 +521,7 @@ impl Editor {
         self.markers = RangeMarkers::from_song(song);
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         Some(stats)
     }
 
@@ -513,7 +577,7 @@ impl Editor {
             return self.replace_vgm_stream(description);
         }
         let (start, end) = (self.markers.start(), self.markers.end());
-        let song = self.song.as_mut()?;
+        let song = self.dro.as_mut()?;
         if self.markers.is_full(song.len()) {
             return None;
         }
@@ -524,7 +588,7 @@ impl Editor {
         self.markers = RangeMarkers::from_song(song);
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         Some(stats)
     }
 
@@ -547,9 +611,9 @@ impl Editor {
         let stats = (edited.len(), report.restored);
         self.vgm_undo
             .execute(Box::new(ReplaceVgm::new(description, edited)), file);
-        self.markers = RangeMarkers::default();
+        self.reset_markers();
         self.selection.clear();
-        self.revision += 1;
+        self.bump_revision();
         Some(stats)
     }
 
@@ -559,7 +623,7 @@ impl Editor {
     /// overwhelming majority of VGMs.
     #[must_use]
     pub fn audit_header(&self) -> Vec<dro_core::vgm::HeaderFinding> {
-        match (&self.vgm, &self.song) {
+        match (&self.vgm, &self.dro) {
             (Some(file), _) => dro_core::vgm::audit::audit(file),
             // A VGM in the OPL slot is audited through a materialised copy;
             // the findings are about bytes, and those are the same bytes.
@@ -583,13 +647,13 @@ impl Editor {
             let fixed = dro_core::vgm::audit::fix(file).len();
             if fixed > 0 {
                 self.metadata_dirty = true;
-                self.revision += 1;
+                self.bump_revision();
             }
             return fixed;
         }
         // The OPL slot: fix a materialised copy and read the corrected fields
         // back into the song's own metadata, so nothing about the stream moves.
-        let Some(song) = self.song.as_mut().filter(|song| song.is_vgm()) else {
+        let Some(song) = self.dro.as_mut().filter(|song| song.is_vgm()) else {
             return 0;
         };
         let Some(mut file) = io::write_song(song)
@@ -606,7 +670,7 @@ impl Editor {
             meta.loop_point = file.loop_index();
             meta.loop_end = file.loop_end_index();
             self.metadata_dirty = true;
-            self.revision += 1;
+            self.bump_revision();
         }
         fixed
     }
@@ -619,15 +683,15 @@ impl Editor {
         if let Some(file) = self.vgm.as_mut() {
             let description = self.vgm_undo.undo(file)?.to_owned();
             self.selection.truncate_to(file.len());
-            self.revision += 1;
+            self.bump_revision();
             return Some(description);
         }
-        let song = self.song.as_mut()?;
+        let song = self.dro.as_mut()?;
         let description = self.undo.undo(song)?.to_owned();
         self.selection.truncate_to(song.len());
         self.markers.clamp_to(song.len());
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         Some(description)
     }
 
@@ -636,27 +700,27 @@ impl Editor {
         if let Some(file) = self.vgm.as_mut() {
             let description = self.vgm_undo.redo(file)?.to_owned();
             self.selection.truncate_to(file.len());
-            self.revision += 1;
+            self.bump_revision();
             return Some(description);
         }
-        let song = self.song.as_mut()?;
+        let song = self.dro.as_mut()?;
         let description = self.undo.redo(song)?.to_owned();
         self.selection.truncate_to(song.len());
         self.markers.clamp_to(song.len());
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         Some(description)
     }
 
     /// Applies the DRO Info dialog's header edit, undoably.
     pub fn update_header(&mut self, opl_type: OplType, ms_length: u32) {
-        let Some(song) = self.song.as_mut() else {
+        let Some(song) = self.dro.as_mut() else {
             return;
         };
         self.undo
             .execute(Box::new(UpdateHeader::new(opl_type, ms_length)), song);
         // The waveform and the audio snapshot re-key on the revision.
-        self.revision += 1;
+        self.bump_revision();
     }
 
     /// Replaces the DRO song with its VGM conversion. Not undoable: the
@@ -665,17 +729,17 @@ impl Editor {
     /// # Errors
     /// If no song is loaded, or it is already a VGM.
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
-        let song = self.song.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or("no song is loaded")?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
         // The instruction stream is re-encoded, so any marked region no longer
         // means what it did; start over from the converted song's own loop.
         self.markers = RangeMarkers::from_song(&converted);
-        self.song = Some(converted);
+        self.dro = Some(converted);
         self.path = None;
         self.undo.reset();
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         self.saved_revision = Some(self.revision);
         self.metadata_dirty = false;
         Ok(())
@@ -690,18 +754,18 @@ impl Editor {
     /// # Errors
     /// If no song is loaded, or it is not a DRO v2.
     pub fn convert_to_dro1(&mut self) -> Result<(), String> {
-        let song = self.song.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or("no song is loaded")?;
         let mut converted = convert::dro2_to_dro1(song).map_err(|e| e.to_string())?;
         converted.name = convert::dro1_default_name(&converted.name);
         // v1 re-encodes the stream (bank switches, escapes), so a marked region
         // no longer means what it did.
         self.markers = RangeMarkers::from_song(&converted);
-        self.song = Some(converted);
+        self.dro = Some(converted);
         self.path = None;
         self.undo.reset();
         self.selection.clear();
         self.analysis.invalidate();
-        self.revision += 1;
+        self.bump_revision();
         self.saved_revision = Some(self.revision);
         self.metadata_dirty = false;
         Ok(())
@@ -712,7 +776,7 @@ impl Editor {
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
         // Only a real change dirties the song: the dialog's Save fires whether or
         // not anything was typed, and prompting to discard nothing is noise.
-        let changed = match (self.song.as_mut(), self.vgm.as_mut()) {
+        let changed = match (self.dro.as_mut(), self.vgm.as_mut()) {
             (Some(song), _) => match song.vgm_meta_mut() {
                 Some(meta) if meta.tag.as_ref() != Some(&tag) => {
                     meta.tag = Some(tag);
@@ -726,6 +790,11 @@ impl Editor {
             }
             _ => false,
         };
+        if changed {
+            // Not a revision bump: a tag changes nothing the audio or the
+            // waveform is rendered from, and bumping would reload both.
+            self.refresh_projection();
+        }
         self.metadata_dirty |= changed;
     }
 
@@ -748,7 +817,7 @@ impl Editor {
         loop_modifier: u8,
         volume_modifier: u8,
     ) -> bool {
-        if self.song.is_none() {
+        if self.dro.is_none() {
             return self.set_vgm_document_metadata(
                 loop_point,
                 loop_end,
@@ -757,7 +826,7 @@ impl Editor {
                 volume_modifier,
             );
         }
-        let Some(song) = self.song.as_mut() else {
+        let Some(song) = self.dro.as_mut() else {
             return false;
         };
         let len = song.len();
@@ -828,6 +897,7 @@ impl Editor {
         changed |= file.header.set_volume_modifier(volume_modifier);
 
         self.markers = RangeMarkers::from_vgm(file);
+        self.refresh_projection();
         self.metadata_dirty |= changed;
         dropped
     }
@@ -849,9 +919,16 @@ impl Editor {
             let before = (file.loop_index(), file.loop_end_index());
             file.set_loop_rows(Some(start), (end < len).then_some(end));
             self.metadata_dirty |= before != (file.loop_index(), file.loop_end_index());
+            // The markers follow what was actually stored, which is not always
+            // what was asked for: a header holds the loop's *length in samples*,
+            // so an end sharing its instant with the rows before it comes back
+            // as the first of them. Leaving the markers where the user put them
+            // would leave the "unapplied" cue lit on a loop that just was.
+            self.reset_markers();
+            self.refresh_projection();
             return true;
         }
-        let Some(song) = self.song.as_mut() else {
+        let Some(song) = self.dro.as_mut() else {
             return false;
         };
         let len = song.len();
@@ -877,7 +954,7 @@ impl Editor {
             return file.loop_index() != Some(self.markers.start())
                 || stored_end != self.markers.end();
         }
-        let Some(song) = self.song.as_ref() else {
+        let Some(song) = self.dro.as_ref() else {
             return false;
         };
         let Some(meta) = song.vgm_meta() else {
@@ -894,23 +971,44 @@ impl Editor {
     /// selected.
     #[must_use]
     pub fn find_next(&self, target: FindTarget, look_backwards: bool) -> Option<usize> {
-        let song = self.song.as_ref()?;
+        let song = self.song()?;
         let start = self.selection.last().unwrap_or(0);
         song.find_next_instruction(start, target, look_backwards)
     }
 
     /// The Bank and Description columns for one table row.
+    ///
+    /// The two arms are the same call; they are written out because each has to
+    /// borrow a different field alongside the cache, and `song()` borrows the
+    /// whole editor.
     pub fn row_analysis(&mut self, index: usize) -> Option<RowAnalysis> {
-        let song = self.song.as_ref()?;
-        self.analysis.row(song, index)
+        if let Some(song) = self.dro.as_ref() {
+            return self.analysis.row(song, index);
+        }
+        let projected = self.projection.clone()?;
+        self.analysis.row(&projected, index)
+    }
+
+    /// Whether the table shows chip-named rows rather than OPL ones.
+    ///
+    /// The question is not which slot holds the document -- every VGM is held
+    /// as one -- but whether it has an OPL stream to name registers from. A
+    /// VGM for chips there is no OPL reading of gets rows named by the chip
+    /// each command writes to.
+    fn shows_chip_rows(&self) -> bool {
+        self.vgm.is_some() && self.projection.is_none()
     }
 
     /// What the instruction table's five columns are called for the loaded
     /// document. Only the second differs: an OPL song's rows have a bank, and
-    /// a VGM held as one has rows that name the chip they write to.
+    /// rows for other chips name the chip they write to.
     #[must_use]
     pub fn column_titles(&self) -> [&'static str; 5] {
-        let second = if self.vgm.is_some() { "Chip" } else { "Bank" };
+        let second = if self.shows_chip_rows() {
+            "Chip"
+        } else {
+            "Bank"
+        };
         ["Pos (hex)", second, "Reg.", "Value", "Description"]
     }
 
@@ -935,7 +1033,7 @@ impl Editor {
     #[must_use]
     pub fn row_cells(&mut self, index: usize) -> RowCells {
         let position = format!("{index:04X}");
-        if let Some(file) = self.vgm.as_ref() {
+        if let Some(file) = self.vgm.as_ref().filter(|_| self.shows_chip_rows()) {
             let Some(stream) = file.stream() else {
                 return RowCells {
                     position,
@@ -961,7 +1059,7 @@ impl Editor {
         }
 
         let analysis = self.row_analysis(index);
-        let Some(song) = self.song.as_ref() else {
+        let Some(song) = self.song() else {
             return RowCells {
                 position,
                 ..RowCells::default()
@@ -1104,26 +1202,37 @@ mod tests {
         assert!(editor.path.is_some());
     }
 
-    /// A VGM whose chips are not OPL is not a broken file, and must not be
-    /// reported as one -- it comes back classified, with the parsed file for
-    /// the caller to open or describe.
+    /// A VGM whose chips are not OPL is not a broken file. It opens like any
+    /// other VGM -- it just has no OPL stream to project, which is what makes
+    /// the OPL-only features absent for it.
     #[test]
-    fn a_vgm_for_other_chips_is_classified_rather_than_rejected() {
+    fn a_vgm_for_other_chips_opens_as_a_vgm() {
         let (mut editor, _) = loaded(&dro_song_v2());
-        let failure = editor
+        editor
             .load(PickedFile {
                 name: "sonic.vgm".to_owned(),
                 path: Some(PathBuf::from("C:/rips/Sonic/sonic.vgm")),
                 bytes: mega_drive_vgm(),
             })
-            .unwrap_err();
+            .expect("it opens");
 
-        let LoadFailure::NotOpl { file, folder } = failure else {
-            panic!("expected a non-OPL VGM");
-        };
-        assert_eq!(file.chip_list(), "YM2612");
-        assert_eq!(folder, Some(PathBuf::from("C:/rips/Sonic")));
-        assert_eq!(editor.len(), 14, "the old song survives");
+        assert_eq!(editor.vgm().expect("held as a VGM").chip_list(), "YM2612");
+        assert!(editor.song().is_none(), "and has no OPL projection");
+        assert!(!editor.capabilities().playable);
+        assert_eq!(editor.path, Some(PathBuf::from("C:/rips/Sonic/sonic.vgm")));
+    }
+
+    /// An OPL VGM is held as a VGM too, and projects to the OPL stream the
+    /// analyser and the synth read.
+    #[test]
+    fn an_opl_vgm_is_held_as_a_vgm_and_projects() {
+        let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
+        let (editor, _) = loaded(&vgm);
+
+        assert!(editor.vgm().is_some(), "the file itself is the document");
+        let song = editor.song().expect("and it projects to OPL");
+        assert_eq!(song.len(), editor.len());
+        assert!(editor.capabilities().playable);
     }
 
     /// A minimal YM2612 VGM whose body the OPL command table cannot even size.

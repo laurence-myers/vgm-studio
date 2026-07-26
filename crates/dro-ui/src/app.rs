@@ -1714,13 +1714,15 @@ impl DroApp {
                 if !self.require_document() {
                     return;
                 }
-                match (self.editor.song(), self.editor.vgm()) {
-                    (Some(song), _) if song.is_vgm() => {
+                // The document itself, not its OPL projection: the tag lives
+                // in the file, and the projection is only a view of the stream.
+                match (self.editor.vgm(), self.editor.song()) {
+                    (Some(file), _) => {
+                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
+                    }
+                    (None, Some(song)) if song.is_vgm() => {
                         let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
                         self.dialogs.gd3_tag = Some(Gd3TagDialog::new(tag));
-                    }
-                    (None, Some(file)) => {
-                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
                     }
                     _ => self.status = "Only VGMs support tag editing".to_owned(),
                 }
@@ -1729,9 +1731,9 @@ impl DroApp {
                 if !self.require_document() {
                     return;
                 }
-                let dialog = match (self.editor.song(), self.editor.vgm()) {
-                    (Some(song), _) => VgmMetadataDialog::new(song),
-                    (None, Some(file)) => VgmMetadataDialog::for_vgm(file),
+                let dialog = match (self.editor.vgm(), self.editor.song()) {
+                    (Some(file), _) => VgmMetadataDialog::for_vgm(file),
+                    (None, Some(song)) => VgmMetadataDialog::new(song),
                     (None, None) => None,
                 };
                 match dialog {
@@ -2103,76 +2105,52 @@ impl DroApp {
                 self.boost_ceiling = None;
                 self.audio_revision = None;
                 self.was_playing = false;
-                let song = self.editor.song().expect("just loaded");
-                // A fresh song starts with every channel audible and panning reset
-                // to Original (pans seeded from the song type); stale mute/pan
-                // state from the previous song must not carry over.
-                self.channels = ChipPanels::for_song(song);
-                let file_version = song.file_version;
-                self.position.set_length_ms(song.total_delay_ms());
-                self.position.set_position_ms(0);
                 self.last_first_selected = None;
                 self.scroll_to = Some(table::ScrollTo::centered(0));
-                self.push_load_warnings(report, file_version);
-                // Unless the volume is locked, a freshly opened song starts at the
-                // volume its header modifier asks for (unity for a DRO), so the
-                // boost does not carry over from the previous song.
-                if !self.config.audio.lock_boost {
-                    let boost = self.song_modifier_boost();
-                    self.set_boost(boost, false);
+
+                // What the document can do decides the rest. A VGM for chips
+                // there is no core for is not a broken file -- it opens for
+                // trimming, with the panels that need an OPL stream gone -- so
+                // the difference is which of these two runs, not an error.
+                match self.editor.song() {
+                    Some(song) => {
+                        // A fresh song starts with every channel audible and
+                        // panning reset to Original (pans seeded from the song
+                        // type); stale mute/pan state must not carry over.
+                        self.channels = ChipPanels::for_song(song);
+                        let file_version = song.file_version;
+                        self.position.set_length_ms(song.total_delay_ms());
+                        self.position.set_position_ms(0);
+                        self.push_load_warnings(report, file_version);
+                        // Unless the volume is locked, a freshly opened song
+                        // starts at the volume its header modifier asks for
+                        // (unity for a DRO), so the boost does not carry over.
+                        if !self.config.audio.lock_boost {
+                            let boost = self.song_modifier_boost();
+                            self.set_boost(boost, false);
+                        }
+                    }
+                    None => {
+                        let file = self.editor.vgm().expect("just loaded");
+                        let chips = file.chip_list();
+                        self.channels = ChipPanels::for_vgm(file);
+                        self.position.set_length_ms(file.total_ms());
+                        self.position.set_position_ms(0);
+                        self.status =
+                            format!("Opened {name} ({chips}); playback is not supported yet.");
+                    }
                 }
             }
-            // A file the editor cannot fully model is not a broken one. A VGM
-            // for other chips opens for trimming -- rows, selection, delete,
-            // undo and save -- with the panels that need an OPL stream gone.
-            // What it cannot do it says in the status bar, not in an error.
-            Err(LoadFailure::NotOpl { file, folder }) => {
-                let chips = file.chip_list();
-                let editable = file.stream().is_some();
-                if editable {
-                    self.open_as_vgm(*file, folder);
-                    self.status =
-                        format!("Opened {name} ({chips}); playback is not supported yet.");
-                } else {
-                    // Its command stream would not walk, so there are no rows to
-                    // show. The dialog is still the right answer for that one.
-                    self.status = format!("{name} could not be read as commands.");
-                    self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
-                }
+            // Readable as a container, but its commands will not walk, so there
+            // are no rows to show. The dialog says what the file is instead.
+            Err(LoadFailure::Unwalkable { file, folder }) => {
+                self.status = format!("{name} could not be read as commands.");
+                self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
             }
             Err(LoadFailure::Unreadable(message)) => self
                 .alerts
                 .push_back(Alert::new("Failed to load file", message)),
         }
-    }
-
-    /// Installs a VGM held as a VGM, and tears down everything that belonged
-    /// to the document it replaces.
-    ///
-    /// The same teardown as a successful [`Self::load_file`], minus the parts
-    /// that only mean something for an OPL song: there is no waveform to render,
-    /// no audio to load, and no channel state to seed from a chip type.
-    fn open_as_vgm(&mut self, file: dro_core::VgmFile, folder: Option<PathBuf>) {
-        self.close_song_dialogs();
-        self.waveform = WaveformState::default();
-        self.tasks.cancel(TaskKind::RenderWav);
-        self.tasks.cancel(TaskKind::Split);
-        self.tasks.cancel(TaskKind::VolumeScan);
-        self.split_flow = None;
-        self.submit_waveform(None);
-        self.audio.unload();
-        self.peak_meter = PeakMeterState::default();
-        self.boost_ceiling = None;
-        self.audio_revision = None;
-        self.was_playing = false;
-        self.channels = ChipPanels::for_vgm(&file);
-        self.position.set_length_ms(file.total_ms());
-        self.position.set_position_ms(0);
-        self.last_first_selected = None;
-        self.scroll_to = Some(table::ScrollTo::centered(0));
-        // The picked file's own path, not its folder: Save writes the file.
-        let path = folder.map(|folder| folder.join(&file.name));
-        self.editor.load_vgm(file, path);
     }
 
     /// Unloads the song, leaving the editor as it starts: the same teardown a

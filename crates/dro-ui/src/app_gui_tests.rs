@@ -2143,6 +2143,47 @@ fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
     assert_eq!(harness.state().editor.markers.start(), 2);
 }
 
+/// An OPL VGM is a VGM, held as one: opening it and saving it back returns the
+/// file, not a re-spelling of it.
+///
+/// This is what holding every VGM as its own bytes buys. The OPL reader
+/// materialised a song and the writer rebuilt a header from it, so a file whose
+/// header said something unusual -- a longer header, a stale sample total, a
+/// clock this app would not have chosen -- came back changed by the round trip.
+/// Correcting a header is now something the user asks for, by name.
+#[test]
+fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
+    // A real OPL VGM, with its declared length falsified so a canonicalising
+    // writer would visibly "fix" it.
+    let mut bytes = dro_core::io::write_song(&looping_vgm()).unwrap();
+    bytes[0x18..0x1C].copy_from_slice(&999_999u32.to_le_bytes());
+
+    let file = PickedFile {
+        name: "looping.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/looping.vgm")),
+        bytes: bytes.clone(),
+    };
+    let (mut harness, _handles) = build(Some(file), false, false);
+
+    // It opened as an OPL song -- transport, waveform, the lot.
+    assert!(harness.state().editor.song().is_some());
+    assert!(harness.state().editor.capabilities().playable);
+
+    assert_eq!(
+        harness.state().editor.save_bytes().unwrap(),
+        bytes,
+        "a save that follows no edit returns the file byte for byte"
+    );
+
+    // And the disagreement is still there to be reported, not quietly gone.
+    act(&mut harness, Action::AuditHeader);
+    assert!(
+        !harness.state().alerts.is_empty(),
+        "the falsified length is still reported: {}",
+        harness.state().status
+    );
+}
+
 /// A header that disagrees with its stream is reported and offered, never
 /// silently corrected -- and the correction only lands once confirmed.
 #[test]
@@ -5826,14 +5867,30 @@ fn searching_finds_a_loop_and_applying_writes_it() {
     // VGM's loop metadata.
     harness.get_by_label("Apply").click();
     harness.run();
-    let song = harness.state().editor.song().unwrap();
-    let meta = song.vgm_meta().unwrap();
+    let file = harness.state().editor.vgm().unwrap();
     assert_eq!(
-        meta.loop_point,
+        file.loop_index(),
         Some(3),
         "loop point at the body's first write"
     );
-    assert_eq!(meta.loop_end, Some(9), "loop end where the repeat begins");
+    // Not row 9, where the repeat begins: a header stores the loop's length in
+    // samples, and rows 8 and 9 fall at the same instant, so what comes back is
+    // the first row at that moment. The file cannot express the difference, and
+    // the markers snap to what it can hold.
+    assert_eq!(
+        file.loop_end_index(),
+        Some(8),
+        "as far as the header can say"
+    );
+    assert_eq!(
+        harness.state().editor.markers.end(),
+        8,
+        "and the markers agree"
+    );
+    assert!(
+        !harness.state().editor.loop_markers_are_unapplied(),
+        "so the loop reads as applied, not as pending"
+    );
 }
 
 #[test]
