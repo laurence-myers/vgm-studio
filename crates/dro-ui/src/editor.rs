@@ -2,19 +2,56 @@
 //! per-row analysis, and every edit operation the UI invokes. No egui in here,
 //! so the whole editing workflow is testable without a window.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dro_core::undo::{DeleteInstructions, ReplaceStream, UpdateHeader};
 use dro_core::{
     CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
-    UndoController, UndoableCommand, convert, io,
+    UndoController, UndoableCommand, VgmFile, convert, io,
 };
 
 use crate::analysis::AnalysisCache;
 use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
+
+/// Why a file did not open in the editor.
+///
+/// The distinction is the whole point: "this is not a song" and "this is a
+/// perfectly good VGM for a chip the editor does not model" deserve different
+/// answers, and only the first is an error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LoadFailure {
+    /// Not a song this app can read, with the reader's message.
+    Unreadable(String),
+    /// A readable VGM whose chips the editor cannot open.
+    ForeignVgm {
+        /// Boxed: far larger than the other arm, and this is the rare case.
+        file: Box<VgmFile>,
+        /// The folder it sits in, so the dialog can offer to open that folder
+        /// as a pack. `None` on the web, where a picked file has no path.
+        folder: Option<PathBuf>,
+    },
+}
+
+impl LoadFailure {
+    /// Decides which kind of failure a rejected file is, by offering it to the
+    /// chip-agnostic reader that pack mode uses.
+    fn classify(file: &PickedFile, opl_error: &str) -> Self {
+        match dro_core::vgm::file::read(&file.name, &file.bytes) {
+            Ok(vgm) => Self::ForeignVgm {
+                file: Box::new(vgm),
+                folder: file
+                    .path
+                    .as_deref()
+                    .and_then(Path::parent)
+                    .map(Path::to_path_buf),
+            },
+            Err(_) => Self::Unreadable(opl_error.to_owned()),
+        }
+    }
+}
 
 /// What loading a DRO found, for the two load-time warning dialogs.
 /// Always all-clear for a VGM.
@@ -118,10 +155,14 @@ impl Editor {
     /// undo history (which makes the auto-trim non-undoable).
     ///
     /// # Errors
-    /// The parse error's message, for the "Failed to load file" alert. The
-    /// current song is left untouched on failure.
-    pub fn load(&mut self, file: PickedFile) -> Result<LoadReport, String> {
-        let mut song = io::read_song(&file.name, &file.bytes).map_err(|e| e.to_string())?;
+    /// [`LoadFailure`], which distinguishes a file this app cannot read at all
+    /// from a VGM it can read but not edit. The current song is left untouched
+    /// either way.
+    pub fn load(&mut self, file: PickedFile) -> Result<LoadReport, LoadFailure> {
+        let mut song = match io::read_song(&file.name, &file.bytes) {
+            Ok(song) => song,
+            Err(error) => return Err(LoadFailure::classify(&file, &error.to_string())),
+        };
 
         let mut report = LoadReport::default();
         if song.file_type == SongFileType::Dro {
@@ -628,9 +669,48 @@ mod tests {
                 bytes: vec![0; 4],
             })
             .unwrap_err();
-        assert!(!error.is_empty());
+        assert!(
+            matches!(error, LoadFailure::Unreadable(message) if !message.is_empty()),
+            "junk is unreadable, not a foreign VGM"
+        );
         assert_eq!(editor.len(), 14, "the old song survives a failed load");
         assert!(editor.path.is_some());
+    }
+
+    /// A VGM for chips the editor cannot model is not a broken file, and must
+    /// not be reported as one -- it comes back classified, with the parsed file
+    /// for the dialog to describe.
+    #[test]
+    fn a_vgm_for_other_chips_fails_as_foreign_rather_than_unreadable() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        let failure = editor
+            .load(PickedFile {
+                name: "sonic.vgm".to_owned(),
+                path: Some(PathBuf::from("C:/rips/Sonic/sonic.vgm")),
+                bytes: mega_drive_vgm(),
+            })
+            .unwrap_err();
+
+        let LoadFailure::ForeignVgm { file, folder } = failure else {
+            panic!("expected a foreign VGM");
+        };
+        assert_eq!(file.chip_list(), "YM2612");
+        assert_eq!(folder, Some(PathBuf::from("C:/rips/Sonic")));
+        assert_eq!(editor.len(), 14, "the old song survives");
+    }
+
+    /// A minimal YM2612 VGM whose body the OPL command table cannot even size.
+    fn mega_drive_vgm() -> Vec<u8> {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        bytes[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
+        bytes[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+        bytes[0x2C..0x30].copy_from_slice(&7_670_454u32.to_le_bytes());
+        bytes[0x18..0x1C].copy_from_slice(&44_100u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x52, 0x28, 0xF0, 0x80, 0x66]);
+        let eof = bytes.len();
+        bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+        bytes
     }
 
     #[test]

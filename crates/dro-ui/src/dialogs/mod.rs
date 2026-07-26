@@ -12,6 +12,7 @@ pub mod bulk_tag;
 pub mod dro_info;
 pub mod find_loop;
 pub mod find_reg;
+pub mod foreign_vgm;
 pub mod gd3_tag;
 pub mod goto;
 pub mod help;
@@ -27,6 +28,7 @@ pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
 pub use find_loop::FindLoopDialog;
 pub use find_reg::FindRegDialog;
+pub use foreign_vgm::ForeignVgmDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use help::HelpDialog;
@@ -233,6 +235,8 @@ pub struct Dialogs {
     pub split: Option<SplitDialog>,
     /// File > Split Songs: the gap threshold and per-song include flags.
     pub split_songs: Option<SplitSongsDialog>,
+    /// What a VGM the editor cannot open actually is, and where to edit it.
+    pub foreign_vgm: Option<ForeignVgmDialog>,
 }
 
 impl Dialogs {
@@ -256,6 +260,7 @@ impl Dialogs {
             || self.render_wav.is_some()
             || self.split.is_some()
             || self.split_songs.is_some()
+            || self.foreign_vgm.is_some()
     }
 
     /// Draws every open dialog, dropping the ones that closed.
@@ -287,6 +292,7 @@ impl Dialogs {
         retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
         retain(&mut self.split, |d| d.show(ctx, palette, actions));
         retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));
+        retain(&mut self.foreign_vgm, |d| d.show(ctx, palette, actions));
     }
 }
 

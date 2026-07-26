@@ -1790,6 +1790,83 @@ fn snapshot_gd3_tag_dialog() {
     settled_snapshot(&mut harness, "gd3_tag_dialog");
 }
 
+/// A Neo Geo VGM: two chips, a v1.61 header, a loop, and a tag -- everything
+/// the dialog reports, and a body the OPL command table cannot size, so the
+/// editor is certain to decline it.
+fn foreign_vgm_file() -> PickedFile {
+    use dro_core::ChipKind;
+
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x161);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    put_u32(&mut bytes, ChipKind::Ym2610.clock_offset(), 8_000_000);
+    put_u32(&mut bytes, ChipKind::Ay8910.clock_offset(), 2_000_000);
+    put_u32(&mut bytes, 0x18, 44_100 * 95); // total samples
+    put_u32(&mut bytes, 0x1C, (0x100 + 3 - 0x1C) as u32); // loop offset
+    put_u32(&mut bytes, 0x20, 44_100 * 60); // loop samples
+    bytes.extend_from_slice(&[0x58, 0x28, 0xF0, 0x61, 0x10, 0x27, 0x66]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    let mut file = dro_core::vgm::file::read("03 Psycho Soldier.vgm", &bytes).unwrap();
+    file.tag = Some(dro_core::Gd3Tag {
+        track_name_en: "Psycho Soldier".to_owned(),
+        game_name_en: "Athena".to_owned(),
+        ..dro_core::Gd3Tag::default()
+    });
+    PickedFile {
+        name: "03 Psycho Soldier.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/Athena/03 Psycho Soldier.vgm")),
+        bytes: dro_core::vgm::file::write(&file).unwrap(),
+    }
+}
+
+#[test]
+fn snapshot_foreign_vgm_dialog() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, true);
+    settled_snapshot(&mut harness, "foreign_vgm_dialog");
+}
+
+/// Opening a VGM for other chips is not a failure. It must not raise the
+/// "Failed to load file" alert, and it must not leave a half-loaded song.
+#[test]
+fn opening_a_foreign_vgm_explains_rather_than_erroring() {
+    let (harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let app = harness.state();
+    assert!(
+        app.dialogs.foreign_vgm.is_some(),
+        "the explaining dialog opens"
+    );
+    assert!(
+        app.alerts.is_empty(),
+        "and no error alert: {:?}",
+        app.alerts
+    );
+    assert!(app.editor.song().is_none(), "nothing was loaded");
+    assert!(app.status.contains("not an OPL song"), "{}", app.status);
+}
+
+/// A file that is not a song at all still gets the plain error -- the friendly
+/// dialog is for readable VGMs only.
+#[test]
+fn opening_junk_still_raises_the_load_error() {
+    let junk = PickedFile {
+        name: "notes.vgm".to_owned(),
+        path: None,
+        bytes: b"this is not a vgm".to_vec(),
+    };
+    let (harness, _handles) = build(Some(junk), false, false);
+    let app = harness.state();
+    assert!(app.dialogs.foreign_vgm.is_none());
+    assert_eq!(app.alerts.len(), 1);
+    assert_eq!(app.alerts[0].title, "Failed to load file");
+}
+
 #[test]
 fn snapshot_auto_trim_alert() {
     let (mut harness, _handles) = build(Some(picked(&bogus_leading_delay_song())), false, true);

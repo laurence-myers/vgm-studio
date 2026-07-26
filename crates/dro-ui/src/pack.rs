@@ -2254,7 +2254,7 @@ fn track_table(
                                     }
                                 });
                                 row.col(|ui| {
-                                    row_menu(ui, index, palette, actions);
+                                    row_menu(ui, index, track, palette, actions);
                                 });
                             }
                             None => {
@@ -2340,16 +2340,32 @@ fn drag_grip(ui: &mut egui::Ui, index: usize, track: &PackTrack, palette: &Palet
 
 /// The per-row menu: the two commands that open a window, which are the only
 /// ones with no glyph of their own.
-fn row_menu(ui: &mut egui::Ui, index: usize, palette: &Palette, actions: &mut Vec<Action>) {
+fn row_menu(
+    ui: &mut egui::Ui,
+    index: usize,
+    track: &PackTrack,
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
     let button = egui::Button::new(
         egui::RichText::new("\u{22EF}") // midline horizontal ellipsis
             .monospace()
             .color(palette.data_label),
     )
     .frame(false);
+    let editable = track.song().is_some();
     let response = egui::containers::menu::MenuButton::from_button(button)
         .ui(ui, |ui| {
-            if ui.button("Open in editor").clicked() {
+            // The editor decodes OPL register writes; a foreign track has
+            // nothing it could show, so the item greys out saying why rather
+            // than opening onto an error.
+            let open = ui.add_enabled(editable, egui::Button::new("Open in editor"));
+            if !editable {
+                open.on_disabled_hover_text(
+                    "The editor works on OPL2 and OPL3 songs only. Quick edit changes this \
+                     track's tags.",
+                );
+            } else if open.clicked() {
                 actions.push(Action::PackTrackOpen(index));
                 ui.close();
             }

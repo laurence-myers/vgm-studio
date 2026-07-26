@@ -15,11 +15,11 @@ use egui::Key;
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
-    HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog,
-    SplitSongsDialog, TrackEditDialog, VgmMetadataDialog,
+    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, ForeignVgmDialog,
+    Gd3TagDialog, GotoDialog, HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog,
+    SplitDialog, SplitSongsDialog, TrackEditDialog, VgmMetadataDialog,
 };
-use crate::editor::{Editor, LoadReport};
+use crate::editor::{Editor, LoadFailure, LoadReport};
 use crate::markers::RangeMarkers;
 use crate::menus::{self, MenuState};
 use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction};
@@ -2083,7 +2083,14 @@ impl DroApp {
                     self.set_boost(boost, false);
                 }
             }
-            Err(message) => self
+            // A file the editor cannot open is not necessarily a broken one.
+            // A VGM for other chips gets told what it is and where its tags can
+            // be edited, rather than a "Failed to load" that blames the file.
+            Err(LoadFailure::ForeignVgm { file, folder }) => {
+                self.status = format!("{name} is not an OPL song.");
+                self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
+            }
+            Err(LoadFailure::Unreadable(message)) => self
                 .alerts
                 .push_back(Alert::new("Failed to load file", message)),
         }
@@ -2601,17 +2608,24 @@ impl DroApp {
     /// Loads a track into the editor and switches to the editor tab. The pack
     /// project is retained; returning to it rescans the folder.
     fn open_track_in_editor(&mut self, index: usize) {
-        let file = self
-            .pack
-            .as_ref()
-            .and_then(|pack| pack.tracks.get(index))
-            .map(|track| PickedFile {
-                name: track.file_name.clone(),
-                path: track.path.clone(),
-                bytes: track.bytes.clone(),
-            });
-        let Some(file) = file else {
+        let Some(track) = self.pack.as_ref().and_then(|pack| pack.tracks.get(index)) else {
             return;
+        };
+        // A foreign track has nothing the editor could show. Say so and stay
+        // put: switching to an empty Editor tab to explain that pack mode is
+        // where its tags live would be the wrong way round. (Reachable by
+        // double-clicking the row; the row menu's item is already disabled.)
+        if track.foreign().is_some() {
+            self.status = format!(
+                "{} is not an OPL song; use Quick edit to change its tags.",
+                track.file_name
+            );
+            return;
+        }
+        let file = PickedFile {
+            name: track.file_name.clone(),
+            path: track.path.clone(),
+            bytes: track.bytes.clone(),
         };
         // load_file stops any preview and switches to the editor tab; the
         // discard-changes prompt (if the editor is dirty) defers both until the
