@@ -1,4 +1,4 @@
-# HANDOVER — Any-chip VGM support (Phase A shipped; Phase B next)
+# HANDOVER — Any-chip VGM support (Phases A–C shipped; playback next)
 
 > **Progress (branch `vgm-multichip`)**
 >
@@ -8,14 +8,30 @@
 > | mc-2 | done | `13237e6` — `PackSong::{Opl,Foreign,Unreadable}`, foreign tracks first-class in pack mode |
 > | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
 > | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
-> | mc-5 | **part done** — `be409cd` chip-selector deck (`widgets/chip_panels.rs`), `524df5f` foreign delete + undo + header repatch (`dro-core`). **What remains is the editor wiring**: see below. |
-> | mc-6 … mc-10 | not started | |
+> | mc-5 | done | `be409cd` chip-selector deck, `524df5f` foreign delete + undo + header repatch, `428c57e` the foreign editor, `3a1165f` chip deck visible + pack gating flipped |
+> | mc-6 … mc-10 | not started (playback) | |
 >
-> **Phase A is complete: the feature's stated minimum requirement is met.** A
-> pack containing any VGM — any chip, versions 1.00–1.72 — opens, lists,
-> tags, renames, levels and exports. No emulator and no command parsing were
-> needed. What is *not* yet possible: editing a foreign file's commands
-> (mc-5) and playing one (mc-6 onward).
+> **Phases A, B and C are complete.** A pack containing any VGM — any chip,
+> versions 1.00–1.72 — opens, lists, tags, renames, levels and exports; and
+> a foreign VGM now *opens in the editor* for trimming: rows named by chip,
+> selection, delete, undo and save, with the header's totals and loop kept in
+> step. **Any-chip trimming works, with no emulator.** What remains is
+> playback (mc-6 onward) and the minimum-version writer (mc-10).
+>
+> Notes from the mc-5 build:
+> - The editor holds a **second document slot** (`foreign: Option<VgmFile>`)
+>   rather than the `EditorDoc` enum this plan proposed. At most one slot is
+>   filled. `UndoController`/`UndoableCommand` were already generic, so the
+>   foreign document brings its own stack and the undo machinery was untouched.
+> - The instruction table asks the editor for `row_cells(i)` and
+>   `column_titles()` instead of reaching into a `Song`, so it does not know
+>   which document kind it draws. A foreign row's second column is the chip.
+> - `DocCapabilities::playable` is false **only** for a foreign document —
+>   with nothing loaded it stays true, because an empty editor has always shown
+>   its (greyed) transport. The controls deck itself still draws for a foreign
+>   document; only its playback half is dropped, so the chip selector shows.
+> - mc-3's dialog survives for one case: a stream that will not walk has no
+>   rows, and saying what the file is beats an empty table.
 >
 > Notes from the build worth carrying forward:
 > - `read_track` in `dro-ui/src/pack.rs` tries the OPL reader first and the
@@ -581,42 +597,22 @@ files are never structurally rewritten beyond the GD3 block.
 
 #### mc-5 · delete-only command editor for foreign VGMs
 
-> **State, 2026-07-26.** The two ends are built; the middle — the editor
-> itself — is not.
+> **DONE, 2026-07-26** — see the progress table at the top for the commits
+> and the design notes. The section below is the plan as written; where it
+> and the build differ, the build is described in those notes.
 >
-> *Done:* `ChipPanels` (`dro-ui/src/widgets/chip_panels.rs`) wraps the OPL
-> channel panel behind a chip selector that hides itself for a single-chip
-> document, so every existing snapshot is unchanged; `ChipPanels::for_vgm`
-> awaits its caller. In dro-core, `VgmStream::delete_many`/`insert_many`,
-> `VgmFile::delete_commands`/`insert_commands`/`loop_index`, and
-> `undo::DeleteCommands` (an `UndoableCommand<VgmFile>`) are complete and
-> tested, loop-slide and header repatch included.
->
-> *Remaining, in order:*
-> 1. **`Editor` holds a foreign doc.** `UndoController<T>` and
->    `UndoableCommand<T>` are already generic (`dro-core/src/undo.rs`), so
->    this needs no undo refactor — a `UndoController<VgmFile>` beside the
->    existing one. Lower-risk than the `EditorDoc` enum this section
->    proposes: add a second slot (`foreign: Option<VgmFile>`) with the
->    invariant that at most one is `Some`, leaving `song() -> Option<&Song>`
->    and therefore every existing call site and test alone. Selection,
->    markers, revision, saved_revision, metadata_dirty and path are already
->    shared and stay so.
-> 2. **Capability flags** gate transport / waveform / position / peak meter
->    off for a foreign doc, and wire `ChipPanels::for_vgm`. Compose with the
->    two gates that exist: `MenuState.song_type` and
->    `AudioConfig::renders_samples()`.
-> 3. **Foreign rows** in the instruction table via a row-provider
->    abstraction; `VgmStream::describe(i)` already yields the label.
-> 4. **Delete + save** wiring: the core work is done, so this is the editor
->    action, the dirty flag and `vgm::file::write`.
-> 5. **Gating flip**: mc-3's "Not an OPL song" dialog and the pack row's
->    disabled *Open in editor* open the generic editor instead. Do this last
->    — until the table renders, the dialog is the better answer.
->
-> Also belonging here: the OPL reader's 0x67 support (the other half of the
-> `TODO.md` reader gap), which needs `DroInstruction` to gain a variant for a
-> command that is neither a register write nor a delay.
+> **Two things scoped out of it, still open:**
+> - *Marked-region crop for foreign documents.* `crop_to_region` /
+>   `delete_region` splice a synthesised state patch, and `StateFold` is
+>   OPL-shaped (§3.8). A foreign document gets plain row deletion. A per-chip
+>   state model would generalise it; that is its own feature, not mc-5.
+> - *The OPL reader's 0x67 support* — the other half of the `TODO.md` reader
+>   gap. It needs `DroInstruction` to gain a variant for a command that is
+>   neither a register write nor a delay, which ripples into the table, the
+>   analyser, the optimiser and the state fold. Until then an OPL VGM carrying
+>   a data block opens through the *foreign* path: trimmable, but without the
+>   register analysis. That is a real improvement on "unreadable", and a
+>   reasonable place to leave it.
 
 Why this slot (user decision, §2.1): with mc-4's parser in hand, *trimming* —
 the app's core competency — works for every chip without a single emulator.

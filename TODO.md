@@ -118,7 +118,16 @@
     header `volume_modifier` (the boost lever is the playback control); the
     `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
     applies the modifier" follow-up would build on.
-- Any-chip VGM support -- **Phase A done** (the required minimum). Pack mode
+- Any-chip VGM support -- **Phases A-C done: any-chip trimming works, with no
+  emulator.** A VGM for chips the OPL model knows nothing about now opens in the
+  editor: rows named by the chip each command targets, selection, delete, undo
+  and save, with the header's sample total and loop kept in step by the edit
+  itself (so a file that is only retagged is never silently "corrected"). The
+  channel panel became a deck with a chip selector, listing the file's chips;
+  the panels that need an OPL stream -- transport, waveform, position -- are
+  absent rather than dead. Remaining: playback (mc-6 onward) and the
+  minimum-version writer (mc-10). Below is the metadata tier that came first.
+- Any-chip VGM support, Phase A -- done (the required minimum). Pack mode
   opens a folder containing *any* VGM, for any of the 42 chips the spec covers,
   versions 1.00-1.72: each track gets its title, length and loop from its
   header, and takes part in quick edit, bulk tag, Fix Names, Fix Dates, volume
