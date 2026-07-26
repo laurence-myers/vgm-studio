@@ -453,6 +453,24 @@ impl VgmStream {
         &self.data
     }
 
+    /// The commands, without the end marker or anything after it.
+    ///
+    /// What an OPL [`VgmData`](crate::vgm::VgmData) snapshot is built over: it
+    /// stores the stream minus its marker, which is exactly this span.
+    #[must_use]
+    pub fn commands(&self) -> &[u8] {
+        &self.data[..self.tail as usize]
+    }
+
+    /// Where each command starts, in the same order as the rows.
+    ///
+    /// Handed to a snapshot so it need not re-walk a stream this has already
+    /// walked -- and so a stream carrying a command the OPL table cannot size
+    /// still yields a usable snapshot.
+    pub(crate) fn offsets(&self) -> &[u32] {
+        &self.offsets
+    }
+
     /// How many commands the stream holds, before its end marker.
     #[must_use]
     pub fn len(&self) -> usize {

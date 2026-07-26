@@ -1,7 +1,7 @@
 //! The VGM command stream, its GD3 tag, and the header fields we model.
 
 use crate::error::{Error, Result};
-use crate::song::instruction::{Bank, DelayKind, DroInstruction};
+use crate::song::instruction::DroInstruction;
 use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
 /// The VGM commands this app understands. Anything else is a hard error -- a
@@ -156,34 +156,27 @@ impl VgmData {
         }
     }
 
+    /// Builds a snapshot over an already-walked stream.
+    ///
+    /// The offsets come across rather than being re-derived, so a stream
+    /// carrying a command the closed table below cannot size -- a `0x67` data
+    /// block in an otherwise-OPL rip -- still yields a usable snapshot. Such a
+    /// row simply is not an OPL instruction; see
+    /// [`vgm::projection`](crate::vgm::projection).
+    #[must_use]
+    pub fn from_stream(stream: &super::stream::VgmStream) -> Self {
+        Self {
+            data: stream.commands().to_vec(),
+            offsets: stream.offsets().to_vec(),
+        }
+    }
+
+    /// The OPL instruction at `index`, or `None` when the command there is not
+    /// one (a data block, a reserved opcode) or the index is past the end.
     #[must_use]
     pub fn get(&self, index: usize) -> Option<DroInstruction> {
-        use command::*;
         let start = *self.offsets.get(index)? as usize;
-        let opcode = self.data[start];
-        let byte = |offset: usize| self.data[start + offset];
-
-        let register = |bank: Bank| DroInstruction::Register {
-            reg: byte(1),
-            value: byte(2),
-            bank: Some(bank),
-        };
-        let wait = |kind: DelayKind, samples: u32| DroInstruction::DelaySamples { kind, samples };
-
-        Some(match opcode {
-            YM3812 | YMF262_PORT_0 => register(Bank::Low),
-            YMF262_PORT_1 | YM3812_CHIP_2 => register(Bank::High),
-            WAIT => wait(
-                DelayKind::Long,
-                u32::from(byte(1)) | (u32::from(byte(2)) << 8),
-            ),
-            WAIT_60TH => wait(DelayKind::Short, SAMPLES_60TH),
-            WAIT_50TH => wait(DelayKind::Short, SAMPLES_50TH),
-            short @ SHORT_WAIT_BASE..=SHORT_WAIT_LAST => {
-                wait(DelayKind::Short, u32::from(short & 0x0F) + 1)
-            }
-            _ => unreachable!("`new` rejected every other opcode"),
-        })
+        crate::vgm::projection::project(&self.data[start..])
     }
 
     #[must_use]
@@ -368,6 +361,7 @@ impl VgmMeta {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::song::instruction::{Bank, DelayKind};
 
     /// Five OPL2 writes, a long wait, a one-sample short wait -- twice over.
     pub(crate) fn vgm_fixture() -> VgmData {

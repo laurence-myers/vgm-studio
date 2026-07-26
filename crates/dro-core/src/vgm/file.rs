@@ -1,11 +1,14 @@
-//! A VGM file of any kind, held for its metadata.
+//! A VGM file: one model, whatever chips it declares.
 //!
-//! [`Song`](crate::Song) is the OPL editing model, and stays that way: it
-//! decodes every command into a register write or a delay, which only an OPL
-//! stream can promise. A file for a chip this app cannot decode still has a
-//! header, a GD3 tag, a duration and a loop, and all of that is editable
-//! without understanding a single command -- so it gets its own type, whose
-//! body is a span of bytes carried from read to write untouched.
+//! There is no second kind of VGM. A Mega Drive rip and an AdLib rip are the
+//! same thing here -- a header, a command stream and a tag -- and every
+//! chip-agnostic feature (tags, durations, trimming, export) works on both.
+//!
+//! What an OPL file has is *more*, not different: [`VgmFile::opl`] hands out a
+//! projection of the same stream as OPL instructions, and that is what the
+//! register analyser, find-register and the synth read. `None` from it does
+//! not mean the file is broken or foreign; it means the OPL extras do not
+//! apply. See [`vgm::projection`](crate::vgm::projection).
 //!
 //! # Byte-exact retagging
 //!
@@ -23,10 +26,11 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
 use crate::error::{Error, Result};
-use crate::song::slide_index_past_deletion;
-use crate::vgm::data::Gd3Tag;
+use crate::song::{OplType, Song, slide_index_past_deletion};
+use crate::vgm::data::{Gd3Tag, VgmMeta};
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
+use crate::vgm::projection::{OplProjection, opl_type_of};
 use crate::vgm::stream::VgmStream;
 
 /// The header block a GD3 tag carries before its strings: magic, version, length.
@@ -86,6 +90,13 @@ pub struct VgmFile {
     pub header: VgmHeader,
     pub body: VgmBody,
     pub tag: Option<Gd3Tag>,
+    /// The OPL this file presents as, if it presents as one at all.
+    ///
+    /// Cached because answering needs a walk of the whole stream (every
+    /// command must *be* an OPL instruction, not merely the header say so --
+    /// see [`opl_type_of`]), and the answer is asked for far more often than
+    /// the stream changes. Recomputed by every edit that touches the stream.
+    opl: Option<OplType>,
 }
 
 impl VgmFile {
@@ -120,6 +131,88 @@ impl VgmFile {
     #[must_use]
     pub fn is_opl_only(&self) -> bool {
         self.header.is_opl_only()
+    }
+
+    /// This file's commands seen as OPL instructions, when it is an OPL file.
+    ///
+    /// The gate for every OPL-only feature: the register analyser, the
+    /// synth, find-register, the OPL optimiser. `None` is not a failure --
+    /// it means "this VGM is not an OPL one", and everything chip-agnostic
+    /// still applies.
+    #[must_use]
+    pub fn opl(&self) -> Option<OplProjection<'_>> {
+        Some(OplProjection::new(self.stream()?, self.opl?))
+    }
+
+    /// Whether the OPL-only features apply to this file.
+    #[must_use]
+    pub const fn is_opl(&self) -> bool {
+        self.opl.is_some()
+    }
+
+    /// Decides whether a body is an OPL one: the header must name a single OPL,
+    /// and every command must actually be an instruction for it.
+    fn derive_opl(header: &VgmHeader, body: &VgmBody) -> Option<OplType> {
+        let opl = opl_type_of(header)?;
+        body.stream()
+            .is_some_and(crate::vgm::projection::is_wholly_opl)
+            .then_some(opl)
+    }
+
+    /// A [`Song`] snapshot of this file, for the paths that consume one.
+    ///
+    /// `None` unless the file is an OPL one. The snapshot carries the same
+    /// metadata the OPL reader would have produced, so the synth, the
+    /// waveform render and the analyser see exactly what they always have.
+    #[must_use]
+    pub fn to_song(&self) -> Option<Song> {
+        let opl = self.opl()?;
+        Some(opl.to_song(self.name.clone(), self.header.version(), self.vgm_meta()))
+    }
+
+    /// The metadata a [`Song`] snapshot carries: the loop as instruction
+    /// indices, the modifiers, the tag, and the header bytes verbatim.
+    #[must_use]
+    pub fn vgm_meta(&self) -> VgmMeta {
+        VgmMeta {
+            loop_point: self.loop_index(),
+            loop_end: self.loop_end_index(),
+            loop_base: self.header.loop_base(),
+            loop_modifier: self.header.loop_modifier(),
+            volume_modifier: self.header.volume_modifier(),
+            tag: self.tag.clone(),
+            header: self.header.raw().to_vec(),
+        }
+    }
+
+    /// Where the loop stops, as an exclusive row index, or `None` for "runs to
+    /// the end".
+    ///
+    /// The header states the loop's length in samples, which usually means the
+    /// end of the file; a shorter value landing on a command boundary is how a
+    /// loop that stops early is expressed, and is materialised so that saving
+    /// does not silently widen it. See [`VgmMeta::loop_end`].
+    #[must_use]
+    pub fn loop_end_index(&self) -> Option<usize> {
+        let stream = self.stream()?;
+        let start = self.loop_index()?;
+        let declared = u64::from(self.header.loop_samples()?);
+        let to_end = stream.samples_from(start);
+        if declared >= to_end {
+            // Equal is the ordinary "loops to the end"; longer is a stale
+            // header the stream disagrees with. Neither bounds a region.
+            return None;
+        }
+        // The first row at exactly `declared` samples past the loop point.
+        // Zero-wait rows share a timestamp, so this lands on the first of them.
+        let mut elapsed = 0u64;
+        for index in start..stream.len() {
+            if elapsed == declared && index > start {
+                return Some(index);
+            }
+            elapsed += u64::from(stream.wait_samples(index));
+        }
+        None
     }
 
     /// The parsed command stream, or `None` if it would not walk.
@@ -185,6 +278,7 @@ impl VgmFile {
         let moved =
             loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
         self.repatch_header(moved, total);
+        self.refresh_opl();
         true
     }
 
@@ -198,6 +292,15 @@ impl VgmFile {
         if let VgmBody::Commands(stream) = &mut self.body {
             stream.insert_many(entries);
         }
+        self.refresh_opl();
+    }
+
+    /// Re-answers "is this an OPL file?" after the stream changed.
+    ///
+    /// It can genuinely change: deleting the one command that was not an OPL
+    /// instruction makes the rest of the file an OPL one.
+    fn refresh_opl(&mut self) {
+        self.opl = Self::derive_opl(&self.header, &self.body);
     }
 
     /// Rewrites the header's derived fields from the stream as it now stands.
@@ -373,11 +476,13 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
         None => None,
     };
 
+    let opl = VgmFile::derive_opl(&header, &body);
     Ok(VgmFile {
         name: name.to_owned(),
         header,
         body,
         tag,
+        opl,
     })
 }
 
