@@ -421,6 +421,36 @@ impl VgmFile {
         self.refresh_opl();
     }
 
+    /// Sets the loop to the rows `start..end`, or clears it with `None`.
+    ///
+    /// The editor holds a loop as a pair of row indices; the file holds it as a
+    /// byte offset and a sample count. This is the conversion, and the only
+    /// place it happens.
+    ///
+    /// `end` is exclusive, and `None` means "to the end of the song" -- which
+    /// is what the spec defines the length field as. An `end` short of that is
+    /// how a loop that stops early is expressed; other players ignore it, but
+    /// it survives a save and a reload here.
+    pub fn set_loop_rows(&mut self, start: Option<usize>, end: Option<usize>) {
+        let Some(stream) = self.stream() else {
+            return;
+        };
+        let Some(start) = start.filter(|&start| start < stream.len()) else {
+            self.header.set_loop(None, 0);
+            return;
+        };
+        let to_end = stream.samples_from(start);
+        let samples = match end.filter(|&end| end > start && end < stream.len()) {
+            Some(end) => to_end - stream.samples_from(end),
+            None => to_end,
+        };
+        let at = stream
+            .byte_offset(start)
+            .map(|offset| self.header.data_start() + offset);
+        self.header
+            .set_loop(at, u32::try_from(samples).unwrap_or(u32::MAX));
+    }
+
     /// Drops the register writes that change nothing, for any chip this app
     /// has rules for.
     ///
@@ -1456,6 +1486,77 @@ mod tests {
             u64::from(file.header.total_samples()),
             u64::from(original.header.total_samples()) - head_samples
         );
+    }
+
+    // -- the loop, as the editor holds it ------------------------------------
+
+    #[test]
+    fn setting_the_loop_from_rows_writes_the_offset_and_the_length() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        // Row 4 is the key-on; 20735 samples follow it.
+        file.set_loop_rows(Some(4), None);
+        assert_eq!(file.loop_index(), Some(4));
+        assert_eq!(file.header.loop_samples(), Some(20_735));
+
+        // And it survives a write, which is the point of storing it as rows.
+        let reread = read("md.vgm", &write(&file).unwrap()).unwrap();
+        assert_eq!(reread.loop_index(), Some(4));
+    }
+
+    /// An end short of the song's own is how a loop that stops early is
+    /// expressed: the length field carries the region, not the tail.
+    #[test]
+    fn a_loop_end_shortens_the_declared_length() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(4), Some(6));
+        assert_eq!(file.header.loop_samples(), Some(20_000));
+        assert_eq!(file.loop_end_index(), Some(6), "and it reads back");
+    }
+
+    #[test]
+    fn clearing_the_loop_zeroes_both_fields() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(4), None);
+        file.set_loop_rows(None, None);
+        assert_eq!(file.header.loop_offset(), None);
+        assert_eq!(file.header.loop_samples(), None);
+    }
+
+    #[test]
+    fn a_loop_row_past_the_end_is_no_loop() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(999), None);
+        assert_eq!(file.header.loop_offset(), None);
+    }
+
+    #[test]
+    fn the_loop_counts_round_trip() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        assert!(file.header.set_loop_counts(3, 0x20));
+        assert_eq!(file.header.loop_base(), 3);
+        assert_eq!(file.header.loop_modifier(), 0x20);
+        let reread = read("md.vgm", &write(&file).unwrap()).unwrap();
+        assert_eq!(reread.header.loop_base(), 3);
+        assert_eq!(reread.header.loop_modifier(), 0x20);
+    }
+
+    /// A header that stops before the fields cannot grow them, and says so
+    /// rather than writing past its own end.
+    #[test]
+    fn a_short_header_refuses_the_loop_counts() {
+        let mut header = vec![0u8; 0x60];
+        header[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut header, offset::VERSION, 0x151);
+        put_u32(&mut header, offset::DATA_OFFSET, (0x60 - 0x34) as u32);
+        put_u32(&mut header, ChipKind::Ym3812.clock_offset(), 3_579_545);
+        let mut bytes = header;
+        bytes.extend_from_slice(&[0x5A, 0x20, 0x01, 0x66]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("short.vgm", &bytes).unwrap();
+        assert!(!file.header.set_loop_counts(3, 0x20));
+        assert_eq!(write(&file).unwrap(), bytes, "and nothing was written");
     }
 
     // -- a tag stored before the data ---------------------------------------

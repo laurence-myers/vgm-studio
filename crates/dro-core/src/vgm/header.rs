@@ -536,6 +536,23 @@ impl VgmHeader {
         self.loop_modifier
     }
 
+    /// Sets the loop base and modifier -- the two bytes `vgm_stat`'s play-count
+    /// formula reads.
+    ///
+    /// Returns `false` when the header stops before them and so has nowhere to
+    /// put them; they are v1.51/v1.60 additions, and a shorter header predates
+    /// both.
+    pub fn set_loop_counts(&mut self, base: u8, modifier: u8) -> bool {
+        if self.raw.len() <= offset::LOOP_MODIFIER {
+            return false;
+        }
+        self.raw[offset::LOOP_BASE] = base;
+        self.raw[offset::LOOP_MODIFIER] = modifier;
+        self.loop_base = base;
+        self.loop_modifier = modifier;
+        true
+    }
+
     /// Every chip the file declares a non-zero clock for, in header order.
     #[must_use]
     pub fn chips(&self) -> &[ChipUse] {
