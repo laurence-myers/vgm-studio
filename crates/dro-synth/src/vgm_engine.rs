@@ -518,6 +518,13 @@ impl VgmEngine {
 
     /// Renders `out.len() / 2` frames by summing every voice.
     fn mix(&mut self, out: &mut [i16]) {
+        // A file whose chips have no cores and whose streams are idle has
+        // nothing to render *or* to schedule, and that is the common case while
+        // the registry is empty. Silence is silence however long it lasts.
+        if self.voices.is_empty() && !self.streams.any_playing() {
+            out.fill(0);
+            return;
+        }
         for frame in out.chunks_exact_mut(2) {
             // Streams write on their own clock, so they are serviced per output
             // frame rather than per command -- that is the whole point of them.

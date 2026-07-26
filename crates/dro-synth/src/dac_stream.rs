@@ -101,6 +101,12 @@ pub struct PendingWrite {
 #[derive(Debug, Clone)]
 pub struct DacStreams {
     streams: Vec<Stream>,
+    /// The ids currently playing, ascending. Kept because
+    /// [`advance_frame`](Self::advance_frame) runs once per *output frame* and
+    /// almost every file has none playing at all: walking 256 slots per sample
+    /// to find that out is the difference between an engine that keeps up and
+    /// one that does not.
+    active: Vec<u8>,
     output_rate: u32,
 }
 
@@ -112,6 +118,7 @@ impl DacStreams {
             // 256 ids, and a file may use any of them; allocating them up front
             // is 256 small structs once, against a lookup on every byte.
             streams: vec![Stream::default(); 256],
+            active: Vec::new(),
             output_rate: output_rate.max(1),
         }
     }
@@ -120,6 +127,25 @@ impl DacStreams {
     pub fn clear(&mut self) {
         for stream in &mut self.streams {
             *stream = Stream::default();
+        }
+        self.active.clear();
+    }
+
+    /// Whether any stream is playing -- the engine's cheap "is there anything
+    /// to service this frame" test.
+    #[must_use]
+    pub fn any_playing(&self) -> bool {
+        !self.active.is_empty()
+    }
+
+    /// Adds or removes `id` from the playing list, keeping it sorted.
+    fn set_active(&mut self, id: u8, playing: bool) {
+        match (self.active.binary_search(&id), playing) {
+            (Err(at), true) => self.active.insert(at, id),
+            (Ok(at), false) => {
+                self.active.remove(at);
+            }
+            _ => {}
         }
     }
 
@@ -188,11 +214,14 @@ impl DacStreams {
         stream.looping = LengthMode::loops(flags);
         stream.playing = start < end && stream.hz > 0;
         stream.accumulator = 0;
+        let playing = stream.playing;
+        self.set_active(id, playing);
     }
 
     /// `0x94 ss` — stop stream `id`.
     pub fn stop(&mut self, id: u8) {
         self.streams[id as usize].playing = false;
+        self.set_active(id, false);
     }
 
     /// Whether stream `id` is playing.
@@ -208,11 +237,13 @@ impl DacStreams {
     /// byte every third frame, but a 96 kHz one emits two some frames. The
     /// accumulator carries the remainder so neither drifts.
     pub fn advance_frame(&mut self, due: &mut Vec<PendingWrite>) {
+        if self.active.is_empty() {
+            return;
+        }
         let rate = u64::from(self.output_rate);
-        for stream in &mut self.streams {
-            if !stream.playing {
-                continue;
-            }
+        let mut stopped = false;
+        for &id in &self.active {
+            let stream = &mut self.streams[id as usize];
             let Some(target) = stream.target else {
                 continue;
             };
@@ -235,10 +266,15 @@ impl DacStreams {
                         stream.position = stream.start;
                     } else {
                         stream.playing = false;
+                        stopped = true;
                         break;
                     }
                 }
             }
+        }
+        if stopped {
+            let streams = &self.streams;
+            self.active.retain(|&id| streams[id as usize].playing);
         }
     }
 }
