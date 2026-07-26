@@ -20,6 +20,7 @@ use std::collections::BTreeSet;
 use crate::Gd3Tag;
 use crate::error::{Error, Result};
 use crate::song::{OplType, Song};
+use crate::vgm::VgmFile;
 
 /// The system name a fresh PC pack defaults to.
 pub const DEFAULT_SYSTEM: &str = "IBM PC/AT";
@@ -128,6 +129,27 @@ impl TrackEntry {
             total_samples: u64::from(song.total_delay_samples()),
             loop_samples: song.loop_num_samples().map(u64::from),
             plays,
+        }
+    }
+
+    /// Derives an entry from a VGM whose commands this app cannot decode.
+    ///
+    /// The timings come from the header rather than from the stream, which is
+    /// what `vgm_stat` reads too. They are only as honest as the file is -- but
+    /// nothing here can edit such a file's music, so they cannot go stale.
+    #[must_use]
+    pub fn from_vgm_file(file: &VgmFile) -> Self {
+        let title = file
+            .tag
+            .as_ref()
+            .map(|tag| tag.track_name_en.trim())
+            .filter(|name| !name.is_empty())
+            .map_or_else(|| title_from_filename(&file.name).to_owned(), str::to_owned);
+        Self {
+            title,
+            total_samples: u64::from(file.total_samples()),
+            loop_samples: file.loop_samples().map(u64::from),
+            plays: vgm_play_count(file.header.loop_base(), file.header.loop_modifier()),
         }
     }
 }

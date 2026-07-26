@@ -2622,8 +2622,10 @@ impl DroApp {
     fn open_track_quick_edit(&mut self, index: usize) {
         let dialog = self.pack.as_ref().and_then(|pack| {
             let track = pack.tracks.get(index)?;
-            let song = track.song()?;
-            let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
+            if !track.is_readable() {
+                return None;
+            }
+            let tag = track.tag();
             // Every other track's name, so a rename can't collide with one.
             let siblings = pack
                 .tracks
@@ -2667,9 +2669,8 @@ impl DroApp {
         let old_path = track.path.clone();
         // The bytes before this edit, for the undo transaction's inverse write.
         let old_bytes = track.bytes.clone();
-        let new_bytes = match track.song() {
-            Some(song) => crate::pack::retagged_bytes(song, &new_name, tag),
-            None => return,
+        let Some(new_bytes) = track.retagged(&new_name, tag) else {
+            return;
         };
         let new_bytes = match new_bytes {
             Ok(bytes) => bytes,
@@ -2760,7 +2761,7 @@ impl DroApp {
             .tracks
             .iter()
             .enumerate()
-            .filter(|(_, track)| track.song().is_some())
+            .filter(|(_, track)| track.is_readable())
             .map(|(index, track)| {
                 let title = track
                     .entry
@@ -2799,21 +2800,18 @@ impl DroApp {
             };
             // Only VGMs carry a GD3 tag; the pack list is VGM/VGZ only, but guard
             // anyway so a non-VGM can never be rewritten by a bulk edit.
-            let (Some(song), Some(path)) = (track.song(), track.path.clone()) else {
+            let (true, Some(path)) = (track.is_readable(), track.path.clone()) else {
                 continue;
             };
-            if song.vgm_meta().is_none() {
-                continue;
-            }
-            let current = song
-                .vgm_meta()
-                .and_then(|meta| meta.tag.clone())
-                .unwrap_or_default();
+            let current = track.tag().cloned().unwrap_or_default();
             let new_tag = overlay.apply_to(&current);
             if new_tag == current {
                 continue; // nothing changed for this track
             }
-            match crate::pack::retagged_bytes(song, &track.file_name, new_tag) {
+            let Some(written) = track.retagged(&track.file_name, new_tag) else {
+                continue;
+            };
+            match written {
                 Ok(bytes) => {
                     forward.push(PackMutation::Write {
                         path: path.clone(),

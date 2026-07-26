@@ -489,6 +489,20 @@ impl VgmHeader {
         self.volume_modifier
     }
 
+    /// Sets the volume modifier, in the parsed value and the raw bytes both --
+    /// the raw ones being what a write emits.
+    ///
+    /// Returns `false` when the header stops before 0x7C and so has nowhere to
+    /// put it; the field is a v1.60 addition, and a shorter header predates it.
+    pub fn set_volume_modifier(&mut self, modifier: u8) -> bool {
+        let Some(slot) = self.raw.get_mut(offset::VOLUME_MODIFIER) else {
+            return false;
+        };
+        *slot = modifier;
+        self.volume_modifier = modifier;
+        true
+    }
+
     #[must_use]
     pub const fn loop_base(&self) -> u8 {
         self.loop_base

@@ -126,7 +126,17 @@ fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
     let mut song = match dro_core::io::read_song(name, bytes) {
         Ok(song) => song,
         Err(error) => {
-            log.push(format!("{name}: kept as-is (could not read: {error})"));
+            // The optimiser folds an OPL register file, so it can only reason
+            // about OPL writes. A VGM for other chips is a perfectly good file
+            // that simply has nothing here to strip -- say that, rather than
+            // implying it is broken.
+            match dro_core::vgm::file::read(name, bytes) {
+                Ok(file) => log.push(format!(
+                    "{name}: kept as-is ({} is not optimised yet)",
+                    file.chip_list()
+                )),
+                Err(_) => log.push(format!("{name}: kept as-is (could not read: {error})")),
+            }
             return bytes.to_vec();
         }
     };
@@ -256,6 +266,46 @@ mod tests {
         assert!(
             output.log.iter().any(|line| line.contains("(optimized)")),
             "log: {:?}",
+            output.log
+        );
+    }
+
+    /// A VGM for chips the optimiser cannot reason about ships exactly as it
+    /// arrived. The optimiser folds an OPL register file, so widening it to
+    /// other chips would corrupt them -- the export must leave them alone, and
+    /// say so honestly rather than reporting a read failure.
+    #[test]
+    fn a_foreign_vgm_ships_verbatim_with_the_optimiser_on() {
+        let mut original = vec![0u8; 0x100];
+        original[..4].copy_from_slice(b"Vgm ");
+        original[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
+        original[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+        // A YM2612 at 0x2C, and a body the OPL command table cannot size.
+        original[0x2C..0x30].copy_from_slice(&7_670_454u32.to_le_bytes());
+        original.extend_from_slice(&[0x52, 0x28, 0xF0, 0x80, 0x66]);
+        let eof = original.len();
+        original[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+
+        let entries = [song("01 Mega Drive.vgm", &original)];
+        let output = build_pack_zip(&entries, false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert_eq!(files[0].1, original, "byte for byte");
+        assert!(
+            output
+                .log
+                .iter()
+                .any(|line| line.contains("YM2612 is not optimised yet")),
+            "log: {:?}",
+            output.log
+        );
+        assert!(
+            !output
+                .log
+                .iter()
+                .any(|line| line.contains("could not read")),
+            "a foreign VGM is not unreadable: {:?}",
             output.log
         );
     }
