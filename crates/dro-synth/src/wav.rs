@@ -1,8 +1,12 @@
 //! Offline WAV rendering.
 //!
-//! It is a plain loop over [`PlayerEngine::render`],
-//! writing into an in-memory `hound` WAV. The same bytes result on native and web
-//! -- the caller writes them to disk or offers them as a download.
+//! A plain loop over an engine's `render`, writing into an in-memory `hound`
+//! WAV. The same bytes result on native and web -- the caller writes them to disk
+//! or offers them as a download.
+//!
+//! Two engines, one loop: [`PlayerEngine`] for a DRO or an OPL VGM (with the
+//! muting and panning that only mean something there), and
+//! [`VgmEngine`](crate::vgm_engine::VgmEngine) for a VGM of any other chips.
 
 use std::borrow::Borrow;
 use std::io::Cursor;
@@ -11,7 +15,12 @@ use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
 use crate::engine::{Muting, Panning, PlayerEngine};
+use std::sync::Arc;
+
+use dro_core::VgmFile;
+
 use crate::limiter::BoostLimiter;
+use crate::vgm_engine::VgmEngine;
 
 /// How a render is mixed: which voices are audible, where they sit in the stereo
 /// image, and how hard the signal is driven.
@@ -211,9 +220,6 @@ fn render_wav_impl<B: Borrow<Song>>(
         bits_per_sample: bit_depth,
         sample_format: SampleFormat::Int,
     };
-    let mut cursor = Cursor::new(Vec::new());
-    let mut writer = WavWriter::new(&mut cursor, spec)?;
-
     let mut engine = PlayerEngine::new(song, sample_rate);
     engine.set_muting(mix.muting);
     // Only when it differs from the engine's own starting state: `set_panning`
@@ -222,7 +228,98 @@ fn render_wav_impl<B: Borrow<Song>>(
     if mix.panning != Panning::Original {
         engine.set_panning(mix.panning);
     }
-    let mut limiter = BoostLimiter::new(sample_rate, mix.boost);
+    write_render(
+        spec,
+        bit_depth,
+        mix.boost,
+        &mut |buffer| {
+            let frames = engine.render(buffer);
+            (frames, engine.position().frames_rendered)
+        },
+        on_progress,
+        keep_going,
+    )
+}
+
+/// Renders a VGM for whatever chips it declares, through the multi-chip engine.
+///
+/// The counterpart of [`render_wav_mixed`] for a file the OPL model does not
+/// cover. There is no muting or panning: those are OPL ideas, and this engine
+/// has no register policy at all. A chip with no core renders silence, so a file
+/// this app only half knows comes out half played -- check
+/// [`playability`](crate::chip::playability) first if that matters.
+///
+/// # Errors
+/// If the WAV cannot be written -- the same failures as [`render_wav`].
+pub fn render_vgm_wav(
+    file: Arc<VgmFile>,
+    sample_rate: u32,
+    bit_depth: u16,
+    boost: f32,
+) -> Result<Vec<u8>, hound::Error> {
+    render_vgm_wav_cancellable(
+        file,
+        sample_rate,
+        bit_depth,
+        boost,
+        &mut |_| {},
+        &mut || true,
+    )
+    .map(|bytes| bytes.unwrap_or_default())
+}
+
+/// As [`render_vgm_wav`], reporting progress and stopping when `keep_going`
+/// returns `false`. `Ok(None)` iff it did.
+///
+/// # Errors
+/// See [`render_vgm_wav`].
+pub fn render_vgm_wav_cancellable(
+    file: Arc<VgmFile>,
+    sample_rate: u32,
+    bit_depth: u16,
+    boost: f32,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
+    let spec = WavSpec {
+        channels: 2,
+        sample_rate,
+        bits_per_sample: bit_depth,
+        sample_format: SampleFormat::Int,
+    };
+    let mut engine = VgmEngine::new(file, sample_rate);
+    let mut rendered = 0u64;
+    write_render(
+        spec,
+        bit_depth,
+        boost,
+        &mut |buffer| {
+            let frames = engine.render(buffer);
+            rendered += frames as u64;
+            (frames, rendered)
+        },
+        on_progress,
+        keep_going,
+    )
+}
+
+/// The write loop both renderers share: pull frames, boost and limit them,
+/// encode them, and stop when the source runs out or the caller says so.
+///
+/// `pull` fills the buffer and reports `(frames written, frames rendered so
+/// far)` -- the second being what a progress bar counts, which the two engines
+/// track differently.
+fn write_render(
+    spec: WavSpec,
+    bit_depth: u16,
+    boost: f32,
+    pull: &mut dyn FnMut(&mut [i16]) -> (usize, u64),
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
+    let mut cursor = Cursor::new(Vec::new());
+    let mut writer = WavWriter::new(&mut cursor, spec)?;
+    let mut limiter = BoostLimiter::new(spec.sample_rate, boost);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         // Between chunks, as the waveform render does: often enough that an
@@ -230,7 +327,7 @@ fn render_wav_impl<B: Borrow<Song>>(
         if !keep_going() {
             return Ok(None);
         }
-        let frames = engine.render(&mut buffer);
+        let (frames, rendered) = pull(&mut buffer);
         // Boost and limit exactly as the live audio callback does, so a boosted
         // render matches boosted playback. Bit-transparent when boost is 1.0, so
         // the faithful `render_wav` / `render_wav_muted` paths are unchanged.
@@ -244,7 +341,7 @@ fn render_wav_impl<B: Borrow<Song>>(
                 writer.write_sample(sample)?;
             }
         }
-        on_progress(engine.position().frames_rendered);
+        on_progress(rendered);
         if frames < buffer.len() / 2 {
             break;
         }
@@ -258,6 +355,91 @@ fn render_wav_impl<B: Borrow<Song>>(
 mod tests {
     use super::*;
     use dro_core::{DroDataV1, OplType};
+
+    /// A VGM declaring `chips` with `stream` as its body.
+    fn vgm_file(chips: &[(dro_core::ChipKind, u32)], stream: &[u8]) -> Arc<VgmFile> {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        for (kind, clock) in chips {
+            put_u32(&mut bytes, kind.clock_offset(), *clock);
+        }
+        bytes.extend_from_slice(stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(dro_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    /// A Master System rip: a tone at full volume for a second.
+    fn sms_vgm() -> Arc<VgmFile> {
+        vgm_file(
+            &[(dro_core::ChipKind::Sn76489, 3_579_545)],
+            &[
+                0x50, 0x8E, 0x50, 0x0F, // tone 0, period 254
+                0x50, 0x90, // full volume
+                0x61, 0x44, 0xAC, // a second
+                0x66,
+            ],
+        )
+    }
+
+    #[test]
+    fn a_vgm_for_other_chips_renders_a_wav_of_its_own_length() {
+        let bytes = render_vgm_wav(sms_vgm(), 44_100, 16, 1.0).expect("renders");
+        let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
+        assert_eq!(reader.spec().channels, 2);
+        assert_eq!(reader.spec().sample_rate, 44_100);
+        // One second, in stereo samples.
+        assert_eq!(reader.len(), 44_100 * 2);
+    }
+
+    #[test]
+    fn a_chip_this_app_can_play_comes_out_audible() {
+        let bytes = render_vgm_wav(sms_vgm(), 44_100, 16, 1.0).expect("renders");
+        let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
+        let peak = reader
+            .into_samples::<i16>()
+            .filter_map(Result::ok)
+            .map(i16::abs)
+            .max()
+            .unwrap_or(0);
+        assert!(peak > 1000, "a square wave, not silence: peak {peak}");
+    }
+
+    #[test]
+    fn a_chip_this_app_cannot_play_comes_out_silent_rather_than_failing() {
+        // A YM2612 rip: readable, playable in the sense that it renders, and
+        // silent because there is no core. Better than a refusal.
+        let file = vgm_file(
+            &[(dro_core::ChipKind::Ym2612, 7_670_454)],
+            &[0x52, 0x28, 0xF0, 0x62, 0x66],
+        );
+        let bytes = render_vgm_wav(file, 44_100, 16, 1.0).expect("renders anyway");
+        let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
+        assert_eq!(reader.len(), 735 * 2);
+        assert!(
+            reader
+                .into_samples::<i16>()
+                .filter_map(Result::ok)
+                .all(|sample| sample == 0)
+        );
+    }
+
+    #[test]
+    fn a_cancelled_vgm_render_yields_nothing() {
+        let mut calls = 0;
+        let outcome =
+            render_vgm_wav_cancellable(sms_vgm(), 44_100, 16, 1.0, &mut |_| {}, &mut || {
+                calls += 1;
+                calls <= 1
+            })
+            .expect("no write error");
+        assert!(outcome.is_none(), "an abandoned render produces no file");
+    }
 
     fn small_song() -> Song {
         Song::dro_v1(

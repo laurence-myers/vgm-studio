@@ -2184,6 +2184,107 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     );
 }
 
+/// A Master System rip: one chip, and one this app has a core for.
+fn sms_vgm_file() -> PickedFile {
+    use dro_core::ChipKind;
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let stream: &[u8] = &[
+        0x50, 0x8E, 0x50, 0x0F, // tone 0, period 254
+        0x50, 0x90, // full volume
+        0x61, 0x44, 0xAC, // a second
+        0x66,
+    ];
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x171);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+    put_u32(&mut bytes, 0x18, 44_100);
+    bytes.extend_from_slice(stream);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    PickedFile {
+        name: "01 Bios.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/SMS/01 Bios.vgm")),
+        bytes,
+    }
+}
+
+/// Render to WAV follows what the app can actually play, not whether the file
+/// is OPL. A Master System rip has a core now, so it is offered and it works.
+#[test]
+fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    assert!(
+        harness.state().editor.song().is_none(),
+        "held as a VGM, with no OPL projection"
+    );
+    assert!(
+        harness.state().editor.capabilities().renderable,
+        "but there is a core for its chip"
+    );
+
+    // The File menu offers the render and withholds the channel split, which is
+    // an OPL idea whatever the chips.
+    harness.get_by_label("File").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("Render to WAV").is_some());
+    assert!(
+        harness.query_by_label_contains("Split Channels").is_none(),
+        "a channel split needs an OPL stream"
+    );
+    harness.key_press(Key::Escape);
+    harness.run();
+
+    act(
+        &mut harness,
+        Action::RenderWavSubmitted {
+            use_toggles: false,
+            use_panning: false,
+            boost: 1.0,
+        },
+    );
+    harness.run();
+
+    // The render follows the app's configured output rate, not the file's.
+    let rate = harness.state().config.audio.frequency as usize;
+    let files = handles.files.borrow();
+    let Some(SaveRequest::Dialog {
+        suggested_name,
+        bytes,
+    }) = files.save_requests.last()
+    else {
+        panic!("expected a save dialog, got {:?}", files.save_requests)
+    };
+    assert_eq!(suggested_name, "01 Bios.vgm.wav");
+    assert!(bytes.starts_with(b"RIFF"), "not a WAV");
+
+    // One second of 16-bit stereo, and audible: the header is 44 bytes, and a
+    // square wave at full volume is nowhere near silence.
+    assert_eq!(bytes.len(), 44 + rate * 4, "a second of stereo");
+    let peak = bytes[44..]
+        .chunks_exact(2)
+        .map(|pair| i16::from_le_bytes([pair[0], pair[1]]).abs())
+        .max()
+        .unwrap_or(0);
+    assert!(peak > 1000, "and it is audible: peak {peak}");
+}
+
+/// A VGM for chips there is no core for renders silence, so the render is not
+/// offered at all -- an empty WAV is a worse answer than an absent menu item.
+#[test]
+fn a_vgm_with_no_core_is_not_offered_a_wav_render() {
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
+    assert!(!harness.state().editor.capabilities().renderable);
+
+    harness.get_by_label("File").click();
+    harness.run();
+    assert!(harness.query_by_label_contains("Render to WAV").is_none());
+}
+
 /// A header that disagrees with its stream is reported and offered, never
 /// silently corrected -- and the correction only lands once confirmed.
 #[test]

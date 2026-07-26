@@ -37,8 +37,9 @@ pub use peak::{Peak, measure_peak, measure_peak_cancellable};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split, split_cancellable};
 pub use vgm_engine::VgmEngine;
 pub use wav::{
-    RenderMix, render_wav, render_wav_boosted, render_wav_boosted_with_progress,
-    render_wav_cancellable, render_wav_mixed, render_wav_muted, render_wav_muted_with_progress,
+    RenderMix, render_vgm_wav, render_vgm_wav_cancellable, render_wav, render_wav_boosted,
+    render_wav_boosted_with_progress, render_wav_cancellable, render_wav_mixed, render_wav_muted,
+    render_wav_muted_with_progress,
 };
 pub use waveform::{
     WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,

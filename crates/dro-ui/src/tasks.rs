@@ -49,7 +49,9 @@ pub enum TaskRequest {
         sample_rate: u32,
     },
     RenderWav {
-        song: Arc<Song>,
+        source: WavSource,
+        /// Muting and panning are OPL ideas, so they only reach an OPL source;
+        /// the boost applies to either.
         mix: RenderMix,
         sample_rate: u32,
         bit_depth: u16,
@@ -97,6 +99,27 @@ pub enum TaskRequest {
 pub enum LoopSearchSource {
     Opl(Arc<Song>),
     Vgm(Arc<dro_core::VgmFile>),
+}
+
+/// What a WAV render runs over.
+///
+/// The two engines take different mixes -- an OPL render can mute and pan, a
+/// generic one has no register policy to do it with -- so the choice is made
+/// here rather than inside the renderer.
+#[derive(Debug, Clone)]
+pub enum WavSource {
+    Opl(Arc<Song>),
+    Vgm(Arc<dro_core::VgmFile>),
+}
+
+impl WavSource {
+    /// The file name the render is offered under.
+    fn name(&self) -> &str {
+        match self {
+            Self::Opl(song) => &song.name,
+            Self::Vgm(file) => &file.name,
+        }
+    }
 }
 
 /// What a song split runs over.
@@ -261,22 +284,32 @@ pub fn run_task(
             );
         }
         TaskRequest::RenderWav {
-            song,
+            source,
             mix,
             sample_rate,
             bit_depth,
         } => {
             // `song.dro` becomes `song.dro.wav`, the name `drotrim render`
             // writes -- so the same song exported both ways lands in one place.
-            let name = format!("{}.wav", song.name);
-            let rendered = render_wav_cancellable(
-                Arc::clone(song),
-                *mix,
-                *sample_rate,
-                *bit_depth,
-                &mut |_| {},
-                &mut || !is_cancelled(),
-            )
+            let name = format!("{}.wav", source.name());
+            let rendered = match source {
+                WavSource::Opl(song) => render_wav_cancellable(
+                    Arc::clone(song),
+                    *mix,
+                    *sample_rate,
+                    *bit_depth,
+                    &mut |_| {},
+                    &mut || !is_cancelled(),
+                ),
+                WavSource::Vgm(file) => dro_synth::render_vgm_wav_cancellable(
+                    Arc::clone(file),
+                    *sample_rate,
+                    *bit_depth,
+                    mix.boost,
+                    &mut |_| {},
+                    &mut || !is_cancelled(),
+                ),
+            }
             .map_err(|e| format!("Rendering to WAV failed: {e}"));
             // A cancelled render emits nothing at all, like the waveform's.
             match rendered {
@@ -581,7 +614,7 @@ mod tests {
     #[test]
     fn a_cancelled_export_emits_nothing() {
         let wav = TaskRequest::RenderWav {
-            song: Arc::new(tone_song()),
+            source: WavSource::Opl(Arc::new(tone_song())),
             mix: RenderMix::default(),
             sample_rate: 48_000,
             bit_depth: 16,
@@ -606,7 +639,7 @@ mod tests {
 
         let results = collect(
             &TaskRequest::RenderWav {
-                song: Arc::new(song),
+                source: WavSource::Opl(Arc::new(song)),
                 mix: RenderMix::default(),
                 sample_rate: 48_000,
                 bit_depth: 16,

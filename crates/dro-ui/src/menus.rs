@@ -130,11 +130,14 @@ pub struct MenuState {
     /// Whether the loaded song is a DRO **v2** specifically -- the only thing
     /// there is to convert down to v1.
     pub is_dro_v2: bool,
-    /// Whether the loaded document has an OPL stream to render. The WAV render
-    /// and the channel split both decode one, so for a document there is no core
-    /// for they are hidden, the same way the transport is. True with nothing
-    /// loaded, so an empty editor's File menu looks as it always has.
+    /// Whether rendering the loaded document to a WAV would produce anything:
+    /// an OPL stream, or a VGM with at least one chip there is a core for. True
+    /// with nothing loaded, so an empty editor's File menu looks as it always
+    /// has.
     pub can_render: bool,
+    /// Whether the channel split applies: it decides which OPL channel each
+    /// register write belongs to, so it needs an OPL stream specifically.
+    pub can_split_channels: bool,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
@@ -175,13 +178,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                     actions.push(Action::SaveAs);
                 }
                 crate::theme::separator(ui, palette);
-                if state.can_render {
-                    if item(ui, "Render to WAV...", None) {
-                        actions.push(Action::OpenRenderWav);
-                    }
-                    if item(ui, "Split Channels...", None) {
-                        actions.push(Action::OpenSplit);
-                    }
+                if state.can_render && item(ui, "Render to WAV...", None) {
+                    actions.push(Action::OpenRenderWav);
+                }
+                if state.can_split_channels && item(ui, "Split Channels...", None) {
+                    actions.push(Action::OpenSplit);
                 }
                 // Split one capture into its per-song files, for any chips: where
                 // a capture falls silent is not an OPL question.

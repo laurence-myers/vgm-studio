@@ -3725,9 +3725,13 @@ impl DroApp {
     /// Each option is opt-in, so with none of them this is exactly what
     /// `drotrim render` writes.
     fn render_to_wav(&mut self, use_toggles: bool, use_panning: bool, boost: f32) {
-        let Some(song) = self.editor.snapshot() else {
-            self.require_song();
-            return;
+        let source = match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => crate::tasks::WavSource::Opl(song),
+            (None, Some(file)) => crate::tasks::WavSource::Vgm(std::sync::Arc::new(file.clone())),
+            (None, None) => {
+                self.require_document();
+                return;
+            }
         };
         // One render at a time: a second would finish into the same save queue,
         // and the first's dialog is already in the user's way.
@@ -3750,7 +3754,7 @@ impl DroApp {
         };
         self.tasks.submit(
             TaskRequest::RenderWav {
-                song,
+                source,
                 mix,
                 sample_rate: self.config.audio.frequency,
                 bit_depth: self.config.audio.bit_depth,
@@ -4136,7 +4140,8 @@ impl DroApp {
             is_dro_v2: self.editor.song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
-            can_render: self.editor.capabilities().playable,
+            can_render: self.editor.capabilities().renderable,
+            can_split_channels: self.editor.capabilities().playable,
         }
     }
 

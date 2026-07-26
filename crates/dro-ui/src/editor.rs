@@ -42,6 +42,10 @@ pub struct DocCapabilities {
     pub playable: bool,
     /// There are rows to select and delete.
     pub editable: bool,
+    /// Whether anything would come out of rendering it to a WAV: an OPL stream,
+    /// or a VGM with at least one chip this app has a core for. A file whose
+    /// chips are all unknown renders silence, which is not worth offering.
+    pub renderable: bool,
 }
 
 /// Why a file did not open in the editor.
@@ -189,6 +193,11 @@ impl Editor {
             // permanently flat waveform.
             playable: self.has_song() || !self.has_document(),
             editable: self.has_document(),
+            renderable: self.has_song()
+                || self.vgm.as_ref().is_some_and(|file| {
+                    let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+                    dro_synth::playability(&chips).can_play()
+                }),
         }
     }
 
