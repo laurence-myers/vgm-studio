@@ -1327,7 +1327,7 @@ fn loading_a_song_cancels_a_render_of_the_previous_one() {
         .push_back(Ok(picked(&dual_tone_song())));
     harness.get_by_label("File").click();
     harness.run();
-    harness.get_by_label_contains("Open").click();
+    harness.get_by_label_contains("Open Song").click();
     harness.run();
 
     assert!(
@@ -1540,7 +1540,7 @@ fn loading_a_song_abandons_a_split_of_the_previous_one() {
         .push_back(Ok(picked(&tone_song())));
     harness.get_by_label("File").click();
     harness.run();
-    harness.get_by_label_contains("Open").click();
+    harness.get_by_label_contains("Open Song").click();
     harness.run();
 
     assert!(harness.state().split_flow.is_none());
@@ -4166,6 +4166,63 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
             .accesskit_node()
             .is_disabled(),
         "the spent fix-assist is greyed, not removed"
+    );
+}
+
+/// Opens one menu on a pack harness and hands the harness back for querying.
+/// One menu per test: reopening a second one in the same test does not register.
+fn pack_harness_with_menu(menu: &str) -> Harness<'static, DroApp> {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    assert_eq!(harness.state().active_tab, AppTab::Pack);
+    harness.get_by_label(menu).click();
+    harness.run();
+    harness
+}
+
+#[test]
+fn on_the_pack_tab_file_carries_the_packs_outputs() {
+    // Both openers stay -- that is how you get from one tab to the other -- but
+    // the song commands are left out rather than greyed.
+    let harness = pack_harness_with_menu("File");
+    // An item with a shortcut carries it in its accessible name, so the openers
+    // are matched by prefix rather than exactly.
+    let _ = harness.get_by_label_contains("Open Song...");
+    let _ = harness.get_by_label("Open Pack Folder...");
+    let _ = harness.get_by_label("Save Package Files");
+    let _ = harness.get_by_label("Close Pack");
+    assert!(
+        harness.query_by_label_contains("Save As").is_none(),
+        "the song's Save As has no song to act on here"
+    );
+}
+
+#[test]
+fn on_the_pack_tab_edit_is_undo_and_redo_alone() {
+    let harness = pack_harness_with_menu("Edit");
+    let _ = harness.get_by_label_contains("Undo");
+    let _ = harness.get_by_label_contains("Redo");
+    for absent in ["Goto", "Find Register", "Delete Instruction"] {
+        assert!(
+            harness.query_by_label_contains(absent).is_none(),
+            "{absent} edits a song the pack tab does not show"
+        );
+    }
+}
+
+#[test]
+fn in_the_editor_file_carries_the_song_commands_and_both_openers() {
+    // With a song loaded: the empty state's hint names File > Open Song... too,
+    // and would match the menu item's query twice over.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.get_by_label("File").click();
+    harness.run();
+    let _ = harness.get_by_label_contains("Open Song...");
+    let _ = harness.get_by_label("Open Pack Folder...");
+    let _ = harness.get_by_label_contains("Save As...");
+    assert!(
+        harness.query_by_label("Save Package Files").is_none(),
+        "the pack's outputs belong to the pack tab"
     );
 }
 

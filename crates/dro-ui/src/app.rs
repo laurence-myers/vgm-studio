@@ -702,7 +702,8 @@ impl DroApp {
                         ui.visuals_mut().override_text_color = Some(p.data_label);
                         ui.centered_and_justified(|ui| {
                             ui.label(
-                                "Open a DRO, VGM or VGZ file (File > Open..., or drop it here).",
+                                "Open a DRO, VGM or VGZ file (File > Open Song..., or drop it \
+                                 here).",
                             );
                         });
                     }
@@ -3741,7 +3742,6 @@ impl DroApp {
             can_redo,
             undo_description,
             redo_description,
-            has_pack: self.pack.is_some(),
             on_pack_tab,
             focused_row: self.editor.selection.first(),
             has_marked_region: self.editor.has_song()

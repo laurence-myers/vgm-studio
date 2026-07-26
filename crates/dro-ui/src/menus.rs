@@ -30,9 +30,9 @@ pub struct MenuState {
     /// The command the next Undo would revert, for the item label.
     pub undo_description: Option<String>,
     pub redo_description: Option<String>,
-    /// Whether a pack project is open (enables the Pack menu's project items).
-    pub has_pack: bool,
-    /// Whether the Pack tab is showing (disables the song-bound File/Edit items).
+    /// Whether the Pack tab is showing. File and Edit follow it: each offers the
+    /// commands for the screen you are on, rather than a long list of items
+    /// greyed out because the other tab owns them.
     pub on_pack_tab: bool,
     /// The row the loop-marker items act on -- the same one `[` and `]` use.
     pub focused_row: Option<usize>,
@@ -51,9 +51,17 @@ pub struct MenuState {
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
+///
+/// File and Edit serve both screens: they open with the commands that work
+/// anywhere (the two openers; Undo/Redo, which the app points at whichever
+/// history the tab owns), then the group belonging to the tab on show. The
+/// commands for the *other* tab are left out rather than greyed -- a Pack-mode
+/// Edit menu of nine dead song-editing items said nothing but "not here", and
+/// a command one tab-click away is not lost.
 pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mut Vec<Action>) {
-    // The song-bound File and Edit items act on the editor's song, which the
-    // Pack tab hides; disable them there so they cannot edit an unseen song.
+    // Which screen's commands to draw. The song-bound items act on the editor's
+    // song, which the Pack tab hides; the pack items need a pack, which only the
+    // Pack tab can be showing.
     let editor = !state.on_pack_tab;
     // Format-specific items are shown only for the format they apply to: a VGM
     // has no DRO header to inspect, a DRO has nowhere to store a tag, and only a
@@ -62,32 +70,37 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
     let is_vgm = state.song_type == Some(SongFileType::Vgm);
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
-            if item(ui, "Open...", Some(&OPEN)) {
+            // Both openers, on both screens: opening the other kind of project is
+            // how you get to the other tab in the first place.
+            if item(ui, "Open Song...", Some(&OPEN)) {
                 actions.push(Action::OpenFile);
             }
-            if enabled_item(ui, editor, "Save", Some(&SAVE)) {
-                actions.push(Action::Save);
-            }
-            if enabled_item(ui, editor, "Save As...", Some(&SAVE_AS)) {
-                actions.push(Action::SaveAs);
+            if item(ui, "Open Pack Folder...", None) {
+                actions.push(Action::OpenPackFolder);
             }
             crate::theme::separator(ui, palette);
-            if enabled_item(ui, editor, "Render to WAV...", None) {
-                actions.push(Action::OpenRenderWav);
-            }
-            if enabled_item(ui, editor, "Split Channels...", None) {
-                actions.push(Action::OpenSplit);
-            }
-            // Split one capture into its per-song files (VGM or DRO).
-            if enabled_item(ui, editor, "Split Songs...", None) {
-                actions.push(Action::OpenSplitSongs);
-            }
-            // Convert to another format, in an expanding submenu. DRO only: a VGM
-            // has no format this app can convert it to, and which conversions a
-            // DRO offers depends on its version. Disabled on the pack tab, like its
-            // File-menu siblings.
-            if is_dro {
-                ui.add_enabled_ui(editor, |ui| {
+            if editor {
+                if item(ui, "Save", Some(&SAVE)) {
+                    actions.push(Action::Save);
+                }
+                if item(ui, "Save As...", Some(&SAVE_AS)) {
+                    actions.push(Action::SaveAs);
+                }
+                crate::theme::separator(ui, palette);
+                if item(ui, "Render to WAV...", None) {
+                    actions.push(Action::OpenRenderWav);
+                }
+                if item(ui, "Split Channels...", None) {
+                    actions.push(Action::OpenSplit);
+                }
+                // Split one capture into its per-song files (VGM or DRO).
+                if item(ui, "Split Songs...", None) {
+                    actions.push(Action::OpenSplitSongs);
+                }
+                // Convert to another format, in an expanding submenu. DRO only: a
+                // VGM has no format this app can convert it to, and which
+                // conversions a DRO offers depends on its version.
+                if is_dro {
                     ui.menu_button("Convert", |ui| {
                         if item(ui, "Convert to VGM", None) {
                             actions.push(Action::ConvertToVgm);
@@ -98,7 +111,19 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                             actions.push(Action::ConvertToDro1);
                         }
                     });
-                });
+                }
+            } else {
+                // The pack's own outputs, in the order they are produced.
+                if item(ui, "Save Package Files", None) {
+                    actions.push(Action::PackSaveDocs);
+                }
+                if item(ui, "Export Zip...", None) {
+                    actions.push(Action::PackExportZip);
+                }
+                crate::theme::separator(ui, palette);
+                if item(ui, "Close Pack", None) {
+                    actions.push(Action::ClosePack);
+                }
             }
             crate::theme::separator(ui, palette);
             if item(ui, "Settings...", None) {
@@ -126,6 +151,11 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
                 actions.push(Action::Redo);
+            }
+            // Everything below edits the loaded song, which the Pack tab neither
+            // shows nor has; there, Undo/Redo are the whole menu.
+            if !editor {
+                return;
             }
             crate::theme::separator(ui, palette);
             if enabled_item(ui, editor, "Goto...", Some(&GOTO)) {
@@ -202,22 +232,6 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 .clicked()
             {
                 actions.push(Action::DeleteSelection);
-            }
-        });
-
-        ui.menu_button("Pack", |ui| {
-            if item(ui, "Open Pack Folder...", None) {
-                actions.push(Action::OpenPackFolder);
-            }
-            if enabled_item(ui, state.has_pack, "Save Package Files", None) {
-                actions.push(Action::PackSaveDocs);
-            }
-            if enabled_item(ui, state.has_pack, "Export Zip...", None) {
-                actions.push(Action::PackExportZip);
-            }
-            crate::theme::separator(ui, palette);
-            if enabled_item(ui, state.has_pack, "Close Pack", None) {
-                actions.push(Action::ClosePack);
             }
         });
 
