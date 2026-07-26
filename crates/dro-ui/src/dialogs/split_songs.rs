@@ -13,10 +13,9 @@
 //! milliseconds for a DRO); [`native_rate`] converts to and from the seconds the
 //! sliders show, so the dialog is format-agnostic.
 
-use std::sync::Arc;
+use dro_core::Segment;
 
-use dro_core::Song;
-use dro_core::split_songs::{Segment, detect_segments, native_rate};
+use crate::tasks::SplitSource;
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
@@ -29,11 +28,14 @@ const MIN_THRESHOLD_SECS: f32 = 0.2;
 const MAX_THRESHOLD_SECS: f32 = 5.0;
 /// The decay-tail slider's maximum, in seconds. Default is 0 (no tail kept).
 const MAX_TAIL_SECS: f32 = 2.0;
+/// Why Preview is greyed out for a capture of chips there is no core for.
+const PREVIEW_UNAVAILABLE: &str = "There is no core for this file's chips yet, so a piece cannot be auditioned. \
+     Exporting still works.";
 
 #[derive(Debug)]
 pub struct SplitSongsDialog {
     /// A snapshot of the capture, taken at open; detection re-runs against it.
-    song: Arc<Song>,
+    source: SplitSource,
     /// Native delay units per second: 44100 for a VGM, 1000 for a DRO. Cached so
     /// the seconds/native conversions do not keep re-deriving it.
     rate: u32,
@@ -50,10 +52,10 @@ pub struct SplitSongsDialog {
 
 impl SplitSongsDialog {
     #[must_use]
-    pub fn new(song: Arc<Song>) -> Self {
-        let rate = native_rate(&song);
+    pub fn new(source: SplitSource) -> Self {
+        let rate = source.rate();
         let mut dialog = Self {
-            song,
+            source,
             rate,
             threshold_secs: DEFAULT_THRESHOLD_SECS,
             tail_secs: 0.0,
@@ -82,7 +84,7 @@ impl SplitSongsDialog {
     /// Re-runs detection at the current threshold and resets every include flag,
     /// since the old flags no longer line up with the new segment list.
     fn redetect(&mut self) {
-        self.segments = detect_segments(&self.song, self.threshold_native());
+        self.segments = self.source.detect(self.threshold_native());
         self.included = vec![true; self.segments.len()];
     }
 
@@ -190,6 +192,8 @@ impl SplitSongsDialog {
         let segments = &self.segments;
         let included = &mut self.included;
         let rate = self.rate;
+        // Auditioning a piece plays it, which needs a chip we can render.
+        let can_preview = self.source.can_preview();
         egui::ScrollArea::vertical()
             .max_height(220.0)
             .show(ui, |ui| {
@@ -212,11 +216,17 @@ impl SplitSongsDialog {
                             ui.label(fmt_time(segment.start_time, rate));
                             ui.label(fmt_time(segment.duration, rate));
                             ui.checkbox(&mut included[index], "Include");
-                            if bevel::button(ui, palette, "Preview").clicked() {
-                                actions.push(Action::SplitSongsPreview {
-                                    start_index: segment.start,
-                                });
-                            }
+                            ui.add_enabled_ui(can_preview, |ui| {
+                                let preview = bevel::button(ui, palette, "Preview");
+                                if preview.clicked() {
+                                    actions.push(Action::SplitSongsPreview {
+                                        start_index: segment.start,
+                                    });
+                                }
+                                if !can_preview {
+                                    preview.on_hover_text(PREVIEW_UNAVAILABLE);
+                                }
+                            });
                             ui.end_row();
                         }
                     });
@@ -254,9 +264,10 @@ fn fmt_time(native: u32, rate: u32) -> String {
 mod tests {
     use super::*;
     use crate::test_song::{multi_song_capture, multi_song_capture_dro, tone_song};
+    use std::sync::Arc;
 
     fn dialog() -> SplitSongsDialog {
-        SplitSongsDialog::new(Arc::new(multi_song_capture()))
+        SplitSongsDialog::new(SplitSource::Opl(Arc::new(multi_song_capture())))
     }
 
     #[test]
@@ -277,7 +288,7 @@ mod tests {
 
     #[test]
     fn a_dro_threshold_is_in_milliseconds() {
-        let dialog = SplitSongsDialog::new(Arc::new(multi_song_capture_dro()));
+        let dialog = SplitSongsDialog::new(SplitSource::Opl(Arc::new(multi_song_capture_dro())));
         assert_eq!(dialog.rate, 1000);
         assert_eq!(dialog.threshold_native(), 750, "0.75 s = 750 ms");
         assert_eq!(dialog.segments.len(), 3, "three DRO songs at 0.75 s");
@@ -334,7 +345,7 @@ mod tests {
         // A plain single tone converted to VGM has no gaps: one segment.
         let mut song = tone_song();
         song.name = "tone.vgm".to_owned();
-        let dialog = SplitSongsDialog::new(Arc::new(song));
+        let dialog = SplitSongsDialog::new(SplitSource::Opl(Arc::new(song)));
         assert!(dialog.segments.len() <= 1);
     }
 

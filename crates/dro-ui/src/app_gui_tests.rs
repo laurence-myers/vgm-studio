@@ -1997,6 +1997,101 @@ fn a_non_opl_document_can_be_edited_and_saved() {
     assert_eq!(harness.state().editor.len(), rows);
 }
 
+/// A Neo Geo capture of three songs, parted by two seconds of silence each.
+fn foreign_capture_file() -> PickedFile {
+    // One song: a YM2610 write, a beat, an AY8910 write, a beat. The beats are
+    // a quarter-second, well inside the threshold, so they are music not silence.
+    let song: &[u8] = &[
+        0x58, 0x28, 0xF0, // YM2610 port 0
+        0x61, 0x11, 0x2B, // wait a quarter-second
+        0xA0, 0x07, 0x38, // AY8910
+        0x61, 0x11, 0x2B, // wait a quarter-second
+    ];
+    // The gap between them: two seconds, well past the default 0.75 s threshold.
+    // One 0x61 waits at most 65535 samples, so two of them.
+    let gap: &[u8] = &[0x61, 0x44, 0xAC, 0x61, 0x44, 0xAC];
+
+    let mut stream = Vec::new();
+    for index in 0..3 {
+        if index > 0 {
+            stream.extend_from_slice(gap);
+        }
+        stream.extend_from_slice(song);
+    }
+    stream.push(0x66);
+    let total = 3 * 2 * 11_025 + 2 * 2 * 44_100;
+
+    PickedFile {
+        name: "capture.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/Athena/capture.vgm")),
+        bytes: foreign_vgm_bytes(&stream, total, 0),
+    }
+}
+
+/// Splitting a capture at its silences, for chips this app has no core for.
+/// Where a capture falls silent is not an OPL question -- the splitter was the
+/// last of the chip-agnostic tools still asking for an OPL stream.
+#[test]
+fn a_non_opl_capture_can_be_split_into_its_songs() {
+    let (mut harness, handles) = build(Some(foreign_capture_file()), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_songs_dialog(&mut harness);
+    assert!(harness.state().dialogs.split_songs.is_some());
+    assert!(
+        harness.query_by_label_contains("3 song(s) found").is_some(),
+        "the two silences part three songs"
+    );
+
+    harness.get_by_label_contains("Export").click();
+    harness.run();
+
+    let files = handles.files.borrow();
+    let written: Vec<(PathBuf, Vec<u8>)> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, bytes } => Some((path.clone(), bytes.clone())),
+            SaveRequest::Dialog { .. } => None,
+        })
+        .collect();
+    let names: Vec<PathBuf> = written.iter().map(|(path, _)| path.clone()).collect();
+    assert_eq!(
+        names,
+        ["01 capture.vgm", "02 capture.vgm", "03 capture.vgm"]
+            .iter()
+            .map(|name| dir.join(name))
+            .collect::<Vec<_>>(),
+        "three numbered songs written into the chosen folder"
+    );
+
+    // Each piece is a real VGM declaring the capture's chips.
+    let pieces: Vec<dro_core::VgmFile> = written
+        .iter()
+        .map(|(_, bytes)| dro_core::vgm::file::read("piece.vgm", bytes).expect("a readable VGM"))
+        .collect();
+    for piece in &pieces {
+        assert_eq!(piece.chip_list(), "YM2610, AY8910");
+    }
+
+    // The first song is its own three commands: it starts where the capture
+    // does, so there is no state to put in front of it.
+    assert_eq!(pieces[0].len(), 3);
+    // The two cut from the middle open on the state the capture had reached --
+    // one write per chip, ahead of the same three commands.
+    for piece in &pieces[1..] {
+        assert_eq!(piece.len(), 5, "two restores ahead of the song's own three");
+        let stream = piece.stream().expect("the piece walks");
+        assert!(stream.describe(0).contains("YM2610"));
+        assert!(stream.describe(1).contains("AY8910"));
+    }
+}
+
 /// A header that disagrees with its stream is reported and offered, never
 /// silently corrected -- and the correction only lands once confirmed.
 #[test]

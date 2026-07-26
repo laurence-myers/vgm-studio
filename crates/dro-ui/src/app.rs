@@ -1598,15 +1598,15 @@ impl DroApp {
                 isolate_percussion,
             } => self.start_split(format, isolate_percussion),
             Action::OpenSplitSongs => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
                 if self.split_is_running() {
                     self.status = "Already splitting.".to_owned();
                     return;
                 }
-                if let Some(song) = self.editor.snapshot() {
-                    self.dialogs.split_songs = Some(SplitSongsDialog::new(song));
+                if let Some(source) = self.split_source() {
+                    self.dialogs.split_songs = Some(SplitSongsDialog::new(source));
                 }
             }
             Action::SplitSongsSubmitted {
@@ -3795,6 +3795,18 @@ impl DroApp {
         });
     }
 
+    /// The loaded document as something a song split can run over, of either
+    /// kind. `None` with nothing open.
+    fn split_source(&self) -> Option<crate::tasks::SplitSource> {
+        match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => Some(crate::tasks::SplitSource::Opl(song)),
+            (None, Some(file)) => Some(crate::tasks::SplitSource::Vgm(std::sync::Arc::new(
+                file.clone(),
+            ))),
+            (None, None) => None,
+        }
+    }
+
     /// Asks where the song split's files should go, then starts on the answer.
     fn start_split_songs(
         &mut self,
@@ -3812,7 +3824,14 @@ impl DroApp {
     /// The shared entry both splits use: guard, stash the request, open the
     /// output-folder picker.
     fn begin_split(&mut self, pending: PendingSplit) {
-        if !self.require_song() || self.split_is_running() {
+        // The channel split decides which channel each register write belongs
+        // to, so it needs an OPL stream; the song split only needs a document.
+        let gate = if pending.is_songs() {
+            Self::require_document
+        } else {
+            Self::require_song
+        };
+        if !gate(self) || self.split_is_running() {
             return;
         }
         self.split_flow = Some(SplitFlow::AwaitingFolder(pending));
@@ -3826,30 +3845,34 @@ impl DroApp {
             // A folder arrived with no split waiting for it; nothing to do.
             return;
         };
-        let (Some(dir), Some(song)) = (dir, self.editor.snapshot()) else {
-            self.split_flow = None;
-            self.status = "Split cancelled.".to_owned();
-            return;
-        };
         let songs = pending.is_songs();
-        let (request, status) = match pending {
-            PendingSplit::Channels { options } => (
-                TaskRequest::Split { song, options },
-                "Splitting channels...",
-            ),
+        let request = match pending {
+            PendingSplit::Channels { options } => self.editor.snapshot().map(|song| {
+                (
+                    TaskRequest::Split { song, options },
+                    "Splitting channels...",
+                )
+            }),
             PendingSplit::Songs {
                 threshold_native,
                 included,
                 trailing_tail,
-            } => (
-                TaskRequest::SplitSongs {
-                    song,
-                    threshold_native,
-                    included,
-                    trailing_tail,
-                },
-                "Splitting songs...",
-            ),
+            } => self.split_source().map(|source| {
+                (
+                    TaskRequest::SplitSongs {
+                        source,
+                        threshold_native,
+                        included,
+                        trailing_tail,
+                    },
+                    "Splitting songs...",
+                )
+            }),
+        };
+        let (Some(dir), Some((request, status))) = (dir, request) else {
+            self.split_flow = None;
+            self.status = "Split cancelled.".to_owned();
+            return;
         };
         self.tasks.submit(request, None);
         self.split_flow = Some(SplitFlow::Rendering { dir, songs });
@@ -4128,6 +4151,7 @@ impl DroApp {
             is_dro_v2: self.editor.song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
+            can_render: self.editor.capabilities().playable,
         }
     }
 

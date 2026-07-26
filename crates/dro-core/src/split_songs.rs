@@ -18,7 +18,8 @@ use crate::state_patch::{StateFold, append_patch};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
-use crate::vgm::{VgmData, VgmMeta};
+use crate::vgm::stream::VgmCommand;
+use crate::vgm::{VgmData, VgmFile, VgmMeta};
 
 /// One detected song within a capture: the half-open instruction range
 /// `[start, end)` that holds it, and where it sits in time.
@@ -100,17 +101,50 @@ impl Segment {
 /// unit, so a piece is never split where no time actually passes.
 #[must_use]
 pub fn detect_segments(song: &Song, threshold: u32) -> Vec<Segment> {
-    let threshold = u64::from(threshold).max(1);
     let in_samples = song.data().delays_in_samples();
+    detect(song.len(), threshold, |index| {
+        let instruction = song.instruction(index).expect("index < len");
+        (
+            native_delay(instruction, in_samples),
+            instruction.is_delay(),
+        )
+    })
+}
+
+/// The same detection over a VGM command stream, for a capture of any chips.
+///
+/// The threshold is in samples, the VGM's native unit. A `0x8n` DAC write is not
+/// a gap even though it waits: it writes a sample first, so the chip is being
+/// played, not left silent. Everything else that waits and nothing else is.
+///
+/// Returns none when the file's stream did not walk.
+#[must_use]
+pub fn detect_segments_in_vgm(file: &VgmFile, threshold: u32) -> Vec<Segment> {
+    let Some(stream) = file.stream() else {
+        return Vec::new();
+    };
+    detect(stream.len(), threshold, |index| {
+        (
+            stream.wait_samples(index),
+            matches!(stream.get(index), Some(VgmCommand::Wait(_))),
+        )
+    })
+}
+
+/// The detection itself, over whatever `at(index)` reports for each of `len`
+/// commands: how long it waits in the native unit, and whether it is *only* a
+/// wait. A command that waits but also does something is time passing inside a
+/// piece, never a gap between two.
+fn detect(len: usize, threshold: u32, at: impl Fn(usize) -> (u32, bool)) -> Vec<Segment> {
+    let threshold = u64::from(threshold).max(1);
 
     // A native-unit exclusive prefix sum, so a segment's start time and duration
     // are lookups rather than re-walks.
-    let mut prefix = Vec::with_capacity(song.len() + 1);
+    let mut prefix = Vec::with_capacity(len + 1);
     let mut acc = 0u32;
     prefix.push(acc);
-    for index in 0..song.len() {
-        let delay = native_delay(song.instruction(index).expect("index < len"), in_samples);
-        acc = acc.saturating_add(delay);
+    for index in 0..len {
+        acc = acc.saturating_add(at(index).0);
         prefix.push(acc);
     }
 
@@ -121,10 +155,10 @@ pub fn detect_segments(song: &Song, threshold: u32) -> Vec<Segment> {
     let mut last_real: Option<usize> = None;
     let mut gap: u64 = 0;
 
-    for index in 0..song.len() {
-        let instruction = song.instruction(index).expect("index < len");
-        if instruction.is_delay() {
-            gap += u64::from(native_delay(instruction, in_samples));
+    for index in 0..len {
+        let (delay, is_delay) = at(index);
+        if is_delay {
+            gap += u64::from(delay);
         } else {
             // A register write or a bank switch. A gap that reached the threshold
             // before it ends the current piece; this command opens the next.
@@ -209,6 +243,42 @@ pub fn materialise(song: &Song, segment: &Segment, state_replay: bool, trailing_
     }
 
     build_piece(song, bytes, segment.duration.saturating_add(tail))
+}
+
+/// The same lift, for a VGM of any chips.
+///
+/// The piece is a file in its own right: it declares the source's chips at the
+/// source's clocks, carries the source's GD3 with the track title blanked (that
+/// title named the whole capture), and does not loop -- the source's loop
+/// described the capture, not this piece of it. Its header's sample total and
+/// the file name follow from the piece itself.
+///
+/// `state_replay` prefixes the chip state the capture had reached by the
+/// segment's start, folded through [`crate::chip_state`] and re-emitted as the
+/// source's own bytes: the same treatment the OPL path gives an OPL capture,
+/// for whatever chips this one turns out to have. `trailing_tail` is in samples
+/// and capped at the gap that actually followed the piece.
+///
+/// `None` if the segment is empty or the source's stream did not walk.
+#[must_use]
+pub fn materialise_vgm(
+    file: &VgmFile,
+    segment: &Segment,
+    state_replay: bool,
+    trailing_tail: u32,
+) -> Option<VgmFile> {
+    // A piece that starts at the very beginning has no state to restore: the
+    // chips were blank there too.
+    let replay = state_replay && segment.start > 0;
+    let tail = trailing_tail.min(segment.trailing_gap);
+    let (mut piece, _report) = file.extract_region(segment.start, segment.end, replay, tail)?;
+
+    piece.name = piece_name(&file.name, "vgm");
+    if let Some(tag) = piece.tag.as_mut() {
+        tag.track_name_en.clear();
+        tag.track_name_native.clear();
+    }
+    Some(piece)
 }
 
 /// Captures the OPL state reached over `[0, start)` and appends the writes that
@@ -337,6 +407,93 @@ mod tests {
     // with the crop edits that emit the same patches.
     use crate::state_patch::{state_after_writes, state_over};
     use crate::vgm::Gd3Tag;
+
+    /// A capture for chips the OPL model knows nothing about, as a `VgmFile`.
+    /// Two songs, parted by `gap_samples` of silence; each song writes one
+    /// register to each of its two chips.
+    fn foreign_capture(gap_samples: u16) -> VgmFile {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let song = |ym: u8, ay: u8| {
+            let mut bytes = vec![0x58, 0x28, ym];
+            bytes.extend(wait(1000));
+            bytes.extend([0xA0, 0x07, ay]);
+            bytes
+        };
+        let mut stream = song(0xF0, 0x38);
+        stream.extend(wait(gap_samples));
+        stream.extend(song(0xF1, 0x39));
+        stream.push(0x66);
+
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x161);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        put_u32(
+            &mut bytes,
+            crate::vgm::ChipKind::Ym2610.clock_offset(),
+            8_000_000,
+        );
+        put_u32(
+            &mut bytes,
+            crate::vgm::ChipKind::Ay8910.clock_offset(),
+            2_000_000,
+        );
+        bytes.extend_from_slice(&stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        crate::vgm::file::read("capture.vgm", &bytes).expect("a walkable capture")
+    }
+
+    #[test]
+    fn a_foreign_capture_splits_at_its_silence() {
+        let file = foreign_capture(30_000);
+        // A gap shorter than the threshold is music, not a boundary.
+        assert_eq!(detect_segments_in_vgm(&file, 40_000).len(), 1);
+        let songs = detect_segments_in_vgm(&file, 20_000);
+        assert_eq!(songs.len(), 2);
+        assert_eq!(songs[0].start, 0);
+        // The gap's own wait belongs to neither piece.
+        assert_eq!(songs[1].start, 4);
+        assert_eq!(songs[1].start_time, 1000 + 30_000);
+    }
+
+    #[test]
+    fn a_foreign_piece_opens_on_the_state_the_capture_had_reached() {
+        let file = foreign_capture(30_000);
+        let songs = detect_segments_in_vgm(&file, 20_000);
+        let piece = materialise_vgm(&file, &songs[1], true, 0).expect("the second song");
+
+        // The piece is the second song's three commands, with one restore per
+        // chip in front: the values the *first* song left behind.
+        let stream = piece.stream().expect("the piece walks");
+        assert_eq!(stream.len(), 5);
+        assert_eq!(stream.raw_command(0), Some([0x58, 0x28, 0xF0].as_slice()));
+        assert_eq!(stream.raw_command(1), Some([0xA0, 0x07, 0x38].as_slice()));
+        assert_eq!(stream.raw_command(2), Some([0x58, 0x28, 0xF1].as_slice()));
+
+        // It stands alone: the capture's chips at the capture's clocks, its own
+        // sample total, and no loop.
+        assert_eq!(piece.chip_list(), "YM2610, AY8910");
+        assert_eq!(piece.header.total_samples(), 1000);
+        assert_eq!(piece.loop_index(), None);
+        assert_eq!(piece.name, "capture.vgm");
+    }
+
+    #[test]
+    fn the_first_foreign_piece_needs_no_prelude_and_a_tail_is_capped() {
+        let file = foreign_capture(30_000);
+        let songs = detect_segments_in_vgm(&file, 20_000);
+
+        // Nothing preceded the first song, so it is only its own commands.
+        let first = materialise_vgm(&file, &songs[0], true, 0).expect("the first song");
+        assert_eq!(first.stream().unwrap().len(), 3);
+
+        // A tail is capped at the silence that actually followed the piece.
+        let with_tail = materialise_vgm(&file, &songs[0], true, 99_999).expect("the first song");
+        assert_eq!(with_tail.header.total_samples(), 1000 + 30_000);
+    }
 
     /// A low-bank OPL2 write, `0x5A reg value`.
     fn write(reg: u8, value: u8) -> Vec<u8> {

@@ -130,6 +130,11 @@ pub struct MenuState {
     /// Whether the loaded song is a DRO **v2** specifically -- the only thing
     /// there is to convert down to v1.
     pub is_dro_v2: bool,
+    /// Whether the loaded document has an OPL stream to render. The WAV render
+    /// and the channel split both decode one, so for a document there is no core
+    /// for they are hidden, the same way the transport is. True with nothing
+    /// loaded, so an empty editor's File menu looks as it always has.
+    pub can_render: bool,
 }
 
 /// Draws the bar, pushing whatever the user picked onto `actions`.
@@ -170,13 +175,16 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                     actions.push(Action::SaveAs);
                 }
                 crate::theme::separator(ui, palette);
-                if item(ui, "Render to WAV...", None) {
-                    actions.push(Action::OpenRenderWav);
+                if state.can_render {
+                    if item(ui, "Render to WAV...", None) {
+                        actions.push(Action::OpenRenderWav);
+                    }
+                    if item(ui, "Split Channels...", None) {
+                        actions.push(Action::OpenSplit);
+                    }
                 }
-                if item(ui, "Split Channels...", None) {
-                    actions.push(Action::OpenSplit);
-                }
-                // Split one capture into its per-song files (VGM or DRO).
+                // Split one capture into its per-song files, for any chips: where
+                // a capture falls silent is not an OPL question.
                 if item(ui, "Split Songs...", None) {
                     actions.push(Action::OpenSplitSongs);
                 }

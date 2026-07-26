@@ -103,6 +103,46 @@ fn span(stream: &VgmStream, from: usize, to: usize) -> &[u8] {
     &stream.raw()[start..end]
 }
 
+/// The bytes of rows `start..end`, with the chip state the discarded head had
+/// established in front of them when `state_replay` is set.
+///
+/// Returns the bytes, the length of that prelude (so a caller can place a loop
+/// that moved with the region), and what the fold could and could not model.
+/// The end-of-data marker is the caller's to add: what follows the region
+/// differs between an edit and an extraction.
+fn region_bytes(
+    stream: &VgmStream,
+    start: usize,
+    end: usize,
+    state_replay: bool,
+) -> (Vec<u8>, usize, RegionReport) {
+    let mut bytes = Vec::new();
+    let mut report = RegionReport::default();
+    if state_replay {
+        let head = ChipState::fold(stream, start);
+        report = RegionReport {
+            unmodelled: chip_state::unmodelled_commands(stream, start).len(),
+            restored: head.restore_indices().len(),
+        };
+        bytes = ChipState::bytes_for(stream, &head.restore_indices());
+    }
+    let prelude_len = bytes.len();
+    bytes.extend_from_slice(span(stream, start, end));
+    (bytes, prelude_len, report)
+}
+
+/// Appends a wait of `samples`, chunked into as many `0x61 nn nn` commands as
+/// it takes (one waits at most 65535 samples).
+fn append_wait(bytes: &mut Vec<u8>, samples: u32) {
+    let mut left = samples;
+    while left > 0 {
+        let chunk = left.min(u32::from(u16::MAX));
+        bytes.push(0x61);
+        bytes.extend_from_slice(&(chunk as u16).to_le_bytes());
+        left -= chunk;
+    }
+}
+
 /// A VGM file for any chip, with its tags editable and its music left alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VgmFile {
@@ -320,15 +360,7 @@ impl VgmFile {
         if start >= end {
             return None;
         }
-        let head = ChipState::fold(stream, start);
-        let report = RegionReport {
-            unmodelled: chip_state::unmodelled_commands(stream, start).len(),
-            restored: head.restore_indices().len(),
-        };
-
-        let mut bytes = ChipState::bytes_for(stream, &head.restore_indices());
-        let prelude_len = bytes.len();
-        bytes.extend_from_slice(span(stream, start, end));
+        let (mut bytes, prelude_len, report) = region_bytes(stream, start, end, true);
         bytes.push(END_OF_DATA);
 
         // A loop inside the kept region moves with it; one outside it is gone.
@@ -339,6 +371,44 @@ impl VgmFile {
         });
         self.rebuild(bytes, new_loop);
         Some(report)
+    }
+
+    /// Lifts rows `start..end` out into a standalone file, leaving this one
+    /// alone.
+    ///
+    /// The same cut as [`Self::crop_to_region`], but as a new file rather than
+    /// an edit: the piece declares the same chips at the same clocks (it is the
+    /// same music, played on the same hardware), carries this file's tag, and
+    /// does not loop -- the source's loop described the whole capture, not this
+    /// piece of it.
+    ///
+    /// `state_replay` prefixes the chip state the discarded head established;
+    /// without it the piece starts on a blank chip, which is only what a caller
+    /// wants when it is cutting at a point it knows to be silence.
+    /// `tail_samples` appends that much extra silence as a decay tail.
+    ///
+    /// Returns the piece and what could not be modelled, or `None` if the
+    /// region is empty, out of range, or the stream did not walk.
+    #[must_use]
+    pub fn extract_region(
+        &self,
+        start: usize,
+        end: usize,
+        state_replay: bool,
+        tail_samples: u32,
+    ) -> Option<(Self, RegionReport)> {
+        let stream = self.stream()?;
+        let end = end.min(stream.len());
+        if start >= end {
+            return None;
+        }
+        let (mut bytes, _prelude_len, report) = region_bytes(stream, start, end, state_replay);
+        append_wait(&mut bytes, tail_samples);
+        bytes.push(END_OF_DATA);
+
+        let mut piece = self.clone();
+        piece.rebuild(bytes, None);
+        Some((piece, report))
     }
 
     /// Removes rows `start..end`, bridging the seam with what that span

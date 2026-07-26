@@ -58,6 +58,7 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
     let mut newly_openable = 0usize;
     let mut unreadable_by_both = 0usize;
     let mut with_blocks = 0usize;
+    let mut split_pieces = 0usize;
     let mut chips_seen: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
@@ -82,7 +83,8 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
                     continue;
                 };
                 let checked = compare(&expected, &projected)
-                    .and_then(|()| compare_optimised(&name, &bytes, &expected));
+                    .and_then(|()| compare_optimised(&name, &bytes, &expected))
+                    .and_then(|()| compare_split(&file, &expected, &mut split_pieces));
                 if let Err(why) = checked {
                     failures.push(format!("{name}: {why}"));
                 } else {
@@ -111,6 +113,7 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
     eprintln!("scanned:            {scanned}");
     eprintln!("OPL (both readers): {opl}, agreed: {agreed}");
     eprintln!("  of those, carrying non-OPL commands: {with_blocks}");
+    eprintln!("split pieces checked: {split_pieces}");
     eprintln!("newly openable:     {newly_openable}");
     for (chips, count) in &chips_seen {
         eprintln!("    {count:>5}  {chips}");
@@ -212,4 +215,82 @@ fn compare_optimised(name: &str, bytes: &[u8], expected: &dro_core::Song) -> Res
         ));
     }
     Ok(())
+}
+
+/// The chip-agnostic splitter against the OPL one, on the same file.
+///
+/// Detection must agree exactly -- it is a pure function of the stream, and a
+/// disagreement means one of the two miscounts a gap. Each piece must then hold
+/// the same music: the same OPL register state at its end, and the same length.
+///
+/// Not the same *bytes*, deliberately. The two state preludes emit the same
+/// writes in different orders (the OPL fold walks the register file low bank
+/// first, the generic one replays the source's own write order) and the generic
+/// one also restores a register explicitly written to zero, which the OPL fold
+/// skips as unchanged from a blank chip. Both leave the chip in the same place,
+/// which is what this checks.
+fn compare_split(
+    file: &dro_core::VgmFile,
+    expected: &dro_core::Song,
+    pieces_checked: &mut usize,
+) -> Result<(), String> {
+    // vgm_sptd's own gap threshold: 0x8000 samples.
+    const THRESHOLD: u32 = 0x8000;
+    let theirs = dro_core::split_songs::detect_segments(expected, THRESHOLD);
+    let ours = dro_core::split_songs::detect_segments_in_vgm(file, THRESHOLD);
+    if ours != theirs {
+        return Err(format!(
+            "detected {} segment(s), the OPL splitter {}",
+            ours.len(),
+            theirs.len()
+        ));
+    }
+
+    for (index, segment) in theirs.iter().enumerate() {
+        let theirs = dro_core::split_songs::materialise(expected, segment, true, 0);
+        let ours = dro_core::split_songs::materialise_vgm(file, segment, true, 0)
+            .ok_or_else(|| format!("segment {index}: the generic splitter produced nothing"))?;
+        let ours = ours
+            .to_song()
+            .ok_or_else(|| format!("segment {index}: the piece is no longer an OPL song"))?;
+
+        if opl_state(&ours) != opl_state(&theirs) {
+            return Err(format!(
+                "segment {index}: the pieces leave the chip in different states"
+            ));
+        }
+        if ours.total_delay_ms() != theirs.total_delay_ms() {
+            return Err(format!(
+                "segment {index}: piece lengths differ ({} ms vs {} ms)",
+                ours.total_delay_ms(),
+                theirs.total_delay_ms()
+            ));
+        }
+        *pieces_checked += 1;
+    }
+    Ok(())
+}
+
+/// The OPL register state a song leaves behind: every register it wrote, at its
+/// last value, with registers left at zero dropped (a blank chip reads zero, so
+/// writing one explicitly is indistinguishable from never writing it).
+fn opl_state(song: &dro_core::Song) -> std::collections::BTreeMap<(u8, u8), u8> {
+    use dro_core::song::{Bank, DroInstruction};
+    let mut state = std::collections::BTreeMap::new();
+    let mut bank = Bank::Low;
+    for index in 0..song.len() {
+        match song.instruction(index) {
+            Some(DroInstruction::BankSwitch(to)) => bank = to,
+            Some(DroInstruction::Register {
+                reg,
+                value,
+                bank: at,
+            }) => {
+                state.insert((at.unwrap_or(bank).index(), reg), value);
+            }
+            _ => {}
+        }
+    }
+    state.retain(|_, value| *value != 0);
+    state
 }

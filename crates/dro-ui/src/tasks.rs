@@ -12,7 +12,9 @@ use dro_core::Song;
 use dro_core::io::write_song;
 use dro_core::loopfind::{Candidate, find_loops, rank};
 use dro_core::pack::track_file_name;
-use dro_core::split_songs::{detect_segments, materialise};
+use dro_core::split_songs::{
+    detect_segments, detect_segments_in_vgm, materialise, materialise_vgm,
+};
 use dro_synth::{
     Peak, RenderMix, SplitData, SplitOptions, WaveformBucket, measure_peak_cancellable,
     render_wav_cancellable, render_waveform_progressive, split_cancellable,
@@ -57,7 +59,7 @@ pub enum TaskRequest {
         options: SplitOptions,
     },
     SplitSongs {
-        song: Arc<Song>,
+        source: SplitSource,
         /// The gap threshold, in the song's native delay unit (samples for a VGM,
         /// milliseconds for a DRO).
         threshold_native: u32,
@@ -95,6 +97,61 @@ pub enum TaskRequest {
 pub enum LoopSearchSource {
     Opl(Arc<Song>),
     Vgm(Arc<dro_core::VgmFile>),
+}
+
+/// What a song split runs over.
+///
+/// Where a capture goes silent is not an OPL question either, so this serves
+/// both representations. The dialog holds one of these too: it re-runs detection
+/// on every slider move, and the export re-runs it once more so the flags line
+/// up with what was shown.
+#[derive(Debug, Clone)]
+pub enum SplitSource {
+    Opl(Arc<Song>),
+    Vgm(Arc<dro_core::VgmFile>),
+}
+
+impl SplitSource {
+    /// Delay units per second in this capture's native unit: 44100 for a VGM
+    /// (samples), 1000 for a DRO (milliseconds).
+    #[must_use]
+    pub fn rate(&self) -> u32 {
+        match self {
+            Self::Opl(song) => dro_core::split_songs::native_rate(song),
+            Self::Vgm(_) => dro_core::util::VGM_SAMPLE_RATE,
+        }
+    }
+
+    /// The songs in the capture at `threshold` native units.
+    #[must_use]
+    pub fn detect(&self, threshold: u32) -> Vec<dro_core::Segment> {
+        match self {
+            Self::Opl(song) => detect_segments(song, threshold),
+            Self::Vgm(file) => detect_segments_in_vgm(file, threshold),
+        }
+    }
+
+    /// Whether a piece can be auditioned before exporting. Previewing seeks
+    /// playback, which needs a chip this app can actually render.
+    #[must_use]
+    pub fn can_preview(&self) -> bool {
+        matches!(self, Self::Opl(_))
+    }
+
+    /// The file name each piece is numbered against, and its extension.
+    fn stem_and_extension(&self) -> (&str, &'static str) {
+        let (name, extension) = match self {
+            Self::Opl(song) => (
+                song.name.as_str(),
+                if song.is_vgm() { "vgm" } else { "dro" },
+            ),
+            Self::Vgm(file) => (file.name.as_str(), "vgm"),
+        };
+        let stem = name
+            .rsplit_once('.')
+            .map_or(name, |(stem, _extension)| stem);
+        (stem, extension)
+    }
 }
 
 impl TaskRequest {
@@ -234,13 +291,13 @@ pub fn run_task(
             }
         }
         TaskRequest::SplitSongs {
-            song,
+            source,
             threshold_native,
             included,
             trailing_tail,
         } => {
             if let Some(result) = split_songs_to_bytes(
-                song,
+                source,
                 *threshold_native,
                 included,
                 *trailing_tail,
@@ -324,34 +381,38 @@ pub fn run_task(
 /// as kept. `trailing_tail` (native units) keeps up to that much decay after each
 /// piece; state replay is always on.
 fn split_songs_to_bytes(
-    song: &Song,
+    source: &SplitSource,
     threshold_native: u32,
     included: &[bool],
     trailing_tail: u32,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Option<SplitFiles> {
-    let stem = song
-        .name
-        .rsplit_once('.')
-        .map_or(song.name.as_str(), |(stem, _extension)| stem);
-    let extension = if song.is_vgm() { "vgm" } else { "dro" };
+    let (stem, extension) = source.stem_and_extension();
 
     let mut files = Vec::new();
     let mut number = 1;
-    for (index, segment) in detect_segments(song, threshold_native)
-        .into_iter()
-        .enumerate()
-    {
+    for (index, segment) in source.detect(threshold_native).into_iter().enumerate() {
         if is_cancelled() {
             return None;
         }
         if !included.get(index).copied().unwrap_or(true) {
             continue;
         }
-        let piece = materialise(song, &segment, true, trailing_tail);
-        let bytes = match write_song(&piece) {
+        let bytes = match source {
+            SplitSource::Opl(song) => {
+                let piece = materialise(song, &segment, true, trailing_tail);
+                write_song(&piece).map_err(|error| error.to_string())
+            }
+            SplitSource::Vgm(file) => match materialise_vgm(file, &segment, true, trailing_tail) {
+                Some(piece) => {
+                    dro_core::vgm::file::write(&piece).map_err(|error| error.to_string())
+                }
+                None => Err(format!("Song {number} could not be extracted.")),
+            },
+        };
+        let bytes = match bytes {
             Ok(bytes) => bytes,
-            Err(error) => return Some(Err(error.to_string())),
+            Err(error) => return Some(Err(error)),
         };
         files.push((track_file_name(number, stem, extension), bytes));
         number += 1;
@@ -565,9 +626,15 @@ mod tests {
     #[test]
     fn a_song_split_names_a_numbered_vgm_per_song() {
         let song = crate::test_song::multi_song_capture();
-        let files = split_songs_to_bytes(&song, 33_075, &[true, true, true], 0, &|| false)
-            .unwrap()
-            .unwrap();
+        let files = split_songs_to_bytes(
+            &SplitSource::Opl(Arc::new(song.clone())),
+            33_075,
+            &[true, true, true],
+            0,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
             names,
@@ -584,9 +651,15 @@ mod tests {
     fn a_song_split_drops_excluded_segments_and_renumbers() {
         let song = crate::test_song::multi_song_capture();
         // Drop the middle song; the numbering must stay contiguous.
-        let files = split_songs_to_bytes(&song, 33_075, &[true, false, true], 0, &|| false)
-            .unwrap()
-            .unwrap();
+        let files = split_songs_to_bytes(
+            &SplitSource::Opl(Arc::new(song.clone())),
+            33_075,
+            &[true, false, true],
+            0,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(names, ["01 capture.vgm", "02 capture.vgm"]);
     }
@@ -595,9 +668,15 @@ mod tests {
     fn a_dro_song_split_writes_dro_pieces() {
         // A DRO capture yields `.dro` pieces (threshold and tail in milliseconds).
         let song = crate::test_song::multi_song_capture_dro();
-        let files = split_songs_to_bytes(&song, 750, &[true, true, true], 0, &|| false)
-            .unwrap()
-            .unwrap();
+        let files = split_songs_to_bytes(
+            &SplitSource::Opl(Arc::new(song.clone())),
+            750,
+            &[true, true, true],
+            0,
+            &|| false,
+        )
+        .unwrap()
+        .unwrap();
         let names: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
         assert_eq!(
             names,
@@ -612,7 +691,7 @@ mod tests {
     #[test]
     fn a_cancelled_song_split_emits_nothing() {
         let split = TaskRequest::SplitSongs {
-            song: Arc::new(crate::test_song::multi_song_capture()),
+            source: SplitSource::Opl(Arc::new(crate::test_song::multi_song_capture())),
             threshold_native: 33_075,
             included: vec![true, true, true],
             trailing_tail: 0,
