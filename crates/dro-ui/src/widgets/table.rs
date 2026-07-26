@@ -75,7 +75,7 @@ pub fn show(
 
     builder
         .header(row_height + 2.0, |mut header| {
-            for title in ["Pos (hex)", "Bank", "Reg.", "Value", "Description"] {
+            for title in editor.column_titles() {
                 header.col(|ui| {
                     ui.label(
                         egui::RichText::new(title)
@@ -96,41 +96,22 @@ pub fn show(
                 // that and clash with the accent bar, so drop it when selected.
                 let tint = |color: Color32| (!selected).then_some(color);
 
-                let analysis = editor.row_analysis(index);
-                let song = editor
-                    .song()
-                    .expect("rows are only built while a song is loaded");
+                let cells = editor.row_cells(index);
 
-                cell(&mut row, format!("{index:04X}"), tint(palette.data_text));
-                cell(
-                    &mut row,
-                    analysis
-                        .as_ref()
-                        .map_or_else(String::new, |a| a.bank.index().to_string()),
-                    tint(palette.muted),
-                );
-                cell(
-                    &mut row,
-                    song.register_display(index).unwrap_or_default(),
-                    tint(palette.data_text),
-                );
-                cell(
-                    &mut row,
-                    song.value_display(index).unwrap_or_default(),
-                    tint(palette.data_text),
-                );
+                cell(&mut row, cells.position, tint(palette.data_text));
+                cell(&mut row, cells.bank, tint(palette.muted));
+                cell(&mut row, cells.register, tint(palette.data_text));
+                cell(&mut row, cells.value, tint(palette.data_text));
                 // The Description cell, with the full "all register options" text
                 // (formerly its own column) shown on hover.
-                let description = analysis.map_or_else(String::new, |a| a.description.into_owned());
-                let all_options = song.instruction_description(index).unwrap_or_default();
                 row.col(|ui| {
-                    let mut rich = egui::RichText::new(description).monospace();
+                    let mut rich = egui::RichText::new(cells.description).monospace();
                     if let Some(color) = tint(palette.data_label) {
                         rich = rich.color(color);
                     }
                     let response = ui.add(egui::Label::new(rich).selectable(false));
-                    if !all_options.is_empty() {
-                        response.on_hover_text(all_options);
+                    if !cells.hover.is_empty() {
+                        response.on_hover_text(cells.hover);
                     }
                 });
 

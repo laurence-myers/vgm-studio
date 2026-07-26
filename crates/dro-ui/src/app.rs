@@ -478,7 +478,11 @@ impl DroApp {
         // The editor-only panels (waveform, transport/boost, position) are hidden
         // on the pack tab, which owns the whole central area.
         let editor_tab = self.active_tab == AppTab::Editor;
-        let waveform = editor_tab.then(|| {
+        // A foreign VGM has no OPL stream, so the panels that exist to show or
+        // drive audio have nothing to say about it. They go, rather than sit
+        // there as a dead transport over a permanently flat waveform.
+        let audio_panels = editor_tab && self.editor.capabilities().playable;
+        let waveform = audio_panels.then(|| {
             egui::Panel::top("waveform")
                 .frame(well)
                 .resizable(true)
@@ -555,7 +559,7 @@ impl DroApp {
                     });
                 });
             });
-        let position = editor_tab.then(|| {
+        let position = audio_panels.then(|| {
             egui::Panel::bottom("position-panel")
                 .frame(chrome)
                 .show_separator_line(false)
@@ -565,7 +569,7 @@ impl DroApp {
                     });
                 })
         });
-        let controls = editor_tab.then(|| {
+        let controls = audio_panels.then(|| {
             // The controls own their vertical spacing (equal padding above and
             // below each row band), so drop the frame's vertical margin/spacing.
             let controls_frame = egui::Frame::side_top_panel(ui.style())
@@ -703,7 +707,7 @@ impl DroApp {
             .frame(egui::Frame::central_panel(ui.style()).fill(central_fill))
             .show(ui, |ui| match self.active_tab {
                 AppTab::Editor => {
-                    if self.editor.has_song() {
+                    if self.editor.has_document() {
                         // Row hover reads `widgets.hovered.bg_fill`, which is the
                         // bright face colour; scope it to the data-well tone so it
                         // does not flash teal under the yellow text.
@@ -2084,17 +2088,57 @@ impl DroApp {
                     self.set_boost(boost, false);
                 }
             }
-            // A file the editor cannot open is not necessarily a broken one.
-            // A VGM for other chips gets told what it is and where its tags can
-            // be edited, rather than a "Failed to load" that blames the file.
+            // A file the editor cannot fully model is not a broken one. A VGM
+            // for other chips opens for trimming -- rows, selection, delete,
+            // undo and save -- with the panels that need an OPL stream gone.
+            // What it cannot do it says in the status bar, not in an error.
             Err(LoadFailure::ForeignVgm { file, folder }) => {
-                self.status = format!("{name} is not an OPL song.");
-                self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
+                let chips = file.chip_list();
+                let editable = file.stream().is_some();
+                if editable {
+                    self.open_foreign(*file, folder);
+                    self.status =
+                        format!("Opened {name} ({chips}); playback is not supported yet.");
+                } else {
+                    // Its command stream would not walk, so there are no rows to
+                    // show. The dialog is still the right answer for that one.
+                    self.status = format!("{name} could not be read as commands.");
+                    self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
+                }
             }
             Err(LoadFailure::Unreadable(message)) => self
                 .alerts
                 .push_back(Alert::new("Failed to load file", message)),
         }
+    }
+
+    /// Installs a VGM the OPL model cannot describe, and tears down everything
+    /// that belonged to the song it replaces.
+    ///
+    /// The same teardown as a successful [`Self::load_file`], minus the parts
+    /// that only mean something for an OPL song: there is no waveform to render,
+    /// no audio to load, and no channel state to seed from a chip type.
+    fn open_foreign(&mut self, file: dro_core::VgmFile, folder: Option<PathBuf>) {
+        self.close_song_dialogs();
+        self.waveform = WaveformState::default();
+        self.tasks.cancel(TaskKind::RenderWav);
+        self.tasks.cancel(TaskKind::Split);
+        self.tasks.cancel(TaskKind::VolumeScan);
+        self.split_flow = None;
+        self.submit_waveform(None);
+        self.audio.unload();
+        self.peak_meter = PeakMeterState::default();
+        self.boost_ceiling = None;
+        self.audio_revision = None;
+        self.was_playing = false;
+        self.channels = ChipPanels::for_vgm(&file);
+        self.position.set_length_ms(file.total_ms());
+        self.position.set_position_ms(0);
+        self.last_first_selected = None;
+        self.scroll_to = Some(table::ScrollTo::centered(0));
+        // The picked file's own path, not its folder: Save writes the file.
+        let path = folder.map(|folder| folder.join(&file.name));
+        self.editor.load_foreign(file, path);
     }
 
     /// Unloads the song, leaving the editor as it starts: the same teardown a

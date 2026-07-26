@@ -1802,10 +1802,13 @@ fn snapshot_gd3_tag_dialog() {
     settled_snapshot(&mut harness, "gd3_tag_dialog");
 }
 
-/// A Neo Geo VGM: two chips, a v1.61 header, a loop, and a tag -- everything
-/// the dialog reports, and a body the OPL command table cannot size, so the
-/// editor is certain to decline it.
-fn foreign_vgm_file() -> PickedFile {
+/// A Neo Geo VGM: two chips, a v1.61 header, a loop and a tag, and a `stream`
+/// of commands the OPL table cannot size, so the editor is certain to decline
+/// it as a song.
+///
+/// `total` and `loop_samples` go in the header verbatim; a real file's agree
+/// with its stream, and so do the ones passed here.
+fn foreign_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8> {
     use dro_core::ChipKind;
 
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
@@ -1818,13 +1821,29 @@ fn foreign_vgm_file() -> PickedFile {
     put_u32(&mut bytes, 0x34, 0x100 - 0x34);
     put_u32(&mut bytes, ChipKind::Ym2610.clock_offset(), 8_000_000);
     put_u32(&mut bytes, ChipKind::Ay8910.clock_offset(), 2_000_000);
-    put_u32(&mut bytes, 0x18, 44_100 * 95); // total samples
-    put_u32(&mut bytes, 0x1C, (0x100 + 3 - 0x1C) as u32); // loop offset
-    put_u32(&mut bytes, 0x20, 44_100 * 60); // loop samples
-    bytes.extend_from_slice(&[0x58, 0x28, 0xF0, 0x61, 0x10, 0x27, 0x66]);
+    put_u32(&mut bytes, 0x18, total);
+    put_u32(&mut bytes, 0x1C, (0x100 + 3 - 0x1C) as u32); // loop at command 1
+    put_u32(&mut bytes, 0x20, loop_samples);
+    bytes.extend_from_slice(stream);
     let eof = bytes.len();
     put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+    bytes
+}
 
+/// The Neo Geo file, tagged, with a stream that walks cleanly. Its two waits
+/// sum to 10735 samples, and the loop covers both.
+fn foreign_vgm_file() -> PickedFile {
+    let bytes = foreign_vgm_bytes(
+        &[
+            0x58, 0x28, 0xF0, // YM2610 port 0
+            0x61, 0x10, 0x27, // wait 10000
+            0xA0, 0x07, 0x38, // AY8910
+            0x62, // wait 735
+            0x66, // end
+        ],
+        10_735,
+        10_735,
+    );
     let mut file = dro_core::vgm::file::read("03 Psycho Soldier.vgm", &bytes).unwrap();
     file.tag = Some(dro_core::Gd3Tag {
         track_name_en: "Psycho Soldier".to_owned(),
@@ -1838,29 +1857,101 @@ fn foreign_vgm_file() -> PickedFile {
     }
 }
 
+/// The same file with a stream that will not walk: `0x00` is an opcode the
+/// spec gives no length, so there is no way past it and no rows to show.
+fn unwalkable_vgm_file() -> PickedFile {
+    PickedFile {
+        name: "04 Broken.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/Athena/04 Broken.vgm")),
+        // Its stream cannot be summed, so the header's own totals are all there
+        // is -- which is exactly what the dialog reports.
+        bytes: foreign_vgm_bytes(&[0x00, 0x01, 0x02, 0x66], 44_100 * 95, 44_100 * 60),
+    }
+}
+
+/// The foreign editor: rows named by chip, and no transport or waveform above
+/// them, because there is no OPL stream to drive either.
+#[test]
+fn snapshot_foreign_editor() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, true);
+    harness.state_mut().editor.selection.select_only(1);
+    harness.run();
+    settled_snapshot(&mut harness, "foreign_editor");
+}
+
+/// The dialog is now the answer for one case only: a file whose commands
+/// cannot be walked, and so has nothing to put in the table.
 #[test]
 fn snapshot_foreign_vgm_dialog() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, true);
+    let (mut harness, _handles) = build(Some(unwalkable_vgm_file()), false, true);
     settled_snapshot(&mut harness, "foreign_vgm_dialog");
 }
 
-/// Opening a VGM for other chips is not a failure. It must not raise the
-/// "Failed to load file" alert, and it must not leave a half-loaded song.
+/// Opening a VGM for other chips is not a failure: it opens for trimming, with
+/// no error alert and no half-loaded song.
 #[test]
-fn opening_a_foreign_vgm_explains_rather_than_erroring() {
+fn opening_a_foreign_vgm_opens_it_for_trimming() {
     let (harness, _handles) = build(Some(foreign_vgm_file()), false, false);
     let app = harness.state();
+
+    assert!(app.editor.foreign().is_some(), "it opened");
+    assert!(app.editor.song().is_none(), "but not as a song");
+    assert!(app.dialogs.foreign_vgm.is_none(), "no dialog was needed");
+    assert!(app.alerts.is_empty(), "and no error: {:?}", app.alerts);
+    assert_eq!(app.editor.len(), 4, "four commands, the end marker aside");
     assert!(
-        app.dialogs.foreign_vgm.is_some(),
-        "the explaining dialog opens"
+        !app.editor.capabilities().playable,
+        "there is no OPL stream to play"
     );
+    assert!(
+        app.status.contains("playback is not supported"),
+        "{}",
+        app.status
+    );
+}
+
+/// A file whose commands cannot be walked has no rows, so the dialog stays the
+/// better answer for it.
+#[test]
+fn a_vgm_whose_commands_do_not_walk_still_gets_the_dialog() {
+    let (harness, _handles) = build(Some(unwalkable_vgm_file()), false, false);
+    let app = harness.state();
+    assert!(app.dialogs.foreign_vgm.is_some());
+    assert!(app.editor.foreign().is_none(), "nothing was loaded");
     assert!(
         app.alerts.is_empty(),
-        "and no error alert: {:?}",
+        "still not an error: {:?}",
         app.alerts
     );
-    assert!(app.editor.song().is_none(), "nothing was loaded");
-    assert!(app.status.contains("not an OPL song"), "{}", app.status);
+}
+
+/// The whole point of the step: rows can be selected, deleted and undone in a
+/// file the editor cannot decode a single command of into OPL terms.
+#[test]
+fn a_foreign_document_can_be_trimmed_and_undone() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let before = harness.state().editor.save_bytes().unwrap();
+
+    harness.state_mut().editor.selection.select_only(1); // the 10000 wait
+    assert!(harness.state_mut().editor.delete_selection());
+    let app = harness.state();
+    assert_eq!(app.editor.len(), 3);
+    assert!(app.editor.is_dirty());
+    assert!(app.editor.can_undo());
+    assert_eq!(app.editor.undo_description(), Some("Delete Command(s)"));
+
+    // The header followed the edit, rather than going stale.
+    let file = app.editor.foreign().unwrap();
+    assert_eq!(file.header.total_samples(), 10_735 - 10_000);
+    assert_eq!(file.header.loop_samples(), Some(735), "the loop shrank too");
+
+    harness.state_mut().editor.undo();
+    assert_eq!(harness.state().editor.len(), 4);
+    assert_eq!(
+        harness.state().editor.save_bytes().unwrap(),
+        before,
+        "undo restores the file byte for byte"
+    );
 }
 
 /// A file that is not a song at all still gets the plain error -- the friendly

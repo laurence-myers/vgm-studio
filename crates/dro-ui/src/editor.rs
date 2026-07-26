@@ -5,16 +5,40 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dro_core::undo::{DeleteInstructions, ReplaceStream, UpdateHeader};
+use dro_core::undo::{DeleteCommands, DeleteInstructions, ReplaceStream, UpdateHeader};
 use dro_core::{
     CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
-    UndoController, UndoableCommand, VgmFile, convert, io,
+    UndoController, UndoableCommand, VgmCommand, VgmFile, convert, io,
 };
 
 use crate::analysis::AnalysisCache;
 use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
+
+/// One row of the instruction table, filled from whichever document is open.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RowCells {
+    pub position: String,
+    /// The OPL bank, or the chip a foreign command targets.
+    pub bank: String,
+    pub register: String,
+    pub value: String,
+    pub description: String,
+    /// The long "every option this register has" text, shown on hover. Empty
+    /// for a foreign row, which has no register table to draw on.
+    pub hover: String,
+}
+
+/// What the loaded document supports, for the panels that only suit some of it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DocCapabilities {
+    /// There is an OPL stream to render: the transport, waveform, position
+    /// readout, peak meter and channel controls all mean something.
+    pub playable: bool,
+    /// There are rows to select and delete.
+    pub editable: bool,
+}
 
 /// Why a file did not open in the editor.
 ///
@@ -67,12 +91,26 @@ pub struct LoadReport {
 #[derive(Debug, Default)]
 pub struct Editor {
     song: Option<Song>,
+    /// A VGM whose chips the OPL model cannot describe, opened for trimming
+    /// only. **At most one of `song` and `foreign` is ever `Some`** -- a load
+    /// clears both before installing either.
+    ///
+    /// A second slot rather than an enum over the two: the OPL editing surface
+    /// is thirty-odd methods deep and every one of them would have to learn a
+    /// document kind it has no use for. What the two kinds genuinely share --
+    /// the selection, the markers, the revision and dirty tracking, the path --
+    /// is already here beside them and stays shared.
+    foreign: Option<VgmFile>,
     /// Where the song was loaded from or last saved to. `None` on the web, and
     /// after Convert to VGM -- the converted song has no file yet, so Save
     /// falls through to Save As rather than writing VGM bytes over the
     /// original `.dro`.
     pub path: Option<PathBuf>,
     undo: UndoController<Song>,
+    /// The foreign document's own history. Separate because the two undo stacks
+    /// hold commands over different targets, and only one document is ever
+    /// loaded, so they can never both be live.
+    foreign_undo: UndoController<VgmFile>,
     pub selection: Selection,
     /// The marked-out loop region, tracked through edits alongside the
     /// selection. A view onto the song until [`Editor::apply_loop_to_metadata`]
@@ -115,10 +153,47 @@ impl Editor {
         self.song.is_some()
     }
 
-    /// The number of instructions, `0` with no song.
+    /// The loaded VGM the OPL model cannot describe, if that is what is open.
+    #[must_use]
+    pub fn foreign(&self) -> Option<&VgmFile> {
+        self.foreign.as_ref()
+    }
+
+    /// Whether anything at all is open, of either kind.
+    ///
+    /// Use this for "is there a document" questions -- the row count, the dirty
+    /// prompt, whether Save means anything. [`Self::has_song`] stays the
+    /// narrower question: is there a *song*, with instructions to analyse and
+    /// audio to render.
+    #[must_use]
+    pub fn has_document(&self) -> bool {
+        self.song.is_some() || self.foreign.is_some()
+    }
+
+    /// What the loaded document can do, for the panels that only make sense
+    /// against some of it.
+    #[must_use]
+    pub fn capabilities(&self) -> DocCapabilities {
+        DocCapabilities {
+            // Playback, the waveform and the position readout need a decoded
+            // OPL stream. With *nothing* loaded they still show, greyed -- that
+            // is how an empty editor has always looked, and it is where the
+            // transport lives. Only a foreign document, which has an OPL stream
+            // nowhere in it, takes them away rather than leave a dead transport
+            // over a permanently flat waveform.
+            playable: self.foreign.is_none(),
+            editable: self.has_document(),
+        }
+    }
+
+    /// The number of rows, `0` with nothing open.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.song.as_ref().map_or(0, Song::len)
+        match (&self.song, &self.foreign) {
+            (Some(song), _) => song.len(),
+            (None, Some(file)) => file.len(),
+            (None, None) => 0,
+        }
     }
 
     #[must_use]
@@ -138,7 +213,7 @@ impl Editor {
     /// word -- a loop region is deliberate work, not a stray field edit.
     #[must_use]
     pub fn is_dirty(&self) -> bool {
-        self.has_song() && (self.saved_revision != Some(self.revision) || self.metadata_dirty)
+        self.has_document() && (self.saved_revision != Some(self.revision) || self.metadata_dirty)
     }
 
     /// An immutable snapshot of the current song, for the audio output and
@@ -163,6 +238,8 @@ impl Editor {
             Ok(song) => song,
             Err(error) => return Err(LoadFailure::classify(&file, &error.to_string())),
         };
+        self.foreign = None;
+        self.foreign_undo.reset();
 
         let mut report = LoadReport::default();
         if song.file_type == SongFileType::Dro {
@@ -187,12 +264,33 @@ impl Editor {
         Ok(report)
     }
 
-    /// Drops the song, leaving the editor as it starts: File > Close.
+    /// Installs a VGM the OPL model cannot describe, for trimming only.
+    ///
+    /// The counterpart of [`Self::load`] for the other document kind, and the
+    /// same teardown: any current document goes, and both undo histories with
+    /// it.
+    pub fn load_foreign(&mut self, file: VgmFile, path: Option<PathBuf>) {
+        self.song = None;
+        self.undo.reset();
+        self.markers = RangeMarkers::default();
+        self.foreign = Some(file);
+        self.foreign_undo.reset();
+        self.path = path;
+        self.selection.clear();
+        self.analysis.invalidate();
+        self.revision += 1;
+        self.saved_revision = Some(self.revision);
+        self.metadata_dirty = false;
+    }
+
+    /// Drops the document, leaving the editor as it starts: File > Close.
     ///
     /// The undo history goes with it. What it holds are edits to a song that is
     /// no longer here, and an empty editor has nothing to undo *into*.
     pub fn close(&mut self) {
         self.song = None;
+        self.foreign = None;
+        self.foreign_undo.reset();
         self.path = None;
         self.markers = RangeMarkers::default();
         self.undo.reset();
@@ -210,6 +308,16 @@ impl Editor {
     /// # Errors
     /// If no song is loaded, or its data and declared format disagree.
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {
+        if let Some(file) = self.foreign.as_ref() {
+            // Its own writer, never the OPL one: that re-derives the chip
+            // clocks from a `Song`'s OPL type, which this file does not have.
+            let bytes = if file.name.to_ascii_lowercase().ends_with(".vgz") {
+                dro_core::vgm::file::write_gzipped(file)
+            } else {
+                dro_core::vgm::file::write(file)
+            };
+            return bytes.map_err(|e| e.to_string());
+        }
         let song = self.song.as_ref().ok_or("no song is loaded")?;
         io::write_song(song).map_err(|e| e.to_string())
     }
@@ -221,6 +329,15 @@ impl Editor {
     /// -- the serialised bytes predate the rename, so the caller must re-save
     /// to get the compression the name promises.
     pub fn record_saved(&mut self, name: String, path: Option<PathBuf>) -> bool {
+        if let Some(file) = self.foreign.as_mut() {
+            let was_vgz = file.name.to_ascii_lowercase().ends_with(".vgz");
+            let is_vgz = name.to_ascii_lowercase().ends_with(".vgz");
+            file.name = name;
+            if path.is_some() {
+                self.path = path;
+            }
+            return was_vgz != is_vgz;
+        }
         let Some(song) = self.song.as_mut() else {
             return false;
         };
@@ -245,6 +362,9 @@ impl Editor {
     /// Deletes the selected instructions, then selects the row that slid into
     /// the first deleted slot. Returns whether anything was deleted.
     pub fn delete_selection(&mut self) -> bool {
+        if self.foreign.is_some() {
+            return self.delete_foreign_selection();
+        }
         let Some(song) = self.song.as_mut() else {
             return false;
         };
@@ -264,6 +384,30 @@ impl Editor {
         self.markers.after_delete(&deleted, song.len());
         self.selection.after_delete(first_deleted, song.len());
         self.analysis.invalidate();
+        self.revision += 1;
+        true
+    }
+
+    /// The foreign document's half of [`Self::delete_selection`].
+    ///
+    /// The same shape, over the other target: the marked-region markers are not
+    /// carried (a foreign document has no loop region to mark yet), and the
+    /// analysis cache is OPL-only, so neither is touched.
+    fn delete_foreign_selection(&mut self) -> bool {
+        let Some(file) = self.foreign.as_mut() else {
+            return false;
+        };
+        if self.selection.is_empty() {
+            return false;
+        }
+        let first_deleted = self
+            .selection
+            .first()
+            .expect("the selection was just checked non-empty");
+        let deleted: Vec<usize> = self.selection.iter().collect();
+        self.foreign_undo
+            .execute(Box::new(DeleteCommands::new(deleted)), file);
+        self.selection.after_delete(first_deleted, file.len());
         self.revision += 1;
         true
     }
@@ -357,6 +501,12 @@ impl Editor {
     /// indices may now point at different rows), except that rows past the new
     /// end are dropped -- nonexistent rows cannot stay selected.
     pub fn undo(&mut self) -> Option<String> {
+        if let Some(file) = self.foreign.as_mut() {
+            let description = self.foreign_undo.undo(file)?.to_owned();
+            self.selection.truncate_to(file.len());
+            self.revision += 1;
+            return Some(description);
+        }
         let song = self.song.as_mut()?;
         let description = self.undo.undo(song)?.to_owned();
         self.selection.truncate_to(song.len());
@@ -368,6 +518,12 @@ impl Editor {
 
     /// Re-applies the last undone edit.
     pub fn redo(&mut self) -> Option<String> {
+        if let Some(file) = self.foreign.as_mut() {
+            let description = self.foreign_undo.redo(file)?.to_owned();
+            self.selection.truncate_to(file.len());
+            self.revision += 1;
+            return Some(description);
+        }
         let song = self.song.as_mut()?;
         let description = self.undo.redo(song)?.to_owned();
         self.selection.truncate_to(song.len());
@@ -570,23 +726,105 @@ impl Editor {
         self.analysis.row(song, index)
     }
 
+    /// What the instruction table's five columns are called for the loaded
+    /// document. Only the second differs: an OPL song's rows have a bank, a
+    /// foreign one's have a chip.
+    #[must_use]
+    pub fn column_titles(&self) -> [&'static str; 5] {
+        let second = if self.foreign.is_some() {
+            "Chip"
+        } else {
+            "Bank"
+        };
+        ["Pos (hex)", second, "Reg.", "Value", "Description"]
+    }
+
+    /// The cells of row `index`, whichever kind of document is loaded.
+    ///
+    /// The table asks for these rather than reaching into a `Song`, so it does
+    /// not have to know which kind it is drawing.
+    #[must_use]
+    pub fn row_cells(&mut self, index: usize) -> RowCells {
+        let position = format!("{index:04X}");
+        if let Some(file) = self.foreign.as_ref() {
+            let Some(stream) = file.stream() else {
+                return RowCells {
+                    position,
+                    ..RowCells::default()
+                };
+            };
+            let (chip, register, value) = match stream.get(index) {
+                Some(VgmCommand::Write { target, addr, data }) => (
+                    target.label(),
+                    format!("{addr:#06X}"),
+                    format!("{data:#04X}"),
+                ),
+                _ => (String::new(), String::new(), String::new()),
+            };
+            return RowCells {
+                position,
+                bank: chip,
+                register,
+                value,
+                description: stream.describe(index),
+                hover: String::new(),
+            };
+        }
+
+        let analysis = self.row_analysis(index);
+        let Some(song) = self.song.as_ref() else {
+            return RowCells {
+                position,
+                ..RowCells::default()
+            };
+        };
+        RowCells {
+            position,
+            bank: analysis
+                .as_ref()
+                .map_or_else(String::new, |a| a.bank.index().to_string()),
+            register: song.register_display(index).unwrap_or_default(),
+            value: song.value_display(index).unwrap_or_default(),
+            description: analysis.map_or_else(String::new, |a| a.description.into_owned()),
+            hover: song
+                .instruction_description(index)
+                .unwrap_or_default()
+                .to_owned(),
+        }
+    }
+
+    // Only one document is ever loaded, so exactly one of the two histories can
+    // be non-empty -- the foreign one is consulted first, and answers `false`
+    // for an OPL song because it was reset when that song loaded.
     #[must_use]
     pub fn can_undo(&self) -> bool {
+        if self.foreign.is_some() {
+            return self.foreign_undo.can_undo();
+        }
         self.undo.can_undo()
     }
 
     #[must_use]
     pub fn can_redo(&self) -> bool {
+        if self.foreign.is_some() {
+            return self.foreign_undo.can_redo();
+        }
         self.undo.can_redo()
     }
 
     #[must_use]
     pub fn undo_description(&self) -> Option<&str> {
+        if self.foreign.is_some() {
+            return self.foreign_undo.undo_description();
+        }
         self.undo.undo_description()
     }
 
     #[must_use]
     pub fn redo_description(&self) -> Option<&str> {
+        if self.foreign.is_some() {
+            return self.foreign_undo.redo_description();
+        }
         self.undo.redo_description()
     }
 }
