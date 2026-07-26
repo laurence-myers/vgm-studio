@@ -4047,7 +4047,10 @@ impl DroApp {
             redo_description,
             on_pack_tab,
             focused_row: self.editor.selection.first(),
-            has_marked_region: self.editor.has_song()
+            // Any document, not just an OPL one: cropping a Mega Drive rip is
+            // the same operation, and `dro_core` carries the chip state across
+            // the cut for either.
+            has_marked_region: self.editor.has_document()
                 && !self.editor.markers.is_full(self.editor.len()),
             song_type: self.editor.song().map(|song| song.file_type),
             is_dro_v2: self.editor.song().is_some_and(|song| {

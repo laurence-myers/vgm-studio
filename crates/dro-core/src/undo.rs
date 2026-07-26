@@ -304,6 +304,64 @@ impl UndoableCommand<VgmFile> for DeleteCommands {
     }
 }
 
+/// Any edit that rebuilds a VGM's stream wholesale: a crop, a region delete,
+/// later an optimise.
+///
+/// Where [`DeleteCommands`] holds per-row byte deltas, this holds one
+/// before-and-after pair. That is the right shape here and the wrong shape
+/// there: a rebuild moves nearly every byte and repatches the header, so
+/// describing it as deltas would cost more than the file, while deleting a
+/// hundred rows really is a hundred small deltas and must not become a hundred
+/// copies of the song.
+pub struct ReplaceVgm {
+    description: &'static str,
+    /// The file before the edit, captured on `apply`.
+    before: Option<VgmFile>,
+    /// The file after it, so redo does not have to recompute the edit.
+    after: Option<VgmFile>,
+}
+
+impl ReplaceVgm {
+    /// Captures `edited` as the result to install; `apply` records what it
+    /// replaced.
+    #[must_use]
+    pub fn new(description: &'static str, edited: VgmFile) -> Self {
+        Self {
+            description,
+            before: None,
+            after: Some(edited),
+        }
+    }
+}
+
+impl fmt::Debug for ReplaceVgm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ReplaceVgm")
+            .field("description", &self.description)
+            .finish_non_exhaustive()
+    }
+}
+
+impl UndoableCommand<VgmFile> for ReplaceVgm {
+    fn description(&self) -> &str {
+        self.description
+    }
+
+    fn apply(&mut self, file: &mut VgmFile) {
+        let Some(after) = self.after.take() else {
+            return;
+        };
+        self.before = Some(core::mem::replace(file, after));
+    }
+
+    fn revert(&mut self, file: &mut VgmFile) {
+        let Some(before) = self.before.take() else {
+            return;
+        };
+        self.after = Some(core::mem::replace(file, before));
+    }
+}
+
 /// Edits the header fields the DRO Info dialog exposes: the OPL type and the
 /// declared length.
 ///

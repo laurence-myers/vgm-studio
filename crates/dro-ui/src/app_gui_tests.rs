@@ -1910,6 +1910,65 @@ fn opening_a_foreign_vgm_opens_it_for_trimming() {
     );
 }
 
+/// The hard requirement, end to end: a VGM for chips this app has no core for
+/// can be cropped to a marked region, and undone.
+#[test]
+fn a_non_opl_document_can_be_cropped_and_undone() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    assert!(!harness.state().editor.capabilities().playable);
+    let before = harness.state().editor.save_bytes().unwrap();
+    let rows = harness.state().editor.len();
+
+    // Mark the second half and crop to it.
+    harness.state_mut().editor.markers.set_start(2, rows);
+    harness.state_mut().editor.markers.set_end(rows, rows);
+    let stats = harness.state_mut().editor.crop_to_markers();
+    let (kept, restored) = stats.expect("the crop ran");
+    assert!(restored > 0, "the discarded head configured something");
+
+    let app = harness.state();
+    assert_eq!(app.editor.len(), kept);
+    assert!(app.editor.is_dirty());
+    assert_eq!(app.editor.undo_description(), Some("Crop to Marked Region"));
+    // The YM2610 write from the discarded head is back at the top.
+    assert!(
+        app.editor
+            .row_cells_for_test(0)
+            .description
+            .contains("YM2610"),
+        "the restore leads"
+    );
+
+    harness.state_mut().editor.undo();
+    assert_eq!(harness.state().editor.len(), rows);
+    assert_eq!(
+        harness.state().editor.save_bytes().unwrap(),
+        before,
+        "undo restores the file byte for byte"
+    );
+}
+
+/// And the region delete, which bridges the seam rather than prefixing it.
+#[test]
+fn a_non_opl_document_can_have_a_region_deleted() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let rows = harness.state().editor.len();
+    let before = harness.state().editor.save_bytes().unwrap();
+
+    harness.state_mut().editor.markers.set_start(0, rows);
+    harness.state_mut().editor.markers.set_end(2, rows);
+    let (removed, bridged) = harness
+        .state_mut()
+        .editor
+        .delete_marked_region()
+        .expect("the delete ran");
+    assert_eq!(removed, 2);
+    assert!(bridged > 0, "the removed span had configured something");
+
+    harness.state_mut().editor.undo();
+    assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
+}
+
 /// A file whose commands cannot be walked has no rows, so the dialog stays the
 /// better answer for it.
 #[test]

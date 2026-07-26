@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dro_core::undo::{DeleteCommands, DeleteInstructions, ReplaceStream, UpdateHeader};
+use dro_core::undo::{DeleteCommands, DeleteInstructions, ReplaceStream, ReplaceVgm, UpdateHeader};
 use dro_core::{
     CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
     UndoController, UndoableCommand, VgmCommand, VgmFile, convert, io,
@@ -15,6 +15,10 @@ use crate::analysis::AnalysisCache;
 use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
+
+/// What the undo stack calls a crop. The two region edits share one entry
+/// point, and this is how it tells them apart.
+const CROP_DESCRIPTION: &str = "Crop to Marked Region";
 
 /// One row of the instruction table, filled from whichever document is open.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -447,7 +451,7 @@ impl Editor {
     pub fn crop_to_markers(&mut self) -> Option<(usize, usize)> {
         // What survives and what the patch added are exactly what the shared
         // helper reports.
-        self.replace_stream("Crop to Marked Region", dro_core::crop::crop_to_region)
+        self.replace_stream(CROP_DESCRIPTION, dro_core::crop::crop_to_region)
     }
 
     /// Deletes the marked region, keeping everything outside it.
@@ -483,6 +487,9 @@ impl Editor {
         description: &'static str,
         edit: fn(&Song, usize, usize) -> Option<CropOutcome>,
     ) -> Option<(usize, usize)> {
+        if self.vgm.is_some() {
+            return self.replace_vgm_stream(description);
+        }
         let (start, end) = (self.markers.start(), self.markers.end());
         let song = self.song.as_mut()?;
         if self.markers.is_full(song.len()) {
@@ -495,6 +502,31 @@ impl Editor {
         self.markers = RangeMarkers::from_song(song);
         self.selection.clear();
         self.analysis.invalidate();
+        self.revision += 1;
+        Some(stats)
+    }
+
+    /// The same marked-region edit against a document held as a VGM.
+    ///
+    /// One implementation of each edit serves both: `dro_core` does the work
+    /// against the file's own stream, and the only thing that differs here is
+    /// which undo stack the before-and-after pair lands on.
+    fn replace_vgm_stream(&mut self, description: &'static str) -> Option<(usize, usize)> {
+        let (start, end) = (self.markers.start(), self.markers.end());
+        let file = self.vgm.as_mut()?;
+        if self.markers.is_full(file.len()) {
+            return None;
+        }
+        let mut edited = file.clone();
+        let report = match description {
+            CROP_DESCRIPTION => edited.crop_to_region(start, end),
+            _ => edited.delete_region(start, end),
+        }?;
+        let stats = (edited.len(), report.restored);
+        self.vgm_undo
+            .execute(Box::new(ReplaceVgm::new(description, edited)), file);
+        self.markers = RangeMarkers::default();
+        self.selection.clear();
         self.revision += 1;
         Some(stats)
     }
@@ -736,6 +768,20 @@ impl Editor {
     pub fn column_titles(&self) -> [&'static str; 5] {
         let second = if self.vgm.is_some() { "Chip" } else { "Bank" };
         ["Pos (hex)", second, "Reg.", "Value", "Description"]
+    }
+
+    /// [`Self::row_cells`] for tests, which have only a shared reference.
+    #[cfg(test)]
+    #[must_use]
+    pub fn row_cells_for_test(&self, index: usize) -> RowCells {
+        let mut clone_free = RowCells {
+            position: format!("{index:04X}"),
+            ..RowCells::default()
+        };
+        if let Some(stream) = self.vgm.as_ref().and_then(VgmFile::stream) {
+            clone_free.description = stream.describe(index);
+        }
+        clone_free
     }
 
     /// The cells of row `index`, whichever kind of document is loaded.
