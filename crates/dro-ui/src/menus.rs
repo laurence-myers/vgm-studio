@@ -349,6 +349,12 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             // selected rows. They edit the stream rather than the metadata, so
             // unlike Apply Loop they work on a DRO as well -- cropping a DRO down
             // to its good part is the reason this app exists.
+            // Offered whenever a VGM is open, because a header only
+            // disagrees with its stream by accident, and the user cannot
+            // know theirs does until they look.
+            if is_vgm && enabled_item(ui, editor, "Fix Header…", None) {
+                actions.push(Action::AuditHeader);
+            }
             let marked = editor && state.has_marked_region;
             if enabled_item(ui, marked, "Crop to Marked Region", None) {
                 actions.push(Action::CropToMarkers);

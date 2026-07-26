@@ -356,6 +356,16 @@ impl VgmMeta {
     pub fn header(&self) -> &[u8] {
         &self.header
     }
+
+    /// Replaces the header bytes wholesale.
+    ///
+    /// For the header audit, which corrects fields this type does not model
+    /// and hands back the corrected bytes. Nothing else should need it: the
+    /// writer patches the fields it owns and leaves the rest alone, which is
+    /// what keeps an unedited round trip byte-exact.
+    pub fn set_header(&mut self, header: Vec<u8>) {
+        self.header = header;
+    }
 }
 
 #[cfg(test)]

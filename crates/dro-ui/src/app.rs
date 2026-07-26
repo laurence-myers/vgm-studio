@@ -1767,6 +1767,15 @@ impl DroApp {
                     self.after_edit();
                 }
             }
+            Action::AuditHeader => self.audit_header(),
+            Action::ConfirmFixHeader => {
+                let fixed = self.editor.fix_header();
+                self.status = match fixed {
+                    0 => "The header already agrees with the stream.".to_owned(),
+                    1 => "Corrected 1 header field. Remember to save.".to_owned(),
+                    count => format!("Corrected {count} header fields. Remember to save."),
+                };
+            }
             Action::OptimizeVgm => {
                 if !self.require_song() {
                     return;
@@ -3639,6 +3648,32 @@ impl DroApp {
     /// Everything every edit needs: stale audio paused, the length readout
     /// refreshed, and the waveform re-rendered (debounced, so holding Delete
     /// does not thrash the renderer -- a 1 s debounce).
+    /// Reports where the loaded VGM's header disagrees with its stream, and
+    /// offers to correct it.
+    ///
+    /// Offers, never does: a header is a claim about the file, and rewriting
+    /// one the user did not ask about is how a pack of carefully-made rips
+    /// quietly becomes a pack of subtly different ones.
+    fn audit_header(&mut self) {
+        let findings = self.editor.audit_header();
+        if findings.is_empty() {
+            self.status = "The header agrees with the stream; nothing to fix.".to_owned();
+            return;
+        }
+        let mut message = String::from("This file's header disagrees with its own music:\n\n");
+        for finding in &findings {
+            message.push_str("  - ");
+            message.push_str(&finding.describe());
+            message.push('\n');
+        }
+        message.push_str("\nCorrect them? The stream is taken as the truth.");
+        self.alerts.push_back(Alert::confirm(
+            "Fix Header",
+            message,
+            Action::ConfirmFixHeader,
+        ));
+    }
+
     fn after_edit(&mut self) {
         self.audio.pause();
         self.audio_revision = None;

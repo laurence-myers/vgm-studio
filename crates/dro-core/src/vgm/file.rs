@@ -387,6 +387,18 @@ impl VgmFile {
         Some(report)
     }
 
+    /// Installs rebuilt stream bytes, leaving the header alone.
+    ///
+    /// For the structural half of a header fix, which repatches the derived
+    /// fields itself afterwards. Everything else should use [`Self::rebuild`],
+    /// which keeps the header in step for you.
+    pub(crate) fn replace_stream(&mut self, bytes: Vec<u8>) {
+        if let Ok(stream) = VgmStream::parse(bytes, self.header.version()) {
+            self.body = VgmBody::Commands(stream);
+            self.refresh_opl();
+        }
+    }
+
     /// Installs a rebuilt stream and brings the header back into step.
     ///
     /// `loop_at` is a byte offset into the *new* stream, or `None` for a file

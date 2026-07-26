@@ -531,6 +531,64 @@ impl Editor {
         Some(stats)
     }
 
+    /// Where the loaded VGM's header disagrees with its own command stream.
+    ///
+    /// Empty for a DRO (whose header is a different shape) and for the
+    /// overwhelming majority of VGMs.
+    #[must_use]
+    pub fn audit_header(&self) -> Vec<dro_core::vgm::HeaderFinding> {
+        match (&self.vgm, &self.song) {
+            (Some(file), _) => dro_core::vgm::audit::audit(file),
+            // A VGM in the OPL slot is audited through a materialised copy;
+            // the findings are about bytes, and those are the same bytes.
+            (None, Some(song)) if song.is_vgm() => io::write_song(song)
+                .ok()
+                .and_then(|bytes| dro_core::vgm::file::read(&song.name, &bytes).ok())
+                .map(|file| dro_core::vgm::audit::audit(&file))
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// Corrects what [`Self::audit_header`] found, returning how many fields
+    /// changed. Marks the document dirty; the user still has to save.
+    ///
+    /// Not undoable, and deliberately so: it is a metadata edit like the GD3
+    /// and loop dialogs, tracked by the same dirty flag rather than the
+    /// instruction-stream history.
+    pub fn fix_header(&mut self) -> usize {
+        if let Some(file) = self.vgm.as_mut() {
+            let fixed = dro_core::vgm::audit::fix(file).len();
+            if fixed > 0 {
+                self.metadata_dirty = true;
+                self.revision += 1;
+            }
+            return fixed;
+        }
+        // The OPL slot: fix a materialised copy and read the corrected fields
+        // back into the song's own metadata, so nothing about the stream moves.
+        let Some(song) = self.song.as_mut().filter(|song| song.is_vgm()) else {
+            return 0;
+        };
+        let Some(mut file) = io::write_song(song)
+            .ok()
+            .and_then(|bytes| dro_core::vgm::file::read(&song.name, &bytes).ok())
+        else {
+            return 0;
+        };
+        let fixed = dro_core::vgm::audit::fix(&mut file).len();
+        if fixed > 0
+            && let Some(meta) = song.vgm_meta_mut()
+        {
+            meta.set_header(file.header.raw().to_vec());
+            meta.loop_point = file.loop_index();
+            meta.loop_end = file.loop_end_index();
+            self.metadata_dirty = true;
+            self.revision += 1;
+        }
+        fixed
+    }
+
     /// Reverts the last edit, returning its description for the status bar,
     /// or `None` when there is nothing to undo. Selection is left alone (its
     /// indices may now point at different rows), except that rows past the new

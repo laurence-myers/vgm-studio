@@ -1969,6 +1969,59 @@ fn a_non_opl_document_can_have_a_region_deleted() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
+/// A header that disagrees with its stream is reported and offered, never
+/// silently corrected -- and the correction only lands once confirmed.
+#[test]
+fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
+    // The Neo Geo fixture, with its declared length falsified.
+    let mut bytes = foreign_vgm_file().bytes;
+    bytes[0x18..0x1C].copy_from_slice(&999_999u32.to_le_bytes());
+    let file = PickedFile {
+        name: "03 Wrong.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/Athena/03 Wrong.vgm")),
+        bytes,
+    };
+    let (mut harness, _handles) = build(Some(file), false, false);
+
+    // Nothing has been touched by merely opening it.
+    assert_eq!(
+        harness.state().editor.vgm().unwrap().header.total_samples(),
+        999_999
+    );
+    assert!(!harness.state().editor.is_dirty());
+
+    act(&mut harness, Action::AuditHeader);
+    let alert = harness.state().alerts.front().expect("it offers a fix");
+    assert_eq!(alert.title, "Fix Header");
+    assert!(alert.message.contains("999999"), "{}", alert.message);
+    assert!(alert.message.contains("10735"), "{}", alert.message);
+    assert!(alert.confirm.is_some(), "and asks before doing it");
+    assert_eq!(
+        harness.state().editor.vgm().unwrap().header.total_samples(),
+        999_999,
+        "still untouched while the question is open"
+    );
+
+    act(&mut harness, Action::ConfirmFixHeader);
+    let app = harness.state();
+    assert_eq!(app.editor.vgm().unwrap().header.total_samples(), 10_735);
+    assert!(app.editor.is_dirty(), "and there is something to save");
+    assert!(app.status.contains("Corrected 1"), "{}", app.status);
+}
+
+/// An honest header says so rather than opening a box about nothing.
+#[test]
+fn an_honest_header_reports_that_it_agrees() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    act(&mut harness, Action::AuditHeader);
+    assert!(harness.state().alerts.is_empty());
+    assert!(
+        harness.state().status.contains("agrees with the stream"),
+        "{}",
+        harness.state().status
+    );
+}
+
 /// A file whose commands cannot be walked has no rows, so the dialog stays the
 /// better answer for it.
 #[test]

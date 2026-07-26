@@ -86,6 +86,11 @@ pub enum Action {
     DeleteSelection,
     /// Strip redundant OPL writes and merge the delays left behind (VGM only).
     OptimizeVgm,
+    /// Edit > Fix Header: audit the loaded VGM's header against its stream and
+    /// offer to correct what disagrees.
+    AuditHeader,
+    /// Apply the corrections the audit found, after the user confirmed them.
+    ConfirmFixHeader,
 
     // Pack mode
     /// Open the folder picker for a pack project (prompts first if the current
