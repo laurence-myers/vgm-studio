@@ -27,7 +27,23 @@
 > | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
 > | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
 > | mc-5 | done | `be409cd` chip-selector deck, `524df5f` foreign delete + undo + header repatch, `428c57e` the foreign editor, `3a1165f` chip deck visible + pack gating flipped |
-> | uv-1 … uv-5 | **next** — the 2026-07-26 redirection (one VGM model, any-chip crop, any-chip optimise, header fix); full detail in §Phase C2 | |
+> | uv-1 | **part done** — `621a90c` `OplProjection` + the corpus parity gate, `83cb3fe` pack mode unified, `fa62b93` editor terminology. **Remains:** collapsing the editor's two document slots, and retiring `VgmData`. |
+> | uv-2 … uv-5 | next — chip_state, any-chip crop, any-chip optimise, header fix; full detail in §Phase C2 | |
+>
+> **Resequencing found during uv-1 (2026-07-27):** collapsing the editor's
+> two slots is *not* a prerequisite for uv-3. Crop acts on the document the
+> editor already holds as a `VgmFile` for non-OPL files, and OPL files
+> already have crop via `crop.rs`. So uv-2/uv-3 (the user's hard
+> requirement) run next, and the editor collapse — which means porting ten
+> OPL editing operations off `Song` in one go — follows once those core
+> operations exist to wire.
+>
+> **What the corpus said** (16466 files, `DROTRIM_CORPUS`): 3933 the old OPL
+> reader accepts, all 3933 now agreeing byte-for-byte through the
+> projection; **12533 openable that were not before**; 0 unreadable by both.
+> Of the OPL-accepted files, 0 carry a non-OPL command — so the strict
+> "wholly OPL" gate costs nothing real, and the corpus is what caught the
+> two files whose headers declare a chip their stream never writes to.
 > | mc-6 … mc-10 | after the uv steps (playback, cores, min-version writer) | |
 >
 > **Phases A, B and C are complete.** A pack containing any VGM — any chip,
