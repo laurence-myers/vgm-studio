@@ -7,10 +7,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
-use dro_core::io::write_song;
-
-use crate::read_song_from_path;
+use anyhow::{Context, Result};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -27,34 +24,40 @@ pub struct Args {
 /// If the song cannot be read, it is a DRO rather than a VGM, or the result
 /// cannot be written.
 pub fn run(args: &Args) -> Result<()> {
-    let mut song = read_song_from_path(&args.input)?;
-    if !song.is_vgm() {
-        bail!(
-            "optimize only applies to VGM songs; {} is a {}",
-            args.input.display(),
-            song.file_type
-        );
-    }
+    let raw =
+        std::fs::read(&args.input).with_context(|| format!("reading {}", args.input.display()))?;
+    let name = args
+        .input
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("input.vgm");
+    let mut file = dro_core::vgm::file::read(name, &raw).map_err(|error| {
+        anyhow::anyhow!(
+            "optimize only applies to VGM files; {} could not be read as one ({error})",
+            args.input.display()
+        )
+    })?;
 
     let output = args.output.clone().unwrap_or_else(|| args.input.clone());
-    // Writing follows the output's extension (`.vgz` gzips), so name the song
+    // Writing follows the output's extension (`.vgz` gzips), so name the file
     // after where it is going.
     if let Some(name) = output.file_name().and_then(|s| s.to_str()) {
-        song.name = name.to_owned();
+        file.name = name.to_owned();
     }
 
-    let outcome = dro_core::optimize::optimize(&song);
-    let report = outcome
-        .as_ref()
-        .map(|o| (o.commands_removed, o.bytes_saved));
-    if let Some(outcome) = outcome {
-        outcome.install(&mut song);
-    }
+    let before = file.body.raw().len();
+    let removed = file.optimize();
+    let saved = removed.map(|removed| (removed, before - file.body.raw().len()));
 
-    let bytes = write_song(&song).context("serialising the optimised song")?;
+    let bytes = if file.name.to_ascii_lowercase().ends_with(".vgz") {
+        dro_core::vgm::file::write_gzipped(&file)
+    } else {
+        dro_core::vgm::file::write(&file)
+    }
+    .context("serialising the optimised song")?;
     std::fs::write(&output, &bytes).with_context(|| format!("writing {}", output.display()))?;
 
-    match report {
+    match saved {
         Some((commands, saved)) => println!(
             "Optimised {} -> {}: removed {commands} command(s), {saved} stream byte(s) smaller \
              ({} bytes written)",
@@ -69,12 +72,22 @@ pub fn run(args: &Args) -> Result<()> {
             bytes.len(),
         ),
     }
+    // Chips the rules do not cover keep every write; say so rather than let a
+    // file that could not shrink look like one that had nothing to gain.
+    let skipped = file.unoptimised_chips();
+    if !skipped.is_empty() {
+        println!(
+            "  (no redundancy rules for {} -- its writes were all kept)",
+            skipped.join(", ")
+        );
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dro_core::io::write_song;
     use dro_core::vgm::io::synthesise_header;
     use dro_core::{DroDataV1, OplType, Song, VgmData, VgmMeta};
 

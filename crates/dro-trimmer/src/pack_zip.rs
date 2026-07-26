@@ -117,48 +117,22 @@ fn process_entry(
     }
 }
 
-/// Optimises one song's bytes when it is a parseable VGM that shrinks, logging the
-/// saving. A DRO, an already-optimal VGM, or any read/write failure passes through
-/// unchanged and never fails the export -- the same never-fatal posture as the PNG
-/// path. The bytes stay in the song's own container (a `.vgm` stays plain, so the
-/// gzip step can still compress it; a `.vgz` stays gzipped).
-fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
-    let mut song = match dro_core::io::read_song(name, bytes) {
-        Ok(song) => song,
-        // Not an OPL song, so it goes through the chip-agnostic optimiser
-        // instead. That one drops nothing from a chip it has no rules for, so
-        // the worst case is a file that comes back unchanged.
-        Err(error) => return optimize_any_chip(name, bytes, &error.to_string(), log),
-    };
-    let Some(outcome) = dro_core::optimize::optimize(&song) else {
-        return bytes.to_vec(); // a DRO, or already optimal
-    };
-    outcome.install(&mut song);
-    match dro_core::io::write_song(&song) {
-        Ok(optimised) => {
-            log.push(format!(
-                "{name}: {} -> {} bytes (optimized)",
-                bytes.len(),
-                optimised.len()
-            ));
-            optimised
-        }
-        Err(error) => {
-            log.push(format!("{name}: kept as-is (could not write: {error})"));
-            bytes.to_vec()
-        }
-    }
-}
-
-/// Optimises a VGM whose chips are not OPL, through the chip-agnostic pass.
+/// Optimises one song's bytes when it is a VGM that shrinks, logging the saving.
 ///
-/// It strips only what its per-chip rules call safe, and has rules for a
-/// handful of chips so far -- so a Mega Drive rip shrinks and a Neo Geo one
-/// comes back untouched, with the log saying which chips were left alone
-/// rather than implying the file was unreadable.
-fn optimize_any_chip(name: &str, bytes: &[u8], opl_error: &str, log: &mut Vec<String>) -> Vec<u8> {
+/// A DRO, an already-optimal VGM, or any read/write failure passes through
+/// unchanged and never fails the export -- the same never-fatal posture as the
+/// PNG path. The bytes stay in the song's own container (a `.vgm` stays plain,
+/// so the gzip step can still compress it; a `.vgz` stays gzipped).
+///
+/// One optimiser, for every chip. It strips only what its per-chip rules call
+/// safe and has rules for a handful of chips so far -- so an OPL or Mega Drive
+/// rip shrinks and a Neo Geo one comes back untouched, byte for byte, with the
+/// log saying which chips were left alone rather than implying the file was
+/// unreadable.
+fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
     let Ok(mut file) = dro_core::vgm::file::read(name, bytes) else {
-        log.push(format!("{name}: kept as-is (could not read: {opl_error})"));
+        // A DRO, or something unreadable. Either way it passes through.
+        log.push(format!("{name}: kept as-is (not a readable VGM)"));
         return bytes.to_vec();
     };
     let removed = file.optimize();
@@ -294,7 +268,7 @@ mod tests {
             "the optimised bytes are still a valid VGM"
         );
         assert!(
-            output.log.iter().any(|line| line.contains("(optimized)")),
+            output.log.iter().any(|line| line.contains("(optimized,")),
             "log: {:?}",
             output.log
         );
@@ -438,7 +412,7 @@ mod tests {
             "the .vgz gunzips to the optimised VGM"
         );
         // Both steps are reported, on their own lines.
-        assert!(output.log.iter().any(|line| line.contains("(optimized)")));
+        assert!(output.log.iter().any(|line| line.contains("(optimized,")));
         assert!(
             output
                 .log
