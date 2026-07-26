@@ -12,7 +12,6 @@ pub mod bulk_tag;
 pub mod dro_info;
 pub mod find_loop;
 pub mod find_reg;
-pub mod foreign_vgm;
 pub mod gd3_tag;
 pub mod goto;
 pub mod help;
@@ -22,13 +21,13 @@ pub mod settings;
 pub mod split;
 pub mod split_songs;
 pub mod track_edit;
+pub mod unwalkable_vgm;
 pub mod vgm_metadata;
 
 pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
 pub use find_loop::{FindLoopDialog, LoopSearchDoc};
 pub use find_reg::FindRegDialog;
-pub use foreign_vgm::ForeignVgmDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use help::HelpDialog;
@@ -38,6 +37,7 @@ pub use settings::SettingsDialog;
 pub use split::SplitDialog;
 pub use split_songs::SplitSongsDialog;
 pub use track_edit::TrackEditDialog;
+pub use unwalkable_vgm::UnwalkableVgmDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
 /// Shared modeless-dialog chrome, used by Goto and Find Register: a
@@ -236,7 +236,7 @@ pub struct Dialogs {
     /// File > Split Songs: the gap threshold and per-song include flags.
     pub split_songs: Option<SplitSongsDialog>,
     /// What a VGM the editor cannot open actually is, and where to edit it.
-    pub foreign_vgm: Option<ForeignVgmDialog>,
+    pub unwalkable_vgm: Option<UnwalkableVgmDialog>,
 }
 
 impl Dialogs {
@@ -260,7 +260,7 @@ impl Dialogs {
             || self.render_wav.is_some()
             || self.split.is_some()
             || self.split_songs.is_some()
-            || self.foreign_vgm.is_some()
+            || self.unwalkable_vgm.is_some()
     }
 
     /// Draws every open dialog, dropping the ones that closed.
@@ -292,7 +292,7 @@ impl Dialogs {
         retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
         retain(&mut self.split, |d| d.show(ctx, palette, actions));
         retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));
-        retain(&mut self.foreign_vgm, |d| d.show(ctx, palette, actions));
+        retain(&mut self.unwalkable_vgm, |d| d.show(ctx, palette, actions));
     }
 }
 

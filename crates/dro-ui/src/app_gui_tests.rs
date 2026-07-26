@@ -1808,7 +1808,7 @@ fn snapshot_gd3_tag_dialog() {
 ///
 /// `total` and `loop_samples` go in the header verbatim; a real file's agree
 /// with its stream, and so do the ones passed here.
-fn foreign_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8> {
+fn other_chip_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8> {
     use dro_core::ChipKind;
 
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
@@ -1832,8 +1832,8 @@ fn foreign_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8> {
 
 /// The Neo Geo file, tagged, with a stream that walks cleanly. Its two waits
 /// sum to 10735 samples, and the loop covers both.
-fn foreign_vgm_file() -> PickedFile {
-    let bytes = foreign_vgm_bytes(
+fn other_chip_vgm_file() -> PickedFile {
+    let bytes = other_chip_vgm_bytes(
         &[
             0x58, 0x28, 0xF0, // YM2610 port 0
             0x61, 0x10, 0x27, // wait 10000
@@ -1865,38 +1865,38 @@ fn unwalkable_vgm_file() -> PickedFile {
         path: Some(PathBuf::from("C:/rips/Athena/04 Broken.vgm")),
         // Its stream cannot be summed, so the header's own totals are all there
         // is -- which is exactly what the dialog reports.
-        bytes: foreign_vgm_bytes(&[0x00, 0x01, 0x02, 0x66], 44_100 * 95, 44_100 * 60),
+        bytes: other_chip_vgm_bytes(&[0x00, 0x01, 0x02, 0x66], 44_100 * 95, 44_100 * 60),
     }
 }
 
-/// The foreign editor: rows named by chip, and no transport or waveform above
+/// The editor for other chips: rows named by chip, and no transport or waveform above
 /// them, because there is no OPL stream to drive either.
 #[test]
-fn snapshot_foreign_editor() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, true);
+fn snapshot_other_chip_editor() {
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, true);
     harness.state_mut().editor.selection.select_only(1);
     harness.run();
-    settled_snapshot(&mut harness, "foreign_editor");
+    settled_snapshot(&mut harness, "other_chip_editor");
 }
 
 /// The dialog is now the answer for one case only: a file whose commands
 /// cannot be walked, and so has nothing to put in the table.
 #[test]
-fn snapshot_foreign_vgm_dialog() {
+fn snapshot_unwalkable_vgm_dialog() {
     let (mut harness, _handles) = build(Some(unwalkable_vgm_file()), false, true);
-    settled_snapshot(&mut harness, "foreign_vgm_dialog");
+    settled_snapshot(&mut harness, "unwalkable_vgm_dialog");
 }
 
 /// Opening a VGM for other chips is not a failure: it opens for trimming, with
 /// no error alert and no half-loaded song.
 #[test]
-fn opening_a_foreign_vgm_opens_it_for_trimming() {
-    let (harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+fn opening_a_vgm_for_other_chips_opens_it_for_trimming() {
+    let (harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     let app = harness.state();
 
     assert!(app.editor.vgm().is_some(), "it opened");
     assert!(app.editor.song().is_none(), "but not as a song");
-    assert!(app.dialogs.foreign_vgm.is_none(), "no dialog was needed");
+    assert!(app.dialogs.unwalkable_vgm.is_none(), "no dialog was needed");
     assert!(app.alerts.is_empty(), "and no error: {:?}", app.alerts);
     assert_eq!(app.editor.len(), 4, "four commands, the end marker aside");
     assert!(
@@ -1916,7 +1916,7 @@ fn opening_a_foreign_vgm_opens_it_for_trimming() {
 /// gates in front of these actions have to agree.
 #[test]
 fn a_non_opl_document_can_be_cropped_and_undone() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     assert!(!harness.state().editor.capabilities().playable);
     let before = harness.state().editor.save_bytes().unwrap();
     let rows = harness.state().editor.len();
@@ -1955,7 +1955,7 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
 /// And the region delete, which bridges the seam rather than prefixing it.
 #[test]
 fn a_non_opl_document_can_have_a_region_deleted() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     let before = harness.state().editor.save_bytes().unwrap();
 
     act(&mut harness, Action::SetLoopStart(0));
@@ -1982,7 +1982,7 @@ fn a_non_opl_document_can_have_a_region_deleted() {
 /// and then declined to be edited or saved at all.
 #[test]
 fn a_non_opl_document_can_be_edited_and_saved() {
-    let (mut harness, handles) = build(Some(foreign_vgm_file()), false, false);
+    let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
     let rows = harness.state().editor.len();
 
     harness.state_mut().editor.selection.select_only(1);
@@ -1998,7 +1998,7 @@ fn a_non_opl_document_can_be_edited_and_saved() {
 }
 
 /// A Neo Geo capture of three songs, parted by two seconds of silence each.
-fn foreign_capture_file() -> PickedFile {
+fn other_chip_capture_file() -> PickedFile {
     // One song: a YM2610 write, a beat, an AY8910 write, a beat. The beats are
     // a quarter-second, well inside the threshold, so they are music not silence.
     let song: &[u8] = &[
@@ -2024,7 +2024,7 @@ fn foreign_capture_file() -> PickedFile {
     PickedFile {
         name: "capture.vgm".to_owned(),
         path: Some(PathBuf::from("C:/rips/Athena/capture.vgm")),
-        bytes: foreign_vgm_bytes(&stream, total, 0),
+        bytes: other_chip_vgm_bytes(&stream, total, 0),
     }
 }
 
@@ -2033,7 +2033,7 @@ fn foreign_capture_file() -> PickedFile {
 /// last of the chip-agnostic tools still asking for an OPL stream.
 #[test]
 fn a_non_opl_capture_can_be_split_into_its_songs() {
-    let (mut harness, handles) = build(Some(foreign_capture_file()), true, false);
+    let (mut harness, handles) = build(Some(other_chip_capture_file()), true, false);
     let dir = PathBuf::from("C:/out");
     handles
         .files
@@ -2096,7 +2096,7 @@ fn a_non_opl_capture_can_be_split_into_its_songs() {
 /// a GD3 tag whatever the chips, and so is a loop pointer.
 #[test]
 fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
 
     act(&mut harness, Action::OpenEditTag);
     assert!(
@@ -2189,7 +2189,7 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
 #[test]
 fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
     // The Neo Geo fixture, with its declared length falsified.
-    let mut bytes = foreign_vgm_file().bytes;
+    let mut bytes = other_chip_vgm_file().bytes;
     bytes[0x18..0x1C].copy_from_slice(&999_999u32.to_le_bytes());
     let file = PickedFile {
         name: "03 Wrong.vgm".to_owned(),
@@ -2362,7 +2362,7 @@ fn a_non_opl_document_can_have_its_loop_found_and_applied() {
 /// An honest header says so rather than opening a box about nothing.
 #[test]
 fn an_honest_header_reports_that_it_agrees() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     act(&mut harness, Action::AuditHeader);
     assert!(harness.state().alerts.is_empty());
     assert!(
@@ -2378,7 +2378,7 @@ fn an_honest_header_reports_that_it_agrees() {
 fn a_vgm_whose_commands_do_not_walk_still_gets_the_dialog() {
     let (harness, _handles) = build(Some(unwalkable_vgm_file()), false, false);
     let app = harness.state();
-    assert!(app.dialogs.foreign_vgm.is_some());
+    assert!(app.dialogs.unwalkable_vgm.is_some());
     assert!(app.editor.vgm().is_none(), "nothing was loaded");
     assert!(
         app.alerts.is_empty(),
@@ -2390,8 +2390,8 @@ fn a_vgm_whose_commands_do_not_walk_still_gets_the_dialog() {
 /// The whole point of the step: rows can be selected, deleted and undone in a
 /// file the editor cannot decode a single command of into OPL terms.
 #[test]
-fn a_foreign_document_can_be_trimmed_and_undone() {
-    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+fn a_document_for_other_chips_can_be_trimmed_and_undone() {
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     let before = harness.state().editor.save_bytes().unwrap();
 
     harness.state_mut().editor.selection.select_only(1); // the 10000 wait
@@ -2427,7 +2427,7 @@ fn opening_junk_still_raises_the_load_error() {
     };
     let (harness, _handles) = build(Some(junk), false, false);
     let app = harness.state();
-    assert!(app.dialogs.foreign_vgm.is_none());
+    assert!(app.dialogs.unwalkable_vgm.is_none());
     assert_eq!(app.alerts.len(), 1);
     assert_eq!(app.alerts[0].title, "Failed to load file");
 }

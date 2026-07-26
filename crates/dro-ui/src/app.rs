@@ -15,9 +15,9 @@ use egui::Key;
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, ForeignVgmDialog,
-    Gd3TagDialog, GotoDialog, HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog,
-    SplitDialog, SplitSongsDialog, TrackEditDialog, VgmMetadataDialog,
+    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
+    HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog,
+    SplitSongsDialog, TrackEditDialog, UnwalkableVgmDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadFailure, LoadReport};
 use crate::markers::RangeMarkers;
@@ -478,7 +478,7 @@ impl DroApp {
         // The editor-only panels (waveform, transport/boost, position) are hidden
         // on the pack tab, which owns the whole central area.
         let editor_tab = self.active_tab == AppTab::Editor;
-        // A foreign VGM has no OPL stream, so the panels that exist to show or
+        // A VGM for other chips has no OPL stream, so the panels that exist to show or
         // drive audio have nothing to say about it. They go, rather than sit
         // there as a dead transport over a permanently flat waveform.
         let playable = self.editor.capabilities().playable;
@@ -2145,7 +2145,7 @@ impl DroApp {
             // are no rows to show. The dialog says what the file is instead.
             Err(LoadFailure::Unwalkable { file, folder }) => {
                 self.status = format!("{name} could not be read as commands.");
-                self.dialogs.foreign_vgm = Some(ForeignVgmDialog::new(&file, folder));
+                self.dialogs.unwalkable_vgm = Some(UnwalkableVgmDialog::new(&file, folder));
             }
             Err(LoadFailure::Unreadable(message)) => self
                 .alerts

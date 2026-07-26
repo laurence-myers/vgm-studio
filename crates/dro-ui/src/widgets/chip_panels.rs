@@ -197,7 +197,7 @@ mod tests {
     use super::*;
     use crate::test_song::tone_song;
 
-    fn foreign(chips: &[(dro_core::ChipKind, u32)]) -> VgmFile {
+    fn vgm_for(chips: &[(dro_core::ChipKind, u32)]) -> VgmFile {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn a_multi_chip_file_gets_one_entry_per_chip_in_header_order() {
         use dro_core::ChipKind;
-        let file = foreign(&[
+        let file = vgm_for(&[
             (ChipKind::Ym2612, 7_670_454),
             (ChipKind::Sn76489, 3_579_545),
         ]);
@@ -261,11 +261,11 @@ mod tests {
         );
     }
 
-    /// A file declaring one foreign chip is still a single-chip document, so it
+    /// A file declaring one non-OPL chip is still a single-chip document, so it
     /// gets no selector either -- there is nothing to select between.
     #[test]
-    fn a_single_foreign_chip_shows_no_selector_either() {
-        let file = foreign(&[(dro_core::ChipKind::Ym2612, 7_670_454)]);
+    fn a_single_non_opl_chip_shows_no_selector_either() {
+        let file = vgm_for(&[(dro_core::ChipKind::Ym2612, 7_670_454)]);
         let panels = ChipPanels::for_vgm(&file);
         assert!(!panels.has_selector());
         assert_eq!(panels.selected_label(), Some("YM2612"));

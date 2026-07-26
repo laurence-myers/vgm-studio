@@ -14,14 +14,14 @@ use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
-pub struct ForeignVgmDialog {
+pub struct UnwalkableVgmDialog {
     file_name: String,
     facts: Vec<(&'static str, String)>,
     /// The file's folder, if it has one: the pack this file belongs to.
     folder: Option<PathBuf>,
 }
 
-impl ForeignVgmDialog {
+impl UnwalkableVgmDialog {
     #[must_use]
     pub fn new(file: &VgmFile, folder: Option<PathBuf>) -> Self {
         let mut facts = vec![
@@ -61,8 +61,12 @@ impl ForeignVgmDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut keep_open = true;
-        let open =
-            super::dialog_modal(ctx, "foreign-vgm-modal", "Not an OPL song", palette, |ui| {
+        let open = super::dialog_modal(
+            ctx,
+            "unwalkable-vgm-modal",
+            "Cannot read the commands",
+            palette,
+            |ui| {
                 ui.label(
                     egui::RichText::new(&self.file_name)
                         .monospace()
@@ -71,7 +75,7 @@ impl ForeignVgmDialog {
                 );
                 ui.add_space(8.0);
 
-                egui::Grid::new("foreign-vgm-grid")
+                egui::Grid::new("unwalkable-vgm-grid")
                     .num_columns(2)
                     .spacing([16.0, 6.0])
                     .show(ui, |ui| {
@@ -88,8 +92,8 @@ impl ForeignVgmDialog {
 
                 ui.add_space(10.0);
                 ui.label(
-                    "The editor works on OPL2 and OPL3 songs only. Open the folder as a pack \
-                     to edit this file's tags.",
+                    "This app cannot read this file's command stream, so there are no rows to \
+                     show for it. Open the folder as a pack to edit its tags.",
                 );
 
                 ui.add_space(8.0);
@@ -114,7 +118,8 @@ impl ForeignVgmDialog {
                         keep_open = false;
                     }
                 });
-            });
+            },
+        );
         open && keep_open
     }
 }

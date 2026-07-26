@@ -647,7 +647,7 @@ impl PackState {
 
     /// The distinct chip sets this app cannot preview, in track order.
     ///
-    /// Every foreign track is unplayable by definition -- being foreign means no
+    /// A track for chips there is no core for is unplayable by definition -- it means no
     /// core exists for its chips yet. Listing the chips rather than the tracks
     /// keeps the note short for a pack where every track is the same hardware,
     /// which is nearly all of them.
@@ -2677,7 +2677,7 @@ mod tests {
 
     /// A Mega Drive VGM: a YM2612 and an SN76489, and a body of commands the OPL
     /// reader cannot even size, so it is certain to decline the file.
-    fn foreign_song(name: &str, tag: Gd3Tag) -> PickedFile {
+    fn other_chip_song(name: &str, tag: Gd3Tag) -> PickedFile {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -2723,7 +2723,7 @@ mod tests {
     fn a_folder_of_mixed_chips_opens_with_every_track_placed() {
         let files = vec![
             tagged_song("01 Opl.vgm", tag("Cool Game", "Ada", "Ripper")),
-            foreign_song("02 Mega Drive.vgm", tag("Cool Game", "Bob", "Ripper")),
+            other_chip_song("02 Mega Drive.vgm", tag("Cool Game", "Bob", "Ripper")),
             PickedFile {
                 name: "03 Broken.vgm".to_owned(),
                 path: Some(PathBuf::from("C:/pack/03 Broken.vgm")),
@@ -2765,8 +2765,8 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_track_gets_the_same_row_facts_as_any_other() {
-        let files = vec![foreign_song(
+    fn a_track_for_other_chips_gets_the_same_row_facts_as_any_other() {
+        let files = vec![other_chip_song(
             "01 Theme.vgm",
             Gd3Tag {
                 track_name_en: "Green Hill".to_owned(),
@@ -2775,7 +2775,7 @@ mod tests {
         )];
         let state = PackState::from_folder(folder("Sonic", files), None);
 
-        let entry = state.tracks[0].entry.as_ref().expect("a foreign entry");
+        let entry = state.tracks[0].entry.as_ref().expect("an entry");
         assert_eq!(entry.title, "Green Hill");
         assert_eq!(entry.total_samples, 220_500);
         assert_eq!(entry.loop_samples, Some(110_250));
@@ -2786,8 +2786,8 @@ mod tests {
     /// The whole point of the step: a track the editor cannot open still has its
     /// tags fixed, and comes back out with its chips intact.
     #[test]
-    fn retagging_a_foreign_track_keeps_its_chips_and_its_music() {
-        let files = vec![foreign_song("01 Theme.vgm", tag("Sonic", "N", "Ripper"))];
+    fn retagging_a_track_for_other_chips_keeps_its_chips_and_its_music() {
+        let files = vec![other_chip_song("01 Theme.vgm", tag("Sonic", "N", "Ripper"))];
         let state = PackState::from_folder(folder("Sonic", files), None);
         let track = &state.tracks[0];
 
@@ -2847,8 +2847,8 @@ mod tests {
 
     /// A rename to `.vgz` must gzip, exactly as the OPL path does.
     #[test]
-    fn retagging_a_foreign_track_to_vgz_compresses_it() {
-        let files = vec![foreign_song("01 Theme.vgm", tag("Sonic", "N", "R"))];
+    fn retagging_a_track_for_other_chips_to_vgz_compresses_it() {
+        let files = vec![other_chip_song("01 Theme.vgm", tag("Sonic", "N", "R"))];
         let state = PackState::from_folder(folder("Sonic", files), None);
         let tag = state.tracks[0].tag().cloned().unwrap();
 
@@ -2866,8 +2866,8 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_track_carries_a_volume_modifier_like_any_vgm() {
-        let files = vec![foreign_song("01 Theme.vgm", tag("Sonic", "N", "R"))];
+    fn a_track_for_other_chips_carries_a_volume_modifier_like_any_vgm() {
+        let files = vec![other_chip_song("01 Theme.vgm", tag("Sonic", "N", "R"))];
         let state = PackState::from_folder(folder("Sonic", files), None);
         assert_eq!(state.tracks[0].volume_modifier(), Some(0));
 
@@ -2881,7 +2881,7 @@ mod tests {
     /// the tags, and the hardware line from the chips the files declare.
     #[test]
     fn a_non_opl_pack_is_not_prefilled_as_a_pc_pack() {
-        let files = vec![foreign_song(
+        let files = vec![other_chip_song(
             "01 Theme.vgm",
             Gd3Tag {
                 system_name_en: "Sega Mega Drive".to_owned(),
@@ -2902,7 +2902,7 @@ mod tests {
     fn a_pack_with_any_opl_track_keeps_the_pc_defaults() {
         let files = vec![
             tagged_song("01 Opl.vgm", tag("G", "A", "R")),
-            foreign_song("02 Other.vgm", tag("G", "B", "R")),
+            other_chip_song("02 Other.vgm", tag("G", "B", "R")),
         ];
         let state = PackState::from_folder(folder("G", files), None);
         assert_eq!(state.meta.system, "IBM PC/AT");
@@ -2911,11 +2911,11 @@ mod tests {
         assert_eq!(state.meta.music_authors, "A, B", "both tracks' authors");
     }
 
-    /// A foreign track is a full citizen of the checklist -- counted, exported,
+    /// A track for other chips is a full citizen of the checklist -- counted, exported,
     /// never flagged as broken -- with one note saying it cannot be auditioned.
     #[test]
     fn the_checklist_notes_what_cannot_be_previewed_without_blocking_it() {
-        let files = vec![foreign_song(
+        let files = vec![other_chip_song(
             "01 Theme.vgm",
             Gd3Tag {
                 track_name_en: "Theme".to_owned(),
@@ -2931,7 +2931,7 @@ mod tests {
             !items
                 .iter()
                 .any(|item| item.message.contains("could not be read")),
-            "a foreign track is not unreadable: {items:?}"
+            "a track for other chips is not unreadable: {items:?}"
         );
         let note = items
             .iter()
@@ -2941,13 +2941,13 @@ mod tests {
         assert!(note.message.contains("SN76489, YM2612"));
         assert!(
             state.validations().errors.is_empty(),
-            "a foreign track does not block export"
+            "a track for other chips does not block export"
         );
     }
 
     #[test]
-    fn a_foreign_track_is_listed_in_the_description() {
-        let files = vec![foreign_song(
+    fn a_track_for_other_chips_is_listed_in_the_description() {
+        let files = vec![other_chip_song(
             "01 Theme.vgm",
             Gd3Tag {
                 track_name_en: "Theme".to_owned(),

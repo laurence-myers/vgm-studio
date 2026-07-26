@@ -411,7 +411,7 @@ mod tests {
     /// A capture for chips the OPL model knows nothing about, as a `VgmFile`.
     /// Two songs, parted by `gap_samples` of silence; each song writes one
     /// register to each of its two chips.
-    fn foreign_capture(gap_samples: u16) -> VgmFile {
+    fn other_chip_capture(gap_samples: u16) -> VgmFile {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -447,8 +447,8 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_capture_splits_at_its_silence() {
-        let file = foreign_capture(30_000);
+    fn a_capture_for_other_chips_splits_at_its_silence() {
+        let file = other_chip_capture(30_000);
         // A gap shorter than the threshold is music, not a boundary.
         assert_eq!(detect_segments_in_vgm(&file, 40_000).len(), 1);
         let songs = detect_segments_in_vgm(&file, 20_000);
@@ -460,8 +460,8 @@ mod tests {
     }
 
     #[test]
-    fn a_foreign_piece_opens_on_the_state_the_capture_had_reached() {
-        let file = foreign_capture(30_000);
+    fn a_piece_opens_on_the_state_the_capture_had_reached() {
+        let file = other_chip_capture(30_000);
         let songs = detect_segments_in_vgm(&file, 20_000);
         let piece = materialise_vgm(&file, &songs[1], true, 0).expect("the second song");
 
@@ -482,8 +482,8 @@ mod tests {
     }
 
     #[test]
-    fn the_first_foreign_piece_needs_no_prelude_and_a_tail_is_capped() {
-        let file = foreign_capture(30_000);
+    fn the_first_piece_needs_no_prelude_and_a_tail_is_capped() {
+        let file = other_chip_capture(30_000);
         let songs = detect_segments_in_vgm(&file, 20_000);
 
         // Nothing preceded the first song, so it is only its own commands.

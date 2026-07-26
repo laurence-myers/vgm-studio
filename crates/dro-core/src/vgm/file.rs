@@ -7,7 +7,7 @@
 //! What an OPL file has is *more*, not different: [`VgmFile::opl`] hands out a
 //! projection of the same stream as OPL instructions, and that is what the
 //! register analyser, find-register and the synth read. `None` from it does
-//! not mean the file is broken or foreign; it means the OPL extras do not
+//! not mean the file is broken; it means the OPL extras do not
 //! apply. See [`vgm::projection`](crate::vgm::projection).
 //!
 //! # Byte-exact retagging
@@ -966,11 +966,11 @@ mod tests {
         }
     }
 
-    /// The real OPL2 capture goes through the foreign reader too -- it is a
+    /// The real OPL2 capture goes through this reader too -- it is a
     /// VGM like any other, and pack mode reaches for this path when the editor
     /// declines a file.
     #[test]
-    fn the_opl2_fixture_round_trips_through_the_foreign_path() {
+    fn the_opl2_fixture_round_trips_through_the_chip_agnostic_path() {
         let file = read("lsl3.vgm", VGM_FIXTURE).unwrap();
         assert!(file.is_opl_only());
         assert_eq!(file.chip_list(), "YM3812");
@@ -1091,7 +1091,7 @@ mod tests {
     #[test]
     fn a_minimal_header_with_data_at_0x60_opens() {
         // The shape the OPL reader rejects outright, and one of the two reader
-        // TODOs this step closes for foreign files.
+        // TODOs this step closes for files this app has no core for.
         let mut header = vec![0u8; 0x60];
         header[..4].copy_from_slice(crate::vgm::io::MAGIC);
         put_u32(&mut header, offset::VERSION, 0x151);
