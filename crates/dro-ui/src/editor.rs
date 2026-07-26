@@ -510,19 +510,7 @@ impl Editor {
     /// is cleared and the loop markers are re-derived from the song's remapped
     /// loop metadata, exactly as a fresh load or conversion would.
     pub fn optimize_vgm(&mut self) -> Option<(usize, usize)> {
-        if self.vgm.is_some() {
-            return self.optimize_vgm_document();
-        }
-        let song = self.dro.as_mut()?;
-        let outcome = dro_core::optimize::optimize(song)?;
-        let stats = (outcome.commands_removed, outcome.bytes_saved);
-        self.undo
-            .execute(Box::new(ReplaceStream::new("Optimize VGM", outcome)), song);
-        self.markers = RangeMarkers::from_song(song);
-        self.selection.clear();
-        self.analysis.invalidate();
-        self.bump_revision();
-        Some(stats)
+        self.optimize_vgm_document()
     }
 
     /// Crops the song to the marked region, deleting everything outside it.
@@ -623,17 +611,10 @@ impl Editor {
     /// overwhelming majority of VGMs.
     #[must_use]
     pub fn audit_header(&self) -> Vec<dro_core::vgm::HeaderFinding> {
-        match (&self.vgm, &self.dro) {
-            (Some(file), _) => dro_core::vgm::audit::audit(file),
-            // A VGM in the OPL slot is audited through a materialised copy;
-            // the findings are about bytes, and those are the same bytes.
-            (None, Some(song)) if song.is_vgm() => io::write_song(song)
-                .ok()
-                .and_then(|bytes| dro_core::vgm::file::read(&song.name, &bytes).ok())
-                .map(|file| dro_core::vgm::audit::audit(&file))
-                .unwrap_or_default(),
-            _ => Vec::new(),
-        }
+        self.vgm
+            .as_ref()
+            .map(dro_core::vgm::audit::audit)
+            .unwrap_or_default()
     }
 
     /// Corrects what [`Self::audit_header`] found, returning how many fields
@@ -643,32 +624,11 @@ impl Editor {
     /// and loop dialogs, tracked by the same dirty flag rather than the
     /// instruction-stream history.
     pub fn fix_header(&mut self) -> usize {
-        if let Some(file) = self.vgm.as_mut() {
-            let fixed = dro_core::vgm::audit::fix(file).len();
-            if fixed > 0 {
-                self.metadata_dirty = true;
-                self.bump_revision();
-            }
-            return fixed;
-        }
-        // The OPL slot: fix a materialised copy and read the corrected fields
-        // back into the song's own metadata, so nothing about the stream moves.
-        let Some(song) = self.dro.as_mut().filter(|song| song.is_vgm()) else {
+        let Some(file) = self.vgm.as_mut() else {
             return 0;
         };
-        let Some(mut file) = io::write_song(song)
-            .ok()
-            .and_then(|bytes| dro_core::vgm::file::read(&song.name, &bytes).ok())
-        else {
-            return 0;
-        };
-        let fixed = dro_core::vgm::audit::fix(&mut file).len();
-        if fixed > 0
-            && let Some(meta) = song.vgm_meta_mut()
-        {
-            meta.set_header(file.header.raw().to_vec());
-            meta.loop_point = file.loop_index();
-            meta.loop_end = file.loop_end_index();
+        let fixed = dro_core::vgm::audit::fix(file).len();
+        if fixed > 0 {
             self.metadata_dirty = true;
             self.bump_revision();
         }
@@ -778,26 +738,18 @@ impl Editor {
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
         // Only a real change dirties the song: the dialog's Save fires whether or
         // not anything was typed, and prompting to discard nothing is noise.
-        let changed = match (self.dro.as_mut(), self.vgm.as_mut()) {
-            (Some(song), _) => match song.vgm_meta_mut() {
-                Some(meta) if meta.tag.as_ref() != Some(&tag) => {
-                    meta.tag = Some(tag);
-                    true
-                }
-                _ => false,
-            },
-            (None, Some(file)) if file.tag.as_ref() != Some(&tag) => {
-                file.tag = Some(tag);
-                true
-            }
-            _ => false,
+        let Some(file) = self
+            .vgm
+            .as_mut()
+            .filter(|file| file.tag.as_ref() != Some(&tag))
+        else {
+            return;
         };
-        if changed {
-            // Not a revision bump: a tag changes nothing the audio or the
-            // waveform is rendered from, and bumping would reload both.
-            self.refresh_projection();
-        }
-        self.metadata_dirty |= changed;
+        file.tag = Some(tag);
+        // Not a revision bump: a tag changes nothing the audio or the waveform
+        // is rendered from, and bumping would reload both.
+        self.refresh_projection();
+        self.metadata_dirty = true;
     }
 
     /// Applies the VGM metadata dialog's Save. Not undoable.
@@ -812,70 +764,6 @@ impl Editor {
     /// opened) song and had to be dropped, so the caller can surface it instead
     /// of losing it silently.
     pub fn set_vgm_metadata(
-        &mut self,
-        loop_point: Option<usize>,
-        loop_end: Option<usize>,
-        loop_base: u8,
-        loop_modifier: u8,
-        volume_modifier: u8,
-    ) -> bool {
-        if self.dro.is_none() {
-            return self.set_vgm_document_metadata(
-                loop_point,
-                loop_end,
-                loop_base,
-                loop_modifier,
-                volume_modifier,
-            );
-        }
-        let Some(song) = self.dro.as_mut() else {
-            return false;
-        };
-        let len = song.len();
-        let Some(meta) = song.vgm_meta_mut() else {
-            return false;
-        };
-        let clamped = loop_point.filter(|&index| index < len);
-        let dropped = clamped != loop_point;
-        // The end goes the same way as the start when the start is dropped: an
-        // end without a start describes a region with no beginning. Otherwise it
-        // must stay inside the song and above the start, or it falls back to the
-        // song's end -- which is what `None` already means.
-        let clamped_end = clamped
-            .and_then(|start| loop_end.filter(|&end| end <= len && end > start && end < len));
-        let before = (
-            meta.loop_point,
-            meta.loop_end,
-            meta.loop_base,
-            meta.loop_modifier,
-            meta.volume_modifier,
-        );
-        meta.loop_point = clamped;
-        meta.loop_end = clamped_end;
-        meta.loop_base = loop_base;
-        meta.loop_modifier = loop_modifier;
-        meta.volume_modifier = volume_modifier;
-        let changed = before
-            != (
-                clamped,
-                clamped_end,
-                loop_base,
-                loop_modifier,
-                volume_modifier,
-            );
-        // The stored loop may have been clamped to a since-shortened song; the
-        // markers describe what was actually stored either way.
-        self.markers = RangeMarkers::from_song(song);
-        self.metadata_dirty |= changed;
-        dropped
-    }
-
-    /// [`Self::set_vgm_metadata`] for a document held as a VGM, where the fields
-    /// live in the header itself rather than in a decoded `VgmMeta`.
-    ///
-    /// The same clamping, for the same reason: the dialog validated against the
-    /// length it captured at open.
-    fn set_vgm_document_metadata(
         &mut self,
         loop_point: Option<usize>,
         loop_end: Option<usize>,
@@ -927,33 +815,21 @@ impl Editor {
     /// short of the tail, since `None` already means "to the end" and keeping it
     /// that way is what lets a later trim widen the loop with the song.
     pub fn apply_loop_to_metadata(&mut self) -> bool {
-        if let Some(file) = self.vgm.as_mut() {
-            let len = file.len();
-            let (start, end) = (self.markers.start(), self.markers.end());
-            let before = (file.loop_index(), file.loop_end_index());
-            file.set_loop_rows(Some(start), (end < len).then_some(end));
-            self.metadata_dirty |= before != (file.loop_index(), file.loop_end_index());
-            // The markers follow what was actually stored, which is not always
-            // what was asked for: a header holds the loop's *length in samples*,
-            // so an end sharing its instant with the rows before it comes back
-            // as the first of them. Leaving the markers where the user put them
-            // would leave the "unapplied" cue lit on a loop that just was.
-            self.reset_markers();
-            self.refresh_projection();
-            return true;
-        }
-        let Some(song) = self.dro.as_mut() else {
+        let Some(file) = self.vgm.as_mut() else {
             return false;
         };
-        let len = song.len();
+        let len = file.len();
         let (start, end) = (self.markers.start(), self.markers.end());
-        let Some(meta) = song.vgm_meta_mut() else {
-            return false;
-        };
-        let stored = (Some(start), (end < len).then_some(end));
-        let changed = (meta.loop_point, meta.loop_end) != stored;
-        (meta.loop_point, meta.loop_end) = stored;
-        self.metadata_dirty |= changed;
+        let before = (file.loop_index(), file.loop_end_index());
+        file.set_loop_rows(Some(start), (end < len).then_some(end));
+        self.metadata_dirty |= before != (file.loop_index(), file.loop_end_index());
+        // The markers follow what was actually stored, which is not always what
+        // was asked for: a header holds the loop's *length in samples*, so an
+        // end sharing its instant with the rows before it comes back as the
+        // first of them. Leaving the markers where the user put them would leave
+        // the "unapplied" cue lit on a loop that just was.
+        self.reset_markers();
+        self.refresh_projection();
         true
     }
 
@@ -962,20 +838,11 @@ impl Editor {
     /// the waveform markers. Always `false` for a DRO, which stores no loop.
     #[must_use]
     pub fn loop_markers_are_unapplied(&self) -> bool {
-        if let Some(file) = self.vgm.as_ref() {
-            let len = file.len();
-            let stored_end = file.loop_end_index().unwrap_or(len);
-            return file.loop_index() != Some(self.markers.start())
-                || stored_end != self.markers.end();
-        }
-        let Some(song) = self.dro.as_ref() else {
+        let Some(file) = self.vgm.as_ref() else {
             return false;
         };
-        let Some(meta) = song.vgm_meta() else {
-            return false;
-        };
-        let stored_end = meta.loop_end.unwrap_or(song.len());
-        meta.loop_point != Some(self.markers.start()) || stored_end != self.markers.end()
+        let stored_end = file.loop_end_index().unwrap_or(file.len());
+        file.loop_index() != Some(self.markers.start()) || stored_end != self.markers.end()
     }
 
     // -- queries -------------------------------------------------------------
