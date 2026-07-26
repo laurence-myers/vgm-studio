@@ -334,27 +334,6 @@ pub fn music_hardware_suggestion(opl: OplType) -> &'static str {
     preset_for(opl).music_hardware
 }
 
-/// Replaces the characters a file name cannot hold (Windows being the strictest
-/// target) with `_`, then trims surrounding whitespace. This is the doc stem's
-/// rule; a *track* file name follows [`vgm_ren_title`] instead.
-#[must_use]
-pub fn sanitize_file_component(text: &str) -> String {
-    let sanitised: String = text
-        .chars()
-        .map(|c| match c {
-            '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-            other => other,
-        })
-        .collect();
-    sanitised.trim().to_owned()
-}
-
-/// A file-name-safe stem for the `.txt`/`.m3u`/`.zip`, from the game name.
-#[must_use]
-pub fn doc_file_stem(game_name: &str) -> String {
-    sanitize_file_component(game_name)
-}
-
 /// A GD3 track title rewritten the way `vgm_ren` (the VGMRips renamer) writes it
 /// into a file name. That tool is the reference for what a pack's files are
 /// called, so both the file-name check and the rename-from-tag fix follow its
@@ -447,6 +426,18 @@ pub fn tag_file_name(number: usize, track_name: &str, current_file_name: &str) -
         .rsplit_once('.')
         .map_or("vgz", |(_, ext)| ext);
     Some(track_file_name(number, track_name, ext))
+}
+
+/// A file-name-safe stem for the `.txt`/`.m3u`/`.zip`, from the game name.
+///
+/// The same [`vgm_ren_title`] replacements the tracks get, so a subtitled game
+/// reads as `Doom II - Hell on Earth.zip` beside its `NN Doom II - ...vgz`
+/// tracks rather than picking up an underscore the songs never had. Empty when
+/// the game name leaves nothing behind, which is what
+/// [`crate::pack`]'s callers gate a save on.
+#[must_use]
+pub fn doc_file_stem(game_name: &str) -> String {
+    vgm_ren_title(game_name)
 }
 
 /// Builds an `.m3u` playlist: one file name per line, CRLF-terminated, no header.

@@ -498,11 +498,11 @@ impl PackState {
         generate_m3u(&names)
     }
 
-    /// Whether the metadata is ready to save (a game name is required, since it
-    /// names every output file).
+    /// Whether the metadata is ready to save: a game name is required, and one
+    /// the file-name rules leave something of, since it names every output file.
     #[must_use]
     pub fn can_save(&self) -> bool {
-        !self.meta.game_name.trim().is_empty()
+        !self.doc_stem().is_empty()
     }
 
     /// The per-track facts the submission-readiness checks read, one entry per
@@ -537,8 +537,10 @@ impl PackState {
     pub fn readiness_items(&self) -> Vec<ReadinessItem> {
         let mut items = Vec::new();
 
-        if self.meta.game_name.trim().is_empty() {
+        if self.doc_stem().is_empty() {
             // The game name is package info (and the only file-level hard error).
+            // Judged by the stem it yields, not the raw text: a name the file
+            // rules empty out ("?!") names the pack ".zip".
             items.push(ReadinessItem {
                 severity: Severity::Error,
                 category: ReadinessCategory::PackInfo,
@@ -2650,6 +2652,25 @@ mod tests {
         assert!(!state.can_save());
         state.meta.game_name = "Named".to_owned();
         assert!(state.can_save());
+        // A name the file rules empty out would name the pack ".zip", so it is
+        // no more savable than a blank one -- and the checklist says so.
+        state.meta.game_name = "?!".to_owned();
+        assert!(!state.can_save());
+        assert!(
+            state
+                .readiness_items()
+                .iter()
+                .any(|item| item.message.contains("Enter a game name")),
+            "the blocking error still names the field"
+        );
+    }
+
+    #[test]
+    fn the_doc_stem_follows_the_same_rules_as_the_track_names() {
+        let files = vec![named_song("01 Intro.vgz", "Intro")];
+        let mut state = PackState::from_folder(folder("Doom II", files), None);
+        state.meta.game_name = "Doom II: Hell on Earth".to_owned();
+        assert_eq!(state.doc_stem(), "Doom II - Hell on Earth");
     }
 
     #[test]
