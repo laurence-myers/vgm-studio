@@ -505,7 +505,7 @@ impl DroApp {
                         // so there is nothing to meter -- and a meter pinned at
                         // silence through a whole song reads as a fault. Drop it
                         // and give the waveform the room.
-                        let metered = self.config.audio.renders_samples();
+                        let metered = self.output_renders_samples();
                         // Reserve the peak meter's width up front: the waveform
                         // fills whatever space it is given.
                         let wave_width = if metered {
@@ -652,7 +652,7 @@ impl DroApp {
                                 // The boost is applied to rendered samples, of which
                                 // hardware output produces none -- the board has its
                                 // own volume.
-                                let shapes_output = self.config.audio.renders_samples();
+                                let shapes_output = self.output_renders_samples();
                                 ui.add_enabled_ui(shapes_output, |ui| {
                                     boost_stepper::boost_stepper(
                                         ui,
@@ -670,9 +670,7 @@ impl DroApp {
                         theme::separator_full(ui, p);
                         ui.add_space(PAD);
                         // The panel hides its own high bank for a plain OPL2 song.
-                        let channels =
-                            self.channels
-                                .show(ui, p, self.config.audio.renders_samples());
+                        let channels = self.channels.show(ui, p, self.output_renders_samples());
                         if channels.muting_changed {
                             actions.push(Action::MutingChanged);
                         }
@@ -3644,6 +3642,25 @@ impl DroApp {
             self.status = "Please open a DRO file first.".to_owned();
             false
         }
+    }
+
+    /// Whether the loaded document's sound passes through this program as
+    /// samples, and can therefore be metered, boosted and panned.
+    ///
+    /// The config's own answer is about *OPL* output: hardware output sends the
+    /// board's own sound out its own socket, so nothing here can measure or
+    /// shape it. A document that is not OPL never reaches that board -- it is
+    /// routed to the emulator whatever the setting says -- so for one of those
+    /// the answer is yes regardless.
+    fn output_renders_samples(&self) -> bool {
+        self.config.audio.renders_samples() || !self.editor.has_song()
+    }
+
+    /// [`Self::output_renders_samples`] for tests, which have only a shared
+    /// reference and no frame to draw.
+    #[cfg(test)]
+    pub(crate) fn output_renders_samples_for_test(&self) -> bool {
+        self.output_renders_samples()
     }
 
     /// The gate for the transport: is there anything to hear?

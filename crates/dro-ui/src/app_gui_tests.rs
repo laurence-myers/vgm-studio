@@ -1761,6 +1761,18 @@ fn settled_snapshot(harness: &mut Harness<'static, DroApp>, name: &str) {
     harness.snapshot(name);
 }
 
+/// The Settings dialog's output section: one row per chip this app can play,
+/// and a count of the ones it cannot. The old single "Output" row could not say
+/// either thing.
+#[test]
+fn snapshot_settings_output_per_chip() {
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
+    let config = harness.state().config.clone();
+    harness.state_mut().dialogs.settings =
+        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
+    settled_snapshot(&mut harness, "settings_output_per_chip");
+}
+
 #[test]
 fn snapshot_empty_app() {
     let (mut harness, _handles) = build(None, false, true);
@@ -2309,6 +2321,31 @@ fn a_vgm_this_app_can_play_gets_its_transport_back() {
         harness.state().status
     );
     assert!(audio.playing);
+}
+
+/// Hardware output is an OPL3, so a document that is not OPL never reaches it --
+/// and the controls that only work on samples passing through this program stay
+/// live for one, whatever the output setting says.
+#[test]
+fn the_hardware_output_setting_does_not_grey_a_non_opl_documents_controls() {
+    let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
+    harness.state_mut().config.audio.output_backend = dro_core::config::OutputBackend::RetroWave;
+    harness.run();
+
+    assert!(
+        !harness.state().config.audio.renders_samples(),
+        "the setting says the board mixes its own sound..."
+    );
+    assert!(
+        harness.state().output_renders_samples_for_test(),
+        "...but this file never goes to the board, so the meter is live"
+    );
+
+    // An OPL song does go to the board, so for that one the setting stands.
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, false);
+    harness.state_mut().config.audio.output_backend = dro_core::config::OutputBackend::RetroWave;
+    harness.run();
+    assert!(!harness.state().output_renders_samples_for_test());
 }
 
 /// A VGM for chips there is no core for renders silence, so the render is not

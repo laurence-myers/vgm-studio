@@ -6,6 +6,7 @@ use dro_core::config::{AppConfig, OutputBackend, SurfaceChoice, ThemeChoice};
 use crate::action::Action;
 use crate::platform::HardwarePortInfo;
 use crate::theme::{Palette, bevel};
+use crate::widgets::chip_output;
 
 /// The appearance settings, as `(theme, pad_style, deck_style)`. These three
 /// preview live, so they travel together.
@@ -90,26 +91,19 @@ impl SettingsDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     ui.label("Output").on_hover_text(
-                        "Where live playback goes. Rendering, splitting and the \
-                         waveform always use the emulator.",
+                        "Where each chip's live playback goes. Rendering, splitting \
+                         and the waveform always use the emulator.",
                     );
-                    ui.scope(|ui| {
-                        crate::theme::style_dropdown(ui, palette);
-                        egui::ComboBox::from_id_salt("settings-output-backend")
-                            .selected_text(backend_label(self.output_backend))
-                            .show_ui(ui, |ui| {
-                                for choice in [OutputBackend::Emulated, OutputBackend::RetroWave] {
-                                    ui.selectable_value(
-                                        &mut self.output_backend,
-                                        choice,
-                                        backend_label(choice),
-                                    );
-                                }
-                            });
-                    });
+                    ui.label("");
                     ui.end_row();
 
-                    if !self.emulating() {
+                    // One row per chip this app can play. Only OPL has a choice
+                    // -- the RetroWave board is an OPL3 -- but listing the rest
+                    // is the point: it answers "can it play my Mega Drive rips"
+                    // where the old single row could not.
+                    let ports = &self.ports;
+                    let port = &mut self.retrowave_port;
+                    chip_output::show(ui, palette, &mut self.output_backend, &mut |ui| {
                         ui.label("Device").on_hover_text(
                             "The board's serial port. On Windows these usually report \
                              a generic name, so a recognised board is matched by its \
@@ -118,24 +112,20 @@ impl SettingsDialog {
                         ui.scope(|ui| {
                             crate::theme::style_dropdown(ui, palette);
                             egui::ComboBox::from_id_salt("settings-retrowave-port")
-                                .selected_text(port_label(&self.retrowave_port, &self.ports))
+                                .selected_text(port_label(port, ports))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.retrowave_port,
-                                        String::new(),
-                                        AUTO_DETECT,
-                                    );
-                                    for port in &self.ports {
+                                    ui.selectable_value(port, String::new(), AUTO_DETECT);
+                                    for offered in ports {
                                         ui.selectable_value(
-                                            &mut self.retrowave_port,
-                                            port.port_name.clone(),
-                                            offered_label(port),
+                                            port,
+                                            offered.port_name.clone(),
+                                            offered_label(offered),
                                         );
                                     }
                                 });
                         });
                         ui.end_row();
-                    }
+                    });
 
                     // What follows shapes the rendered signal, which hardware
                     // output does not produce.
@@ -376,13 +366,6 @@ fn frequency_label(rate: u32) -> String {
 /// The dropdown label for a theme.
 /// What an unset port means: pick one at load time.
 const AUTO_DETECT: &str = "Detect automatically";
-
-fn backend_label(backend: OutputBackend) -> &'static str {
-    match backend {
-        OutputBackend::Emulated => "Nuked OPL3 (emulated)",
-        OutputBackend::RetroWave => "RetroWave OPL3 (hardware)",
-    }
-}
 
 /// A port as offered in the picker, ticked when we recognise the hardware.
 fn offered_label(port: &HardwarePortInfo) -> String {
