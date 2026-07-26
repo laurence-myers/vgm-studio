@@ -114,6 +114,36 @@
   }
   .hovered{background:rgba(80,130,134,.16)}
 
+  /* inline icon rows: glyphs in the data ink, not keycaps */
+  .cols-inline{grid-template-columns:28px 26px 14px minmax(160px,1fr) 55px 55px 60px 22px}
+  .cols-grip{grid-template-columns:14px 26px 14px minmax(160px,1fr) 55px 55px 60px 22px}
+  .cols-left{grid-template-columns:50px 26px 14px minmax(160px,1fr) 55px 55px 60px}
+  .gut{display:flex; gap:1px; align-items:center; justify-content:flex-end}
+  .ico{
+    color:#5E8688; font-size:11px; line-height:1; padding:2px 1px;
+    background:none; border:0;
+  }
+  .ico.on{color:var(--datalab)}
+  .ico.hot{color:var(--gold); background:rgba(242,199,102,.14)}
+  .ico.play{color:var(--datalab); font-size:10px}
+  .ico.more{color:var(--datalab); letter-spacing:1px}
+
+  /* the row menu the ... icon opens */
+  .menuwrap{position:relative}
+  .rowmenu{
+    position:absolute; z-index:3; right:6px; top:26px; width:186px;
+    background:var(--face); border:1px solid var(--bevelD);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10);
+    padding:3px 0;
+  }
+  .rowmenu i{
+    display:block; font-style:normal; color:var(--lab); font-size:12px;
+    padding:4px 10px;
+  }
+  .rowmenu i.sel{background:rgba(80,130,134,.34)}
+  .rowmenu i.sep{border-top:1px solid var(--bevelD); margin-top:3px; padding-top:6px}
+  .rowmenu i span{color:var(--mut); float:right}
+
   /* master / detail */
   .split{display:grid; grid-template-columns:1fr 260px; gap:0}
   .split .list{border-right:1px solid var(--keyline); min-width:0}
@@ -405,16 +435,174 @@
   </p>
 
   <hr>
+  <p class="sub" style="margin-top:34px">
+    <b>The inline-icon direction.</b> Three takes on the same idea: the per-row controls stop
+    being keycaps and become glyphs in the data ink, sitting <em>inside</em> the columns that
+    already exist. The trailing action column falls from <b>345px to 22px</b> — or vanishes —
+    which is more than the overflow needs, so the title gets everything back. What separates
+    E, F and G is where reordering lives and how the two window-opening commands are reached.
+  </p>
+
+  <h2>E &mdash; Inline arrows, inline play, and a row menu <span class="tag">as specified</span></h2>
+  <p class="verdict">
+    &#9650;&#9660; move to the left of the number, where the thing they reorder is;
+    &#9654; sits immediately before the title, where the thing it plays is; Open and
+    Quick&nbsp;edit go behind <b>&#8943;</b> at the right end.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well menuwrap">
+      <div class="bar"></div>
+      <div class="row head cols-inline">
+        <span></span><span>#</span><span></span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span><span></span>
+      </div>
+      <div class="row cols-inline">
+        <span class="gut"><span class="ico">&#9650;</span><span class="ico on">&#9660;</span></span>
+        <span class="num">01</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+        <span class="ico more">&#8943;</span>
+      </div>
+      <div class="row zebra cols-inline hovered">
+        <span class="gut"><span class="ico on">&#9650;</span><span class="ico on">&#9660;</span></span>
+        <span class="num">02</span>
+        <span class="ico play hot">&#9654;</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+        <span class="ico more hot">&#8943;</span>
+      </div>
+      <div class="rowmenu">
+        <i class="sel">Open in editor</i>
+        <i>Quick edit&hellip;</i>
+        <i class="sep">Preview<span>&#9654;</span></i>
+        <i>Move up<span>&#9650;</span></i>
+        <i>Move down<span>&#9660;</span></i>
+      </div>
+      <div class="row cols-inline">
+        <span class="gut"><span class="ico on">&#9650;</span><span class="ico">&#9660;</span></span>
+        <span class="num">03</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+        <span class="ico more">&#8943;</span>
+      </div>
+    </div>
+  </div>
+  <p class="stripcap">Row 2 hovered, its menu open. Dimmed arrows are the ends of the list.</p>
+  <p class="cost">
+    <b>Costs:</b> five glyphs per row need five accessible names and five tooltips, and the
+    menu duplicates Preview and the moves so the keyboard keeps a path to them. A glyph is a
+    smaller target than a pad — 11px of ink wants ~18px of hit area, which the row height
+    already affords. <b>Risk:</b> low. This is the layout that fits with the most room spare.
+  </p>
+
+  <h2>F &mdash; Drag to reorder, everything else as E <span class="tag">less chrome</span></h2>
+  <p class="verdict">
+    The pair of arrows becomes one grip: <b>&#10247;</b> — drag the row to where it goes.
+    The arrows stay in the row menu for precision and for the keyboard.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (drag &#10247; to reorder &middot; double-click to open)</div>
+    <div class="well">
+      <div class="bar"></div>
+      <div class="row head cols-grip">
+        <span></span><span>#</span><span></span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span><span></span>
+      </div>
+      <div class="row cols-grip">
+        <span class="ico">&#10247;</span><span class="num">01</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+        <span class="ico more">&#8943;</span>
+      </div>
+      <div class="row zebra cols-grip hovered">
+        <span class="ico hot">&#10247;</span><span class="num">02</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+        <span class="ico more">&#8943;</span>
+      </div>
+      <div class="row cols-grip">
+        <span class="ico">&#10247;</span><span class="num">03</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+        <span class="ico more">&#8943;</span>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> a real drag-and-drop reorder — a drag state, a drop indicator, and a
+    renumbering batch built from the final position rather than one step at a time. Moving
+    track 12 to the top is one gesture instead of eleven clicks; moving it one slot is a
+    fiddlier gesture than an arrow. <b>Risk:</b> medium, and it is the only option here that
+    is new interaction rather than new layout.
+  </p>
+
+  <h2>G &mdash; One left gutter, nothing trailing <span class="tag">hard right edge</span></h2>
+  <p class="verdict">
+    Every control lives in a single 50px gutter before the number — <b>&#8943;</b> always,
+    &#9650;&#9660; on the row under the pointer — so the row's right edge is pure data and
+    the three time columns can sit flush against it.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well">
+      <div class="bar"></div>
+      <div class="row head cols-left">
+        <span></span><span>#</span><span></span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span>
+      </div>
+      <div class="row cols-left">
+        <span class="gut"><span class="ico more">&#8943;</span></span>
+        <span class="num">01</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+      </div>
+      <div class="row zebra cols-left hovered">
+        <span class="gut">
+          <span class="ico more hot">&#8943;</span>
+          <span class="ico on">&#9650;</span><span class="ico on">&#9660;</span>
+        </span>
+        <span class="num">02</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+      </div>
+      <div class="row cols-left">
+        <span class="gut"><span class="ico more">&#8943;</span></span>
+        <span class="num">03</span>
+        <span class="ico play">&#9654;</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> the gutter changes width between rows as the arrows appear, so either it is
+    reserved (and mostly empty) or the number shifts under the pointer — the mock reserves it.
+    Reordering is invisible until you hover, the same objection that sinks B. <b>Risk:</b>
+    low to build, medium to live with.
+  </p>
+
+  <hr>
   <h2>Where I would land</h2>
   <ul>
-    <li><b>Now:</b> the two lines above, then <b>A</b>. It is the smallest change that ends the
-      overflow with room to spare, and it leaves the table doing the thing a pack needs — 40
-      rows of times you can compare down the column.</li>
-    <li><b>If the row ever gains more data</b> (chip, size, a second level figure), <b>C</b>:
-      once there are eight columns, no amount of declaring widths saves a 1226px window.</li>
+    <li><b>E</b>, plus the two lines under “fix these whichever layout wins”. It puts each
+      control against the thing it acts on, ends the overflow with ~180px to spare, and keeps
+      every command visible at rest — the objection that sinks B and G. The row menu is also
+      where any <em>future</em> per-track command goes without touching the layout again.</li>
+    <li><b>F</b> if reordering a long pack is the job. Dragging track 12 to the top is one
+      gesture against eleven clicks; it is also the only option that needs new interaction
+      code rather than new layout code.</li>
+    <li><b>A</b> stays the fallback: the smallest possible change, all pads, no new idiom.</li>
+    <li><b>C</b> if the row ever gains more data (chip, size, a second level figure) — once
+      there are eight columns, no amount of declaring widths saves a 1226px window.</li>
     <li><b>D</b> is the right shape for a much larger pack tool, and the wrong amount of work
-      for a clipped button.</li>
-    <li><b>B</b> reads well in a mockup and badly in use: the pads are the only clue that a
-      row can be reordered at all.</li>
+      for a clipped button. <b>B</b> and <b>G</b> hide reordering until you hover over it.</li>
   </ul>
 </div>

@@ -2314,9 +2314,9 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
-    // U+25B6 play.
+    // The inline glyph carries the verb as its accessible name.
     pack_section(&mut harness, PackSection::Tracks);
-    harness.get_by_label("\u{25B6}").click();
+    harness.get_by_label("Preview").click();
     harness.run_steps(3); // playback requests repaints; `run` would spin.
     {
         let audio = handles.audio.borrow();
@@ -2326,8 +2326,8 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
     }
     assert_eq!(harness.state().pack.as_ref().unwrap().preview, Some(0));
 
-    // The button now shows U+25A0 stop.
-    harness.get_by_label("\u{25A0}").click();
+    // It becomes U+25A0 stop, and says so.
+    harness.get_by_label("Stop preview").click();
     harness.run_steps(3);
     assert!(!handles.audio.borrow().playing);
     assert_eq!(harness.state().pack.as_ref().unwrap().preview, None);
@@ -2360,7 +2360,7 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
     // Open a pack folder and preview its OPL2 track.
     open_folder(&mut harness, &handles, single_track_folder());
     pack_section(&mut harness, PackSection::Tracks);
-    harness.get_by_label("\u{25B6}").click();
+    harness.get_by_label("Preview").click();
     harness.run_steps(3);
 
     let audio = handles.audio.borrow();
@@ -2549,10 +2549,12 @@ fn open_button_loads_the_track_into_the_editor() {
     open_folder(&mut harness, &handles, single_track_folder());
     assert_eq!(harness.state().active_tab, AppTab::Pack);
 
-    // The per-row Open button is the discoverable path to the same handler the
+    // The row menu is the discoverable path to the same handler the
     // double-click drives (wd-9).
     pack_section(&mut harness, PackSection::Tracks);
-    harness.get_by_label("Open").click();
+    harness.get_by_label("Track menu").click();
+    harness.run();
+    harness.get_by_label("Open in editor").click();
     harness.run();
 
     assert_eq!(harness.state().active_tab, AppTab::Editor);
@@ -2637,12 +2639,86 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
 }
 
 #[test]
+fn dragging_a_track_by_its_grip_moves_it_to_where_it_is_dropped() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder()); // 01 Intro, 02 Boss
+    pack_section(&mut harness, PackSection::Tracks);
+
+    // Take hold of track 1's grip and let it go below track 2's midpoint.
+    let grips: Vec<egui::Rect> = harness
+        .get_all_by_label("\u{2195}")
+        .map(|node| node.rect())
+        .collect();
+    assert_eq!(grips.len(), 2, "one grip per row");
+    let (grab, release) = (grips[0].center(), grips[1].center() + egui::vec2(0.0, 6.0));
+    harness.drag_at(grab);
+    harness.run();
+    harness.hover_at(release);
+    harness.run();
+    harness.drop_at(release);
+    harness.run();
+
+    // The batch is issued the moment the row is dropped: a rename per moved
+    // file, staged through temp names.
+    {
+        let files = handles.files.borrow();
+        assert!(
+            !files.rename_requests.is_empty(),
+            "the drop started the reorder batch"
+        );
+    }
+
+    // Feed the outcomes, and the reordered folder the follow-up rescan installs.
+    {
+        let mut files = handles.files.borrow_mut();
+        for _ in 0..8 {
+            files.rename_outcomes.push_back(Ok(()));
+        }
+        files.picked_folders.push_back(Ok(pack_folder(
+            "Cool Game",
+            vec![
+                tagged_vgm("01 Boss.vgm", "Cool Game", "Bob", "Ripper"),
+                tagged_vgm("02 Intro.vgz", "Cool Game", "Ada", "Ripper"),
+            ],
+        )));
+    }
+    harness.run_steps(16);
+
+    {
+        let files = handles.files.borrow();
+        let finals: Vec<&String> = files
+            .rename_requests
+            .iter()
+            .map(|(_, to)| to)
+            .filter(|to| !to.starts_with(".drotrim"))
+            .collect();
+        assert!(
+            finals.iter().any(|to| *to == "01 Boss.vgm"),
+            "the track dropped past moved up, got {finals:?}"
+        );
+        assert!(finals.iter().any(|to| *to == "02 Intro.vgz"));
+    }
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().tracks[0].file_name,
+        "01 Boss.vgm",
+        "the rescan installed the new order"
+    );
+    assert_eq!(
+        harness.state().pack_undo.len(),
+        1,
+        "and the drag is undoable"
+    );
+}
+
+#[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
     pack_section(&mut harness, PackSection::Tracks);
-    harness.get_by_label("Edit\u{2026}").click();
+    harness.get_by_label("Track menu").click();
+    harness.run();
+    harness.get_by_label("Quick edit\u{2026}").click();
     harness.run();
     assert!(
         harness.state().dialogs.track_edit.is_some(),
@@ -4251,7 +4327,9 @@ fn snapshot_track_edit_dialog() {
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     open_folder(&mut harness, &handles, single_track_folder());
     pack_section(&mut harness, PackSection::Tracks);
-    harness.get_by_label("Edit\u{2026}").click();
+    harness.get_by_label("Track menu").click();
+    harness.run();
+    harness.get_by_label("Quick edit\u{2026}").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
 }

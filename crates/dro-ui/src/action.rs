@@ -154,6 +154,12 @@ pub enum Action {
         index: usize,
         delta: isize,
     },
+    /// Move a track to a position, renumbering the files: what dropping a dragged
+    /// row emits. `to` is the destination index in the final list.
+    PackMoveTrackTo {
+        from: usize,
+        to: usize,
+    },
     /// Losslessly recompress a screenshot and save it in place.
     OptimizeImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.

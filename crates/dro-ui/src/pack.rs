@@ -1853,19 +1853,26 @@ fn track_table(
         // I-beam and swallowing the double-click -- so turn label selection off
         // for the whole table. The row stays highlighted on hover instead.
         ui.style_mut().interaction.selectable_labels = false;
+        // Every fixed column states the width it actually draws in, rather than a
+        // floor the row then overruns: `remainder` budgets the title from these
+        // figures, so an under-declared cell is laid out over the scrollbar and
+        // off the panel edge. That is what the old 200pt action column did.
+        let mut row_rects: Vec<egui::Rect> = Vec::new();
         TableBuilder::new(ui)
             .striped(true)
             .sense(egui::Sense::click())
             .vscroll(false)
-            .column(Column::auto().at_least(18.0)) // status glyph
-            .column(Column::auto().at_least(30.0)) // #
-            .column(Column::remainder().at_least(180.0)) // Title (GD3)
-            .column(Column::auto().at_least(55.0)) // Total
-            .column(Column::auto().at_least(55.0)) // Loop
-            .column(Column::auto().at_least(60.0)) // Peak (dBFS)
-            .column(Column::auto().at_least(200.0)) // actions (reorder + preview + open + tags)
+            .column(Column::exact(GRIP_WIDTH)) // drag handle
+            .column(Column::exact(14.0)) // status glyph
+            .column(Column::exact(24.0)) // #
+            .column(Column::exact(16.0)) // preview
+            .column(Column::remainder().at_least(120.0).clip(true)) // Title (GD3)
+            .column(Column::exact(46.0)) // Total
+            .column(Column::exact(46.0)) // Loop
+            .column(Column::exact(50.0)) // Peak (dBFS)
+            .column(Column::exact(20.0)) // row menu
             .header(row_height + 2.0, |mut header| {
-                for title in ["", "#", "Title (GD3)", "Total", "Loop", "Peak", ""] {
+                for title in ["", "", "#", "", "Title (GD3)", "Total", "Loop", "Peak", ""] {
                     header.col(|ui| {
                         ui.label(
                             egui::RichText::new(title)
@@ -1879,6 +1886,13 @@ fn track_table(
                 for (index, track) in state.tracks.iter().enumerate() {
                     body.row(row_height, |mut row| {
                         row.col(|ui| {
+                            // The row's own response rect overshoots into the
+                            // next row; a cell's does not, and the y-range is
+                            // all the drop target needs.
+                            row_rects.push(ui.max_rect());
+                            drag_grip(ui, index, track, palette);
+                        });
+                        row.col(|ui| {
                             track_status_glyph(ui, index, track, items, palette, actions);
                         });
                         row.col(|ui| {
@@ -1888,6 +1902,28 @@ fn track_table(
                                     .color(palette.muted),
                             )
                             .on_hover_text(&track.file_name);
+                        });
+                        row.col(|ui| {
+                            // The preview control sits with the thing it plays,
+                            // as an inline glyph rather than a keycap: a row of
+                            // pads is what pushed this table off its own edge.
+                            if track.song().is_none() {
+                                return;
+                            }
+                            let previewing = state.preview == Some(index);
+                            // U+25A0 stop / U+25B6 play.
+                            let (glyph, name) = if previewing {
+                                ("\u{25A0}", "Stop preview")
+                            } else {
+                                ("\u{25B6}", "Preview")
+                            };
+                            if row_icon(ui, palette, glyph, name).clicked() {
+                                actions.push(if previewing {
+                                    Action::PackStopPreview
+                                } else {
+                                    Action::PackTrackPreview(index)
+                                });
+                            }
                         });
                         match &track.song {
                             Ok(_) => {
@@ -1954,54 +1990,7 @@ fn track_table(
                                     }
                                 });
                                 row.col(|ui| {
-                                    ui.horizontal(|ui| {
-                                        ui.spacing_mut().item_spacing.x = 3.0;
-                                        // Reorder: up/down move the track one slot,
-                                        // renumbering the affected files. The move
-                                        // is a no-op (ignored) at the list's ends.
-                                        if bevel::button(ui, palette, "\u{25B2}")
-                                            .on_hover_text("Move up")
-                                            .clicked()
-                                        {
-                                            actions
-                                                .push(Action::PackMoveTrack { index, delta: -1 });
-                                        }
-                                        if bevel::button(ui, palette, "\u{25BC}")
-                                            .on_hover_text("Move down")
-                                            .clicked()
-                                        {
-                                            actions.push(Action::PackMoveTrack { index, delta: 1 });
-                                        }
-                                        let previewing = state.preview == Some(index);
-                                        // U+25A0 stop / U+25B6 play.
-                                        let symbol =
-                                            if previewing { "\u{25A0}" } else { "\u{25B6}" };
-                                        if bevel::button(ui, palette, symbol)
-                                            .on_hover_text("Preview")
-                                            .clicked()
-                                        {
-                                            actions.push(if previewing {
-                                                Action::PackStopPreview
-                                            } else {
-                                                Action::PackTrackPreview(index)
-                                            });
-                                        }
-                                        if bevel::button(ui, palette, "Open")
-                                            .on_hover_text("Open the track in the editor")
-                                            .clicked()
-                                        {
-                                            actions.push(Action::PackTrackOpen(index));
-                                        }
-                                        // "Edit", not "Tags": the section strip
-                                        // above now has a Tags tab, and one label
-                                        // must not name two different things.
-                                        if bevel::button(ui, palette, "Edit\u{2026}")
-                                            .on_hover_text("Rename the file and edit its GD3 tags")
-                                            .clicked()
-                                        {
-                                            actions.push(Action::OpenTrackQuickEdit(index));
-                                        }
-                                    });
+                                    row_menu(ui, index, palette, actions);
                                 });
                             }
                             Err(error) => {
@@ -2009,7 +1998,7 @@ fn track_table(
                                     ui.colored_label(palette.muted, "unreadable")
                                         .on_hover_text(error);
                                 });
-                                // Total, Loop, Peak, actions -- empty for a track
+                                // Total, Loop, Peak, menu -- empty for a track
                                 // that did not parse.
                                 row.col(|_ui| {});
                                 row.col(|_ui| {});
@@ -2024,7 +2013,139 @@ fn track_table(
                     });
                 }
             });
+        drop_target(ui, &row_rects, palette, actions);
     });
+}
+
+/// The width of the drag-handle column. Wide enough that the grip is a target
+/// rather than a decoration, narrow enough to read as part of the number.
+const GRIP_WIDTH: f32 = 16.0;
+
+/// A frameless glyph that behaves as a button: the row's controls are ink in the
+/// data well, not keycaps, so five of them per row cost 100pt instead of 345.
+///
+/// The glyph would be the whole accessible name, so `name` is set explicitly --
+/// a screen reader (and `get_by_label`) needs the verb, not the character.
+fn row_icon(ui: &mut egui::Ui, palette: &Palette, glyph: &str, name: &str) -> egui::Response {
+    let response = ui
+        .add(
+            egui::Button::new(
+                egui::RichText::new(glyph)
+                    .monospace()
+                    .color(palette.data_label),
+            )
+            .frame(false),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(name);
+    let enabled = ui.is_enabled();
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, name));
+    response
+}
+
+/// The row's drag handle. Dragging a row is how a pack is reordered: the payload
+/// is the track's current position, and [`drop_target`] turns where it was let go
+/// into the slot it lands in.
+///
+/// Keyed by file name rather than index so the drag id survives the renumbering
+/// that a completed move triggers.
+fn drag_grip(ui: &mut egui::Ui, index: usize, track: &PackTrack, palette: &Palette) {
+    let id = egui::Id::new(("pack-track-grip", &track.file_name));
+    ui.dnd_drag_source(id, index, |ui| {
+        // U+2195, CP437 0x12: the bundled VGA font has no braille, so the
+        // conventional dotted grip would draw as a tofu box. The up-down arrow
+        // is in the ROM font and says which way the row moves anyway.
+        ui.label(
+            egui::RichText::new("\u{2195}")
+                .monospace()
+                .color(palette.muted),
+        );
+    })
+    .response
+    .on_hover_text("Drag to reorder");
+}
+
+/// The per-row menu: the two commands that open a window, which are the only
+/// ones with no glyph of their own.
+fn row_menu(ui: &mut egui::Ui, index: usize, palette: &Palette, actions: &mut Vec<Action>) {
+    let button = egui::Button::new(
+        egui::RichText::new("\u{22EF}") // midline horizontal ellipsis
+            .monospace()
+            .color(palette.data_label),
+    )
+    .frame(false);
+    let response = egui::containers::menu::MenuButton::from_button(button)
+        .ui(ui, |ui| {
+            if ui.button("Open in editor").clicked() {
+                actions.push(Action::PackTrackOpen(index));
+                ui.close();
+            }
+            if ui.button("Quick edit\u{2026}").clicked() {
+                actions.push(Action::OpenTrackQuickEdit(index));
+                ui.close();
+            }
+        })
+        .0
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    let enabled = ui.is_enabled();
+    response
+        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, "Track menu"));
+}
+
+/// Turns a drag in progress into a drop: paints the line where the row would
+/// land, and on release emits the move. `row_rects` is one rect per row, in list
+/// order, collected as the table drew.
+///
+/// The insertion slot is a boundary (0 = above the first row, `len` = below the
+/// last), so it is converted to a destination *index* -- one less when the track
+/// is moving down, since removing it first shifts everything below up.
+fn drop_target(
+    ui: &mut egui::Ui,
+    row_rects: &[egui::Rect],
+    palette: &Palette,
+    actions: &mut Vec<Action>,
+) {
+    let Some(from) = egui::DragAndDrop::payload::<usize>(ui.ctx()).map(|from| *from) else {
+        return;
+    };
+    // The slot is remembered rather than recomputed on release: letting go also
+    // takes the pointer off the screen (a touch release, and what kittest sends),
+    // and a drop must not be lost because the cursor's position went with it.
+    let slot_id = egui::Id::new("pack-track-drop-slot");
+    if let Some(pointer) = ui.ctx().pointer_interact_pos() {
+        let slot = row_rects
+            .iter()
+            .position(|rect| pointer.y < rect.center().y)
+            .unwrap_or(row_rects.len());
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(slot_id, slot.min(row_rects.len())));
+        // The boundary that slot sits on: the top of the row it would push down,
+        // or the foot of the table when it is going last.
+        let y = match row_rects.get(slot) {
+            Some(rect) => rect.top(),
+            None => row_rects.last().map_or(pointer.y, egui::Rect::bottom),
+        };
+        if !row_rects.is_empty() {
+            ui.painter().hline(
+                ui.max_rect().x_range(),
+                y,
+                egui::Stroke::new(2.0, palette.data_text),
+            );
+        }
+    }
+    if ui.input(|i| i.pointer.any_released()) {
+        egui::DragAndDrop::take_payload::<usize>(ui.ctx());
+        let slot: Option<usize> = ui.ctx().data_mut(|data| data.remove_temp(slot_id));
+        let Some(slot) = slot else {
+            return; // released without ever hovering the table
+        };
+        // A slot is a boundary; as an index it is one less when the track is
+        // moving down, since taking it out first shifts everything below it up.
+        let to = if slot > from { slot - 1 } else { slot };
+        if to != from {
+            actions.push(Action::PackMoveTrackTo { from, to });
+        }
+    }
 }
 
 /// The widest a screenshot preview is drawn, leaving the facts pane its room.

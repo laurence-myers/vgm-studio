@@ -1749,6 +1749,7 @@ impl DroApp {
             Action::PackStopPreview => self.stop_preview(),
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
             Action::PackMoveTrack { index, delta } => self.move_pack_track(index, delta),
+            Action::PackMoveTrackTo { from, to } => self.move_pack_track_to(from, to),
             Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
                 original_name,
@@ -2137,10 +2138,20 @@ impl DroApp {
         let Some(to) = index.checked_add_signed(delta) else {
             return;
         };
+        self.move_pack_track_to(index, to);
+    }
+
+    /// Moves the track at `from` to `to`, renumbering every file the move
+    /// displaces -- what dropping a dragged row runs. Ignored while another
+    /// sequence runs or the move changes nothing.
+    fn move_pack_track_to(&mut self, from: usize, to: usize) {
+        if self.pack_busy() {
+            return;
+        }
         let transaction = self
             .pack
             .as_ref()
-            .and_then(|pack| pack.reorder_transaction(index, to));
+            .and_then(|pack| pack.reorder_transaction(from, to));
         if let Some(transaction) = transaction {
             self.start_pack_run(transaction, PackRunKind::NewEdit);
         }
