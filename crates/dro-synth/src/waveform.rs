@@ -10,7 +10,12 @@ use std::borrow::Borrow;
 use dro_core::util::VGM_SAMPLE_RATE;
 use dro_core::{DroInstruction, Song};
 
+use std::sync::Arc;
+
+use dro_core::VgmFile;
+
 use crate::engine::{FrameClock, PlayerEngine};
+use crate::vgm_engine::VgmEngine;
 
 /// The vertical extent of one horizontal slice of the waveform: the lowest and
 /// highest sample in that slice. A silent slice is `{ min: 0, max: 0 }`.
@@ -204,6 +209,76 @@ pub fn render_waveform_progressive(
     true
 }
 
+/// Renders a VGM for any chips into `num_buckets` buckets, the same shape as
+/// [`render_waveform_progressive`].
+///
+/// A waveform is a picture of the audio, and what produced the audio does not
+/// change how it is drawn -- so this is the same loop over the other engine.
+/// A chip with no core renders silence, so a file this app only half knows draws
+/// only the half it can play.
+///
+/// Returns `true` if the render completed, `false` if `keep_going` abandoned it.
+pub fn render_vgm_waveform_progressive(
+    file: Arc<VgmFile>,
+    num_buckets: usize,
+    sample_rate: u32,
+    keep_going: &mut dyn FnMut() -> bool,
+    on_update: &mut dyn FnMut(Vec<WaveformBucket>),
+) -> bool {
+    if num_buckets == 0 {
+        on_update(Vec::new());
+        return true;
+    }
+    // The stream's own waits, in output frames: the same number the engine will
+    // render, derived the same way the corpus test checks it against.
+    let total = file.stream().map_or(0, |stream| {
+        stream.total_samples() * u64::from(sample_rate) / u64::from(VGM_SAMPLE_RATE)
+    });
+    let mut bucketer = WaveformBucketer::new(total, num_buckets);
+
+    let stride = (num_buckets / PROGRESSIVE_UPDATES).max(1);
+    let mut next_update = stride;
+
+    let mut engine = VgmEngine::new(file, sample_rate);
+    let mut buffer = vec![0i16; 4096 * 2];
+    loop {
+        if !keep_going() {
+            return false;
+        }
+        let frames = engine.render(&mut buffer);
+        bucketer.push(&buffer[..frames * 2]);
+        if bucketer.completed() >= next_update {
+            on_update(bucketer.snapshot());
+            next_update = bucketer.completed() + stride;
+        }
+        if frames < buffer.len() / 2 {
+            break;
+        }
+    }
+    on_update(bucketer.finish());
+    true
+}
+
+/// [`render_vgm_waveform_progressive`] keeping only the finished buckets.
+#[must_use]
+pub fn render_vgm_waveform(
+    file: Arc<VgmFile>,
+    num_buckets: usize,
+    sample_rate: u32,
+) -> Vec<WaveformBucket> {
+    let mut last = Vec::new();
+    render_vgm_waveform_progressive(
+        file,
+        num_buckets,
+        sample_rate,
+        &mut || true,
+        &mut |buckets| {
+            last = buckets;
+        },
+    );
+    last
+}
+
 /// The number of output frames [`PlayerEngine`] will render for the whole song,
 /// used to size the buckets. Mirrors the engine's own frame accounting: the
 /// delays, through the same [`FrameClock`]. Register writes cost no frames.
@@ -367,6 +442,87 @@ mod tests {
             });
         assert!(completed);
         assert_eq!(updates, vec![Vec::new()]);
+    }
+
+    /// A VGM declaring `chips` with `stream` as its body.
+    fn vgm_file(chips: &[(dro_core::ChipKind, u32)], stream: &[u8]) -> Arc<VgmFile> {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        for (kind, clock) in chips {
+            put_u32(&mut bytes, kind.clock_offset(), *clock);
+        }
+        bytes.extend_from_slice(stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(dro_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    #[test]
+    fn a_vgm_waveform_has_a_bucket_each_and_shows_the_sound() {
+        // A Master System tone for a second, then silence for a second.
+        let file = vgm_file(
+            &[(dro_core::ChipKind::Sn76489, 3_579_545)],
+            &[
+                0x50, 0x8E, 0x50, 0x0F, 0x50, 0x90, // a tone at full volume
+                0x61, 0x44, 0xAC, // a second of it
+                0x50, 0x9F, // and off
+                0x61, 0x44, 0xAC, // a second of silence
+                0x66,
+            ],
+        );
+        let buckets = render_vgm_waveform(file, 8, 44_100);
+        assert_eq!(buckets.len(), 8);
+        // The first half sounds, the second does not.
+        assert!(
+            buckets[..4]
+                .iter()
+                .all(|bucket| bucket.max > 0 || bucket.min < 0)
+        );
+        assert!(
+            buckets[6..]
+                .iter()
+                .all(|bucket| bucket.max == 0 && bucket.min == 0)
+        );
+    }
+
+    #[test]
+    fn a_vgm_waveform_with_no_core_is_flat_rather_than_absent() {
+        let file = vgm_file(
+            &[(dro_core::ChipKind::Ym2612, 7_670_454)],
+            &[0x52, 0x28, 0xF0, 0x61, 0x44, 0xAC, 0x66],
+        );
+        let buckets = render_vgm_waveform(file, 4, 44_100);
+        assert_eq!(buckets.len(), 4);
+        assert!(
+            buckets
+                .iter()
+                .all(|bucket| bucket.max == 0 && bucket.min == 0)
+        );
+    }
+
+    #[test]
+    fn an_abandoned_vgm_waveform_render_says_so() {
+        let file = vgm_file(
+            &[(dro_core::ChipKind::Sn76489, 3_579_545)],
+            &[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x66],
+        );
+        let mut calls = 0;
+        let completed = render_vgm_waveform_progressive(
+            file,
+            8,
+            44_100,
+            &mut || {
+                calls += 1;
+                calls <= 1
+            },
+            &mut |_| {},
+        );
+        assert!(!completed);
     }
 
     #[test]

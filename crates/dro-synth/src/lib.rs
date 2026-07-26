@@ -42,8 +42,8 @@ pub use wav::{
     render_wav_muted_with_progress,
 };
 pub use waveform::{
-    WaveformBucket, WaveformBucketer, render_waveform, render_waveform_cancellable,
-    render_waveform_progressive,
+    WaveformBucket, WaveformBucketer, render_vgm_waveform, render_vgm_waveform_progressive,
+    render_waveform, render_waveform_cancellable, render_waveform_progressive,
 };
 
 /// What is being played: a decoded OPL stream, or a VGM for any chips.
