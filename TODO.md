@@ -204,8 +204,14 @@
   question -- deciding which channel a register write belongs to needs an OPL
   stream however many chips the file has.
 
-  Next: live playback (the audio service's source enum and the per-chip output
-  settings), then the YM2612 and YM2413.
+  **Live playback is plumbed but not offered yet.** The audio output can host
+  either engine, the RetroWave hardware refuses a source it cannot play (and
+  says which file and why), and a non-OPL source routes to the emulated output
+  whatever the output setting says -- that setting is about OPL output and was
+  never a claim about every chip. What is left is the UI: the flag that hides
+  the transport for such a file also hides the waveform, and the waveform
+  renderer is still OPL-only, so the two need separating before the transport
+  can appear. Then the per-chip output settings, then the YM2612 and YM2413.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

@@ -162,6 +162,28 @@
 > transport should follow a third question -- "can the *audio service* play
 > this", which is backend-aware because RetroWave is OPL-only (§3.7).
 >
+> ### Where live playback got to (2026-07-27)
+>
+> `AudioService::load` takes a `dro_synth::AudioSource` (OPL `Arc<Song>` |
+> `Arc<VgmFile>`), and `NativeAudio` holds whichever engine that implies behind
+> one callback via a private `Engine` enum. The callback needs five things from
+> an engine -- render, seek, rewind, position, finished -- and everything else it
+> can be told is OPL register policy, so muting and panning are no-ops on the
+> generic arm rather than errors.
+>
+> Two routing rules, both tested: the RetroWave service refuses a source it
+> cannot play (naming the file), and `SwitchingAudioService` sends a non-OPL
+> source to the emulated output whatever the setting says.
+>
+> **What is left, and why it stopped here.** `DocCapabilities::playable` still
+> means "has an OPL stream", and it gates the *waveform* as well as the transport
+> and the position readout. The waveform renderer is still OPL-only
+> (`render_waveform(&Song)`), so flipping `playable` would put a dead waveform
+> under a working transport. The next step is to split that gating -- probably a
+> third flag, "the audio service can play this", which is backend-aware -- and
+> either port the waveform to `VgmEngine` or let its panel be absent on its own.
+> Then the per-chip output settings (§2.1.10), which is the user's original ask.
+>
 > ### Porting notes, kept because they generalise
 >
 > Every `&Song`-shaped stream rebuilder now has a `VgmStream` equivalent:
@@ -1252,7 +1274,7 @@ a deep change with no payoff, since nothing edits through it any more.
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
 | 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
-| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | WAV render **done**; live playback next |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | WAV render + the audio-service plumbing **done**; the UI gating and the per-chip settings next |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
