@@ -29,7 +29,7 @@ use crate::banks::{Banks, BlockKind, ram_header, rom_header};
 use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
-use crate::engine::FrameClock;
+use crate::engine::{FrameClock, Position};
 
 /// Fixed-point fractional bits for the per-chip resampler.
 const FRAC_BITS: u32 = 16;
@@ -126,9 +126,13 @@ pub struct VgmEngine {
     pending: u64,
     /// Whether the stream has run out.
     finished: bool,
+    /// Output frames rendered since the last rewind or seek. What a position
+    /// readout counts, and what a seek has to restate.
+    frames_rendered: u64,
     /// What `0x62` and `0x63` wait for, which `0x64` can override.
     wait_60hz: u32,
     wait_50hz: u32,
+    output_rate: u32,
 }
 
 impl std::fmt::Debug for VgmEngine {
@@ -201,8 +205,10 @@ impl VgmEngine {
             index: 0,
             pending: 0,
             finished: false,
+            frames_rendered: 0,
             wait_60hz: WAIT_60HZ,
             wait_50hz: WAIT_50HZ,
+            output_rate: output_rate.max(1),
         }
     }
 
@@ -244,6 +250,7 @@ impl VgmEngine {
         self.index = 0;
         self.pending = 0;
         self.finished = false;
+        self.frames_rendered = 0;
         self.wait_60hz = WAIT_60HZ;
         self.wait_50hz = WAIT_50HZ;
     }
@@ -283,12 +290,39 @@ impl VgmEngine {
         self.finished = index >= stream.len();
         // The clock's carried remainder belongs to the time that was skipped.
         self.clock.reset();
+        // The position readout counts from the start of the song, not from the
+        // seek, so it restates where the seek landed rather than resetting.
+        let samples = stream.total_samples() - stream.samples_from(index);
+        self.frames_rendered =
+            samples * u64::from(self.output_rate) / u64::from(dro_core::vgm::VGM_SAMPLE_RATE);
     }
 
-    /// The row the next command will come from.
+    /// Jumps to the row playing at `ms`, for a transport that seeks by time.
+    pub fn seek_to_ms(&mut self, ms: u32) {
+        let Some(stream) = self.file.stream() else {
+            return;
+        };
+        let target = u64::from(ms) * u64::from(dro_core::vgm::VGM_SAMPLE_RATE) / 1000;
+        let mut elapsed = 0u64;
+        let mut row = stream.len();
+        for index in 0..stream.len() {
+            if elapsed >= target {
+                row = index;
+                break;
+            }
+            elapsed += u64::from(stream.wait_samples(index));
+        }
+        self.seek_to_row(row);
+    }
+
+    /// Where playback has reached, in the shape the transport already reads.
+    ///
+    /// `loop_iteration` is always zero: this engine does not loop yet. Looping
+    /// is `LoopConfig`'s job on the OPL side, and the equivalent here needs the
+    /// same "no chip reset at the seam" care -- see the handover.
     #[must_use]
-    pub const fn position(&self) -> usize {
-        self.index
+    pub fn position(&self) -> Position {
+        Position::from_frames(self.frames_rendered, self.output_rate, self.index)
     }
 
     /// Fills `out` with interleaved stereo frames, returning how many frames it
@@ -315,6 +349,7 @@ impl VgmEngine {
             self.mix(&mut out[done * 2..(done + take) * 2]);
             self.pending -= take as u64;
             done += take;
+            self.frames_rendered += take as u64;
         }
         // A short render leaves the tail as the caller found it; zero it so a
         // reused buffer cannot replay the previous pull's audio.
@@ -891,11 +926,57 @@ mod tests {
             [(0, 0x30, 0x04), (0, 0x40, 0x99)],
             "one write per register, at its last value"
         );
-        assert_eq!(engine.position(), 9);
+        assert_eq!(engine.position().next_instruction, 9);
 
         // And playing on from there covers only what is left.
         let mut out = vec![0i16; 44_100 * 4];
         assert_eq!(engine.render(&mut out), 44_100, "the last second");
+        assert!(engine.is_finished());
+    }
+
+    #[test]
+    fn the_position_counts_frames_and_names_the_next_row() {
+        let file = vgm(
+            &[(ChipKind::Sn76489, 3_579_545)],
+            &[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x50, 0x8E, 0x62, 0x66],
+        );
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        assert_eq!(engine.position().frames_rendered, 0);
+
+        // Half a second in: the second-long wait is still being served.
+        let mut out = vec![0i16; 22_050 * 2];
+        assert_eq!(engine.render(&mut out), 22_050);
+        assert_eq!(engine.position().frames_rendered, 22_050);
+        assert_eq!(engine.position().next_instruction, 2);
+
+        // A seek restates the position from the start of the song, not from the
+        // seek -- row 3 is one second in.
+        engine.seek_to_row(3);
+        assert_eq!(engine.position().frames_rendered, 44_100);
+        assert_eq!(engine.position().next_instruction, 3);
+    }
+
+    #[test]
+    fn seeking_by_time_lands_on_the_row_playing_then() {
+        // Three one-second waits, each after a write.
+        let mut stream = Vec::new();
+        for value in [0x9F, 0x8E, 0x80] {
+            stream.extend_from_slice(&[0x50, value, 0x61, 0x44, 0xAC]);
+        }
+        stream.push(0x66);
+        let file = vgm(&[(ChipKind::Sn76489, 3_579_545)], &stream);
+        let mut engine = VgmEngine::new(file, 44_100);
+
+        engine.seek_to_ms(0);
+        assert_eq!(engine.position().next_instruction, 0);
+        // A second in, the second write has not happened yet.
+        engine.seek_to_ms(1000);
+        assert_eq!(engine.position().next_instruction, 2);
+        engine.seek_to_ms(2000);
+        assert_eq!(engine.position().next_instruction, 4);
+        // Past the end lands at the end.
+        engine.seek_to_ms(99_000);
+        assert_eq!(engine.position().next_instruction, 6);
         assert!(engine.is_finished());
     }
 
@@ -910,7 +991,7 @@ mod tests {
         assert_eq!(engine.render(&mut out), 44_100);
 
         engine.seek_to_row(0);
-        assert_eq!(engine.position(), 0);
+        assert_eq!(engine.position().next_instruction, 0);
         assert!(!engine.is_finished());
         assert_eq!(engine.render(&mut out), 44_100);
     }
