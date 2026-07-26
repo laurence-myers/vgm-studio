@@ -116,6 +116,14 @@ pub enum Action {
     PackAddScreenshot,
     /// Pick a screenshot to overwrite the one at this index.
     PackReplaceScreenshot(usize),
+    /// Open the rename dialog on the screenshot at this index.
+    PackRenameScreenshotAt(usize),
+    /// Rename a screenshot, as one undoable step. Carries the name the dialog
+    /// opened on, not an index: a rescan in between can reorder the list.
+    PackRenameScreenshot {
+        original_name: String,
+        file_name: String,
+    },
     /// Ask whether to delete the screenshot at this index.
     PackDeleteScreenshot(usize),
     /// Delete the named screenshot after the user confirmed it. Carries the file

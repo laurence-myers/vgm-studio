@@ -3254,6 +3254,87 @@ fn replacing_a_screenshot_overwrites_it_and_keeps_its_name() {
     );
 }
 
+/// A "Cool Game" pack whose screenshot still carries its capture name.
+fn dosbox_screenshot_folder() -> PickedFolder {
+    pack_folder(
+        "Cool Game",
+        vec![
+            complete_vgm("01 Intro.vgz"),
+            PickedFile {
+                name: "dosbox_000.png".to_owned(),
+                path: Some(PathBuf::from("C:/Cool Game/dosbox_000.png")),
+                bytes: PNG_FIXTURE.to_vec(),
+            },
+        ],
+    )
+}
+
+#[test]
+fn renaming_a_screenshot_opens_on_it_and_proposes_the_game_name() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, dosbox_screenshot_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label_contains("Rename").click();
+    harness.run();
+    let state = harness.state();
+    let dialog = state
+        .dialogs
+        .screenshot_rename
+        .as_ref()
+        .expect("the rename dialog opened");
+    assert_eq!(dialog.original_name(), "dosbox_000.png");
+    // ...proposing the pack's own name, which is the whole point of opening it
+    // on a file still called what DOSBox called it.
+    assert_eq!(dialog.derived_name(), "Cool Game.png");
+}
+
+#[test]
+fn a_renamed_screenshot_keeps_its_new_name_and_is_undoable() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, dosbox_screenshot_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    // A variant name: the reason the field is editable at all.
+    {
+        let mut files = handles.files.borrow_mut();
+        files.rename_outcomes.push_back(Ok(()));
+        files.picked_folders.push_back(Ok(pack_folder(
+            "Cool Game",
+            vec![
+                complete_vgm("01 Intro.vgz"),
+                PickedFile {
+                    name: "Cool Game (Japan).png".to_owned(),
+                    path: Some(PathBuf::from("C:/Cool Game/Cool Game (Japan).png")),
+                    bytes: PNG_FIXTURE.to_vec(),
+                },
+            ],
+        )));
+    }
+    act(
+        &mut harness,
+        Action::PackRenameScreenshot {
+            original_name: "dosbox_000.png".to_owned(),
+            file_name: "Cool Game (Japan).png".to_owned(),
+        },
+    );
+    harness.run_steps(8);
+
+    {
+        let files = handles.files.borrow();
+        let (from, to) = files.rename_requests.last().expect("the rename");
+        assert!(from.to_string_lossy().ends_with("dosbox_000.png"));
+        assert_eq!(to, "Cool Game (Japan).png");
+    }
+    let state = harness.state();
+    assert_eq!(
+        state.pack.as_ref().unwrap().images[0].name,
+        "Cool Game (Japan).png",
+        "the rescan installed the new name"
+    );
+    assert_eq!(state.pack_undo.len(), 1, "and the rename is undoable");
+}
+
 #[test]
 fn deleting_a_screenshot_asks_first_then_removes_the_file() {
     let (mut harness, handles) = tall_pack_harness();
@@ -4028,6 +4109,16 @@ fn snapshot_track_edit_dialog() {
     harness.get_by_label("Edit\u{2026}").click();
     harness.run();
     settled_snapshot(&mut harness, "track_edit_dialog");
+}
+
+#[test]
+fn snapshot_screenshot_rename_dialog() {
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 700.0));
+    open_folder(&mut harness, &handles, dosbox_screenshot_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+    harness.get_by_label_contains("Rename").click();
+    harness.run();
+    settled_snapshot(&mut harness, "screenshot_rename_dialog");
 }
 
 #[test]

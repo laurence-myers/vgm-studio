@@ -665,6 +665,27 @@ impl PackState {
         })
     }
 
+    /// The transaction that renames the screenshot `name` to `new_name`, keyed
+    /// by name for the same reason [`Self::delete_image_transaction`] is: the
+    /// dialog sits between the click and the rename. `None` when no such image
+    /// is loaded, or it has no path (the web has none).
+    #[must_use]
+    pub fn rename_image_transaction(&self, name: &str, new_name: &str) -> Option<PackTransaction> {
+        let image = self.images.iter().find(|image| image.name == name)?;
+        let path = image.path.clone()?;
+        Some(PackTransaction {
+            label: format!("Rename {name} to {new_name}"),
+            forward: vec![PackMutation::Rename {
+                from: path.clone(),
+                to: new_name.to_owned(),
+            }],
+            inverse: vec![PackMutation::Rename {
+                from: path.with_file_name(new_name),
+                to: name.to_owned(),
+            }],
+        })
+    }
+
     /// The output deck's verdict: the worst outstanding severity (`None` when
     /// nothing is outstanding at all) and the phrase shown beside its lamp.
     ///
@@ -2101,6 +2122,13 @@ fn image_facts(
     ui.add_space(10.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
+        // First, because it acts on the name written above it.
+        if bevel::button(ui, palette, "Rename\u{2026}")
+            .on_hover_text("Name this screenshot after the game, or after a variant of it")
+            .clicked()
+        {
+            actions.push(Action::PackRenameScreenshotAt(index));
+        }
         // "Recompress", not "Optimize": the deck's Optimize pad is the VGM
         // pipeline's vgm_cmp step, and two different jobs must not share one
         // word on the same screen.

@@ -16,8 +16,8 @@ use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
-    RenderWavDialog, SettingsDialog, SplitDialog, SplitSongsDialog, TrackEditDialog,
-    VgmMetadataDialog,
+    RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog, SplitSongsDialog,
+    TrackEditDialog, VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadReport};
 use crate::markers::RangeMarkers;
@@ -1732,6 +1732,11 @@ impl DroApp {
                 self.files.pick_image();
             }
             Action::PackReplaceScreenshot(index) => self.replace_screenshot(index),
+            Action::PackRenameScreenshotAt(index) => self.open_screenshot_rename(index),
+            Action::PackRenameScreenshot {
+                original_name,
+                file_name,
+            } => self.rename_screenshot(&original_name, &file_name),
             Action::PackDeleteScreenshot(index) => self.confirm_delete_screenshot(index),
             Action::ConfirmDeleteScreenshot(name) => self.delete_screenshot(&name),
             Action::PackExportZip => self.export_pack_zip(false),
@@ -2939,6 +2944,49 @@ impl DroApp {
         self.files.pick_image();
     }
 
+    /// Opens the rename dialog on the screenshot at `index`, proposing the
+    /// pack's own file-name stem.
+    fn open_screenshot_rename(&mut self, index: usize) {
+        let dialog = self.pack.as_ref().and_then(|pack| {
+            let image = pack.images.get(index)?;
+            // Every other screenshot's name, so a rename can't collide with one.
+            let siblings = pack
+                .images
+                .iter()
+                .filter(|other| other.name != image.name)
+                .map(|other| other.name.clone())
+                .collect();
+            Some(ScreenshotRenameDialog::new(
+                image.name.clone(),
+                &pack.doc_stem(),
+                siblings,
+            ))
+        });
+        if let Some(dialog) = dialog {
+            self.dialogs.screenshot_rename = Some(dialog);
+        }
+    }
+
+    /// Runs the screenshot rename as a pack transaction, so Edit > Undo puts the
+    /// old name back.
+    fn rename_screenshot(&mut self, original_name: &str, file_name: &str) {
+        if self.pack_busy() {
+            self.status = "A track operation is still running.".to_owned();
+            return;
+        }
+        let transaction = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.rename_image_transaction(original_name, file_name));
+        match transaction {
+            Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
+            // Rescanned away while the dialog was open.
+            None => self.alerts.push_back(Alert::error(format!(
+                "\"{original_name}\" is no longer in the folder; it was not renamed."
+            ))),
+        }
+    }
+
     /// Asks before removing a screenshot from the folder. Undo can put it back
     /// while the pack stays open, but the file does leave the disk, so this is
     /// not something to do on a stray click.
@@ -2981,12 +3029,14 @@ impl DroApp {
         }
     }
 
-    /// Closes pack-bound dialogs (quick-edit and bulk-tag), analogous to
-    /// [`Self::close_song_dialogs`]. Both bind to the current track list, so a
-    /// rescan that can reorder or drop tracks must dismiss them.
+    /// Closes pack-bound dialogs (quick-edit, bulk-tag and screenshot rename),
+    /// analogous to [`Self::close_song_dialogs`]. Each binds to the folder's
+    /// current contents, so a rescan that can reorder or drop files must dismiss
+    /// them.
     fn close_pack_dialogs(&mut self) {
         self.dialogs.track_edit = None;
         self.dialogs.bulk_tag = None;
+        self.dialogs.screenshot_rename = None;
     }
 
     fn do_play(&mut self) {

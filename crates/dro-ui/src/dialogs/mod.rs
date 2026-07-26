@@ -15,6 +15,7 @@ pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
 pub mod render_wav;
+pub mod screenshot_rename;
 pub mod settings;
 pub mod split;
 pub mod split_songs;
@@ -28,6 +29,7 @@ pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use render_wav::RenderWavDialog;
+pub use screenshot_rename::ScreenshotRenameDialog;
 pub use settings::SettingsDialog;
 pub use split::SplitDialog;
 pub use split_songs::SplitSongsDialog;
@@ -173,6 +175,8 @@ pub struct Dialogs {
     pub track_edit: Option<TrackEditDialog>,
     /// Pack mode's bulk GD3 editor (chosen fields, chosen tracks).
     pub bulk_tag: Option<BulkTagDialog>,
+    /// Pack mode's screenshot rename (named after the game, or a variant of it).
+    pub screenshot_rename: Option<ScreenshotRenameDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,
     /// File > Split Channels: the output format and percussion handling.
@@ -197,6 +201,7 @@ impl Dialogs {
             || self.settings.is_some()
             || self.track_edit.is_some()
             || self.bulk_tag.is_some()
+            || self.screenshot_rename.is_some()
             || self.render_wav.is_some()
             || self.split.is_some()
             || self.split_songs.is_some()
@@ -224,6 +229,9 @@ impl Dialogs {
         retain(&mut self.settings, |d| d.show(ctx, palette, actions));
         retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
         retain(&mut self.bulk_tag, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.screenshot_rename, |d| {
+            d.show(ctx, palette, actions)
+        });
         retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
         retain(&mut self.split, |d| d.show(ctx, palette, actions));
         retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));
