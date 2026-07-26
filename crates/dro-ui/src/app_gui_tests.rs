@@ -2348,6 +2348,37 @@ fn the_hardware_output_setting_does_not_grey_a_non_opl_documents_controls() {
     assert!(!harness.state().output_renders_samples_for_test());
 }
 
+/// Marking a loop and turning looping on reaches the output for a non-OPL file
+/// too -- the region is a pair of rows, which is not an OPL idea.
+#[test]
+fn a_non_opl_document_can_loop_a_marked_region() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    let rows = harness.state().editor.len();
+
+    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::SetLoopEnd(rows));
+    act(&mut harness, Action::ToggleLoopPlayback);
+
+    let config = handles
+        .audio
+        .borrow()
+        .loops
+        .last()
+        .copied()
+        .flatten()
+        .expect("a loop reached the output");
+    assert_eq!(config.start, 1);
+    assert_eq!(config.end, rows);
+
+    // And auditioning the seam plays rather than refusing.
+    act(&mut harness, Action::PlaySeam);
+    assert!(
+        handles.audio.borrow().playing,
+        "the seam plays: {}",
+        harness.state().status
+    );
+}
+
 /// A VGM for chips there is no core for renders silence, so the render is not
 /// offered at all -- an empty WAV is a worse answer than an absent menu item.
 #[test]

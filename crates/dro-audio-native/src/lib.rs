@@ -327,8 +327,8 @@ impl fmt::Debug for NativeAudio {
 
 /// Whichever engine the callback is driving.
 ///
-/// The callback needs five things from it -- render, seek, rewind, where it is,
-/// and whether it has finished -- and everything else it can be told is OPL
+/// The callback needs six things from it -- render, seek, rewind, loop, where it
+/// is, and whether it has finished -- and everything else it can be told is OPL
 /// register policy, which only one of them has. Those are no-ops on the other
 /// rather than an error: a mute command arriving for a Mega Drive rip means the
 /// UI has not caught up, not that anything is wrong.
@@ -383,8 +383,9 @@ impl Engine {
     }
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {
-        if let Self::Opl(engine) = self {
-            engine.set_loop(config);
+        match self {
+            Self::Opl(engine) => engine.set_loop(config),
+            Self::Vgm(engine) => engine.set_loop(config),
         }
     }
 

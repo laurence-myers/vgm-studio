@@ -29,7 +29,7 @@ use crate::banks::{Banks, BlockKind, ram_header, rom_header};
 use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
-use crate::engine::{FrameClock, Position};
+use crate::engine::{FrameClock, LoopConfig, Position};
 
 /// Fixed-point fractional bits for the per-chip resampler.
 const FRAC_BITS: u32 = 16;
@@ -129,6 +129,12 @@ pub struct VgmEngine {
     /// Output frames rendered since the last rewind or seek. What a position
     /// readout counts, and what a seek has to restate.
     frames_rendered: u64,
+    /// The region playback jumps back over, if any.
+    loop_config: Option<LoopConfig>,
+    /// Wraps still owed, or `None` for a loop that never stops.
+    wraps_remaining: Option<u32>,
+    /// Wraps done since the last seek, for the position readout.
+    loops_done: u32,
     /// What `0x62` and `0x63` wait for, which `0x64` can override.
     wait_60hz: u32,
     wait_50hz: u32,
@@ -206,6 +212,9 @@ impl VgmEngine {
             pending: 0,
             finished: false,
             frames_rendered: 0,
+            loop_config: None,
+            wraps_remaining: None,
+            loops_done: 0,
             wait_60hz: WAIT_60HZ,
             wait_50hz: WAIT_50HZ,
             output_rate: output_rate.max(1),
@@ -251,6 +260,7 @@ impl VgmEngine {
         self.pending = 0;
         self.finished = false;
         self.frames_rendered = 0;
+        self.restart_loop_count();
         self.wait_60hz = WAIT_60HZ;
         self.wait_50hz = WAIT_50HZ;
     }
@@ -290,6 +300,7 @@ impl VgmEngine {
         self.finished = index >= stream.len();
         // The clock's carried remainder belongs to the time that was skipped.
         self.clock.reset();
+        self.restart_loop_count();
         // The position readout counts from the start of the song, not from the
         // seek, so it restates where the seek landed rather than resetting.
         let samples = stream.total_samples() - stream.samples_from(index);
@@ -315,14 +326,74 @@ impl VgmEngine {
         self.seek_to_row(row);
     }
 
-    /// Where playback has reached, in the shape the transport already reads.
+    /// Sets (or clears) the region playback loops over.
     ///
-    /// `loop_iteration` is always zero: this engine does not loop yet. Looping
-    /// is `LoopConfig`'s job on the OPL side, and the equivalent here needs the
-    /// same "no chip reset at the seam" care -- see the handover.
+    /// A region that is empty or reaches past the stream is dropped, so playback
+    /// simply does not loop -- the same rule the OPL player applies.
+    pub fn set_loop(&mut self, config: Option<LoopConfig>) {
+        let len = self.file.len();
+        self.loop_config = config.filter(|config| config.start < config.end && config.end <= len);
+        self.restart_loop_count();
+    }
+
+    /// The loop region in force, if any.
+    #[must_use]
+    pub const fn loop_config(&self) -> Option<LoopConfig> {
+        self.loop_config
+    }
+
+    /// Re-arms the repeat count from the current config, for a fresh run at it.
+    fn restart_loop_count(&mut self) {
+        self.wraps_remaining = self.loop_config.and_then(|config| config.count.wraps());
+        self.loops_done = 0;
+    }
+
+    /// Jumps back to the loop start when playback has reached the loop end with
+    /// a repeat still owed, reporting whether it did.
+    ///
+    /// Deliberately does **not** reset or replay the chips, the same choice the
+    /// OPL player made: a real VGM player carries its register state across the
+    /// seam, and hearing whether that seam is clean is the whole point of
+    /// auditioning a loop. `frames_rendered` rewinds to the loop start so the
+    /// position readout and the waveform cursor wrap with the audio.
+    fn wrap_to_loop_start(&mut self) -> bool {
+        let Some(config) = self.loop_config else {
+            return false;
+        };
+        if self.index != config.end || self.wraps_remaining == Some(0) {
+            return false;
+        }
+        // A region holding no waits renders no audio, so looping it would spin
+        // here forever without ever filling the caller's buffer.
+        if self.frames_rendered == config.start_frames {
+            log::warn!("the loop region renders no audio; playing on without looping");
+            self.loop_config = None;
+            return false;
+        }
+        if let Some(remaining) = self.wraps_remaining.as_mut() {
+            *remaining -= 1;
+        }
+        self.index = config.start;
+        self.frames_rendered = config.start_frames;
+        self.loops_done += 1;
+        true
+    }
+
+    /// Whether the next `render` would jump back rather than stop.
+    fn owes_a_wrap(&self) -> bool {
+        self.loop_config
+            .is_some_and(|config| self.index == config.end && self.wraps_remaining != Some(0))
+    }
+
+    /// Where playback has reached, in the shape the transport already reads.
     #[must_use]
     pub fn position(&self) -> Position {
-        Position::from_frames(self.frames_rendered, self.output_rate, self.index)
+        Position::looping(
+            self.frames_rendered,
+            self.output_rate,
+            self.index,
+            self.loops_done,
+        )
     }
 
     /// Fills `out` with interleaved stereo frames, returning how many frames it
@@ -367,7 +438,15 @@ impl VgmEngine {
             self.finished = true;
             return;
         };
-        while self.pending == 0 && self.index < stream.len() {
+        while self.pending == 0 {
+            // The seam first: a loop whose end *is* the end of the stream must
+            // jump back rather than finish.
+            if self.wrap_to_loop_start() {
+                continue;
+            }
+            if self.index >= stream.len() {
+                break;
+            }
             let index = self.index;
             self.index += 1;
             let Some(command) = stream.get(index) else {
@@ -378,7 +457,7 @@ impl VgmEngine {
                 self.pending = self.clock.frames_for(samples);
             }
         }
-        if self.index >= stream.len() {
+        if self.index >= stream.len() && !self.owes_a_wrap() {
             self.finished = true;
         }
     }
@@ -978,6 +1057,128 @@ mod tests {
         engine.seek_to_ms(99_000);
         assert_eq!(engine.position().next_instruction, 6);
         assert!(engine.is_finished());
+    }
+
+    /// Three one-second waits, each after a write: rows 0..6, six seconds of
+    /// nothing much, and easy arithmetic.
+    fn three_second_vgm() -> Arc<VgmFile> {
+        let mut stream = Vec::new();
+        for value in [0x9F, 0x8E, 0x80] {
+            stream.extend_from_slice(&[0x50, value, 0x61, 0x44, 0xAC]);
+        }
+        stream.push(0x66);
+        vgm(&[(ChipKind::Sn76489, 3_579_545)], &stream)
+    }
+
+    /// Renders until the engine stops, in chunks, and returns the frame total.
+    fn drain(engine: &mut VgmEngine, cap: usize) -> usize {
+        let mut out = vec![0i16; 4096 * 2];
+        let mut total = 0;
+        loop {
+            let frames = engine.render(&mut out);
+            if frames == 0 || total > cap {
+                return total;
+            }
+            total += frames;
+        }
+    }
+
+    #[test]
+    fn a_loop_plays_its_region_again_and_stops_when_the_count_runs_out() {
+        let file = three_second_vgm();
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        // Rows 2..4 is the second write and its wait: one second. Played *twice
+        // in total* -- forward playback already plays it once -- so the file
+        // gains one second, not two.
+        engine.set_loop(Some(LoopConfig::for_vgm(
+            &file,
+            2,
+            4,
+            crate::engine::LoopCount::Times(2),
+            44_100,
+        )));
+
+        let frames = drain(&mut engine, 44_100 * 30);
+        assert_eq!(frames, 44_100 * 4, "its own three seconds plus one more");
+        assert!(engine.is_finished());
+    }
+
+    #[test]
+    fn the_position_rewinds_with_the_audio_at_the_seam() {
+        let file = three_second_vgm();
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        engine.set_loop(Some(LoopConfig::for_vgm(
+            &file,
+            2,
+            4,
+            crate::engine::LoopCount::Times(2),
+            44_100,
+        )));
+
+        // Two seconds and one frame in: the region ended at two seconds, and the
+        // pull that needed a frame past it is the one that wrapped -- the same
+        // "you learn by asking" rule that tells a caller a stream has finished.
+        let mut out = vec![0i16; (44_100 * 2 + 1) * 2];
+        assert_eq!(engine.render(&mut out), 44_100 * 2 + 1);
+        let position = engine.position();
+        assert_eq!(
+            position.frames_rendered,
+            44_100 + 1,
+            "back to the loop start, plus the frame that was asked for"
+        );
+        assert_eq!(position.loop_iteration, 1);
+    }
+
+    #[test]
+    fn a_loop_to_the_end_of_the_stream_never_finishes() {
+        let file = three_second_vgm();
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        engine.set_loop(Some(LoopConfig::for_vgm(
+            &file,
+            0,
+            file.len(),
+            crate::engine::LoopCount::Infinite,
+            44_100,
+        )));
+
+        // Ten seconds of a three-second file, and it is still going.
+        let mut out = vec![0i16; 44_100 * 10 * 2];
+        assert_eq!(engine.render(&mut out), 44_100 * 10);
+        assert!(!engine.is_finished(), "forever means forever");
+        assert!(engine.position().loop_iteration >= 3);
+    }
+
+    #[test]
+    fn a_region_that_renders_no_audio_is_dropped_rather_than_spun_on() {
+        let file = three_second_vgm();
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        // Rows 0..1 is one write and no wait at all.
+        engine.set_loop(Some(LoopConfig::for_vgm(
+            &file,
+            0,
+            1,
+            crate::engine::LoopCount::Infinite,
+            44_100,
+        )));
+        let frames = drain(&mut engine, 44_100 * 30);
+        assert_eq!(frames, 44_100 * 3, "it played on instead of hanging");
+        assert!(engine.loop_config().is_none(), "and the loop was dropped");
+    }
+
+    #[test]
+    fn a_region_outside_the_stream_is_refused() {
+        let file = three_second_vgm();
+        let mut engine = VgmEngine::new(Arc::clone(&file), 44_100);
+        for (start, end) in [(4, 4), (5, 4), (0, file.len() + 1)] {
+            engine.set_loop(Some(LoopConfig::for_vgm(
+                &file,
+                start,
+                end,
+                crate::engine::LoopCount::Infinite,
+                44_100,
+            )));
+            assert!(engine.loop_config().is_none(), "accepted {start}..{end}");
+        }
     }
 
     #[test]

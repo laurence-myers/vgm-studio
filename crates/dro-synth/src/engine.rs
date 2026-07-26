@@ -217,7 +217,7 @@ pub enum LoopCount {
 impl LoopCount {
     /// How many times playback jumps back, or `None` for "without end".
     #[must_use]
-    fn wraps(self) -> Option<u32> {
+    pub(crate) fn wraps(self) -> Option<u32> {
         match self {
             Self::Infinite => None,
             Self::Times(times) => Some(times.saturating_sub(1)),
@@ -263,6 +263,32 @@ impl LoopConfig {
             end,
             count,
             start_frames,
+        }
+    }
+
+    /// The same, for a VGM played through
+    /// [`VgmEngine`](crate::vgm_engine::VgmEngine).
+    ///
+    /// Its delays are always samples, and its rows are commands rather than
+    /// instructions, but the arithmetic is the one the other engine's
+    /// [`FrameClock`] does -- both floor `samples * rate / 44100`, so the seam
+    /// lands on the frame forward playback would have been on.
+    #[must_use]
+    pub fn for_vgm(
+        file: &dro_core::VgmFile,
+        start: usize,
+        end: usize,
+        count: LoopCount,
+        rate: u32,
+    ) -> Self {
+        let before = file.stream().map_or(0, |stream| {
+            stream.total_samples() - stream.samples_from(start)
+        });
+        Self {
+            start,
+            end,
+            count,
+            start_frames: before * u64::from(rate) / u64::from(VGM_SAMPLE_RATE),
         }
     }
 }

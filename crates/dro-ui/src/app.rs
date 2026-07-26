@@ -3388,7 +3388,7 @@ impl DroApp {
     /// Forces looping on -- auditioning a join with looping off would play the
     /// tail straight through and never reach the seam at all.
     fn do_play_seam(&mut self) {
-        if !self.require_song() {
+        if !self.require_playable() {
             return;
         }
         self.loop_enabled = true;
@@ -3396,11 +3396,23 @@ impl DroApp {
             self.alerts.push_back(Alert::error(message));
             return;
         }
-        let Some(end_ms) = self
-            .editor
-            .song()
-            .and_then(|song| song.ms_offset_at(self.editor.markers.end()))
-        else {
+        // Where the seam is, in milliseconds. Either representation can say:
+        // a `Song` has the prefix sums already, and a VGM's is its own waits.
+        let end = self.editor.markers.end();
+        let Some(end_ms) = self.editor.song().map_or_else(
+            || {
+                self.editor.vgm().map(|file| {
+                    let elapsed = file.stream().map_or(0, |stream| {
+                        stream.total_samples() - stream.samples_from(end)
+                    });
+                    dro_core::util::smp_to_ms(
+                        u32::try_from(elapsed).unwrap_or(u32::MAX),
+                        dro_core::vgm::VGM_SAMPLE_RATE,
+                    )
+                })
+            },
+            |song| song.ms_offset_at(end),
+        ) else {
             return;
         };
         self.audio.rewind();
@@ -4124,23 +4136,35 @@ impl DroApp {
     /// off. Cheap and idempotent; call it after anything that moves the markers,
     /// changes the count, or reloads the stream.
     fn push_loop_config(&mut self) {
+        // The stream's real rate while one is live, else the configured one --
+        // the same rule the position readout follows. `ensure_audio` re-pushes
+        // once a device has negotiated its rate, so a mismatch cannot outlive
+        // the next load.
+        let rate = self
+            .audio
+            .output_rate()
+            .unwrap_or(self.config.audio.frequency);
+        let markers = self.editor.markers;
         let config = self
             .loop_enabled
-            .then(|| self.editor.song())
-            .flatten()
-            .map(|song| {
-                // The stream's real rate while one is live, else the configured one --
-                // the same rule the position readout follows. `ensure_audio` re-pushes
-                // once a device has negotiated its rate, so a mismatch cannot outlive
-                // the next load.
-                let rate = self
-                    .audio
-                    .output_rate()
-                    .unwrap_or(self.config.audio.frequency);
-                let markers = self.editor.markers;
-                LoopConfig::for_song(song, markers.start(), markers.end(), self.loop_count, rate)
+            .then(|| match (self.editor.song(), self.editor.vgm()) {
+                (Some(song), _) => Some(LoopConfig::for_song(
+                    song,
+                    markers.start(),
+                    markers.end(),
+                    self.loop_count,
+                    rate,
+                )),
+                (None, Some(file)) => Some(LoopConfig::for_vgm(
+                    file,
+                    markers.start(),
+                    markers.end(),
+                    self.loop_count,
+                    rate,
+                )),
+                (None, None) => None,
             });
-        self.audio.set_loop(config);
+        self.audio.set_loop(config.flatten());
     }
 
     fn menu_state(&self) -> MenuState {
