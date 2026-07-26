@@ -218,4 +218,8 @@ impl AudioService for NativeAudioService {
     fn min_engaged_boost(&self) -> Option<f32> {
         self.audio.as_ref().and_then(NativeAudio::min_engaged_boost)
     }
+
+    fn take_limited(&mut self) -> bool {
+        self.audio.as_ref().is_some_and(NativeAudio::take_limited)
+    }
 }

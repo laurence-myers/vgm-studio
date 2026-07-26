@@ -19,6 +19,10 @@ pub const WIDTH: f32 = 22.0;
 const FALL_PER_SEC: f32 = 1.5;
 /// How long the peak-hold marker sits before it starts to fall.
 const HOLD_SECONDS: f32 = 1.0;
+/// How long it sits after the limiter engaged. Longer than an ordinary peak,
+/// because a clip is the one thing on this meter worth looking up for: a
+/// glance a second later must still find it.
+const CLIP_HOLD_SECONDS: f32 = 1.5;
 
 /// One lit block plus its gap, in pixels; segments draw bottom-up.
 const SEGMENT_PITCH: f32 = 7.0;
@@ -39,6 +43,9 @@ pub struct PeakMeterState {
     hold: [f32; 2],
     /// Seconds since each hold was last raised.
     hold_age: [f32; 2],
+    /// Seconds left on the clip hold: while it runs, the markers stay put
+    /// wherever the clipping left them.
+    clip_hold: f32,
 }
 
 impl PeakMeterState {
@@ -46,6 +53,19 @@ impl PeakMeterState {
     /// (`0..=1`) taken from the audio service, `None` when nothing is loaded.
     /// Attack is instant; release is a steady fall.
     pub fn update(&mut self, peaks: Option<[f32; 2]>, dt: f32) {
+        self.update_with(peaks, dt, false);
+    }
+
+    /// As [`Self::update`], plus `limited`: whether the limiter engaged in the
+    /// audio played since the last call. It pins both markers for
+    /// [`CLIP_HOLD_SECONDS`], so a clip that lasted one buffer is still on the
+    /// meter when the eye gets there.
+    pub fn update_with(&mut self, peaks: Option<[f32; 2]>, dt: f32, limited: bool) {
+        if limited {
+            self.clip_hold = CLIP_HOLD_SECONDS;
+        } else {
+            self.clip_hold = (self.clip_hold - dt).max(0.0);
+        }
         let peaks = peaks.unwrap_or([0.0; 2]);
         for (channel, peak) in peaks.into_iter().enumerate() {
             // sqrt is a cheap perceptual-ish curve: a quiet capture still
@@ -59,7 +79,9 @@ impl PeakMeterState {
                 self.hold_age[channel] = 0.0;
             } else {
                 self.hold_age[channel] += dt;
-                if self.hold_age[channel] > HOLD_SECONDS {
+                // A clip freezes the marker outright: the ordinary hold ages out
+                // after a second, and a clip has to outlast that.
+                if self.hold_age[channel] > HOLD_SECONDS && self.clip_hold <= 0.0 {
                     self.hold[channel] = (self.hold[channel] - FALL_PER_SEC * dt).max(0.0);
                 }
             }
@@ -70,7 +92,7 @@ impl PeakMeterState {
     /// bars and markers have fully decayed.
     #[must_use]
     pub fn is_active(&self) -> bool {
-        self.level.iter().chain(&self.hold).any(|&v| v > 0.0)
+        self.clip_hold > 0.0 || self.level.iter().chain(&self.hold).any(|&v| v > 0.0)
     }
 }
 
@@ -177,6 +199,31 @@ mod tests {
         // sqrt display mapping; the hold rises with the bar.
         assert_eq!(meter.level, [0.5, 1.0]);
         assert_eq!(meter.hold, [0.5, 1.0]);
+    }
+
+    #[test]
+    fn a_clip_pins_the_marker_for_its_own_hold() {
+        let mut meter = PeakMeterState::default();
+        meter.update_with(Some([1.0, 1.0]), 0.0, true);
+        // Past the ordinary hold, the marker would normally be falling; the
+        // limiter's own hold keeps it where the clipping left it.
+        meter.update_with(None, HOLD_SECONDS * 1.2, false);
+        assert_eq!(meter.hold, [1.0, 1.0]);
+        assert!(meter.is_active(), "the meter keeps repainting to show it");
+        // Only once the clip hold runs out does it start to fall.
+        meter.update_with(None, CLIP_HOLD_SECONDS, false);
+        meter.update_with(None, 0.1, false);
+        assert!(meter.hold[0] < 1.0, "got {:?}", meter.hold);
+    }
+
+    #[test]
+    fn a_second_clip_restarts_the_hold() {
+        let mut meter = PeakMeterState::default();
+        meter.update_with(Some([1.0, 1.0]), 0.0, true);
+        meter.update_with(None, CLIP_HOLD_SECONDS * 0.9, false);
+        meter.update_with(None, 0.0, true);
+        meter.update_with(None, CLIP_HOLD_SECONDS * 0.9, false);
+        assert_eq!(meter.hold, [1.0, 1.0], "the second clip held it again");
     }
 
     #[test]

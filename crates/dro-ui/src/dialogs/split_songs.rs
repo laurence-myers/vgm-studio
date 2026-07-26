@@ -106,13 +106,13 @@ impl SplitSongsDialog {
                         .color(palette.data_label)
                         .strong(),
                 );
-                let slider = ui.add(
-                    egui::Slider::new(
-                        &mut self.threshold_secs,
-                        MIN_THRESHOLD_SECS..=MAX_THRESHOLD_SECS,
-                    )
-                    .suffix(" s")
-                    .step_by(0.05),
+                let slider = bevel::slider(
+                    ui,
+                    palette,
+                    &mut self.threshold_secs,
+                    MIN_THRESHOLD_SECS..=MAX_THRESHOLD_SECS,
+                    0.05,
+                    " s",
                 );
                 if slider.changed() {
                     self.redetect();
@@ -131,10 +131,13 @@ impl SplitSongsDialog {
                         .color(palette.data_label)
                         .strong(),
                 );
-                ui.add(
-                    egui::Slider::new(&mut self.tail_secs, 0.0..=MAX_TAIL_SECS)
-                        .suffix(" s")
-                        .step_by(0.05),
+                bevel::slider(
+                    ui,
+                    palette,
+                    &mut self.tail_secs,
+                    0.0..=MAX_TAIL_SECS,
+                    0.05,
+                    " s",
                 )
                 .on_hover_text(
                     "How much of the silence after each song to keep, for release tails",

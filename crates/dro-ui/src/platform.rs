@@ -242,6 +242,16 @@ pub trait AudioService {
     /// clipping lowers the cap.
     fn min_engaged_boost(&self) -> Option<f32>;
 
+    /// Whether the limiter engaged since the last call -- a passage that would
+    /// have clipped was pulled down. A destructive read, so each clip is
+    /// reported once; the meter holds its peak marker to show it.
+    ///
+    /// Distinct from [`Self::min_engaged_boost`], which is sticky and says only
+    /// *that* the song has clipped, never when.
+    fn take_limited(&mut self) -> bool {
+        false
+    }
+
     /// The output ports hardware playback could use.
     ///
     /// Answered without opening anything, so the settings dialog can offer a

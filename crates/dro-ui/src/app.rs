@@ -1477,7 +1477,11 @@ impl DroApp {
         }
 
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
-        self.peak_meter.update(self.audio.take_peaks(), dt);
+        // The limiter's flag is read every tick, clip or not: it is destructive,
+        // and left unread it would report a clip from a minute ago.
+        let limited = self.audio.take_limited();
+        self.peak_meter
+            .update_with(self.audio.take_peaks(), dt, limited);
         if self.peak_meter.is_active() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }

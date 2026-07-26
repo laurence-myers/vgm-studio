@@ -319,6 +319,10 @@ impl AudioService for SwitchingAudioService {
         self.active().min_engaged_boost()
     }
 
+    fn take_limited(&mut self) -> bool {
+        self.active_mut().take_limited()
+    }
+
     /// Answered directly rather than through the inner service, so the settings
     /// dialog can list ports while the emulator is the one playing -- which is
     /// exactly the state a first-time user is in.

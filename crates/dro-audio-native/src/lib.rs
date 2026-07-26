@@ -65,6 +65,11 @@ struct SharedState {
     /// reads it as the volume ceiling, which therefore ratchets down to the
     /// lowest level that clips.
     min_engaged_boost: AtomicU32,
+    /// Whether the limiter has engaged since the UI last looked. Set by the
+    /// callback, cleared by the read, so a clip in any buffer between two UI
+    /// polls is reported exactly once -- unlike `min_engaged_boost`, which is
+    /// sticky and says nothing about *when* it last clipped.
+    limited: AtomicBool,
 }
 
 /// An open output stream playing one song.
@@ -281,6 +286,13 @@ impl NativeAudio {
         self.shared.finished.load(Ordering::Relaxed)
     }
 
+    /// Whether the limiter engaged since the last call: a clip happened, and the
+    /// meter should hold its marker to show it. A destructive read.
+    #[must_use]
+    pub fn take_limited(&self) -> bool {
+        self.shared.limited.swap(false, Ordering::Relaxed)
+    }
+
     /// The lowest boost at which the limiter has engaged since this stream opened,
     /// or `None` if it has not clipped. Reset per song (a new song is a new
     /// stream); the UI uses it as the volume ceiling.
@@ -354,6 +366,7 @@ where
             // the volume there, ratcheting the cap down as quieter boosts still
             // clip.
             if limiter.process(&mut scratch[..frames * 2]) {
+                shared.limited.store(true, Ordering::Relaxed);
                 let boost = limiter.boost();
                 let prev = f32::from_bits(shared.min_engaged_boost.load(Ordering::Relaxed));
                 if prev == 0.0 || boost < prev {

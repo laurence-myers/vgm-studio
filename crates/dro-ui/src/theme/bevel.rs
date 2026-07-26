@@ -339,3 +339,66 @@ pub fn icon_toggle(
     }
     response
 }
+
+/// The height of a slider's trough: the scrollbar channel's, so the two read as
+/// the same piece of hardware.
+const TROUGH_HEIGHT: f32 = 14.0;
+/// How wide the handle is, as a fraction of its height. A cap a little narrower
+/// than it is tall, like a fader knob rather than a button.
+const HANDLE_ASPECT: f32 = 0.55;
+
+/// A horizontal slider in the case's chrome: a sunken trough with a keycap
+/// handle riding in it, and the value in a field of its own beside it.
+///
+/// egui's own slider paints its rail from the shared widget fill, which on
+/// these cases is the panel colour -- so the rail vanished and left a handle
+/// floating in space. The trough is painted here instead, and egui's rail is
+/// flattened to nothing behind it.
+///
+/// Returns the response of whichever half the user touched, so `.changed()`
+/// covers dragging the handle *and* typing in the field.
+pub fn slider(
+    ui: &mut Ui,
+    palette: &Palette,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    step: f64,
+    suffix: &str,
+) -> Response {
+    /// How much of the row the trough claims before the value field.
+    const TRACK_WIDTH: f32 = 180.0;
+    let height = ui.spacing().interact_size.y;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(TRACK_WIDTH, height), Sense::hover());
+    if ui.is_rect_visible(rect) {
+        let trough = Rect::from_center_size(rect.center(), Vec2::new(rect.width(), TROUGH_HEIGHT));
+        ui.painter()
+            .rect_filled(trough, CornerRadius::ZERO, palette.trough);
+        paint_bevel(ui.painter(), trough, palette, Bevel::Sunken);
+    }
+    let dragged = ui
+        .scope(|ui| {
+            // egui's rail is flattened to nothing: the trough above is the rail.
+            ui.spacing_mut().slider_rail_height = 0.0;
+            ui.put(
+                rect,
+                egui::Slider::new(value, range.clone())
+                    .step_by(step)
+                    .show_value(false)
+                    .handle_shape(egui::style::HandleShape::Rect {
+                        aspect_ratio: HANDLE_ASPECT,
+                    }),
+            )
+        })
+        .inner;
+    ui.add_space(6.0);
+    // The number, in a field that can be typed into -- the same box egui's
+    // slider shows, kept because reading an exact value off a handle is a
+    // guess and this pair of settings is measured in hundredths.
+    let typed = ui.add(
+        egui::DragValue::new(value)
+            .range(range)
+            .speed(step)
+            .suffix(suffix),
+    );
+    if typed.changed() { typed } else { dragged }
+}

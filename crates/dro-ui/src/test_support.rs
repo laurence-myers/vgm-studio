@@ -168,6 +168,9 @@ pub(crate) struct AudioLog {
     /// to exercise the volume ceiling (the clipping guard that stops the volume
     /// rising past the lowest level that bit the limiter).
     pub min_engaged_boost: Option<f32>,
+    /// Read (and cleared) by `take_limited`: a test sets it to say the limiter
+    /// engaged in the buffer just played.
+    pub limited: bool,
     /// When set, the next `load` fails (and clears the flag), letting a test
     /// exercise the failed-load paths -- e.g. a pack preview that can't decode.
     pub fail_next_load: bool,
@@ -280,6 +283,10 @@ impl AudioService for FakeAudioService {
 
     fn min_engaged_boost(&self) -> Option<f32> {
         self.0.borrow().min_engaged_boost
+    }
+
+    fn take_limited(&mut self) -> bool {
+        std::mem::take(&mut self.0.borrow_mut().limited)
     }
 }
 
