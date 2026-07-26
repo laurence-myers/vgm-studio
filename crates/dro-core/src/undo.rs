@@ -6,6 +6,7 @@
 use core::fmt;
 
 use crate::song::{InsertEntry, OplType, Song, StreamSnapshot};
+use crate::vgm::VgmFile;
 
 /// A reversible edit.
 ///
@@ -224,6 +225,82 @@ impl UndoableCommand<Song> for DeleteInstructions {
             meta.loop_point = self.previous_loop_point;
             meta.loop_end = self.previous_loop_end;
         }
+    }
+}
+
+/// Deletes commands from a VGM the editor cannot decode, remembering their
+/// bytes -- and the header fields they moved -- so undo can restore both.
+///
+/// The sibling of [`DeleteInstructions`], for the other document kind. It is a
+/// separate type rather than a generalisation because the two targets keep
+/// their derived state in different places: a [`Song`] holds its loop as
+/// instruction indices and re-derives its length, while a [`VgmFile`] keeps
+/// both in the header bytes it will be written from.
+#[derive(Debug, Default)]
+pub struct DeleteCommands {
+    indices: Vec<usize>,
+    /// The removed commands, ascending by index. Captured on `apply`.
+    deleted: Vec<InsertEntry>,
+    /// The header's derived fields before the delete, restored verbatim on
+    /// revert -- exact, where sliding the loop index back would not be (a loop
+    /// point that was itself deleted cannot be recovered by arithmetic).
+    previous_loop: Option<usize>,
+    previous_loop_samples: u32,
+    previous_total_samples: u32,
+}
+
+impl DeleteCommands {
+    #[must_use]
+    pub fn new(indices: impl IntoIterator<Item = usize>) -> Self {
+        let mut indices: Vec<usize> = indices.into_iter().collect();
+        indices.sort_unstable();
+        indices.dedup();
+        Self {
+            indices,
+            ..Self::default()
+        }
+    }
+
+    /// The command indices this removes, ascending.
+    #[must_use]
+    pub fn indices(&self) -> &[usize] {
+        &self.indices
+    }
+}
+
+impl UndoableCommand<VgmFile> for DeleteCommands {
+    fn description(&self) -> &str {
+        "Delete Command(s)"
+    }
+
+    fn apply(&mut self, file: &mut VgmFile) {
+        self.indices.retain(|&index| index < file.len());
+        self.previous_loop = file.header.loop_offset();
+        self.previous_loop_samples = file.header.loop_samples().unwrap_or(0);
+        self.previous_total_samples = file.header.total_samples();
+
+        self.deleted = match file.stream() {
+            Some(stream) => self
+                .indices
+                .iter()
+                .map(|&index| {
+                    let bytes = stream
+                        .raw_command(index)
+                        .expect("index was just bounds-checked");
+                    (index, bytes.to_vec().into_boxed_slice())
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+
+        file.delete_commands(&self.indices);
+    }
+
+    fn revert(&mut self, file: &mut VgmFile) {
+        file.insert_commands(&self.deleted);
+        file.header
+            .set_loop(self.previous_loop, self.previous_loop_samples);
+        file.header.set_total_samples(self.previous_total_samples);
     }
 }
 

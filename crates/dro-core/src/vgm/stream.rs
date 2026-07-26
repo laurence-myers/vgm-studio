@@ -23,6 +23,7 @@
 //! every command after the first such byte is misread.
 
 use crate::error::{Error, Result};
+use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 use crate::vgm::header::ChipKind;
 
 /// Where a write is going: the chip, and which of its (up to two) instances.
@@ -523,9 +524,55 @@ impl VgmStream {
     /// The stream's total length in samples, summed from its waits.
     #[must_use]
     pub fn total_samples(&self) -> u64 {
-        (0..self.len())
+        self.samples_from(0)
+    }
+
+    /// The samples waited from command `index` to the end of the stream --
+    /// which is exactly what the header's `loop # samples` field means when
+    /// `index` is the loop point.
+    #[must_use]
+    pub fn samples_from(&self, index: usize) -> u64 {
+        (index..self.len())
             .map(|index| u64::from(self.wait_samples(index)))
             .sum()
+    }
+
+    /// Removes the commands at `indices`, leaving everything else -- the end
+    /// marker and any trailing bytes included -- exactly where it was relative
+    /// to what survives.
+    ///
+    /// Out-of-range and repeated indices are ignored, as they are for the OPL
+    /// stream. Deleting a data block takes its whole payload with it; that is
+    /// the intent, and later commands referring to it are the caller's warning
+    /// to give, not this module's veto.
+    pub fn delete_many(&mut self, indices: &[usize]) {
+        let len = self.len();
+        let Some(byte_ranges) = byte_ranges_to_delete(indices, len, |index| {
+            self.byte_offset(index).expect("an index inside the stream")
+        }) else {
+            return;
+        };
+        splice_out(&mut self.data, &byte_ranges);
+        self.reindex();
+    }
+
+    /// Puts commands back where they were, for undo. Each entry is
+    /// `(index_after_reinsertion, bytes)`, ascending.
+    pub(crate) fn insert_many(&mut self, entries: &[InsertEntry]) {
+        if entries.is_empty() {
+            return;
+        }
+        self.data = splice_in(&self.data, entries, |index| {
+            self.byte_offset(index).expect("an index inside the stream")
+        });
+        self.reindex();
+    }
+
+    /// Re-walks the stream after a splice.
+    fn reindex(&mut self) {
+        let rebuilt = Self::parse(std::mem::take(&mut self.data), self.version)
+            .expect("splicing whole commands cannot corrupt them");
+        *self = rebuilt;
     }
 
     /// A one-line description of command `index`, for the editor's table.

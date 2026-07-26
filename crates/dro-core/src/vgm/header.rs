@@ -451,11 +451,34 @@ impl VgmHeader {
 
     /// The song's length in samples, as the header declares it.
     ///
-    /// The metadata tier trusts this field, as `vgm_stat` does; once the command
-    /// stream is parsed (mc-4) it can be cross-checked against the waits.
+    /// The metadata tier trusts this field, as `vgm_stat` does. Where the
+    /// command stream disagrees, the reader says so.
     #[must_use]
     pub const fn total_samples(&self) -> u32 {
         self.total_samples
+    }
+
+    /// Sets the song's length in samples, in the parsed value and the raw bytes
+    /// both. The field has existed since v1.00, so it is always there to set.
+    pub fn set_total_samples(&mut self, samples: u32) {
+        put_u32(&mut self.raw, offset::TOTAL_SAMPLES, samples);
+        self.total_samples = samples;
+    }
+
+    /// Sets the loop, as an absolute byte offset into the file and a length in
+    /// samples, or clears it with `None`.
+    ///
+    /// The spec wants both fields zero when a file does not loop, which is what
+    /// clearing writes.
+    pub fn set_loop(&mut self, absolute: Option<usize>, samples: u32) {
+        let (relative, samples) = match absolute {
+            Some(absolute) => ((absolute - offset::LOOP_OFFSET) as u32, samples),
+            None => (0, 0),
+        };
+        put_u32(&mut self.raw, offset::LOOP_OFFSET, relative);
+        put_u32(&mut self.raw, offset::LOOP_NUM_SAMPLES, samples);
+        self.loop_offset = relative;
+        self.loop_num_samples = samples;
     }
 
     /// The loop's length in samples, or `None` if the file does not loop.
@@ -597,6 +620,12 @@ fn u16_at(header: &[u8], at: usize) -> u16 {
 
 fn u8_at(header: &[u8], at: usize) -> u8 {
     header.get(at).copied().unwrap_or(0)
+}
+
+/// Writes a `u32` field. The fields this is used on are all inside the smallest
+/// legal header, so the slot always exists.
+fn put_u32(header: &mut [u8], at: usize, value: u32) {
+    header[at..at + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 fn read_chips(header: &[u8], version: u32) -> Vec<ChipUse> {

@@ -23,6 +23,7 @@ use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
 use crate::error::{Error, Result};
+use crate::song::slide_index_past_deletion;
 use crate::vgm::data::Gd3Tag;
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
@@ -136,6 +137,83 @@ impl VgmFile {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The command the loop restarts at, as an index into the stream.
+    ///
+    /// `None` when the file does not loop, its stream did not walk, or its loop
+    /// pointer lands somewhere that is not a command boundary -- a corrupt
+    /// pointer, which is not worth carrying forward.
+    #[must_use]
+    pub fn loop_index(&self) -> Option<usize> {
+        let stream = self.stream()?;
+        let absolute = self.header.loop_offset()?;
+        let in_stream = absolute.checked_sub(self.header.data_start())?;
+        stream.index_at_byte_offset(in_stream)
+    }
+
+    /// Removes the commands at `indices`, and brings the header back into step:
+    /// the sample total, and the loop's offset and length.
+    ///
+    /// Doing the repatch *here*, rather than in [`write`], is what keeps an
+    /// untouched file byte-exact: the writer never recomputes anything, so a
+    /// file that is only retagged cannot have a disagreeing header quietly
+    /// "corrected" underneath it. The header's own bytes stay the one truth.
+    ///
+    /// Returns whether anything was removed.
+    pub fn delete_commands(&mut self, indices: &[usize]) -> bool {
+        let Some(stream) = self.body.stream() else {
+            return false;
+        };
+        let before = stream.len();
+        // Where the loop was, and where the deletion leaves it.
+        let loop_index = self.loop_index();
+        let mut sorted: Vec<usize> = indices.iter().copied().filter(|&i| i < before).collect();
+        sorted.sort_unstable();
+        sorted.dedup();
+        if sorted.is_empty() {
+            return false;
+        }
+
+        let VgmBody::Commands(stream) = &mut self.body else {
+            unreachable!("checked above");
+        };
+        stream.delete_many(&sorted);
+        let surviving = stream.len();
+        let total = stream.total_samples();
+
+        let moved =
+            loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
+        self.repatch_header(moved, total);
+        true
+    }
+
+    /// Puts commands back where they were, for undo.
+    ///
+    /// The header is *not* repatched here: its exact previous values are
+    /// restored by the undo command, which captured them, rather than
+    /// recomputed -- a loop point that was itself deleted slid onto its
+    /// successor, and no arithmetic can slide it back.
+    pub fn insert_commands(&mut self, entries: &[(usize, Box<[u8]>)]) {
+        if let VgmBody::Commands(stream) = &mut self.body {
+            stream.insert_many(entries);
+        }
+    }
+
+    /// Rewrites the header's derived fields from the stream as it now stands.
+    fn repatch_header(&mut self, loop_index: Option<usize>, total_samples: u64) {
+        let data_start = self.header.data_start();
+        let (absolute, loop_samples) = match (loop_index, self.body.stream()) {
+            (Some(index), Some(stream)) => {
+                let at = stream.byte_offset(index).map(|offset| data_start + offset);
+                let after = stream.samples_from(index);
+                (at, u32::try_from(after).unwrap_or(u32::MAX))
+            }
+            _ => (None, 0),
+        };
+        self.header.set_loop(absolute, loop_samples);
+        self.header
+            .set_total_samples(u32::try_from(total_samples).unwrap_or(u32::MAX));
     }
 }
 
@@ -601,6 +679,191 @@ mod tests {
         assert_eq!(file.header.data_start(), 0x60);
         assert_eq!(file.chip_list(), "YM3812");
         assert_eq!(write(&file).unwrap(), bytes);
+    }
+
+    // -- deleting commands --------------------------------------------------
+
+    /// A file whose stream is easy to reason about: a write, a 10000-sample
+    /// wait, a write, a 20000-sample wait, a write. Loop at index 2.
+    fn trimmable() -> Vec<u8> {
+        const STREAM: &[u8] = &[
+            0x52, 0x28, 0xF0, // 0: YM2612 write
+            0x61, 0x10, 0x27, // 1: wait 10000
+            0x50, 0x9F, // 2: SN76489 write   <- the loop
+            0x61, 0x20, 0x4E, // 3: wait 20000
+            0x52, 0x28, 0x00, // 4: YM2612 write
+            0x66, // end
+        ];
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 30_000);
+        // The loop starts at the third command, six bytes into the stream.
+        put_u32(
+            &mut bytes,
+            offset::LOOP_OFFSET,
+            (0x100 + 6 - offset::LOOP_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 20_000);
+        bytes.extend_from_slice(STREAM);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+        bytes
+    }
+
+    #[test]
+    fn the_trimmable_fixture_reads_as_expected() {
+        let file = read("t.vgm", &trimmable()).unwrap();
+        assert_eq!(file.len(), 5);
+        assert_eq!(file.loop_index(), Some(2));
+        assert_eq!(file.stream().unwrap().total_samples(), 30_000);
+        assert_eq!(write(&file).unwrap(), trimmable());
+    }
+
+    /// Deleting a command before the loop drags the loop's byte offset back
+    /// with it, and shortens nothing.
+    #[test]
+    fn deleting_before_the_loop_moves_its_offset_but_not_its_length() {
+        let mut file = read("t.vgm", &trimmable()).unwrap();
+        file.delete_commands(&[0]); // the leading three-byte write
+
+        assert_eq!(file.len(), 4);
+        assert_eq!(file.loop_index(), Some(1));
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(20_000),
+            "the loop is intact"
+        );
+        assert_eq!(file.header.total_samples(), 30_000, "no time was removed");
+        assert_eq!(
+            file.header.loop_offset(),
+            Some(0x100 + 3),
+            "three bytes earlier"
+        );
+
+        // And it survives the write: re-reading finds the same loop.
+        let reread = read("t.vgm", &write(&file).unwrap()).unwrap();
+        assert_eq!(reread.loop_index(), Some(1));
+        assert_eq!(reread.header.loop_samples(), Some(20_000));
+    }
+
+    #[test]
+    fn deleting_a_wait_inside_the_loop_shortens_the_song_and_the_loop() {
+        let mut file = read("t.vgm", &trimmable()).unwrap();
+        file.delete_commands(&[3]); // the 20000-sample wait, after the loop
+
+        assert_eq!(file.loop_index(), Some(2), "unmoved");
+        assert_eq!(file.header.total_samples(), 10_000);
+        assert_eq!(file.header.loop_samples(), Some(0));
+        assert_eq!(read("t.vgm", &write(&file).unwrap()).unwrap().len(), 4);
+    }
+
+    #[test]
+    fn deleting_a_wait_before_the_loop_shortens_only_the_song() {
+        let mut file = read("t.vgm", &trimmable()).unwrap();
+        file.delete_commands(&[1]); // the 10000-sample wait
+        assert_eq!(file.header.total_samples(), 20_000);
+        assert_eq!(file.header.loop_samples(), Some(20_000));
+        assert_eq!(file.loop_index(), Some(1));
+    }
+
+    #[test]
+    fn deleting_from_the_loop_onward_clears_the_loop() {
+        let mut file = read("t.vgm", &trimmable()).unwrap();
+        file.delete_commands(&[2, 3, 4]);
+        assert_eq!(file.loop_index(), None);
+        assert_eq!(file.header.loop_offset(), None);
+        assert_eq!(file.header.loop_samples(), None);
+        assert_eq!(file.header.total_samples(), 10_000);
+    }
+
+    #[test]
+    fn deleting_nothing_changes_nothing() {
+        let mut file = read("t.vgm", &trimmable()).unwrap();
+        assert!(!file.delete_commands(&[]));
+        assert!(!file.delete_commands(&[99]), "out of range is ignored");
+        assert_eq!(write(&file).unwrap(), trimmable(), "byte for byte");
+    }
+
+    /// Deleting a data block takes its whole payload -- it is one command, and
+    /// the bytes after it must not be misread as commands of their own.
+    #[test]
+    fn deleting_a_data_block_removes_its_payload_too() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[0x67, 0x66, 0x00, 8, 0, 0, 0]);
+        bytes.extend_from_slice(&[0xAB; 8]);
+        bytes.extend_from_slice(&[0x62, 0x66]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("b.vgm", &bytes).unwrap();
+        assert_eq!(file.len(), 2);
+        file.delete_commands(&[0]);
+        assert_eq!(file.len(), 1);
+        assert_eq!(
+            file.body.raw(),
+            &[0x62, 0x66],
+            "the block and all fifteen of its bytes are gone"
+        );
+    }
+
+    #[test]
+    fn a_delete_is_undoable_back_to_the_original_bytes() {
+        use crate::undo::{DeleteCommands, UndoController};
+
+        let original = trimmable();
+        let mut file = read("t.vgm", &original).unwrap();
+        let mut undo = UndoController::new();
+
+        undo.execute(Box::new(DeleteCommands::new([0, 3])), &mut file);
+        assert_eq!(file.len(), 3);
+        assert_eq!(file.header.total_samples(), 10_000);
+
+        undo.undo(&mut file);
+        assert_eq!(file.len(), 5);
+        assert_eq!(file.loop_index(), Some(2));
+        assert_eq!(
+            write(&file).unwrap(),
+            original,
+            "undo restores the file exactly, header included"
+        );
+
+        undo.redo(&mut file);
+        assert_eq!(file.len(), 3);
+        assert_eq!(file.header.total_samples(), 10_000);
+    }
+
+    /// The loop point itself being deleted loses information -- it slides onto
+    /// its successor -- so undo must restore the captured header, not try to
+    /// slide it back.
+    #[test]
+    fn undo_restores_a_loop_point_that_was_itself_deleted() {
+        use crate::undo::{DeleteCommands, UndoController};
+
+        let original = trimmable();
+        let mut file = read("t.vgm", &original).unwrap();
+        let mut undo = UndoController::new();
+
+        undo.execute(Box::new(DeleteCommands::new([2])), &mut file);
+        assert_eq!(file.loop_index(), Some(2), "slid onto the next command");
+
+        undo.undo(&mut file);
+        assert_eq!(write(&file).unwrap(), original);
     }
 
     // -- a tag stored before the data ---------------------------------------
