@@ -12,7 +12,44 @@ use crate::editor::Editor;
 use crate::selection::ClickModifiers;
 use crate::theme::Palette;
 
-pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, palette: &Palette) {
+/// A row the table should bring into view, and where in the view it should land.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScrollTo {
+    pub row: usize,
+    pub align: egui::Align,
+}
+
+impl ScrollTo {
+    /// Centred: for a jump to a row the user is about to work *on* -- a search
+    /// hit, a selection moved by the keyboard -- where the rows either side are
+    /// the context that matters.
+    #[must_use]
+    pub fn centered(row: usize) -> Self {
+        Self {
+            row,
+            align: egui::Align::Center,
+        }
+    }
+
+    /// At the top of the view: for a jump to a row the user is about to play
+    /// *from*, where what follows it is what matters. egui clamps the scroll at
+    /// the end of the list, so a row with too few after it to fill the view
+    /// simply sits as high as it can.
+    #[must_use]
+    pub fn to_top(row: usize) -> Self {
+        Self {
+            row,
+            align: egui::Align::TOP,
+        }
+    }
+}
+
+pub fn show(
+    ui: &mut egui::Ui,
+    editor: &mut Editor,
+    scroll_to: Option<ScrollTo>,
+    palette: &Palette,
+) {
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
     let len = editor.len();
 
@@ -32,8 +69,8 @@ pub fn show(ui: &mut egui::Ui, editor: &mut Editor, scroll_to: Option<usize>, pa
         .column(Column::remainder().at_least(120.0)) // Description (all options on hover)
         .min_scrolled_height(0.0);
 
-    if let Some(row) = scroll_to {
-        builder = builder.scroll_to_row(row, Some(egui::Align::Center));
+    if let Some(scroll_to) = scroll_to {
+        builder = builder.scroll_to_row(scroll_to.row, Some(scroll_to.align));
     }
 
     builder

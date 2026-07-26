@@ -167,6 +167,13 @@ pub enum Action {
         from: usize,
         to: usize,
     },
+    /// Make a track the row the keyboard acts on (a click on it).
+    PackFocusTrack(usize),
+    /// Move the focused track one slot (`-1` up, `+1` down): Alt+arrow. The focus
+    /// travels with it, so the keys can be pressed again straight away.
+    PackMoveFocusedTrack {
+        delta: isize,
+    },
     /// Losslessly recompress a screenshot and save it in place.
     OptimizeImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.

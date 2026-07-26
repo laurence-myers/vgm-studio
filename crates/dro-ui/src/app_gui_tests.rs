@@ -2711,6 +2711,83 @@ fn dragging_a_track_by_its_grip_moves_it_to_where_it_is_dropped() {
 }
 
 #[test]
+fn alt_arrow_moves_the_focused_track_and_keeps_it_focused() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder()); // 01 Intro, 02 Boss
+    pack_section(&mut harness, PackSection::Tracks);
+
+    // With no focused row there is nothing to move, and the bar says how to get
+    // one rather than failing silently.
+    harness.key_press_modifiers(Modifiers::ALT, Key::ArrowDown);
+    harness.run();
+    assert!(
+        handles.files.borrow().rename_requests.is_empty(),
+        "nothing is focused yet"
+    );
+    assert!(harness.state().status.contains("Click a track first"));
+
+    // Clicking a row focuses it; Alt+Down then moves it, and the focus travels
+    // with it so the keys can be pressed again straight away.
+    act(&mut harness, Action::PackFocusTrack(0));
+    harness.run();
+    harness.key_press_modifiers(Modifiers::ALT, Key::ArrowDown);
+    harness.run();
+    assert!(
+        !handles.files.borrow().rename_requests.is_empty(),
+        "the focused track moved"
+    );
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().focused_track,
+        Some(1),
+        "the focus followed the track, so the key can be pressed again"
+    );
+}
+
+#[test]
+fn a_keyboard_move_asks_to_scroll_the_row_back_into_view() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+
+    // Dispatched without a frame in between: the table takes the request as it
+    // draws, which is exactly what makes it fire once.
+    act(&mut harness, Action::PackFocusTrack(0));
+    act(&mut harness, Action::PackMoveFocusedTrack { delta: 1 });
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().scroll_to_track,
+        Some(1)
+    );
+    harness.run();
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().scroll_to_track,
+        None,
+        "the request is spent once the row has drawn"
+    );
+}
+
+#[test]
+fn moving_the_pointer_hands_the_row_back_to_the_mouse() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+
+    act(&mut harness, Action::PackFocusTrack(1));
+    harness.run();
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().focused_track,
+        Some(1)
+    );
+
+    harness.hover_at(egui::pos2(400.0, 300.0));
+    harness.run();
+    assert_eq!(
+        harness.state().pack.as_ref().unwrap().focused_track,
+        None,
+        "a moved pointer drops the keyboard's row"
+    );
+}
+
+#[test]
 fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
@@ -4598,6 +4675,74 @@ fn changing_the_repeat_count_re_arms_the_region() {
         .flatten()
         .expect("a region is armed");
     assert_eq!(armed.count, LoopCount::Times(3));
+}
+
+#[test]
+fn a_waveform_click_scrolls_the_table_to_the_row_it_will_play_from() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    act(&mut harness, Action::WaveformClicked { index: 5, ms: 120 });
+
+    let state = harness.state();
+    assert_eq!(state.editor.selection.first(), Some(5));
+    // Top-aligned, not centred: the click says "play from here", so the rows
+    // after it are what the view should be spending itself on.
+    assert_eq!(
+        state.scroll_to,
+        Some(crate::widgets::table::ScrollTo::to_top(5))
+    );
+}
+
+#[test]
+fn an_edit_that_outruns_the_playback_start_snaps_it_back_to_the_top() {
+    // Click late in the song to set the playback start, then crop to a region
+    // that ends well before it: playing from there would seek past the end.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+    let length_ms = harness.state().editor.song().unwrap().total_delay_ms();
+    act(
+        &mut harness,
+        Action::WaveformClicked {
+            index: len - 1,
+            ms: length_ms,
+        },
+    );
+    assert!(harness.state().position.position_ms() > 0, "start is set");
+
+    act(&mut harness, Action::SetLoopStart(0));
+    act(&mut harness, Action::SetLoopEnd(3));
+    act(&mut harness, Action::CropToMarkers);
+
+    let state = harness.state();
+    assert!(state.editor.len() < len, "the song was cropped");
+    assert_eq!(
+        state.position.position_ms(),
+        0,
+        "a start outside the song comes back to the top"
+    );
+    assert_eq!(state.waveform.cursor_ms, 0, "and the cursor went with it");
+    assert!(
+        state
+            .editor
+            .selection
+            .first()
+            .is_none_or(|row| row < state.editor.len()),
+        "and no row outside the song is left selected"
+    );
+}
+
+#[test]
+fn an_edit_that_leaves_the_playback_start_alone_does_not_move_it() {
+    // The start is inside what survives, so the crop must not disturb it.
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    let len = harness.state().editor.len();
+    act(&mut harness, Action::WaveformClicked { index: 1, ms: 5 });
+
+    act(&mut harness, Action::SetLoopStart(0));
+    act(&mut harness, Action::SetLoopEnd(len - 1));
+    act(&mut harness, Action::CropToMarkers);
+
+    assert_eq!(harness.state().position.position_ms(), 5);
+    assert_eq!(harness.state().waveform.cursor_ms, 0);
 }
 
 #[test]

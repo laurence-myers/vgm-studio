@@ -64,6 +64,12 @@ impl PositionPanel {
     }
 
     /// A position expressed in time only -- row selection, waveform click.
+    /// Where playback is (or would start), in milliseconds.
+    #[must_use]
+    pub fn position_ms(&self) -> u32 {
+        self.position_ms
+    }
+
     pub fn set_position_ms(&mut self, ms: u32) {
         self.position_ms = ms;
         self.position_frames = ms_to_frames(ms, self.frequency);

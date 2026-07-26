@@ -137,6 +137,13 @@ pub struct PackState {
     /// Which checklist categories are folded away, by their index in
     /// [`ReadinessCategory::ALL`].
     pub collapsed: [bool; ReadinessCategory::ALL.len()],
+    /// The row the keyboard acts on: set by clicking a track, carried along by
+    /// an Alt+arrow reorder so the keys can be held down, and dropped as soon as
+    /// the pointer moves -- whichever the user last touched is in charge.
+    pub focused_track: Option<usize>,
+    /// A row the table scrolls into view on the next frame, so a track moved by
+    /// the keyboard cannot walk off the top or bottom of the view.
+    pub scroll_to_track: Option<usize>,
 }
 
 impl PackState {
@@ -210,6 +217,8 @@ impl PackState {
             section: PackSection::default(),
             show_hardware: false,
             collapsed: [false; ReadinessCategory::ALL.len()],
+            focused_track: None,
+            scroll_to_track: None,
         }
     }
 
@@ -1067,7 +1076,10 @@ pub fn show(
                 // The table's status glyphs read the same readiness list the
                 // checklist does, so the two can never disagree.
                 let items = state.readiness_items();
-                track_table(ui, state, &items, palette, actions);
+                // Taken here so the request cannot re-fire every frame; the row
+                // it names asks to be scrolled to as it draws.
+                let scroll_to = state.scroll_to_track.take();
+                track_table(ui, state, &items, scroll_to, palette, actions);
             }
             PackSection::Screenshots => screenshots(ui, state, palette, actions),
             PackSection::Checklist => {
@@ -1835,6 +1847,7 @@ fn track_table(
     ui: &mut egui::Ui,
     state: &PackState,
     items: &[ReadinessItem],
+    scroll_to: Option<usize>,
     palette: &Palette,
     actions: &mut Vec<Action>,
 ) {
@@ -1887,6 +1900,9 @@ fn track_table(
             .body(|mut body| {
                 for (index, track) in state.tracks.iter().enumerate() {
                     body.row(row_height, |mut row| {
+                        // The keyboard's row, lit like a selection so Alt+arrow
+                        // has something visible to act on.
+                        row.set_selected(state.focused_track == Some(index));
                         row.col(|ui| {
                             // The row's own response rect overshoots into the
                             // next row; a cell's does not, and the y-range is
@@ -2009,8 +2025,17 @@ fn track_table(
                             }
                         }
 
-                        if row.response().double_clicked() {
+                        let response = row.response();
+                        if response.clicked() {
+                            actions.push(Action::PackFocusTrack(index));
+                        }
+                        if response.double_clicked() {
                             actions.push(Action::PackTrackOpen(index));
+                        }
+                        // A row moved by the keyboard must not walk off the top
+                        // or bottom of the view.
+                        if scroll_to == Some(index) {
+                            response.scroll_to_me(Some(egui::Align::Center));
                         }
                     });
                 }

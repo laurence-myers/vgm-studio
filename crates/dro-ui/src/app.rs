@@ -301,7 +301,7 @@ pub struct DroApp {
     channels: ChannelPanel,
 
     /// A row the table should scroll into view next frame.
-    scroll_to: Option<usize>,
+    scroll_to: Option<table::ScrollTo>,
     /// The last first-selected row, to detect selection changes.
     last_first_selected: Option<usize>,
     /// The editor revision currently loaded into the audio service, if any.
@@ -723,7 +723,22 @@ impl DroApp {
                 }
                 AppTab::Pack => {
                     let scanning = self.tasks.is_busy_kind(TaskKind::PackVolumeScan);
+                    // Whichever the user last touched is in charge: moving the
+                    // pointer hands the row back to hover, so the keyboard's lit
+                    // row does not linger under a mouse that has moved on.
+                    // The event, not `pointer.is_moving()`: that reads a velocity
+                    // averaged over a few frames, which a single deliberate move
+                    // can leave at zero.
+                    let pointer_moved = ui.input(|input| {
+                        input
+                            .events
+                            .iter()
+                            .any(|event| matches!(event, egui::Event::PointerMoved(_)))
+                    });
                     if let Some(pack) = self.pack.as_mut() {
+                        if pointer_moved {
+                            pack.focused_track = None;
+                        }
                         crate::pack::show(ui, pack, p, scanning, &mut actions);
                     }
                 }
@@ -1276,7 +1291,15 @@ impl DroApp {
         // must not fire there. Save (the package files), Undo/Redo (the file
         // edits) and Help remain.
         if self.active_tab == AppTab::Pack {
+            // Alt+arrow reorders the focused track: the keyboard path to the
+            // drag handle, and the only one, so it is offered wherever a pack is
+            // open rather than only while the Tracks section is drawn.
             ctx.input_mut(|input| {
+                for (key, delta) in [(Key::ArrowUp, -1_isize), (Key::ArrowDown, 1)] {
+                    if input.consume_key(egui::Modifiers::ALT, key) {
+                        actions.push(Action::PackMoveFocusedTrack { delta });
+                    }
+                }
                 if input.consume_shortcut(&menus::SAVE) {
                     actions.push(Action::PackSaveDocs);
                 }
@@ -1678,7 +1701,7 @@ impl DroApp {
                     Ok(()) => {
                         self.status = "Successfully converted to VGM".to_owned();
                         self.close_song_dialogs();
-                        self.scroll_to = Some(0);
+                        self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
                     }
                     Err(message) => self.alerts.push_back(Alert::error(message)),
@@ -1692,7 +1715,7 @@ impl DroApp {
                     Ok(()) => {
                         self.status = "Successfully converted to DRO v1".to_owned();
                         self.close_song_dialogs();
-                        self.scroll_to = Some(0);
+                        self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
                     }
                     Err(message) => self.alerts.push_back(Alert::error(message)),
@@ -1703,7 +1726,7 @@ impl DroApp {
                     return;
                 }
                 if self.editor.delete_selection() {
-                    self.scroll_to = self.editor.selection.first();
+                    self.scroll_to = self.editor.selection.first().map(table::ScrollTo::centered);
                     self.after_edit();
                 }
             }
@@ -1720,7 +1743,7 @@ impl DroApp {
                         self.status = format!(
                             "Optimized: removed {commands} command(s), saved {bytes} byte(s)"
                         );
-                        self.scroll_to = Some(0);
+                        self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
                     }
                     None => {
@@ -1790,6 +1813,12 @@ impl DroApp {
             Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
             Action::PackMoveTrack { index, delta } => self.move_pack_track(index, delta),
             Action::PackMoveTrackTo { from, to } => self.move_pack_track_to(from, to),
+            Action::PackFocusTrack(index) => {
+                if let Some(pack) = self.pack.as_mut() {
+                    pack.focused_track = Some(index);
+                }
+            }
+            Action::PackMoveFocusedTrack { delta } => self.move_focused_pack_track(delta),
             Action::OptimizeImage(index) => self.optimize_image(index),
             Action::QuickEditSubmitted {
                 original_name,
@@ -1827,12 +1856,16 @@ impl DroApp {
                     .selection
                     .key_move(delta, extend, self.editor.len())
                 {
-                    self.scroll_to = Some(row);
+                    self.scroll_to = Some(table::ScrollTo::centered(row));
                 }
             }
             Action::WaveformClicked { index, ms } => {
                 self.editor.selection.select_only(index);
-                // No scroll-into-view here on the click path.
+                // Bring the table to where playback would start, that row at the
+                // top: the click says "play from here", so what follows it is
+                // what the user wants to read -- not the rows before it, which
+                // is what centring would spend half the view on.
+                self.scroll_to = Some(table::ScrollTo::to_top(index));
                 if self.audio.is_playing() {
                     self.audio.seek_pos(index);
                 }
@@ -2019,7 +2052,7 @@ impl DroApp {
                 self.position.set_length_ms(song.total_delay_ms());
                 self.position.set_position_ms(0);
                 self.last_first_selected = None;
-                self.scroll_to = Some(0);
+                self.scroll_to = Some(table::ScrollTo::centered(0));
                 self.push_load_warnings(report, file_version);
                 // Unless the volume is locked, a freshly opened song starts at the
                 // volume its header modifier asks for (unity for a DRO), so the
@@ -2179,6 +2212,38 @@ impl DroApp {
             return;
         };
         self.move_pack_track_to(index, to);
+    }
+
+    /// Moves the focused track one slot: Alt+Up / Alt+Down, the keyboard path to
+    /// the drag handle.
+    ///
+    /// The focus and the scroll request move with the track, so the keys can be
+    /// pressed again immediately and the row cannot walk off the view. Nothing
+    /// happens with no focused row, at the ends of the list, or while another
+    /// file sequence is still running -- moving the focus then would put it on a
+    /// track that did not move.
+    fn move_focused_pack_track(&mut self, delta: isize) {
+        if self.pack_busy() {
+            return;
+        }
+        let Some(pack) = self.pack.as_ref() else {
+            return;
+        };
+        let Some(from) = pack.focused_track else {
+            self.status = "Click a track first, then Alt+Up / Alt+Down to move it.".to_owned();
+            return;
+        };
+        let Some(to) = from
+            .checked_add_signed(delta)
+            .filter(|to| *to < pack.tracks.len())
+        else {
+            return; // already at the end it is being pushed towards
+        };
+        if let Some(pack) = self.pack.as_mut() {
+            pack.focused_track = Some(to);
+            pack.scroll_to_track = Some(to);
+        }
+        self.move_pack_track_to(from, to);
     }
 
     /// Moves the track at `from` to `to`, renumbering every file the move
@@ -3292,7 +3357,7 @@ impl DroApp {
         match self.editor.find_next(FindTarget::AnyDelay, backwards) {
             Some(index) => {
                 self.editor.selection.select_only(index);
-                self.scroll_to = Some(index);
+                self.scroll_to = Some(table::ScrollTo::centered(index));
             }
             None => self.status = "No more delays found.".to_owned(),
         }
@@ -3317,7 +3382,7 @@ impl DroApp {
             }
             Ok(position) => {
                 self.editor.selection.select_only(position);
-                self.scroll_to = Some(position);
+                self.scroll_to = Some(table::ScrollTo::centered(position));
                 self.status = format!("Gone to position: {position:04X}");
             }
         }
@@ -3334,7 +3399,7 @@ impl DroApp {
         match self.editor.find_next(parsed, backwards) {
             Some(index) => {
                 self.editor.selection.select_only(index);
-                self.scroll_to = Some(index);
+                self.scroll_to = Some(table::ScrollTo::centered(index));
                 self.status = format!("Occurrence of {target} found at position {index:04X}.");
             }
             None => self.status = format!("Could not find another occurrence of {target}."),
@@ -3451,6 +3516,25 @@ impl DroApp {
     fn after_edit(&mut self) {
         self.audio.pause();
         self.audio_revision = None;
+        // Playback starts where the cursor is -- the selected row, and the time
+        // the position readout and the waveform cursor show. A crop or a delete
+        // can leave any of them past the end of what is left, so anything now
+        // outside the song comes back to the top, the one position every song is
+        // guaranteed to have.
+        let len = self.editor.len();
+        let length_ms = self.editor.song().map_or(0, |song| song.total_delay_ms());
+        let row_outside = self.editor.selection.first().is_some_and(|row| row >= len);
+        if row_outside || self.position.position_ms() > length_ms {
+            if len == 0 {
+                self.editor.selection.clear();
+            } else if row_outside {
+                self.editor.selection.select_only(0);
+                self.scroll_to = Some(table::ScrollTo::to_top(0));
+            }
+            self.position.set_position_ms(0);
+            self.waveform.cursor_ms = 0;
+            self.audio.rewind();
+        }
         if let Some(song) = self.editor.song() {
             self.position.set_length_ms(song.total_delay_ms());
         }
@@ -3767,7 +3851,7 @@ impl DroApp {
     /// The whole stream was rebuilt, so the view goes back to the top rather than
     /// leave the scroll wherever the old instruction numbering had put it.
     fn after_region_edit(&mut self) {
-        self.scroll_to = Some(0);
+        self.scroll_to = Some(table::ScrollTo::centered(0));
         self.after_edit();
         self.push_loop_config();
     }
