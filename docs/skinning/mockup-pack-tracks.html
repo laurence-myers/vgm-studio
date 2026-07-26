@@ -1,0 +1,420 @@
+<title>DRO Trimmer — Pack Tracks row overflow</title>
+<style>
+  :root{
+    /* Petrol case, real engine values (palette.rs PETROL_CASE) */
+    --desktop:#101E20;
+    --plate-top:#2E5A5E; --plate-bot:#1C3C40; --plate-border:#0A1A1C;
+    --face:#284C50; --bevelL:#508286; --bevelD:#12282A; --keyline:#081214;
+    --lab:#D4ECEC; --mut:#76A2A4; --datalab:#B2D4D4; --gold:#F2C766;
+    --well:#061416; --trough:#14282A;
+    --pad-top:#F2F3F3; --pad-bot:#DADDDD; --pad-border:#484C4C; --pad-ink:#1C1E1E;
+    --lit-top:#FBE38C; --lit-bot:#DDB047; --lit-border:#8A6D28; --lit-ink:#3F2E08;
+    --green:#3CC850; --amber:#E6C846; --red:#E04A4A;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCEAEA;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 72px;
+  }
+  .page{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:0}
+
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--gold); margin:0 0 8px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:74ch; margin:0}
+  .sub b{color:#DCEAEA; font-weight:700}
+  .sub code,.verdict code,.cost code,li code{color:var(--gold); font-size:12px}
+
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--gold); margin:46px 0 6px; font-weight:700;
+  }
+  h2::before{content:"\25AA  "; color:#FF9E3D}
+  h2 .tag{
+    color:var(--mut); letter-spacing:.1em; font-size:10px; margin-left:8px;
+    border:1px solid var(--bevelD); padding:1px 6px; vertical-align:2px;
+  }
+  .verdict{color:#DCEAEA; font-size:12px; margin:0 0 4px; max-width:84ch}
+  .cost{color:var(--mut); font-size:11.5px; margin:10px 0 0; max-width:84ch}
+  .cost b{color:var(--datalab); font-weight:700}
+  .stripcap{font-size:10px; letter-spacing:.05em; color:#5F8486; margin:6px 0 0}
+
+  /* ---- the mocked panel -------------------------------------------------- */
+  .panel{
+    width:min(760px,100%); margin-top:14px;
+    border:1px solid var(--keyline);
+    background:var(--desktop); position:relative; overflow:hidden;
+  }
+  .panel .caption{
+    color:var(--datalab); padding:7px 8px 5px; font-size:12px;
+    border-bottom:1px solid var(--bevelD);
+  }
+  .well{background:var(--well); padding:4px; position:relative; overflow:hidden}
+
+  /* the always-visible 14px scrollbar the engine reserves */
+  .bar{
+    position:absolute; top:0; right:0; bottom:0; width:14px;
+    background:var(--trough); border-left:1px solid var(--keyline);
+  }
+  .bar::after{
+    content:""; position:absolute; left:3px; right:3px; top:6px; height:40px;
+    background:var(--lab);
+  }
+  .bar.buried::after{display:none}
+  .bar.buried{background:repeating-linear-gradient(
+      135deg,var(--trough) 0 4px,rgba(224,74,74,.55) 4px 8px)}
+
+  /* one table row, columns mirroring the engine's declarations */
+  .row{
+    display:grid; gap:8px; align-items:center;
+    padding:3px 4px; min-height:30px;
+  }
+  .row.head{color:var(--datalab); padding-bottom:6px}
+  .row+.row{border-top:1px solid rgba(80,130,134,.14)}
+  .row.zebra{background:rgba(80,130,134,.07)}
+  .cols-now{grid-template-columns:18px 30px minmax(180px,1fr) 55px 55px 60px 345px}
+  .cols-icons{grid-template-columns:18px 30px minmax(180px,1fr) 55px 55px 60px 174px}
+  .cols-hover{grid-template-columns:18px 30px minmax(180px,1fr) 55px 55px 60px}
+  .cols-two{grid-template-columns:18px 30px 1fr 174px}
+  .ok{color:var(--green)}
+  .warn{color:var(--amber)}
+  .num{color:var(--mut); font-variant-numeric:tabular-nums}
+  .title{color:var(--gold); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .time{color:var(--gold); font-variant-numeric:tabular-nums}
+  .dash{color:var(--mut)}
+  .meta{color:var(--mut); font-size:11.5px; grid-column:3/4; padding-bottom:2px}
+
+  /* keycap pads, light caps on the petrol plate */
+  .acts{display:flex; gap:6px; justify-content:flex-end}
+  .pad{
+    background:linear-gradient(var(--pad-top),var(--pad-bot));
+    border:1px solid var(--pad-border); color:var(--pad-ink);
+    font:12px/1 var(--mono); padding:6px 8px; white-space:nowrap;
+    box-shadow:inset 0 1px 0 #fff, inset 0 -1px 0 rgba(0,0,0,.18);
+  }
+  .pad.icon{padding:6px 0; width:30px; text-align:center}
+  .pad.wide{width:100%; text-align:left; padding:7px 10px}
+  .pad.lit{
+    background:linear-gradient(var(--lit-top),var(--lit-bot));
+    border-color:var(--lit-border); color:var(--lit-ink);
+  }
+  .ghost{opacity:.28}
+
+  /* hover-revealed cluster, floating over the row's right end */
+  .floatrow{position:relative}
+  .floatacts{
+    position:absolute; right:4px; top:50%; transform:translateY(-50%);
+    display:flex; gap:6px;
+    background:linear-gradient(90deg,rgba(6,20,22,0) 0,var(--well) 22px);
+    padding-left:26px;
+  }
+  .hovered{background:rgba(80,130,134,.16)}
+
+  /* master / detail */
+  .split{display:grid; grid-template-columns:1fr 260px; gap:0}
+  .split .list{border-right:1px solid var(--keyline); min-width:0}
+  .inspector{padding:8px 10px; display:flex; flex-direction:column; gap:7px}
+  .inspector .name{color:var(--gold); white-space:normal; line-height:1.35}
+  .facts{display:grid; grid-template-columns:auto 1fr; gap:2px 10px; font-size:12px}
+  .facts dt{color:var(--datalab); margin:0}
+  .facts dd{color:var(--gold); margin:0; font-variant-numeric:tabular-nums}
+  .inspector .acts{flex-direction:column; gap:5px; align-items:stretch}
+
+  /* the width ledger */
+  table.ledger{border-collapse:collapse; margin:12px 0 0; font-size:12px}
+  table.ledger th,table.ledger td{
+    text-align:left; padding:3px 16px 3px 0; border-bottom:1px solid var(--bevelD);
+  }
+  table.ledger th{color:var(--datalab); font-weight:700; letter-spacing:.06em}
+  table.ledger td{color:var(--mut); font-variant-numeric:tabular-nums}
+  table.ledger td.n{color:#DCEAEA}
+  table.ledger tr.total td{color:var(--red); border-bottom:none}
+  table.ledger b{color:#DCEAEA}
+  .scroller{overflow-x:auto}
+
+  ul{margin:8px 0 0; padding-left:18px; color:var(--mut); max-width:84ch}
+  li{margin:0 0 5px}
+  li b{color:#DCEAEA; font-weight:700}
+  hr{border:0; border-top:1px solid var(--bevelD); margin:40px 0 0}
+</style>
+
+<div class="page">
+  <h1>Pack &rsaquo; Tracks: the row runs off the edge</h1>
+  <p class="sub">
+    Five per-row pads sit in a column that tells the layout it needs <b>200px</b> and then
+    draws <b>~345px</b>. The title column takes “the rest” from the declared figure, so every
+    row is laid out about 145px wider than the viewport: <code>Edit…</code> is cut in half at
+    the window edge and the last 14px — the scrollbar channel — is painted over, which is why
+    the handle has no puck. Four ways out, two subtle and two lateral, all drawn at 760px so
+    the pressure is visible without a 1226px window.
+  </p>
+
+  <h2>What is actually happening <span class="tag">today</span></h2>
+  <p class="verdict">
+    Honest render: the row below really is wider than its panel, and really is clipped.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well">
+      <div class="bar buried"></div>
+      <div class="row head cols-now">
+        <span></span><span>#</span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span><span></span>
+      </div>
+      <div class="row cols-now">
+        <span class="ok">&#8730;</span><span class="num">01</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span><span class="pad">Edit&hellip;</span>
+        </span>
+      </div>
+      <div class="row zebra cols-now">
+        <span class="ok">&#8730;</span><span class="num">02</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span><span class="pad">Edit&hellip;</span>
+        </span>
+      </div>
+      <div class="row cols-now">
+        <span class="warn">!</span><span class="num">03</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span><span class="pad">Edit&hellip;</span>
+        </span>
+      </div>
+    </div>
+  </div>
+  <p class="stripcap">Hatched: the 14px scroll channel the row is drawn over. The handle is under there.</p>
+
+  <div class="scroller">
+    <table class="ledger">
+      <tr><th>Column</th><th>Declared</th><th>Drawn</th><th>Note</th></tr>
+      <tr><td class="n">status</td><td>18</td><td>18</td><td>tick / bang</td></tr>
+      <tr><td class="n">#</td><td>30</td><td>30</td><td></td></tr>
+      <tr><td class="n">Title (GD3)</td><td>remainder, &ge;180</td><td>whatever is left</td><td>budgeted from the declared figures</td></tr>
+      <tr><td class="n">Total / Loop / Peak</td><td>55 / 55 / 60</td><td>same</td><td></td></tr>
+      <tr><td class="n">actions</td><td>auto, &ge;<b>200</b></td><td><b>~345</b></td><td>&#9650; &#9660; &#9654; Open Edit&hellip;</td></tr>
+      <tr class="total"><td>overshoot</td><td colspan="3">~145px, straight into the scroll channel and past the window edge</td></tr>
+    </table>
+  </div>
+
+  <h2>Fix these whichever layout wins <span class="tag">2 lines</span></h2>
+  <ul>
+    <li><b>Declare the cluster's real width.</b> <code>Column::auto().at_least(200)</code> is a
+      promise the row does not keep. Measure the pads once and use
+      <code>Column::exact(w)</code>, or raise the floor to what is drawn. The remainder column
+      then budgets from the truth and the table fits by construction.</li>
+    <li><b>Let the title clip, not push.</b> <code>remainder().clip(true)</code> with a smaller
+      floor (120) makes the long titles this pack is full of end in an ellipsis instead of
+      shoving the pads off the edge — the title is the one cell that can afford to lose
+      characters, because the row is a click target for the whole thing.</li>
+  </ul>
+  <p class="cost">Neither changes the design. Both are worth doing even if one of the four below lands.</p>
+
+  <h2>A &mdash; Icons, not words <span class="tag">subtle</span></h2>
+  <p class="verdict">
+    Open and Edit&hellip; become icon pads like their three neighbours: <b>345px &rarr; 174px</b>,
+    and the title gets the difference.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well">
+      <div class="bar"></div>
+      <div class="row head cols-icons">
+        <span></span><span>#</span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span><span></span>
+      </div>
+      <div class="row cols-icons">
+        <span class="ok">&#8730;</span><span class="num">01</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad icon">&#8599;</span><span class="pad icon">&#9998;</span>
+        </span>
+      </div>
+      <div class="row zebra cols-icons">
+        <span class="ok">&#8730;</span><span class="num">02</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad icon">&#8599;</span><span class="pad icon">&#9998;</span>
+        </span>
+      </div>
+      <div class="row cols-icons">
+        <span class="warn">!</span><span class="num">03</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad icon">&#8599;</span><span class="pad icon">&#9998;</span>
+        </span>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> two labels become glyphs, so both need a tooltip and an accessible name —
+    the checklist's disclosure triangles already set that precedent. The line-icon set from
+    the skin work covers both marks. <b>Risk:</b> low; nothing moves but the pads.
+  </p>
+
+  <h2>B &mdash; Actions on the row you are pointing at <span class="tag">subtle</span></h2>
+  <p class="verdict">
+    The column goes away entirely; the cluster floats over the row's right end on hover or
+    selection. At rest the table is <b>five short columns and a title</b>, and cannot overflow.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well">
+      <div class="bar"></div>
+      <div class="row head cols-hover">
+        <span></span><span>#</span><span>Title (GD3)</span>
+        <span>Total</span><span>Loop</span><span>Peak</span>
+      </div>
+      <div class="row cols-hover">
+        <span class="ok">&#8730;</span><span class="num">01</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="time">0:51</span><span class="dash">&ndash;</span><span class="dash">&ndash;</span>
+      </div>
+      <div class="row zebra cols-hover floatrow hovered">
+        <span class="ok">&#8730;</span><span class="num">02</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="time">0:18</span><span class="time">0:13</span><span class="dash">&ndash;</span>
+        <span class="floatacts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span><span class="pad">Edit&hellip;</span>
+        </span>
+      </div>
+      <div class="row cols-hover">
+        <span class="warn">!</span><span class="num">03</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="time">0:34</span><span class="time">0:34</span><span class="dash">&ndash;</span>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> the pads stop being discoverable at rest, and they cover the Peak column
+    while shown. Needs the selected row to show them too, or keyboard users lose the lot.
+    <b>Risk:</b> medium — a row that changes shape under the pointer is easy to misclick.
+  </p>
+
+  <h2>C &mdash; Two lines per track <span class="tag">lateral</span></h2>
+  <p class="verdict">
+    Total, Loop and Peak stop being columns and become a muted second line. <b>170px of
+    columns</b> return to the title, and the numbers read as a sentence rather than a grid.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well">
+      <div class="bar"></div>
+      <div class="row cols-two">
+        <span class="ok">&#8730;</span><span class="num">01</span>
+        <span class="title">Main Title (The Raiders March)</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span>
+        </span>
+        <span class="meta">0:51 &middot; no loop &middot; peak not scanned</span>
+      </div>
+      <div class="row zebra cols-two">
+        <span class="ok">&#8730;</span><span class="num">02</span>
+        <span class="title">Travelling (The Boat Chase)</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span>
+        </span>
+        <span class="meta">0:18 &middot; loops 0:13 &middot; &minus;3.2 dBFS</span>
+      </div>
+      <div class="row cols-two">
+        <span class="warn">!</span><span class="num">03</span>
+        <span class="title">Venice (The Boat Chase)</span>
+        <span class="acts">
+          <span class="pad icon">&#9650;</span><span class="pad icon">&#9660;</span>
+          <span class="pad icon">&#9654;</span><span class="pad">Open</span>
+        </span>
+        <span class="meta">0:34 &middot; loops 0:34 &middot; &minus;1.1 dBFS</span>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> rows are twice as tall, so a 40-track pack scrolls twice as far, and the
+    times no longer line up for comparison — which is half of why they are a table. Quick
+    Edit moves into the double-click / status glyph, since only four pads fit. <b>Risk:</b>
+    medium; it is a rewrite of the row, and it trades the pack's scanning job for its reading one.
+  </p>
+
+  <h2>D &mdash; List, then inspector <span class="tag">lateral</span></h2>
+  <p class="verdict">
+    The table keeps status, number and title and nothing else; everything about the
+    <em>selected</em> track — its timings, its level, and every command with a real label —
+    lives in a panel beside it. Width-proof at any window size.
+  </p>
+  <div class="panel">
+    <div class="caption">Tracks (double-click to open in the editor)</div>
+    <div class="well split">
+      <div class="list">
+        <div class="row cols-hover" style="grid-template-columns:18px 30px 1fr">
+          <span class="ok">&#8730;</span><span class="num">01</span>
+          <span class="title">Main Title (The Raiders March)</span>
+        </div>
+        <div class="row zebra hovered" style="grid-template-columns:18px 30px 1fr">
+          <span class="ok">&#8730;</span><span class="num">02</span>
+          <span class="title">Travelling (The Boat Chase)</span>
+        </div>
+        <div class="row" style="grid-template-columns:18px 30px 1fr">
+          <span class="warn">!</span><span class="num">03</span>
+          <span class="title">Venice (The Boat Chase)</span>
+        </div>
+        <div class="row" style="grid-template-columns:18px 30px 1fr">
+          <span class="ok">&#8730;</span><span class="num">04</span>
+          <span class="title">Into the Catacombs</span>
+        </div>
+      </div>
+      <div class="inspector">
+        <div class="name">02 Travelling (The Boat Chase)</div>
+        <dl class="facts">
+          <dt>Total</dt><dd>0:18</dd>
+          <dt>Loop</dt><dd>0:13</dd>
+          <dt>Peak</dt><dd>&minus;3.2 dBFS</dd>
+        </dl>
+        <div class="acts">
+          <span class="pad wide">&#9654;&ensp;Preview</span>
+          <span class="pad wide">&#8599;&ensp;Open in editor</span>
+          <span class="pad wide">&#9998;&ensp;Quick edit&hellip;</span>
+          <span class="pad wide">&#9650;&ensp;&#9660;&ensp;Move in order</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cost">
+    <b>Costs:</b> one track at a time — reordering four tracks means four selections, where
+    today the pads are on every row. Needs a real selection model in pack mode (there is
+    only a preview row today) and a place for the panel to go when the window is narrow.
+    <b>Risk:</b> high; it is a new view, not a fixed table.
+  </p>
+
+  <hr>
+  <h2>Where I would land</h2>
+  <ul>
+    <li><b>Now:</b> the two lines above, then <b>A</b>. It is the smallest change that ends the
+      overflow with room to spare, and it leaves the table doing the thing a pack needs — 40
+      rows of times you can compare down the column.</li>
+    <li><b>If the row ever gains more data</b> (chip, size, a second level figure), <b>C</b>:
+      once there are eight columns, no amount of declaring widths saves a 1226px window.</li>
+    <li><b>D</b> is the right shape for a much larger pack tool, and the wrong amount of work
+      for a clipped button.</li>
+    <li><b>B</b> reads well in a mockup and badly in use: the pads are the only clue that a
+      row can be reordered at all.</li>
+  </ul>
+</div>
