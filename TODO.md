@@ -132,7 +132,13 @@
   header disagrees with its own stream and corrects it only when asked. Pack
   mode has one kind of track. Validated against the local corpus: of 16466
   files, all 3933 the OPL reader accepts agree byte-for-byte through the new
-  path, and 12533 that it could not open at all now open.
+  path, and 12533 that it could not open at all now open. The chip-agnostic
+  `vgm_cmp` runs both halves -- the redundant-write strip and the byte-minimal
+  delay merge -- and a file with nothing to gain is left alone byte for byte.
+  **Find Loop** works on any chip too (a repeated block is a repeated block),
+  and applying a candidate writes the loop into the file; its dialog still
+  wants a `Song` for the per-candidate times, so that last step is reachable
+  through the task layer only. Split Songs is the remaining OPL-only tool.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

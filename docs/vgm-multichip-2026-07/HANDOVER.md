@@ -49,16 +49,30 @@
 > short waits, borrowing from the last chunk when that saves a byte — and it
 > is the second half of the optimiser. Route an OPL VGM through `VgmFile` and
 > it silently loses that half: the test suite caught it as 7 commands where
-> 6 were expected. **Port `merge_delays` to `VgmStream` first**, with the
-> existing OPL optimiser as the byte-exact oracle (and the corpus behind it),
-> and only then move the documents.
+> 6 were expected.
 >
-> Expect the same shape of gap elsewhere. Anything that consumes `&Song` and
-> rebuilds a stream needs a `VgmStream` equivalent before the slot it lives
-> in can go: the loop finder (`loopfind.rs`), the multi-song splitter
-> (`split_songs.rs`) and `convert::filter_vgm` are the candidates. Each is
-> also a feature that would then work for *any* chip, so the porting is not
-> only a tax — it is how Find Loop and Split Songs reach a Mega Drive rip.
+> **`merge_delays` is now ported** (`b4cdc31`) — that blocker is cleared, and
+> the OPL optimiser is pinned to the new one byte-for-byte across the corpus.
+> Two bugs surfaced doing it, both caught by the oracle rather than by
+> reasoning, and the second only at corpus scale: an absolute offset passed
+> where a stream-relative one was wanted, and `optimize()` rebuilding
+> unconditionally so a file with nothing to gain came back re-spelled at the
+> same length (1121 of 3933 files). **When porting the rest, compare against
+> the OPL implementation over the corpus — not just unit fixtures.**
+>
+> **The loop finder is ported too** (`d9e39a7`): Find Loop works on any chip,
+> and applying a candidate writes through `set_loop_rows`. One last mile left
+> — `FindLoopDialog` still takes an `Arc<Song>` to put a time against each
+> candidate row, so the search is reachable through the task layer but not
+> through the dialog for a non-OPL file. It needs `total_commands`, a
+> commands-per-second figure and a per-candidate time; `VgmStream::samples_from`
+> supplies the last of those.
+>
+> **Still to port, same shape:** the multi-song splitter (`split_songs.rs`,
+> whose prelude should become `chip_state`'s third consumer) and
+> `convert::filter_vgm`. Each is also a feature that would then work for *any*
+> chip, so the porting is not only a tax — it is how Split Songs reaches a
+> Mega Drive rip.
 >
 > The rest of the collapse is understood and small by comparison: an eager,
 > revision-keyed `Arc<Song>` view materialised from the projection serves the
