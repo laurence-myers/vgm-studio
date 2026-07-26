@@ -2594,20 +2594,23 @@ impl DroApp {
 
     /// Previews a track through the audio output.
     fn preview_track(&mut self, index: usize) {
-        let song = self
+        let source = self
             .pack
             .as_ref()
             .and_then(|pack| pack.tracks.get(index))
-            .and_then(crate::pack::PackTrack::playable_song);
-        let Some(song) = song else {
+            .and_then(crate::pack::PackTrack::preview_source);
+        let Some(source) = source else {
             return;
         };
         // Preview with the track's own default panning and no channel mutes: the
         // editor's channel panel is for a different song, and its stored
         // panning/muting would otherwise leak into the preview (e.g. a dual-OPL2
         // editor song's fixed hard-L/R image applied to a mono track plays it
-        // hard left).
-        let preview_panning = ChannelPanel::for_song(&song).panning();
+        // hard left). Panning is an OPL idea, so a track for other chips has
+        // none to set.
+        let preview_panning = source
+            .opl()
+            .map(|song| ChannelPanel::for_song(song).panning());
         // `load` below tears down the editor's stream the instant it runs --
         // success or not -- so the editor's audio snapshot is gone regardless.
         // Invalidate the revision *before* the load so the editor's next Play
@@ -2623,16 +2626,19 @@ impl DroApp {
         // preview does not disturb the editor's volume.
         let mut preview_config = self.config.audio.clone();
         if !preview_config.lock_boost {
-            preview_config.boost = Self::modifier_boost(&song);
+            preview_config.boost = source
+                .opl()
+                .map_or(preview_config.boost, |song| Self::modifier_boost(song));
         }
         self.audio.pause();
-        let source = dro_synth::AudioSource::Opl(song);
         if let Err(message) = self.audio.load(source, &preview_config) {
             self.alerts.push_back(Alert::error(message));
             return;
         }
         self.audio.set_muting(Muting::all());
-        self.audio.set_panning(preview_panning);
+        if let Some(panning) = preview_panning {
+            self.audio.set_panning(panning);
+        }
         if let Err(message) = self.audio.play() {
             // Load succeeded but playback won't start: drop the half-started
             // preview so the service isn't left holding it (and the editor's

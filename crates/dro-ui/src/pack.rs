@@ -23,6 +23,7 @@ use dro_core::pack::{
 };
 use dro_core::vgm::data::GD3_FIELD_COUNT;
 use dro_core::{Gd3Tag, OplType, Song, VgmFile};
+use dro_synth::AudioSource;
 use egui_extras::{Column, TableBuilder};
 
 use crate::action::Action;
@@ -92,11 +93,52 @@ impl PackTrack {
         Some(self.vgm()?.opl()?.opl_type())
     }
 
-    /// Whether this app can render the track: it needs an OPL stream, which is
-    /// the only kind it has a core for yet.
+    /// Whether this app can make a sound from the track: an OPL stream, or a
+    /// chip it has a core for.
     #[must_use]
     pub fn is_playable(&self) -> bool {
-        self.opl_type().is_some()
+        self.preview_source().is_some()
+    }
+
+    /// The track's chips this app has no core for, as a comma-separated list.
+    ///
+    /// Empty when it can play all of them -- which for an OPL track is always,
+    /// and for a Mega Drive rip is not: the PSG plays and the FM does not, so
+    /// the preview is worth offering and worth labelling.
+    #[must_use]
+    pub fn chips_without_cores(&self) -> String {
+        let Some(file) = self.vgm() else {
+            return String::new();
+        };
+        if file.is_opl() {
+            return String::new();
+        }
+        let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+        dro_synth::playability(&chips)
+            .missing()
+            .iter()
+            .map(|chip| chip.name())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// The track as something an engine can play, or `None` when nothing would
+    /// be heard.
+    ///
+    /// An OPL track goes to the OPL player, which is what gives the preview its
+    /// per-channel panning; anything else goes to the generic engine. A track
+    /// whose chips all lack cores is not offered, because a preview button that
+    /// plays silence is worse than one that is not there.
+    #[must_use]
+    pub fn preview_source(&self) -> Option<AudioSource> {
+        let file = self.vgm()?;
+        if let Some(song) = file.to_song() {
+            return Some(AudioSource::Opl(Arc::new(song)));
+        }
+        let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+        dro_synth::playability(&chips)
+            .can_play()
+            .then(|| AudioSource::Vgm(Arc::clone(file)))
     }
 
     /// Whether the editor can open the track: it needs rows to show.
@@ -652,16 +694,15 @@ impl PackState {
     /// keeps the note short for a pack where every track is the same hardware,
     /// which is nearly all of them.
     #[must_use]
-    pub fn unplayable_chips(&self) -> Vec<String> {
+    pub fn silent_chips(&self) -> Vec<String> {
         let mut chips: Vec<String> = Vec::new();
         for track in &self.tracks {
-            if track.is_readable()
-                && !track.is_playable()
-                && let Some(list) = track.chip_list()
-                && !list.is_empty()
-                && !chips.contains(&list)
-            {
-                chips.push(list);
+            if !track.is_readable() {
+                continue;
+            }
+            let missing = track.chips_without_cores();
+            if !missing.is_empty() && !chips.contains(&missing) {
+                chips.push(missing);
             }
         }
         chips
@@ -707,15 +748,15 @@ impl PackState {
             ));
         }
         // Not an error, and not the checklist's business to block: the pack is
-        // perfectly submittable, this app just cannot audition it.
-        let unplayable = self.unplayable_chips();
-        if !unplayable.is_empty() {
+        // perfectly submittable, this app just cannot make every sound in it.
+        let silent = self.silent_chips();
+        if !silent.is_empty() {
             items.push(file_item(
                 Severity::Note,
                 format!(
                     "Playback is not supported yet for {}; those tracks export normally, but \
-                     cannot be previewed here.",
-                    unplayable.join(", ")
+                     preview here without them.",
+                    silent.join(", ")
                 ),
             ));
         }
@@ -2749,7 +2790,15 @@ mod tests {
             "the Mega Drive one does not"
         );
         assert!(state.tracks[0].is_playable());
-        assert!(!state.tracks[1].is_playable());
+        assert!(
+            state.tracks[1].is_playable(),
+            "its PSG has a core, so a preview would be heard..."
+        );
+        assert_eq!(
+            state.tracks[1].chips_without_cores(),
+            "YM2612",
+            "...without its FM"
+        );
         assert!(
             state.tracks[1].is_editable(),
             "but it still opens for trimming"
@@ -2912,9 +2961,10 @@ mod tests {
     }
 
     /// A track for other chips is a full citizen of the checklist -- counted, exported,
-    /// never flagged as broken -- with one note saying it cannot be auditioned.
+    /// never flagged as broken -- with one note naming the chips that would be
+    /// silent if it were previewed.
     #[test]
-    fn the_checklist_notes_what_cannot_be_previewed_without_blocking_it() {
+    fn the_checklist_notes_what_would_be_silent_without_blocking_it() {
         let files = vec![other_chip_song(
             "01 Theme.vgm",
             Gd3Tag {
@@ -2925,7 +2975,10 @@ mod tests {
         let mut state = PackState::from_folder(folder("Sonic", files), None);
         state.meta.game_name = "Sonic".to_owned();
 
-        assert_eq!(state.unplayable_chips(), ["SN76489, YM2612"]);
+        // The PSG has a core and the FM does not, so a preview is worth
+        // offering -- with the FM named as what will be missing from it.
+        assert_eq!(state.silent_chips(), ["YM2612"]);
+        assert!(state.tracks[0].is_playable(), "the PSG half plays");
         let items = state.readiness_items();
         assert!(
             !items
@@ -2938,7 +2991,12 @@ mod tests {
             .find(|item| item.message.contains("Playback"))
             .expect("the preview note");
         assert_eq!(note.severity, Severity::Note, "a note never gates export");
-        assert!(note.message.contains("SN76489, YM2612"));
+        assert!(note.message.contains("YM2612"), "{}", note.message);
+        assert!(
+            !note.message.contains("SN76489"),
+            "the PSG is not silent: {}",
+            note.message
+        );
         assert!(
             state.validations().errors.is_empty(),
             "a track for other chips does not block export"
