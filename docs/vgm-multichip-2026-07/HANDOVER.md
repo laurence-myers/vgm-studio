@@ -7,7 +7,8 @@
 > | mc-1 | done | `c6db120` — `vgm/header.rs` (42-chip model, extra header), `vgm/file.rs` (`VgmFile`, opaque body, byte-exact retag writer) |
 > | mc-2 | done | `13237e6` — `PackSong::{Opl,Foreign,Unreadable}`, foreign tracks first-class in pack mode |
 > | mc-3 | done | `99d0b20` — `LoadFailure::ForeignVgm` + the "Not an OPL song" dialog; editor actions gated |
-> | mc-4 … mc-10 | not started | |
+> | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
+> | mc-5 … mc-10 | not started | |
 >
 > **Phase A is complete: the feature's stated minimum requirement is met.** A
 > pack containing any VGM — any chip, versions 1.00–1.72 — opens, lists,
@@ -27,6 +28,19 @@
 > - The pack export's optimiser gate needed no code change (it fails safe on
 >   an unreadable file) but its log line did: a foreign VGM now reads
 >   "YM2612 is not optimised yet" rather than "could not read".
+>
+> **Two things mc-4 deliberately left for later, against the plan text below:**
+> - *The compressed-block decompressor* (§3.3) moved to **mc-6**. mc-4 steps
+>   over compressed blocks whole and preserves them, which is all a trimmer
+>   needs; decompressing one is only required to *play* it, so it belongs with
+>   the engine that consumes it.
+> - *The OPL reader's 0x67 support* moved to **mc-5**. `VgmData`/`Song` model
+>   every command as a `DroInstruction` (register write, delay, bank switch),
+>   and a data block is none of those — so accepting one means growing that
+>   enum, which ripples into the table, the analyser, the optimiser and the
+>   state fold. mc-4 closed the *other* half of that TODO (minimal headers),
+>   which needed no model change. Until mc-5, an OPL VGM carrying a 0x67 block
+>   opens in pack mode as `Foreign`: readable and taggable, not editable.
 
 **For:** a fresh Claude Code session implementing multi-chip VGM support.
 **From:** the planning session, 2026-07-20; revised against the tree 2026-07-26.
