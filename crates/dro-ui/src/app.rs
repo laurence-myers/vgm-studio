@@ -1711,23 +1711,30 @@ impl DroApp {
                 }
             }
             Action::OpenEditTag => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
-                let song = self.editor.song().expect("gated");
-                if song.is_vgm() {
-                    let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
-                    self.dialogs.gd3_tag = Some(Gd3TagDialog::new(tag));
-                } else {
-                    self.status = "Only VGMs support tag editing".to_owned();
+                match (self.editor.song(), self.editor.vgm()) {
+                    (Some(song), _) if song.is_vgm() => {
+                        let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
+                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(tag));
+                    }
+                    (None, Some(file)) => {
+                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
+                    }
+                    _ => self.status = "Only VGMs support tag editing".to_owned(),
                 }
             }
             Action::OpenVgmMetadata => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
-                let song = self.editor.song().expect("gated");
-                match VgmMetadataDialog::new(song) {
+                let dialog = match (self.editor.song(), self.editor.vgm()) {
+                    (Some(song), _) => VgmMetadataDialog::new(song),
+                    (None, Some(file)) => VgmMetadataDialog::for_vgm(file),
+                    (None, None) => None,
+                };
+                match dialog {
                     Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
                     None => self.status = "Song is not a VGM".to_owned(),
                 }

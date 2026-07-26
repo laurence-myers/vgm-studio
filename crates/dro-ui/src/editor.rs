@@ -710,15 +710,23 @@ impl Editor {
     /// Applies the GD3 tag editor's Save. Not undoable. Ignored unless the song
     /// is a VGM.
     pub fn set_gd3_tag(&mut self, tag: dro_core::Gd3Tag) {
-        let Some(meta) = self.song.as_mut().and_then(Song::vgm_meta_mut) else {
-            return;
-        };
         // Only a real change dirties the song: the dialog's Save fires whether or
         // not anything was typed, and prompting to discard nothing is noise.
-        if meta.tag.as_ref() != Some(&tag) {
-            meta.tag = Some(tag);
-            self.metadata_dirty = true;
-        }
+        let changed = match (self.song.as_mut(), self.vgm.as_mut()) {
+            (Some(song), _) => match song.vgm_meta_mut() {
+                Some(meta) if meta.tag.as_ref() != Some(&tag) => {
+                    meta.tag = Some(tag);
+                    true
+                }
+                _ => false,
+            },
+            (None, Some(file)) if file.tag.as_ref() != Some(&tag) => {
+                file.tag = Some(tag);
+                true
+            }
+            _ => false,
+        };
+        self.metadata_dirty |= changed;
     }
 
     /// Applies the VGM metadata dialog's Save. Not undoable.
@@ -740,6 +748,15 @@ impl Editor {
         loop_modifier: u8,
         volume_modifier: u8,
     ) -> bool {
+        if self.song.is_none() {
+            return self.set_vgm_document_metadata(
+                loop_point,
+                loop_end,
+                loop_base,
+                loop_modifier,
+                volume_modifier,
+            );
+        }
         let Some(song) = self.song.as_mut() else {
             return false;
         };
@@ -778,6 +795,39 @@ impl Editor {
         // The stored loop may have been clamped to a since-shortened song; the
         // markers describe what was actually stored either way.
         self.markers = RangeMarkers::from_song(song);
+        self.metadata_dirty |= changed;
+        dropped
+    }
+
+    /// [`Self::set_vgm_metadata`] for a document held as a VGM, where the fields
+    /// live in the header itself rather than in a decoded `VgmMeta`.
+    ///
+    /// The same clamping, for the same reason: the dialog validated against the
+    /// length it captured at open.
+    fn set_vgm_document_metadata(
+        &mut self,
+        loop_point: Option<usize>,
+        loop_end: Option<usize>,
+        loop_base: u8,
+        loop_modifier: u8,
+        volume_modifier: u8,
+    ) -> bool {
+        let Some(file) = self.vgm.as_mut() else {
+            return false;
+        };
+        let len = file.len();
+        let clamped = loop_point.filter(|&index| index < len);
+        let dropped = clamped != loop_point;
+        let clamped_end = clamped
+            .and_then(|start| loop_end.filter(|&end| end <= len && end > start && end < len));
+        let before = (file.loop_index(), file.loop_end_index());
+
+        file.set_loop_rows(clamped, clamped_end);
+        let mut changed = (file.loop_index(), file.loop_end_index()) != before;
+        changed |= file.header.set_loop_counts(loop_base, loop_modifier);
+        changed |= file.header.set_volume_modifier(volume_modifier);
+
+        self.markers = RangeMarkers::from_vgm(file);
         self.metadata_dirty |= changed;
         dropped
     }

@@ -35,13 +35,27 @@ impl RangeMarkers {
     /// special-casing downstream.
     #[must_use]
     pub fn from_song(song: &Song) -> Self {
-        let len = song.len();
+        let meta = song.vgm_meta();
+        Self::from_loop(
+            song.len(),
+            meta.and_then(|meta| meta.loop_point),
+            meta.and_then(|meta| meta.loop_end),
+        )
+    }
+
+    /// The same, for a document held as a VGM: the loop it stores, or the whole
+    /// file when it stores none.
+    #[must_use]
+    pub fn from_vgm(file: &dro_core::VgmFile) -> Self {
+        Self::from_loop(file.len(), file.loop_index(), file.loop_end_index())
+    }
+
+    /// The markers for a stored loop over `len` rows.
+    fn from_loop(len: usize, start: Option<usize>, end: Option<usize>) -> Self {
         let mut markers = Self::full(len);
-        if let Some(meta) = song.vgm_meta()
-            && let Some(start) = meta.loop_point
-        {
+        if let Some(start) = start {
             markers.set_start(start, len);
-            if let Some(end) = meta.loop_end {
+            if let Some(end) = end {
                 markers.set_end(end, len);
             }
         }

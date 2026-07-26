@@ -2092,6 +2092,57 @@ fn a_non_opl_capture_can_be_split_into_its_songs() {
     }
 }
 
+/// Tagging and loop metadata for a document there is no core for. A GD3 tag is
+/// a GD3 tag whatever the chips, and so is a loop pointer.
+#[test]
+fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
+    let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
+
+    act(&mut harness, Action::OpenEditTag);
+    assert!(
+        harness.state().dialogs.gd3_tag.is_some(),
+        "the tag dialog opens: {}",
+        harness.state().status
+    );
+    harness.state_mut().editor.set_gd3_tag(dro_core::Gd3Tag {
+        track_name_en: "Psycho Soldier (Arcade)".to_owned(),
+        ..dro_core::Gd3Tag::default()
+    });
+    assert_eq!(
+        harness
+            .state()
+            .editor
+            .vgm()
+            .unwrap()
+            .tag
+            .as_ref()
+            .unwrap()
+            .track_name_en,
+        "Psycho Soldier (Arcade)"
+    );
+    assert!(harness.state().editor.is_dirty(), "and it wants saving");
+
+    act(&mut harness, Action::OpenVgmMetadata);
+    assert!(
+        harness.state().dialogs.vgm_metadata.is_some(),
+        "the metadata dialog opens: {}",
+        harness.state().status
+    );
+    // The fixture loops at row 1; move it to row 2 and turn the volume up.
+    assert!(
+        !harness
+            .state_mut()
+            .editor
+            .set_vgm_metadata(Some(2), None, 1, 0, 0x20)
+    );
+    let file = harness.state().editor.vgm().unwrap();
+    assert_eq!(file.loop_index(), Some(2));
+    assert_eq!(file.header.volume_modifier(), 0x20);
+    assert_eq!(file.header.loop_base(), 1);
+    // And the markers followed the stored loop.
+    assert_eq!(harness.state().editor.markers.start(), 2);
+}
+
 /// A header that disagrees with its stream is reported and offered, never
 /// silently corrected -- and the correction only lands once confirmed.
 #[test]

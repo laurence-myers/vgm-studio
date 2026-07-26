@@ -39,16 +39,59 @@ impl VgmMetadataDialog {
     #[must_use]
     pub fn new(song: &Song) -> Option<Self> {
         let meta = song.vgm_meta()?;
-        Some(Self {
-            loop_point: meta.loop_point.map_or_else(String::new, |i| i.to_string()),
-            loop_end: meta.loop_end.map_or_else(String::new, |i| i.to_string()),
-            loop_base: meta.loop_base.to_string(),
-            loop_modifier: meta.loop_modifier.to_string(),
-            volume_modifier: meta.volume_modifier.to_string(),
+        Some(Self::from_fields(
+            meta.loop_point,
+            meta.loop_end,
+            meta.loop_base,
+            meta.loop_modifier,
+            meta.volume_modifier,
+            song.len(),
+            song.delay_samples_prefix(),
+        ))
+    }
+
+    /// The same dialog for a document held as a VGM, whose fields are in the
+    /// header itself and whose row times come from its own waits.
+    #[must_use]
+    pub fn for_vgm(file: &dro_core::VgmFile) -> Option<Self> {
+        let stream = file.stream()?;
+        let mut prefix = Vec::with_capacity(stream.len() + 1);
+        let mut elapsed = 0u32;
+        prefix.push(elapsed);
+        for index in 0..stream.len() {
+            elapsed = elapsed.saturating_add(stream.wait_samples(index));
+            prefix.push(elapsed);
+        }
+        Some(Self::from_fields(
+            file.loop_index(),
+            file.loop_end_index(),
+            file.header.loop_base(),
+            file.header.loop_modifier(),
+            file.header.volume_modifier(),
+            stream.len(),
+            prefix,
+        ))
+    }
+
+    fn from_fields(
+        loop_point: Option<usize>,
+        loop_end: Option<usize>,
+        loop_base: u8,
+        loop_modifier: u8,
+        volume_modifier: u8,
+        song_len: usize,
+        samples_prefix: Vec<u32>,
+    ) -> Self {
+        Self {
+            loop_point: loop_point.map_or_else(String::new, |i| i.to_string()),
+            loop_end: loop_end.map_or_else(String::new, |i| i.to_string()),
+            loop_base: loop_base.to_string(),
+            loop_modifier: loop_modifier.to_string(),
+            volume_modifier: volume_modifier.to_string(),
             measured: None,
-            song_len: song.len(),
-            samples_prefix: song.delay_samples_prefix(),
-        })
+            song_len,
+            samples_prefix,
+        }
     }
 
     /// Fills the volume-modifier field with the value that would bring the just-
