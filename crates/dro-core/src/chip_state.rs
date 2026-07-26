@@ -216,6 +216,79 @@ impl ChipState {
     }
 }
 
+/// Whether writing `addr` again with the value it already holds is inaudible
+/// on `chip`.
+///
+/// `None` means this app has no rules for the chip -- and therefore drops
+/// nothing from it. That is the default, deliberately. A register that
+/// *triggers* on write rather than latching (a phrase start, a counter reload,
+/// a key that re-attacks) makes the generic "same value, drop it" rule
+/// audible, and the failure is silent: the file gets smaller and plays wrong.
+/// Chips earn a rule by being checked, not by being present.
+#[must_use]
+fn latch_rule(chip: crate::vgm::ChipKind) -> Option<fn(u16) -> bool> {
+    use crate::vgm::ChipKind as K;
+    match chip {
+        // The OPL family latches everything, key-on included: `0xB0`'s key bit
+        // is level-sensitive, so re-writing it does not re-attack. This is the
+        // rule the OPL optimiser has always used, validated over the corpus.
+        K::Ym3812 | K::Ymf262 | K::Ym3526 | K::Y8950 => Some(|_| true),
+        // The YM2612 latches too, with two exceptions kept out of caution
+        // rather than proof: `0x2A` is the DAC's sample port, where every write
+        // is a new sample even when the byte repeats, and `0x28` is the key
+        // register, which `chip_cmp` also treats as special.
+        K::Ym2612 => Some(|addr| !matches!(addr, 0x2A | 0x28)),
+        // The YM2413's `0x20`-`0x28` carry the key-on bits.
+        K::Ym2413 => Some(|addr| !(0x20..=0x28).contains(&addr)),
+        _ => None,
+    }
+}
+
+/// Whether this app has redundancy rules for `chip`.
+#[must_use]
+pub fn has_latch_rules(chip: crate::vgm::ChipKind) -> bool {
+    latch_rule(chip).is_some()
+}
+
+/// The writes that can be dropped without changing what is heard, ascending.
+///
+/// A write is redundant when its chip has rules, the rules call its register a
+/// pure latch, and the cell already holds that value. Everything else stays --
+/// including every command from a chip with no rules, which is why running this
+/// over an unfamiliar file is safe rather than merely likely to be.
+///
+/// `loop_at` is the row the song loops back to, if any. Every cell is forgotten
+/// there, so the loop body re-establishes its own state and still sounds right
+/// on the second pass through -- the same rule `chip_cmp` applies.
+#[must_use]
+pub fn redundant_indices(stream: &VgmStream, loop_at: Option<usize>) -> Vec<usize> {
+    let mut held: BTreeMap<Cell, u16> = BTreeMap::new();
+    let mut redundant = Vec::new();
+
+    for index in 0..stream.len() {
+        if loop_at == Some(index) {
+            held.clear();
+        }
+        let Some(VgmCommand::Write { target, addr, data }) = stream.get(index) else {
+            continue;
+        };
+        let Some(is_latch) = latch_rule(target.kind) else {
+            continue;
+        };
+        let cell = Cell {
+            chip: target.kind,
+            instance: target.instance,
+            port: target.port,
+            addr,
+        };
+        if is_latch(addr) && held.get(&cell) == Some(&data) {
+            redundant.push(index);
+        }
+        held.insert(cell, data);
+    }
+    redundant
+}
+
 /// Commands in `stream[..upto]` that carry state this module cannot replay.
 ///
 /// A PCM RAM write or an unrecognised command may have configured something,
@@ -470,6 +543,113 @@ mod tests {
         let before = ChipState::fold(&s, 1);
         let after = ChipState::fold(&s, 3);
         assert_eq!(after.changes_from(&before), [1, 2]);
+    }
+
+    // -- redundancy (uv-4) ---------------------------------------------------
+
+    #[test]
+    fn a_repeated_write_to_a_latch_is_redundant() {
+        let s = stream(vec![
+            0x5A,
+            0x20,
+            0x01, // 0
+            0x62, // 1
+            0x5A,
+            0x20,
+            0x01, // 2: the same value again
+            0x5A,
+            0x20,
+            0x02, // 3: a different value
+            0x5A,
+            0x20,
+            0x02, // 4: and its repeat
+            END_OF_DATA,
+        ]);
+        assert_eq!(redundant_indices(&s, None), [2, 4]);
+    }
+
+    /// The default is to drop nothing. A chip this app has not checked keeps
+    /// every write, however repetitive -- being smaller is not worth being
+    /// silently wrong.
+    #[test]
+    fn a_chip_with_no_rules_keeps_every_write() {
+        assert!(!has_latch_rules(ChipKind::Sn76489));
+        let s = stream(vec![
+            0x50,
+            0x9F, // SN76489
+            0x50,
+            0x9F, // the same byte again
+            END_OF_DATA,
+        ]);
+        assert!(redundant_indices(&s, None).is_empty());
+    }
+
+    /// Registers that trigger on write rather than latching are never dropped,
+    /// even on a chip that has rules.
+    #[test]
+    fn a_trigger_register_is_never_dropped() {
+        let s = stream(vec![
+            0x52,
+            0x2A,
+            0x80, // YM2612 DAC sample
+            0x52,
+            0x2A,
+            0x80, // the same sample again -- still a sample
+            0x52,
+            0x28,
+            0xF0, // key
+            0x52,
+            0x28,
+            0xF0, //
+            0x52,
+            0x22,
+            0x08, // an ordinary latch
+            0x52,
+            0x22,
+            0x08, //
+            END_OF_DATA,
+        ]);
+        assert_eq!(redundant_indices(&s, None), [5], "only the latch repeat");
+    }
+
+    /// Everything is forgotten at the loop point, so the loop body carries its
+    /// own state and sounds the same on the second pass.
+    #[test]
+    fn the_loop_point_forgets_every_cell() {
+        let s = stream(vec![
+            0x5A,
+            0x20,
+            0x01, // 0
+            0x5A,
+            0x20,
+            0x01, // 1: redundant
+            0x5A,
+            0x20,
+            0x01, // 2: the loop point -- kept
+            0x5A,
+            0x20,
+            0x01, // 3: redundant again
+            END_OF_DATA,
+        ]);
+        assert_eq!(redundant_indices(&s, Some(2)), [1, 3]);
+    }
+
+    /// Two instances of a chip are two sets of registers.
+    #[test]
+    fn a_second_instance_holds_its_own_values() {
+        let s = stream(vec![
+            0x5A,
+            0x20,
+            0x01, // chip 1
+            0xAA,
+            0x20,
+            0x01, // chip 2 -- not a repeat of chip 1
+            0xAA,
+            0x20,
+            0x01, // now it is
+            END_OF_DATA,
+        ]);
+        assert_eq!(redundant_indices(&s, None), [2]);
     }
 
     // -- what is not modelled ------------------------------------------------

@@ -125,20 +125,10 @@ fn process_entry(
 fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
     let mut song = match dro_core::io::read_song(name, bytes) {
         Ok(song) => song,
-        Err(error) => {
-            // The optimiser folds an OPL register file, so it can only reason
-            // about OPL writes. A VGM for other chips is a perfectly good file
-            // that simply has nothing here to strip -- say that, rather than
-            // implying it is broken.
-            match dro_core::vgm::file::read(name, bytes) {
-                Ok(file) => log.push(format!(
-                    "{name}: kept as-is ({} is not optimised yet)",
-                    file.chip_list()
-                )),
-                Err(_) => log.push(format!("{name}: kept as-is (could not read: {error})")),
-            }
-            return bytes.to_vec();
-        }
+        // Not an OPL song, so it goes through the chip-agnostic optimiser
+        // instead. That one drops nothing from a chip it has no rules for, so
+        // the worst case is a file that comes back unchanged.
+        Err(error) => return optimize_any_chip(name, bytes, &error.to_string(), log),
     };
     let Some(outcome) = dro_core::optimize::optimize(&song) else {
         return bytes.to_vec(); // a DRO, or already optimal
@@ -157,6 +147,46 @@ fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
             log.push(format!("{name}: kept as-is (could not write: {error})"));
             bytes.to_vec()
         }
+    }
+}
+
+/// Optimises a VGM whose chips are not OPL, through the chip-agnostic pass.
+///
+/// It strips only what its per-chip rules call safe, and has rules for a
+/// handful of chips so far -- so a Mega Drive rip shrinks and a Neo Geo one
+/// comes back untouched, with the log saying which chips were left alone
+/// rather than implying the file was unreadable.
+fn optimize_any_chip(name: &str, bytes: &[u8], opl_error: &str, log: &mut Vec<String>) -> Vec<u8> {
+    let Ok(mut file) = dro_core::vgm::file::read(name, bytes) else {
+        log.push(format!("{name}: kept as-is (could not read: {opl_error})"));
+        return bytes.to_vec();
+    };
+    let removed = file.optimize();
+    let skipped = file.unoptimised_chips();
+
+    match (removed, skipped.is_empty()) {
+        (Some(removed), _) => match dro_core::vgm::file::write(&file) {
+            Ok(optimised) => {
+                log.push(format!(
+                    "{name}: {} -> {} bytes (optimized, {removed} command(s))",
+                    bytes.len(),
+                    optimised.len()
+                ));
+                optimised
+            }
+            Err(error) => {
+                log.push(format!("{name}: kept as-is (could not write: {error})"));
+                bytes.to_vec()
+            }
+        },
+        (None, false) => {
+            log.push(format!(
+                "{name}: kept as-is ({} not optimised yet)",
+                skipped.join(", ")
+            ));
+            bytes.to_vec()
+        }
+        (None, true) => bytes.to_vec(), // already optimal
     }
 }
 
@@ -270,24 +300,56 @@ mod tests {
         );
     }
 
-    /// A VGM for chips the optimiser cannot reason about ships exactly as it
-    /// arrived. The optimiser folds an OPL register file, so widening it to
-    /// other chips would corrupt them -- the export must leave them alone, and
-    /// say so honestly rather than reporting a read failure.
-    #[test]
-    fn a_foreign_vgm_ships_verbatim_with_the_optimiser_on() {
-        let mut original = vec![0u8; 0x100];
-        original[..4].copy_from_slice(b"Vgm ");
-        original[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
-        original[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
-        // A YM2612 at 0x2C, and a body the OPL command table cannot size.
-        original[0x2C..0x30].copy_from_slice(&7_670_454u32.to_le_bytes());
-        original.extend_from_slice(&[0x52, 0x28, 0xF0, 0x80, 0x66]);
-        let eof = original.len();
-        original[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+    /// A non-OPL VGM, with `chip` clocked at `at` and `stream` for a body.
+    fn non_opl_vgm(at: usize, stream: &[u8]) -> Vec<u8> {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        bytes[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());
+        bytes[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+        bytes[at..at + 4].copy_from_slice(&7_670_454u32.to_le_bytes());
+        bytes.extend_from_slice(stream);
+        let eof = bytes.len();
+        bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+        bytes
+    }
 
-        let entries = [song("01 Mega Drive.vgm", &original)];
-        let output = build_pack_zip(&entries, false, true, &never())
+    /// The optimiser is no longer OPL-only: a Mega Drive rip with a repeated
+    /// register write comes out smaller, through the chip-agnostic pass.
+    #[test]
+    fn a_ym2612_vgm_is_optimised_like_any_other() {
+        let original = non_opl_vgm(
+            0x2C,
+            &[
+                0x52, 0x22, 0x08, // LFO
+                0x62, //
+                0x52, 0x22, 0x08, // the same value again -- droppable
+                0x62, //
+                0x66,
+            ],
+        );
+        let output = build_pack_zip(&[song("01 MD.vgm", &original)], false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert!(files[0].1.len() < original.len(), "it shrank");
+        assert!(
+            output.log.iter().any(|line| line.contains("(optimized")),
+            "log: {:?}",
+            output.log
+        );
+        // Still a valid VGM, and still the same chip.
+        let reread = dro_core::vgm::file::read("01 MD.vgm", &files[0].1).unwrap();
+        assert_eq!(reread.chip_list(), "YM2612");
+    }
+
+    /// A chip with no redundancy rules keeps every write. The export says which
+    /// chip it left alone rather than implying the file was unreadable -- being
+    /// smaller is not worth being silently wrong.
+    #[test]
+    fn a_chip_without_rules_ships_verbatim_and_says_so() {
+        // A YMZ280B, which has no rule table, writing the same value twice.
+        let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
+        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -296,7 +358,7 @@ mod tests {
             output
                 .log
                 .iter()
-                .any(|line| line.contains("YM2612 is not optimised yet")),
+                .any(|line| line.contains("YMZ280B not optimised yet")),
             "log: {:?}",
             output.log
         );
@@ -305,7 +367,7 @@ mod tests {
                 .log
                 .iter()
                 .any(|line| line.contains("could not read")),
-            "a foreign VGM is not unreadable: {:?}",
+            "and it is not unreadable: {:?}",
             output.log
         );
     }

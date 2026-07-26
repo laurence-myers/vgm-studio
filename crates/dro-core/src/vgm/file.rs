@@ -421,6 +421,40 @@ impl VgmFile {
         self.refresh_opl();
     }
 
+    /// Drops the register writes that change nothing, for any chip this app
+    /// has rules for.
+    ///
+    /// The `vgm_cmp` pass, generalised. Chips without rules keep every write
+    /// (see [`chip_state::has_latch_rules`]), so running this over an
+    /// unfamiliar file is safe rather than merely likely to be -- worst case it
+    /// does nothing.
+    ///
+    /// Returns how many commands went, or `None` if nothing did.
+    pub fn optimize(&mut self) -> Option<usize> {
+        let stream = self.stream()?;
+        let redundant = chip_state::redundant_indices(stream, self.loop_index());
+        if redundant.is_empty() {
+            return None;
+        }
+        let removed = redundant.len();
+        self.delete_commands(&redundant).then_some(removed)
+    }
+
+    /// The chips in this file that no redundancy rule covers, by name.
+    ///
+    /// What the export log names when it leaves a file alone: "YM2612 is not
+    /// optimised yet" is a better answer than silence, and a much better one
+    /// than a smaller file that plays wrong.
+    #[must_use]
+    pub fn unoptimised_chips(&self) -> Vec<&'static str> {
+        self.header
+            .chips()
+            .iter()
+            .filter(|chip| !chip_state::has_latch_rules(chip.kind))
+            .map(|chip| chip.kind.name())
+            .collect()
+    }
+
     /// Puts commands back where they were, for undo.
     ///
     /// The header is *not* repatched here: its exact previous values are

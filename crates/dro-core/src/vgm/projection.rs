@@ -431,6 +431,45 @@ mod tests {
         assert_parity("lsl3_score_up.vgm", VGM_FIXTURE);
     }
 
+    /// The generic redundancy engine must reach the same verdict as the OPL
+    /// optimiser it generalises -- on the same files, row for row. Without
+    /// this, "optimise every chip" would quietly mean "optimise every chip
+    /// differently".
+    #[test]
+    fn the_generic_redundancy_engine_agrees_with_the_opl_optimiser() {
+        // A stream with repeats before and after a loop point, so both the
+        // rule and the loop-reset are exercised.
+        let commands: Vec<Vec<u8>> = vec![
+            vec![0x5A, 0x20, 0x01],
+            vec![0x5A, 0x20, 0x01],
+            vec![0x62],
+            vec![0x5E, 0x40, 0x3F],
+            vec![0x5F, 0x40, 0x3F],
+            vec![0x5F, 0x40, 0x3F],
+            vec![0x5A, 0x20, 0x01],
+        ];
+        for loop_at in [None, Some(0), Some(3), Some(6)] {
+            let bytes = tests_support::synthetic_opl_vgm(&commands, false, loop_at);
+            let song = crate::vgm::io::read("p.vgm", &bytes).unwrap();
+            let file = crate::vgm::file::read("p.vgm", &bytes).unwrap();
+            assert_eq!(
+                crate::chip_state::redundant_indices(file.stream().unwrap(), file.loop_index()),
+                crate::optimize::redundant_indices(&song),
+                "loop at {loop_at:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_engines_agree_on_the_real_capture() {
+        let song = crate::vgm::io::read("f.vgm", VGM_FIXTURE).unwrap();
+        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
+        assert_eq!(
+            crate::chip_state::redundant_indices(file.stream().unwrap(), file.loop_index()),
+            crate::optimize::redundant_indices(&song)
+        );
+    }
+
     #[test]
     fn a_looping_file_projects_identically() {
         // The loop machinery is where the two paths could most easily diverge:
@@ -506,6 +545,14 @@ mod proptests {
             prop_assert_eq!(
                 crate::vgm::io::write(&projected)?,
                 crate::vgm::io::write(&by_opl_reader)?
+            );
+            // And the two redundancy engines agree about what is droppable.
+            prop_assert_eq!(
+                crate::chip_state::redundant_indices(
+                    file.stream().unwrap(),
+                    file.loop_index()
+                ),
+                crate::optimize::redundant_indices(&by_opl_reader)
             );
         }
     }

@@ -2009,6 +2009,46 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
     assert!(app.status.contains("Corrected 1"), "{}", app.status);
 }
 
+/// Optimise is no longer OPL-only: a Mega Drive rip with a repeated write
+/// shrinks, undoably.
+#[test]
+fn a_non_opl_document_can_be_optimised() {
+    use dro_core::ChipKind;
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x161);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+    bytes.extend_from_slice(&[
+        0x52, 0x22, 0x08, // LFO
+        0x62, //
+        0x52, 0x22, 0x08, // the same value -- droppable
+        0x62, 0x66,
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    let file = PickedFile {
+        name: "01 MD.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/MD/01 MD.vgm")),
+        bytes,
+    };
+    let (mut harness, _handles) = build(Some(file), false, false);
+    let before = harness.state().editor.save_bytes().unwrap();
+    assert_eq!(harness.state().editor.len(), 4);
+
+    act(&mut harness, Action::OptimizeVgm);
+    let app = harness.state();
+    assert_eq!(app.editor.len(), 3, "the repeat is gone");
+    assert!(app.status.contains("Optimized"), "{}", app.status);
+
+    harness.state_mut().editor.undo();
+    assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
+}
+
 /// An honest header says so rather than opening a box about nothing.
 #[test]
 fn an_honest_header_reports_that_it_agrees() {

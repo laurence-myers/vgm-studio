@@ -395,6 +395,25 @@ impl Editor {
         true
     }
 
+    /// The VGM-held document's half of [`Self::optimize_vgm`].
+    ///
+    /// The chip-agnostic pass: it drops only what its per-chip rules call safe,
+    /// and drops nothing at all from a chip it has no rules for.
+    fn optimize_vgm_document(&mut self) -> Option<(usize, usize)> {
+        let file = self.vgm.as_mut()?;
+        let before = file.body.raw().len();
+        let mut edited = file.clone();
+        let removed = edited.optimize()?;
+        let saved = before.saturating_sub(edited.body.raw().len());
+
+        self.vgm_undo
+            .execute(Box::new(ReplaceVgm::new("Optimize VGM", edited)), file);
+        self.selection.clear();
+        self.markers = RangeMarkers::default();
+        self.revision += 1;
+        Some((removed, saved))
+    }
+
     /// The VGM-held document's half of [`Self::delete_selection`].
     ///
     /// The same shape, over the other target: the marked-region markers are not
@@ -427,6 +446,9 @@ impl Editor {
     /// is cleared and the loop markers are re-derived from the song's remapped
     /// loop metadata, exactly as a fresh load or conversion would.
     pub fn optimize_vgm(&mut self) -> Option<(usize, usize)> {
+        if self.vgm.is_some() {
+            return self.optimize_vgm_document();
+        }
         let song = self.song.as_mut()?;
         let outcome = dro_core::optimize::optimize(song)?;
         let stats = (outcome.commands_removed, outcome.bytes_saved);

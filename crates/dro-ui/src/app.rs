@@ -1777,10 +1777,11 @@ impl DroApp {
                 };
             }
             Action::OptimizeVgm => {
-                if !self.require_song() {
+                if !self.editor.has_document() {
+                    self.status = "Please open a song first.".to_owned();
                     return;
                 }
-                if !self.editor.song().expect("gated").is_vgm() {
+                if self.editor.song().is_some_and(|song| !song.is_vgm()) {
                     self.status = "Only VGMs can be optimized".to_owned();
                     return;
                 }
@@ -4087,7 +4088,13 @@ impl DroApp {
             // the cut for either.
             has_marked_region: self.editor.has_document()
                 && !self.editor.markers.is_full(self.editor.len()),
-            song_type: self.editor.song().map(|song| song.file_type),
+            // A VGM is a VGM whichever slot holds it: the format-gated items
+            // (Edit Tag, VGM Metadata, Optimize, Fix Header) apply either way.
+            song_type: self
+                .editor
+                .song()
+                .map(|song| song.file_type)
+                .or_else(|| self.editor.vgm().map(|_| SongFileType::Vgm)),
             is_dro_v2: self.editor.song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
