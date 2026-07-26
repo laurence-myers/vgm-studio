@@ -25,13 +25,14 @@ use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 
+use crate::chip_state::{self, ChipState};
 use crate::error::{Error, Result};
 use crate::song::{OplType, Song, slide_index_past_deletion};
 use crate::vgm::data::{Gd3Tag, VgmMeta};
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
 use crate::vgm::projection::{OplProjection, opl_type_of};
-use crate::vgm::stream::VgmStream;
+use crate::vgm::stream::{END_OF_DATA, VgmStream};
 
 /// The header block a GD3 tag carries before its strings: magic, version, length.
 const GD3_PREAMBLE: usize = 12;
@@ -80,6 +81,26 @@ impl VgmBody {
     pub fn is_empty(&self) -> bool {
         self.raw().is_empty()
     }
+}
+
+/// What a region edit had to do, for the status bar to report.
+///
+/// Neither field is an error. `restored` says how many commands were re-emitted
+/// to put the chips where the music expects them; `unmodelled` counts the
+/// commands in the discarded span whose state this app cannot replay -- a PCM
+/// RAM write, a reserved opcode -- which is a caveat worth showing, not a
+/// reason to refuse the edit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RegionReport {
+    pub restored: usize,
+    pub unmodelled: usize,
+}
+
+/// The bytes of rows `from..to`.
+fn span(stream: &VgmStream, from: usize, to: usize) -> &[u8] {
+    let start = stream.byte_offset(from).unwrap_or(0);
+    let end = stream.byte_offset(to).unwrap_or(start);
+    &stream.raw()[start..end]
 }
 
 /// A VGM file for any chip, with its tags editable and its music left alone.
@@ -280,6 +301,112 @@ impl VgmFile {
         self.repatch_header(moved, total);
         self.refresh_opl();
         true
+    }
+
+    /// Keeps only rows `start..end`, prefixed by the chip state the discarded
+    /// head had established.
+    ///
+    /// The music from `start` on was written against chips that had already
+    /// been configured, and those writes are in the part being thrown away --
+    /// so they are folded into a state and re-emitted first: data blocks, then
+    /// each latched register's last write in the order it happened. Notes that
+    /// were sounding at `start` re-attack, which is what `vgm_trim` does too.
+    ///
+    /// Returns what could not be modelled (see [`RegionReport`]), or `None` if
+    /// the region is empty, out of range, or the stream did not walk.
+    pub fn crop_to_region(&mut self, start: usize, end: usize) -> Option<RegionReport> {
+        let stream = self.stream()?;
+        let end = end.min(stream.len());
+        if start >= end {
+            return None;
+        }
+        let head = ChipState::fold(stream, start);
+        let report = RegionReport {
+            unmodelled: chip_state::unmodelled_commands(stream, start).len(),
+            restored: head.restore_indices().len(),
+        };
+
+        let mut bytes = ChipState::bytes_for(stream, &head.restore_indices());
+        let prelude_len = bytes.len();
+        bytes.extend_from_slice(span(stream, start, end));
+        bytes.push(END_OF_DATA);
+
+        // A loop inside the kept region moves with it; one outside it is gone.
+        let loop_at = self.loop_index().filter(|&at| (start..end).contains(&at));
+        let new_loop = loop_at.map(|at| {
+            prelude_len + stream.byte_offset(at).unwrap_or(0)
+                - stream.byte_offset(start).unwrap_or(0)
+        });
+        self.rebuild(bytes, new_loop);
+        Some(report)
+    }
+
+    /// Removes rows `start..end`, bridging the seam with what that span
+    /// actually changed.
+    ///
+    /// Not every write in the removed span is re-emitted -- only the cells
+    /// whose value differs across it, plus any data block it loaded (banks are
+    /// cumulative, so a later seek still indexes them). What follows the seam
+    /// therefore meets the chips in the state it expects.
+    ///
+    /// Returns what could not be modelled, or `None` if the region is empty,
+    /// out of range, or the stream did not walk.
+    pub fn delete_region(&mut self, start: usize, end: usize) -> Option<RegionReport> {
+        let stream = self.stream()?;
+        let end = end.min(stream.len());
+        if start >= end {
+            return None;
+        }
+        let before = ChipState::fold(stream, start);
+        let after = ChipState::fold(stream, end);
+        let patch = after.changes_from(&before);
+        let report = RegionReport {
+            unmodelled: chip_state::unmodelled_commands(stream, end).len()
+                - chip_state::unmodelled_commands(stream, start).len(),
+            restored: patch.len(),
+        };
+
+        let mut bytes = span(stream, 0, start).to_vec();
+        bytes.extend(ChipState::bytes_for(stream, &patch));
+        let tail_at = bytes.len();
+        bytes.extend_from_slice(span(stream, end, stream.len()));
+        bytes.push(END_OF_DATA);
+
+        // A loop before the cut keeps its offset; one after it slides to the
+        // new tail; one *inside* it has gone with the region it pointed into.
+        let new_loop = self.loop_index().and_then(|at| {
+            if at < start {
+                stream.byte_offset(at)
+            } else if at >= end {
+                Some(tail_at + stream.byte_offset(at)? - stream.byte_offset(end)?)
+            } else {
+                None
+            }
+        });
+        self.rebuild(bytes, new_loop);
+        Some(report)
+    }
+
+    /// Installs a rebuilt stream and brings the header back into step.
+    ///
+    /// `loop_at` is a byte offset into the *new* stream, or `None` for a file
+    /// that no longer loops.
+    fn rebuild(&mut self, bytes: Vec<u8>, loop_at: Option<usize>) {
+        let version = self.header.version();
+        let stream = match VgmStream::parse(bytes, version) {
+            Ok(stream) => stream,
+            Err(error) => {
+                // Unreachable: every byte came from a stream that already
+                // walked, spliced only at command boundaries.
+                log::error!("rebuilt VGM stream does not walk ({error}); leaving it alone");
+                return;
+            }
+        };
+        let total = stream.total_samples();
+        let loop_index = loop_at.and_then(|at| stream.index_at_byte_offset(at));
+        self.body = VgmBody::Commands(stream);
+        self.repatch_header(loop_index, total);
+        self.refresh_opl();
     }
 
     /// Puts commands back where they were, for undo.
@@ -969,6 +1096,320 @@ mod tests {
 
         undo.undo(&mut file);
         assert_eq!(write(&file).unwrap(), original);
+    }
+
+    // -- crop and delete-region (uv-3) --------------------------------------
+
+    /// A Mega Drive stream with configuration up front and music after, so a
+    /// crop has real state to carry across.
+    ///
+    /// ```text
+    /// 0: YM2612 0x22 <- 0x08   LFO on          (configuration)
+    /// 1: YM2612 0x27 <- 0x00   channel 3 mode  (configuration)
+    /// 2: SN76489 <- 0x9F       PSG volume      (configuration)
+    /// 3: wait 10000
+    /// 4: YM2612 0x28 <- 0xF0   key on          (music)
+    /// 5: wait 20000
+    /// 6: YM2612 0x28 <- 0x00   key off
+    /// 7: wait 735
+    /// ```
+    fn configured() -> Vec<u8> {
+        const STREAM: &[u8] = &[
+            0x52, 0x22, 0x08, //
+            0x52, 0x27, 0x00, //
+            0x50, 0x9F, //
+            0x61, 0x10, 0x27, //
+            0x52, 0x28, 0xF0, //
+            0x61, 0x20, 0x4E, //
+            0x52, 0x28, 0x00, //
+            0x62, //
+            0x66,
+        ];
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 30_735);
+        bytes.extend_from_slice(STREAM);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+        bytes
+    }
+
+    /// The state a stream leaves the chips in, for comparing before and after.
+    fn state_of(file: &VgmFile) -> Vec<(String, u16)> {
+        let stream = file.stream().unwrap();
+        let mut cells: Vec<(String, u16)> = Vec::new();
+        for index in 0..stream.len() {
+            if let Some(crate::vgm::VgmCommand::Write { target, addr, data }) = stream.get(index) {
+                let key = format!("{} {addr:#06X}", target.label());
+                match cells.iter_mut().find(|(name, _)| *name == key) {
+                    Some(cell) => cell.1 = data,
+                    None => cells.push((key, data)),
+                }
+            }
+        }
+        cells.sort();
+        cells
+    }
+
+    /// The hard requirement: cropping a VGM for chips this app has no core for.
+    /// The music that survives must meet the chips configured as they were.
+    #[test]
+    fn cropping_a_non_opl_vgm_carries_the_configuration_across() {
+        let original = read("md.vgm", &configured()).unwrap();
+        assert!(!original.is_opl(), "no OPL, and no core for these chips");
+        let full_state = state_of(&original);
+
+        let mut cropped = original.clone();
+        // Keep the music (rows 4..8), throwing away the configuration.
+        let report = cropped.crop_to_region(4, 8).expect("a real region");
+        assert_eq!(report.unmodelled, 0);
+        assert_eq!(report.restored, 3, "two YM2612 registers and the PSG");
+
+        // Every register the discarded head had set is set again.
+        assert_eq!(
+            state_of(&cropped),
+            full_state,
+            "the chips end up where they were"
+        );
+        // And the kept music is still there, in order.
+        let stream = cropped.stream().unwrap();
+        assert_eq!(stream.len(), 3 + 4, "the restore, then the four kept rows");
+        assert_eq!(stream.describe(3), "YM2612 0x0028 <- 0xF0");
+        assert_eq!(stream.describe(4), "wait 20000");
+        assert_eq!(
+            cropped.header.total_samples(),
+            20_735,
+            "the header follows what is left"
+        );
+    }
+
+    /// A restore never invents a write: the bytes are the source's own, so the
+    /// cropped file is still a valid VGM that reads back identically.
+    #[test]
+    fn a_cropped_file_round_trips() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.crop_to_region(4, 8);
+        let written = write(&file).unwrap();
+        let reread = read("md.vgm", &written).unwrap();
+        assert_eq!(reread.body, file.body);
+        assert_eq!(reread.header.total_samples(), 20_735);
+        assert_eq!(write(&reread).unwrap(), written);
+    }
+
+    /// Cutting the middle out: what follows the seam must meet the chips in the
+    /// state the removed span would have left them.
+    #[test]
+    fn deleting_a_region_bridges_the_seam_with_the_state_it_changed() {
+        let original = read("md.vgm", &configured()).unwrap();
+        let full_state = state_of(&original);
+
+        let mut edited = original.clone();
+        // Remove the configuration and the first note (rows 0..5).
+        let report = edited.delete_region(0, 5).expect("a real region");
+        // The two YM2612 configuration registers, the PSG, and the key-on the
+        // span ended on -- which re-attacks, as it does in `vgm_trim`.
+        assert_eq!(report.restored, 4);
+
+        assert_eq!(
+            state_of(&edited),
+            full_state,
+            "the chips still reach the same state"
+        );
+        assert_eq!(edited.header.total_samples(), 20_735);
+    }
+
+    /// Only what *changed* crosses the seam. A span that rewrote a register
+    /// with the value it already held contributes nothing.
+    #[test]
+    fn a_deleted_region_that_changed_nothing_adds_nothing() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[
+            0x52, 0x28, 0x01, // 0
+            0x62, // 1
+            0x52, 0x28, 0x01, // 2: the same value again
+            0x62, // 3
+            0x52, 0x30, 0x71, // 4
+            0x66,
+        ]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("x.vgm", &bytes).unwrap();
+        file.delete_region(2, 4).unwrap();
+        let stream = file.stream().unwrap();
+        assert_eq!(stream.len(), 3, "rows 0 and 1, then row 4 -- no patch");
+        assert_eq!(stream.describe(2), "YM2612 0x0030 <- 0x71");
+    }
+
+    /// A data block loaded before the crop point comes back: the banks are
+    /// cumulative, so the music after the cut still indexes it.
+    #[test]
+    fn cropping_keeps_a_data_block_the_discarded_head_loaded() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[0x67, 0x66, 0x00, 4, 0, 0, 0, 1, 2, 3, 4]); // 0
+        bytes.extend_from_slice(&[0x62]); // 1
+        bytes.extend_from_slice(&[0x80]); // 2: a DAC write, which reads the bank
+        bytes.extend_from_slice(&[0x62]); // 3
+        bytes.push(0x66);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("dac.vgm", &bytes).unwrap();
+        file.crop_to_region(2, 4).unwrap();
+        let stream = file.stream().unwrap();
+        assert_eq!(
+            stream.describe(0),
+            "data block 0x00 (uncompressed stream), 4 bytes",
+            "the block is re-emitted first"
+        );
+        assert_eq!(stream.len(), 3, "the block, the DAC write, the wait");
+    }
+
+    #[test]
+    fn a_loop_inside_a_cropped_region_moves_with_it() {
+        let mut bytes = configured();
+        // Loop at row 6 (the key-off), inside the region kept below.
+        let source = read("md.vgm", &bytes).unwrap();
+        let at = source.header.data_start() + source.stream().unwrap().byte_offset(6).unwrap();
+        put_u32(
+            &mut bytes,
+            offset::LOOP_OFFSET,
+            (at - offset::LOOP_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 735);
+
+        let mut file = read("md.vgm", &bytes).unwrap();
+        assert_eq!(file.loop_index(), Some(6));
+        file.crop_to_region(4, 8).unwrap();
+        // Three restored rows, then old 4,5,6 -> the loop lands on row 5.
+        assert_eq!(file.loop_index(), Some(5));
+        assert_eq!(file.header.loop_samples(), Some(735));
+    }
+
+    #[test]
+    fn a_loop_outside_a_cropped_region_is_dropped() {
+        let mut bytes = configured();
+        let source = read("md.vgm", &bytes).unwrap();
+        let at = source.header.data_start() + source.stream().unwrap().byte_offset(0).unwrap();
+        put_u32(
+            &mut bytes,
+            offset::LOOP_OFFSET,
+            (at - offset::LOOP_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 30_735);
+
+        let mut file = read("md.vgm", &bytes).unwrap();
+        file.crop_to_region(4, 8).unwrap();
+        assert_eq!(file.loop_index(), None, "it pointed into what was cut");
+        assert_eq!(file.header.loop_offset(), None);
+    }
+
+    #[test]
+    fn a_loop_after_a_deleted_region_slides_to_the_new_seam() {
+        let mut bytes = configured();
+        let source = read("md.vgm", &bytes).unwrap();
+        let at = source.header.data_start() + source.stream().unwrap().byte_offset(6).unwrap();
+        put_u32(
+            &mut bytes,
+            offset::LOOP_OFFSET,
+            (at - offset::LOOP_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 735);
+
+        let mut file = read("md.vgm", &bytes).unwrap();
+        file.delete_region(3, 5).unwrap(); // the first wait and the key-on
+        assert_eq!(
+            file.stream().unwrap().describe(file.loop_index().unwrap()),
+            "YM2612 0x0028 <- 0x00",
+            "the loop still points at the key-off it pointed at"
+        );
+    }
+
+    #[test]
+    fn an_empty_or_backwards_region_does_nothing() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        assert!(file.crop_to_region(4, 4).is_none());
+        assert!(file.crop_to_region(5, 2).is_none());
+        assert!(file.delete_region(4, 4).is_none());
+        assert_eq!(write(&file).unwrap(), configured(), "byte for byte");
+    }
+
+    /// A crop past a command whose state cannot be replayed says so, rather
+    /// than refusing the edit or pretending it restored everything.
+    #[test]
+    fn a_crop_past_an_unmodelled_command_reports_it() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[0x68, 0x66, 0x01, 1, 2, 3, 4, 5, 6, 7, 8, 9]); // 0
+        bytes.extend_from_slice(&[0x52, 0x28, 0x01]); // 1
+        bytes.extend_from_slice(&[0x62, 0x62]); // 2, 3
+        bytes.push(0x66);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("ram.vgm", &bytes).unwrap();
+        let report = file.crop_to_region(2, 4).unwrap();
+        assert_eq!(report.unmodelled, 1, "the PCM RAM write cannot be replayed");
+        assert_eq!(report.restored, 1, "the register write can");
+    }
+
+    /// The same path serves an OPL VGM -- there is one crop, not an OPL one and
+    /// another. The projection survives it, so the file is still an OPL file.
+    #[test]
+    fn cropping_an_opl_vgm_keeps_it_an_opl_vgm() {
+        let original = read("lsl3.vgm", VGM_FIXTURE).unwrap();
+        assert!(original.is_opl());
+        let full_state = state_of(&original);
+        let rows = original.len();
+
+        let mut file = original.clone();
+        file.crop_to_region(10, rows).unwrap();
+        assert!(file.is_opl(), "still OPL after the crop");
+        assert!(file.to_song().is_some(), "and still materialises a song");
+        assert_eq!(
+            state_of(&file),
+            full_state,
+            "the registers the head had set are set again"
+        );
+        // The head is gone, so the song is shorter by exactly its waits -- even
+        // though the restore put a comparable number of *rows* back.
+        let head_samples = original.stream().unwrap().total_samples()
+            - original.stream().unwrap().samples_from(10);
+        assert_eq!(
+            u64::from(file.header.total_samples()),
+            u64::from(original.header.total_samples()) - head_samples
+        );
     }
 
     // -- a tag stored before the data ---------------------------------------

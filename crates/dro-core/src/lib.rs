@@ -7,6 +7,7 @@
 #![forbid(unsafe_code)]
 
 pub mod analysis;
+pub mod chip_state;
 pub mod config;
 pub mod convert;
 pub mod crop;
@@ -26,6 +27,7 @@ pub mod vgm;
 pub mod volume;
 
 pub use analysis::{RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans};
+pub use chip_state::ChipState;
 pub use crop::{CropOutcome, crop_to_region, delete_region};
 pub use error::{Error, Result};
 pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
