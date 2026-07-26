@@ -80,7 +80,19 @@ impl TrackEditDialog {
                     .num_columns(2)
                     .spacing([10.0, 6.0])
                     .show(ui, |ui| {
-                        ui.label("File name:");
+                        // What the file is called now, so the rename below can be
+                        // read as a change rather than an assertion.
+                        ui.label("Current name:");
+                        let mut current = self.original_name.clone();
+                        ui.add(
+                            super::wrapping_edit(&mut current, palette, f32::INFINITY, 1)
+                                .interactive(false)
+                                .text_color(palette.muted),
+                        )
+                        .on_hover_text("The file's name on disk right now");
+                        ui.end_row();
+
+                        ui.label("New name:");
                         // Read-only: the name is derived from the track number
                         // and the Track Name (EN) field below, so it always
                         // stays in step.
@@ -88,7 +100,7 @@ impl TrackEditDialog {
                         ui.add(
                             super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
                                 .interactive(false)
-                                .text_color(palette.muted),
+                                .text_color(palette.data_text),
                         )
                         .on_hover_text("Derived from the track number and Track Name (EN)");
                         ui.end_row();

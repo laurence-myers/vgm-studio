@@ -124,6 +124,13 @@ pub enum Action {
         original_name: String,
         file_name: String,
     },
+    /// Copy a picked screenshot into the pack folder under the name the naming
+    /// dialog settled on. It carries the bytes because nothing was written while
+    /// the dialog was open -- cancelling it leaves the folder untouched.
+    PackAddScreenshotAs {
+        file_name: String,
+        bytes: Vec<u8>,
+    },
     /// Ask whether to delete the screenshot at this index.
     PackDeleteScreenshot(usize),
     /// Delete the named screenshot after the user confirmed it. Carries the file

@@ -1,6 +1,7 @@
-//! Pack mode's screenshot rename dialog: name a screenshot after the pack, or
-//! after a variant of it. Save emits [`Action::PackRenameScreenshot`], which
-//! renames the file in the folder as one undoable step.
+//! Pack mode's screenshot naming dialog: name a screenshot after the pack, or
+//! after a variant of it. It runs both when renaming a file already in the
+//! folder and when adding one -- an added screenshot is named *before* it is
+//! copied in, so nothing lands under a name the user has not seen.
 //!
 //! The name is prefilled from the game name -- a screenshot straight out of
 //! DOSBox is called something like `dosbox_000.png`, and the pack's other files
@@ -10,19 +11,31 @@
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
+/// What Save does: rename the file the dialog opened on, or write the picked
+/// file it is holding into the pack folder.
+#[derive(Debug)]
+enum Job {
+    Rename,
+    /// The picked file's bytes, held until the name is settled. Owning them here
+    /// means a cancelled add leaves nothing behind: the bytes are dropped with
+    /// the dialog.
+    Add(Vec<u8>),
+}
+
 #[derive(Debug)]
 pub struct ScreenshotRenameDialog {
-    /// The file name the dialog opened on -- the screenshot's identity. A rescan
-    /// can reorder the list, so Save re-resolves the target by this name rather
-    /// than a since-stale index.
+    /// The file the dialog opened on: the screenshot being renamed, or the file
+    /// being copied in. Rename re-resolves its target by this name rather than a
+    /// since-stale index, since a rescan can reorder the list.
     original_name: String,
-    /// The original file's extension (without the dot), preserved by the rename:
-    /// this dialog names a screenshot, it does not change what it is.
+    /// The extension the file keeps: this dialog names a screenshot, it does not
+    /// change what it is.
     ext: String,
     /// The editable stem, the only thing the user types.
     stem: String,
-    /// The other screenshots' names, for the rename-collision check.
+    /// The other screenshots' names, for the collision check.
     sibling_names: Vec<String>,
+    job: Job,
 }
 
 impl ScreenshotRenameDialog {
@@ -49,6 +62,31 @@ impl ScreenshotRenameDialog {
             ext,
             stem,
             sibling_names,
+            job: Job::Rename,
+        }
+    }
+
+    /// Opens on a picked file about to be copied into the pack, proposing
+    /// `proposed_name` (the free name the pack would have given it) and holding
+    /// its `bytes` until Save. Nothing is written to the folder until then, so
+    /// Close leaves the pack exactly as it was.
+    #[must_use]
+    pub fn adding(
+        source_name: String,
+        proposed_name: &str,
+        bytes: Vec<u8>,
+        sibling_names: Vec<String>,
+    ) -> Self {
+        let (stem, ext) = match proposed_name.rsplit_once('.') {
+            Some((stem, ext)) => (stem.to_owned(), ext.to_owned()),
+            None => (proposed_name.to_owned(), "png".to_owned()),
+        };
+        Self {
+            original_name: source_name,
+            ext,
+            stem,
+            sibling_names,
+            job: Job::Add(bytes),
         }
     }
 
@@ -66,6 +104,15 @@ impl ScreenshotRenameDialog {
         format!("{}.{}", dro_core::pack::vgm_ren_title(&self.stem), self.ext)
     }
 
+    /// The dialog's wording, which is all that differs between the two jobs: its
+    /// title, the label on the file it opened on, and the button that commits.
+    fn words(&self) -> (&'static str, &'static str, &'static str) {
+        match self.job {
+            Job::Rename => ("Rename Screenshot", "Current name:", "Save"),
+            Job::Add(_) => ("Add Screenshot", "Copying:", "Add"),
+        }
+    }
+
     /// Draws the modal. Returns `false` once closed.
     pub fn show(
         &mut self,
@@ -74,53 +121,60 @@ impl ScreenshotRenameDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close = false;
-        let open = super::dialog_modal(
-            ctx,
-            "screenshot-rename-modal",
-            "Rename Screenshot",
-            palette,
-            |ui| {
-                egui::Grid::new("screenshot-rename-grid")
-                    .num_columns(2)
-                    .spacing([10.0, 6.0])
-                    .show(ui, |ui| {
-                        ui.label("Name:");
-                        super::text_field(ui, palette, &mut self.stem, f32::INFINITY)
-                            .on_hover_text(
-                                "Prefilled from the game name. Add a suffix -- \"(Japan)\", \
-                                 \"(EGA)\" -- to keep more than one screenshot in the pack.",
-                            );
-                        ui.end_row();
+        let (title, current_label, commit) = self.words();
+        let open = super::dialog_modal(ctx, "screenshot-rename-modal", title, palette, |ui| {
+            egui::Grid::new("screenshot-rename-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    // The file as it stands: what is on disk (a rename), or what
+                    // was picked (an add). Either way the new name below reads as
+                    // a change from something rather than out of nowhere.
+                    ui.label(current_label);
+                    let mut current = self.original_name.clone();
+                    ui.add(
+                        super::wrapping_edit(&mut current, palette, f32::INFINITY, 1)
+                            .interactive(false)
+                            .text_color(palette.muted),
+                    );
+                    ui.end_row();
 
-                        // What actually lands on disk, since the rules may have
-                        // rewritten what was typed.
-                        ui.label("Saves as:");
-                        let mut derived = self.derived_name();
-                        ui.add(
-                            super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
-                                .interactive(false)
-                                .text_color(palette.muted),
-                        );
-                        ui.end_row();
-                    });
-                ui.add_space(8.0);
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                        close = true;
-                    }
+                    ui.label("Name:");
+                    super::text_field(ui, palette, &mut self.stem, f32::INFINITY).on_hover_text(
+                        "Prefilled from the game name. Add a suffix -- \"(Japan)\", \"(EGA)\" -- \
+                         to keep more than one screenshot in the pack.",
+                    );
+                    ui.end_row();
+
+                    // What actually lands on disk, since the rules may have
+                    // rewritten what was typed.
+                    ui.label("New name:");
+                    let mut derived = self.derived_name();
+                    ui.add(
+                        super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
+                            .interactive(false)
+                            .text_color(palette.data_text),
+                    );
+                    ui.end_row();
                 });
-            },
-        );
+            ui.add_space(8.0);
+            super::dialog_footer(ui, |ui| {
+                if bevel::button(ui, palette, "Close").clicked() {
+                    close = true;
+                }
+                if bevel::button(ui, palette, commit).clicked() && self.save(actions) {
+                    close = true;
+                }
+            });
+        });
         open && !close
     }
 
-    /// Validates the derived name, then emits the rename; returns `false` (with
-    /// an error alert queued, leaving the dialog open) if the name would be
-    /// empty or would collide with another screenshot. A name that has not
-    /// changed closes the dialog without touching the folder.
+    /// Validates the derived name, then emits the rename or the add; returns
+    /// `false` (with an error alert queued, leaving the dialog open) if the name
+    /// would be empty or would collide with a screenshot already in the pack. A
+    /// *rename* to the name the file already has closes without touching the
+    /// folder; an add still has a file to write, so it goes ahead.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
         if dro_core::pack::vgm_ren_title(&self.stem).is_empty() {
             actions.push(Action::Alert {
@@ -130,7 +184,7 @@ impl ScreenshotRenameDialog {
             return false;
         }
         let name = self.derived_name();
-        if name == self.original_name {
+        if matches!(self.job, Job::Rename) && name == self.original_name {
             return true; // nothing to do
         }
         if self
@@ -144,9 +198,16 @@ impl ScreenshotRenameDialog {
             });
             return false;
         }
-        actions.push(Action::PackRenameScreenshot {
-            original_name: self.original_name.clone(),
-            file_name: name,
+        actions.push(match &mut self.job {
+            Job::Rename => Action::PackRenameScreenshot {
+                original_name: self.original_name.clone(),
+                file_name: name,
+            },
+            // Taken, not cloned: the dialog closes on the way out of this.
+            Job::Add(bytes) => Action::PackAddScreenshotAs {
+                file_name: name,
+                bytes: std::mem::take(bytes),
+            },
         });
         true
     }

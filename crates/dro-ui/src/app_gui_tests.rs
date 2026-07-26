@@ -3101,6 +3101,26 @@ fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
         }));
     harness.run();
 
+    // Nothing is written yet: the file is named first, and the dialog proposes
+    // the pack's own name for it.
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "the picked file is not copied in until its name is settled"
+    );
+    assert_eq!(
+        harness
+            .state()
+            .dialogs
+            .screenshot_rename
+            .as_ref()
+            .expect("the naming dialog opened")
+            .derived_name(),
+        "Cool Game.png"
+    );
+
+    harness.get_by_label("Add").click();
+    harness.run();
+
     // It lands in the pack folder as <Game Name>.png, beside the .txt and .m3u.
     let files = handles.files.borrow();
     match files.save_requests.last().expect("a save request") {
@@ -3114,6 +3134,38 @@ fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
         }
         other => panic!("expected an in-place save, got {other:?}"),
     }
+}
+
+#[test]
+fn closing_the_naming_dialog_leaves_the_picked_screenshot_uncopied() {
+    // The dialog holds the bytes, so a cancelled add writes nothing at all.
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label_contains("Add Screenshot").click();
+    harness.run();
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "dosbox_000.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/dosbox_000.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+
+    harness.get_by_label("Close").click();
+    harness.run();
+    assert!(
+        harness.state().dialogs.screenshot_rename.is_none(),
+        "Close dismisses the dialog"
+    );
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "and nothing was copied into the folder"
+    );
 }
 
 #[test]
@@ -3135,6 +3187,10 @@ fn a_second_screenshot_lands_beside_the_first_rather_than_on_it() {
             path: Some(PathBuf::from("C:/captures/dosbox_001.png")),
             bytes: PNG_FIXTURE.to_vec(),
         }));
+    harness.run();
+    // The proposed name clears the screenshot already there, and the user can
+    // still edit it into "Cool Game (Japan)" before anything is written.
+    harness.get_by_label("Add").click();
     harness.run();
 
     let files = handles.files.borrow();
@@ -4151,6 +4207,28 @@ fn snapshot_screenshot_rename_dialog() {
     harness.get_by_label_contains("Rename").click();
     harness.run();
     settled_snapshot(&mut harness, "screenshot_rename_dialog");
+}
+
+#[test]
+fn snapshot_add_screenshot_dialog() {
+    // The same box in its other job: naming a picked file before it is copied
+    // in, so "Copying:" names the source rather than a file in the folder.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 700.0));
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+    harness.get_by_label_contains("Add Screenshot").click();
+    harness.run();
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "dosbox_000.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/dosbox_000.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+    settled_snapshot(&mut harness, "add_screenshot_dialog");
 }
 
 #[test]

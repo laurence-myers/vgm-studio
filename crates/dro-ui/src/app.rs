@@ -1063,10 +1063,6 @@ impl DroApp {
                         .iter()
                         .any(|purpose| *purpose == SavePurpose::PackDoc);
                     if !more {
-                        let stem = self
-                            .pack
-                            .as_ref()
-                            .map_or_else(String::new, PackState::doc_stem);
                         if self.pack_docs_failed {
                             self.status =
                                 "Some package files could not be saved; changes kept.".to_owned();
@@ -1074,7 +1070,10 @@ impl DroApp {
                             if let Some(pack) = self.pack.as_mut() {
                                 pack.dirty = false;
                             }
-                            self.status = format!("Saved {stem}.txt and {stem}.m3u.");
+                            // Extensions only: the stem is the game's full name,
+                            // and printing it twice ran the line off the status
+                            // bar on any pack with a subtitle.
+                            self.status = "Saved the package .txt and .m3u.".to_owned();
                         }
                     }
                 }
@@ -1733,6 +1732,9 @@ impl DroApp {
             }
             Action::PackReplaceScreenshot(index) => self.replace_screenshot(index),
             Action::PackRenameScreenshotAt(index) => self.open_screenshot_rename(index),
+            Action::PackAddScreenshotAs { file_name, bytes } => {
+                self.add_screenshot_as(&file_name, bytes);
+            }
             Action::PackRenameScreenshot {
                 original_name,
                 file_name,
@@ -2911,23 +2913,23 @@ impl DroApp {
                 });
             }
             _ => {
-                let Some(folder) = pack.folder_path.clone() else {
+                if pack.folder_path.is_none() {
                     // Native-only; a folder with no path cannot be written to.
                     return;
-                };
-                let name = pack.next_screenshot_name().unwrap_or_else(|| {
+                }
+                let proposed = pack.next_screenshot_name().unwrap_or_else(|| {
                     let (stem, ext) = file
                         .name
                         .rsplit_once('.')
                         .unwrap_or((file.name.as_str(), "png"));
                     pack.free_image_name(stem, ext)
                 });
-                self.status = format!("Adding {name}...");
-                self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
-                self.files.save(SaveRequest::InPlace {
-                    path: folder.join(&name),
-                    bytes: file.bytes,
-                });
+                let siblings = pack.images.iter().map(|image| image.name.clone()).collect();
+                // The name is settled before anything is written: the dialog
+                // holds the bytes, so closing it leaves the folder untouched.
+                self.dialogs.screenshot_rename = Some(ScreenshotRenameDialog::adding(
+                    file.name, &proposed, file.bytes, siblings,
+                ));
             }
         }
     }
@@ -2947,6 +2949,21 @@ impl DroApp {
         };
         self.pending_screenshot = Some(ScreenshotPick::Replace(path));
         self.files.pick_image();
+    }
+
+    /// Writes a picked screenshot into the pack folder under the name the naming
+    /// dialog settled on -- the second half of [`Self::add_screenshot`], once the
+    /// user has seen and approved where it lands.
+    fn add_screenshot_as(&mut self, file_name: &str, bytes: Vec<u8>) {
+        let Some(folder) = self.pack.as_ref().and_then(|pack| pack.folder_path.clone()) else {
+            return;
+        };
+        self.status = format!("Adding {file_name}...");
+        self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
+        self.files.save(SaveRequest::InPlace {
+            path: folder.join(file_name),
+            bytes,
+        });
     }
 
     /// Opens the rename dialog on the screenshot at `index`, proposing the
