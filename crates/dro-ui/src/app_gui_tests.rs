@@ -1911,7 +1911,9 @@ fn opening_a_foreign_vgm_opens_it_for_trimming() {
 }
 
 /// The hard requirement, end to end: a VGM for chips this app has no core for
-/// can be cropped to a marked region, and undone.
+/// can be cropped to a marked region, and undone. Through the menu actions, not
+/// by reaching into the editor -- editing a document is not an OPL idea, and the
+/// gates in front of these actions have to agree.
 #[test]
 fn a_non_opl_document_can_be_cropped_and_undone() {
     let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
@@ -1920,14 +1922,16 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
     let rows = harness.state().editor.len();
 
     // Mark the second half and crop to it.
-    harness.state_mut().editor.markers.set_start(2, rows);
-    harness.state_mut().editor.markers.set_end(rows, rows);
-    let stats = harness.state_mut().editor.crop_to_markers();
-    let (kept, restored) = stats.expect("the crop ran");
-    assert!(restored > 0, "the discarded head configured something");
+    act(&mut harness, Action::SetLoopStart(2));
+    act(&mut harness, Action::SetLoopEnd(rows));
+    act(&mut harness, Action::CropToMarkers);
 
     let app = harness.state();
-    assert_eq!(app.editor.len(), kept);
+    assert!(
+        app.status.contains("that restore the chip state"),
+        "the discarded head configured something: {}",
+        app.status
+    );
     assert!(app.editor.is_dirty());
     assert_eq!(app.editor.undo_description(), Some("Crop to Marked Region"));
     // The YM2610 write from the discarded head is back at the top.
@@ -1939,7 +1943,7 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
         "the restore leads"
     );
 
-    harness.state_mut().editor.undo();
+    act(&mut harness, Action::Undo);
     assert_eq!(harness.state().editor.len(), rows);
     assert_eq!(
         harness.state().editor.save_bytes().unwrap(),
@@ -1952,21 +1956,45 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
 #[test]
 fn a_non_opl_document_can_have_a_region_deleted() {
     let (mut harness, _handles) = build(Some(foreign_vgm_file()), false, false);
-    let rows = harness.state().editor.len();
     let before = harness.state().editor.save_bytes().unwrap();
 
-    harness.state_mut().editor.markers.set_start(0, rows);
-    harness.state_mut().editor.markers.set_end(2, rows);
-    let (removed, bridged) = harness
-        .state_mut()
-        .editor
-        .delete_marked_region()
-        .expect("the delete ran");
-    assert_eq!(removed, 2);
-    assert!(bridged > 0, "the removed span had configured something");
+    act(&mut harness, Action::SetLoopStart(0));
+    act(&mut harness, Action::SetLoopEnd(2));
+    act(&mut harness, Action::DeleteMarkedRegion);
+    assert!(
+        harness.state().status.contains("Deleted 2 instruction(s)"),
+        "{}",
+        harness.state().status
+    );
+    assert!(
+        harness.state().status.contains("across the seam"),
+        "the removed span had configured something: {}",
+        harness.state().status
+    );
 
-    harness.state_mut().editor.undo();
+    act(&mut harness, Action::Undo);
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
+}
+
+/// Selecting rows, deleting them and saving the result: the everyday path, and
+/// none of it is an OPL idea. It used to stop at the gate -- every one of these
+/// actions asked for a `Song`, so a document held as a VGM opened in the editor
+/// and then declined to be edited or saved at all.
+#[test]
+fn a_non_opl_document_can_be_edited_and_saved() {
+    let (mut harness, handles) = build(Some(foreign_vgm_file()), false, false);
+    let rows = harness.state().editor.len();
+
+    harness.state_mut().editor.selection.select_only(1);
+    act(&mut harness, Action::DeleteSelection);
+    assert_eq!(harness.state().editor.len(), rows - 1, "the row is gone");
+
+    act(&mut harness, Action::Save);
+    let saved = handles.files.borrow().save_requests.len();
+    assert_eq!(saved, 1, "the save reached the file service");
+
+    act(&mut harness, Action::Undo);
+    assert_eq!(harness.state().editor.len(), rows);
 }
 
 /// A header that disagrees with its stream is reported and offered, never
@@ -2049,22 +2077,18 @@ fn a_non_opl_document_can_be_optimised() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
-/// The loop search reaches a chip this app has no core for -- a repeated block
-/// is a repeated block -- and applying what it finds writes the loop into the
-/// file.
-///
-/// The Find Loop *dialog* is not reached here: it still needs a `Song` to put a
-/// time against each candidate, which a non-OPL document has none of. That last
-/// step is noted in the handover.
-#[test]
-fn a_non_opl_document_can_have_its_loop_found_and_applied() {
+/// A VGM built for chips this app has no core for: an intro write, then a body
+/// the capture ran through twice, each pass a second long.
+fn non_opl_looping_vgm() -> PickedFile {
     use dro_core::ChipKind;
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
     }
-    // An intro write, then a body the capture ran through twice.
-    let body: &[u8] = &[0x52, 0x28, 0xF0, 0x61, 0x10, 0x27, 0x50, 0x9F, 0x62];
-    let mut stream = vec![0x52, 0x22, 0x08];
+    // 0xAC44 samples is one second at the VGM rate, so the candidate's times
+    // are legible in the dialog's table.
+    let body: &[u8] = &[0x52, 0x28, 0xF0, 0x61, 0x44, 0xAC, 0x50, 0x9F, 0x62];
+    // The intro's own half-second keeps the three time columns distinct.
+    let mut stream = vec![0x52, 0x22, 0x08, 0x61, 0xA2, 0x56];
     stream.extend_from_slice(body);
     stream.extend_from_slice(body);
     stream.push(0x66);
@@ -2079,32 +2103,72 @@ fn a_non_opl_document_can_have_its_loop_found_and_applied() {
     let eof = bytes.len();
     put_u32(&mut bytes, 0x04, (eof - 4) as u32);
 
-    let file = PickedFile {
+    PickedFile {
         name: "01 Looper.vgm".to_owned(),
         path: Some(PathBuf::from("C:/rips/MD/01 Looper.vgm")),
         bytes,
-    };
-    let (mut harness, _handles) = build(Some(file), true, false);
-    let doc = harness.state().editor.vgm().expect("held as a VGM");
+    }
+}
 
-    let best = doc
-        .find_loops(2)
-        .into_iter()
-        .next()
-        .expect("the repeated body is found");
-    assert_eq!(best.loop_point, 1, "the body starts after the intro write");
-    assert_eq!(
-        best.loop_end, 5,
-        "and repeats there -- the body is four rows"
+/// The loop search reaches a chip this app has no core for -- a repeated block
+/// is a repeated block -- and applying what it finds writes the loop into the
+/// file. The whole path, dialog included: a non-OPL document has no `Song` to
+/// take a candidate's time from, so the times come from its own waits.
+#[test]
+fn a_non_opl_document_can_have_its_loop_found_and_applied() {
+    // Inline tasks so the background search runs synchronously on submit.
+    let (mut harness, _handles) = build(Some(non_opl_looping_vgm()), true, false);
+    assert!(
+        harness.state().editor.song().is_none(),
+        "held as a VGM, with no OPL projection"
     );
 
-    // Marking that loop and applying it writes it into the header.
-    let rows = harness.state().editor.len();
-    harness.state_mut().editor.markers.set_start(1, rows);
-    harness.state_mut().editor.markers.set_end(5, rows);
-    assert!(harness.state_mut().editor.apply_loop_to_metadata());
+    act(&mut harness, Action::OpenFindLoop);
+    assert!(harness.state().dialogs.find_loop.is_some());
+    // Two writes is the body length; the search finds the one repeat.
+    act(
+        &mut harness,
+        Action::FindLoopSearch {
+            min_len_commands: 2,
+        },
+    );
+    harness.run();
+    assert_eq!(
+        harness
+            .state()
+            .dialogs
+            .find_loop
+            .as_ref()
+            .unwrap()
+            .candidate_count(),
+        1
+    );
+
+    // The found loop renders as a row, timed from the stream's own waits: it
+    // starts when the intro's half-second is up and repeats a second later.
+    for time in ["0:00.5", "0:01.5"] {
+        assert!(
+            harness.query_by_label_contains(time).is_some(),
+            "the candidate's times should be listed in the table, missing {time}"
+        );
+    }
+
+    // The top candidate is pre-selected, so Apply writes it straight into the
+    // VGM's loop metadata.
+    harness.get_by_label("Apply").click();
+    harness.run();
     let app = harness.state();
-    assert_eq!(app.editor.vgm().unwrap().loop_index(), Some(1));
+    let file = app.editor.vgm().unwrap();
+    assert_eq!(
+        file.loop_index(),
+        Some(2),
+        "loop point at the body's first write"
+    );
+    assert_eq!(
+        file.loop_end_index(),
+        Some(6),
+        "loop end where the repeat begins"
+    );
     assert!(app.editor.is_dirty(), "and there is something to save");
 }
 

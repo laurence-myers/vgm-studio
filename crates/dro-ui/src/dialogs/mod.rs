@@ -26,7 +26,7 @@ pub mod vgm_metadata;
 
 pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
-pub use find_loop::FindLoopDialog;
+pub use find_loop::{FindLoopDialog, LoopSearchDoc};
 pub use find_reg::FindRegDialog;
 pub use foreign_vgm::ForeignVgmDialog;
 pub use gd3_tag::Gd3TagDialog;

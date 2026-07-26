@@ -1559,7 +1559,7 @@ impl DroApp {
             Action::Save => self.save(false),
             Action::SaveAs => self.save(true),
             Action::CloseFile => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
                 if self.editor.is_dirty() {
@@ -1648,7 +1648,7 @@ impl DroApp {
                 // tab it reverses the last song edit.
                 if self.active_tab == AppTab::Pack {
                     self.undo_pack_edit();
-                } else if self.require_song() {
+                } else if self.require_document() {
                     match self.editor.undo() {
                         Some(description) => {
                             self.status = format!("Undone: {description}");
@@ -1661,7 +1661,7 @@ impl DroApp {
             Action::Redo => {
                 if self.active_tab == AppTab::Pack {
                     self.redo_pack_edit();
-                } else if self.require_song() {
+                } else if self.require_document() {
                     match self.editor.redo() {
                         Some(description) => {
                             self.status = format!("Redone: {description}");
@@ -1672,7 +1672,7 @@ impl DroApp {
                 }
             }
             Action::OpenGoto => {
-                if self.require_song() {
+                if self.require_document() {
                     self.dialogs.goto = Some(GotoDialog::new());
                 }
             }
@@ -1683,10 +1683,16 @@ impl DroApp {
                 }
             }
             Action::OpenFindLoop => {
-                if self.require_song()
-                    && let Some(song) = self.editor.snapshot()
-                {
-                    self.dialogs.find_loop = Some(FindLoopDialog::new(song));
+                // Either representation: the dialog wants a time per row and a
+                // command density, both of which a VGM can give directly.
+                let doc = match (self.editor.snapshot(), self.editor.vgm()) {
+                    (Some(song), _) => Some(crate::dialogs::LoopSearchDoc::from_song(&song)),
+                    (None, Some(file)) => Some(crate::dialogs::LoopSearchDoc::from_vgm(file)),
+                    (None, None) => None,
+                };
+                match doc {
+                    Some(doc) => self.dialogs.find_loop = Some(FindLoopDialog::new(doc)),
+                    None => self.status = "Please open a song first.".to_owned(),
                 }
             }
             Action::OpenDroInfo => {
@@ -1759,7 +1765,7 @@ impl DroApp {
                 }
             }
             Action::DeleteSelection => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
                 if self.editor.delete_selection() {
@@ -1947,7 +1953,7 @@ impl DroApp {
             }
             Action::ApplyLoopToMetadata => self.apply_loop_to_metadata(),
             Action::CropToMarkers => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
                 match self.editor.crop_to_markers() {
@@ -1967,7 +1973,7 @@ impl DroApp {
                 }
             }
             Action::DeleteMarkedRegion => {
-                if !self.require_song() {
+                if !self.require_document() {
                     return;
                 }
                 match self.editor.delete_marked_region() {
@@ -2196,7 +2202,7 @@ impl DroApp {
     }
 
     fn save(&mut self, force_dialog: bool) {
-        if !self.require_song() {
+        if !self.require_document() {
             return;
         }
         let bytes = match self.editor.save_bytes() {
@@ -3439,7 +3445,7 @@ impl DroApp {
 
     /// Writes the marked region into the song's VGM loop fields.
     fn apply_loop_to_metadata(&mut self) {
-        if !self.require_song() {
+        if !self.require_document() {
             return;
         }
         let markers = self.editor.markers;
@@ -3508,7 +3514,7 @@ impl DroApp {
     }
 
     fn goto_submitted(&mut self, text: &str) {
-        if !self.require_song() {
+        if !self.require_document() {
             return;
         }
         let len = self.editor.len();
@@ -3650,6 +3656,22 @@ impl DroApp {
             true
         } else {
             self.status = "Please open a DRO file first.".to_owned();
+            false
+        }
+    }
+
+    /// The gate for everything that works on a document of either kind.
+    ///
+    /// [`Self::require_song`] is the narrower one: it asks for an OPL stream,
+    /// which is what rendering, splitting and the register analyser need. Saving,
+    /// deleting, cropping and undo are not OPL ideas, so they ask this instead --
+    /// otherwise a VGM for a chip we have no core for would open in the editor
+    /// and then refuse to be edited.
+    fn require_document(&mut self) -> bool {
+        if self.editor.has_document() {
+            true
+        } else {
+            self.status = "Please open a file first.".to_owned();
             false
         }
     }

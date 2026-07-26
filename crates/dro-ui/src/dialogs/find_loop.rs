@@ -12,8 +12,6 @@
 //! count from the song's own command density, so "2 s" means roughly two
 //! seconds of music whatever the song's tempo.
 
-use std::sync::Arc;
-
 use dro_core::{Candidate, Song};
 use egui_extras::{Column, TableBuilder};
 
@@ -27,15 +25,88 @@ const DEFAULT_MIN_SECS: f32 = 2.0;
 const MIN_SECS: f32 = 0.5;
 const MAX_SECS: f32 = 30.0;
 
+/// What the dialog needs to know about the document being searched.
+///
+/// Not the document itself: all it ever wanted was a time against each row and
+/// a sense of how dense the commands are. Taking those instead of a [`Song`]
+/// is what lets the dialog serve a VGM for any chip, which has no `Song` to
+/// give it.
+#[derive(Debug, Clone)]
+pub struct LoopSearchDoc {
+    /// The millisecond offset of each row, for the results' time display. One
+    /// entry per row, built once at open -- a candidate can point anywhere, and
+    /// re-deriving a time per row per frame would walk the stream each time.
+    row_ms: Vec<u32>,
+    /// Non-delay commands, the ceiling on the estimated minimum length.
+    total_commands: usize,
+    /// The song's length in seconds, for the commands-per-second estimate.
+    total_secs: f32,
+    /// Whether the document can store a loop -- Apply is VGM-only, because a
+    /// DRO header has nowhere to put one.
+    can_store_loop: bool,
+}
+
+impl LoopSearchDoc {
+    #[must_use]
+    pub fn from_song(song: &Song) -> Self {
+        Self {
+            row_ms: (0..song.len())
+                .map(|index| song.ms_offset_at(index).unwrap_or(0))
+                .collect(),
+            total_commands: song.data().iter().filter(|i| !i.is_delay()).count(),
+            total_secs: song.total_delay_ms() as f32 / 1000.0,
+            can_store_loop: song.is_vgm(),
+        }
+    }
+
+    #[must_use]
+    pub fn from_vgm(file: &dro_core::VgmFile) -> Self {
+        let Some(stream) = file.stream() else {
+            return Self {
+                row_ms: Vec::new(),
+                total_commands: 0,
+                total_secs: 0.0,
+                can_store_loop: true,
+            };
+        };
+        let total = stream.total_samples();
+        let mut row_ms = Vec::with_capacity(stream.len());
+        let mut elapsed = 0u64;
+        let mut total_commands = 0usize;
+        for index in 0..stream.len() {
+            row_ms.push(dro_core::util::smp_to_ms(
+                u32::try_from(elapsed).unwrap_or(u32::MAX),
+                dro_core::vgm::VGM_SAMPLE_RATE,
+            ));
+            let wait = stream.wait_samples(index);
+            if wait == 0 {
+                total_commands += 1;
+            }
+            elapsed += u64::from(wait);
+        }
+        Self {
+            row_ms,
+            total_commands,
+            total_secs: total as f32 / dro_core::vgm::VGM_SAMPLE_RATE as f32,
+            can_store_loop: true,
+        }
+    }
+
+    /// The millisecond offset of row `index`.
+    fn ms_at(&self, index: usize) -> u32 {
+        self.row_ms.get(index).copied().unwrap_or(0)
+    }
+}
+
 #[derive(Debug)]
 pub struct FindLoopDialog {
-    /// A snapshot of the song at open, for the results' time display.
-    song: Arc<Song>,
+    /// What is being searched, reduced to what the results need to show.
+    doc: LoopSearchDoc,
     /// Non-delay commands per second, for the seconds -> command-count estimate.
     commands_per_sec: f32,
     /// Total non-delay commands, the ceiling on the estimated minimum length.
     total_commands: usize,
-    /// Whether the song can store a loop -- the Apply button is VGM-only.
+    /// Whether the document can store a loop -- the Apply button is VGM-only.
     is_vgm: bool,
     /// The minimum match length the slider edits, in seconds.
     min_secs: f32,
@@ -53,17 +124,16 @@ pub struct FindLoopDialog {
 
 impl FindLoopDialog {
     #[must_use]
-    pub fn new(song: Arc<Song>) -> Self {
-        let total_commands = song.data().iter().filter(|i| !i.is_delay()).count();
-        let total_secs = song.total_delay_ms() as f32 / 1000.0;
-        let commands_per_sec = if total_secs > 0.0 {
-            total_commands as f32 / total_secs
+    pub fn new(doc: LoopSearchDoc) -> Self {
+        let total_commands = doc.total_commands;
+        let commands_per_sec = if doc.total_secs > 0.0 {
+            total_commands as f32 / doc.total_secs
         } else {
             total_commands.max(1) as f32
         };
         Self {
-            is_vgm: song.is_vgm(),
-            song,
+            is_vgm: doc.can_store_loop,
+            doc,
             commands_per_sec,
             total_commands,
             min_secs: DEFAULT_MIN_SECS,
@@ -240,7 +310,7 @@ impl FindLoopDialog {
         // Disjoint borrows, so the row closures can read the candidates and song
         // while taking `selected` mutably, without touching `self`.
         let candidates = &self.candidates;
-        let song = &self.song;
+        let doc = &self.doc;
         let selected = &mut self.selected;
         frame.show(ui, |ui| {
             ui.style_mut().interaction.selectable_labels = false;
@@ -269,8 +339,8 @@ impl FindLoopDialog {
                         })
                         .body(|mut body| {
                             for (row_index, candidate) in candidates.iter().enumerate() {
-                                let start = song.ms_offset_at(candidate.loop_point).unwrap_or(0);
-                                let end = song.ms_offset_at(candidate.loop_end).unwrap_or(0);
+                                let start = doc.ms_at(candidate.loop_point);
+                                let end = doc.ms_at(candidate.loop_end);
                                 body.row(row_height, |mut row| {
                                     row.set_selected(*selected == Some(row_index));
                                     cell(&mut row, palette.muted, &format!("{}", row_index + 1));
@@ -333,7 +403,7 @@ mod tests {
     use crate::test_song::{looping_vgm, tone_song};
 
     fn dialog(song: Song) -> FindLoopDialog {
-        FindLoopDialog::new(Arc::new(song))
+        FindLoopDialog::new(LoopSearchDoc::from_song(&song))
     }
 
     fn candidate(loop_point: usize, loop_end: usize) -> Candidate {
