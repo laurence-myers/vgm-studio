@@ -459,15 +459,43 @@ impl VgmFile {
     /// unfamiliar file is safe rather than merely likely to be -- worst case it
     /// does nothing.
     ///
-    /// Returns how many commands went, or `None` if nothing did.
+    /// Both halves run: dropping a write from between two delays leaves them
+    /// adjacent, and two waits in a row cost more bytes than one wait of their
+    /// sum, so the strip is followed by a merge. A stream with nothing to do
+    /// comes back byte-identical.
+    ///
+    /// Returns how many commands went, or `None` if the stream did not shrink.
+    /// A file that gains nothing is left **exactly** as it was, byte for byte.
+    /// That is why the work happens on a copy: re-spelling a run of delays at
+    /// the same length is not an improvement, and rewriting a file to no
+    /// purpose is how a pack of already-optimal rips starts showing up as
+    /// modified.
     pub fn optimize(&mut self) -> Option<usize> {
-        let stream = self.stream()?;
-        let redundant = chip_state::redundant_indices(stream, self.loop_index());
-        if redundant.is_empty() {
+        let before_rows = self.len();
+        let before_bytes = self.body.raw().len();
+        let mut work = self.clone();
+
+        // Phase 1: the redundant writes, which slides the loop past them.
+        let stream = work.stream()?;
+        let redundant = chip_state::redundant_indices(stream, work.loop_index());
+        if !redundant.is_empty() {
+            work.delete_commands(&redundant);
+        }
+
+        // Phase 2: the delays those left adjacent. The loop is a merge barrier,
+        // so it stays on a command boundary and comes back as an offset into
+        // the stream -- which is what `rebuild` wants; it does the data-start
+        // arithmetic itself.
+        let stream = work.stream()?;
+        let (bytes, loop_at) = crate::optimize::merge_stream_delays(stream, work.loop_index());
+        work.rebuild(bytes, loop_at);
+
+        if work.body.raw().len() >= before_bytes {
             return None;
         }
-        let removed = redundant.len();
-        self.delete_commands(&redundant).then_some(removed)
+        let removed = before_rows.saturating_sub(work.len());
+        *self = work;
+        Some(removed)
     }
 
     /// The chips in this file that no redundancy rule covers, by name.
@@ -1486,6 +1514,72 @@ mod tests {
             u64::from(file.header.total_samples()),
             u64::from(original.header.total_samples()) - head_samples
         );
+    }
+
+    // -- optimising ----------------------------------------------------------
+
+    /// The invariant the corpus caught a violation of: a file with nothing to
+    /// gain is left alone *byte for byte*. Re-spelling a run of delays at the
+    /// same length is not an improvement, and rewriting a file to no purpose is
+    /// how a pack of already-optimal rips starts showing up as modified.
+    #[test]
+    fn an_already_optimal_file_is_untouched() {
+        // Two short waits whose merged encoding is the same two bytes in the
+        // other order -- the exact shape that used to be rewritten for nothing.
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[0x52, 0x22, 0x08, 0x7F, 0x78, 0x52, 0x23, 0x09, 0x66]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("x.vgm", &bytes).unwrap();
+        assert_eq!(file.optimize(), None, "there is nothing to gain");
+        assert_eq!(write(&file).unwrap(), bytes, "so nothing changed");
+    }
+
+    /// And when there *is* something to gain, both halves run: the repeated
+    /// write goes, and the delays it separated are merged into one.
+    #[test]
+    fn optimising_strips_a_write_and_merges_the_delays_it_separated() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[
+            0x52, 0x22, 0x08, // 0: a write
+            0x61, 0x10, 0x27, // 1: wait 10000
+            0x52, 0x22, 0x08, // 2: the same value again -- droppable
+            0x61, 0x20, 0x4E, // 3: wait 20000
+            0x66,
+        ]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("x.vgm", &bytes).unwrap();
+        let before = file.stream().unwrap().total_samples();
+        assert!(file.optimize().is_some());
+
+        let stream = file.stream().unwrap();
+        assert_eq!(stream.len(), 2, "the write, then one merged wait");
+        assert_eq!(stream.describe(1), "wait 30000");
+        assert_eq!(
+            stream.total_samples(),
+            before,
+            "the time is conserved exactly"
+        );
+        assert_eq!(file.header.total_samples(), 30_000, "and the header agrees");
     }
 
     // -- the loop, as the editor holds it ------------------------------------

@@ -460,6 +460,49 @@ mod tests {
         }
     }
 
+    /// The other half of the optimiser, pinned the same way. The chip-agnostic
+    /// merger must reproduce the OPL one byte for byte -- it is what will
+    /// replace it, and a delay re-encoder that disagrees would change how every
+    /// optimised file is spelled.
+    #[test]
+    fn the_two_delay_mergers_agree_on_opl() {
+        // Runs of adjacent delays of every shape: pairs, a long run, and a run
+        // that straddles where a loop point will sit.
+        let commands: Vec<Vec<u8>> = vec![
+            vec![0x5A, 0x20, 0x01],
+            vec![0x62],
+            vec![0x62],
+            vec![0x5A, 0x21, 0x02],
+            vec![0x61, 0x10, 0x27],
+            vec![0x63],
+            vec![0x70],
+            vec![0x7F],
+            vec![0x5A, 0x22, 0x03],
+            vec![0x62],
+        ];
+        for loop_at in [None, Some(0), Some(4), Some(6), Some(9)] {
+            let bytes = tests_support::synthetic_opl_vgm(&commands, false, loop_at);
+            let mut file = crate::vgm::file::read("p.vgm", &bytes).unwrap();
+            let song = crate::vgm::io::read("p.vgm", &bytes).unwrap();
+
+            file.optimize();
+            let expected = match crate::optimize::optimize(&song) {
+                Some(outcome) => {
+                    let mut song = song.clone();
+                    outcome.install(&mut song);
+                    crate::vgm::io::write(&song).unwrap()
+                }
+                // Nothing to do: the file must be untouched too.
+                None => bytes.clone(),
+            };
+            assert_eq!(
+                crate::vgm::file::write(&file).unwrap(),
+                expected,
+                "loop at {loop_at:?}"
+            );
+        }
+    }
+
     #[test]
     fn the_two_engines_agree_on_the_real_capture() {
         let song = crate::vgm::io::read("f.vgm", VGM_FIXTURE).unwrap();

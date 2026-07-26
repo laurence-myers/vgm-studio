@@ -45,6 +45,7 @@ use crate::opl_state::OplState;
 use crate::song::{DroInstruction, Song, SongData, StreamSnapshot};
 use crate::vgm::VgmData;
 use crate::vgm::data::command;
+use crate::vgm::stream::{VgmCommand, VgmStream};
 
 /// The largest wait a single `0x61` command can express.
 const MAX_WAIT: u64 = 0xFFFF;
@@ -236,6 +237,78 @@ fn merge_delays(
         loop_point: new_loop_point,
         loop_end: new_loop_end,
     }
+}
+
+/// Merges runs of adjacent waits in a stream of any chip's commands.
+///
+/// The chip-agnostic twin of [`merge_delays`], and the second half of the
+/// optimiser: dropping redundant writes leaves delays sitting next to each
+/// other, and two waits in a row cost more bytes than one wait of their sum.
+///
+/// Returns the rebuilt bytes (end marker included) and where the loop point
+/// landed in them. The loop is a merge barrier -- a run never spans it -- so it
+/// stays on a command boundary.
+///
+/// A `0x8n` DAC write is *not* a wait for this purpose even though it waits:
+/// it writes a sample first, so folding it into a neighbouring run would drop
+/// the sample. It is copied verbatim like any other command.
+///
+/// This will replace [`merge_delays`] when `VgmData` retires; until then the
+/// two are pinned to each other by `the_two_delay_mergers_agree_on_opl`.
+#[must_use]
+pub(crate) fn merge_stream_delays(
+    stream: &VgmStream,
+    loop_at: Option<usize>,
+) -> (Vec<u8>, Option<usize>) {
+    let mut out: Vec<u8> = Vec::with_capacity(stream.raw().len());
+    let mut new_loop = None;
+    let mut run: Vec<usize> = Vec::new();
+
+    let flush = |run: &mut Vec<usize>, out: &mut Vec<u8>| {
+        let bytes_of = |index: usize| stream.raw_command(index).unwrap_or_default();
+        match run.as_slice() {
+            [] => {}
+            // A lone delay is copied verbatim, which is what keeps a stream
+            // with nothing to merge byte-identical.
+            [only] => out.extend_from_slice(bytes_of(*only)),
+            indices => {
+                let total: u64 = indices
+                    .iter()
+                    .map(|&i| u64::from(stream.wait_samples(i)))
+                    .sum();
+                let original: usize = indices.iter().map(|&i| bytes_of(i).len()).sum();
+                let (encoded, _) = encode_wait(total);
+                if encoded.len() <= original {
+                    out.extend_from_slice(&encoded);
+                } else {
+                    for &i in indices {
+                        out.extend_from_slice(bytes_of(i));
+                    }
+                }
+            }
+        }
+        run.clear();
+    };
+
+    for index in 0..stream.len() {
+        if loop_at == Some(index) {
+            flush(&mut run, &mut out);
+            new_loop = Some(out.len());
+        }
+        if matches!(stream.get(index), Some(VgmCommand::Wait(_))) {
+            run.push(index);
+        } else {
+            flush(&mut run, &mut out);
+            out.extend_from_slice(stream.raw_command(index).unwrap_or_default());
+        }
+    }
+    flush(&mut run, &mut out);
+    if loop_at == Some(stream.len()) {
+        new_loop = Some(out.len());
+    }
+
+    out.push(command::END);
+    (out, new_loop)
 }
 
 /// Emits the pending delay run and clears it.
