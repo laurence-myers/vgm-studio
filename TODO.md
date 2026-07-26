@@ -118,8 +118,22 @@
     header `volume_modifier` (the boost lever is the playback control); the
     `BoostLimiter::boost()` + `min_engaged_boost` plumbing is what a "playback
     applies the modifier" follow-up would build on.
-- Any-chip VGM support -- **Phases A-C done: any-chip trimming works, with no
-  emulator.** A VGM for chips the OPL model knows nothing about now opens in the
+- Any-chip VGM support -- **one VGM model, and the chip-agnostic editing
+  operations, done.** OPL is no longer a kind of VGM but a capability of one:
+  `dro_core::vgm::projection` presents the same command stream as OPL
+  instructions when a file's chips (and every one of its commands) are OPL, and
+  that projection is what the register analyser, find-register and the synth
+  read. Everything chip-agnostic works on any VGM: **crop and delete-marked-
+  region** (via `dro_core::chip_state`, which folds a discarded span into the
+  chips' state and re-emits it as the source's own bytes, in the order it
+  happened -- data blocks included, since the banks are cumulative), the
+  **`vgm_cmp` optimiser** (per-chip redundancy rules, dropping nothing from a
+  chip it has not checked), and **Edit > Fix Header**, which reports where a
+  header disagrees with its own stream and corrects it only when asked. Pack
+  mode has one kind of track. Validated against the local corpus: of 16466
+  files, all 3933 the OPL reader accepts agree byte-for-byte through the new
+  path, and 12533 that it could not open at all now open.
+- Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit
   itself (so a file that is only retagged is never silently "corrected"). The

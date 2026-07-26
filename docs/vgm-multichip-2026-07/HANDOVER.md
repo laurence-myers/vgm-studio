@@ -28,7 +28,30 @@
 > | mc-4 | done | `030805c` — `vgm/stream.rs` (full opcode table, version-aware sizing, typed decode), `VgmBody::Commands`, OPL reader accepts minimal headers |
 > | mc-5 | done | `be409cd` chip-selector deck, `524df5f` foreign delete + undo + header repatch, `428c57e` the foreign editor, `3a1165f` chip deck visible + pack gating flipped |
 > | uv-1 | **part done** — `621a90c` `OplProjection` + the corpus parity gate, `83cb3fe` pack mode unified, `fa62b93` editor terminology. **Remains:** collapsing the editor's two document slots, and retiring `VgmData`. |
-> | uv-2 … uv-5 | next — chip_state, any-chip crop, any-chip optimise, header fix; full detail in §Phase C2 | |
+> | uv-2 | done | `e83d8fa` — `chip_state`: generic latch model + block/DAC-stream/seek state, fold-equivalence proptests |
+> | uv-3 | done | `e83d8fa` core, `45e7a69` UI — **crop and delete-region for every VGM** |
+> | uv-4 | done | `b5e839d` — optimise for every chip it has rules for, conservative default, OPL byte-parity kept |
+> | uv-5 | done | `e9afd76` — `vgm::audit` + Edit > Fix Header, user-invoked only |
+>
+> **All four of the 2026-07-26 directives are implemented** (§2.1.13–17).
+> What remains of the redirection is the *internal* half of uv-1: collapsing
+> the editor's two document slots and retiring `VgmData`. Nothing
+> user-visible depends on it.
+>
+> Notes worth carrying into whatever comes next:
+> - **`chip_state` has four intended consumers, two connected.** Crop and
+>   optimise use it; the split-songs prelude and mc-6's fast seek still do
+>   not. The OPL-specific `state_patch::StateFold` and `crop.rs` therefore
+>   still exist and still serve the OPL `Song` path — folding them in is part
+>   of the editor collapse, not a separate job.
+> - **The optimiser's rule table is the thing to grow.** Four chips have
+>   rules (OPL family, YM2612, YM2413). Adding one means checking its
+>   trigger registers against `chip_cmp` and adding a line; not adding one
+>   costs only compression. Do this alongside the mc-9 core waves, where the
+>   chip is being studied anyway.
+> - **The YM2612/YM2413 exclusions are cautious, not proven.** `0x2A`, `0x28`
+>   and `0x20`-`0x28` are excluded because a wrong answer there is silent.
+>   Worth revisiting with a render oracle once those cores land (mc-8).
 >
 > **Resequencing found during uv-1 (2026-07-27):** collapsing the editor's
 > two slots is *not* a prerequisite for uv-3. Crop acts on the document the
