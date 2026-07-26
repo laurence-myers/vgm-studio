@@ -3197,6 +3197,20 @@ fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
     harness.get_by_label("Add").click();
     harness.run();
 
+    // Recompression happens on the way in, so the write waits for it. The
+    // service finds nothing to save here, and the picked bytes go in as they are.
+    {
+        let pack = handles.pack.borrow();
+        assert_eq!(pack.optimize_requests.len(), 1, "recompressed by default");
+        assert_eq!(pack.optimize_requests[0].0, "Cool Game.png");
+    }
+    handles
+        .pack
+        .borrow_mut()
+        .optimized_outcomes
+        .push_back(Err("no gain".to_owned()));
+    harness.run();
+
     // It lands in the pack folder as <Game Name>.png, beside the .txt and .m3u.
     let files = handles.files.borrow();
     match files.save_requests.last().expect("a save request") {
@@ -3210,6 +3224,61 @@ fn adding_a_screenshot_copies_it_in_under_the_packs_own_name() {
         }
         other => panic!("expected an in-place save, got {other:?}"),
     }
+}
+
+#[test]
+fn an_added_screenshot_is_recompressed_on_the_way_in() {
+    // One write, not a write and a rewrite: the smaller bytes are what land, so
+    // the file is optimal from the moment it exists and the undo stack stays
+    // clear of a recompression nobody asked for.
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    pack_section(&mut harness, PackSection::Screenshots);
+
+    harness.get_by_label_contains("Add Screenshot").click();
+    harness.run();
+    handles
+        .files
+        .borrow_mut()
+        .picked_images
+        .push_back(Ok(PickedFile {
+            name: "dosbox_000.png".to_owned(),
+            path: Some(PathBuf::from("C:/captures/dosbox_000.png")),
+            bytes: PNG_FIXTURE.to_vec(),
+        }));
+    harness.run();
+    harness.get_by_label("Add").click();
+    harness.run();
+
+    // Nothing is written until the recompression comes back.
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "the write waits for the smaller bytes"
+    );
+    handles
+        .pack
+        .borrow_mut()
+        .optimized_outcomes
+        .push_back(Ok(OptimizedImage {
+            name: "Cool Game.png".to_owned(),
+            original_len: PNG_FIXTURE.len(),
+            bytes: b"\x89PNG smaller".to_vec(),
+        }));
+    harness.run();
+
+    let files = handles.files.borrow();
+    match files.save_requests.last().expect("a save request") {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(path.to_string_lossy().ends_with("Cool Game.png"));
+            assert_eq!(bytes, b"\x89PNG smaller", "the recompressed bytes landed");
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+    assert_eq!(
+        files.save_requests.len(),
+        1,
+        "written once, not written then rewritten"
+    );
 }
 
 #[test]
@@ -3267,6 +3336,12 @@ fn a_second_screenshot_lands_beside_the_first_rather_than_on_it() {
     // The proposed name clears the screenshot already there, and the user can
     // still edit it into "Cool Game (Japan)" before anything is written.
     harness.get_by_label("Add").click();
+    harness.run();
+    handles
+        .pack
+        .borrow_mut()
+        .optimized_outcomes
+        .push_back(Err("no gain".to_owned()));
     harness.run();
 
     let files = handles.files.borrow();
@@ -3677,6 +3752,43 @@ fn exporting_submits_a_job_and_saves_the_returned_zip() {
         SaveRequest::Dialog { suggested_name, .. } => assert_eq!(suggested_name, "Cool Game.zip"),
         other => panic!("expected a save dialog, got {other:?}"),
     }
+}
+
+#[test]
+fn cancelling_the_export_save_says_so_rather_than_reading_as_done() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    harness.get_by_label("Export Zip\u{2026}").click();
+    harness.run();
+
+    handles
+        .pack
+        .borrow_mut()
+        .outcomes
+        .push_back(PackJobOutcome::Done {
+            zip_name: "Cool Game.zip".to_owned(),
+            bytes: b"PK\x03\x04".to_vec(),
+            log: vec!["Gzipped 1 song.".to_owned()],
+        });
+    harness.run();
+    // The build's own line already says the picker is still to come.
+    assert!(
+        harness.state().status.contains("Choose where"),
+        "got {:?}",
+        harness.state().status
+    );
+
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Cancelled);
+    harness.run_steps(4);
+    let status = harness.state().status.clone();
+    assert!(
+        status.contains("cancelled") && status.contains("not saved"),
+        "a cancelled export must not read as a finished one, got {status:?}"
+    );
 }
 
 #[test]
@@ -4190,7 +4302,7 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
     );
     assert!(
         !harness
-            .get_by_label("Fix Names")
+            .get_by_label("Fix File Names")
             .accesskit_node()
             .is_disabled(),
         "the fix-assist is offered while a name has drifted"
@@ -4238,7 +4350,7 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
     // With nothing left to rename the pad greys out rather than vanishing.
     assert!(
         harness
-            .get_by_label("Fix Names")
+            .get_by_label("Fix File Names")
             .accesskit_node()
             .is_disabled(),
         "the spent fix-assist is greyed, not removed"
@@ -4274,7 +4386,7 @@ fn on_the_pack_tab_file_carries_the_packs_outputs() {
 }
 
 #[test]
-fn on_the_pack_tab_edit_is_undo_and_redo_alone() {
+fn on_the_pack_tab_edit_leaves_out_the_song_commands() {
     let harness = pack_harness_with_menu("Edit");
     let _ = harness.get_by_label_contains("Undo");
     let _ = harness.get_by_label_contains("Redo");
@@ -4284,6 +4396,41 @@ fn on_the_pack_tab_edit_is_undo_and_redo_alone() {
             "{absent} edits a song the pack tab does not show"
         );
     }
+}
+
+#[test]
+fn on_the_pack_tab_edit_carries_the_track_operations() {
+    // The two silkscreen groups from the Tracks section, as submenus -- so the
+    // batch operations have a keyboard-reachable home as well as a pad.
+    // A submenu button carries its right-arrow in its accessible name.
+    let mut harness = pack_harness_with_menu("Edit");
+    let _ = harness.get_by_label_contains("Levels");
+    let _ = harness.get_by_label_contains("Track Tags");
+
+    harness.get_by_label_contains("Levels").click();
+    harness.run();
+    let _ = harness.get_by_label("Scan Volumes");
+    // Two items, not one plus a latch: a menu cannot show which mode is armed.
+    let _ = harness.get_by_label("Apply Album Level");
+    let _ = harness.get_by_label("Apply Track Levels");
+}
+
+#[test]
+fn applying_album_levels_from_the_menu_arms_the_album_latch() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, complete_folder());
+    // Start from the other mode, so the change is unambiguous.
+    harness.state_mut().pack.as_mut().unwrap().album_normalize = false;
+
+    act(
+        &mut harness,
+        Action::PackApplySuggestedModifiers { album: true },
+    );
+    harness.run();
+    assert!(
+        harness.state().pack.as_ref().unwrap().album_normalize,
+        "the pad reflects the levelling the menu item asked for"
+    );
 }
 
 #[test]

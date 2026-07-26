@@ -424,7 +424,7 @@ impl PackState {
     }
 
     /// Whether any track's file name has drifted from its tag -- what greys the
-    /// "Fix Names" tool out once there is nothing left to rename.
+    /// "Fix File Names" tool out once there is nothing left to rename.
     #[must_use]
     pub fn has_tag_renames(&self) -> bool {
         self.tracks.iter().enumerate().any(|(index, track)| {
@@ -1140,7 +1140,9 @@ fn track_tools(
                 .on_hover_text("Write volume modifiers to each track")
                 .clicked()
             {
-                actions.push(Action::PackApplySuggestedModifiers);
+                actions.push(Action::PackApplySuggestedModifiers {
+                    album: state.album_normalize,
+                });
             }
             // A lit pad, not a checkbox: this modifies what Apply does, so it
             // belongs beside it, and "lit = on" is the chrome's own rule.
@@ -1174,7 +1176,7 @@ fn track_tools(
             // The other mechanical fix: pull every file name back into step with
             // the tag it should have come from.
             ui.add_enabled_ui(state.has_tag_renames(), |ui| {
-                if bevel::button(ui, palette, "Fix Names")
+                if bevel::button(ui, palette, "Fix File Names")
                     .on_hover_text(
                         "Rename each file to \"NN Track Name.ext\" from its GD3 tag, using \
                          vgm_ren's character rules, as one undoable step",

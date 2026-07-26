@@ -101,9 +101,13 @@ pub enum Action {
     PackSaveDocs,
     /// Measure every pack track's peak in the background, for the Peak column.
     PackScanVolumes,
-    /// Set each track's VGM volume modifier from the scanned peaks (album or
-    /// per-track), as one undoable batch of header rewrites.
-    PackApplySuggestedModifiers,
+    /// Set each track's VGM volume modifier from the scanned peaks, as one
+    /// undoable batch of header rewrites. `album` levels the pack by its loudest
+    /// track; otherwise each track is normalised to its own peak. The pad passes
+    /// the Album latch; the menu items say which they mean.
+    PackApplySuggestedModifiers {
+        album: bool,
+    },
     /// Rewrite every slash-separated release date (pack meta and each track's
     /// GD3) to hyphens -- the checklist's one-click date fix-assist.
     PackConvertDatesToHyphens,
@@ -130,6 +134,9 @@ pub enum Action {
     PackAddScreenshotAs {
         file_name: String,
         bytes: Vec<u8>,
+        /// Losslessly recompress before writing, so the file lands optimal
+        /// rather than being rewritten a moment later.
+        recompress: bool,
     },
     /// Ask whether to delete the screenshot at this index.
     PackDeleteScreenshot(usize),

@@ -70,6 +70,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
     let is_vgm = state.song_type == Some(SongFileType::Vgm);
     egui::MenuBar::new().ui(ui, |ui| {
         ui.menu_button("File", |ui| {
+            widen(ui);
             // Both openers, on both screens: opening the other kind of project is
             // how you get to the other tab in the first place.
             if item(ui, "Open Song...", Some(&OPEN)) {
@@ -136,6 +137,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
         });
 
         ui.menu_button("Edit", |ui| {
+            widen(ui);
             let undo_label = match &state.undo_description {
                 Some(description) => format!("Undo {description}"),
                 None => "Undo".to_owned(),
@@ -152,9 +154,40 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
                 actions.push(Action::Redo);
             }
-            // Everything below edits the loaded song, which the Pack tab neither
-            // shows nor has; there, Undo/Redo are the whole menu.
+            // On the Pack tab the rest of this menu edits a song that is not on
+            // screen. What belongs there instead are the batch operations the
+            // Tracks section carries, in the two groups its silkscreen names.
             if !editor {
+                crate::theme::separator(ui, palette);
+                ui.menu_button("Levels", |ui| {
+                    widen(ui);
+                    if item(ui, "Scan Volumes", None) {
+                        actions.push(Action::PackScanVolumes);
+                    }
+                    // Two items rather than one plus a mode: which levelling ran
+                    // is the whole question, and a menu cannot show a latch.
+                    if item(ui, "Apply Album Level", None) {
+                        actions.push(Action::PackApplySuggestedModifiers { album: true });
+                    }
+                    if item(ui, "Apply Track Levels", None) {
+                        actions.push(Action::PackApplySuggestedModifiers { album: false });
+                    }
+                });
+                // "Track Tags", not "Tags": the pack's section strip has a Tags
+                // tab holding the *package* metadata, and one label must not
+                // name two different things on the same screen.
+                ui.menu_button("Track Tags", |ui| {
+                    widen(ui);
+                    if item(ui, "Bulk Tag...", None) {
+                        actions.push(Action::OpenBulkTag);
+                    }
+                    if item(ui, "Fix Dates", None) {
+                        actions.push(Action::PackConvertDatesToHyphens);
+                    }
+                    if item(ui, "Fix File Names", None) {
+                        actions.push(Action::PackRenameFromTags);
+                    }
+                });
                 return;
             }
             crate::theme::separator(ui, palette);
@@ -236,6 +269,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
         });
 
         ui.menu_button("Help", |ui| {
+            widen(ui);
             if item(ui, "Help...", Some(&HELP)) {
                 actions.push(Action::Help);
             }
@@ -244,6 +278,17 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
         });
     });
+}
+
+/// Claims a width the longest item in the menu fits on one line.
+///
+/// A menu sizes itself to the widest item drawn *so far*, and the first two are
+/// Undo and Redo -- so "Delete Instruction(s) Del" wrapped to three lines in a
+/// box shaped by "Undo Ctrl+Z". A menu that grows as it is read is worse than
+/// one that starts wide, and at a 16px DOS font the longest label here is around
+/// 34 characters including its shortcut.
+fn widen(ui: &mut egui::Ui) {
+    ui.set_min_width(300.0);
 }
 
 fn item(ui: &mut egui::Ui, label: &str, shortcut: Option<&KeyboardShortcut>) -> bool {

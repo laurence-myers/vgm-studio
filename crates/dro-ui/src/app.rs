@@ -209,6 +209,15 @@ fn file_label(path: &Path) -> String {
     )
 }
 
+/// A screenshot named and ready to go into the pack folder: where it lands, and
+/// the bytes as picked (the fallback if the recompression fails or gains
+/// nothing).
+#[derive(Debug, Clone)]
+struct PendingAdd {
+    path: PathBuf,
+    bytes: Vec<u8>,
+}
+
 /// What the screenshot picker's result will be used for. The pick is async, so
 /// the intent has to outlive the click that started it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -262,6 +271,9 @@ pub struct DroApp {
     pending_saves: VecDeque<SavePurpose>,
     /// What the in-flight screenshot pick, if any, will do when it lands.
     pending_screenshot: Option<ScreenshotPick>,
+    /// A named screenshot waiting for its recompression to come back, so it can
+    /// be written already-optimal instead of written and then rewritten.
+    pending_add: Option<PendingAdd>,
     /// How far along File > Split Channels is, if it is running at all. Doubles
     /// as the in-flight guard and as the gate that drops a result belonging to a
     /// split the user has since abandoned.
@@ -347,6 +359,7 @@ impl DroApp {
         Self {
             editor: Editor::new(),
             pending_screenshot: None,
+            pending_add: None,
             files,
             audio,
             tasks,
@@ -852,10 +865,16 @@ impl DroApp {
                         suggested_name: zip_name,
                         bytes,
                     });
+                    // The zip exists in memory, not on disk: the picker is still
+                    // to come, and saying "built" without saying "choose where"
+                    // reads as finished (which is what a cancel then contradicts).
                     self.status = if log.is_empty() {
-                        "Built the pack zip.".to_owned()
+                        "Built the pack zip -- choose where to save it.".to_owned()
                     } else {
-                        format!("Built the pack zip. {}", log.join(" "))
+                        format!(
+                            "Built the pack zip. {} Choose where to save it.",
+                            log.join(" ")
+                        )
                     };
                 }
                 PackJobOutcome::Failed(message) => {
@@ -867,12 +886,26 @@ impl DroApp {
             }
         }
         if let Some(result) = self.pack_service.poll_optimized() {
-            match result {
-                Ok(optimized) => self.image_optimized(optimized),
-                Err(message) => {
-                    self.status = "Screenshot optimise failed.".to_owned();
-                    self.alerts
-                        .push_back(Alert::new("Optimise failed", message));
+            // An add's recompression is a step on the way in, not an edit of a
+            // file in the folder: it writes the file rather than rewriting it,
+            // and a failed pass just means the picked bytes go in as they are.
+            if let Some(add) = self.pending_add.take() {
+                let smaller = result
+                    .ok()
+                    .filter(|optimized| optimized.bytes.len() < add.bytes.len())
+                    .map(|optimized| optimized.bytes);
+                self.write_added_screenshot(match smaller {
+                    Some(bytes) => PendingAdd { bytes, ..add },
+                    None => add,
+                });
+            } else {
+                match result {
+                    Ok(optimized) => self.image_optimized(optimized),
+                    Err(message) => {
+                        self.status = "Screenshot optimise failed.".to_owned();
+                        self.alerts
+                            .push_back(Alert::new("Optimise failed", message));
+                    }
                 }
             }
         }
@@ -1114,6 +1147,11 @@ impl DroApp {
                 SavePurpose::PackOp => self.abort_pack_run("The save was cancelled.".to_owned()),
                 SavePurpose::TrackRewrite | SavePurpose::ImageWritten => {
                     self.pending_pack_undo = None;
+                }
+                // The build's status is still on the bar, reading as a finished
+                // export -- gzipped tracks and all. Say what actually happened.
+                SavePurpose::ExportZip => {
+                    self.status = "Export cancelled; the zip was not saved.".to_owned();
                 }
                 // Split files save in place, so there is no picker to cancel --
                 // but the tally still has to move on, or the batch never ends.
@@ -1719,7 +1757,7 @@ impl DroApp {
             Action::ConfirmClosePack => self.close_pack(),
             Action::PackSaveDocs => self.save_pack_docs(),
             Action::PackScanVolumes => self.scan_pack_volumes(),
-            Action::PackApplySuggestedModifiers => self.apply_pack_modifiers(),
+            Action::PackApplySuggestedModifiers { album } => self.apply_pack_modifiers(album),
             Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
             Action::PackRenameFromTags => self.rename_pack_tracks_from_tags(),
             Action::PackSelectSection(section) => {
@@ -1733,9 +1771,11 @@ impl DroApp {
             }
             Action::PackReplaceScreenshot(index) => self.replace_screenshot(index),
             Action::PackRenameScreenshotAt(index) => self.open_screenshot_rename(index),
-            Action::PackAddScreenshotAs { file_name, bytes } => {
-                self.add_screenshot_as(&file_name, bytes);
-            }
+            Action::PackAddScreenshotAs {
+                file_name,
+                bytes,
+                recompress,
+            } => self.add_screenshot_as(&file_name, bytes, recompress),
             Action::PackRenameScreenshot {
                 original_name,
                 file_name,
@@ -2733,12 +2773,20 @@ impl DroApp {
     }
 
     /// Sets each scanned track's VGM volume modifier so the pack is levelled, as
-    /// one undoable batch. The album-vs-per-track choice, the skip-unchanged
-    /// logic and the serialisation live in [`PackState::suggested_modifier_transaction`].
-    fn apply_pack_modifiers(&mut self) {
+    /// one undoable batch. The skip-unchanged logic and the serialisation live in
+    /// [`PackState::suggested_modifier_transaction`].
+    ///
+    /// `album` levels the whole pack by its loudest track (the VGMRips
+    /// convention); otherwise each track is normalised to its own peak. It is
+    /// written back to the Album latch, so the pad reflects what actually ran
+    /// when the menu item was the one that asked.
+    fn apply_pack_modifiers(&mut self, album: bool) {
         if self.pack_busy() {
             self.status = "A track operation is still running.".to_owned();
             return;
+        }
+        if let Some(pack) = self.pack.as_mut() {
+            pack.album_normalize = album;
         }
         // Applying mid-scan would use the peaks from *before* the scan and then
         // discard its result (the rewrite's rescan cancels it) -- confusing both
@@ -2966,15 +3014,35 @@ impl DroApp {
     /// Writes a picked screenshot into the pack folder under the name the naming
     /// dialog settled on -- the second half of [`Self::add_screenshot`], once the
     /// user has seen and approved where it lands.
-    fn add_screenshot_as(&mut self, file_name: &str, bytes: Vec<u8>) {
+    /// With `recompress` the bytes go through oxipng *first* and the result is
+    /// what lands, so the file is optimal in one write. Rewriting it afterwards
+    /// would work too, but it would touch the disk twice and push a
+    /// recompression of a file nobody has seen onto the undo stack.
+    fn add_screenshot_as(&mut self, file_name: &str, bytes: Vec<u8>, recompress: bool) {
         let Some(folder) = self.pack.as_ref().and_then(|pack| pack.folder_path.clone()) else {
             return;
         };
-        self.status = format!("Adding {file_name}...");
-        self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
-        self.files.save(SaveRequest::InPlace {
+        let add = PendingAdd {
             path: folder.join(file_name),
             bytes,
+        };
+        if recompress {
+            self.status = format!("Recompressing {file_name}...");
+            self.pack_service
+                .optimize(file_name.to_owned(), add.bytes.clone());
+            self.pending_add = Some(add);
+            return;
+        }
+        self.write_added_screenshot(add);
+    }
+
+    /// Writes an added screenshot's bytes into the pack folder.
+    fn write_added_screenshot(&mut self, add: PendingAdd) {
+        self.status = format!("Adding {}...", file_label(&add.path));
+        self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
+        self.files.save(SaveRequest::InPlace {
+            path: add.path,
+            bytes: add.bytes,
         });
     }
 

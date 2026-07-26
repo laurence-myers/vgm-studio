@@ -36,6 +36,10 @@ pub struct ScreenshotRenameDialog {
     /// The other screenshots' names, for the collision check.
     sibling_names: Vec<String>,
     job: Job,
+    /// Whether an added file is losslessly recompressed on the way in. On by
+    /// default: a DOSBox capture is rarely optimal, the submission ships the
+    /// bytes as they land, and it costs nothing to look at. Ignored by a rename.
+    recompress: bool,
 }
 
 impl ScreenshotRenameDialog {
@@ -63,6 +67,7 @@ impl ScreenshotRenameDialog {
             stem,
             sibling_names,
             job: Job::Rename,
+            recompress: false,
         }
     }
 
@@ -87,6 +92,7 @@ impl ScreenshotRenameDialog {
             stem,
             sibling_names,
             job: Job::Add(bytes),
+            recompress: true,
         }
     }
 
@@ -156,6 +162,29 @@ impl ScreenshotRenameDialog {
                             .text_color(palette.data_text),
                     );
                     ui.end_row();
+
+                    // Only an add writes new bytes, so only an add can choose
+                    // how they are packed.
+                    if matches!(self.job, Job::Add(_)) {
+                        ui.label("Recompress:");
+                        ui.horizontal(|ui| {
+                            ui.checkbox(&mut self.recompress, "");
+                            if ui
+                                .add(
+                                    egui::Label::new("Losslessly, with oxipng")
+                                        .sense(egui::Sense::click()),
+                                )
+                                .on_hover_text(
+                                    "Shrink the file without touching a pixel. The same pass the \
+                                     Recompress pad runs, done on the way in.",
+                                )
+                                .clicked()
+                            {
+                                self.recompress = !self.recompress;
+                            }
+                        });
+                        ui.end_row();
+                    }
                 });
             ui.add_space(8.0);
             super::dialog_footer(ui, |ui| {
@@ -207,6 +236,7 @@ impl ScreenshotRenameDialog {
             Job::Add(bytes) => Action::PackAddScreenshotAs {
                 file_name: name,
                 bytes: std::mem::take(bytes),
+                recompress: self.recompress,
             },
         });
         true
