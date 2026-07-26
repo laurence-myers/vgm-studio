@@ -170,8 +170,24 @@
   what was asked for -- the file cannot express the difference, and leaving them
   apart would keep the "unapplied" cue lit on a loop that had just been applied.
 
-  Remaining: playback for other chips (mc-6 onward) and the minimum-version
-  writer (mc-10). See `docs/vgm-multichip-2026-07/HANDOVER.md`.
+  Remaining: playback for other chips, and the minimum-version writer (mc-10).
+  See `docs/vgm-multichip-2026-07/HANDOVER.md`.
+- Any-chip playback -- **the engine is built, the chips are not.** `dro-synth`
+  can walk a VGM's command stream, route each write to whichever chip owns it
+  (dual-chip instances and per-chip ports included), keep and unpack its data
+  banks (the `0x40`-`0x7E` compressed ones too), run the `0x90`-`0x95` DAC
+  streams on their own clock, resample each chip into one mix, and seek by
+  folding chip state rather than replaying -- all behind a `ChipCore` trait that
+  knows nothing about any particular chip. What it has no implementations of is
+  the chips themselves, so today it renders silence.
+
+  It is not therefore untested: routing, banks, ROM delivery and DAC timing are
+  assertions about what reached which chip, which a test core answers without an
+  emulator, and the whole engine is driven over every VGM on the corpus (16461
+  files, 146 hours) checking that each plays and seeks for exactly as long as
+  its own waits say. Next is the first cores (SN76489, YM2612, YM2413), which
+  carries a licensing choice worth making deliberately, then wiring playback
+  into the app's audio service with the per-chip output settings.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

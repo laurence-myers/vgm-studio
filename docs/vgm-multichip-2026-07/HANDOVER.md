@@ -83,6 +83,54 @@
 > `UnwalkableVgmDialog` -- with every VGM openable, the only one that still needs
 > an explaining dialog is one whose commands will not walk.
 >
+> ### mc-6: the engine is built, the cores are not (2026-07-27)
+>
+> `dro-synth` gained four modules and no emulation:
+>
+> - **`chip.rs`** — the `ChipCore` trait (reset, write, ROM, RAM, render at your
+>   own rate), `core_for` (the registry, empty), `playability`, and
+>   `RecordingChip`. `OplChip` stays: the OPL player has register policy --
+>   muting, panning, Nuked's buffered-write spacing -- that belongs nowhere near
+>   a generic engine.
+> - **`banks.rs`** — what a `0x67` type byte means, and the sample banks kept by
+>   type and arrival order (`0x95` addresses "the nth block of this type"; a
+>   `0x91` binding addresses the type's whole concatenated run).
+> - **`dac_stream.rs`** — all six `0x90`-`0x95` commands. Chip-agnostic in the
+>   spec and here: it says when a byte is due and where it goes, and the engine
+>   writes it. Serviced once per *output frame*, which is what makes it
+>   independent of the command stream's clock.
+> - **`decompress.rs`** — the `0x40`-`0x7E` blocks. Bit packing (copy, shift,
+>   table) and DPCM, against the shared `0x7F` table. Route B, from the spec; the
+>   net is a packer in the tests so every scheme round-trips.
+> - **`vgm_engine.rs`** — `VgmEngine`: routing (dual-chip instances, per-chip
+>   ports), the banks, ROM/RAM delivery, `0x64`'s wait redefinition, per-chip
+>   linear resampling into one mix, the `render(&mut [i16]) -> usize` pull
+>   contract, and `seek_to_row` via `chip_state`.
+>
+> **`with_cores` is how it is tested.** Routing, banks, ROM delivery and DAC
+> timing are assertions about what reached which chip, which a test core answers
+> without an emulator -- and keeps answering when the real ones arrive and start
+> disagreeing about samples.
+>
+> **`chip_state` now has all four intended consumers**: crop, the optimiser, the
+> splitter's prelude and this seek. A seek and a crop agree by construction about
+> what "the state at row N" means.
+>
+> **The engine corpus** (`crates/dro-trimmer/tests/engine_corpus.rs`) drives all
+> 16461 openable files: 146 hours rendered, every one playing and seeking for
+> exactly as long as its own waits say. It bounds each file at 20 s and logs how
+> many ran to their end (4418) rather than leaving the cap implied.
+>
+> **What mc-8 has to do to the registry:** add arms to `core_for` and delete
+> `nothing_is_playable_until_a_core_lands`, which exists to be deleted.
+> Licensing is the live question, and it is the user's: an SN76489 from
+> libymfm.wasm is BSD-3 and changes nothing, but rust-synth-emulation's
+> `ym3438.rs` is GPL-2.0 and vendoring it relicenses the project (approved in
+> principle 2026-07-20, §2.1 — but it should be *asked* before it happens, since
+> a Route-B write from the documented behaviour, as every other tool here was
+> done, keeps the choice open). Acceptance is an A/B against VGMPlay, which is a
+> thing a person does.
+>
 > ### Porting notes, kept because they generalise
 >
 > Every `&Song`-shaped stream rebuilder now has a `VgmStream` equivalent:
@@ -1172,9 +1220,9 @@ a deep change with no payoff, since nothing edits through it any more.
 | 8 | uv-3 | **crop + delete-marked-region for every VGM** (hard requirement) | **done** |
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
-| 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **next** |
+| 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
 | 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | |
-| 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | |
+| 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | **next** |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
 
