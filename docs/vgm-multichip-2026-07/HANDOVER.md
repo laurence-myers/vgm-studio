@@ -121,15 +121,32 @@
 > exactly as long as its own waits say. It bounds each file at 20 s and logs how
 > many ran to their end (4418) rather than leaving the cap implied.
 >
-> **What mc-8 has to do to the registry:** add arms to `core_for` and delete
-> `nothing_is_playable_until_a_core_lands`, which exists to be deleted.
-> Licensing is the live question, and it is the user's: an SN76489 from
-> libymfm.wasm is BSD-3 and changes nothing, but rust-synth-emulation's
-> `ym3438.rs` is GPL-2.0 and vendoring it relicenses the project (approved in
-> principle 2026-07-20, §2.1 — but it should be *asked* before it happens, since
-> a Route-B write from the documented behaviour, as every other tool here was
-> done, keeps the choice open). Acceptance is an A/B against VGMPlay, which is a
-> thing a person does.
+> ### The first core: an SN76489, written not vendored (2026-07-27)
+>
+> `cores/sn76489.rs`, registered in `core_for`. Three square waves and a noise
+> channel: the latch/data register protocol and its ten-bit periods, the
+> counters, the zero-period case games play samples through, the 16-bit shift
+> register (tapped at bits 0 and 3, white or periodic, restarted by a write), the
+> noise rate that follows tone 2, and four bits of attenuation. Not modelled: the
+> Game Gear's stereo register and the T6W28's split addressing.
+>
+> **Route B, deliberately.** The plan allowed vendoring libymfm.wasm's BSD-3 port
+> instead; writing it kept the copy-and-attribution question off the table
+> entirely, and this chip is simple enough that the documented behaviour *is* the
+> implementation. Every number is derived in a test rather than transcribed: the
+> volume table is recomputed from "2 dB a step, and the last step is off", and a
+> tone's pitch is counted in rising edges against `clock / (32 x period)`.
+>
+> **The licensing question is still live for the next two cores, and it is the
+> user's.** `rust-synth-emulation`'s `ym3438.rs` is GPL-2.0, and vendoring it
+> relicenses the project — approved in principle 2026-07-20 (§2.1), but worth
+> *asking* before it happens, because the alternatives keep the choice open: a
+> hand-port of Nuked-OPN2 is LGPL-2.1, emu2413 (YM2413) is MIT, and libymfm.wasm's
+> ports are BSD-3. Nothing so far has forced the move.
+>
+> **Acceptance for a core is an A/B against VGMPlay, which is a thing a person
+> does.** The tests here pin documented behaviour, not fidelity; treat a new core
+> as unverified until someone has listened to it.
 >
 > ### Porting notes, kept because they generalise
 >
@@ -1221,8 +1238,8 @@ a deep change with no payoff, since nothing edits through it any more.
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
 | 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
-| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | |
-| 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | **next** |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | **next** -- there is now something to hear |
+| 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
 

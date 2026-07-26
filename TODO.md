@@ -185,9 +185,20 @@
   assertions about what reached which chip, which a test core answers without an
   emulator, and the whole engine is driven over every VGM on the corpus (16461
   files, 146 hours) checking that each plays and seeks for exactly as long as
-  its own waits say. Next is the first cores (SN76489, YM2612, YM2413), which
-  carries a licensing choice worth making deliberately, then wiring playback
-  into the app's audio service with the per-chip output settings.
+  its own waits say.
+
+  **The first chip is in: an SN76489** -- Master System, Game Gear, BBC Micro,
+  ColecoVision, and the Mega Drive's second voice. Written from the documented
+  behaviour rather than ported, like every other tool here, so the licensing
+  choice about vendoring a GPL core stays open; every number in it is derived in
+  a test rather than transcribed. `playability` now has something to say: a
+  Master System rip is fully playable, a Mega Drive one partly, with the YM2612
+  named as the chip that would be silent. Treat it as unverified until someone
+  has A/B'd it against VGMPlay -- the tests pin documented behaviour, not
+  fidelity.
+
+  Next: wiring playback into the app's audio service with the per-chip output
+  settings, then the YM2612 and YM2413.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit
