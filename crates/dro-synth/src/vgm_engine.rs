@@ -810,6 +810,41 @@ mod tests {
     /// A compressed bank arrives unpacked, and under the type a stream binds
     /// to -- so a file that compressed its samples is indistinguishable
     /// downstream from one that did not.
+    /// The whole path, through the registry the app uses: a real file, a real
+    /// core, and audio out the other end.
+    #[test]
+    fn a_sound_chip_this_app_has_a_core_for_actually_makes_a_sound() {
+        // `0x50 nn` writes a byte to the SN76489. Set tone 0 to period 254 and
+        // turn it up, then let it play for a second.
+        let stream = &[
+            0x50, 0x8E, // latch tone 0, low nibble of 254
+            0x50, 0x0F, // high six bits
+            0x50, 0x90, // tone 0 at full volume
+            0x61, 0x44, 0xAC, // wait a second
+            0x66,
+        ];
+        let file = vgm(&[(ChipKind::Sn76489, 3_579_545)], stream);
+        let mut engine = VgmEngine::new(file, 44_100);
+        assert_eq!(
+            engine.voiced_chips().len(),
+            1,
+            "the registry has a core for this one"
+        );
+
+        let mut out = vec![0i16; 44_100 * 2];
+        assert_eq!(engine.render(&mut out), 44_100);
+
+        let peak = out.iter().copied().map(i16::abs).max().unwrap_or(0);
+        assert!(peak > 1000, "audible, not silence: peak {peak}");
+        // A square wave spends its time at its extremes, so the mean of the
+        // absolute values sits near the peak rather than near zero.
+        let mean = out.iter().map(|&s| i64::from(s.abs())).sum::<i64>() / out.len() as i64;
+        assert!(
+            mean > i64::from(peak) / 2,
+            "a square wave, not a click: mean {mean} against peak {peak}"
+        );
+    }
+
     #[test]
     fn a_seek_restores_the_state_rather_than_replaying_the_stream() {
         // Four writes to the same register, parted by waits, then one to

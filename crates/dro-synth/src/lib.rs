@@ -10,6 +10,7 @@
 pub mod banks;
 pub mod capture;
 pub mod chip;
+pub mod cores;
 pub mod dac_stream;
 pub mod decompress;
 pub mod engine;
@@ -24,6 +25,7 @@ pub mod waveform;
 pub use banks::{Banks, BlockKind};
 pub use capture::capture;
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, playability};
+pub use cores::Sn76489;
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{Compression, DecompressionTable, decompress};
 pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, PlayerEngine, Position};

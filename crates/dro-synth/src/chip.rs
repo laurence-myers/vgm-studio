@@ -89,18 +89,18 @@ impl Playability {
 
 /// Builds a core for `kind`, or `None` when this app has none for it.
 ///
-/// The one place a chip becomes playable. mc-8 adds the first arms (SN76489,
-/// YM2612, YM2413); until then every file is [`Playability::None`] through the
-/// generic engine, which is exactly what it was before this trait existed.
+/// The one place a chip becomes playable, and the one place to add an arm when
+/// a core lands.
 ///
 /// OPL is absent on purpose, and not by oversight: an OPL file plays through
 /// `PlayerEngine`, which carries the muting and panning policy this trait has
 /// no place for.
 #[must_use]
-pub fn core_for(_kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-    // mc-8 turns this into a match. Deliberately not one yet: an empty match
-    // with a single wildcard arm reads as though the arms were deleted.
-    None
+pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
+    match kind {
+        ChipKind::Sn76489 => Some(Box::new(crate::cores::Sn76489::new())),
+        _ => None,
+    }
 }
 
 /// What playing a file with these chips would sound like.
@@ -198,12 +198,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nothing_is_playable_until_a_core_lands() {
-        // The honest state of the world at mc-6: the engine is built, the cores
-        // are not. This test is the reminder to change it in mc-8.
-        assert!(core_for(ChipKind::Sn76489).is_none());
-        assert_eq!(playability(&[ChipKind::Sn76489]), Playability::None);
+    fn playability_is_per_chip_and_says_what_is_missing() {
+        assert!(core_for(ChipKind::Sn76489).is_some());
+        assert!(core_for(ChipKind::Ym2612).is_none());
+
+        assert_eq!(playability(&[ChipKind::Sn76489]), Playability::Full);
         assert_eq!(playability(&[]), Playability::Full);
+        assert_eq!(playability(&[ChipKind::Ym2612]), Playability::None);
+        // A Mega Drive rip: one chip playable, one not, so it is worth offering
+        // -- with the silent one named.
+        let mixed = playability(&[ChipKind::Sn76489, ChipKind::Ym2612]);
+        assert_eq!(mixed, Playability::Partial(vec![ChipKind::Ym2612]));
+        assert!(mixed.can_play());
+        assert_eq!(mixed.missing(), [ChipKind::Ym2612]);
     }
 
     #[test]
