@@ -1900,7 +1900,7 @@ impl DroApp {
             Action::PlayTail => self.do_play_tail(),
             Action::PlaySeam => self.do_play_seam(),
             Action::TogglePlayback => {
-                if !self.require_song() {
+                if !self.require_playable() {
                     return;
                 }
                 if self.audio.is_playing() {
@@ -3335,7 +3335,7 @@ impl DroApp {
     }
 
     fn do_play(&mut self) {
-        if !self.require_song() {
+        if !self.require_playable() {
             return;
         }
         if let Err(message) = self.ensure_audio() {
@@ -3352,7 +3352,7 @@ impl DroApp {
     }
 
     fn do_stop(&mut self) {
-        if !self.require_song() {
+        if !self.require_playable() {
             return;
         }
         self.audio.pause();
@@ -3360,7 +3360,7 @@ impl DroApp {
     }
 
     fn do_play_tail(&mut self) {
-        if !self.require_song() {
+        if !self.require_playable() {
             return;
         }
         if let Err(message) = self.ensure_audio() {
@@ -3642,6 +3642,21 @@ impl DroApp {
             true
         } else {
             self.status = "Please open a DRO file first.".to_owned();
+            false
+        }
+    }
+
+    /// The gate for the transport: is there anything to hear?
+    ///
+    /// Between [`Self::require_song`] (an OPL stream) and
+    /// [`Self::require_document`] (anything open). Playing needs neither of
+    /// those exactly -- it needs a chip this app has a core for, which an OPL
+    /// song always is and a VGM sometimes is.
+    fn require_playable(&mut self) -> bool {
+        if self.editor.capabilities().playable && self.editor.has_document() {
+            true
+        } else {
+            self.status = "There is nothing here this app can play.".to_owned();
             false
         }
     }
@@ -3966,7 +3981,7 @@ impl DroApp {
 
     /// Previews a detected song: seek playback to its first instruction and play.
     fn preview_segment(&mut self, start_index: usize) {
-        if !self.require_song() {
+        if !self.require_playable() {
             return;
         }
         if let Err(message) = self.ensure_audio() {
@@ -3981,17 +3996,29 @@ impl DroApp {
     }
 
     fn submit_waveform(&mut self, debounce: Option<Duration>) {
-        let Some(snapshot) = self.editor.snapshot() else {
+        let Some(source) = self.audio_source() else {
             return;
         };
         self.tasks.submit(
             TaskRequest::RenderWaveform {
-                song: snapshot,
+                source,
                 num_buckets: waveform::NUM_BUCKETS,
                 sample_rate: self.config.audio.frequency,
             },
             debounce,
         );
+    }
+
+    /// The loaded document as something an engine can play, of either kind.
+    /// `None` with nothing open.
+    fn audio_source(&self) -> Option<dro_synth::AudioSource> {
+        match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => Some(dro_synth::AudioSource::Opl(song)),
+            (None, Some(file)) => Some(dro_synth::AudioSource::Vgm(std::sync::Arc::new(
+                file.clone(),
+            ))),
+            (None, None) => None,
+        }
     }
 
     /// Loads the current song into the audio output if it is not already
@@ -4000,11 +4027,9 @@ impl DroApp {
         if self.audio_revision == Some(self.editor.revision()) {
             return Ok(());
         }
-        let source = match (self.editor.snapshot(), self.editor.vgm()) {
-            (Some(song), _) => dro_synth::AudioSource::Opl(song),
-            (None, Some(file)) => dro_synth::AudioSource::Vgm(std::sync::Arc::new(file.clone())),
-            (None, None) => return Err("No song is loaded.".to_owned()),
-        };
+        let source = self
+            .audio_source()
+            .ok_or_else(|| "No song is loaded.".to_owned())?;
         self.audio.load(source, &self.config.audio)?;
         self.audio.set_muting(self.channels.muting());
         self.audio.set_panning(self.channels.panning());
@@ -4143,7 +4168,10 @@ impl DroApp {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
             can_render: self.editor.capabilities().renderable,
-            can_split_channels: self.editor.capabilities().playable,
+            // Specifically an OPL stream, not merely something audible: the
+            // channel split decides which OPL channel each register write
+            // belongs to. Shown for an empty editor, like the rest of the menu.
+            can_split_channels: self.editor.has_song() || !self.editor.has_document(),
         }
     }
 

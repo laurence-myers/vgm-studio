@@ -37,8 +37,9 @@ pub struct RowCells {
 /// What the loaded document supports, for the panels that only suit some of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DocCapabilities {
-    /// There is an OPL stream to render: the transport, waveform, position
-    /// readout, peak meter and channel controls all mean something.
+    /// Something would be heard: an OPL stream, or a VGM with at least one chip
+    /// this app has a core for. The transport, waveform, position readout and
+    /// peak meter all mean something.
     pub playable: bool,
     /// There are rows to select and delete.
     pub editable: bool,
@@ -184,21 +185,28 @@ impl Editor {
     /// against some of it.
     #[must_use]
     pub fn capabilities(&self) -> DocCapabilities {
+        // The two questions were the same while OPL was the only thing this app
+        // could play, and they are the same answer for every document except a
+        // VGM whose chips it has cores for.
+        let audible = self.renderable();
         DocCapabilities {
-            // Playback, the waveform and the position readout need a decoded
-            // OPL stream. With *nothing* loaded they still show, greyed -- that
-            // is how an empty editor has always looked, and it is where the
-            // transport lives. A document held as a VGM is one whose chips are
-            // not OPL, so they go rather than sit there dead over a
-            // permanently flat waveform.
-            playable: self.has_song() || !self.has_document(),
+            // With *nothing* loaded these still show, greyed -- that is how an
+            // empty editor has always looked, and it is where the transport
+            // lives. They go only for a document nothing would come out of.
+            playable: audible || !self.has_document(),
             editable: self.has_document(),
-            renderable: self.has_song()
-                || self.vgm.as_ref().is_some_and(|file| {
-                    let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-                    dro_synth::playability(&chips).can_play()
-                }),
+            renderable: audible,
         }
+    }
+
+    /// Whether anything would be heard from the loaded document: an OPL stream,
+    /// or a VGM with at least one chip this app has a core for.
+    fn renderable(&self) -> bool {
+        self.has_song()
+            || self.vgm.as_ref().is_some_and(|file| {
+                let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+                dro_synth::playability(&chips).can_play()
+            })
     }
 
     /// The number of rows, `0` with nothing open.

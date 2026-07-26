@@ -2273,6 +2273,44 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     assert!(peak > 1000, "and it is audible: peak {peak}");
 }
 
+/// A file this app can actually play gets the transport, the waveform and the
+/// position readout -- the panels that were absent while OPL was the only thing
+/// it could make a sound with.
+#[test]
+fn a_vgm_this_app_can_play_gets_its_transport_back() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    assert!(
+        harness.state().editor.song().is_none(),
+        "no OPL projection..."
+    );
+    assert!(
+        harness.state().editor.capabilities().playable,
+        "...but something would be heard"
+    );
+
+    // The waveform render was submitted for it, through the generic engine.
+    assert!(
+        handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::RenderWaveform),
+        "a waveform is rendered for it like any other song"
+    );
+
+    // And playing it loads it into the audio output.
+    act(&mut harness, Action::Play);
+    let audio = handles.audio.borrow();
+    assert_eq!(
+        audio.loaded.as_ref().map(dro_synth::AudioSource::name),
+        Some("01 Bios.vgm"),
+        "it reached the output: {}",
+        harness.state().status
+    );
+    assert!(audio.playing);
+}
+
 /// A VGM for chips there is no core for renders silence, so the render is not
 /// offered at all -- an empty WAV is a worse answer than an absent menu item.
 #[test]

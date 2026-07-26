@@ -16,8 +16,9 @@ use dro_core::split_songs::{
     detect_segments, detect_segments_in_vgm, materialise, materialise_vgm,
 };
 use dro_synth::{
-    Peak, RenderMix, SplitData, SplitOptions, WaveformBucket, measure_peak_cancellable,
-    render_wav_cancellable, render_waveform_progressive, split_cancellable,
+    AudioSource, Peak, RenderMix, SplitData, SplitOptions, WaveformBucket,
+    measure_peak_cancellable, render_wav_cancellable, render_waveform_progressive,
+    split_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -44,7 +45,7 @@ pub enum TaskKind {
 #[derive(Debug, Clone)]
 pub enum TaskRequest {
     RenderWaveform {
-        song: Arc<Song>,
+        source: AudioSource,
         num_buckets: usize,
         sample_rate: u32,
     },
@@ -271,17 +272,32 @@ pub fn run_task(
 ) {
     match request {
         TaskRequest::RenderWaveform {
-            song,
+            source,
             num_buckets,
             sample_rate,
         } => {
-            render_waveform_progressive(
-                song,
-                *num_buckets,
-                *sample_rate,
-                &mut || !is_cancelled(),
-                &mut |buckets| emit(TaskResult::Waveform(buckets)),
-            );
+            // A waveform is a picture of the audio, so it comes from whichever
+            // engine would make that audio.
+            match source {
+                AudioSource::Opl(song) => {
+                    render_waveform_progressive(
+                        song,
+                        *num_buckets,
+                        *sample_rate,
+                        &mut || !is_cancelled(),
+                        &mut |buckets| emit(TaskResult::Waveform(buckets)),
+                    );
+                }
+                AudioSource::Vgm(file) => {
+                    dro_synth::render_vgm_waveform_progressive(
+                        Arc::clone(file),
+                        *num_buckets,
+                        *sample_rate,
+                        &mut || !is_cancelled(),
+                        &mut |buckets| emit(TaskResult::Waveform(buckets)),
+                    );
+                }
+            }
         }
         TaskRequest::RenderWav {
             source,
@@ -494,7 +510,7 @@ mod tests {
 
     fn request(song: Song) -> TaskRequest {
         TaskRequest::RenderWaveform {
-            song: Arc::new(song),
+            source: AudioSource::Opl(Arc::new(song)),
             num_buckets: 32,
             sample_rate: 48_000,
         }
