@@ -121,8 +121,6 @@ pub fn find_loops(
     emit: &mut dyn FnMut(Candidate),
     is_cancelled: &dyn Fn() -> bool,
 ) {
-    let window = min_len_commands.max(1);
-
     // The delay-stripped command keys, and the real instruction index of each.
     let mut keys: Vec<u32> = Vec::with_capacity(song.len());
     let mut real: Vec<usize> = Vec::with_capacity(song.len());
@@ -132,6 +130,61 @@ pub fn find_loops(
             real.push(index);
         }
     }
+    search(&keys, &real, min_len_commands, emit, is_cancelled);
+}
+
+/// The same search over a VGM stream of any chip's commands.
+///
+/// Everything but the key-building is shared: a loop is a block of commands
+/// that recurs, and what a command *means* never enters into it. Waits are
+/// stripped for the same reason as in the OPL path -- a body and its repeat
+/// should match through timing jitter -- and every other command is keyed by a
+/// hash of its own bytes, which needs no per-chip knowledge at all.
+///
+/// The hash can collide, and the verification compares keys rather than bytes,
+/// so a collision could surface a candidate that is not really a repeat. At 32
+/// bits over the block lengths this searches that is vanishingly unlikely, and
+/// the cost is one spurious row in a list the user auditions before applying.
+pub fn find_loops_in_stream(
+    stream: &crate::vgm::VgmStream,
+    min_len_commands: usize,
+    emit: &mut dyn FnMut(Candidate),
+    is_cancelled: &dyn Fn() -> bool,
+) {
+    let mut keys: Vec<u32> = Vec::with_capacity(stream.len());
+    let mut real: Vec<usize> = Vec::with_capacity(stream.len());
+    for index in 0..stream.len() {
+        if matches!(stream.get(index), Some(crate::vgm::VgmCommand::Wait(_))) {
+            continue;
+        }
+        let Some(bytes) = stream.raw_command(index) else {
+            continue;
+        };
+        keys.push(hash_command(bytes));
+        real.push(index);
+    }
+    search(&keys, &real, min_len_commands, emit, is_cancelled);
+}
+
+/// FNV-1a over a command's bytes: a stable, chip-blind identity for it.
+fn hash_command(bytes: &[u8]) -> u32 {
+    let mut hash = 0x811C_9DC5u32;
+    for &byte in bytes {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+/// The search proper, over pre-built keys and the real row each came from.
+fn search(
+    keys: &[u32],
+    real: &[usize],
+    min_len_commands: usize,
+    emit: &mut dyn FnMut(Candidate),
+    is_cancelled: &dyn Fn() -> bool,
+) {
+    let window = min_len_commands.max(1);
     let count = keys.len();
     // A pair of distinct `window`-length blocks needs at least `window + 1`
     // commands.

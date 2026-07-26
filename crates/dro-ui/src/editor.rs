@@ -793,6 +793,14 @@ impl Editor {
     /// short of the tail, since `None` already means "to the end" and keeping it
     /// that way is what lets a later trim widen the loop with the song.
     pub fn apply_loop_to_metadata(&mut self) -> bool {
+        if let Some(file) = self.vgm.as_mut() {
+            let len = file.len();
+            let (start, end) = (self.markers.start(), self.markers.end());
+            let before = (file.loop_index(), file.loop_end_index());
+            file.set_loop_rows(Some(start), (end < len).then_some(end));
+            self.metadata_dirty |= before != (file.loop_index(), file.loop_end_index());
+            return true;
+        }
         let Some(song) = self.song.as_mut() else {
             return false;
         };
@@ -813,6 +821,12 @@ impl Editor {
     /// the waveform markers. Always `false` for a DRO, which stores no loop.
     #[must_use]
     pub fn loop_markers_are_unapplied(&self) -> bool {
+        if let Some(file) = self.vgm.as_ref() {
+            let len = file.len();
+            let stored_end = file.loop_end_index().unwrap_or(len);
+            return file.loop_index() != Some(self.markers.start())
+                || stored_end != self.markers.end();
+        }
         let Some(song) = self.song.as_ref() else {
             return false;
         };

@@ -3472,13 +3472,21 @@ impl DroApp {
     /// candidates reach the Find Loop dialog through [`Self::handle_loop_candidates`];
     /// cancel-on-resubmit means clicking Search again just restarts it.
     fn start_loop_search(&mut self, min_len_commands: usize) {
-        let Some(song) = self.editor.snapshot() else {
-            self.require_song();
-            return;
+        // Either representation: a loop is a repeated block, which is not an
+        // OPL idea.
+        let source = match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => crate::tasks::LoopSearchSource::Opl(song),
+            (None, Some(file)) => {
+                crate::tasks::LoopSearchSource::Vgm(std::sync::Arc::new(file.clone()))
+            }
+            (None, None) => {
+                self.status = "Please open a song first.".to_owned();
+                return;
+            }
         };
         self.tasks.submit(
             TaskRequest::LoopSearch {
-                song,
+                source,
                 min_len_commands,
             },
             None,

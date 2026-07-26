@@ -76,6 +76,12 @@ impl FindLoopDialog {
 
     /// Replaces the candidate list from a streamed task snapshot, pre-selecting
     /// the top (best) candidate so Apply and Audition work straight away.
+    /// How many candidates have arrived so far.
+    #[must_use]
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+
     pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
         self.selected = (!candidates.is_empty()).then_some(0);
         self.candidates = candidates;

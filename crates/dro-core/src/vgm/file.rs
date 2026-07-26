@@ -498,6 +498,27 @@ impl VgmFile {
         Some(removed)
     }
 
+    /// Searches for a block of commands that recurs later in the stream -- the
+    /// shape a raw rip has when the capture ran through the loop twice.
+    ///
+    /// Ranked best-first. What a command *means* never enters into it, so this
+    /// works on any chip's file.
+    #[must_use]
+    pub fn find_loops(&self, min_len_commands: usize) -> Vec<crate::loopfind::Candidate> {
+        let Some(stream) = self.stream() else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        crate::loopfind::find_loops_in_stream(
+            stream,
+            min_len_commands,
+            &mut |candidate| found.push(candidate),
+            &|| false,
+        );
+        crate::loopfind::rank(&mut found);
+        found
+    }
+
     /// The chips in this file that no redundancy rule covers, by name.
     ///
     /// What the export log names when it leaves a file alone: "YM2612 is not
@@ -1580,6 +1601,63 @@ mod tests {
             "the time is conserved exactly"
         );
         assert_eq!(file.header.total_samples(), 30_000, "and the header agrees");
+    }
+
+    /// Find Loop, for a chip with no OPL anywhere in it: a body that recurs is
+    /// a body that recurs, whatever wrote it.
+    #[test]
+    fn a_repeated_block_is_found_in_a_non_opl_stream() {
+        let body: &[u8] = &[
+            0x52, 0x28, 0xF0, //
+            0x61, 0x10, 0x27, //
+            0x50, 0x9F, //
+            0x52, 0x30, 0x71, //
+            0x62, //
+        ];
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&[0x52, 0x22, 0x08]); // an intro write
+        stream.extend_from_slice(body);
+        stream.extend_from_slice(body); // ...and the capture ran round again
+        stream.push(0x66);
+
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+        bytes.extend_from_slice(&stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let file = read("md.vgm", &bytes).unwrap();
+        assert!(!file.is_opl(), "and no OPL to fall back on");
+        let best = file.find_loops(3).into_iter().next().expect("a candidate");
+
+        // The body is five rows, so it starts at 1 and repeats at 6.
+        assert_eq!(best.loop_point, 1);
+        assert_eq!(best.loop_end, 6);
+        assert!(best.ends_at_eof, "the repeat runs to the end");
+
+        // And the candidate can be applied, which is the point of finding it.
+        let mut file = file;
+        file.set_loop_rows(Some(best.loop_point), Some(best.loop_end));
+        assert_eq!(file.loop_index(), Some(1));
+        assert_eq!(
+            read("md.vgm", &write(&file).unwrap()).unwrap().loop_index(),
+            Some(1),
+            "and it survives a save"
+        );
+    }
+
+    #[test]
+    fn a_stream_with_no_repeat_offers_no_candidate() {
+        let file = read("md.vgm", &configured()).unwrap();
+        assert!(file.find_loops(3).is_empty());
     }
 
     // -- the loop, as the editor holds it ------------------------------------

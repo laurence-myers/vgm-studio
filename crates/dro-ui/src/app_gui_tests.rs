@@ -2049,6 +2049,65 @@ fn a_non_opl_document_can_be_optimised() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
+/// The loop search reaches a chip this app has no core for -- a repeated block
+/// is a repeated block -- and applying what it finds writes the loop into the
+/// file.
+///
+/// The Find Loop *dialog* is not reached here: it still needs a `Song` to put a
+/// time against each candidate, which a non-OPL document has none of. That last
+/// step is noted in the handover.
+#[test]
+fn a_non_opl_document_can_have_its_loop_found_and_applied() {
+    use dro_core::ChipKind;
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    // An intro write, then a body the capture ran through twice.
+    let body: &[u8] = &[0x52, 0x28, 0xF0, 0x61, 0x10, 0x27, 0x50, 0x9F, 0x62];
+    let mut stream = vec![0x52, 0x22, 0x08];
+    stream.extend_from_slice(body);
+    stream.extend_from_slice(body);
+    stream.push(0x66);
+
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x161);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+    put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+    bytes.extend_from_slice(&stream);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    let file = PickedFile {
+        name: "01 Looper.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/MD/01 Looper.vgm")),
+        bytes,
+    };
+    let (mut harness, _handles) = build(Some(file), true, false);
+    let doc = harness.state().editor.vgm().expect("held as a VGM");
+
+    let best = doc
+        .find_loops(2)
+        .into_iter()
+        .next()
+        .expect("the repeated body is found");
+    assert_eq!(best.loop_point, 1, "the body starts after the intro write");
+    assert_eq!(
+        best.loop_end, 5,
+        "and repeats there -- the body is four rows"
+    );
+
+    // Marking that loop and applying it writes it into the header.
+    let rows = harness.state().editor.len();
+    harness.state_mut().editor.markers.set_start(1, rows);
+    harness.state_mut().editor.markers.set_end(5, rows);
+    assert!(harness.state_mut().editor.apply_loop_to_metadata());
+    let app = harness.state();
+    assert_eq!(app.editor.vgm().unwrap().loop_index(), Some(1));
+    assert!(app.editor.is_dirty(), "and there is something to save");
+}
+
 /// An honest header says so rather than opening a box about nothing.
 #[test]
 fn an_honest_header_reports_that_it_agrees() {

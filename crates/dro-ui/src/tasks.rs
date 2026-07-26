@@ -76,13 +76,25 @@ pub enum TaskRequest {
         tracks: Vec<(String, Arc<Song>)>,
         sample_rate: u32,
     },
-    /// Searches `song` for loop candidates at least `min_len_commands`
-    /// delay-stripped commands long, for the Find Loop dialog. Runs in the
-    /// background because a long song's search takes a moment.
+    /// Searches the loaded document for loop candidates at least
+    /// `min_len_commands` delay-stripped commands long, for the Find Loop
+    /// dialog. Runs in the background because a long song's search takes a
+    /// moment.
     LoopSearch {
-        song: Arc<Song>,
+        source: LoopSearchSource,
         min_len_commands: usize,
     },
+}
+
+/// What a loop search runs over.
+///
+/// A loop is a block of commands that recurs, and what those commands *mean*
+/// never enters into it -- so the search serves either representation, and only
+/// the key-building differs.
+#[derive(Debug, Clone)]
+pub enum LoopSearchSource {
+    Opl(Arc<Song>),
+    Vgm(Arc<dro_core::VgmFile>),
 }
 
 impl TaskRequest {
@@ -269,7 +281,7 @@ pub fn run_task(
             emit(TaskResult::PackPeaks(peaks));
         }
         TaskRequest::LoopSearch {
-            song,
+            source,
             min_len_commands,
         } => {
             // Accumulate as the search streams, emitting a ranked snapshot each
@@ -277,17 +289,27 @@ pub fn run_task(
             // cancelled search never emits (find_loops stops before the first
             // candidate), like the volume scans above.
             let mut found: Vec<Candidate> = Vec::new();
-            find_loops(
-                song,
-                *min_len_commands,
-                &mut |candidate| {
-                    found.push(candidate);
-                    let mut snapshot = found.clone();
-                    rank(&mut snapshot);
-                    emit(TaskResult::LoopCandidates(snapshot));
-                },
-                is_cancelled,
-            );
+            let mut on_candidate = |candidate| {
+                found.push(candidate);
+                let mut snapshot = found.clone();
+                rank(&mut snapshot);
+                emit(TaskResult::LoopCandidates(snapshot));
+            };
+            match source {
+                LoopSearchSource::Opl(song) => {
+                    find_loops(song, *min_len_commands, &mut on_candidate, is_cancelled);
+                }
+                LoopSearchSource::Vgm(file) => {
+                    if let Some(stream) = file.stream() {
+                        dro_core::loopfind::find_loops_in_stream(
+                            stream,
+                            *min_len_commands,
+                            &mut on_candidate,
+                            is_cancelled,
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -448,7 +470,7 @@ mod tests {
     #[test]
     fn the_loop_search_streams_ranked_candidates() {
         let search = TaskRequest::LoopSearch {
-            song: Arc::new(looping_vgm()),
+            source: LoopSearchSource::Opl(Arc::new(looping_vgm())),
             min_len_commands: 4,
         };
         let results = collect(&search, || false);
@@ -462,7 +484,7 @@ mod tests {
     #[test]
     fn a_cancelled_loop_search_emits_nothing() {
         let search = TaskRequest::LoopSearch {
-            song: Arc::new(looping_vgm()),
+            source: LoopSearchSource::Opl(Arc::new(looping_vgm())),
             min_len_commands: 4,
         };
         assert!(collect(&search, || true).is_empty());
