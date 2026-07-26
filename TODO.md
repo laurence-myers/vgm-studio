@@ -197,8 +197,15 @@
   has A/B'd it against VGMPlay -- the tests pin documented behaviour, not
   fidelity.
 
-  Next: wiring playback into the app's audio service with the per-chip output
-  settings, then the YM2612 and YM2413.
+  **Render to WAV already works for it.** A render is offline, so it needed none
+  of the real-time audio service: `File > Render to WAV` is offered for any
+  document with an OPL stream *or* a chip there is a core for, and withheld for
+  one where it would produce silence. `Split Channels` is now a separate
+  question -- deciding which channel a register write belongs to needs an OPL
+  stream however many chips the file has.
+
+  Next: live playback (the audio service's source enum and the per-chip output
+  settings), then the YM2612 and YM2413.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

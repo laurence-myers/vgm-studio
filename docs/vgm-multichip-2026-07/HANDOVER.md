@@ -148,6 +148,20 @@
 > does.** The tests here pin documented behaviour, not fidelity; treat a new core
 > as unverified until someone has listened to it.
 >
+> ### The WAV render went first, on purpose (2026-07-27)
+>
+> A render is offline, so it needs none of the real-time audio service, the
+> hardware backend or the per-chip output settings. `render_vgm_wav` sits beside
+> `render_wav_mixed` and they share one write loop, so the OPL render is
+> byte-for-byte what it was. No muting or panning on the generic path -- those
+> are OPL ideas and `VgmEngine` has no register policy to do them with.
+>
+> `DocCapabilities` grew `renderable` (an OPL stream, or a chip with a core)
+> alongside `playable` (an OPL stream). The File menu asks both: Render to WAV
+> follows the first, Split Channels the second. When live playback lands, the
+> transport should follow a third question -- "can the *audio service* play
+> this", which is backend-aware because RetroWave is OPL-only (§3.7).
+>
 > ### Porting notes, kept because they generalise
 >
 > Every `&Song`-shaped stream rebuilder now has a `VgmStream` equivalent:
@@ -1238,7 +1252,7 @@ a deep change with no payoff, since nothing edits through it any more.
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
 | 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
-| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | **next** -- there is now something to hear |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | WAV render **done**; live playback next |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
