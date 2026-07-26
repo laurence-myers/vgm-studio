@@ -532,7 +532,7 @@ fn right_clicking_a_pan_knob_recenters_it() {
     // Custom mode with channel 1 hard left, the rest centred.
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
-    harness.state_mut().channels.set_showcase_pans(pans);
+    harness.state_mut().channels.opl().set_showcase_pans(pans);
     harness.run();
 
     harness.get_by_label("Pan 1 (low bank)").click_secondary();
@@ -604,7 +604,11 @@ fn spread_knob_spreads_the_pans_and_engages_custom() {
 fn all_button_unmutes_but_leaves_panning() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Custom mode with off-centre pans, plus a muted channel.
-    harness.state_mut().channels.set_showcase_pans([0x10; 18]);
+    harness
+        .state_mut()
+        .channels
+        .opl()
+        .set_showcase_pans([0x10; 18]);
     harness.key_press(Key::Num3);
     harness.run();
 
@@ -627,7 +631,11 @@ fn all_button_unmutes_but_leaves_panning() {
 #[test]
 fn reset_button_restores_original_panning() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    harness.state_mut().channels.set_showcase_pans([0x10; 18]);
+    harness
+        .state_mut()
+        .channels
+        .opl()
+        .set_showcase_pans([0x10; 18]);
     assert!(matches!(
         harness.state().channels.panning(),
         dro_synth::Panning::Custom(_)
@@ -647,7 +655,11 @@ fn reset_button_restores_original_panning() {
 #[test]
 fn loading_a_song_resets_pan_mode_to_original() {
     let (mut harness, handles) = harness_with_song(&tone_song());
-    harness.state_mut().channels.set_showcase_pans([0x00; 18]);
+    harness
+        .state_mut()
+        .channels
+        .opl()
+        .set_showcase_pans([0x00; 18]);
     assert!(matches!(
         harness.state().channels.panning(),
         dro_synth::Panning::Custom(_)
@@ -1281,7 +1293,7 @@ fn a_saved_render_is_reported_in_the_status_bar() {
 fn the_render_options_reach_the_task() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Mute a channel and pan another, so "apply" has something to apply.
-    harness.state_mut().channels.toggle_channel(1);
+    harness.state_mut().channels.opl().toggle_channel(1);
     open_render_wav_dialog(&mut harness);
     harness.get_by_label("All of the above").click();
     harness.run();
@@ -1903,7 +1915,7 @@ fn snapshot_pan_strip_custom() {
     for (slot, pan) in pans.iter_mut().enumerate() {
         *pan = [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5];
     }
-    harness.state_mut().channels.set_showcase_pans(pans);
+    harness.state_mut().channels.opl().set_showcase_pans(pans);
     settled_snapshot(&mut harness, "pan_strip_custom");
 }
 

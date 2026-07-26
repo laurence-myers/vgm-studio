@@ -33,7 +33,8 @@ use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::waveform::WaveformState;
 use crate::widgets::{
-    boost_stepper, channels::ChannelPanel, loop_stepper, peak_meter, table, waveform,
+    boost_stepper, channels::ChannelPanel, chip_panels::ChipPanels, loop_stepper, peak_meter,
+    table, waveform,
 };
 
 const AUTO_TRIM_TITLE: &str = "DRO auto-trimmed";
@@ -293,7 +294,7 @@ pub struct DroApp {
     /// numbers edit the value instead of toggling channels.
     volume_field_editing: bool,
     position: PositionPanel,
-    channels: ChannelPanel,
+    channels: ChipPanels,
 
     /// A row the table should scroll into view next frame.
     scroll_to: Option<table::ScrollTo>,
@@ -376,7 +377,7 @@ impl DroApp {
             volume_scan_purpose: VolumeScanPurpose::MatchBoost,
             volume_field_editing: false,
             position: PositionPanel::new(initial_frequency),
-            channels: ChannelPanel::new(),
+            channels: ChipPanels::new(),
             scroll_to: None,
             last_first_selected: None,
             audio_revision: None,
@@ -1964,7 +1965,7 @@ impl DroApp {
             }
 
             Action::ToggleChannel(channel) => {
-                self.channels.toggle_channel(channel);
+                self.channels.opl().toggle_channel(channel);
                 self.audio.set_muting(self.channels.muting());
             }
             Action::MutingChanged => self.audio.set_muting(self.channels.muting()),
@@ -2068,7 +2069,7 @@ impl DroApp {
                 // A fresh song starts with every channel audible and panning reset
                 // to Original (pans seeded from the song type); stale mute/pan
                 // state from the previous song must not carry over.
-                self.channels = ChannelPanel::for_song(song);
+                self.channels = ChipPanels::for_song(song);
                 let file_version = song.file_version;
                 self.position.set_length_ms(song.total_delay_ms());
                 self.position.set_position_ms(0);

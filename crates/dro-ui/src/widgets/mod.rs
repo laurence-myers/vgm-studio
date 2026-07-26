@@ -2,6 +2,7 @@
 
 pub mod boost_stepper;
 pub mod channels;
+pub mod chip_panels;
 pub mod loop_stepper;
 pub mod pan_knob;
 pub mod peak_meter;
