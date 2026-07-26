@@ -204,14 +204,24 @@
   question -- deciding which channel a register write belongs to needs an OPL
   stream however many chips the file has.
 
-  **Live playback is plumbed but not offered yet.** The audio output can host
-  either engine, the RetroWave hardware refuses a source it cannot play (and
-  says which file and why), and a non-OPL source routes to the emulated output
-  whatever the output setting says -- that setting is about OPL output and was
-  never a claim about every chip. What is left is the UI: the flag that hides
-  the transport for such a file also hides the waveform, and the waveform
-  renderer is still OPL-only, so the two need separating before the transport
-  can appear. Then the per-chip output settings, then the YM2612 and YM2413.
+  **And it plays.** A Master System rip opens with the transport, the waveform,
+  the position readout and the peak meter -- the panels that were absent while
+  OPL was the only thing this app could make a sound with. The audio output
+  hosts either engine; the RetroWave hardware refuses a source it cannot play
+  (and says which file and why); and a non-OPL source routes to the emulated
+  output whatever the output setting says, because that setting is about OPL
+  output and was never a claim about every chip.
+
+  The app now asks three separate questions where one used to do: whether
+  something would be *heard* (the transport), whether a *render* would produce
+  anything (Render to WAV, which needs no output device), and whether there is
+  an *OPL stream* (Split Channels, which decides which OPL channel each register
+  write belongs to). They were the same answer for every document until a chip
+  that is not OPL became playable.
+
+  Still to come: the per-chip output settings, looping for the generic engine
+  (`LoopConfig` is OPL-only), pack preview for a playable non-OPL track, and the
+  YM2612 and YM2413 cores.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

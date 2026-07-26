@@ -175,14 +175,24 @@
 > cannot play (naming the file), and `SwitchingAudioService` sends a non-OPL
 > source to the emulated output whatever the setting says.
 >
-> **What is left, and why it stopped here.** `DocCapabilities::playable` still
-> means "has an OPL stream", and it gates the *waveform* as well as the transport
-> and the position readout. The waveform renderer is still OPL-only
-> (`render_waveform(&Song)`), so flipping `playable` would put a dead waveform
-> under a working transport. The next step is to split that gating -- probably a
-> third flag, "the audio service can play this", which is backend-aware -- and
-> either port the waveform to `VgmEngine` or let its panel be absent on its own.
-> Then the per-chip output settings (§2.1.10), which is the user's original ask.
+> **It plays.** `render_vgm_waveform_progressive` unblocked the last step, so
+> `DocCapabilities::playable` now means "something would be heard" -- an OPL
+> stream, or a VGM with a chip there is a core for -- and a Master System rip
+> opens with its transport, waveform, position readout and peak meter.
+>
+> **Three capability questions where one used to do**, and they were the same
+> answer for every document until a non-OPL chip became playable:
+> `playable` (the transport), `renderable` (the WAV export -- the same question,
+> but a render needs no output device), and "is there an OPL stream"
+> (Split Channels, which decides which OPL channel a register write belongs to).
+> The transport actions gate on `require_playable`, between `require_song` and
+> `require_document`.
+>
+> **What is left of mc-7:** the per-chip output settings (§2.1.10, the user's
+> original ask #1), looping for `VgmEngine` (`LoopConfig` is OPL-only, so
+> Audition Seam still gates on `require_song`), and pack preview
+> (`PackTrack::is_playable` is still `opl_type().is_some()`, and
+> `playable_song()` only makes an `Arc<Song>` -- both want the source enum).
 >
 > ### Porting notes, kept because they generalise
 >
@@ -1274,7 +1284,7 @@ a deep change with no payoff, since nothing edits through it any more.
 | 9 | uv-4 | optimise every chip (per-chip rules, conservative default; OPL byte-parity gate) | **done** |
 | 10 | uv-5 | header audit + user-invoked fix (editor dialog + pack checklist batch) | **done** |
 | 11 | mc-6 | `ChipCore` trait, `VgmEngine`, decompressor, DAC streams, mixer; chip_state fast seek | **done, bar the cores** |
-| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | WAV render + the audio-service plumbing **done**; the UI gating and the per-chip settings next |
+| 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | editor playback **done**; per-chip settings and pack preview next |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
 | 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
