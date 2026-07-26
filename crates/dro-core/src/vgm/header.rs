@@ -218,6 +218,28 @@ impl ChipKind {
         self.spec().name
     }
 
+    /// The chip's id in the spec's own numbering -- the byte the v1.70 extra
+    /// header and the `0x90` DAC-stream setup command identify a chip by.
+    ///
+    /// It is the enum's own order, because the spec numbers chips in the order
+    /// it added their clock fields, which is the order the header lays them out
+    /// in. `the_chip_ids_match_the_spec` pins the ones worth naming.
+    #[must_use]
+    pub const fn id(self) -> u8 {
+        self as u8
+    }
+
+    /// The chip an id in that numbering names, or `None` for one the spec has
+    /// not assigned.
+    ///
+    /// Bit 7 is *not* handled here: in both places this numbering appears it
+    /// carries a second-instance flag, and stripping it is the caller's job
+    /// because only the caller knows what to do with the answer.
+    #[must_use]
+    pub fn from_id(id: u8) -> Option<Self> {
+        CHIPS.get(id as usize).map(|spec| spec.kind)
+    }
+
     /// The offset of this chip's clock field in the header.
     #[must_use]
     pub const fn clock_offset(self) -> usize {
@@ -805,6 +827,30 @@ mod tests {
             assert_eq!(spec.kind as usize, index, "{} is out of order", spec.name);
         }
         assert_eq!(ChipKind::all().count(), CHIP_COUNT);
+    }
+
+    /// The spec's chip numbering, spot-checked at the values that matter: the
+    /// ends, and the chips whose DAC streams this engine will actually serve.
+    #[test]
+    fn the_chip_ids_match_the_spec() {
+        for (id, kind) in [
+            (0x00, ChipKind::Sn76489),
+            (0x02, ChipKind::Ym2612),
+            (0x04, ChipKind::SegaPcm),
+            (0x11, ChipKind::Pwm),
+            (0x17, ChipKind::Okim6258),
+            (0x1B, ChipKind::HuC6280),
+            (0x29, ChipKind::Mikey),
+        ] {
+            assert_eq!(kind.id(), id, "{}", kind.name());
+            assert_eq!(ChipKind::from_id(id), Some(kind));
+        }
+        // One past the end is not a chip.
+        assert_eq!(ChipKind::from_id(0x2A), None);
+        // And every chip round-trips.
+        for kind in ChipKind::all() {
+            assert_eq!(ChipKind::from_id(kind.id()), Some(kind));
+        }
     }
 
     #[test]

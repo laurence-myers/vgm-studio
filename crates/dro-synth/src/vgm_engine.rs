@@ -27,6 +27,7 @@ use dro_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
 use crate::banks::{Banks, BlockKind, ram_header, rom_header};
 use crate::chip::{ChipCore, core_for};
+use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::engine::FrameClock;
 
 /// Fixed-point fractional bits for the per-chip resampler.
@@ -107,6 +108,12 @@ pub struct VgmEngine {
     file: Arc<VgmFile>,
     voices: Vec<Voice>,
     banks: Banks,
+    /// The `0x90`-`0x95` streams, which write on their own clock rather than on
+    /// the command stream's.
+    streams: DacStreams,
+    /// Scratch for the bytes a frame's streams fall due for. Held rather than
+    /// allocated per frame: `mix` runs once per output sample.
+    due: Vec<PendingWrite>,
     clock: FrameClock,
     /// The next command to execute.
     index: usize,
@@ -182,6 +189,8 @@ impl VgmEngine {
             file,
             voices,
             banks: Banks::new(),
+            streams: DacStreams::new(output_rate),
+            due: Vec::new(),
             clock: FrameClock::new(output_rate, dro_core::vgm::VGM_SAMPLE_RATE),
             index: 0,
             pending: 0,
@@ -222,6 +231,8 @@ impl VgmEngine {
             voice.next = [0; 2];
         }
         self.banks.clear();
+        self.streams.clear();
+        self.due.clear();
         self.clock.reset();
         self.index = 0;
         self.pending = 0;
@@ -311,10 +322,11 @@ impl VgmEngine {
                 self.data_block(stream, index, kind);
                 0
             }
-            VgmCommand::PcmRamWrite { .. }
-            | VgmCommand::DacStream { .. }
-            | VgmCommand::SeekPcm(_)
-            | VgmCommand::Raw { .. } => 0,
+            VgmCommand::DacStream { opcode, stream_id } => {
+                self.dac_stream(stream, index, opcode, stream_id);
+                0
+            }
+            VgmCommand::PcmRamWrite { .. } | VgmCommand::SeekPcm(_) | VgmCommand::Raw { .. } => 0,
             VgmCommand::OverrideWait { which, samples } => {
                 // `0x64 62|63 nnnn` redefines what the short waits mean.
                 match which {
@@ -324,6 +336,60 @@ impl VgmEngine {
                 }
                 0
             }
+        }
+    }
+
+    /// Performs one of the `0x90`-`0x95` stream-control commands.
+    ///
+    /// The operands are read back out of the command's own bytes: the decoder
+    /// gives the opcode and the stream id, which is what the *editor* needs to
+    /// label a row, and the rest is playback's business.
+    fn dac_stream(&mut self, stream: &VgmStream, index: usize, opcode: u8, id: u8) {
+        let Some(bytes) = stream.raw_command(index) else {
+            return;
+        };
+        // Every operand is past the opcode and the stream id.
+        let operands = &bytes[2.min(bytes.len())..];
+        let u32_at = |at: usize| -> u32 {
+            operands
+                .get(at..at + 4)
+                .and_then(|slice| slice.try_into().ok())
+                .map_or(0, u32::from_le_bytes)
+        };
+        let u16_at = |at: usize| -> u16 {
+            operands
+                .get(at..at + 2)
+                .and_then(|slice| slice.try_into().ok())
+                .map_or(0, u16::from_le_bytes)
+        };
+        let byte = |at: usize| -> u8 { operands.get(at).copied().unwrap_or(0) };
+
+        match opcode {
+            0x90 => self.streams.setup(id, byte(0), byte(1), byte(2)),
+            0x91 => self.streams.bind(id, byte(0), byte(1), byte(2)),
+            0x92 => self.streams.set_rate(id, u32_at(0)),
+            0x93 => {
+                // The bank a `0x91` bound, as one run: the spec's offsets are
+                // into the whole type, not into one block.
+                let data = self.banks.concatenated(self.streams.bank_type(id));
+                self.streams.start(id, &data, u32_at(0), byte(4), u32_at(5));
+            }
+            0x94 => self.streams.stop(id),
+            0x95 => {
+                // The fast form: play block `n` of the bound type from its
+                // start to its end. Bit 0 of the flags loops it.
+                let bank_type = self.streams.bank_type(id);
+                let block = usize::from(u16_at(0));
+                let data = self
+                    .banks
+                    .nth(bank_type, block)
+                    .map(<[u8]>::to_vec)
+                    .unwrap_or_default();
+                let loops = byte(2) & 0x01 != 0;
+                self.streams
+                    .start(id, &data, 0, if loops { 0x80 } else { 0x00 }, 0);
+            }
+            _ => {}
         }
     }
 
@@ -395,6 +461,22 @@ impl VgmEngine {
     /// Renders `out.len() / 2` frames by summing every voice.
     fn mix(&mut self, out: &mut [i16]) {
         for frame in out.chunks_exact_mut(2) {
+            // Streams write on their own clock, so they are serviced per output
+            // frame rather than per command -- that is the whole point of them.
+            self.due.clear();
+            self.streams.advance_frame(&mut self.due);
+            for write in std::mem::take(&mut self.due) {
+                self.write(
+                    ChipTarget {
+                        kind: write.target.kind,
+                        instance: write.target.instance,
+                        port: write.target.port,
+                    },
+                    u16::from(write.target.register),
+                    u16::from(write.value),
+                );
+            }
+
             let mut left = 0i64;
             let mut right = 0i64;
             for voice in &mut self.voices {
@@ -655,6 +737,70 @@ mod tests {
             *seen.lock().expect("not poisoned"),
             [(0x80, 0x1000, 0x40, 3)],
             "the header was split off and the piece handed over"
+        );
+    }
+
+    /// A stream set up, bound, clocked and started reaches its chip's register
+    /// on its own clock -- not the command stream's.
+    #[test]
+    fn a_dac_stream_writes_its_bank_to_the_chip_it_was_pointed_at() {
+        // The bank: four bytes of "PCM".
+        let mut stream = vec![0x67, 0x66, 0x00];
+        stream.extend_from_slice(&4u32.to_le_bytes());
+        stream.extend_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        // 0x90: stream 0 -> chip 0x02 (YM2612), port 0, register 0x2A.
+        stream.extend_from_slice(&[0x90, 0x00, 0x02, 0x00, 0x2A]);
+        // 0x91: bind to bank type 0x00, step 1, base 0.
+        stream.extend_from_slice(&[0x91, 0x00, 0x00, 0x01, 0x00]);
+        // 0x92: 11025 Hz -- one byte every four output frames at 44100.
+        stream.push(0x92);
+        stream.push(0x00);
+        stream.extend_from_slice(&11_025u32.to_le_bytes());
+        // 0x93: start at 0, length mode 0 (to the end), length ignored.
+        stream.push(0x93);
+        stream.push(0x00);
+        stream.extend_from_slice(&0u32.to_le_bytes());
+        stream.push(0x00);
+        stream.extend_from_slice(&0u32.to_le_bytes());
+        // Then a second of silence for it to play into, and the end.
+        stream.extend_from_slice(&[0x61, 0x44, 0xAC, 0x66]);
+
+        let file = vgm(&[(ChipKind::Ym2612, 7_670_454)], &stream);
+        let seen: Log<(u8, u16, u16)> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Tap(Log<(u8, u16, u16)>);
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, port: u8, addr: u16, data: u16) {
+                self.0
+                    .lock()
+                    .expect("not poisoned")
+                    .push((port, addr, data));
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+
+        let seen_for_factory = Arc::clone(&seen);
+        let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            Some(Box::new(Tap(Arc::clone(&seen_for_factory))))
+        });
+        let mut out = vec![0i16; 44_100 * 2];
+        engine.render(&mut out);
+
+        assert_eq!(
+            *seen.lock().expect("not poisoned"),
+            [
+                (0, 0x2A, 0x11),
+                (0, 0x2A, 0x22),
+                (0, 0x2A, 0x33),
+                (0, 0x2A, 0x44),
+            ],
+            "the whole bank, one byte at a time, to the DAC register"
         );
     }
 
