@@ -16,7 +16,7 @@ use crate::error::{Error, Result};
 use crate::io::ByteReader;
 use crate::song::{OplType, Song, SongData};
 use crate::vgm::data::{GD3_FIELD_COUNT, Gd3Tag, VgmData, VgmMeta, command};
-use crate::vgm::header::offset;
+use crate::vgm::header::{ChipKind, VgmHeader, offset};
 
 /// `Vgm `.
 pub const MAGIC: &[u8; 4] = b"Vgm ";
@@ -40,11 +40,16 @@ mod clock {
     /// `0xC000_0000`, and files in the wild follow it.
     pub(super) const DUAL_OPL2: u32 = 3_579_545 | 0xC000_0000;
     pub(super) const OPL3: u32 = 14_318_180;
-    pub(super) const DUAL_CHIP_FLAG: u32 = crate::vgm::header::DUAL_CHIP_FLAG;
 }
 
-/// A v1.51 header runs to 0x7F, so the data cannot start before 0x80.
+/// A full v1.51 header runs to 0x7F. Files that declare only the fields they
+/// use can be shorter; this is the size at which the volume and loop modifiers
+/// exist, and the size a synthesised header gets.
 const MINIMUM_HEADER_SIZE: usize = 0x80;
+
+/// The end of the YMF262 clock field: the least a header can be and still
+/// declare an OPL chip at all, and so the least this writer can patch.
+const OPL_CLOCKS_END: usize = offset::YMF262_CLOCK + 4;
 
 /// The header a converted song gets: exactly the v1.51 header size, which is what
 /// `dro2vgm` emits, and what `tests/lsl3_score_up.vgm` has.
@@ -98,12 +103,13 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
     let gd3_size = gd3.as_ref().map_or(0, Vec::len);
 
     let mut out = meta.header().to_vec();
-    // The fixed-offset field writes below would panic on a header shorter than the
-    // v1.51 minimum. Unreachable with a header that passed the reader's own check,
-    // but guard it so a malformed one errors rather than panics (vgmrip-5).
-    if out.len() < MINIMUM_HEADER_SIZE {
+    // The fixed-offset field writes below would panic on a header too short to
+    // hold them. Unreachable with a header that passed the reader's own check --
+    // an OPL clock at 0x5C implies at least this much -- but guard it so a
+    // malformed one errors rather than panics (vgmrip-5).
+    if out.len() < OPL_CLOCKS_END {
         return Err(Error::file(format!(
-            "VGM header is {} bytes; the writer needs at least {MINIMUM_HEADER_SIZE:#X}",
+            "VGM header is {} bytes; the writer needs at least {OPL_CLOCKS_END:#X}",
             out.len()
         )));
     }
@@ -141,9 +147,14 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
     put_u32(&mut out, offset::LOOP_OFFSET, loop_offset);
     put_u32(&mut out, offset::LOOP_NUM_SAMPLES, loop_num_samples);
     put_chip_clocks(&mut out, song.opl_type)?;
-    out[offset::VOLUME_MODIFIER] = meta.volume_modifier;
-    out[offset::LOOP_BASE] = meta.loop_base;
-    out[offset::LOOP_MODIFIER] = meta.loop_modifier;
+    // The volume and loop modifiers are v1.51/v1.60 additions. A header that
+    // stops before them does not have them, and cannot grow them here without
+    // moving the data -- their values are zero for such a file anyway.
+    if out.len() >= MINIMUM_HEADER_SIZE {
+        out[offset::VOLUME_MODIFIER] = meta.volume_modifier;
+        out[offset::LOOP_BASE] = meta.loop_base;
+        out[offset::LOOP_MODIFIER] = meta.loop_modifier;
+    }
 
     out.extend_from_slice(data);
     out.push(command::END);
@@ -187,95 +198,43 @@ pub fn synthesise_header() -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
-    let mut reader = ByteReader::new(bytes);
-
-    let magic = reader.take(4)?;
-    if magic != MAGIC {
-        return Err(Error::file(format!(
-            "Does not appear to be a VGM file (invalid header. Expected {}, found {}).",
-            String::from_utf8_lossy(MAGIC),
-            String::from_utf8_lossy(magic),
-        )));
-    }
-
-    let _eof = reader.u32_le()?;
-    let version = reader.u32_le()?;
-    if version < MINIMUM_SUPPORTED_VERSION {
+    // The header model does the field reading, including the rule this reader
+    // used to get wrong: the header ends at the data, so a minimal rip putting
+    // its data at 0x60 has its OPL clock inside a 0x60-byte header and is
+    // perfectly readable. Rejecting anything under 0x80 turned those away.
+    let parsed = VgmHeader::parse(bytes)?;
+    if parsed.version() < MINIMUM_SUPPORTED_VERSION {
         return Err(Error::file(
             "Unsupported VGM version, v1.51 is the minimum supported version.".to_owned(),
         ));
     }
 
-    reader.seek(offset::GD3)?;
-    let gd3_offset = match reader.u32_le()? {
-        0 => None,
-        relative => Some(offset::GD3 + relative as usize),
-    };
+    let opl_type = opl_type_of(&parsed)?;
+    let data_offset = parsed.data_start();
+    let header = parsed.raw().to_vec();
+    let header_total_samples = parsed.total_samples();
+    let loop_num_samples = parsed.loop_samples().unwrap_or(0);
 
-    reader.seek(offset::TOTAL_SAMPLES)?;
-    let header_total_samples = reader.u32_le()?;
-    let loop_offset = reader.u32_le()?;
-    let loop_num_samples = reader.u32_le()?;
-
-    reader.seek(offset::DATA_OFFSET)?;
-    let data_offset = offset::DATA_OFFSET + reader.u32_le()? as usize;
-    if data_offset < MINIMUM_HEADER_SIZE {
-        // The chip clocks live at 0x50 and 0x5C; a header that stops sooner cannot
-        // declare an OPL chip at all.
-        return Err(Error::file(format!(
-            "VGM data starts at {data_offset:#X}, before the end of a v1.51 header \
-             ({MINIMUM_HEADER_SIZE:#X}); it declares no OPL chip"
-        )));
-    }
-
-    reader.seek(offset::YM3812_CLOCK)?;
-    let ym3812 = reader.u32_le()?;
-    let is_dual_opl2 = ym3812 & clock::DUAL_CHIP_FLAG != 0;
-    reader.seek(offset::YMF262_CLOCK)?;
-    let ymf262 = reader.u32_le()? & !clock::DUAL_CHIP_FLAG;
-
-    reader.seek(offset::VOLUME_MODIFIER)?;
-    let volume_modifier = reader.u8()?;
-    reader.seek(offset::LOOP_BASE)?;
-    let loop_base = reader.u8()?;
-    let loop_modifier = reader.u8()?;
-
-    let opl_type = if is_dual_opl2 {
-        OplType::DualOpl2
-    } else if ym3812 != 0 {
-        OplType::Opl2
-    } else if ymf262 != 0 {
-        OplType::Opl3
-    } else {
-        return Err(Error::file("No OPL2 or OPL3 data detected."));
-    };
-
-    if data_offset > bytes.len() {
-        return Err(Error::file(format!(
-            "VGM data offset {data_offset} is past the end of the {} byte file",
-            bytes.len()
-        )));
-    }
-    let header = bytes[..data_offset].to_vec();
     let data = VgmData::read_from_stream(&bytes[data_offset..])?;
-    let loop_point = resolve_loop_point(loop_offset, data_offset, &data);
+    let loop_point = resolve_loop_point(parsed.loop_offset(), data_offset, &data);
 
-    let tag = gd3_offset
+    let tag = parsed
+        .gd3_offset()
         .map(|offset| parse_gd3_tag(bytes, offset))
         .transpose()?;
 
     let mut song = Song::vgm(
         name.to_owned(),
-        version,
+        parsed.version(),
         data,
         opl_type,
         VgmMeta {
             loop_point,
             // Resolved below: it needs the assembled song's delay prefix.
             loop_end: None,
-            loop_base,
-            loop_modifier,
-            volume_modifier,
+            loop_base: parsed.loop_base(),
+            loop_modifier: parsed.loop_modifier(),
+            volume_modifier: parsed.volume_modifier(),
             tag,
             header,
         },
@@ -298,17 +257,33 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
     Ok(song)
 }
 
-/// Turns the header's loop *byte* offset into the index of the command it points at.
+/// Which OPL a header's chip clocks declare.
 ///
-/// A zero offset means "no loop", per the spec. Anything that lands inside the
+/// The dual-OPL2 marker is the second-chip bit on the YM3812 clock, which
+/// `dro2vgm` writes alongside a meaningless bit 31 -- the header model reads the
+/// two apart, so only the one that means something is consulted here.
+fn opl_type_of(header: &VgmHeader) -> Result<OplType> {
+    let chip = |kind| header.chips().iter().find(|chip| chip.kind == kind);
+    match (chip(ChipKind::Ym3812), chip(ChipKind::Ymf262)) {
+        (Some(ym3812), _) if ym3812.dual => Ok(OplType::DualOpl2),
+        (Some(_), _) => Ok(OplType::Opl2),
+        (None, Some(_)) => Ok(OplType::Opl3),
+        (None, None) => Err(Error::file("No OPL2 or OPL3 data detected.")),
+    }
+}
+
+/// Turns the header's loop offset into the index of the command it points at.
+///
+/// No offset means "no loop", per the spec. Anything that lands inside the
 /// header, past the stream, or in the middle of a command is a corrupt loop
 /// pointer: warn and drop the loop rather than write it back to point somewhere
 /// meaningless.
-fn resolve_loop_point(relative: u32, data_offset: usize, data: &VgmData) -> Option<usize> {
-    if relative == 0 {
-        return None;
-    }
-    let absolute = offset::LOOP_OFFSET + relative as usize;
+fn resolve_loop_point(
+    absolute: Option<usize>,
+    data_offset: usize,
+    data: &VgmData,
+) -> Option<usize> {
+    let absolute = absolute?;
     let Some(byte_in_stream) = absolute.checked_sub(data_offset) else {
         log::warn!(
             "VGM loop point at {absolute:#X} is inside the header (data starts at \
@@ -451,9 +426,9 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// # Errors
 /// If `header` is too short to hold them.
 pub(crate) fn put_chip_clocks(header: &mut [u8], opl_type: OplType) -> Result<()> {
-    if header.len() < MINIMUM_HEADER_SIZE {
+    if header.len() < OPL_CLOCKS_END {
         return Err(Error::file(format!(
-            "VGM header is {} bytes; a v1.51 header needs at least {MINIMUM_HEADER_SIZE}",
+            "VGM header is {} bytes; the OPL clocks need at least {OPL_CLOCKS_END}",
             header.len()
         )));
     }
@@ -1104,6 +1079,60 @@ mod tests {
     }
 
     // -- rejections --------------------------------------------------------
+
+    /// A rip that declares only the fields it uses puts its data at 0x60, right
+    /// after the YMF262 clock. The reader used to turn those away on the ground
+    /// that a v1.51 header "must" run to 0x80; they are exactly as valid, and
+    /// one of the two reader gaps `TODO.md` recorded.
+    #[test]
+    fn a_minimal_header_with_its_data_at_0x60_opens_and_round_trips() {
+        let mut header = vec![0u8; 0x60];
+        header[..4].copy_from_slice(MAGIC);
+        put_u32(&mut header, offset::VERSION, 0x151);
+        put_u32(
+            &mut header,
+            offset::DATA_OFFSET,
+            (0x60 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut header, offset::YMF262_CLOCK, clock::OPL3);
+        put_u32(&mut header, offset::TOTAL_SAMPLES, 735);
+
+        let mut bytes = header;
+        bytes.extend_from_slice(&[0x5E, 0x20, 0x01, command::WAIT_60TH]);
+        bytes.push(command::END);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let song = read("minimal.vgm", &bytes).unwrap();
+        assert_eq!(song.opl_type, OplType::Opl3);
+        assert_eq!(song.len(), 2);
+        assert_eq!(song.total_delay_samples(), 735);
+        assert_eq!(
+            song.vgm_meta().unwrap().header().len(),
+            0x60,
+            "the short header is kept as it is, not padded out"
+        );
+        // And it writes back byte for byte, with no attempt to grow the fields
+        // a longer header would have.
+        assert_eq!(write(&song).unwrap(), bytes);
+    }
+
+    /// A header too short to hold even the OPL clocks cannot declare one, so it
+    /// is not an OPL song at all.
+    #[test]
+    fn a_header_stopping_before_the_opl_clocks_is_not_an_opl_song() {
+        let mut bytes = vec![0u8; 0x40];
+        bytes[..4].copy_from_slice(MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x151);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x40 - offset::DATA_OFFSET) as u32,
+        );
+        bytes.push(command::END);
+        let error = read("tiny.vgm", &bytes).unwrap_err().to_string();
+        assert!(error.contains("No OPL2 or OPL3 data detected"), "{error}");
+    }
 
     #[test]
     fn rejects_a_bad_magic() {

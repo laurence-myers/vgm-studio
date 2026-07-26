@@ -26,6 +26,7 @@ use crate::error::{Error, Result};
 use crate::vgm::data::Gd3Tag;
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
+use crate::vgm::stream::VgmStream;
 
 /// The header block a GD3 tag carries before its strings: magic, version, length.
 const GD3_PREAMBLE: usize = 12;
@@ -35,12 +36,14 @@ const LAST_POINTER_FIELD_END: usize = offset::EXTRA_HEADER + 4;
 
 /// A VGM file's command stream.
 ///
-/// Only [`Opaque`](VgmBody::Opaque) exists so far: the bytes from the data
-/// offset to the tag, carried whole. Parsing them into commands is mc-4's job,
-/// and will add a variant beside this one rather than replace it -- a stream
-/// too malformed to decode still deserves its tags.
+/// Normally [`Commands`](VgmBody::Commands): walked, indexed and describable.
+/// [`Opaque`](VgmBody::Opaque) is the fallback for a stream that will not walk
+/// -- a command with no defined length, or one running off the end. Such a file
+/// keeps its tags, which is the whole reason the fallback exists; it just
+/// cannot be edited.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VgmBody {
+    Commands(VgmStream),
     Opaque(Vec<u8>),
 }
 
@@ -49,7 +52,17 @@ impl VgmBody {
     #[must_use]
     pub fn raw(&self) -> &[u8] {
         match self {
+            Self::Commands(stream) => stream.raw(),
             Self::Opaque(bytes) => bytes,
+        }
+    }
+
+    /// The parsed stream, if the body walked.
+    #[must_use]
+    pub const fn stream(&self) -> Option<&VgmStream> {
+        match self {
+            Self::Commands(stream) => Some(stream),
+            Self::Opaque(_) => None,
         }
     }
 
@@ -106,6 +119,23 @@ impl VgmFile {
     #[must_use]
     pub fn is_opl_only(&self) -> bool {
         self.header.is_opl_only()
+    }
+
+    /// The parsed command stream, or `None` if it would not walk.
+    #[must_use]
+    pub const fn stream(&self) -> Option<&VgmStream> {
+        self.body.stream()
+    }
+
+    /// How many commands the stream holds, or 0 if it would not walk.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.stream().map_or(0, VgmStream::len)
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -231,6 +261,25 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
             ))
         })?
         .to_vec();
+    // A stream that will not walk is kept whole rather than refused: the file's
+    // tags are still perfectly good, and they are what this type is for.
+    let body = match VgmStream::parse(body, header.version()) {
+        Ok(stream) => {
+            let from_stream = stream.total_samples();
+            let declared = u64::from(header.total_samples());
+            if from_stream != declared {
+                log::warn!(
+                    "VGM header claims {declared} samples, but its waits sum to {from_stream}"
+                );
+            }
+            VgmBody::Commands(stream)
+        }
+        Err(error) => {
+            log::warn!("{name}: keeping the VGM data unparsed ({error})");
+            // `parse` consumed the vector, so rebuild the span it was given.
+            VgmBody::Opaque(bytes[data_start..body_end].to_vec())
+        }
+    };
 
     let tag = match tag_at {
         Some(at) if at < data_start && at < LAST_POINTER_FIELD_END => {
@@ -249,7 +298,7 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
     Ok(VgmFile {
         name: name.to_owned(),
         header,
-        body: VgmBody::Opaque(body),
+        body,
         tag,
     })
 }
