@@ -23,10 +23,13 @@ mod cqm;
 mod ffi;
 mod opaque;
 mod opm;
+mod opn;
 mod opn2;
+mod write_queue;
 
 pub use cqm::CqmOpl3;
 pub use opm::Ym2151;
+pub use opn::{OpnCore, OpnKind};
 pub use opn2::Ym2612;
 
 /// Adds every core here to the registry.
@@ -76,6 +79,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2151::new())),
         });
     }
+    opn::register(registry);
 }
 
 #[cfg(test)]

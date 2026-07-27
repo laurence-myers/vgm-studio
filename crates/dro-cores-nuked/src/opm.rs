@@ -11,12 +11,11 @@
 //! reason. What it does *not* share is OPN2's global chip-type: the YM2164
 //! variant is a flag on this chip's own reset, so no lock is needed.
 
-use std::collections::VecDeque;
-
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
 
 use crate::ffi::OpmChip;
+use crate::write_queue::WriteQueue;
 
 /// The registry id. `<slot>.<name>`, so `drotrim.ini` stores `core.ym2151=nuked`.
 pub(crate) const CORE_ID: &str = "ym2151.nuked";
@@ -60,23 +59,8 @@ const OUTPUT_GAIN: i32 = 1;
 pub struct Ym2151 {
     chip: OpmChip,
     rate: u32,
-    /// Registers waiting for their turn on the chip, as `(address, value)`.
-    queue: VecDeque<(u8, u8)>,
-    /// Where the current register is in its handover; see [`SETTLE_CYCLES`].
-    phase: Phase,
-}
-
-/// The handover of one register: address, then value, then a rotation's peace.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Phase {
-    /// Nothing in flight; the next queued register can start.
-    Idle,
-    /// The address is on the bus and needs its own rotation before the value
-    /// follows; carries the value and the cycles still owed.
-    AddressSettling(u32, u8),
-    /// Cycles still owed to the register just written before another address
-    /// may disturb it.
-    Settling(u32),
+    /// Registers waiting for their turn on the chip; see [`SETTLE_CYCLES`].
+    writes: WriteQueue,
 }
 
 impl Ym2151 {
@@ -86,38 +70,14 @@ impl Ym2151 {
         Self {
             chip: OpmChip::new(),
             rate: 44_100,
-            queue: VecDeque::new(),
-            phase: Phase::Idle,
+            writes: WriteQueue::new(SETTLE_CYCLES, SETTLE_CYCLES),
         }
     }
 
     /// Whether anything is still waiting to be latched.
     #[cfg(test)]
     fn pending(&self) -> usize {
-        self.queue.len()
-    }
-
-    /// Moves the register handover on by one cycle.
-    ///
-    /// One register at a time, and never a new address until the last one has
-    /// had its rotation -- see [`SETTLE_CYCLES`] for what happens otherwise.
-    fn advance_write(&mut self) {
-        self.phase = match self.phase {
-            Phase::Idle => match self.queue.pop_front() {
-                Some((addr, value)) => {
-                    self.chip.write(0, addr);
-                    Phase::AddressSettling(SETTLE_CYCLES, value)
-                }
-                None => Phase::Idle,
-            },
-            Phase::AddressSettling(1 | 0, value) => {
-                self.chip.write(1, value);
-                Phase::Settling(SETTLE_CYCLES)
-            }
-            Phase::AddressSettling(left, value) => Phase::AddressSettling(left - 1, value),
-            Phase::Settling(1 | 0) => Phase::Idle,
-            Phase::Settling(left) => Phase::Settling(left - 1),
-        };
+        self.writes.pending()
     }
 }
 
@@ -131,8 +91,7 @@ impl ChipCore for Ym2151 {
     /// `variant` is the VGM header's bit 31 on the YM2151 clock: set means a
     /// YM2164, the OPP, which upstream models behind its own reset flag.
     fn reset(&mut self, clock: u32, variant: bool) {
-        self.queue.clear();
-        self.phase = Phase::Idle;
+        self.writes.clear();
         self.rate = (clock / MASTER_PER_SAMPLE).max(1);
         // Upstream's reset drives the IC pin and clocks the chip through its
         // own power-on sequence, so there is nothing to do around it.
@@ -146,8 +105,9 @@ impl ChipCore for Ym2151 {
     /// One register port, addressed by writing the register number then the
     /// value -- so each call queues two.
     fn write(&mut self, _port: u8, addr: u16, data: u16) {
-        self.queue
-            .push_back(((addr & 0xFF) as u8, (data & 0xFF) as u8));
+        // One register port: the address goes to 0 and its value to 1.
+        self.writes
+            .push(0, (addr & 0xFF) as u8, (data & 0xFF) as u8);
     }
 
     fn render(&mut self, out: &mut [i32]) {
@@ -155,7 +115,8 @@ impl ChipCore for Ym2151 {
             let mut left = 0i32;
             let mut right = 0i32;
             for _ in 0..CLOCKS_PER_SAMPLE {
-                self.advance_write();
+                let chip = &mut self.chip;
+                self.writes.advance(|port, byte| chip.write(port, byte));
                 let (l, r) = self.chip.clock();
                 // The DAC holds its value across the rotation and only some
                 // cycles refresh it, so the last reading of the rotation is the

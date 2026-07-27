@@ -230,9 +230,14 @@ impl Ay8910 {
         }
     }
 
-    /// Applies a register write. Public to the crate so the OPN cores can drive
-    /// their SSG section through the same code rather than a copy of it.
-    pub(crate) fn write_register(&mut self, register: u8, value: u8) {
+    /// Applies a register write.
+    ///
+    /// Public because **this chip is the SSG section of every OPN part**, and
+    /// those cores live in another crate. They drive this one through
+    /// [`write_register`](Self::write_register), [`tick`](Self::tick) and
+    /// [`output`](Self::output) rather than keeping a copy of it, which is the
+    /// whole reason the three are exposed at all.
+    pub fn write_register(&mut self, register: u8, value: u8) {
         let register = register & 0x0F;
         self.registers[usize::from(register)] = value;
         match register {
@@ -269,7 +274,10 @@ impl Ay8910 {
     }
 
     /// One internal tick of everything.
-    pub(crate) fn tick(&mut self) {
+    ///
+    /// For a host that clocks this chip itself rather than through
+    /// [`render`](ChipCore::render) -- see [`write_register`](Self::write_register).
+    pub fn tick(&mut self) {
         for tone in &mut self.tones {
             tone.clock();
         }
@@ -287,8 +295,8 @@ impl Ay8910 {
         }
     }
 
-    /// The mixed output of the current state.
-    pub(crate) fn output(&self) -> i32 {
+    /// The mixed output of the current state, mono.
+    pub fn output(&self) -> i32 {
         let noise = self.noise.output();
         let envelope = self.envelope.level();
         self.tones
@@ -315,7 +323,11 @@ impl Ay8910 {
     }
 
     /// The internal tick rate for a given input clock.
-    pub(crate) const fn tick_rate(clock: u32) -> u32 {
+    ///
+    /// A host clocking this chip alongside a faster one needs it to work out
+    /// how many ticks fall in one of its own samples.
+    #[must_use]
+    pub const fn tick_rate(clock: u32) -> u32 {
         clock / CLOCK_DIVIDER
     }
 }

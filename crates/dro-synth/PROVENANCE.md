@@ -52,26 +52,14 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 |---|---|---|---|---|---|---|
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
 | `cores/nes_apu.rs` | NES APU | clean-room | The NESdev documentation: channel layout, the frame sequencer's step boundaries, the length/noise/DMC tables, and the two non-linear mixer formulas | n/a — no code read | MIT OR Apache-2.0 | n/a. Both mixer tables are *regenerated from the formulas in a test*, because they must be integer tables — [`ChipCore`] forbids output that could differ across targets, and floating point in the hot loop is how that promise breaks. One deliberate departure from hardware, documented at `reset`: the channels start **enabled**. Not modelled: the FDS add-on. |
-| `cores/ay8910.rs` | AY-3-8910, YM2149 — **and the SSG section of every OPN chip** | clean-room | The datasheets: three 12-bit tone counters, a 17-bit noise register tapped at bits 0 and 3, the shared envelope's four shape bits, and the 1.5 dB DAC curve | n/a — no code read | MIT OR Apache-2.0 | n/a. The 32-level curve is regenerated from "1.5 dB a step" in a test. Written to be *reused* by the OPN cores rather than to serve one chip — `write_register`/`tick`/`output` are `pub(crate)` for that. Not modelled: the I/O ports, the VGM `0x31` stereo mask. |
+| `cores/ay8910.rs` | AY-3-8910, YM2149 — **and the SSG section of every OPN chip** | clean-room | The datasheets: three 12-bit tone counters, a 17-bit noise register tapped at bits 0 and 3, the shared envelope's four shape bits, and the 1.5 dB DAC curve | n/a — no code read | MIT OR Apache-2.0 | n/a. The 32-level curve is regenerated from "1.5 dB a step" in a test. Written to be *reused* by the OPN cores rather than to serve one chip — `write_register`/`tick`/`output` are `pub` for that -- the OPN cores are in another crate. Not modelled: the I/O ports, the VGM `0x31` stereo mask. |
 | `cores/huc6280.rs` | HuC6280 (PC Engine) | clean-room | The documented register interface: six 32-entry wavetables, banked registers behind a channel-select, per-channel stereo attenuation, DDA, and noise on channels 5-6 | n/a — no code read | MIT OR Apache-2.0 | n/a. Attenuation curve regenerated from 1.5 dB a step, as above. Not modelled: the LFO on channels 1-2, the timer/IRQ registers. |
 | `cores/gb_dmg.rs` | Game Boy DMG | clean-room | The Pan Docs: the four channels, the 512 Hz frame sequencer, per-channel stereo routing, and the wave channel's shift-based volume | n/a — no code read | MIT OR Apache-2.0 | n/a. **The plan allowed for SameBoy's APU as a submodule instead**; that C is written against SameBoy's whole `GB_gameboy_t`, so carving it out would have meant editing the upstream — which the sourcing policy forbids, and which would have to be redone on every pull. Not modelled: wave-RAM access quirks while running, the CGB registers. |
 
-### A VGM is a log, not a machine
-
-The NES core starts with every channel enabled, which hardware does not: at
-power-on `$4015` is zero and a channel stays mute until something enables it.
-But a VGM is a *register log*, and a ripper may start it after the driver's
-initialisation has already run. Rips that never write `$4015` at all are not
-rare — `Lemmings (NES)` is one — and from hardware's power-on state they play
-in complete silence.
-
-The corpus made the difference visible: 10 of 12 sampled NES files audible
-before, 12 of 12 after. Worth remembering for the chips still to come — a core
-that is right about the hardware can still be wrong about the format, and only
-real files show which.
 | `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** Freestanding C but for `#include <string.h>`, which `shim/string.h` answers. Its own `writebuf` ring matches Nuked-OPL3's, so `PlayerEngine`'s write spacing suits it unchanged. |
 | `dro-cores-nuked` → `opn2.rs` | YM2612, YM3438 | **submodule + `cc`** | `vendor/upstream/nuked-opn2` (`nukeykt/Nuked-OPN2`), `ym3438.c` + `ym3438.h` | `335747d78cb0abbc3b55b004e62dad9763140115` | LGPL-2.1-or-later | **Compiled unmodified.** Two upstream properties are handled on our side rather than patched — see below. |
 | `dro-cores-nuked` → `opm.rs` | YM2151, YM2164 | **submodule + `cc`** | `vendor/upstream/nuked-opm` (`nukeykt/Nuked-OPM`), `opm.c` + `opm.h` | `23ea53bb442b3f761ded3cd8a27399dd46db34fc` | LGPL-2.1-or-later | **Compiled unmodified.** Same designer, same shape as OPN2: cycle-level clocking (32 cycles to a sample, `clock / 64`) and latched writes. No global chip-type — the YM2164 variant is a flag on this chip's own reset — so no lock. Its write pacing is stricter; see below. |
+| `dro-cores-nuked` → `opn.rs` | YM2203, YM2608, YM2610 | **assembled**, not a new core | Nuked-OPN2 for the FM (the family shares one engine; the YM2612's ladder DAC is the odd one out, so CMOS mode is selected always) + this project's `Ay8910` for the SSG | as Nuked-OPN2 above | LGPL-2.1-or-later | **The ADPCM is not modelled** — see below. Also simplified: the YM2203's programmable prescaler is assumed at its default, and the SSG clock is taken as clock/4 for all three. |
 
 ### The two Nuked-OPN2 properties worth knowing
 
@@ -96,6 +84,41 @@ missed:
    inside it, so a YM2612 and a YM3438 in one file — or on two threads — each
    render as themselves. One acquisition per render, not per clock.
 
+
+### A VGM is a log, not a machine
+
+The NES core starts with every channel enabled, which hardware does not: at
+power-on `$4015` is zero and a channel stays mute until something enables it.
+But a VGM is a *register log*, and a ripper may start it after the driver's
+initialisation has already run. Rips that never write `$4015` at all are not
+rare — `Lemmings (NES)` is one — and from hardware's power-on state they play
+in complete silence.
+
+The corpus made the difference visible: 10 of 12 sampled NES files audible
+before, 12 of 12 after. Worth remembering for the chips still to come — a core
+that is right about the hardware can still be wrong about the format, and only
+real files show which.
+
+### The OPN family's ADPCM gap
+
+The YM2608 and YM2610 each carry an ADPCM-A rhythm section and an ADPCM-B
+sample channel. Neither is here, so a Neo Geo rip plays its FM and SSG with the
+drums missing. That is a real gap, stated rather than hidden, and it shows in
+the corpus: YM2203 and YM2608 come back 12/12 audible while the YM2610 manages
+9/12, the quiet three being short ADPCM-led cues (`01 IPL`, `04 Stage Start`).
+
+`Playability::Partial` says "this chip has no core" for a whole chip; there is
+no vocabulary yet for "most of one", and inventing it is the honest follow-up
+if the drums matter more than the next chip does.
+
+**Why assembled rather than ported.** The plan's fallback was a port of MAME's
+fmopn, because `nukeykt/Nuked-OPNB` was expected to mature. It has not: version
+0.0, a header that declares `fm_ar` and `fm_ks` twice so it does not compile, no
+reset function, no output function at all, and no SSG or ADPCM — 649 lines
+against Nuked-OPM's 2,200. Meanwhile the FM half needs no port, because the
+YM2612 *is* an OPN and its core is already shipped and byte-tested. A port
+would earn its keep on the ADPCM, which is exactly where the gap is.
+
 ### Write pacing, and why it is measured per core
 
 Every Nuke.YKT core here latches a register write and applies it only when the
@@ -105,8 +128,12 @@ nothing errors, and some fraction of them never land:
 
 | Core | Rotation | Pacing used |
 |---|---|---|
-| Nuked-OPN2 (YM2612) | 24 cycles | address, value, then the rest of the rotation — one register per output sample |
+| Nuked-OPN2 (YM2612, and the OPN family's FM) | 24 cycles | address, value, then the rest of the rotation — one register per output sample |
 | Nuked-OPM (YM2151) | 32 cycles | address, **a whole rotation**, value, **a whole rotation** — one register per two samples |
+
+All three cores drive one `WriteQueue` (`src/write_queue.rs`) parameterised by
+those two figures, so the shape is shared and only the numbers differ. The
+numbers are the part that must be measured.
 
 The OPM figure was measured, and the measurement is the reason it is not a
 guess: spacing writes 1, 2, 3 or 6 cycles apart produces total silence, while 4
@@ -136,7 +163,7 @@ Registered outside `dro-synth`, and why:
 
 | Provider | Registers | Why not here |
 |---|---|---|
-| `dro-cores-nuked` | `opl3.cqm` — Nuked-CQM | LGPL-2.1-or-later. `dro-synth` is permissive; the app links this. |
+| `dro-cores-nuked` | `opl3.cqm`, `ym2612.nuked`, `ym2151.nuked`, `ym2203/2608/2610.nuked` | LGPL-2.1-or-later. `dro-synth` is permissive; the app links this. |
 | `dro-retrowave` | `opl3.retrowave` — the RetroWave OPL3 board | Native-only (serial ports). The web build never registers it, so its Settings dialog does not offer hardware it could never reach. |
 
 ## Upgrading a submodule core

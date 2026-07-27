@@ -23,12 +23,11 @@
 //!    cycles undisturbed. Upstream has no write buffer of its own (Nuked-CQM
 //!    does), so one lives here -- see [`Ym2612::queue`].
 
-use std::collections::VecDeque;
-
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
 
 use crate::ffi::Opn2Chip;
+use crate::write_queue::WriteQueue;
 
 /// The registry ids. `<slot>.<name>`, so `drotrim.ini` stores `core.ym2612=nuked`.
 pub(crate) const YM2612_CORE_ID: &str = "ym2612.nuked";
@@ -41,12 +40,14 @@ const CLOCKS_PER_SAMPLE: u32 = 24;
 /// Master clocks per output sample -- the familiar `clock / 144`.
 const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 
-/// Queue entries handed over per output sample: an address and its data.
+/// This core's write pacing, in [`WriteQueue`] terms: the value follows its
+/// address on the next cycle, and the rest of the rotation is then left alone
+/// so the chip can reach that register's slot and apply it.
 ///
-/// One *register*, not one write, and the rest of the rotation is left alone so
-/// the chip can reach that register's slot and apply it. Draining faster looks
-/// like it works -- the writes are accepted -- and silently loses most of them.
-const WRITES_PER_SAMPLE: u32 = 2;
+/// One *register* per output sample. Draining faster looks like it works -- the
+/// writes are accepted -- and silently loses most of them.
+const ADDRESS_SETTLE: u32 = 0;
+const VALUE_SETTLE: u32 = CLOCKS_PER_SAMPLE - 3;
 
 /// Brings the summed pin readings up to roughly `i16` scale.
 ///
@@ -73,7 +74,7 @@ pub struct Ym2612 {
     chip: Opn2Chip,
     /// The rate derived from the clock at reset.
     rate: u32,
-    /// Writes waiting for their turn on the chip.
+    /// Registers waiting for their turn on the chip.
     ///
     /// A VGM writes a run of registers at one timestamp; this chip can accept
     /// **one register per output sample**, because a write lands only when the
@@ -86,7 +87,7 @@ pub struct Ym2612 {
     /// about a rotation after each write, and a rip made on hardware is spaced
     /// accordingly. A 30-register patch dump takes 30 samples to land, about
     /// half a millisecond.
-    queue: VecDeque<(u32, u8)>,
+    writes: WriteQueue,
 }
 
 impl Ym2612 {
@@ -98,14 +99,14 @@ impl Ym2612 {
             // Replaced at reset. Non-zero so a core that is somehow rendered
             // before being reset divides by something.
             rate: 44_100,
-            queue: VecDeque::new(),
+            writes: WriteQueue::new(ADDRESS_SETTLE, VALUE_SETTLE),
         }
     }
 
     /// Whether anything is still waiting to be latched.
     #[cfg(test)]
     fn pending(&self) -> usize {
-        self.queue.len()
+        self.writes.pending()
     }
 }
 
@@ -119,7 +120,7 @@ impl ChipCore for Ym2612 {
     /// `variant` is the VGM header's bit 31 on the YM2612 clock: set means a
     /// YM3438, the CMOS part, whose DAC lacks the discrete chip's ladder.
     fn reset(&mut self, clock: u32, variant: bool) {
-        self.queue.clear();
+        self.writes.clear();
         self.rate = (clock / MASTER_PER_SAMPLE).max(1);
         self.chip.reset(!variant);
     }
@@ -134,8 +135,8 @@ impl ChipCore for Ym2612 {
         // Ports are 0 and 1 on the chip; upstream numbers the address and data
         // halves of each as 0/1 and 2/3.
         let base = u32::from(port & 1) * 2;
-        self.queue.push_back((base, (addr & 0xFF) as u8));
-        self.queue.push_back((base + 1, (data & 0xFF) as u8));
+        self.writes
+            .push(base, (addr & 0xFF) as u8, (data & 0xFF) as u8);
     }
 
     fn render(&mut self, out: &mut [i32]) {
@@ -146,15 +147,8 @@ impl ChipCore for Ym2612 {
         for frame in out.chunks_exact_mut(2) {
             let mut left = 0i32;
             let mut right = 0i32;
-            for cycle in 0..CLOCKS_PER_SAMPLE {
-                // The address on the first cycle, its data on the second, and
-                // then the rest of the rotation undisturbed so the chip can
-                // reach that register's slot and take it.
-                if cycle < WRITES_PER_SAMPLE
-                    && let Some((port, data)) = self.queue.pop_front()
-                {
-                    clocking.write(port, data);
-                }
+            for _ in 0..CLOCKS_PER_SAMPLE {
+                self.writes.advance(|port, byte| clocking.write(port, byte));
                 let (l, r) = clocking.clock();
                 left += l;
                 right += r;
@@ -310,14 +304,14 @@ mod tests {
             chip.write(0, reg, 0x01);
         }
         let queued = chip.pending();
-        assert!(queued > WRITES_PER_SAMPLE as usize, "{queued} queued");
+        assert!(queued > 1, "{queued} queued");
 
         let mut one_sample = [0i32; 2];
         chip.render(&mut one_sample);
         assert_eq!(
             chip.pending(),
-            queued - WRITES_PER_SAMPLE as usize,
-            "one register -- an address and its data -- drains per output sample"
+            queued - 1,
+            "exactly one register drains per output sample"
         );
 
         let mut rest = vec![0i32; 128 * 2];
