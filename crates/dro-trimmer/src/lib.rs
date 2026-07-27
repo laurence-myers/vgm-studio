@@ -36,6 +36,7 @@ pub fn install_cores() {
     // Creative's clone of one, so CQM is an authenticity flavour beside it
     // rather than a better default.
     dro_cores_nuked::register(&mut registry);
+    dro_cores_gpl::register(&mut registry);
     dro_retrowave::register(&mut registry);
     if dro_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed

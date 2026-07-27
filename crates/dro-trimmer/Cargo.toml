@@ -16,6 +16,7 @@ dro-synth.workspace = true
 dro-audio-native.workspace = true
 dro-retrowave.workspace = true
 dro-cores-nuked.workspace = true
+dro-cores-gpl.workspace = true
 dro-ui.workspace = true
 anyhow.workspace = true
 chrono.workspace = true

@@ -27,7 +27,7 @@ use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
 
 use crate::ffi::Opn2Chip;
-use crate::write_queue::WriteQueue;
+use dro_synth::WriteQueue;
 
 /// The registry ids. `<slot>.<name>`, so `drotrim.ini` stores `core.ym2612=nuked`.
 pub(crate) const YM2612_CORE_ID: &str = "ym2612.nuked";

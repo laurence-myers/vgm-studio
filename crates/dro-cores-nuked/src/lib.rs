@@ -25,7 +25,6 @@ mod opaque;
 mod opm;
 mod opn;
 mod opn2;
-mod write_queue;
 
 pub use cqm::CqmOpl3;
 pub use opm::Ym2151;

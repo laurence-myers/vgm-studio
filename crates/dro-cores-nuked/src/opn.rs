@@ -40,7 +40,7 @@ use dro_core::vgm::ChipKind;
 use dro_synth::{Ay8910, ChipCore};
 
 use crate::ffi::Opn2Chip;
-use crate::write_queue::WriteQueue;
+use dro_synth::WriteQueue;
 
 /// The registry ids, one per chip.
 pub(crate) const YM2203_ID: &str = "ym2203.nuked";

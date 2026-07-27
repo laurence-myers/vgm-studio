@@ -1200,6 +1200,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dro-cores-gpl"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "dro-core",
+ "dro-synth",
+ "log",
+]
+
+[[package]]
 name = "dro-cores-nuked"
 version = "5.1.0"
 dependencies = [
@@ -1246,6 +1256,7 @@ dependencies = [
  "clap",
  "dro-audio-native",
  "dro-core",
+ "dro-cores-gpl",
  "dro-cores-nuked",
  "dro-retrowave",
  "dro-synth",

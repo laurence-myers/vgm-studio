@@ -60,6 +60,7 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | `dro-cores-nuked` → `opn2.rs` | YM2612, YM3438 | **submodule + `cc`** | `vendor/upstream/nuked-opn2` (`nukeykt/Nuked-OPN2`), `ym3438.c` + `ym3438.h` | `335747d78cb0abbc3b55b004e62dad9763140115` | LGPL-2.1-or-later | **Compiled unmodified.** Two upstream properties are handled on our side rather than patched — see below. |
 | `dro-cores-nuked` → `opm.rs` | YM2151, YM2164 | **submodule + `cc`** | `vendor/upstream/nuked-opm` (`nukeykt/Nuked-OPM`), `opm.c` + `opm.h` | `23ea53bb442b3f761ded3cd8a27399dd46db34fc` | LGPL-2.1-or-later | **Compiled unmodified.** Same designer, same shape as OPN2: cycle-level clocking (32 cycles to a sample, `clock / 64`) and latched writes. No global chip-type — the YM2164 variant is a flag on this chip's own reset — so no lock. Its write pacing is stricter; see below. |
 | `dro-cores-nuked` → `opn.rs` | YM2203, YM2608, YM2610 | **assembled**, not a new core | Nuked-OPN2 for the FM (the family shares one engine; the YM2612's ladder DAC is the odd one out, so CMOS mode is selected always) + this project's `Ay8910` for the SSG | as Nuked-OPN2 above | LGPL-2.1-or-later | **The ADPCM is not modelled** — see below. Also simplified: the YM2203's programmable prescaler is assumed at its default, and the SSG clock is taken as clock/4 for all three. |
+| `dro-cores-gpl` → `opll.rs` | YM2413 (OPLL), Konami VRC VII | **submodule + `cc`** | `vendor/upstream/nuked-opll` (`nukeykt/Nuked-OPLL`), `opll.c` + `opll.h` | `1269cf5a783b65583b50fa2464d08be75830aaa0` | **GPL-2.0-or-later** | **Compiled unmodified.** The first GPL core, and what stands up `dro-cores-gpl`. Two DACs (melody and rhythm) multiplexed across an 18-cycle rotation, so a sample is that whole rotation of both summed. `chip_type` is a *field* here, not the global Nuked-OPN2 keeps, so no lock. Its summed output carries a standing DC offset, removed by the same integer blocker the NES core uses. |
 
 ### The two Nuked-OPN2 properties worth knowing
 
@@ -164,6 +165,7 @@ Registered outside `dro-synth`, and why:
 | Provider | Registers | Why not here |
 |---|---|---|
 | `dro-cores-nuked` | `opl3.cqm`, `ym2612.nuked`, `ym2151.nuked`, `ym2203/2608/2610.nuked` | LGPL-2.1-or-later. `dro-synth` is permissive; the app links this. |
+| `dro-cores-gpl` | `ym2413.nuked` — Nuked-OPLL | **GPL-2.0-or-later.** Neither `dro-synth` nor `dro-cores-nuked` may carry it without becoming something else. |
 | `dro-retrowave` | `opl3.retrowave` — the RetroWave OPL3 board | Native-only (serial ports). The web build never registers it, so its Settings dialog does not offer hardware it could never reach. |
 
 ## Upgrading a submodule core

@@ -24,6 +24,7 @@ pub mod split;
 pub mod vgm_engine;
 pub mod wav;
 pub mod waveform;
+pub mod write_queue;
 
 pub use banks::{Banks, BlockKind};
 pub use capture::capture;
@@ -52,6 +53,7 @@ pub use waveform::{
     WaveformBucket, WaveformBucketer, render_vgm_waveform, render_vgm_waveform_progressive,
     render_waveform, render_waveform_cancellable, render_waveform_progressive,
 };
+pub use write_queue::WriteQueue;
 
 /// What is being played: a decoded OPL stream, or a VGM for any chips.
 ///

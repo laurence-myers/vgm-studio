@@ -1,0 +1,30 @@
+[package]
+name = "dro-cores-gpl"
+description = "GPL-licensed emulator cores, compiled from pinned upstream submodules and registered into dro-synth."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The cores here are GPL-2.0-or-later, so this crate is too. A leaf: only the
+# *application* depends on it, which is what keeps `dro-synth` permissive and
+# `dro-cores-nuked` merely LGPL. See `licenses/README.md`.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+dro-core.workspace = true
+dro-synth.workspace = true
+log.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints.rust]
+# As in `dro-cores-nuked`: FFI needs unsafe, and it is confined to `ffi.rs`.
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

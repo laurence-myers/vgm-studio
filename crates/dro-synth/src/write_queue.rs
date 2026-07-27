@@ -1,6 +1,13 @@
-//! Handing registers to a Nuke.YKT core at a rate it can actually take them.
+//! Handing registers to a cycle-accurate core at a rate it can actually take
+//! them.
 //!
-//! Every core in this crate latches a register write and applies it only when
+//! Lives here rather than in a provider crate because it is *our* glue -- no
+//! upstream code, just a description of a constraint several upstreams share --
+//! and because both the LGPL and GPL provider crates need it. Nothing in it is
+//! specific to any one core, which is the point: the shape is shared and the
+//! numbers are not.
+//!
+//! Every Nuke.YKT core latches a register write and applies it only when
 //! the chip's rotation reaches that register's *slot*. Push a run of writes
 //! straight through and every one is accepted, nothing errors, and the ones
 //! that miss their slot simply never land -- which sounds like a note that
@@ -37,7 +44,7 @@ enum Phase {
 
 /// Registers waiting for their turn on a chip.
 #[derive(Debug)]
-pub(crate) struct WriteQueue {
+pub struct WriteQueue {
     queue: VecDeque<(u32, u8, u8)>,
     phase: Phase,
     /// Cycles between the address and its value.
@@ -49,7 +56,7 @@ pub(crate) struct WriteQueue {
 impl WriteQueue {
     /// A queue pacing writes for a core that needs `address_settle` cycles
     /// between an address and its value, and `value_settle` after the value.
-    pub(crate) fn new(address_settle: u32, value_settle: u32) -> Self {
+    pub fn new(address_settle: u32, value_settle: u32) -> Self {
         Self {
             queue: VecDeque::new(),
             phase: Phase::Idle,
@@ -60,26 +67,29 @@ impl WriteQueue {
 
     /// Queues one register write. `port` is the chip's own address/data pair
     /// base -- 0 and 1, or 2 and 3 for a second bank.
-    pub(crate) fn push(&mut self, port: u32, address: u8, value: u8) {
+    pub fn push(&mut self, port: u32, address: u8, value: u8) {
         self.queue.push_back((port, address, value));
     }
 
     /// Forgets everything pending. A seek must not deliver writes the song made
     /// before it.
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.queue.clear();
         self.phase = Phase::Idle;
     }
 
     /// How many registers are still waiting.
-    #[cfg(test)]
-    pub(crate) fn pending(&self) -> usize {
+    ///
+    /// Not test-only: a provider crate's own tests need it, and `#[cfg(test)]`
+    /// does not cross a crate boundary.
+    #[must_use]
+    pub fn pending(&self) -> usize {
         self.queue.len()
     }
 
     /// Moves the handover on by one internal cycle, calling `write` when a byte
     /// is due.
-    pub(crate) fn advance(&mut self, mut write: impl FnMut(u32, u8)) {
+    pub fn advance(&mut self, mut write: impl FnMut(u32, u8)) {
         self.phase = match self.phase {
             Phase::Idle => match self.queue.pop_front() {
                 Some((port, address, value)) => {
