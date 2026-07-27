@@ -2,6 +2,7 @@
 
 use core::fmt;
 
+#[cfg(feature = "nuked-opl")]
 use nuked_opl3::Opl3Chip;
 
 /// An OPL2/OPL3 chip that turns register writes into stereo PCM.
@@ -43,13 +44,20 @@ pub trait OplChip {
 /// Nuked-OPL3, the reference-accurate YMF262 emulation, via the pure Rust
 /// [`nuked_opl3`] port.
 ///
+/// Behind the default-on `nuked-opl` feature, because the port is
+/// LGPL-2.1-or-later and this crate's own license is `MIT OR Apache-2.0`: a
+/// consumer who needs a genuinely permissive build turns it off and gets
+/// [`SilentOpl`] in its place. See `licenses/README.md`.
+///
 /// The port pulls in no C toolchain, so `wasm32-unknown-unknown` builds have an
 /// empty import section. That it really is bit-identical to Nuke.YKT's C original
 /// is asserted, not assumed: see [`CReferenceOpl3`] and `tests/c_parity.rs`.
+#[cfg(feature = "nuked-opl")]
 pub struct NukedOpl3 {
     chip: Opl3Chip,
 }
 
+#[cfg(feature = "nuked-opl")]
 impl NukedOpl3 {
     #[must_use]
     pub fn new(sample_rate: u32) -> Self {
@@ -59,6 +67,7 @@ impl NukedOpl3 {
     }
 }
 
+#[cfg(feature = "nuked-opl")]
 impl fmt::Debug for NukedOpl3 {
     /// `Opl3Chip` is ~30 KiB of register and operator state with no `Debug` of
     /// its own; the voice count is the only part worth printing.
@@ -69,6 +78,7 @@ impl fmt::Debug for NukedOpl3 {
     }
 }
 
+#[cfg(feature = "nuked-opl")]
 impl OplChip for NukedOpl3 {
     fn reset(&mut self, sample_rate: u32) {
         // A fresh chip state.
@@ -96,6 +106,47 @@ impl OplChip for NukedOpl3 {
             .expect("buffer holds at least one frame");
     }
 }
+
+/// The OPL core a build without one has: silence.
+///
+/// Only reachable with the `nuked-opl` feature off. The point is that turning
+/// the feature off must not delete the OPL *path* -- muting, panning, seeking,
+/// the channel split and the whole `PlayerEngine` state machine are file-format
+/// logic, not emulation, and a permissive consumer wants all of it. So the chip
+/// goes quiet and everything else keeps working. The registry registers no OPL
+/// core in that build, so the UI reports the silence rather than implying sound.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct SilentOpl;
+
+impl SilentOpl {
+    /// Takes the sample rate every OPL core's constructor takes, and ignores it.
+    #[must_use]
+    pub const fn new(_sample_rate: u32) -> Self {
+        Self
+    }
+}
+
+impl OplChip for SilentOpl {
+    fn reset(&mut self, _sample_rate: u32) {}
+
+    fn write_reg(&mut self, _reg: u16, _value: u8) {}
+
+    fn generate_samples(&mut self, buffer: &mut [i16]) {
+        buffer.fill(0);
+    }
+}
+
+/// The OPL core [`PlayerEngine::new`](crate::engine::PlayerEngine::new) builds.
+///
+/// A type alias rather than a `cfg` on the engine itself, so the engine has one
+/// definition whichever way the feature falls.
+#[cfg(feature = "nuked-opl")]
+pub type DefaultOplChip = NukedOpl3;
+
+/// The OPL core [`PlayerEngine::new`](crate::engine::PlayerEngine::new) builds
+/// when this crate is compiled without an OPL emulator.
+#[cfg(not(feature = "nuked-opl"))]
+pub type DefaultOplChip = SilentOpl;
 
 /// The original Nuked-OPL3 **C** sources, compiled by `opl3-rs`.
 ///
@@ -148,7 +199,7 @@ impl OplChip for CReferenceOpl3 {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "nuked-opl"))]
 mod tests {
     use super::*;
     use crate::NATIVE_SAMPLE_RATE;

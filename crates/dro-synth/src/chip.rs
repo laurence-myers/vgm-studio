@@ -87,29 +87,40 @@ impl Playability {
     }
 }
 
-/// Builds a core for `kind`, or `None` when this app has none for it.
+/// Builds a core for `kind`, or `None` when this build has none for it.
 ///
-/// The one place a chip becomes playable, and the one place to add an arm when
-/// a core lands.
+/// Delegates to the [registry](crate::registry), which is where cores are
+/// actually declared; this is the convenience form for a caller with no
+/// per-chip preference to honour. One that *does* -- the app, reading
+/// `audio.core.<slug>` -- calls
+/// [`CoreRegistry::build`](crate::registry::CoreRegistry::build) instead.
 ///
-/// OPL is absent on purpose, and not by oversight: an OPL file plays through
-/// `PlayerEngine`, which carries the muting and panning policy this trait has
-/// no place for.
+/// OPL returns `None` on purpose, and not by oversight: an OPL file plays
+/// through `PlayerEngine`, which carries the muting and panning policy this
+/// trait has no place for. The registry still *lists* OPL cores, so
+/// [`playability`] and the Settings picker see them.
 #[must_use]
 pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-    match kind {
-        ChipKind::Sn76489 => Some(Box::new(crate::cores::Sn76489::new())),
-        _ => None,
-    }
+    crate::registry::registry().build(kind, None)
 }
 
-/// What playing a file with these chips would sound like.
+/// What playing a file with these chips through [`VgmEngine`] would sound like.
+///
+/// Asks whether a core can be *built*, not merely whether one is listed, and
+/// the difference is load-bearing: the registry lists OPL cores so the Settings
+/// picker and the About credits can see them, but `VgmEngine` cannot drive one.
+/// Every caller here has already routed its OPL documents to `PlayerEngine`, so
+/// counting a listed-but-routed OPL core as playable would send an OPL file
+/// that failed to decode into the generic engine and render silence.
+///
+/// [`VgmEngine`]: crate::vgm_engine::VgmEngine
 #[must_use]
 pub fn playability(chips: &[ChipKind]) -> Playability {
+    let registry = crate::registry::registry();
     let missing: Vec<ChipKind> = chips
         .iter()
         .copied()
-        .filter(|&kind| core_for(kind).is_none())
+        .filter(|&kind| !registry.can_build(kind))
         .collect();
     match (missing.len(), chips.len()) {
         (0, _) => Playability::Full,

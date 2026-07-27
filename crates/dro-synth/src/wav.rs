@@ -523,6 +523,9 @@ mod tests {
         assert!(*frames.last().unwrap() > 0);
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn the_render_is_not_silent() {
         let song = small_song();
@@ -534,6 +537,9 @@ mod tests {
         );
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn eight_bit_export_round_trips_through_hound() {
         let song = small_song();
@@ -649,6 +655,9 @@ mod tests {
         );
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn panning_a_render_hard_left_moves_the_energy() {
         let song = small_song();
@@ -681,6 +690,9 @@ mod tests {
         );
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn a_boosted_render_is_louder_but_never_clips() {
         let song = small_song();

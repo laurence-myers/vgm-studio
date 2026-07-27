@@ -1766,6 +1766,10 @@ fn settled_snapshot(harness: &mut Harness<'static, DroApp>, name: &str) {
 /// either thing.
 #[test]
 fn snapshot_settings_output_per_chip() {
+    // The rows come from the core registry, and dro-ui alone knows only
+    // dro-synth's built-ins -- so without this the snapshot would stop
+    // documenting the hardware picker, which is the row worth guarding.
+    crate::widgets::chip_output::install_test_cores();
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     let config = harness.state().config.clone();
     harness.state_mut().dialogs.settings =
@@ -2329,7 +2333,11 @@ fn a_vgm_this_app_can_play_gets_its_transport_back() {
 #[test]
 fn the_hardware_output_setting_does_not_grey_a_non_opl_documents_controls() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
-    harness.state_mut().config.audio.output_backend = dro_core::config::OutputBackend::RetroWave;
+    harness
+        .state_mut()
+        .config
+        .audio
+        .set_output_backend(dro_core::config::OutputBackend::RetroWave);
     harness.run();
 
     assert!(
@@ -2343,7 +2351,11 @@ fn the_hardware_output_setting_does_not_grey_a_non_opl_documents_controls() {
 
     // An OPL song does go to the board, so for that one the setting stands.
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, false);
-    harness.state_mut().config.audio.output_backend = dro_core::config::OutputBackend::RetroWave;
+    harness
+        .state_mut()
+        .config
+        .audio
+        .set_output_backend(dro_core::config::OutputBackend::RetroWave);
     harness.run();
     assert!(!harness.state().output_renders_samples_for_test());
 }

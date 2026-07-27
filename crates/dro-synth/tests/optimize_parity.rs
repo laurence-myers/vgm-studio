@@ -25,6 +25,11 @@
 //!
 //! Rendering is at the OPL3 native rate, so the chip's own output is compared with
 //! no resampler in the path.
+// Every test here drives an OPL core and asserts what it sounds like, so the
+// whole file needs one. A `--no-default-features` build of this crate has no
+// OPL core by design (the only one available is LGPL) -- see
+// `licenses/README.md`.
+#![cfg(feature = "nuked-opl")]
 
 use dro_core::io::read_song;
 use dro_core::optimize::optimize;

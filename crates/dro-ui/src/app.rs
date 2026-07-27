@@ -3582,7 +3582,13 @@ impl DroApp {
         // Play: otherwise the old backend keeps playing and keeps hold of its
         // device, so a user switching away from hardware output cannot get the
         // serial port back until they press Play again.
-        if config.audio.output_backend != self.config.audio.output_backend
+        //
+        // The whole core map, not just OPL's slot: a core swap applies on the
+        // next `load()` -- the `SwitchingAudioService` precedent, no live-swap
+        // machinery -- so dropping what is loaded is what *makes* it apply. A
+        // user who picks a different YM2612 core and hears the old one until
+        // they reopen the file would reasonably call that broken.
+        if config.audio.cores != self.config.audio.cores
             || config.audio.retrowave_port != self.config.audio.retrowave_port
         {
             self.audio.pause();
@@ -4299,12 +4305,12 @@ mod about_tests {
         let text = about_text();
         for core in dro_synth::credits() {
             assert!(
-                text.contains(core.label),
+                text.contains(&core.label),
                 "{} is compiled in but not credited in the About box",
                 core.label
             );
             assert!(
-                text.contains(core.license),
+                text.contains(&core.license),
                 "{} is credited without its license",
                 core.label
             );

@@ -47,6 +47,9 @@ fn main() -> ExitCode {
     }
 
     env_logger::init();
+    // Before anything can ask what plays what: the GUI's Settings dialog, the
+    // About credits and every subcommand that renders all read the registry.
+    dro_trimmer::install_cores();
     let cli = Cli::parse();
 
     match cli.command {

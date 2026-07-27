@@ -192,12 +192,18 @@ mod tests {
         assert_eq!(peak.clipped, render_peak >= 0x7FFF);
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn a_keyed_on_note_is_not_silent() {
         let peak = measure_peak(small_song(), 48_000);
         assert!(peak.max_level > 0, "the keyed-on note made no sound");
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn the_sample_rate_does_not_have_to_be_native() {
         // A different output rate still renders the same note; the peak stays
@@ -235,6 +241,9 @@ mod tests {
         assert_eq!(simple, cancellable);
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn progress_is_reported_and_only_grows() {
         let song = small_song();

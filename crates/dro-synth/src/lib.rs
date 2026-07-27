@@ -19,6 +19,7 @@ pub mod engine;
 pub mod limiter;
 pub mod opl;
 pub mod peak;
+pub mod registry;
 pub mod split;
 pub mod vgm_engine;
 pub mod wav;
@@ -35,8 +36,11 @@ pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, PlayerEngin
 pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
-pub use opl::{NukedOpl3, OplChip};
+#[cfg(feature = "nuked-opl")]
+pub use opl::NukedOpl3;
+pub use opl::{DefaultOplChip, OplChip, SilentOpl};
 pub use peak::{Peak, measure_peak, measure_peak_cancellable};
+pub use registry::{CoreInfo, CoreMaker, CoreRegistry, install, registry};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split, split_cancellable};
 pub use vgm_engine::VgmEngine;
 pub use wav::{

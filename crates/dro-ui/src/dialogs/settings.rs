@@ -1,6 +1,8 @@
 //! The Settings dialog. The web build (Step 8) has no ini file at all, so the
 //! dialog writes through whatever `ConfigStore` the platform injected.
 
+use std::collections::BTreeMap;
+
 use dro_core::config::{AppConfig, OutputBackend, SurfaceChoice, ThemeChoice};
 
 use crate::action::Action;
@@ -27,7 +29,9 @@ pub struct SettingsDialog {
     theme: ThemeChoice,
     pad_style: SurfaceChoice,
     deck_style: SurfaceChoice,
-    output_backend: OutputBackend,
+    /// The core chosen per chip slot, edited in place by the picker. The whole
+    /// map, not just OPL's row: every chip's core is a setting now.
+    cores: BTreeMap<String, String>,
     /// The chosen port, or empty for "whichever one is found".
     retrowave_port: String,
     /// The ports offered in the picker, listed when the dialog opened.
@@ -50,15 +54,40 @@ impl SettingsDialog {
             // The deck has no grey treatment, so a hand-edited ini naming one
             // must not show a choice the dropdown cannot offer back.
             deck_style: config.ui.deck_style.for_deck(),
-            output_backend: config.audio.output_backend,
+            cores: config.audio.cores.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
             ports,
         }
     }
 
     /// Whether the settings that only shape the rendered signal still apply.
+    ///
+    /// Read back from the OPL slot rather than kept alongside it, so the greying
+    /// cannot disagree with the picker that drives it.
     fn emulating(&self) -> bool {
-        self.output_backend == OutputBackend::Emulated
+        self.backend() == OutputBackend::Emulated
+    }
+
+    /// Points a chip slot at a core, as the picker's dropdown does.
+    ///
+    /// Exists for the tests: the picker itself edits the map through
+    /// [`chip_output::show`], and a test that reached into the field would be
+    /// asserting about a `BTreeMap` rather than about a setting.
+    #[cfg(test)]
+    fn choose_core(&mut self, slot: &str, core: &str) {
+        self.cores.insert(slot.to_owned(), core.to_owned());
+    }
+
+    /// The OPL slot as a backend: hardware, or anything else.
+    fn backend(&self) -> OutputBackend {
+        match self
+            .cores
+            .get(dro_core::config::OPL_SLOT)
+            .map(String::as_str)
+        {
+            Some(dro_core::config::RETROWAVE_CORE) => OutputBackend::RetroWave,
+            _ => OutputBackend::Emulated,
+        }
     }
 
     /// The three appearance settings, which preview live rather than waiting for
@@ -103,7 +132,7 @@ impl SettingsDialog {
                     // where the old single row could not.
                     let ports = &self.ports;
                     let port = &mut self.retrowave_port;
-                    chip_output::show(ui, palette, &mut self.output_backend, &mut |ui| {
+                    chip_output::show(ui, palette, &mut self.cores, &mut |ui| {
                         ui.label("Device").on_hover_text(
                             "The board's serial port. On Windows these usually report \
                              a generic name, so a recognised board is matched by its \
@@ -301,7 +330,7 @@ impl SettingsDialog {
         config.audio.frequency = self.frequency;
         config.audio.buffer_size = self.buffer_size;
         config.audio.bit_depth = self.bit_depth;
-        config.audio.output_backend = self.output_backend;
+        config.audio.cores = self.cores.clone();
         let port = self.retrowave_port.trim();
         config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
         config.ui.tail_length = tail_length;
@@ -510,21 +539,49 @@ mod tests {
         }
     }
 
+    /// Choosing the board is now choosing a *core* for the OPL slot, so the
+    /// saved config must carry it in the same map every other chip uses -- and
+    /// still read back as the backend the audio service switches on.
     #[test]
     fn the_output_backend_and_port_reach_the_saved_config() {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), vec![port("COM3", true)]);
-        assert_eq!(dialog.output_backend, OutputBackend::Emulated);
+        assert_eq!(dialog.backend(), OutputBackend::Emulated);
 
-        dialog.output_backend = OutputBackend::RetroWave;
+        dialog.choose_core(dro_core::config::OPL_SLOT, dro_core::config::RETROWAVE_CORE);
         dialog.retrowave_port = "COM3".to_owned();
+        assert_eq!(dialog.backend(), OutputBackend::RetroWave);
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         let Some(Action::ApplySettings(saved)) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
-        assert_eq!(saved.audio.output_backend, OutputBackend::RetroWave);
+        assert_eq!(saved.audio.output_backend(), OutputBackend::RetroWave);
+        assert_eq!(
+            saved.audio.core(dro_core::config::OPL_SLOT),
+            Some(dro_core::config::RETROWAVE_CORE)
+        );
         assert_eq!(saved.audio.retrowave_port.as_deref(), Some("COM3"));
+    }
+
+    /// A core chosen for a chip that is not OPL travels the same road, which is
+    /// the whole point of the map: the OPL row stopped being a special case.
+    #[test]
+    fn a_core_chosen_for_any_chip_reaches_the_saved_config() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        dialog.choose_core("sn76489", "native");
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.core("sn76489"), Some("native"));
+        assert_eq!(
+            saved.audio.output_backend(),
+            OutputBackend::Emulated,
+            "another chip's core must not disturb where OPL plays"
+        );
     }
 
     /// An unset port means "find one at load time", not a port named "".
@@ -548,7 +605,7 @@ mod tests {
     fn the_signal_settings_only_apply_to_the_emulator() {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
         assert!(dialog.emulating());
-        dialog.output_backend = OutputBackend::RetroWave;
+        dialog.choose_core(dro_core::config::OPL_SLOT, dro_core::config::RETROWAVE_CORE);
         assert!(!dialog.emulating(), "hardware output renders no signal");
     }
 

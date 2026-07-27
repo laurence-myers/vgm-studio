@@ -336,6 +336,9 @@ mod tests {
         assert!(render_waveform(&tone_song(), 0, 48_000).is_empty());
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn the_tone_shows_amplitude_and_the_tail_is_silent() {
         // 300 ms song, 30 buckets = 10 ms each. The first ~20 buckets are the

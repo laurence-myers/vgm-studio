@@ -279,6 +279,9 @@ mod tests {
         assert_eq!(isolated.total_delay_ms(), full.total_delay_ms());
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn a_capture_is_playable() {
         let song = read_song("lsl3_score_up_dro2.dro", DRO_FIXTURE).unwrap();
@@ -351,6 +354,9 @@ mod tests {
         assert_eq!(register_writes(&reread), register_writes(&vgm));
     }
 
+    // Asserts the OPL render is *not* silent, which only an OPL core can
+    // make true. `--no-default-features` has none by design.
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn a_captured_vgm_is_playable() {
         let vgm = dro_core::convert::dro_to_vgm(&two_channel_song()).unwrap();

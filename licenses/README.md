@@ -34,13 +34,12 @@ crates that the *app* depends on, so the permissive half stays permissive:
 | `dro-cores-nuked` | `LGPL-2.1-or-later` | Nuked-family cores (CQM, OPN2, OPM, …) |
 | `dro-cores-gpl` | `GPL-2.0-or-later` | GPL-2 cores (OPLL, PSG, the LLE tier) |
 
-> **Caveat, true until step cr-2 lands.** `dro-synth` currently depends on
-> `nuked-opl3` (LGPL-2.1-or-later) unconditionally, so a build of it today is
-> LGPL-2.1-or-later in effect even though its own source is `MIT OR
-> Apache-2.0`. cr-2 makes that dependency an optional, default-on `nuked-opl`
-> feature; `--no-default-features` will then give a genuinely permissive
-> build. Until then, treat `dro-synth`'s permissive claim as covering its own
-> source only.
+`dro-synth`'s one copyleft dependency, the `nuked-opl3` OPL core, is behind a
+**default-on `nuked-opl` feature**. `cargo build -p dro-synth
+--no-default-features` therefore has no copyleft in it at all: OPL files still
+load, edit, seek, split and render — that is file-format logic, not emulation —
+they just produce silence, and the core registry says so rather than implying
+sound. The application enables the feature, as does every release build.
 
 No GPL-3-only code ships in any binary here (that rules out Mesen2 and
 BlastEm, which are used as separate A/B oracle *programs*, never linked), and

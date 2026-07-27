@@ -137,6 +137,10 @@ struct ChipSpec {
     clock: usize,
     since: u32,
     name: &'static str,
+    /// A stable identifier for config keys and core ids: lowercase, no
+    /// punctuation. Spelled out rather than derived from `name` so that
+    /// rewording a display name cannot silently move a user's settings.
+    slug: &'static str,
     /// What bit 31 of the clock means, where the spec gives it a meaning.
     variant: Option<&'static str>,
 }
@@ -151,6 +155,7 @@ const CHIPS: [ChipSpec; CHIP_COUNT] = {
         clock: usize,
         since: u32,
         name: &'static str,
+        slug: &'static str,
         variant: Option<&'static str>,
     ) -> ChipSpec {
         ChipSpec {
@@ -158,53 +163,75 @@ const CHIPS: [ChipSpec; CHIP_COUNT] = {
             clock,
             since,
             name,
+            slug,
             variant,
         }
     }
     use ChipKind as K;
     [
-        chip(K::Sn76489, 0x0C, 0x100, "SN76489", Some("T6W28")),
-        chip(K::Ym2413, 0x10, 0x100, "YM2413", None),
-        chip(K::Ym2612, 0x2C, 0x110, "YM2612", Some("YM3438")),
-        chip(K::Ym2151, 0x30, 0x110, "YM2151", Some("YM2164")),
-        chip(K::SegaPcm, 0x38, 0x151, "Sega PCM", None),
-        chip(K::Rf5c68, 0x40, 0x151, "RF5C68", None),
-        chip(K::Ym2203, 0x44, 0x151, "YM2203", None),
-        chip(K::Ym2608, 0x48, 0x151, "YM2608", None),
-        chip(K::Ym2610, 0x4C, 0x151, "YM2610", Some("YM2610B")),
-        chip(K::Ym3812, 0x50, 0x151, "YM3812", None),
-        chip(K::Ym3526, 0x54, 0x151, "YM3526", None),
-        chip(K::Y8950, 0x58, 0x151, "Y8950", None),
-        chip(K::Ymf262, 0x5C, 0x151, "YMF262", None),
-        chip(K::Ymf278b, 0x60, 0x151, "YMF278B", None),
-        chip(K::Ymf271, 0x64, 0x151, "YMF271", None),
-        chip(K::Ymz280b, 0x68, 0x151, "YMZ280B", None),
-        chip(K::Rf5c164, 0x6C, 0x151, "RF5C164", None),
-        chip(K::Pwm, 0x70, 0x151, "PWM", None),
-        chip(K::Ay8910, 0x74, 0x151, "AY8910", None),
-        chip(K::GameBoyDmg, 0x80, 0x161, "Game Boy DMG", None),
-        chip(K::NesApu, 0x84, 0x161, "NES APU", Some("NES APU + FDS")),
-        chip(K::MultiPcm, 0x88, 0x161, "MultiPCM", None),
-        chip(K::Upd7759, 0x8C, 0x161, "uPD7759", None),
-        chip(K::Okim6258, 0x90, 0x161, "OKIM6258", None),
-        chip(K::Okim6295, 0x98, 0x161, "OKIM6295", None),
-        chip(K::K051649, 0x9C, 0x161, "K051649", Some("K052539")),
-        chip(K::K054539, 0xA0, 0x161, "K054539", None),
-        chip(K::HuC6280, 0xA4, 0x161, "HuC6280", None),
-        chip(K::C140, 0xA8, 0x161, "C140", None),
-        chip(K::K053260, 0xAC, 0x161, "K053260", None),
-        chip(K::Pokey, 0xB0, 0x161, "POKEY", None),
-        chip(K::QSound, 0xB4, 0x161, "QSound", None),
-        chip(K::Scsp, 0xB8, 0x171, "SCSP", None),
-        chip(K::WonderSwan, 0xC0, 0x171, "WonderSwan", None),
-        chip(K::Vsu, 0xC4, 0x171, "VSU", None),
-        chip(K::Saa1099, 0xC8, 0x171, "SAA1099", None),
-        chip(K::Es5503, 0xCC, 0x171, "ES5503", None),
-        chip(K::Es5505, 0xD0, 0x171, "ES5505", Some("ES5506")),
-        chip(K::X1010, 0xD8, 0x171, "X1-010", None),
-        chip(K::C352, 0xDC, 0x171, "C352", None),
-        chip(K::Ga20, 0xE0, 0x171, "GA20", None),
-        chip(K::Mikey, 0xE4, 0x172, "Mikey", None),
+        chip(K::Sn76489, 0x0C, 0x100, "SN76489", "sn76489", Some("T6W28")),
+        chip(K::Ym2413, 0x10, 0x100, "YM2413", "ym2413", None),
+        chip(K::Ym2612, 0x2C, 0x110, "YM2612", "ym2612", Some("YM3438")),
+        chip(K::Ym2151, 0x30, 0x110, "YM2151", "ym2151", Some("YM2164")),
+        chip(K::SegaPcm, 0x38, 0x151, "Sega PCM", "segapcm", None),
+        chip(K::Rf5c68, 0x40, 0x151, "RF5C68", "rf5c68", None),
+        chip(K::Ym2203, 0x44, 0x151, "YM2203", "ym2203", None),
+        chip(K::Ym2608, 0x48, 0x151, "YM2608", "ym2608", None),
+        chip(K::Ym2610, 0x4C, 0x151, "YM2610", "ym2610", Some("YM2610B")),
+        chip(K::Ym3812, 0x50, 0x151, "YM3812", "ym3812", None),
+        chip(K::Ym3526, 0x54, 0x151, "YM3526", "ym3526", None),
+        chip(K::Y8950, 0x58, 0x151, "Y8950", "y8950", None),
+        chip(K::Ymf262, 0x5C, 0x151, "YMF262", "ymf262", None),
+        chip(K::Ymf278b, 0x60, 0x151, "YMF278B", "ymf278b", None),
+        chip(K::Ymf271, 0x64, 0x151, "YMF271", "ymf271", None),
+        chip(K::Ymz280b, 0x68, 0x151, "YMZ280B", "ymz280b", None),
+        chip(K::Rf5c164, 0x6C, 0x151, "RF5C164", "rf5c164", None),
+        chip(K::Pwm, 0x70, 0x151, "PWM", "pwm", None),
+        chip(K::Ay8910, 0x74, 0x151, "AY8910", "ay8910", None),
+        chip(
+            K::GameBoyDmg,
+            0x80,
+            0x161,
+            "Game Boy DMG",
+            "gameboydmg",
+            None,
+        ),
+        chip(
+            K::NesApu,
+            0x84,
+            0x161,
+            "NES APU",
+            "nesapu",
+            Some("NES APU + FDS"),
+        ),
+        chip(K::MultiPcm, 0x88, 0x161, "MultiPCM", "multipcm", None),
+        chip(K::Upd7759, 0x8C, 0x161, "uPD7759", "upd7759", None),
+        chip(K::Okim6258, 0x90, 0x161, "OKIM6258", "okim6258", None),
+        chip(K::Okim6295, 0x98, 0x161, "OKIM6295", "okim6295", None),
+        chip(
+            K::K051649,
+            0x9C,
+            0x161,
+            "K051649",
+            "k051649",
+            Some("K052539"),
+        ),
+        chip(K::K054539, 0xA0, 0x161, "K054539", "k054539", None),
+        chip(K::HuC6280, 0xA4, 0x161, "HuC6280", "huc6280", None),
+        chip(K::C140, 0xA8, 0x161, "C140", "c140", None),
+        chip(K::K053260, 0xAC, 0x161, "K053260", "k053260", None),
+        chip(K::Pokey, 0xB0, 0x161, "POKEY", "pokey", None),
+        chip(K::QSound, 0xB4, 0x161, "QSound", "qsound", None),
+        chip(K::Scsp, 0xB8, 0x171, "SCSP", "scsp", None),
+        chip(K::WonderSwan, 0xC0, 0x171, "WonderSwan", "wonderswan", None),
+        chip(K::Vsu, 0xC4, 0x171, "VSU", "vsu", None),
+        chip(K::Saa1099, 0xC8, 0x171, "SAA1099", "saa1099", None),
+        chip(K::Es5503, 0xCC, 0x171, "ES5503", "es5503", None),
+        chip(K::Es5505, 0xD0, 0x171, "ES5505", "es5505", Some("ES5506")),
+        chip(K::X1010, 0xD8, 0x171, "X1-010", "x1010", None),
+        chip(K::C352, 0xDC, 0x171, "C352", "c352", None),
+        chip(K::Ga20, 0xE0, 0x171, "GA20", "ga20", None),
+        chip(K::Mikey, 0xE4, 0x172, "Mikey", "mikey", None),
     ]
 };
 
@@ -262,6 +289,28 @@ impl ChipKind {
     #[must_use]
     pub const fn variant_name(self) -> Option<&'static str> {
         self.spec().variant
+    }
+
+    /// A stable identifier for config keys and core ids, e.g. `"ym2612"`.
+    ///
+    /// Lowercase and free of punctuation, so it drops into an ini key
+    /// (`audio.core.ym2612`) or a core id (`"ym2612.nuked"`) without escaping.
+    /// It is spelled out in the chip table rather than derived from
+    /// [`name`](Self::name): a display name is copy and may be reworded, and a
+    /// reworded slug would silently relocate a setting the user had chosen.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        self.spec().slug
+    }
+
+    /// The chip a slug names, or `None`. The inverse of [`slug`](Self::slug),
+    /// for reading a config key back.
+    #[must_use]
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        CHIPS
+            .iter()
+            .find(|spec| spec.slug == slug)
+            .map(|spec| spec.kind)
     }
 }
 
@@ -861,6 +910,26 @@ mod tests {
             assert_eq!(spec.kind as usize, index, "{} is out of order", spec.name);
         }
         assert_eq!(ChipKind::all().count(), CHIP_COUNT);
+    }
+
+    /// Slugs key config entries and core ids, so a duplicate would make two
+    /// chips share one setting and a stray character would need escaping in an
+    /// ini key. Both are the sort of thing a new chip row gets wrong once.
+    #[test]
+    fn every_slug_is_unique_and_key_safe() {
+        let mut seen = std::collections::HashSet::new();
+        for chip in ChipKind::all() {
+            let slug = chip.slug();
+            assert!(!slug.is_empty(), "{} has no slug", chip.name());
+            assert!(
+                slug.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+                "{slug} is not safe in an ini key"
+            );
+            assert!(seen.insert(slug), "{slug} is used twice");
+            assert_eq!(ChipKind::from_slug(slug), Some(chip), "{slug} round-trips");
+        }
+        assert_eq!(ChipKind::from_slug("ym9999"), None);
     }
 
     /// The spec's chip numbering, spot-checked at the values that matter: the

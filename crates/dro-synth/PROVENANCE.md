@@ -14,13 +14,18 @@ with the upstream notice retained verbatim in the ported file. Copyleft cores
 application depends on** (`dro-cores-nuked`, `dro-cores-gpl`), never here. See
 `licenses/README.md` for the split.
 
-> **Open caveat until cr-2.** `dro-synth` still depends on `nuked-opl3`
-> (LGPL-2.1-or-later) unconditionally, so a build of it today carries that
-> obligation regardless of this crate's own license expression. cr-2 makes it
-> an optional, default-on `nuked-opl` feature so `--no-default-features`
-> yields a genuinely permissive build. Until then this crate's permissive
-> claim covers its own source only, and the row below is listed for honesty
-> rather than because it belongs here.
+**The one copyleft dependency is optional.** `nuked-opl3` (LGPL-2.1-or-later)
+is behind the default-on `nuked-opl` feature, so:
+
+```bash
+cargo build -p dro-synth --no-default-features
+```
+
+gives a build with no copyleft in it at all. OPL documents still load, edit,
+seek, split and render in that build — all of that is file-format logic, not
+emulation — they simply produce silence, via `opl::SilentOpl`. The registry
+registers no OPL core there, so the UI reports the silence rather than implying
+sound. The app enables the feature, as every release build does.
 
 ## Sourcing tiers
 
@@ -46,7 +51,21 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | Core | Chips | Tier | Read from | Upstream revision | License | Local deltas |
 |---|---|---|---|---|---|---|
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
-| `vendor/nuked-opl3` (dependency) | YM3812 (OPL2), YMF262 (OPL3) | vendored Rust port (legacy) | The `nuked-opl3` crate 0.1.0, itself a Rust port of Nuke.YKT's Nuked-OPL3 | crates.io 0.1.0 | LGPL-2.1-or-later | Two defect fixes and one pan-law change in `src/core.rs`, all documented in `vendor/nuked-opl3/README.dro-trimmer.md`; both fixes are upstream-PR material. Shipped, byte-tested against the C reference (`c-parity`), wasm-clean. **The one legacy vendored core** — upstream is quiet, so the no-vendoring policy above does not apply retroactively. |
+| `vendor/nuked-opl3` (optional dependency, `nuked-opl` feature) | YM3812 (OPL2), YMF262 (OPL3) | vendored Rust port (legacy) | The `nuked-opl3` crate 0.1.0, itself a Rust port of Nuke.YKT's Nuked-OPL3 | crates.io 0.1.0 | LGPL-2.1-or-later | Two defect fixes and one pan-law change in `src/core.rs`, all documented in `vendor/nuked-opl3/README.dro-trimmer.md`; both fixes are upstream-PR material. Shipped, byte-tested against the C reference (`c-parity`), wasm-clean. **The one legacy vendored core** — upstream is quiet, so the no-vendoring policy above does not apply retroactively. |
+
+## Where a core is declared
+
+Every core has a `CoreInfo` row in the registry (`dro-synth/src/registry.rs`,
+or a provider crate's `register`), and that row is what a user sees: the
+Settings picker lists its label and license, and the About box credits it. The
+row must agree with this file on label, license and upstream — the two
+disagreeing means one of them is lying to somebody.
+
+Registered outside `dro-synth`, and why:
+
+| Provider | Registers | Why not here |
+|---|---|---|
+| `dro-retrowave` | `opl3.retrowave` — the RetroWave OPL3 board | Native-only (serial ports). The web build never registers it, so its Settings dialog does not offer hardware it could never reach. |
 
 ## Non-core third-party code
 

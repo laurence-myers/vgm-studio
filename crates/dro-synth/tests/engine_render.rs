@@ -6,6 +6,11 @@
 //! together: the pull engine, rendering the fixture through the actual emulator,
 //! must produce exactly what a straightforward reference render loop does -- so
 //! its delay accounting and mid-buffer pausing are provably correct on real data.
+// Every test here drives an OPL core and asserts what it sounds like, so the
+// whole file needs one. A `--no-default-features` build of this crate has no
+// OPL core by design (the only one available is LGPL) -- see
+// `licenses/README.md`.
+#![cfg(feature = "nuked-opl")]
 
 mod common;
 

@@ -5,6 +5,8 @@
 //! directory and then the executable's directory; the web shell reads
 //! `localStorage`. Both hand the text to [`AppConfig::from_ini_sources`].
 
+use std::collections::BTreeMap;
+
 use ini::Ini;
 
 use crate::error::{Error, Result};
@@ -70,17 +72,83 @@ pub struct AudioConfig {
     /// Ignored by hardware output, which has no sound card to configure and
     /// steps the song at the chip's own rate.
     pub frequency: u32,
-    /// Whether playback goes to the emulator or to RetroWave hardware.
+    /// Which core plays each chip, keyed by the chip's slot slug (`"opl3"`,
+    /// `"ym2612"`) and valued with the core's short name (`"nuked"`, `"cqm"`).
     ///
-    /// Applies to live playback only: rendering, splitting and converting always
-    /// use the emulator, since they need the samples themselves.
-    pub output_backend: OutputBackend,
+    /// Stored as `core.<slug>=<name>` in `[audio]`. A slot with no entry gets
+    /// whatever the core registry ranks first, so the map holds only what the
+    /// user actually chose -- and a name this build does not have (a config
+    /// written by the native app and read by the web one) falls back the same
+    /// way rather than failing.
+    ///
+    /// The core names are *not* validated here: this crate knows nothing about
+    /// emulators, and inventing a list to check against would put the truth in
+    /// two places. `dro-synth`'s registry is that list.
+    pub cores: BTreeMap<String, String>,
     /// The serial port of the RetroWave board, such as `COM3`. `None` picks the
     /// first port that looks like one.
     pub retrowave_port: Option<String>,
 }
 
+/// The slot slug the OPL family shares -- one selector for OPL2, OPL3, YM3526
+/// and Y8950, because one core (or one board) plays all four.
+///
+/// Duplicated from `dro_synth::registry::OPL_SLOT_SLUG` rather than depended
+/// on: this crate sits *below* dro-synth and cannot see it. A test in dro-synth
+/// asserts the two agree.
+pub const OPL_SLOT: &str = "opl3";
+
+/// The core name meaning "a RetroWave OPL3 board", in the `opl3` slot.
+pub const RETROWAVE_CORE: &str = "retrowave";
+
+/// The core name meaning "the built-in OPL emulator", in the `opl3` slot.
+pub const NUKED_CORE: &str = "nuked";
+
 impl AudioConfig {
+    /// The core chosen for `slot`, or `None` to take the registry's default.
+    #[must_use]
+    pub fn core(&self, slot: &str) -> Option<&str> {
+        self.cores.get(slot).map(String::as_str)
+    }
+
+    /// Chooses a core for `slot`; `None` clears the choice back to the default.
+    pub fn set_core(&mut self, slot: &str, core: Option<&str>) {
+        match core {
+            Some(core) => {
+                self.cores.insert(slot.to_owned(), core.to_owned());
+            }
+            None => {
+                self.cores.remove(slot);
+            }
+        }
+    }
+
+    /// Where live OPL playback goes.
+    ///
+    /// A *view* of the `opl3` slot rather than a setting of its own, which is
+    /// what it always was: the RetroWave board is an OPL3, so choosing it was
+    /// choosing how OPL played. Now that every chip has a core choice, OPL's is
+    /// spelled the same way as the rest, and this reads it back for the two
+    /// places that genuinely ask about a *backend* -- which audio service to
+    /// run, and whether samples pass through this program at all.
+    #[must_use]
+    pub fn output_backend(&self) -> OutputBackend {
+        match self.core(OPL_SLOT) {
+            Some(RETROWAVE_CORE) => OutputBackend::RetroWave,
+            _ => OutputBackend::Emulated,
+        }
+    }
+
+    /// Points the `opl3` slot at a backend.
+    pub fn set_output_backend(&mut self, backend: OutputBackend) {
+        self.set_core(
+            OPL_SLOT,
+            Some(match backend {
+                OutputBackend::Emulated => NUKED_CORE,
+                OutputBackend::RetroWave => RETROWAVE_CORE,
+            }),
+        );
+    }
     /// Whether live playback passes through this program as samples.
     ///
     /// False for hardware output, where the board mixes its own sound and sends
@@ -92,8 +160,8 @@ impl AudioConfig {
     /// Offline work -- WAV rendering, splitting, the waveform display -- always
     /// uses the emulator and is unaffected either way.
     #[must_use]
-    pub const fn renders_samples(&self) -> bool {
-        matches!(self.output_backend, OutputBackend::Emulated)
+    pub fn renders_samples(&self) -> bool {
+        matches!(self.output_backend(), OutputBackend::Emulated)
     }
 }
 
@@ -105,7 +173,7 @@ impl Default for AudioConfig {
             lock_boost: false,
             buffer_size: 512,
             frequency: 48_000,
-            output_backend: OutputBackend::default(),
+            cores: BTreeMap::new(),
             retrowave_port: None,
         }
     }
@@ -408,8 +476,30 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "audio", "frequency") {
             self.audio.frequency = parse(value, "audio.frequency")?;
         }
+        // Migration: `output_backend` was the OPL row's key under another name,
+        // written before every chip had a core choice. Read it as one, so an
+        // existing drotrim.ini keeps its hardware setting; it is not written
+        // back, so the file converges on the new spelling after one save.
+        // Applied *before* the `core.*` keys so an explicit new-style choice in
+        // the same file wins.
         if let Some(value) = lookup(&ini, "audio", "output_backend") {
-            self.audio.output_backend = parse(value, "audio.output_backend")?;
+            let backend: OutputBackend = parse(value, "audio.output_backend")?;
+            self.audio.set_output_backend(backend);
+        }
+        for (key, value) in section_keys(&ini, "audio") {
+            let Some(slot) = key.strip_prefix("core.") else {
+                continue;
+            };
+            let (slot, value) = (slot.trim(), value.trim());
+            if slot.is_empty() {
+                return Err(Error::config("Invalid key: audio.core. has no chip"));
+            }
+            // An empty value means "no preference", which is how a slot gets
+            // cleared back to the registry default without deleting the line.
+            self.audio.set_core(
+                &slot.to_ascii_lowercase(),
+                (!value.is_empty()).then_some(value),
+            );
         }
         if let Some(value) = lookup(&ini, "audio", "retrowave_port") {
             let value = value.trim();
@@ -458,10 +548,16 @@ impl AppConfig {
              # Keep the volume across songs (true), or start each song from its\n\
              # own header volume modifier (false, the default).\n\
              lock_boost={lock_boost}\n\
-             # Where live playback goes: emulated (Nuked OPL3, through the sound\n\
-             # card) or retrowave (a RetroWave OPL3 board, heard through its own\n\
-             # output). Rendering and splitting always use the emulator.\n\
-             output_backend={output_backend}\n\
+             # Which emulator core plays each chip, one line per chip:\n\
+             #   core.<chip>=<core name>\n\
+             # The chip names are the ones the Settings dialog lists; the OPL\n\
+             # family shares the single slot \"opl3\", since one core -- or one\n\
+             # board -- plays all of it. For opl3, \"retrowave\" sends live\n\
+             # playback to a RetroWave OPL3 board instead of the emulator.\n\
+             # A chip with no line here uses the best core available, and a core\n\
+             # name this build does not have falls back the same way.\n\
+             # Rendering and splitting always use an emulator, never hardware.\n\
+             {cores}\
              # Serial port of the RetroWave board, e.g. COM3 or /dev/ttyACM0.\n\
              # Leave empty to use the first one detected.\n\
              retrowave_port={retrowave_port}\n\
@@ -486,7 +582,14 @@ impl AppConfig {
             buffer_size = self.audio.buffer_size,
             boost = self.audio.boost,
             lock_boost = self.audio.lock_boost,
-            output_backend = self.audio.output_backend,
+            // `BTreeMap`, so the lines come out in a stable order and a save
+            // that changed nothing produces the same file.
+            cores = self
+                .audio
+                .cores
+                .iter()
+                .map(|(slot, core)| format!("core.{slot}={core}\n"))
+                .collect::<String>(),
             retrowave_port = self.audio.retrowave_port.as_deref().unwrap_or_default(),
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
@@ -508,6 +611,16 @@ pub trait ConfigStore {
     /// # Errors
     /// If the settings could not be written to their backing store.
     fn save(&self, config: &AppConfig) -> Result<()>;
+}
+
+/// Every key in a section, lowercased, for the settings whose *names* carry
+/// data -- `core.<chip slug>`, where the chip is part of the key.
+fn section_keys<'a>(ini: &'a Ini, section: &str) -> Vec<(String, &'a str)> {
+    ini.section(Some(section))
+        .into_iter()
+        .flat_map(|props| props.iter())
+        .map(|(name, value)| (name.to_ascii_lowercase(), value))
+        .collect()
 }
 
 /// Finds a key case-insensitively. Section names stay case-sensitive.
@@ -686,9 +799,68 @@ mod tests {
         let source = "[audio]\noutput_backend=parallel_port\n";
         let config = AppConfig::from_ini_sources(&[source]);
         assert_eq!(config, AppConfig::default());
-        assert_eq!(config.audio.output_backend, OutputBackend::Emulated);
+        assert_eq!(config.audio.output_backend(), OutputBackend::Emulated);
         let error = AppConfig::try_from_ini_sources(&[source]).unwrap_err();
         assert!(error.to_string().contains("audio.output_backend"));
+    }
+
+    /// An existing `drotrim.ini` says `output_backend=`; the app now writes
+    /// `core.opl3=`. Reading the old spelling must keep a user's board
+    /// selected, or upgrading silently moves their playback back to the
+    /// emulator.
+    #[test]
+    fn the_old_output_backend_key_migrates_to_the_opl_slot() {
+        let config = AppConfig::from_ini_sources(&["[audio]\noutput_backend=retrowave\n"]);
+        assert_eq!(config.audio.output_backend(), OutputBackend::RetroWave);
+        assert_eq!(config.audio.core(OPL_SLOT), Some(RETROWAVE_CORE));
+
+        // And it is not written back, so one save converges on the new name.
+        let written = config.to_ini_string();
+        assert!(written.contains("core.opl3=retrowave"));
+        assert!(
+            !written.contains("output_backend="),
+            "the legacy key is read, never re-emitted"
+        );
+    }
+
+    /// Both spellings in one file: the explicit new key is the one the user
+    /// last chose through the dialog, so it wins.
+    #[test]
+    fn a_new_style_key_beats_the_migrated_one() {
+        let config =
+            AppConfig::from_ini_sources(&["[audio]\noutput_backend=retrowave\ncore.opl3=nuked\n"]);
+        assert_eq!(config.audio.output_backend(), OutputBackend::Emulated);
+    }
+
+    #[test]
+    fn core_choices_are_per_chip_and_survive_a_round_trip() {
+        let config = AppConfig::from_ini_sources(&[
+            "[audio]\ncore.ym2612=nuked\nCORE.SN76489 = native \ncore.opl3=\n",
+        ]);
+        assert_eq!(config.audio.core("ym2612"), Some("nuked"));
+        assert_eq!(
+            config.audio.core("sn76489"),
+            Some("native"),
+            "keys are case-insensitive and values trimmed, like every other key"
+        );
+        assert_eq!(
+            config.audio.core("opl3"),
+            None,
+            "an empty value clears the slot back to the registry default"
+        );
+
+        let reread = AppConfig::from_ini_sources(&[&config.to_ini_string()]);
+        assert_eq!(reread.audio.cores, config.audio.cores);
+    }
+
+    /// A core name this build has never heard of is a normal thing -- the web
+    /// build genuinely lacks ids the native one has -- so it must load. Which
+    /// core it resolves to is the registry's problem, not this crate's.
+    #[test]
+    fn an_unknown_core_name_is_stored_rather_than_rejected() {
+        let config = AppConfig::try_from_ini_sources(&["[audio]\ncore.ym2612=nonesuch\n"])
+            .expect("an unknown core must not discard the config");
+        assert_eq!(config.audio.core("ym2612"), Some("nonesuch"));
     }
 
     /// An unset port means "find one", which is different from a port literally
@@ -699,7 +871,7 @@ mod tests {
     fn only_the_emulator_renders_samples_this_program_can_shape() {
         let mut config = AudioConfig::default();
         assert!(config.renders_samples(), "the emulator renders through us");
-        config.output_backend = OutputBackend::RetroWave;
+        config.set_output_backend(OutputBackend::RetroWave);
         assert!(!config.renders_samples(), "the board mixes its own output");
     }
 
@@ -808,7 +980,12 @@ mod tests {
                 lock_boost: true,
                 buffer_size: 2048,
                 frequency: 49_716,
-                output_backend: OutputBackend::RetroWave,
+                // The OPL slot spelled as hardware, plus a second chip's core,
+                // so the round trip covers both a migrated key and a new one.
+                cores: BTreeMap::from([
+                    ("opl3".to_owned(), "retrowave".to_owned()),
+                    ("sn76489".to_owned(), "native".to_owned()),
+                ]),
                 retrowave_port: Some("COM7".to_owned()),
             },
             ui: UiConfig {

@@ -11,7 +11,16 @@ authors.workspace = true
 repository.workspace = true
 
 [features]
-default = []
+default = ["nuked-opl"]
+# The Nuked-OPL3 core. On by default -- the app wants it, and every release
+# build has it -- but optional, because it is LGPL-2.1-or-later while this
+# crate's own source is `MIT OR Apache-2.0`. A consumer who needs a genuinely
+# permissive build takes `--no-default-features`, and OPL documents then load,
+# edit, seek and split exactly as before while rendering silence
+# (`opl::SilentOpl`). An optional dependency conveys nothing until enabled, so
+# this crate's license expression stays honest either way.
+# See `licenses/README.md` and `PROVENANCE.md`.
+nuked-opl = ["dep:nuked-opl3"]
 # Builds the original Nuked-OPL3 C sources and exposes them as a second `OplChip`,
 # so `tests/c_parity.rs` can assert the pure-Rust core is bit-identical to them.
 #
@@ -25,7 +34,7 @@ c-parity = ["dep:opl3-rs"]
 dro-core.workspace = true
 hound.workspace = true
 log.workspace = true
-nuked-opl3.workspace = true
+nuked-opl3 = { workspace = true, optional = true }
 opl3-rs = { workspace = true, optional = true }
 
 [dev-dependencies]

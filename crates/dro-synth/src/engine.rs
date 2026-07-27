@@ -21,7 +21,7 @@ use dro_core::song::DRO_FILE_V1;
 use dro_core::util::VGM_SAMPLE_RATE;
 use dro_core::{Bank, DroInstruction, Song, SongFileType};
 
-use crate::opl::{NukedOpl3, OplChip};
+use crate::opl::{DefaultOplChip, OplChip};
 
 /// The nine per-channel key-on/frequency registers, `0xB0..=0xB8`, whose writes
 /// channel muting gates. The bank bit is tracked separately.
@@ -355,7 +355,7 @@ impl Position {
 /// `Arc<Song>` for the audio thread) and the OPL core (a mock in tests). Build one
 /// with [`PlayerEngine::new`]; drive it with [`PlayerEngine::render`].
 #[derive(Debug)]
-pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
+pub struct PlayerEngine<B = std::sync::Arc<Song>, C = DefaultOplChip> {
     song: B,
     chip: C,
     sample_rate: u32,
@@ -391,12 +391,12 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = NukedOpl3> {
     loops_done: u32,
 }
 
-impl<B: Borrow<Song>> PlayerEngine<B, NukedOpl3> {
+impl<B: Borrow<Song>> PlayerEngine<B, DefaultOplChip> {
     /// Builds an engine for `song`, rendering at `sample_rate` Hz. The chip is
     /// reset and positioned at the start of the song.
     #[must_use]
     pub fn new(song: B, sample_rate: u32) -> Self {
-        let chip = NukedOpl3::new(sample_rate);
+        let chip = DefaultOplChip::new(sample_rate);
         Self::with_chip(song, chip, sample_rate)
     }
 }

@@ -252,7 +252,7 @@ impl AudioService for SwitchingAudioService {
         // this app can perfectly well render. The setting is about *OPL* output;
         // it was never a claim about every chip.
         let wanted = if source.opl().is_some() {
-            config.output_backend
+            config.output_backend()
         } else {
             OutputBackend::Emulated
         };
@@ -371,7 +371,8 @@ mod tests {
     fn a_missing_device_reports_an_error_rather_than_switching_back() {
         let mut service = SwitchingAudioService::new();
         let config = AudioConfig {
-            output_backend: OutputBackend::RetroWave,
+            // Hardware output, spelled as the OPL slot's core choice.
+            cores: [("opl3".to_owned(), "retrowave".to_owned())].into(),
             retrowave_port: Some("NO_SUCH_PORT".to_owned()),
             ..AudioConfig::default()
         };
@@ -403,7 +404,8 @@ mod tests {
 
         let mut service = SwitchingAudioService::new();
         let config = AudioConfig {
-            output_backend: OutputBackend::RetroWave,
+            // Hardware output, spelled as the OPL slot's core choice.
+            cores: [("opl3".to_owned(), "retrowave".to_owned())].into(),
             retrowave_port: Some("NO_SUCH_PORT".to_owned()),
             ..AudioConfig::default()
         };
