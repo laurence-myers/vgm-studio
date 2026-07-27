@@ -156,9 +156,12 @@
   "correct" a sample total that disagreed with the stream. Correcting a header
   is now something the user asks for by name.
 
-  Validated against the local corpus: of 16466 files, all 3933 the OPL reader
-  accepts agree byte-for-byte through the new path, and 12533 that it could not
-  open at all now open. The splitter agrees with the OPL one on every segment
+  Validated against the local corpus: **every one of its 16466 files opens**,
+  all 3933 the OPL reader accepts agree byte-for-byte through the new path, and
+  12533 that it could not open at all now do. (The last five needed one more
+  tolerance: a `0x00` byte in the command stream is padding, and stepping over
+  it is safe because the walk is self-checking -- a desynchronised stream would
+  fail on the next undefined byte instead of reaching an end marker.) The splitter agrees with the OPL one on every segment
   boundary in those 3933 files and on all 11388 pieces they yield (final chip
   state and length -- not bytes, since the two state preludes emit the same
   writes in different orders). A file with nothing to gain from the optimiser is
