@@ -502,8 +502,8 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             continue;
         }
 
-        let (mut correlations, mut cents, mut dropouts, mut gains) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut correlations, mut cents, mut dropouts, mut gains, mut levels) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
         for original in &files {
             // Both sides render the same cut file, so the saving costs nothing.
             let path = &shortened(original, &work_dir());
@@ -538,6 +538,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             correlations.push(score.worst_correlation());
             dropouts.push(score.worst_dropout());
             gains.push(score.channels[0].gain);
+            levels.push(score.channels[0].rms_ratio);
             if let Some(measured) = score.worst_cents() {
                 cents.push(measured);
             }
@@ -552,10 +553,13 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         let correlation = median(&mut correlations);
         let dropout = median(&mut dropouts);
         let gain = median(&mut gains);
+        // Level is what the balance work reads; `gain` conflates level with
+        // correlation and only means what it says once correlation is high.
+        let level = median(&mut levels);
         let detune = (!cents.is_empty()).then(|| median(&mut cents));
 
         println!(
-            "{:<14} {:?}  corr {correlation:.4}  drop {dropout:.3}  gain {gain:.3}  cents {}{}",
+            "{:<14} {:?}  corr {correlation:.4}  lvl {level:.3}  gain {gain:.3}               drop {dropout:.3}  cents {}{}",
             chip.name(),
             bar.regime,
             detune.map_or_else(|| "  --".to_owned(), |c| format!("{c:+.1}")),

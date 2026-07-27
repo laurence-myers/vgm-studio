@@ -69,7 +69,22 @@ pub struct ChannelScore {
     pub lag: isize,
     /// The scalar that best maps our render onto the reference's. For a
     /// shared-core chip this *is* the gain correction.
+    ///
+    /// **Only when the correlation is high.** The least-squares fit is
+    /// `α = ρ · σ_reference / σ_ours`, so a decorrelated pair reports a small
+    /// α whatever its level: the SN76489's first scorecard row read `corr 0.58
+    /// gain 0.55`, which looks like our render being nearly twice too loud and
+    /// is nothing of the kind -- the levels were within 5%. Read [`rms_ratio`]
+    /// for level and this for level *only* once correlation says the two are
+    /// the same waveform.
+    ///
+    /// [`rms_ratio`]: ChannelScore::rms_ratio
     pub gain: f64,
+    /// Our RMS over the reference's: level, uncontaminated by correlation.
+    ///
+    /// This is the number the balance work wants. 1.0 is agreement, above 1.0
+    /// means we are louder.
+    pub rms_ratio: f64,
     pub envelope_error: f64,
     pub quieter_windows: usize,
     pub louder_windows: usize,
@@ -127,8 +142,9 @@ impl Score {
             .worst_cents()
             .map_or_else(|| "  --  ".to_owned(), |cents| format!("{cents:+6.1}"));
         format!(
-            "corr {:.4}  gain {:.3}  env {:.3}  drop {:.3}  cents {cents}  dc {:+.4}/{:+.4}",
+            "corr {:.4}  lvl {:.3}  gain {:.3}  env {:.3}  drop {:.3}  cents {cents}  dc {:+.4}/{:+.4}",
             self.worst_correlation(),
+            self.channels[0].rms_ratio,
             self.channels[0].gain,
             self.channels[0].envelope_error,
             self.worst_dropout(),
@@ -218,6 +234,12 @@ pub fn compare(ours: &Render, reference: &Render, settings: Settings) -> Score {
         let (correlation, lag) =
             metrics::best_correlation(&ours_hp, &reference_hp, max_lag).unwrap_or((0.0, 0));
         let gain = metrics::fit_gain(&ours_hp, &reference_hp).unwrap_or(0.0);
+        let reference_rms = metrics::rms(&reference_hp);
+        let rms_ratio = if reference_rms > 1e-12 {
+            metrics::rms(&ours_hp) / reference_rms
+        } else {
+            0.0
+        };
 
         let our_envelope = metrics::envelope(&ours_hp, window);
         let reference_envelope = metrics::envelope(&reference_hp, window);
@@ -259,6 +281,7 @@ pub fn compare(ours: &Render, reference: &Render, settings: Settings) -> Score {
             correlation,
             lag,
             gain,
+            rms_ratio,
             envelope_error,
             quieter_windows,
             louder_windows,
@@ -418,6 +441,60 @@ mod tests {
         }
     }
 
+    /// **A low `gain` does not mean a level difference.** The least-squares fit
+    /// is `α = ρ · σ_reference / σ_ours`, so decorrelation drags it down on its
+    /// own. The SN76489's first scorecard row read `corr 0.58  gain 0.55` and
+    /// was briefly read as our render being nearly twice too loud; the levels
+    /// were within 5%. `rms_ratio` is the number that answers the level
+    /// question, and this is the case that separates them.
+    #[test]
+    fn a_level_difference_and_a_decorrelation_are_told_apart() {
+        let rate = 44_100;
+        fn render(rate: u32, hz: f64, amplitude: f64) -> Render {
+            let samples: Vec<i16> = (0..rate)
+                .flat_map(|index| {
+                    let t = f64::from(index) / f64::from(rate);
+                    let value = (amplitude * (2.0 * std::f64::consts::PI * hz * t).sin()) as i16;
+                    [value, value]
+                })
+                .collect();
+            Render::from_interleaved_i16(&samples, rate)
+        }
+
+        // Same waveform, half the level: both numbers say so, and agree.
+        let quiet = compare(
+            &render(rate, 440.0, 6_000.0),
+            &render(rate, 440.0, 12_000.0),
+            Settings::default(),
+        );
+        assert!(quiet.worst_correlation() > 0.999);
+        assert!(
+            (quiet.channels[0].gain - 2.0).abs() < 0.01,
+            "{}",
+            quiet.channels[0].gain
+        );
+        assert!((quiet.channels[0].rms_ratio - 0.5).abs() < 0.01);
+
+        // Same level, unrelated content: `gain` collapses, `rms_ratio` does
+        // not. Reading the first as a level error is the trap.
+        let other = compare(
+            &render(rate, 440.0, 12_000.0),
+            &render(rate, 997.0, 12_000.0),
+            Settings::default(),
+        );
+        assert!(other.worst_correlation().abs() < 0.5);
+        assert!(
+            other.channels[0].gain.abs() < 0.5,
+            "a decorrelated fit is small: {}",
+            other.channels[0].gain
+        );
+        assert!(
+            (other.channels[0].rms_ratio - 1.0).abs() < 0.02,
+            "but the levels are equal: {}",
+            other.channels[0].rms_ratio
+        );
+    }
+
     /// Comparing a render with itself must be a perfect score. If this fails,
     /// the pipeline is wrong and no chip result means anything -- the same
     /// argument the OPL control group makes, in a form that needs no reference.
@@ -441,6 +518,7 @@ mod tests {
         );
         assert_eq!(score.channels[0].lag, 0);
         assert!((score.channels[0].gain - 1.0).abs() < 1e-6);
+        assert!((score.channels[0].rms_ratio - 1.0).abs() < 1e-6);
         assert_eq!(score.worst_dropout(), 0.0);
         assert!(
             score.worst_cents().is_none_or(|cents| cents.abs() < 0.5),

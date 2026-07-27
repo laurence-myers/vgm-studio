@@ -45,11 +45,23 @@ const PEAK: i32 = 8000;
 
 /// Attenuation, 2 dB a step, from full scale to silence.
 ///
-/// `LEVELS[n] = PEAK x 10^(-0.1 x 2n)`, with `LEVELS[15] = 0` by definition --
-/// the attenuator's last step is off, not merely quiet.
+/// `LEVELS[n] = PEAK x 10^(-2n/20)`, with `LEVELS[15] = 0` by definition -- the
+/// attenuator's last step is off, not merely quiet.
 /// `the_volume_table_is_two_decibels_a_step` recomputes it.
+///
+/// **The decibel is a ratio of powers only when the quantity is a power.** This
+/// table held `10^(-0.1 x 2n)` until the reference-parity harness caught it:
+/// that is 2 dB a step of *power*, which is 4 dB a step of the amplitude the
+/// table actually holds, so every step but the first was an octave of
+/// attenuation too dark. The old table is precisely this one with every other
+/// entry taken. Nothing local could have found it -- the self-test recomputed
+/// the same wrong formula and agreed with itself, and by ear a chiptune that is
+/// uniformly a little top-heavy sounds like a chiptune. What found it was the
+/// SN76489 scoring 0.58 against VGMPlay with its *noise* matching to within
+/// 0.7%: partials at attenuation 0 agreed exactly, and the rest fell away as
+/// `0.795^n`, which is the ratio between the two formulas.
 const LEVELS: [i32; 16] = [
-    PEAK, 5048, 3185, 2010, 1268, 800, 505, 318, 201, 127, 80, 50, 32, 20, 13, 0,
+    PEAK, 6355, 5048, 4009, 3185, 2530, 2010, 1596, 1268, 1007, 800, 635, 505, 401, 318, 0,
 ];
 
 /// The shift register's taps: bits 0 and 3.
@@ -295,10 +307,24 @@ mod tests {
     #[test]
     fn the_volume_table_is_two_decibels_a_step() {
         for (step, &level) in LEVELS.iter().enumerate().take(15) {
-            let expected = (f64::from(PEAK) * 10f64.powf(-0.1 * 2.0 * step as f64)).round() as i32;
+            // Amplitude, so 20 log10 -- see the note on LEVELS for what
+            // getting this wrong cost and what caught it.
+            let expected = (f64::from(PEAK) * 10f64.powf(-2.0 * step as f64 / 20.0)).round() as i32;
             assert_eq!(level, expected, "step {step}");
         }
         assert_eq!(LEVELS[15], 0, "the last step is off, not quiet");
+
+        // Two steps must halve the amplitude *four* times over fifteen steps,
+        // not eight: an independent statement of the same fact, so a future
+        // edit cannot make the formula and the table agree on something wrong
+        // together the way the previous pair did.
+        let full = f64::from(LEVELS[0]);
+        let quietest = f64::from(LEVELS[14]);
+        let span_db = 20.0 * (full / quietest).log10();
+        assert!(
+            (span_db - 28.0).abs() < 0.1,
+            "fourteen steps of 2 dB is 28 dB of range, not {span_db:.1}"
+        );
     }
 
     #[test]
