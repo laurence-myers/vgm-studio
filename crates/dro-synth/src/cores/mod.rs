@@ -19,10 +19,12 @@
 //! for the split, `PROVENANCE.md` for the per-core record, and
 //! `docs/vgm-multichip-2026-07/CORES-PLAN.md` for the programme.
 
+pub mod ay8910;
 pub mod gb_dmg;
 pub mod nes_apu;
 pub mod sn76489;
 
+pub use ay8910::Ay8910;
 pub use gb_dmg::GbDmg;
 pub use nes_apu::NesApu;
 pub use sn76489::Sn76489;

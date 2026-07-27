@@ -226,13 +226,26 @@ workspace green including the wasm check build.
 | cr-4 | YM2612/YM3438 via Nuked-OPN2 submodule. MegaDrive folder becomes fully audible (PSG + FM). Optimiser: revisit the 0x2A/0x28 exclusions against an LLE render. |
 | cr-5 | YM2151 via Nuked-OPM (N, submodule). |
 | cr-6 | NES APU (clean-room from NESdev docs) + Game Boy DMG (SameBoy APU). NES + GameBoy folders audible. |
-| cr-7 | OPN family (YM2203/2608/2610): fmopn-logic port (G). NeoGeo folder audible. The biggest single step, and now the one that **stands up `dro-cores-gpl`**; LLE oracles first. |
-| cr-8 | AY8910 via Ayumi (P) + HuC6280 (c6280_mame port, P). TurboGrafx folder audible. |
+| cr-7 | **AY8910 / YM2149** (P, clean-room) + HuC6280. The AY is *also the SSG section of every OPN chip*, so it is cr-8's foundation as well as a chip in its own right. |
+| cr-8 | OPN family (YM2203/2608/2610): fmopn-logic port (G) reusing cr-7's SSG. NeoGeo folder audible. The biggest single step, and the one that **stands up `dro-cores-gpl`**; LLE oracles first. |
 | cr-9 | YM2413: Nuked-OPLL (G) + emu2413 (P). OKIM6295 + OKIM6258 alongside — the two biggest of the PCM chips, and both arcade. |
 | cr-10 | PCM long tail, batched (P), plus WonderSwan, VSU and SAA1099. Arcade folder converges. |
 | cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. |
 | cr-12 | Sweep: registry-vs-chip-table coverage test, About credits complete, `PROVENANCE.md` complete, docs. |
 
+> **Nuked-OPNB is not usable, checked 2026-07-27.** §5 hoped for it "when it
+> leaves WIP"; it has not. `nukeykt/Nuked-OPNB` (and `Nuked-OPNA`, which is the
+> same repository) is version 0.0: its header declares `fm_ar` and `fm_ks`
+> twice, so it does not compile; there is no reset function, no output function
+> at all — `OPNB_Clock` takes no buffer — and no SSG or ADPCM. 649 lines against
+> Nuked-OPM's 2,200. So the OPN family really does need the port route, and if
+> Nuked-OPNB ever lands it is LGPL, which puts it in `dro-cores-nuked` rather
+> than the GPL crate.
+>
+> That is why **cr-7 and cr-8 swapped**: the AY8910 is the SSG section of every
+> OPN chip, so building it first makes the big step smaller rather than merely
+> reordering it.
+>
 > **Reordered 2026-07-27 by corpus weight**, on the user's call, once cr-2's
 > index made §7.1's numbers available. The old order ran YM2413 at cr-5, YM2151
 > at cr-6 and NES APU at cr-7; measured, YM2413 is 1.8% of the corpus while

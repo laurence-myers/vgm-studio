@@ -1818,9 +1818,14 @@ fn snapshot_gd3_tag_dialog() {
     settled_snapshot(&mut harness, "gd3_tag_dialog");
 }
 
-/// A Neo Geo VGM: two chips, a v1.61 header, a loop and a tag, and a `stream`
-/// of commands the OPL table cannot size, so the editor is certain to decline
-/// it as a song.
+/// A Neo Geo VGM: a v1.61 header, a loop and a tag, and a `stream` of commands
+/// the OPL table cannot size, so the editor is certain to decline it as a song.
+///
+/// **Its chips must have no core**, because the tests built on it assert the
+/// not-playable and not-renderable paths. That was an AY8910 as well until the
+/// AY gained a core in cr-7 and quietly made four of those tests wrong; the
+/// assertion below now makes a future core break *this* fixture by name rather
+/// than four tests that never mention it.
 ///
 /// `total` and `loop_samples` go in the header verbatim; a real file's agree
 /// with its stream, and so do the ones passed here.
@@ -1831,12 +1836,16 @@ fn other_chip_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8>
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
     }
 
+    assert!(
+        !dro_synth::registry::registry().can_build(ChipKind::Ym2610),
+        "the YM2610 now has a core, so this fixture no longer stands for a          document nothing can play -- pick a chip that still has none"
+    );
+
     let mut bytes = vec![0u8; 0x100];
     bytes[..4].copy_from_slice(b"Vgm ");
     put_u32(&mut bytes, 0x08, 0x161);
     put_u32(&mut bytes, 0x34, 0x100 - 0x34);
     put_u32(&mut bytes, ChipKind::Ym2610.clock_offset(), 8_000_000);
-    put_u32(&mut bytes, ChipKind::Ay8910.clock_offset(), 2_000_000);
     put_u32(&mut bytes, 0x18, total);
     put_u32(&mut bytes, 0x1C, (0x100 + 3 - 0x1C) as u32); // loop at command 1
     put_u32(&mut bytes, 0x20, loop_samples);
@@ -2092,7 +2101,7 @@ fn a_non_opl_capture_can_be_split_into_its_songs() {
         .map(|(_, bytes)| dro_core::vgm::file::read("piece.vgm", bytes).expect("a readable VGM"))
         .collect();
     for piece in &pieces {
-        assert_eq!(piece.chip_list(), "YM2610, AY8910");
+        assert_eq!(piece.chip_list(), "YM2610");
     }
 
     // The first song is its own three commands: it starts where the capture
