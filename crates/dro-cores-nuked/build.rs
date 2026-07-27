@@ -24,15 +24,21 @@ fn main() {
     require_submodule(&opn2, "nuked-opn2", "ym3438.c");
     watch(&opn2, &["ym3438.c", "ym3438.h"]);
 
+    let opm = PathBuf::from(UPSTREAM).join("nuked-opm");
+    require_submodule(&opm, "nuked-opm", "opm.c");
+    watch(&opm, &["opm.c", "opm.h"]);
+
     let mut build = cc::Build::new();
     build
         .file(cqm.join("cqm.c"))
         .file(opn2.join("ym3438.c"))
+        .file(opm.join("opm.c"))
         // Ours: reports what each upstream struct measures, so the Rust side
         // can allocate one without declaring a twin of it that could drift.
         .file("shim/layout.c")
         .include(&cqm)
         .include(&opn2)
+        .include(&opm)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")

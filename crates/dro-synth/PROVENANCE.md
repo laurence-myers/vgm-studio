@@ -53,6 +53,7 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
 | `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** Freestanding C but for `#include <string.h>`, which `shim/string.h` answers. Its own `writebuf` ring matches Nuked-OPL3's, so `PlayerEngine`'s write spacing suits it unchanged. |
 | `dro-cores-nuked` → `opn2.rs` | YM2612, YM3438 | **submodule + `cc`** | `vendor/upstream/nuked-opn2` (`nukeykt/Nuked-OPN2`), `ym3438.c` + `ym3438.h` | `335747d78cb0abbc3b55b004e62dad9763140115` | LGPL-2.1-or-later | **Compiled unmodified.** Two upstream properties are handled on our side rather than patched — see below. |
+| `dro-cores-nuked` → `opm.rs` | YM2151, YM2164 | **submodule + `cc`** | `vendor/upstream/nuked-opm` (`nukeykt/Nuked-OPM`), `opm.c` + `opm.h` | `23ea53bb442b3f761ded3cd8a27399dd46db34fc` | LGPL-2.1-or-later | **Compiled unmodified.** Same designer, same shape as OPN2: cycle-level clocking (32 cycles to a sample, `clock / 64`) and latched writes. No global chip-type — the YM2164 variant is a flag on this chip's own reset — so no lock. Its write pacing is stricter; see below. |
 
 ### The two Nuked-OPN2 properties worth knowing
 
@@ -77,7 +78,28 @@ missed:
    inside it, so a YM2612 and a YM3438 in one file — or on two threads — each
    render as themselves. One acquisition per render, not per clock.
 
-**Not a struct mirror.** Both cores' state is allocated by a size the C reports
+### Write pacing, and why it is measured per core
+
+Every Nuke.YKT core here latches a register write and applies it only when the
+chip's rotation reaches that register's slot. How much room that needs is *not*
+the same across chips, and getting it wrong is silent — every write is accepted,
+nothing errors, and some fraction of them never land:
+
+| Core | Rotation | Pacing used |
+|---|---|---|
+| Nuked-OPN2 (YM2612) | 24 cycles | address, value, then the rest of the rotation — one register per output sample |
+| Nuked-OPM (YM2151) | 32 cycles | address, **a whole rotation**, value, **a whole rotation** — one register per two samples |
+
+The OPM figure was measured, and the measurement is the reason it is not a
+guess: spacing writes 1, 2, 3 or 6 cycles apart produces total silence, while 4
+gives full amplitude, 8 a quarter and 16 a half. That sequence is not monotonic
+because those numbers are **phases**, not durations — each lands some registers
+on their slot and misses others. So a spacing that happens to work for one patch
+is no evidence at all, and only a full rotation each way is defensible. Any new
+core in this family gets the same treatment: find the rotation, give each half
+of the handover its own, and pin it with a burst-of-writes test.
+
+**Not a struct mirror.** Every core's state is allocated by a size the C reports
 (`shim/layout.c`, ours) and never declared in Rust; see `src/opaque.rs`. A
 `#[repr(C)]` twin is fine until an upstream adds a field, at which point the
 twin is too small and the C writes past it — which on a submodule that exists to

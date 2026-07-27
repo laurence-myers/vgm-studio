@@ -20,6 +20,8 @@ unsafe extern "C" {
     fn drotrim_cqm_alignof() -> usize;
     fn drotrim_ym3438_sizeof() -> usize;
     fn drotrim_ym3438_alignof() -> usize;
+    fn drotrim_opm_sizeof() -> usize;
+    fn drotrim_opm_alignof() -> usize;
 
     // --- Nuked-CQM ---
     fn CQM_Reset(chip: *mut c_void, samplerate: u32, genrate: u32);
@@ -32,7 +34,15 @@ unsafe extern "C" {
     fn OPN2_SetChipType(chip_type: u32);
     fn OPN2_Clock(chip: *mut c_void, buffer: *mut i16);
     fn OPN2_Write(chip: *mut c_void, port: u32, data: u8);
+
+    // --- Nuked-OPM ---
+    fn OPM_Reset(chip: *mut c_void, flags: u32);
+    fn OPM_Clock(chip: *mut c_void, output: *mut i32, sh1: *mut u8, sh2: *mut u8, so: *mut u8);
+    fn OPM_Write(chip: *mut c_void, port: u32, data: u8);
 }
+
+/// Upstream's `opm_flags_ym2164`: the rebadged OPP rather than the YM2151.
+const OPM_FLAGS_YM2164: u32 = 1;
 
 /// Upstream's `ym3438_mode_ym2612`: the discrete YM2612 rather than the CMOS
 /// YM3438, which differs audibly in its DAC.
@@ -198,6 +208,63 @@ impl Opn2Clocking<'_> {
     }
 }
 
+/// A Nuked-OPM chip: the YM2151, or the YM2164 it was rebadged as.
+///
+/// No lock, unlike [`Opn2Chip`]: this upstream keeps its variant in the chip's
+/// own struct (`opm_t::opp`, set from the reset flags) rather than in a global.
+#[derive(Debug)]
+pub(crate) struct OpmChip {
+    state: OpaqueChip,
+}
+
+impl OpmChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_opm_sizeof(), drotrim_opm_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Re-initialises as a YM2151, or a YM2164 when `ym2164`.
+    ///
+    /// Upstream drives the IC (reset) pin and clocks the chip through its
+    /// power-on sequence itself, so there is nothing to arrange around this.
+    pub(crate) fn reset(&mut self, ym2164: bool) {
+        let flags = if ym2164 { OPM_FLAGS_YM2164 } else { 0 };
+        // SAFETY: the block is sized by the C's own `sizeof(opm_t)`, so the
+        // memset and the reset clocking stay inside the allocation.
+        unsafe { OPM_Reset(self.state.as_ptr(), flags) }
+    }
+
+    /// Presents `data` on `port` (0 selects a register, 1 its value).
+    ///
+    /// Latched, not applied: the register lands when the rotation reaches its
+    /// slot, which is why `opm.rs` queues writes.
+    pub(crate) fn write(&mut self, port: u32, data: u8) {
+        // SAFETY: as above; the call writes only inside the chip block.
+        unsafe { OPM_Write(self.state.as_ptr(), port, data) }
+    }
+
+    /// Advances one internal cycle and returns the stereo DAC outputs.
+    pub(crate) fn clock(&mut self) -> (i32, i32) {
+        let mut output = [0i32; 2];
+        // SAFETY: upstream writes exactly two i32s through `output`, which is
+        // two i32s. The serial-DAC pins are of no interest here and upstream
+        // accepts null for them (`if (sh1) *sh1 = ...`). No pointer is retained.
+        unsafe {
+            OPM_Clock(
+                self.state.as_ptr(),
+                output.as_mut_ptr(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+        }
+        (output[0], output[1])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +285,10 @@ mod tests {
         };
         assert!(cqm > 1024, "cqm_t came back as {cqm} bytes");
         assert!(opn2 > 1024, "ym3438_t came back as {opn2} bytes");
+        // SAFETY: compile-time constants, as above.
+        let (opm, opm_align) = unsafe { (drotrim_opm_sizeof(), drotrim_opm_alignof()) };
+        assert!(opm > 1024, "opm_t came back as {opm} bytes");
+        assert!(opm_align <= align_of::<u64>(), "{opm_align}");
         assert!(cqm_align <= align_of::<u64>(), "{cqm_align}");
         assert!(opn2_align <= align_of::<u64>(), "{opn2_align}");
     }
