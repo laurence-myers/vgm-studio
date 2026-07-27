@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod adpcm;
 pub mod banks;
 pub mod capture;
 pub mod chip;

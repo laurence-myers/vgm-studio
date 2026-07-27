@@ -110,7 +110,273 @@ impl OpnKind {
     }
 }
 
-/// One of the OPN family: OPN2's FM, an AY's SSG, and no ADPCM.
+/// ADPCM-A's output scale: a full-level decode against the FM's range.
+///
+/// The decoder spans +-2048; x2 puts a full-level drum in the neighbourhood of
+/// one FM channel's peak, which is where the hardware balance sits. Judged by
+/// the parity scorecard's level column, as every balance here now is.
+const ADPCM_A_GAIN: i32 = 2;
+
+/// One ADPCM-A voice: a slice of the shared ROM, keyed on and off.
+#[derive(Debug, Default, Clone, Copy)]
+struct AdpcmAVoice {
+    playing: bool,
+    decoder: dro_synth::adpcm::AdpcmA,
+    /// Raw register values. Start and end are in 256-byte pages; the level is
+    /// five bits with 31 loudest -- a LEVEL, not an attenuation, the polarity
+    /// this codebase has mis-read four times elsewhere.
+    start: u16,
+    end: u16,
+    level: u8,
+    pan: [bool; 2],
+    /// Byte offset into the ROM, and which nibble of it is next.
+    position: u32,
+    high_nibble: bool,
+    /// The last decoded sample, held between the section's 18.5 kHz steps.
+    current: i32,
+}
+
+/// The six-voice ADPCM-A section the YM2610 carries.
+///
+/// (The YM2608's rhythm section speaks the same format but reads the chip's
+/// *internal* mask ROM, which a VGM does not carry and this project cannot
+/// ship -- that gap stands, and the registry label says so.)
+#[derive(Debug, Default)]
+struct AdpcmASection {
+    rom: Vec<u8>,
+    voices: [AdpcmAVoice; 6],
+    /// Raw six-bit total level, 63 loudest.
+    total_level: u8,
+    /// The section steps at clock/432 -- one third of the FM sample rate --
+    /// and this counts the frames of each triplet.
+    phase: u8,
+}
+
+impl AdpcmASection {
+    fn write(&mut self, register: u8, value: u8) {
+        match register {
+            0x00 => {
+                // Key-on mask, or key-off when bit 7 is set.
+                for (index, voice) in self.voices.iter_mut().enumerate() {
+                    if value & (1 << index) == 0 {
+                        continue;
+                    }
+                    if value & 0x80 != 0 {
+                        voice.playing = false;
+                    } else {
+                        voice.playing = true;
+                        voice.decoder.restart();
+                        voice.position = u32::from(voice.start) << 8;
+                        voice.high_nibble = true;
+                        voice.current = 0;
+                    }
+                }
+            }
+            0x01 => self.total_level = value & 0x3F,
+            0x08..=0x0D => {
+                let voice = &mut self.voices[usize::from(register - 0x08)];
+                voice.pan = [value & 0x80 != 0, value & 0x40 != 0];
+                voice.level = value & 0x1F;
+            }
+            0x10..=0x15 => {
+                let voice = &mut self.voices[usize::from(register - 0x10)];
+                voice.start = (voice.start & 0xFF00) | u16::from(value);
+            }
+            0x18..=0x1D => {
+                let voice = &mut self.voices[usize::from(register - 0x18)];
+                voice.start = (voice.start & 0x00FF) | (u16::from(value) << 8);
+            }
+            0x20..=0x25 => {
+                let voice = &mut self.voices[usize::from(register - 0x20)];
+                voice.end = (voice.end & 0xFF00) | u16::from(value);
+            }
+            0x28..=0x2D => {
+                let voice = &mut self.voices[usize::from(register - 0x28)];
+                voice.end = (voice.end & 0x00FF) | (u16::from(value) << 8);
+            }
+            _ => {}
+        }
+    }
+
+    /// One output frame's contribution. Decoding advances on every third
+    /// frame; between steps each voice holds its level, exactly as the
+    /// hardware's slower DAC clock does.
+    fn render(&mut self) -> (i32, i32) {
+        let step = self.phase == 0;
+        self.phase = (self.phase + 1) % 3;
+        let (mut left, mut right) = (0, 0);
+        for voice in &mut self.voices {
+            if !voice.playing {
+                continue;
+            }
+            if step {
+                // Inclusive end: the last page's final byte still plays.
+                let last = (u32::from(voice.end) + 1) << 8;
+                if voice.position >= last || voice.position as usize >= self.rom.len() {
+                    voice.playing = false;
+                    continue;
+                }
+                let byte = self.rom[voice.position as usize];
+                let nibble = if voice.high_nibble {
+                    byte >> 4
+                } else {
+                    voice.position += 1;
+                    byte & 0x0F
+                };
+                voice.high_nibble = !voice.high_nibble;
+                let att = attenuation_steps(self.total_level, voice.level);
+                voice.current = (voice.decoder.decode(nibble) * ADPCM_A_GAIN * gain16(att)) >> 16;
+            }
+            if voice.pan[0] {
+                left += voice.current;
+            }
+            if voice.pan[1] {
+                right += voice.current;
+            }
+        }
+        (left, right)
+    }
+}
+
+/// The summed attenuation, in 0.75 dB units, of a total level and a voice
+/// level. Both registers hold LEVELS -- 63 and 31 are loudest -- so both are
+/// inverted here, at the one place the sum is taken.
+fn attenuation_steps(total_level: u8, voice_level: u8) -> u32 {
+    u32::from(0x3F - (total_level & 0x3F)) + u32::from(0x1F - (voice_level & 0x1F))
+}
+
+/// `10^(-0.75 * steps / 20)` in 16.16, the ADPCM sections' volume curve.
+///
+/// Built by compounding the one-step ratio, since const fns have no `powf`;
+/// `the_adpcm_volume_curve_is_three_quarter_decibels` checks the compounding
+/// against the closed form. Past the table it is silence.
+fn gain16(steps: u32) -> i32 {
+    const CURVE: [i32; 96] = {
+        let mut table = [0i32; 96];
+        // 65536 * 10^(-0.75/20), the one-step ratio in 16.16. The running
+        // value carries sixteen guard bits, because eighty truncating
+        // multiplies of a bare 16.16 lose several percent by the quiet end of
+        // the curve -- the test against the closed form is what said so.
+        let ratio: i64 = 60_119;
+        let mut value: i64 = 65536 << 16;
+        let mut index = 0;
+        while index < 96 {
+            table[index] = (value >> 16) as i32;
+            value = value * ratio / 65536;
+            index += 1;
+        }
+        table
+    };
+    CURVE.get(steps as usize).copied().unwrap_or(0)
+}
+
+/// The single ADPCM-B ("Delta-T") channel.
+#[derive(Debug, Default)]
+struct DeltaTChannel {
+    rom: Vec<u8>,
+    decoder: dro_synth::adpcm::DeltaT,
+    playing: bool,
+    repeat: bool,
+    pan: [bool; 2],
+    start: u16,
+    stop: u16,
+    /// The address unit the chip kind implies: 256-byte pages on the YM2610's
+    /// ROM (shift 8), smaller units on the YM2608's RAM (shift 5 or 2, chosen
+    /// by the bus-width bit in control 2).
+    shift: u32,
+    delta_n: u16,
+    /// Linear output level, 0-255.
+    level: u8,
+    position: u32,
+    /// Nibble-clock accumulator against `delta_n`, 16.16.
+    fraction: u32,
+    high_nibble: bool,
+    current: i32,
+}
+
+impl DeltaTChannel {
+    fn write(&mut self, register: u8, value: u8) {
+        match register {
+            0x00 => {
+                if value & 0x01 != 0 {
+                    // Reset: stop and forget.
+                    self.playing = false;
+                    self.decoder.restart();
+                    self.current = 0;
+                } else if value & 0x80 != 0 {
+                    self.playing = true;
+                    self.repeat = value & 0x10 != 0;
+                    self.decoder.restart();
+                    self.position = u32::from(self.start) << self.shift;
+                    self.fraction = 0;
+                    self.high_nibble = true;
+                    self.current = 0;
+                }
+            }
+            0x01 => {
+                self.pan = [value & 0x80 != 0, value & 0x40 != 0];
+                // Bit 3 selects the RAM bus width on the YM2608, and with it
+                // the address unit. The YM2610's ROM stays on 256-byte pages.
+                if self.shift != 8 {
+                    self.shift = if value & 0x08 != 0 { 5 } else { 2 };
+                }
+            }
+            0x02 => self.start = (self.start & 0xFF00) | u16::from(value),
+            0x03 => self.start = (self.start & 0x00FF) | (u16::from(value) << 8),
+            0x04 => self.stop = (self.stop & 0xFF00) | u16::from(value),
+            0x05 => self.stop = (self.stop & 0x00FF) | (u16::from(value) << 8),
+            0x09 => self.delta_n = (self.delta_n & 0xFF00) | u16::from(value),
+            0x0A => self.delta_n = (self.delta_n & 0x00FF) | (u16::from(value) << 8),
+            0x0B => self.level = value,
+            _ => {}
+        }
+    }
+
+    /// One output frame's contribution.
+    ///
+    /// The nibble clock runs at `clock/72 * deltaN/65536` -- twice the FM
+    /// sample rate at full deltaN -- so the accumulator gains `2 * deltaN` per
+    /// frame and each carry decodes one nibble.
+    fn render(&mut self) -> (i32, i32) {
+        if !self.playing {
+            return (0, 0);
+        }
+        self.fraction += u32::from(self.delta_n) * 2;
+        while self.fraction >= 1 << 16 {
+            self.fraction -= 1 << 16;
+            let last = (u32::from(self.stop) + 1) << self.shift;
+            if self.position >= last || self.position as usize >= self.rom.len() {
+                if self.repeat {
+                    self.position = u32::from(self.start) << self.shift;
+                    self.decoder.restart();
+                    self.high_nibble = true;
+                    continue;
+                }
+                self.playing = false;
+                self.current = 0;
+                return (0, 0);
+            }
+            let byte = self.rom[self.position as usize];
+            let nibble = if self.high_nibble {
+                byte >> 4
+            } else {
+                self.position += 1;
+                byte & 0x0F
+            };
+            self.high_nibble = !self.high_nibble;
+            // A 16-bit decode scaled by the linear level, brought down to sit
+            // beside the FM in the mix.
+            self.current = (self.decoder.decode(nibble) * i32::from(self.level)) >> 9;
+        }
+        (
+            if self.pan[0] { self.current } else { 0 },
+            if self.pan[1] { self.current } else { 0 },
+        )
+    }
+}
+
+/// One of the OPN family: OPN2's FM, an AY's SSG, and -- on the chips that
+/// have them -- the ADPCM sections.
 #[derive(Debug)]
 pub struct OpnCore {
     kind: OpnKind,
@@ -122,6 +388,10 @@ pub struct OpnCore {
     /// run at unrelated rates and only the FM's is declared.
     ssg_step: u64,
     ssg_owed: u64,
+    /// YM2610 only; empty and inert on the others.
+    adpcm_a: AdpcmASection,
+    /// YM2608 and YM2610.
+    delta_t: DeltaTChannel,
 }
 
 impl OpnCore {
@@ -136,6 +406,17 @@ impl OpnCore {
             rate: 44_100,
             ssg_step: 0,
             ssg_owed: 0,
+            adpcm_a: AdpcmASection::default(),
+            delta_t: DeltaTChannel {
+                // The YM2610 addresses its Delta-T ROM in 256-byte pages; the
+                // YM2608's RAM unit arrives with the control-2 write.
+                shift: if matches!(kind, OpnKind::Ym2610) {
+                    8
+                } else {
+                    5
+                },
+                ..DeltaTChannel::default()
+            },
         }
     }
 
@@ -161,6 +442,23 @@ impl ChipCore for OpnCore {
     /// simply never addresses the last two.
     fn reset(&mut self, clock: u32, _variant: bool) {
         self.writes.clear();
+        // The ROMs arrive before the stream starts and must survive the reset
+        // the engine does when it loads -- the same contract the OKIM keeps.
+        let adpcm_a_rom = std::mem::take(&mut self.adpcm_a.rom);
+        let delta_t_rom = std::mem::take(&mut self.delta_t.rom);
+        self.adpcm_a = AdpcmASection {
+            rom: adpcm_a_rom,
+            ..AdpcmASection::default()
+        };
+        self.delta_t = DeltaTChannel {
+            rom: delta_t_rom,
+            shift: if matches!(self.kind, OpnKind::Ym2610) {
+                8
+            } else {
+                5
+            },
+            ..DeltaTChannel::default()
+        };
         self.rate = (clock / self.kind.master_per_sample()).max(1);
         // CMOS mode, always: the ladder DAC is the YM2612's alone, and the rest
         // of the family has a clean one.
@@ -177,6 +475,28 @@ impl ChipCore for OpnCore {
 
     fn native_rate(&self) -> u32 {
         self.rate
+    }
+
+    /// The sample ROMs, by their VGM block types: `0x82` is the YM2610's
+    /// ADPCM-A ROM, `0x83` its Delta-T ROM, and `0x81` the YM2608's Delta-T
+    /// memory image.
+    fn load_rom(&mut self, block_type: u8, total_size: u32, start: u32, data: &[u8]) {
+        // Only the types this chip actually owns: a YM2203 has no sample
+        // memory at all, and a YM2610's blocks must not land on a YM2608.
+        let rom = match (self.kind, block_type) {
+            (OpnKind::Ym2610, 0x82) => &mut self.adpcm_a.rom,
+            (OpnKind::Ym2610, 0x83) | (OpnKind::Ym2608, 0x81) => &mut self.delta_t.rom,
+            _ => return,
+        };
+        let total = total_size as usize;
+        if rom.len() < total {
+            rom.resize(total, 0);
+        }
+        let at = start as usize;
+        let end = (at + data.len()).min(rom.len());
+        if at < end {
+            rom[at..end].copy_from_slice(&data[..end - at]);
+        }
     }
 
     /// The family's register map: the SSG at `$00`-`$0F` on the first port,
@@ -197,16 +517,39 @@ impl ChipCore for OpnCore {
             self.ssg.write_register(register, value);
             return;
         }
-        // ADPCM: `$10`-`$1F` on port 0 is the rhythm section, and `$00`-`$1F`
-        // on port 1 is ADPCM-B. Neither is modelled, and passing them to the FM
-        // core would write real FM registers.
+        // The ADPCM blocks, which sit at different addresses per chip:
         //
-        // The range stops at `$20`, not `$30`: `$20`-`$2F` on port 0 is the FM
-        // *mode* block -- the LFO, the timers, and `$28`, which is key-on.
-        // Dropping those silences the FM completely while every other register
-        // still arrives, which reads as a dead core rather than a routing bug.
-        if (!second && (0x10..0x20).contains(&register)) || (second && register < 0x20) {
-            return;
+        // - YM2610: ADPCM-A fills port 1 `$00`-`$2D`; Delta-T is port 0
+        //   `$10`-`$1C`.
+        // - YM2608: Delta-T is port 1 `$00`-`$10`; port 0 `$10`-`$1D` is the
+        //   rhythm section, whose samples live in the chip's *internal* mask
+        //   ROM -- a VGM does not carry it, so those writes are dropped and
+        //   the gap is documented at the registry entry.
+        //
+        // The FM range starts at `$20` on port 0 -- the mode block with the
+        // LFO, the timers and `$28` key-on -- and `$30` on port 1 for the
+        // second bank's operators.
+        match self.kind {
+            OpnKind::Ym2610 => {
+                if second && register < 0x30 {
+                    self.adpcm_a.write(register, value);
+                    return;
+                }
+                if !second && (0x10..0x20).contains(&register) {
+                    self.delta_t.write(register - 0x10, value);
+                    return;
+                }
+            }
+            OpnKind::Ym2608 => {
+                if second && register < 0x20 {
+                    self.delta_t.write(register, value);
+                    return;
+                }
+                if !second && (0x10..0x20).contains(&register) {
+                    return;
+                }
+            }
+            OpnKind::Ym2203 => {}
         }
         self.writes.push(u32::from(port & 1) * 2, register, value);
     }
@@ -234,9 +577,12 @@ impl ChipCore for OpnCore {
             }
             let ssg = self.ssg.output();
 
+            let (a_left, a_right) = self.adpcm_a.render();
+            let (b_left, b_right) = self.delta_t.render();
+
             // The SSG is mono and sums into both sides, as it does on the chip.
-            frame[0] = left + ssg;
-            frame[1] = right + ssg;
+            frame[0] = left + ssg + a_left + b_left;
+            frame[1] = right + ssg + a_right + b_right;
         }
     }
 }
@@ -268,9 +614,14 @@ pub(crate) fn register(registry: &mut dro_synth::CoreRegistry) {
         registry.register(dro_synth::CoreInfo {
             id,
             chip,
-            // The label states the gap, because the Settings picker is where a
-            // user would otherwise wonder why their Neo Geo rip has no drums.
-            label: "Nuked-OPN2 FM + SSG (no ADPCM)",
+            // The label states what each chip carries -- and, for the
+            // YM2608, the one gap that cannot close: its rhythm samples live
+            // in the chip's internal mask ROM, which a VGM does not carry.
+            label: match chip {
+                ChipKind::Ym2610 => "Nuked-OPN2 FM + SSG + ADPCM",
+                ChipKind::Ym2608 => "Nuked-OPN2 FM + SSG + Delta-T (no rhythm ROM)",
+                _ => "Nuked-OPN2 FM + SSG",
+            },
             authors: "Nuke.YKT (FM); this project (SSG, assembly)",
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
@@ -550,5 +901,133 @@ mod tests {
             ym2203.native_rate() >= 1,
             "a zero clock must not divide to zero"
         );
+    }
+
+    /// The compounded 0.75 dB curve against its closed form, and the register
+    /// polarity in one place: full registers (63, 31) are zero attenuation.
+    #[test]
+    fn the_adpcm_volume_curve_is_three_quarter_decibels() {
+        for steps in [0u32, 1, 8, 24, 48, 80] {
+            let expected = 65536.0 * 10f64.powf(-0.75 * f64::from(steps) / 20.0);
+            let got = f64::from(gain16(steps));
+            assert!(
+                (got - expected).abs() / expected < 0.01,
+                "{steps} steps: {got} vs {expected}"
+            );
+        }
+        assert_eq!(gain16(200), 0, "past the table is silence");
+        assert_eq!(
+            attenuation_steps(0x3F, 0x1F),
+            0,
+            "full registers are LOUDEST -- the registers hold levels"
+        );
+        assert_eq!(attenuation_steps(0x3F, 0x1E), 1);
+        assert_eq!(attenuation_steps(0x00, 0x00), 63 + 31);
+    }
+
+    /// A YM2610 drum hit, end to end: ROM in, key-on, sound out, one-shot end.
+    /// The register sequence is the one every Neo Geo driver performs.
+    #[test]
+    fn a_neo_geo_drum_plays_and_stops() {
+        let mut chip = OpnCore::new(OpnKind::Ym2610);
+        chip.reset(8_000_000, false);
+
+        // One page of alternating extremes at page 1 of the ADPCM-A ROM.
+        let mut rom = vec![0u8; 0x300];
+        for (index, byte) in rom[0x100..0x200].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+        chip.load_rom(0x82, rom.len() as u32, 0, &rom);
+
+        chip.write(1, 0x01, 0x3F); // total level: full
+        chip.write(1, 0x08, 0xDF); // voice 0: both sides, full level
+        chip.write(1, 0x10, 0x01); // start page 1
+        chip.write(1, 0x18, 0x00);
+        chip.write(1, 0x20, 0x01); // end page 1
+        chip.write(1, 0x28, 0x00);
+        chip.write(1, 0x00, 0x01); // key on voice 0
+
+        let mut out = vec![0i32; 4096 * 2];
+        chip.render(&mut out);
+        let energy: i64 = out.iter().map(|&s| i64::from(s.abs())).sum();
+        assert!(energy > 0, "the drum must sound");
+
+        // 512 nibbles at one step per three output frames is 1536 frames; by
+        // 4096 the one-shot voice has ended on its own.
+        let mut tail = vec![0i32; 512 * 2];
+        chip.render(&mut tail);
+        assert!(
+            tail.iter().all(|&s| s == 0),
+            "a one-shot voice stops at its end register"
+        );
+    }
+
+    /// Key-off by mask: bit 7 set stops exactly the masked voices.
+    #[test]
+    fn the_key_off_mask_stops_what_it_names() {
+        let mut chip = OpnCore::new(OpnKind::Ym2610);
+        chip.reset(8_000_000, false);
+        let mut rom = vec![0u8; 0x300];
+        for byte in &mut rom[0x100..0x200] {
+            *byte = 0x77;
+        }
+        chip.load_rom(0x82, rom.len() as u32, 0, &rom);
+        chip.write(1, 0x01, 0x3F);
+        for voice in 0..2u16 {
+            chip.write(1, 0x08 + voice, 0xDF);
+            chip.write(1, 0x10 + voice, 0x01);
+            chip.write(1, 0x18 + voice, 0x00);
+            chip.write(1, 0x20 + voice, 0x01);
+            chip.write(1, 0x28 + voice, 0x00);
+        }
+        chip.write(1, 0x00, 0x03); // both on
+        chip.write(1, 0x00, 0x81); // voice 0 off
+        assert!(!chip.adpcm_a.voices[0].playing);
+        assert!(chip.adpcm_a.voices[1].playing);
+    }
+
+    /// The Delta-T channel end to end on a YM2610: 256-byte pages, repeat off,
+    /// level applied.
+    #[test]
+    fn the_delta_t_channel_plays_from_its_rom() {
+        let mut chip = OpnCore::new(OpnKind::Ym2610);
+        chip.reset(8_000_000, false);
+        let mut rom = vec![0u8; 0x300];
+        for (index, byte) in rom[0x100..0x200].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+        chip.load_rom(0x83, rom.len() as u32, 0, &rom);
+
+        // Delta-T sits at $10-$1C on port 0 of a YM2610.
+        chip.write(0, 0x11, 0xC0); // both sides
+        chip.write(0, 0x12, 0x01); // start page 1
+        chip.write(0, 0x13, 0x00);
+        chip.write(0, 0x14, 0x01); // stop page 1
+        chip.write(0, 0x15, 0x00);
+        chip.write(0, 0x19, 0x00); // delta-N = 0x4000: one nibble every 2 frames
+        chip.write(0, 0x1A, 0x40);
+        chip.write(0, 0x1B, 0xFF); // full level
+        chip.write(0, 0x10, 0x80); // start
+
+        let mut out = vec![0i32; 2048 * 2];
+        chip.render(&mut out);
+        let energy: i64 = out.iter().map(|&s| i64::from(s.abs())).sum();
+        assert!(energy > 0, "the sample must sound");
+
+        // 512 nibbles at half a nibble per frame is 1024 frames; by 2048 the
+        // non-repeating channel has finished.
+        let mut tail = vec![0i32; 256 * 2];
+        chip.render(&mut tail);
+        assert!(tail.iter().all(|&s| s == 0), "no repeat, so it ends");
+    }
+
+    /// A YM2203 has no ADPCM at all: the registers that would reach a section
+    /// on its siblings do nothing, and the ROM types are refused.
+    #[test]
+    fn the_ym2203_has_no_adpcm_to_reach() {
+        let mut chip = OpnCore::new(OpnKind::Ym2203);
+        chip.reset(3_000_000, false);
+        chip.load_rom(0x82, 0x100, 0, &[0x77; 0x100]);
+        assert!(chip.adpcm_a.rom.is_empty(), "no section, no ROM");
     }
 }
