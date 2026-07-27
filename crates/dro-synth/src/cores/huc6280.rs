@@ -276,12 +276,23 @@ impl ChipCore for HuC6280 {
                     continue;
                 }
                 for (side, sum) in sides.iter_mut().enumerate() {
-                    // The three attenuations add, in steps, before the curve is
-                    // consulted -- which is what makes one table serve all of
-                    // them and keeps the arithmetic integer.
-                    let steps = usize::from(channel.volume)
-                        + usize::from(channel.balance[side])
-                        + usize::from(self.global_balance[side]);
+                    // The three fields add, in 1.5 dB steps, before the curve
+                    // is consulted -- one table serves all of them and the
+                    // arithmetic stays integer.
+                    //
+                    // **They are levels, not attenuations: 31 and 15 are
+                    // loudest.** The first version summed the raw register
+                    // values as attenuation steps, so a game at full volume
+                    // (31 + 15 + 15 = 61 steps, past the table's end) came out
+                    // *silent*, and ordinary settings came out around thirty
+                    // times too quiet -- which is precisely what the parity
+                    // scorecard measured across every HuC6280 file (lvl 0.037)
+                    // while each still made *a* sound. The register values are
+                    // subtracted from their maxima here rather than at write
+                    // time, so the stored state stays as the file spelled it.
+                    let steps = usize::from(0x1F - (channel.volume & 0x1F))
+                        + usize::from(0x0F - (channel.balance[side] & 0x0F))
+                        + usize::from(0x0F - (self.global_balance[side] & 0x0F));
                     *sum += Self::attenuate(sample, steps);
                 }
             }
@@ -323,8 +334,9 @@ mod tests {
         }
         chip.write(0, 0x02, frequency & 0xFF);
         chip.write(0, 0x03, frequency >> 8);
-        chip.write(0, 0x05, 0x00); // no balance attenuation
-        chip.write(0, 0x04, 0x80); // on, volume 0 == loudest
+        chip.write(0, 0x01, 0xFF); // global balance: both sides full
+        chip.write(0, 0x05, 0xFF); // channel balance: both sides full
+        chip.write(0, 0x04, 0x9F); // on, volume 31 == loudest
     }
 
     /// Every gain recomputed from "1.5 dB a step" rather than transcribed.
@@ -378,8 +390,8 @@ mod tests {
         let mut chip = HuC6280::new();
         chip.reset(PCE, false);
         key_on(&mut chip, 0, 0x100);
-        // Left at full, right attenuated well past the curve.
-        chip.write(0, 0x05, 0x0F);
+        // Left at full, right at zero -- fifteen steps down, -22 dB.
+        chip.write(0, 0x05, 0xF0);
 
         let frames = render(&mut chip, 4000);
         let left: i64 = frames.iter().map(|f| i64::from(f[0].abs())).sum();
@@ -406,7 +418,7 @@ mod tests {
             chip.write(0, 0x02, 0x40);
             chip.write(0, 0x03, 0x00);
             chip.write(0, 0x05, 0x00);
-            chip.write(0, 0x04, 0x80);
+            chip.write(0, 0x04, 0x9F); // on at full volume
             render(&mut chip, 2000)
         }
         let square = render_table(&|step| if step < 16 { 0x1F } else { 0x00 });
@@ -422,8 +434,9 @@ mod tests {
         let mut chip = HuC6280::new();
         chip.reset(PCE, false);
         chip.write(0, 0x00, 0);
-        chip.write(0, 0x05, 0x00);
-        chip.write(0, 0x04, 0xC0); // on, DDA, loudest
+        chip.write(0, 0x01, 0xFF);
+        chip.write(0, 0x05, 0xFF);
+        chip.write(0, 0x04, 0xDF); // on, DDA, volume 31 == loudest
 
         // A run of alternating extremes, which is the steepest thing the
         // channel can produce -- and impossible if the writes went to a table.
@@ -458,7 +471,7 @@ mod tests {
         assert!(chip.channels[4].noise_on);
 
         chip.write(0, 0x05, 0x00);
-        chip.write(0, 0x04, 0x80);
+        chip.write(0, 0x04, 0x9F); // on at full volume
         assert!(energy(&render(&mut chip, 4000)) > 0, "the noise must sound");
     }
 
@@ -473,7 +486,7 @@ mod tests {
         assert_ne!(chip.channels[0].position, 0, "it should have moved on");
 
         chip.write(0, 0x04, 0x00); // off
-        chip.write(0, 0x04, 0x80); // on again
+        chip.write(0, 0x04, 0x9F); // on again, full volume
         assert_eq!(
             chip.channels[0].position, 0,
             "a retrigger starts at the top"

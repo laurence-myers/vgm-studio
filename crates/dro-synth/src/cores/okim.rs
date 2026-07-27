@@ -130,6 +130,15 @@ pub struct Okim6295 {
     /// The sample number a `0x80`-prefixed write latched, waiting for the write
     /// that says which voices play it.
     latched: Option<u8>,
+    /// The banking window's base, in bytes.
+    ///
+    /// The chip itself addresses 256 KB; boards wanting more sit a latch in
+    /// front of its address bus, and VGM records that latch as a write to
+    /// pseudo-register `$0F` in 256 KB units. Everything the chip reads -- the
+    /// phrase table *and* the sample data -- goes through the window, which is
+    /// why the corpus files that select a bank were rendering pure silence: an
+    /// unbanked read of their table finds zeros, and every phrase was refused.
+    bank: u32,
 }
 
 impl Okim6295 {
@@ -149,10 +158,22 @@ impl Okim6295 {
     /// sample whose entry runs past the ROM, or whose end precedes its start,
     /// is refused rather than played as whatever follows it.
     fn sample_bounds(&self, index: u8) -> Option<(u32, u32)> {
-        let at = usize::from(index) * 8;
+        // Through the bank window: the table's entries are addresses as the
+        // chip sees them, so both the table itself and what it points at are
+        // offset by the window's base.
+        let at = self.bank as usize + usize::from(index) * 8;
         let entry = self.rom.get(at..at + 6)?;
         let read24 = |b: &[u8]| (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
-        let (start, end) = (read24(&entry[..3]), read24(&entry[3..]));
+        // The chip drives eighteen address lines, so only the low eighteen
+        // bits of a table entry exist as far as it is concerned. Rips for
+        // banked boards prove the point: Dragon Master's entries read 0x80400
+        // for data sitting 0x400 into a 256 KB window, and taking the entry at
+        // face value walks off the ROM. Mask first, then bank.
+        const WINDOW: u32 = 0x3FFFF;
+        let (start, end) = (
+            self.bank + (read24(&entry[..3]) & WINDOW),
+            self.bank + (read24(&entry[3..]) & WINDOW),
+        );
         (start < end && (end as usize) < self.rom.len()).then_some((start, end))
     }
 }
@@ -185,8 +206,20 @@ impl ChipCore for Okim6295 {
     /// Dispatching on bit 7 alone looks right and makes voice 4 impossible to
     /// trigger: every command that selects it is read as a sample latch
     /// instead.
-    fn write(&mut self, _port: u8, _addr: u16, data: u16) {
+    fn write(&mut self, _port: u8, addr: u16, data: u16) {
         let value = (data & 0xFF) as u8;
+        match addr & 0x7F {
+            0x00 => {}
+            // `$0F`: the board's bank latch, recorded by VGM as a
+            // pseudo-register, in 256 KB units.
+            0x0F => {
+                self.bank = u32::from(value) * 0x40000;
+                return;
+            }
+            // `$08`-`$0B` retune the clock and `$0E`/`$10`-`$13` are NMK112
+            // per-voice banking -- known gaps, ignored rather than misrouted.
+            _ => return,
+        }
         if self.latched.is_none() && value & 0x80 != 0 {
             self.latched = Some(value & 0x7F);
             return;
@@ -313,15 +346,29 @@ impl ChipCore for Okim6258 {
         let value = (data & 0xFF) as u8;
         match addr & 0xFF {
             0x00 => {
-                // Bit 0 starts and stops the codec; stopping resets it, which
-                // is what keeps one sample's tail out of the next.
-                let start = value & 0x01 != 0;
-                if start && !self.playing {
+                // **Bit 1 plays; bit 0 stops.** The first version read bit 0 as
+                // the start bit, and every real rip proved it wrong the same
+                // way: X68000 files write $03 (stop, while a sample is set up)
+                // and then $02 (play) -- under the inverted reading playback
+                // switched OFF at the exact moment the music started, and the
+                // chip sat decoding into a closed output for the whole song.
+                // That is what the parity scorecard's corr 0.0000 / drop 1.000
+                // row was. Stop wins when both bits are set, as on the
+                // hardware, and stopping resets the codec, which is what keeps
+                // one sample's tail out of the next.
+                if value & 0x01 != 0 {
+                    self.playing = false;
                     self.adpcm.restart();
                     self.level = 0;
                     self.pending = None;
+                } else if value & 0x02 != 0 {
+                    if !self.playing {
+                        self.adpcm.restart();
+                        self.level = 0;
+                        self.pending = None;
+                    }
+                    self.playing = true;
                 }
-                self.playing = start;
             }
             0x01 => {
                 self.level = self.adpcm.decode(value >> 4);
@@ -568,7 +615,7 @@ mod tests {
     fn the_streaming_codec_converts_what_it_is_fed() {
         let mut chip = Okim6258::new();
         chip.reset(M6258_CLOCK, false);
-        chip.write(0, 0x00, 0x01); // start
+        chip.write(0, 0x00, 0x02); // play -- bit 1, not bit 0
 
         let mut out = vec![0i32; 64 * 2];
         let mut total = 0i64;
@@ -581,12 +628,84 @@ mod tests {
         assert!(total > 0, "the streaming codec produced nothing");
 
         // Stopping resets it, so the next sample does not inherit a level.
-        chip.write(0, 0x00, 0x00);
+        chip.write(0, 0x00, 0x01);
         chip.render(&mut out);
         assert!(
             out.iter().all(|&s| s == 0),
             "a stopped codec must be silent"
         );
+    }
+
+    /// The bank latch, taken from the corpus (Castle of Dracula, 01 Title
+    /// Screen): the file selects bank 2 with `$0F`, loads its table and data at
+    /// 0x80000+, and only then plays. Without the window every read landed in
+    /// the zeroed low ROM, every phrase was refused, and the chip rendered
+    /// *nothing* -- four of the parity scorecard's twelve OKIM6295 files were
+    /// exactly this.
+    #[test]
+    fn the_bank_latch_moves_the_whole_window() {
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        // A ROM whose only sample lives in bank 1: table and data both above
+        // 256 KB, nothing below.
+        let bank = 0x40000u32;
+        let mut rom = vec![0u8; 0x50000];
+        let (start, end) = (0x1000u32, 0x1200u32);
+        // High bits beyond the chip's eighteen address lines, as Dragon
+        // Master's real table spells them: masked, not trusted.
+        let spelled = start | 0x80000;
+        rom[bank as usize + 8..bank as usize + 11].copy_from_slice(&spelled.to_be_bytes()[1..]);
+        rom[bank as usize + 11..bank as usize + 14].copy_from_slice(&end.to_be_bytes()[1..]);
+        for (index, byte) in rom[(bank + start) as usize..=(bank + end) as usize]
+            .iter_mut()
+            .enumerate()
+        {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+
+        // Unbanked, phrase 1 resolves to zeros and is refused.
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert_eq!(energy(&render6295(&mut chip, 256)), 0, "no bank, no sound");
+
+        // Banked, the same command plays.
+        chip.write(0, 0x0F, 1);
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert!(
+            energy(&render6295(&mut chip, 256)) > 0,
+            "the window must carry both the table and the data"
+        );
+    }
+
+    /// The exact control sequence every X68000 rip performs, taken from the
+    /// corpus (Detana!! TwinBee, 04 Credit): $03 to the command register while
+    /// the sample is set up, then $02 to play. Under the inverted bit reading
+    /// this fixed, playback switched off at the moment the music started, and
+    /// the whole chip decoded into a closed output -- the parity scorecard's
+    /// corr 0.0000 row. The sequence is pinned so the bits cannot swap back.
+    #[test]
+    fn the_x68000_control_sequence_plays() {
+        let mut chip = Okim6258::new();
+        chip.reset(M6258_CLOCK, false);
+        chip.write(0, 0x00, 0x03); // stop, as the rips spell it during setup
+        chip.write(0, 0x02, 0x80); // pan, carried but not audio
+        chip.write(0, 0x00, 0x02); // play
+
+        let mut out = vec![0i32; 4 * 2];
+        let mut total = 0i64;
+        for step in 0..64 {
+            chip.write(0, 0x01, if step % 2 == 0 { 0x77 } else { 0xFF });
+            chip.render(&mut out);
+            total += energy(&out.iter().step_by(2).copied().collect::<Vec<_>>());
+        }
+        assert!(total > 0, "the play command must open the output");
+
+        // And $03 -- stop with bit 1 also set -- must stop: stop wins.
+        chip.write(0, 0x00, 0x03);
+        chip.render(&mut out);
+        assert!(out.iter().all(|&s| s == 0), "stop wins over play");
     }
 
     /// Chunking must not change the audio.
