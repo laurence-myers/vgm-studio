@@ -138,6 +138,54 @@ impl Score {
     }
 }
 
+/// Optional: a directory to write both sides of a flagged comparison into.
+///
+/// A score is a pointer, not a diagnosis. PARITY-PLAN's whole bet is that the
+/// metrics reduce "audition thirteen chips" to "audition the handful the
+/// numbers flagged", and that only works if the flagged pair is *to hand*.
+pub const DUMP_ENV: &str = "DROTRIM_PARITY_DUMP";
+
+/// Where flagged pairs should be written, if anywhere.
+#[must_use]
+pub fn dump_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os(DUMP_ENV).map(std::path::PathBuf::from)
+}
+
+/// Writes both renders as WAVs named after `label`, for listening.
+///
+/// Returns where they went, or `None` if dumping is off or the write failed --
+/// a diagnostic that cannot be produced must never fail the run that produced
+/// the finding.
+pub fn dump_pair(label: &str, ours: &Render, reference: &Render) -> Option<std::path::PathBuf> {
+    let dir = dump_dir()?;
+    std::fs::create_dir_all(&dir).ok()?;
+    // Path separators and the punctuation rip directories are full of would
+    // otherwise scatter these across directories that do not exist.
+    let stem: String = label
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '_' })
+        .collect();
+    for (suffix, render) in [("ours", ours), ("theirs", reference)] {
+        let spec = hound::WavSpec {
+            channels: 2,
+            sample_rate: render.sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let path = dir.join(format!("{stem}.{suffix}.wav"));
+        let mut writer = hound::WavWriter::create(&path, spec).ok()?;
+        let [left, right] = render.channels();
+        for (l, r) in left.iter().zip(right) {
+            for sample in [l, r] {
+                let clamped = (sample * f64::from(i16::MAX)).clamp(-32768.0, 32767.0);
+                writer.write_sample(clamped as i16).ok()?;
+            }
+        }
+        writer.finalize().ok()?;
+    }
+    Some(dir.join(format!("{stem}.*.wav")))
+}
+
 /// Compares our render against a reference's.
 ///
 /// Both are trimmed to their common length first: a reference may fade or stop

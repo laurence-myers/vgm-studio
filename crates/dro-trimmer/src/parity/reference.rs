@@ -47,6 +47,7 @@ pub struct Reference {
     extra_args: Vec<String>,
     cache: Option<PathBuf>,
     config: Option<PathBuf>,
+    rate: Option<u32>,
 }
 
 /// Why a reference render did not happen.
@@ -111,7 +112,27 @@ impl Reference {
                 .collect(),
             cache: std::env::var_os(CACHE_ENV).map(PathBuf::from),
             config: std::env::var_os(CONFIG_ENV).map(PathBuf::from),
+            rate: None,
         })
+    }
+
+    /// The same reference, asked to render at `rate`.
+    ///
+    /// **Rendering both sides at a chip's native rate is what makes a
+    /// correlation mean the core rather than the resampler.** Left to
+    /// themselves the two sides convert 49716 Hz down to 44100 by different
+    /// arithmetic, and the difference is neither small nor a fault: it cost the
+    /// OPL control group -- whose core is proven bit-identical to the
+    /// reference's -- around fifteen points of correlation.
+    #[must_use]
+    pub fn at_rate(&self, rate: u32) -> Self {
+        Self {
+            rate: Some(rate),
+            // A cached render was made at whatever rate was in force then, so
+            // it cannot be reused across a rate change.
+            cache: None,
+            ..self.clone()
+        }
     }
 
     /// What was run, for the record a re-run years later compares against.
@@ -131,7 +152,9 @@ impl Reference {
             self.config
                 .as_ref()
                 .map_or(String::new(), |path| format!(" config={}", path.display())),
-        )
+        ) + &self
+            .rate
+            .map_or(String::new(), |rate| format!(" rate={rate}"))
     }
 
     /// Renders `input` to a WAV and returns its bytes.
@@ -199,10 +222,8 @@ impl Reference {
         // Deliberately bypasses the cache: a cache hit would compare a file
         // with itself and prove nothing.
         let bare = Self {
-            executable: self.executable.clone(),
-            extra_args: self.extra_args.clone(),
             cache: None,
-            config: self.config.clone(),
+            ..self.clone()
         };
         let first = bare.render(input, &work_dir.join("determinism-a"))?;
         let second = bare.render(input, &work_dir.join("determinism-b"))?;
@@ -253,7 +274,10 @@ impl Reference {
             && let Some(name) = config.file_name()
         {
             let pinned = std::fs::read_to_string(config)?;
-            std::fs::write(&staged_dir.join(name), log_path_set_to(&pinned, work_dir))?;
+            std::fs::write(
+                staged_dir.join(name),
+                settings_for(&pinned, work_dir, self.rate),
+            )?;
         }
         let name = self.executable.file_name().ok_or_else(|| {
             ReferenceError::Failed(format!("{} has no file name", self.executable.display()))
@@ -272,12 +296,17 @@ impl Reference {
     }
 }
 
-/// Returns `config` with its `LogPath` pointed at `dir`.
+/// Returns `config` with its `LogPath` pointed at `dir` and, if `rate` is
+/// given, its `SampleRate` set to it.
 ///
 /// Everything else passes through byte for byte -- the pinned file stays the
-/// authority on loop count, fade, sample rate and core selection, and only the
-/// one setting that cannot be known until a work directory exists is written.
-fn log_path_set_to(config: &str, dir: &Path) -> String {
+/// authority on loop count, fade, core selection and everything else that
+/// decides what the reference *is*. Only the two settings the pinned file
+/// cannot know are written: where this run's output goes, and what rate the
+/// caller wants to compare at. The second exists because comparing at a chip's
+/// **native rate** takes both resamplers out of the measurement, and which rate
+/// that is depends on the chip and on the clock in the file's header.
+fn settings_for(config: &str, dir: &Path, rate: Option<u32>) -> String {
     // A trailing separator, because the setting is documented as a directory
     // and is concatenated with the file name: without it the render lands in
     // the *parent* under a run-together name.
@@ -288,16 +317,25 @@ fn log_path_set_to(config: &str, dir: &Path) -> String {
     let mut out = String::with_capacity(config.len() + target.len());
     for line in config.split_inclusive('\n') {
         let body = line.trim_end_matches(['\r', '\n']);
-        if body
-            .split('=')
-            .next()
-            .is_some_and(|key| key.trim().eq_ignore_ascii_case("LogPath"))
-            && body.contains('=')
-        {
-            out.push_str(&format!("LogPath = {target}"));
-            out.push_str(&line[body.len()..]);
+        // A comment or a section header has no `=`, and must not be mistaken
+        // for a setting whose name happens to match.
+        let key = match body.split_once('=') {
+            Some((name, _)) => name.trim(),
+            None => "",
+        };
+        let replacement = if key.eq_ignore_ascii_case("LogPath") {
+            Some(format!("LogPath = {target}"))
+        } else if key.eq_ignore_ascii_case("SampleRate") {
+            rate.map(|rate| format!("SampleRate = {rate}"))
         } else {
-            out.push_str(line);
+            None
+        };
+        match replacement {
+            Some(text) => {
+                out.push_str(&text);
+                out.push_str(&line[body.len()..]);
+            }
+            None => out.push_str(line),
         }
     }
     out
@@ -379,6 +417,7 @@ mod tests {
             extra_args: Vec::new(),
             cache: None,
             config: None,
+            rate: None,
         };
         let error = missing
             .render(
@@ -400,7 +439,7 @@ mod tests {
     #[test]
     fn the_log_path_is_redirected_and_nothing_else_is_touched() {
         let pinned = "; a comment\r\nLogSound = 1\r\nLogPath =\r\nSampleRate = 44100\r\n";
-        let rewritten = log_path_set_to(pinned, Path::new("X:/work/dir"));
+        let rewritten = settings_for(pinned, Path::new("X:/work/dir"), None);
 
         let line = rewritten
             .lines()
@@ -422,6 +461,16 @@ mod tests {
             "the file keeps its shape"
         );
         assert!(rewritten.contains("\r\n"), "and its line endings");
+        assert!(
+            rewritten.contains("SampleRate = 44100"),
+            "an unasked-for rate leaves the pinned one alone"
+        );
+
+        let native = settings_for(pinned, Path::new("X:/work/dir"), Some(49_716));
+        assert!(
+            native.contains("SampleRate = 49716"),
+            "asking for a rate rewrites it: {native}"
+        );
     }
 
     /// The WAV reader refuses a shape it cannot compare, rather than converting

@@ -202,6 +202,33 @@ pub fn best_correlation(x: &[f64], y: &[f64], max_lag: usize) -> Option<(f64, is
     best
 }
 
+/// How far the best alignment moves between the start of the file and the end,
+/// in frames, together with the correlation each end achieves.
+///
+/// **This separates the two ways a whole-file correlation goes soft.** A
+/// *resampler* difference costs correlation evenly and leaves the alignment
+/// where it was. A *rate* difference -- one side running the chip at a clock
+/// the other does not -- slides the two apart as the file plays, so every
+/// window is individually well-aligned while the file as a whole is not.
+/// Telling those apart by ear is essentially impossible; the two numbers here
+/// make it a glance.
+///
+/// `None` when either end is too short or too quiet to align.
+#[must_use]
+pub fn lag_drift(x: &[f64], y: &[f64], max_lag: usize) -> Option<(isize, f64, isize, f64)> {
+    let common = x.len().min(y.len());
+    // A quarter each end, so the two samples are as far apart as the file
+    // allows while each stays long enough to align confidently.
+    let window = common / 4;
+    if window < max_lag * 4 {
+        return None;
+    }
+    let head = best_correlation(&x[..window], &y[..window], max_lag)?;
+    let tail_from = common - window;
+    let tail = best_correlation(&x[tail_from..common], &y[tail_from..common], max_lag)?;
+    Some((head.1, head.0, tail.1, tail.0))
+}
+
 /// Per-window RMS, the shape of a render over time.
 ///
 /// This is what catches a missing voice or an absent percussion section: the
@@ -495,6 +522,45 @@ mod tests {
                 amplitude * (2.0 * std::f64::consts::PI * hz * t).sin()
             })
             .collect()
+    }
+
+    /// The distinction the control group turns on: a *rate* difference slides
+    /// the two renders apart as they play, while an even, phase-invariant
+    /// difference leaves them where they were. A whole-file correlation cannot
+    /// tell those apart; this is what does.
+    #[test]
+    fn drift_is_distinguished_from_an_even_difference() {
+        // Aperiodic, or every lag would look as good as every other -- but
+        // *band-limited*, because linear interpolation mangles white noise
+        // beyond recognition and the test would then measure that instead.
+        let mut seed = 0x2545_F491_4F6C_DD1Du64;
+        let raw: Vec<f64> = (0..RATE as usize * 4 + 64)
+            .map(|_| {
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                ((seed >> 33) as f64 / f64::from(u32::MAX >> 1)) - 1.0
+            })
+            .collect();
+        let source: Vec<f64> = raw
+            .windows(64)
+            .map(|window| window.iter().sum::<f64>() / 64.0)
+            .collect();
+
+        // One side running 200 ppm fast -- the scale of a real clock
+        // disagreement, not a gross one. Each window stays alignable; where
+        // they align moves.
+        let fast = resampled(&source, 1.0002);
+        let (head, head_score, tail, _) =
+            lag_drift(&source, &fast, 200).expect("both are long enough");
+        assert!(head_score > 0.85, "the head still aligns well: {head_score}");
+        assert!(
+            (tail - head).abs() > 8,
+            "a rate difference must show as movement, got {head} then {tail}"
+        );
+
+        // The same signal, attenuated: a difference in level, not in time.
+        let quiet: Vec<f64> = source.iter().map(|s| s * 0.5).collect();
+        let (head, _, tail, _) = lag_drift(&source, &quiet, 200).expect("long enough");
+        assert_eq!((head, tail), (0, 0), "nothing has moved");
     }
 
     #[test]
