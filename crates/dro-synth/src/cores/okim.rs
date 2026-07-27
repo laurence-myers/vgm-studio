@@ -181,9 +181,16 @@ impl Okim6295 {
 impl ChipCore for Okim6295 {
     fn reset(&mut self, clock: u32, variant: bool) {
         let rom = std::mem::take(&mut self.rom);
-        // The divider is pin-selected on the board; the header's flag byte is
-        // what a VGM records of it.
-        let divider = if variant { 165 } else { 132 };
+        // The divider is pin-selected on the board; the header's bit 31 is
+        // pin 7, and **pin 7 high selects the divide-by-132 rate**. The first
+        // version had the mapping the other way round, which pitched every
+        // corpus file by the ratio of the two dividers -- 386 cents, far
+        // outside the harness's +-60-cent detune search, so the scorecard read
+        // it as pure decorrelation (corr 0.017) on files that were audibly
+        // playing. A pitch this size is obvious to an ear and invisible to a
+        // correlation, which is exactly the trap the plan warned metrics have
+        // with systematic detuning.
+        let divider = if variant { 132 } else { 165 };
         *self = Self {
             rate: (clock / divider).max(1),
             ..Self::default()
@@ -597,15 +604,22 @@ mod tests {
         assert_eq!(chip.rom.len(), rom.len(), "the reset threw the ROM away");
     }
 
-    /// The pin-selected divider changes the rate, and the header's flag is what
-    /// a VGM records of it.
+    /// The pin-selected divider changes the rate; the header's bit 31 is
+    /// pin 7, and pin 7 *high* is the faster divide-by-132.
+    ///
+    /// This test used to assert the opposite mapping, and passed, because it
+    /// was written from the same misreading as the code -- the third such pair
+    /// this programme has caught. What finally told them apart was external:
+    /// with the mapping inverted both ways, every corpus file played 386 cents
+    /// off against VGMPlay, which correlation reads as noise and an ear reads
+    /// as the wrong key.
     #[test]
     fn the_divider_flag_changes_the_rate() {
         let mut chip = Okim6295::new();
         chip.reset(M6295_CLOCK, false);
-        assert_eq!(chip.native_rate(), M6295_CLOCK / 132);
-        chip.reset(M6295_CLOCK, true);
         assert_eq!(chip.native_rate(), M6295_CLOCK / 165);
+        chip.reset(M6295_CLOCK, true);
+        assert_eq!(chip.native_rate(), M6295_CLOCK / 132);
         chip.reset(0, false);
         assert!(chip.native_rate() >= 1);
     }
