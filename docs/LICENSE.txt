@@ -1,25 +1,47 @@
-DRO Trimmer is licensed under the terms of the GNU Lesser General Public
-License, version 2.1 or (at your option) any later version
-(LGPL-2.1-or-later).
+DRO Trimmer is licensed under the terms of the GNU General Public License,
+version 2 or (at your option) any later version (GPL-2.0-or-later).
 
 Copyright (c) 2008 - 2026 Laurence Dougal Myers
 
 This program is free software; you can redistribute it and/or modify it under
-the terms of the GNU Lesser General Public License as published by the Free
-Software Foundation; either version 2.1 of the License, or (at your option) any
-later version.
+the terms of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any later
+version.
 
 This program is distributed in the hope that it will be useful, but WITHOUT ANY
 WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-You should have received a copy of the GNU Lesser General Public License along
-with this program; if not, see <https://www.gnu.org/licenses/>. The full
-license text is also in the LICENSE file at the root of the source
-distribution.
+You should have received a copy of the GNU General Public License along with
+this program; if not, see <https://www.gnu.org/licenses/>. The full license
+text is also in the LICENSE file at the root of the source distribution.
 
-This build statically links the Nuked-OPL3 OPL emulator (a Rust port of
-Nuke.YKT's Nuked-OPL3), which is itself licensed under LGPL-2.1-or-later; that
-core is why the whole program adopts this license. Complete corresponding
-source code is available at:
+Complete corresponding source code is available at:
 https://github.com/laurence-myers/dro-trimmer
+
+
+WHY GPL, AND WHAT IS NOT
+
+DRO Trimmer plays VGM and DRO files by linking chip emulator cores, and the
+most accurate core for a given chip is often published under the GPL or the
+LGPL (the Nuked family, the low-level-emulation cores). Accuracy was chosen
+over license convenience, so the program as distributed is GPL-2.0-or-later.
+
+Two of its components are deliberately *not* copyleft, so they can be reused
+on their own:
+
+  dro-core   -- the VGM/DRO file model      MIT OR Apache-2.0
+  dro-synth  -- the playback engine and its
+                permissively-sourced cores  MIT OR Apache-2.0
+
+Copyleft cores are kept out of those two crates and live in provider crates
+that only the application depends on. See licenses/README.md in the source
+distribution for the full split, and crates/dro-synth/PROVENANCE.md for the
+per-core record of where each emulator came from and under what terms.
+
+This build embeds the Nuked-OPL3 OPL2/OPL3 emulator (a Rust port of Nuke.YKT's
+Nuked-OPL3), which is licensed under LGPL-2.1-or-later. The About dialog lists
+every core compiled in, with its authors, license and upstream.
+
+RetroWave OPL3 hardware output links the serialport crate, used under the
+MPL-2.0. Its source: https://github.com/serialport/serialport-rs

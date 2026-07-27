@@ -4,7 +4,9 @@ description = "OPL emulation and the pull-based playback engine. No threads, no 
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# The reusable half: permissive so anyone can take the VGM/DRO file model and
+# the engine without inheriting copyleft. See `licenses/README.md`.
+license = "MIT OR Apache-2.0"
 authors.workspace = true
 repository.workspace = true
 

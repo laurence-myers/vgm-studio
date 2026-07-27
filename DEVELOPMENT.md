@@ -3,9 +3,24 @@
 The `rust` branch is porting DRO Trimmer to Rust; the Python sources under `src/`
 stay put during the transition, for parity comparison. Both suites run.
 
-The project is licensed **LGPL-2.1-or-later**, because the OPL emulation core it
-statically links (`nuked-opl3`, a port of Nuke.YKT's Nuked-OPL3) is. The full
-licence text is in `LICENSE` at the repo root.
+The workspace is licensed in **two halves**, and which half a file is in decides
+what may be copied into it:
+
+| Crates | License |
+|---|---|
+| `dro-core`, `dro-synth` — the reusable file model and playback engine | `MIT OR Apache-2.0` |
+| everything else — the application | `GPL-2.0-or-later` |
+
+The **distributed program is GPL-2.0-or-later**: the app links whatever chip
+core sounds most like the real hardware, and the best of those are GPL-2 or
+LGPL-2.1. `dro-core` and `dro-synth` stay permissive so they are reusable on
+their own, which means **nothing copyleft may be added to them** — their cores
+are clean-room or ported from MIT/BSD/ISC/zlib sources. Copyleft cores go in
+provider crates the app depends on.
+
+`licenses/README.md` has the full split and the four license texts;
+`crates/dro-synth/PROVENANCE.md` records where every core came from and under
+what terms, and a new core adds its row in the same commit.
 
 Install the toolchain (Windows; MSVC build tools are already a pre-requisite below):
 

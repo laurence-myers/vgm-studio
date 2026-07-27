@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! The DRO Trimmer GUI, as a library.
 //!
 //! The egui application (`app::DroApp`) is consumed by the native `drotrim`

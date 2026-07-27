@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! OPL emulation and (from Step 4) the pull-based playback engine.
 //!
 //! Like [`dro_core`], this crate has no threads, no audio device and no I/O, so
@@ -11,6 +12,7 @@ pub mod banks;
 pub mod capture;
 pub mod chip;
 pub mod cores;
+pub mod credits;
 pub mod dac_stream;
 pub mod decompress;
 pub mod engine;
@@ -26,6 +28,7 @@ pub use banks::{Banks, BlockKind};
 pub use capture::capture;
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, playability};
 pub use cores::Sn76489;
+pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{Compression, DecompressionTable, decompress};
 pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, PlayerEngine, Position};

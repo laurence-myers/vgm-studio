@@ -17,13 +17,18 @@ nuked-opl3 = { path = "vendor/nuked-opl3" }
 version = "5.1.0"
 edition = "2024"
 rust-version = "1.97"
-# The OPL core (`nuked-opl3`, a port of Nuke.YKT's Nuked-OPL3) is
-# LGPL-2.1-or-later, and it is statically linked into every artifact this
-# workspace produces -- native binary and .wasm alike. The whole workspace is
-# licensed the same way rather than isolate it. The full licence text is in
-# `LICENSE` at the repo root, and the About dialog carries the notice plus the
-# source link that LGPL section 6 requires.
-license = "LGPL-2.1-or-later"
+# NOTE: there is deliberately no workspace `license` key. The workspace is
+# split in two and each crate states its own -- see `licenses/README.md`:
+#
+#   dro-core, dro-synth ............ MIT OR Apache-2.0  (the reusable pair)
+#   everything else ................ GPL-2.0-or-later   (the app)
+#
+# The app links whatever core sounds most like the real chip, and the best of
+# those are GPL-2/LGPL-2.1 (the Nuked family, the LLE tier). Accuracy wins, so
+# the app is copyleft and the *distributed binary* -- native and .wasm alike --
+# is GPL-2.0-or-later. The file model and the engine stay permissive so they
+# are reusable on their own; copyleft cores live in provider crates only the
+# app depends on, never in dro-synth.
 authors = ["Laurence Dougal Myers"]
 repository = "https://github.com/laurence-myers/dro-trimmer"
 

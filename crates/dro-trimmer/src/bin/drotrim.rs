@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! DRO Trimmer's one executable: the GUI, plus the `play`, `render` and `split`
 //! subcommands.
 //!

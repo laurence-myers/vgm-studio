@@ -43,6 +43,13 @@ const AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
                               removed. (Don't forget to save!)";
 const MISMATCH_TITLE: &str = "DRO timing mismatch";
 
+/// The About box: who wrote it, and -- because this program links copyleft
+/// emulator cores -- what it is licensed under and where each core came from.
+///
+/// The core stanza is generated from [`dro_synth::credits`] rather than typed
+/// here, so a core cannot be linked in without being credited. cr-2 feeds that
+/// list from the core registry, at which point a newly registered provider
+/// appears in this box automatically.
 fn about_text() -> String {
     format!(
         "DRO Trimmer v{}\n\
@@ -51,13 +58,21 @@ fn about_text() -> String {
          Web: https://github.com/laurence-myers/dro-trimmer\n\
          E-Mail: jestarjokin@jestarjokin.net\n\
          \n\
-         This build embeds the Nuked-OPL3 emulator and is licensed\n\
-         under the LGPL-2.1-or-later. Complete source code:\n\
-         https://github.com/laurence-myers/dro-trimmer\n\
+         This program is licensed under the GNU General Public License,\n\
+         version 2 or (at your option) any later version -- it links\n\
+         emulator cores under the GPL and LGPL. Complete corresponding\n\
+         source code: https://github.com/laurence-myers/dro-trimmer\n\
          \n\
+         The file model and playback engine (dro-core, dro-synth) are\n\
+         separately available under MIT OR Apache-2.0; see licenses/\n\
+         in the source distribution.\n\
+         \n\
+         Emulator cores in this build:\n\
+         {}\n\
          RetroWave OPL3 output links the serialport crate, used under\n\
          the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
         env!("CARGO_PKG_VERSION"),
+        dro_synth::credits_text(),
     )
 }
 
@@ -4268,5 +4283,48 @@ impl fmt::Debug for DroApp {
             .field("editor", &self.editor)
             .field("status", &self.status)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod about_tests {
+    use super::about_text;
+
+    #[test]
+    fn the_about_box_credits_every_compiled_core() {
+        // The LGPL and GPL cores this program links require their notice to
+        // reach the user, and the About box is where it does. Driving it from
+        // `dro_synth::credits` rather than typed copy is what stops a new core
+        // from shipping uncredited -- this test is that guarantee's teeth.
+        let text = about_text();
+        for core in dro_synth::credits() {
+            assert!(
+                text.contains(core.label),
+                "{} is compiled in but not credited in the About box",
+                core.label
+            );
+            assert!(
+                text.contains(core.license),
+                "{} is credited without its license",
+                core.label
+            );
+        }
+    }
+
+    #[test]
+    fn the_about_box_states_the_binarys_license_not_a_crates() {
+        // The distributed program is the GPL-licensed combination, whatever the
+        // permissive halves say about themselves. Getting this backwards would
+        // under-state the obligation to whoever redistributes a build.
+        let text = about_text();
+        assert!(text.contains("GNU General Public License"));
+        assert!(
+            text.contains("https://github.com/laurence-myers/dro-trimmer"),
+            "GPL section 3 wants the corresponding source pointed at"
+        );
+        assert!(
+            text.contains("MIT OR Apache-2.0"),
+            "the permissive half is worth telling a would-be reuser about"
+        );
     }
 }

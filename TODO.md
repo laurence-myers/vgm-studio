@@ -23,8 +23,9 @@
   a file that could not shrink does not look like one that had nothing to gain. Reached three ways: Edit > Optimize VGM
   (undoable), the "Optimize VGMs on export" pack checkbox (default on, runs before
   the gzip step), and `drotrim optimize <in> [out]`. Route B (independent
-  implementation from chip facts, not a port of vgmtools), so the project stays
-  LGPL-2.1; the correctness net is render parity through nuked-opl3 with
+  implementation from chip facts, not a port of vgmtools), which is what lets it
+  live in the permissive `dro-core`; the correctness net is render parity
+  through nuked-opl3 with
   *immediate* writes (the buffered playback path spaces writes a couple of samples
   apart, an inaudible shift that byte-parity would spuriously flag). Corpus run
   over the local OPL packs: most published packs are already `vgm_cmp`'d so only a
@@ -76,7 +77,8 @@
   for DRO); a VGM piece declares the source's chips at the source's clocks and
   copies its GD3 with the track title blanked. Preview is the one thing gated:
   auditioning a piece plays it. Route B (gap detection is one accumulator; state
-  capture is a register-file fold), so the project stays LGPL-2.1; the net is a
+  capture is a register-file fold), which is what lets it live in the permissive
+  `dro-core`; the net is a
   corpus-sanity test that tripling the real OPL2 rip with gaps splits back into
   three pieces each opening on the folded register state, DRO v1/v2 round-trip
   tests, and a corpus diff against the OPL splitter over all 3933 OPL files

@@ -4,7 +4,9 @@ description = "wasm-bindgen entry point: eframe::WebRunner plus the web platform
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+# The app half: links whatever core is most accurate, including GPL-2/LGPL
+# ones. See `licenses/README.md`.
+license = "GPL-2.0-or-later"
 authors.workspace = true
 repository.workspace = true
 

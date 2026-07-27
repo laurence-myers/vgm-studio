@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! A minimal `extern "C"` ABI over `dro-core` and `dro-synth`, for the AudioWorklet.
 //!
 //! Deliberately free of wasm-bindgen: `AudioWorkletGlobalScope` provides no

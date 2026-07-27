@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! Native audio output: a cpal stream driven by the pull-based [`PlayerEngine`].
 //!
 //! Replaces PyAudio. The engine lives *inside* the cpal callback -- OPL emulation

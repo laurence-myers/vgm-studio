@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! Everything behind the `drotrim` executable: its `play`, `render`, `split` and
 //! `optimize` subcommands, and the platform services the GUI runs on.
 

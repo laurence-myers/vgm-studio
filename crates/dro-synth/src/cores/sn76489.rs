@@ -25,9 +25,9 @@
 //!
 //! **Volume.** Four bits of *attenuation*, 2 dB a step, 15 being silence.
 //!
-//! Route B: written from the documented behaviour, not ported, so the project
-//! stays LGPL-2.1. Every number here is derived in a test rather than
-//! transcribed.
+//! Route B: written from the documented behaviour, not ported, which is what
+//! lets it sit in a `MIT OR Apache-2.0` crate. Every number here is derived in
+//! a test rather than transcribed.
 //!
 //! Not modelled yet, and worth knowing: the Game Gear's stereo register (a
 //! second port, not a register write) and the T6W28's split-chip addressing.

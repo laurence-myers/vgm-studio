@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! Playback through RetroWave OPL3 hardware: a real YMF262 on the far side of a
 //! USB CDC serial port.
 //!
@@ -9,9 +10,12 @@
 //! single YMF262 cannot voice anything else.
 //!
 //! Implemented from the interface facts in `docs/retrowave-2026-07/PLAN.md` §1.
-//! The reference implementation is AGPL-3.0 and this workspace is
-//! LGPL-2.1-or-later, so that document — not the reference sources — is the
-//! specification this code follows. See §2 there.
+//! The reference implementation is AGPL-3.0, which this project excludes from
+//! every shipped binary along with all other GPL-3-only code, so that document
+//! — not the reference sources — is the specification this code follows. See
+//! §2 there, and `licenses/README.md` for why the exclusion outlived the move
+//! from LGPL-2.1 to GPL-2.0-or-later: a v3-only obligation would lock out the
+//! GPL-2 emulator cores the app exists to link.
 
 pub mod chip;
 pub mod commands;

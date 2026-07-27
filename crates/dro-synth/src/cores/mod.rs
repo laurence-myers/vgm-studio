@@ -5,11 +5,19 @@
 //! no timing. [`core_for`](crate::chip::core_for) is what decides which of them
 //! a file gets.
 //!
-//! Every core here is written from documented behaviour rather than ported, the
-//! same Route B the optimiser, the splitter and the block decompressor took, so
-//! the project stays LGPL-2.1-or-later. Vendoring an existing emulator is
-//! allowed for by the plan (`docs/vgm-multichip-2026-07/HANDOVER.md` §7) and is
-//! a licensing decision to make deliberately, not a shortcut to take quietly.
+//! **Everything in this module is permissively licensed, and that is a hard
+//! rule, not a preference.** `dro-synth` is `MIT OR Apache-2.0` so it can be
+//! reused without copyleft obligations, so a core lands here only if it was
+//! written from documented behaviour (the Route B the optimiser, the splitter
+//! and the block decompressor took) or ported from an MIT/BSD/ISC/zlib source
+//! with the upstream notice kept verbatim.
+//!
+//! Copyleft cores — the Nuked family, the GPL-2 and LLE tiers — are not
+//! excluded from the *program*, only from this crate: they live in provider
+//! crates (`dro-cores-nuked`, `dro-cores-gpl`) that the application depends on
+//! and register into the same registry at startup. See `licenses/README.md`
+//! for the split, `PROVENANCE.md` for the per-core record, and
+//! `docs/vgm-multichip-2026-07/CORES-PLAN.md` for the programme.
 
 pub mod sn76489;
 
