@@ -22,15 +22,21 @@
 //! number, the next says which voices to start it on and how loud. Miss that
 //! pairing and nothing plays.
 //!
+//! Boards wanting more than the chip's 256 KB sit banking in front of its
+//! address bus, and VGM records both flavours as pseudo-registers: the plain
+//! whole-view latch at `$0F`, and the NMK112's per-64 KB-quarter banks at
+//! `$0E`/`$10`-`$13`. Both are modelled, at read time, in
+//! [`Okim6295::rom_byte`].
+//!
 //! # The OKIM6258
 //!
 //! No ROM and no voices -- the host writes ADPCM bytes and the chip converts
 //! them. In a VGM those bytes usually arrive through the DAC-stream engine
 //! rather than as register writes, which the engine already routes here.
 //!
-//! Not modelled: the OKIM6295's pin-selected clock divider (the header's flags
-//! byte is honoured, but a file that lies about it plays at the wrong pitch),
-//! and the OKIM6258's 3/4-bit modes, which the corpus does not use.
+//! Not modelled: the OKIM6295's mid-stream clock retune (`$08`-`$0B`), and the
+//! OKIM6258's 3-bit ADPCM mode (its flags byte's divider select *is* honoured,
+//! via [`configure`](ChipCore::configure)).
 
 use crate::chip::ChipCore;
 
@@ -139,6 +145,11 @@ pub struct Okim6295 {
     /// why the corpus files that select a bank were rendering pure silence: an
     /// unbanked read of their table finds zeros, and every phrase was refused.
     bank: u32,
+    /// The NMK112 mode byte (`$0E`): non-zero replaces the plain latch with
+    /// per-quarter banking, and bit 7 pages the phrase table too.
+    nmk_mode: u8,
+    /// The NMK112's four bank registers (`$10`-`$13`), in 64 KB units.
+    nmk_banks: [u8; 4],
 }
 
 impl Okim6295 {
@@ -151,6 +162,32 @@ impl Okim6295 {
         }
     }
 
+    /// One byte of sample memory, through whichever banking sits in front.
+    ///
+    /// Two schemes exist and are mutually exclusive. The plain board latch
+    /// (`$0F`) offsets the chip's whole 256 KB view in 256 KB units. The
+    /// NMK112 (`$0E` mode byte, `$10`-`$13` banks) remaps each 64 KB quarter
+    /// of the view independently -- and, when the mode byte's bit 7 is set,
+    /// serves each 256-byte page of the phrase table from its own quarter's
+    /// bank, so four banks' tables interleave in the first 0x400 bytes. The
+    /// exact semantics here are the reference player's, measured against.
+    ///
+    /// Translation happens per read, not at key-on: a bank write while a
+    /// voice plays redirects the rest of the phrase, as the real bus does.
+    fn rom_byte(&self, address: u32) -> Option<u8> {
+        let physical = if self.nmk_mode == 0 {
+            self.bank + address
+        } else {
+            let slot = if address < 0x400 && self.nmk_mode & 0x80 != 0 {
+                address >> 8
+            } else {
+                address >> 16
+            };
+            (u32::from(self.nmk_banks[(slot & 3) as usize]) << 16) | (address & 0xFFFF)
+        };
+        self.rom.get(physical as usize).copied()
+    }
+
     /// The start and end offsets of sample `index`, from the ROM's table of
     /// contents.
     ///
@@ -158,23 +195,24 @@ impl Okim6295 {
     /// sample whose entry runs past the ROM, or whose end precedes its start,
     /// is refused rather than played as whatever follows it.
     fn sample_bounds(&self, index: u8) -> Option<(u32, u32)> {
-        // Through the bank window: the table's entries are addresses as the
-        // chip sees them, so both the table itself and what it points at are
-        // offset by the window's base.
-        let at = self.bank as usize + usize::from(index) * 8;
-        let entry = self.rom.get(at..at + 6)?;
+        // The table's entries are addresses as the chip sees them, and the
+        // table itself is read through the same banking as everything else.
+        // The bounds stay chip-visible; [`rom_byte`](Self::rom_byte) does the
+        // translation again at play time.
+        let at = u32::from(index) * 8;
+        let mut entry = [0u8; 6];
+        for (offset, byte) in entry.iter_mut().enumerate() {
+            *byte = self.rom_byte(at + offset as u32)?;
+        }
         let read24 = |b: &[u8]| (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
         // The chip drives eighteen address lines, so only the low eighteen
         // bits of a table entry exist as far as it is concerned. Rips for
         // banked boards prove the point: Dragon Master's entries read 0x80400
         // for data sitting 0x400 into a 256 KB window, and taking the entry at
-        // face value walks off the ROM. Mask first, then bank.
+        // face value walks off the ROM. Mask first, then translate.
         const WINDOW: u32 = 0x3FFFF;
-        let (start, end) = (
-            self.bank + (read24(&entry[..3]) & WINDOW),
-            self.bank + (read24(&entry[3..]) & WINDOW),
-        );
-        (start < end && (end as usize) < self.rom.len()).then_some((start, end))
+        let (start, end) = (read24(&entry[..3]) & WINDOW, read24(&entry[3..]) & WINDOW);
+        (start < end && self.rom_byte(end).is_some()).then_some((start, end))
     }
 }
 
@@ -223,8 +261,19 @@ impl ChipCore for Okim6295 {
                 self.bank = u32::from(value) * 0x40000;
                 return;
             }
-            // `$08`-`$0B` retune the clock and `$0E`/`$10`-`$13` are NMK112
-            // per-voice banking -- known gaps, ignored rather than misrouted.
+            // The NMK112 mode byte: non-zero switches the address bus from
+            // the plain latch to per-quarter banks.
+            0x0E => {
+                self.nmk_mode = value;
+                return;
+            }
+            // The NMK112's four bank registers, one per 64 KB quarter.
+            0x10..=0x13 => {
+                self.nmk_banks[usize::from(addr & 0x03)] = value;
+                return;
+            }
+            // `$08`-`$0B` retune the clock -- a known gap, ignored rather
+            // than misrouted.
             _ => return,
         }
         if self.latched.is_none() && value & 0x80 != 0 {
@@ -276,12 +325,15 @@ impl ChipCore for Okim6295 {
     fn render(&mut self, out: &mut [i32]) {
         for frame in out.chunks_exact_mut(2) {
             let mut sum = 0i32;
-            for voice in &mut self.voices {
+            // By value and written back: reading the ROM through the banking
+            // needs `&self` while a voice advances, and `Voice` is `Copy`.
+            for index in 0..self.voices.len() {
+                let mut voice = self.voices[index];
                 if !voice.playing {
                     continue;
                 }
-                let Some(&byte) = self.rom.get(voice.position as usize) else {
-                    voice.playing = false;
+                let Some(byte) = self.rom_byte(voice.position) else {
+                    self.voices[index].playing = false;
                     continue;
                 };
                 let nibble = if voice.high_nibble {
@@ -302,6 +354,7 @@ impl ChipCore for Okim6295 {
                 }
                 // The signal is twelve bits signed; scale, then attenuate.
                 sum += ((signal * PEAK / 2048) * VOLUME[voice.volume]) >> 16;
+                self.voices[index] = voice;
             }
             // Mono: the chip has one output pin.
             frame[0] = sum;
@@ -314,6 +367,10 @@ impl ChipCore for Okim6295 {
 #[derive(Debug, Default)]
 pub struct Okim6258 {
     rate: u32,
+    /// Kept so [`configure`](ChipCore::configure) can recompute the rate: the
+    /// divider arrives in the header's flags byte *after* the reset that
+    /// carries the clock.
+    clock: u32,
     adpcm: Adpcm,
     /// The most recent decoded level, held between the nibbles the host feeds.
     level: i32,
@@ -334,13 +391,35 @@ impl Okim6258 {
 }
 
 impl ChipCore for Okim6258 {
-    /// The divider is in the header's flags byte, which the engine folds into
-    /// the clock before it reaches here; the documented default is 512.
+    /// The divider arrives separately, in the header's flags byte, via
+    /// [`configure`](ChipCore::configure); until it does, the documented
+    /// default of 512 stands.
+    ///
+    /// An earlier comment here claimed the engine folded the flags into the
+    /// clock before it arrived. Nothing did -- the claim was aspiration
+    /// recorded as fact -- so every file whose flags select the 1024 divider
+    /// played an octave sharp, invisibly to any local test because the local
+    /// tests had no opinion about the header.
     fn reset(&mut self, clock: u32, _variant: bool) {
         *self = Self {
             rate: (clock / 512).max(1),
+            clock,
             ..Self::default()
         };
+    }
+
+    /// The header's flags: bits 0-1 select the clock divider.
+    ///
+    /// (Bit 2 selects 3-bit ADPCM, which this core does not model -- a
+    /// documented gap rather than a silent misdecode: no corpus file sampled
+    /// so far sets it.)
+    fn configure(&mut self, settings: &dro_core::vgm::ChipSettings) {
+        let divider = match settings.okim6258_flags & 0x03 {
+            0 => 1024,
+            1 => 768,
+            _ => 512,
+        };
+        self.rate = (self.clock / divider).max(1);
     }
 
     fn native_rate(&self) -> u32 {
@@ -408,6 +487,71 @@ impl ChipCore for Okim6258 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **NMK112 banking replaces the plain latch entirely.** With the mode
+    /// byte set, each 64 KB quarter of the chip's view maps through its own
+    /// bank register -- table reads included -- and the `$0F` latch no longer
+    /// participates.
+    #[test]
+    fn nmk112_banks_each_quarter_and_eclipses_the_plain_latch() {
+        // Two 64 KB banks; everything real lives in bank 1: the phrase table
+        // at its base, the sample data 0x1000 in.
+        let mut rom = vec![0u8; 0x20000];
+        let (start, end) = (0x1000u32, 0x1100u32);
+        rom[0x10008..0x1000B].copy_from_slice(&start.to_be_bytes()[1..]);
+        rom[0x1000B..0x1000E].copy_from_slice(&end.to_be_bytes()[1..]);
+        for (index, byte) in rom[0x11000..=0x11100].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0x0F, 0x02); // a stale plain latch that must not matter
+        chip.write(0, 0x0E, 0x01); // NMK112 mode on, table unpaged
+        chip.write(0, 0x10, 0x01); // quarter 0 reads bank 1
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert!(
+            energy(&render6295(&mut chip, 2000)) > 0,
+            "quarter 0 must read through its bank register"
+        );
+
+        // Point quarter 0 at the zeroed bank instead: the same phrase is
+        // refused, proving the reads went through the register both times.
+        chip.write(0, 0x10, 0x00);
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert_eq!(energy(&render6295(&mut chip, 2000)), 0);
+    }
+
+    /// With the mode byte's bit 7 set, the first 0x400 bytes of the table are
+    /// paged: each 256-byte run reads through its own quarter's bank.
+    #[test]
+    fn nmk112_bit_seven_pages_the_phrase_table() {
+        let mut rom = vec![0u8; 0x20000];
+        // Phrase 0x20's entry sits at table address 0x100 -- page 1 -- so in
+        // paged mode it reads from bank 1's memory at that offset.
+        let (start, end) = (0x1000u32, 0x1100u32);
+        rom[0x10100..0x10103].copy_from_slice(&start.to_be_bytes()[1..]);
+        rom[0x10103..0x10106].copy_from_slice(&end.to_be_bytes()[1..]);
+        // The sample data the entry names is in quarter 0's bank -- bank 0.
+        for (index, byte) in rom[0x1000..=0x1100].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0x0E, 0x81); // NMK112 mode on, paged table
+        chip.write(0, 0x11, 0x01); // page 1 of the table reads bank 1
+        chip.write(0, 0, 0x80 | 0x20);
+        chip.write(0, 0, 0x10);
+        assert!(
+            energy(&render6295(&mut chip, 2000)) > 0,
+            "table page 1 must read through quarter 1's bank"
+        );
+    }
 
     /// A common OKIM6295 clock on Capcom hardware.
     const M6295_CLOCK: u32 = 1_000_000;
