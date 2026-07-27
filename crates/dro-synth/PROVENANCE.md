@@ -233,3 +233,45 @@ When a core lands, its row goes in **the same commit**. A row needs:
 The core's `CoreInfo` entry in the registry must agree with this row on label,
 license and upstream — that entry is what the About dialog shows a user, and
 the two disagreeing means one of them is lying.
+
+## Output levels, measured (2026-07-28)
+
+pt-6's promise was that the `OUTPUT_GAIN` constants stop being guesses. The
+measurement is the reference-parity scorecard's per-chip **level** column —
+our RMS over VGMPlay 0.52's, twelve single-chip corpus files per chip, both
+sides rendered at the chip's own native rate so no resampler touches either —
+plus, for the YM2612, an independent in-mix least-squares fit over seven Mega
+Drive rips (coefficient on our FM-solo render: 3.2–4.3, median ≈4.0,
+residuals 0.24–0.70).
+
+Applied:
+
+| Core | measured level | correction | now |
+|---|---|---|---|
+| YM2612 (`dro-cores-nuked/opn2.rs`) | 0.227 (n=12); in-mix fit ≈4.0× | ×4.2 | `OUTPUT_GAIN = 21` |
+| YM2151 (`dro-cores-nuked/opm.rs`) | 0.500 (n=12) | ×2 | `OUTPUT_GAIN = 2` |
+
+The in-mix fit's PSG coefficients came back negative and were discarded, for a
+reason worth keeping: the fit renders at the YM2612's native rate, where the
+reference's PSG passes through its own linear resampler and aliases, and a
+decorrelated component's least-squares coefficient collapses. The PSG's answer
+comes from its own single-chip row instead — SN76489 level 0.984, already
+matched within 2%.
+
+Measured and **deliberately not yet applied** (each carries a reason):
+
+| Chip | level (n=12) | why deferred |
+|---|---|---|
+| YM2413 | 0.370 | shared-core correlation still open at 0.977; scale after |
+| YM2203 | 0.497 | its SSG flags are still unread (`ChipCore::configure` gap) |
+| YM2608 | 0.641 | level inflated-low by the absent ADPCM content |
+| YM2610 | 0.284 | same, more so — most of its mix is the missing ADPCM |
+| AY8910 | 0.720 | type/flags unread; measure again after |
+| Game Boy DMG | 0.550 | correlation open at 0.295; scale after |
+| NES APU | 0.756 | correlation open at 0.334; scale after |
+| OKIM6295 | 0.497 | remeasure now the divider is right |
+| HuC6280 | 0.52–0.67 | the two reference cores differ by 23% *from each other* |
+| SN76489, OKIM6258 | 0.98 | matched; nothing to do |
+
+A level correction on a chip whose content or correlation is still wrong would
+bake the fault into the constant; these wait their turn.

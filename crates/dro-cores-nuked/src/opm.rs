@@ -47,12 +47,13 @@ const SETTLE_CYCLES: u32 = CLOCKS_PER_SAMPLE;
 
 /// Scales the DAC output towards `i16` range.
 ///
-/// Unlike the YM2612's multiplexed pins, this chip's `dac_output` is already a
-/// per-channel signed value of roughly 16-bit width, so it needs no gain of its
-/// own -- a full-level patch lands near full scale as it stands.
-/// `a_loud_patch_uses_the_range_without_clipping_it` is what says so, and would
-/// notice if an upstream change moved it.
-const OUTPUT_GAIN: i32 = 1;
+/// The output scale, **measured against VGMPlay**: the parity scorecard's
+/// single-chip level read 0.500 (n=12, both sides at the chip's native rate),
+/// so the natural output sits at exactly half the reference's and one doubling
+/// closes it. `a_loud_patch_uses_the_range_without_clipping_it` pins the
+/// result; the engine clamps the frame sum, and the reference's own renders
+/// prove real content fits at this level.
+const OUTPUT_GAIN: i32 = 2;
 
 /// The YM2151 (and YM2164), Nuke.YKT's emulation of it.
 #[derive(Debug)]
@@ -336,12 +337,12 @@ mod tests {
 
         let loudest = peak(&out);
         assert!(
-            loudest > i32::from(i16::MAX) / 8,
-            "a full-level patch peaked at {loudest}, far below the mixer's range"
+            loudest > i32::from(i16::MAX) / 4,
+            "a full-level patch peaked at {loudest}, far below the measured level"
         );
         assert!(
-            loudest < i32::from(i16::MAX) * 2,
-            "a full-level patch peaked at {loudest}, which the mixer would clamp"
+            loudest < i32::from(i16::MAX) * 4,
+            "a full-level patch peaked at {loudest}, far past the measured level"
         );
     }
 }

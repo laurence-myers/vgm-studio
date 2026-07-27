@@ -49,24 +49,25 @@ const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 const ADDRESS_SETTLE: u32 = 0;
 const VALUE_SETTLE: u32 = CLOCKS_PER_SAMPLE - 3;
 
-/// Brings the summed pin readings up to roughly `i16` scale.
+/// The output scale, **measured against VGMPlay rather than guessed**.
 ///
-/// The pins are signed 9 bits and 24 of them are summed per sample, but the
-/// DAC is multiplexed, so one channel at full level actually reaches about
-/// ±840 rather than the arithmetic ceiling. Six of them together land near
-/// ±5000 -- a sixth of what the mixer's `i16` clamp allows, and well under what
-/// `dro-synth`'s SN76489 core produces at its own peak (four channels at 8000).
-/// Left raw, a Mega Drive rip would come out with the FM buried under the PSG,
-/// which is backwards.
+/// Two independent measurements agree. The reference-parity scorecard's
+/// single-chip level column read 0.227 (n=12, both sides at the chip's native
+/// rate): our render at 4.4x quiet. And pt-6's in-mix least-squares fit over
+/// seven Mega Drive rips put the coefficient on our FM-solo render at 3.2-4.3,
+/// median a shade over 4.0, residuals 0.24-0.70. (The same fit's PSG
+/// coefficients came back negative and are worthless -- at the YM2612's native
+/// rate the reference's PSG passes through its own linear resampler and
+/// aliases, and a decorrelated component's coefficient collapses; the PSG's
+/// real answer is its own single-chip level, 0.984, already matched.)
 ///
-/// At ×5 a full six-channel patch reaches roughly 25000 of 32767: loud, with
-/// headroom left before the mixer has to clamp.
-///
-/// **This sets the FM-to-PSG balance, and a balance is a listening question.**
-/// Whether it is *right* is what the A/B against VGMPlay is for;
-/// `a_loud_patch_uses_the_range_without_clipping_it` pins the arithmetic so a
-/// change here is deliberate rather than drift.
-const OUTPUT_GAIN: i32 = 5;
+/// So: 5 x 4.2 = 21. A synthetic all-channels-at-maximum patch now sums past
+/// the mixer's clamp -- deliberately. The reference's own renders of real
+/// music peak near full scale without clipping, which is the proof that
+/// musical content fits; the old "a chip flat out cannot clip the mixer"
+/// margin bought its safety by sitting the FM 4x under the PSG in every Mega
+/// Drive mix.
+const OUTPUT_GAIN: i32 = 21;
 
 /// The YM2612 (and YM3438), Nuke.YKT's emulation of it.
 #[derive(Debug)]
@@ -477,13 +478,17 @@ mod tests {
 
         let one_channel = peak(&out);
         let full_chip = one_channel * 6;
+        // The bounds moved with the measured gain: at x21 a synthetic
+        // all-channels-maximum patch exceeds the mixer's clamp by design (see
+        // OUTPUT_GAIN), so the ceiling here only catches an order-of-magnitude
+        // slip, and the floor is what pins the measured balance.
         assert!(
-            full_chip > i32::from(i16::MAX) / 2,
-            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- the FM would sit under the PSG"
+            full_chip > i32::from(i16::MAX) * 2,
+            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- the FM would sit far under the measured balance"
         );
         assert!(
-            full_chip < i32::from(i16::MAX) * 2,
-            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- the mixer would clamp a dense track flat"
+            full_chip < i32::from(i16::MAX) * 8,
+            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- an order of magnitude past the measured balance"
         );
     }
 }

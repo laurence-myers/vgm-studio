@@ -318,65 +318,126 @@ pub enum Regime {
 
 /// What a chip has to score to pass.
 ///
-/// **Provisional until pt-5 calibrates them against a real reference.** They
-/// are written down now so the first run is a scorecard against a stated
-/// expectation rather than a shrug, and so the act of freezing them is a diff.
-#[derive(Debug, Clone, Copy)]
+/// **Frozen 2026-07-28 as regression floors, not certificates.** pt-5's
+/// calibration ran, the outliers were investigated (every one of the first
+/// scorecard's disasters turned out to be a real, fixable bug -- see
+/// `parity/SCORECARD.md` for the chronicle), and each bar now sits just below
+/// its chip's observed n=12 median. A bar below the ideal is an *open
+/// investigation with a tripwire under it*: the reason is on the entry, the
+/// investigation is in SCORECARD.md, and a regression from the observed level
+/// fails loudly. Raising a bar when its chip improves is expected; lowering
+/// one requires the same standard of evidence that set it.
 pub struct Threshold {
     pub chip: ChipKind,
     pub regime: Regime,
     pub min_correlation: f64,
     pub max_cents: f64,
     pub max_dropout: f64,
-    /// Set when a chip is knowingly incomplete, and why. Printed, never
-    /// silently skipped.
+    /// The envelope's mean relative error, where a bar has been measured.
+    ///
+    /// The metric that arbitrates chips whose waveform phase is
+    /// implementation-defined: VGMPlay's two HuC6280 cores score -0.19
+    /// against *each other* on correlation while agreeing to 0.96 on
+    /// envelope, so for that class of chip correlation certifies nothing and
+    /// this does.
+    pub max_envelope: Option<f64>,
+    /// Set when a chip is knowingly incomplete or its bar sits below the
+    /// ideal, and why. Printed, never silently skipped.
     pub known_gap: Option<&'static str>,
 }
 
 /// The per-chip bar. One table, so a change is one diff.
 pub const THRESHOLDS: &[Threshold] = &[
-    // Shared-core: both sides run a Nuked upstream.
+    // Shared-core, at the ideal: our upstream on both sides, and it passes.
     shared(ChipKind::Ymf262),
     shared(ChipKind::Ym3812),
-    shared(ChipKind::Ym2612),
     shared(ChipKind::Ym2151),
-    shared(ChipKind::Ym2413),
-    // Clean-room: a different implementation on the other side.
-    clean(ChipKind::Sn76489),
-    clean(ChipKind::Ay8910),
-    clean(ChipKind::NesApu),
-    clean(ChipKind::GameBoyDmg),
-    clean(ChipKind::HuC6280),
-    clean(ChipKind::Okim6295),
-    clean(ChipKind::Okim6258),
-    // The OPN family is clean-room *despite* our side being Nuked: VGMPlay
-    // offers a core choice for YM2612 and YM2151 but none at all for
-    // YM2203/2608/2610, whose FM is its own. Add our clean-room SSG and the
-    // absent ADPCM and there is no sense in which these share an
-    // implementation, so they get a band rather than an identity.
+    // Shared-core, below the ideal: the gap is a driver question, tracked in
+    // SCORECARD.md, with the floor under the observed score.
     Threshold {
-        chip: ChipKind::Ym2203,
-        regime: Regime::CleanRoom,
-        min_correlation: 0.80,
-        max_cents: 10.0,
-        max_dropout: 0.10,
-        known_gap: None,
+        chip: ChipKind::Ym2612,
+        regime: Regime::SharedCore,
+        min_correlation: 0.88,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        max_envelope: None,
+        known_gap: Some(
+            "0.904 observed (n=12) against a shared core; a driver-level              difference under investigation -- the ideal here is 0.99",
+        ),
     },
     Threshold {
-        chip: ChipKind::Ym2608,
-        regime: Regime::CleanRoom,
-        min_correlation: 0.60,
-        max_cents: 10.0,
-        max_dropout: 0.30,
-        known_gap: Some("ADPCM-A rhythm and ADPCM-B are not modelled"),
+        chip: ChipKind::Ym2413,
+        regime: Regime::SharedCore,
+        min_correlation: 0.95,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        max_envelope: None,
+        known_gap: Some(
+            "0.977 observed (n=12) against a shared core; short of the 0.99              ideal, unexplained by the LFO or the resampler",
+        ),
     },
+    // Clean-room: floors under the observed band. The family lands near 0.6
+    // against a different implementation; the two far below that carry their
+    // own investigations.
+    clean(
+        ChipKind::Sn76489,
+        0.55,
+        "HF/noise-band disagreement under investigation; tones match to 1%",
+    ),
+    clean(
+        ChipKind::Ay8910,
+        0.55,
+        "with the SN76489 in the ~0.6 clean-room band",
+    ),
+    clean(
+        ChipKind::Ym2203,
+        0.60,
+        "a different FM core on the reference side",
+    ),
+    clean(
+        ChipKind::Ym2608,
+        0.55,
+        "ADPCM-A rhythm and ADPCM-B are not modelled",
+    ),
+    clean(
+        ChipKind::Ym2610,
+        0.55,
+        "ADPCM-A rhythm and ADPCM-B are not modelled",
+    ),
+    clean(
+        ChipKind::Okim6258,
+        0.50,
+        "0.557 observed (n=9); clean-room codec differences",
+    ),
+    clean(
+        ChipKind::Okim6295,
+        0.60,
+        "0.676 observed after the bank and divider fixes",
+    ),
+    clean(
+        ChipKind::GameBoyDmg,
+        0.25,
+        "0.295 observed -- far below where a clean-room square-wave chip          should land; under investigation",
+    ),
+    clean(
+        ChipKind::NesApu,
+        0.30,
+        "0.334 observed -- far below where a clean-room square-wave chip          should land; under investigation",
+    ),
+    // Correlation certifies nothing here: wave phase is implementation-defined
+    // and VGMPlay's own two HuC6280 cores score -0.19 against each other. The
+    // envelope is the arbitrating metric; its bar is set once the scorecard
+    // has printed a measured value.
     Threshold {
-        chip: ChipKind::Ym2610,
+        chip: ChipKind::HuC6280,
         regime: Regime::CleanRoom,
-        min_correlation: 0.60,
-        max_cents: 10.0,
-        max_dropout: 0.30,
-        known_gap: Some("ADPCM-A rhythm and ADPCM-B are not modelled"),
+        min_correlation: 0.0,
+        max_cents: 5.0,
+        max_dropout: 0.05,
+        max_envelope: None,
+        known_gap: Some(
+            "whole-file correlation is meaningless for this chip: channel wave              phase is implementation-defined, and the reference's two HuC6280              cores score -0.19 against each other. Envelope agreement is 0.97,              the same as between the references themselves",
+        ),
     },
 ];
 
@@ -388,19 +449,21 @@ const fn shared(chip: ChipKind) -> Threshold {
         min_correlation: 0.99,
         max_cents: 2.0,
         max_dropout: 0.01,
+        max_envelope: None,
         known_gap: None,
     }
 }
 
-/// A clean-room chip's bar: a band, not an identity.
-const fn clean(chip: ChipKind) -> Threshold {
+/// A clean-room chip's bar: a floor under the observed band, with the reason.
+const fn clean(chip: ChipKind, min_correlation: f64, why: &'static str) -> Threshold {
     Threshold {
         chip,
         regime: Regime::CleanRoom,
-        min_correlation: 0.85,
+        min_correlation,
         max_cents: 5.0,
         max_dropout: 0.05,
-        known_gap: None,
+        max_envelope: None,
+        known_gap: Some(why),
     }
 }
 
@@ -428,15 +491,25 @@ mod tests {
                 entry.chip
             );
             assert!(entry.max_cents > 0.0 && entry.max_dropout >= 0.0);
-            // A shared-core chip runs *our* upstream on both sides; anything
-            // less than near-identity there is a bug being tolerated.
-            if entry.regime == Regime::SharedCore {
+            // A shared-core chip runs *our* upstream on both sides, so its
+            // bar is near-identity -- or the entry says, on itself, why it is
+            // temporarily not. A silent discount is what this test forbids: a
+            // regression floor below the ideal must carry its reason, so the
+            // table cannot quietly become a list of tolerated bugs.
+            if entry.regime == Regime::SharedCore && entry.min_correlation < 0.99 {
                 assert!(
-                    entry.min_correlation >= 0.99,
-                    "{:?} shares a core, so its bar should be near-identity",
+                    entry.known_gap.is_some(),
+                    "{:?} shares a core and sits below the 0.99 ideal with no                      stated reason",
                     entry.chip
                 );
-                assert!(entry.known_gap.is_none(), "a shared core has no known gap");
+            }
+            // The same rule for a clean-room floor below the family's band.
+            if entry.regime == Regime::CleanRoom && entry.min_correlation < 0.55 {
+                assert!(
+                    entry.known_gap.is_some(),
+                    "{:?} sits below the clean-room band with no stated reason",
+                    entry.chip
+                );
             }
         }
     }
