@@ -1264,6 +1264,7 @@ dependencies = [
  "eframe",
  "env_logger",
  "flate2",
+ "hound",
  "image",
  "log",
  "oxipng",

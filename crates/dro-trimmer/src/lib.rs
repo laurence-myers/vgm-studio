@@ -12,6 +12,7 @@ pub mod cli;
 pub mod config;
 pub mod corpus;
 pub mod pack_zip;
+pub mod parity;
 pub mod services;
 
 pub use config::load_config;

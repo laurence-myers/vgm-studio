@@ -17,6 +17,8 @@ dro-audio-native.workspace = true
 dro-retrowave.workspace = true
 dro-cores-nuked.workspace = true
 dro-cores-gpl.workspace = true
+# Reads the reference player's WAV output for the parity harness.
+hound.workspace = true
 dro-ui.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
