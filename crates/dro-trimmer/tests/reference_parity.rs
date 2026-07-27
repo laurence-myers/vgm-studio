@@ -701,10 +701,16 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         let steady = (!unmodulated.is_empty()).then(|| median(&mut unmodulated));
         let detune = (!cents.is_empty()).then(|| median(&mut cents));
 
+        // The sample size travels with the number. Three times this programme
+        // has quoted a small-sample median as a chip's score -- a two-file
+        // 0.9958 for a chip whose twelve-file median is 0.5855 was the worst
+        // -- and each time the figure was written down without its n. A median
+        // that arrives labelled cannot be misread that way.
         println!(
-            "{:<14} {:?}  corr {correlation:.4}  lvl {level:.3}  gain {gain:.3}               drop {dropout:.3}  cents {}{}",
+            "{:<14} {:?}  corr {correlation:.4} (n={})  lvl {level:.3}  gain {gain:.3}  drop {dropout:.3}  cents {}{}",
             chip.name(),
             bar.regime,
+            correlations.len(),
             detune.map_or_else(|| "  --".to_owned(), |c| format!("{c:+.1}")),
             bar.known_gap
                 .map_or(String::new(), |why| format!("  [known gap: {why}]")),

@@ -28,9 +28,9 @@ is trustworthy to that precision.
 
 | Chip | Regime | corr | level | drop | cents | bar | reading |
 |---|---|---|---|---|---|---|---|
-| SN76489 | clean | 0.5848 | 1.002 | 0.000 | −0.0 | 0.85 | three bugs fixed; 0.996 at native |
+| SN76489 | clean | 0.5848 | 1.002 | 0.000 | −0.0 | 0.85 | three bugs fixed; 0.586 at native (n=12) |
 | YM2413 | shared | 0.9542 | 0.371 | 0.000 | +0.5 | 0.99 | short, still unexplained |
-| YM2612 | shared | 0.9538 | 0.227 | 0.000 | +0.5 | 0.99 | the resampler; 0.995 at native |
+| YM2612 | shared | 0.9538 | 0.227 | 0.000 | +0.5 | 0.99 | 0.904 at native (n=12); open |
 | YM2151 | shared | 0.9935 | 0.500 | 0.000 | +0.5 | 0.99 | **passes** |
 | YM2203 | clean | 0.6476 | 0.486 | 0.000 | −0.5 | 0.80 | different FM core |
 | YM2608 | clean | 0.6257 | 0.639 | 0.000 | −0.5 | 0.60 | ADPCM absent (known) |
@@ -187,3 +187,55 @@ search is quadratic in the rate.
 `DROTRIM_PARITY_CACHE` makes a repeat run minutes rather than an hour. Start
 with the three near-silent chips: whatever is wrong there is large enough to
 find quickly, and until it is found their thresholds cannot mean anything.
+
+## The full-size native table, and the end of the resampler story
+
+Run after the sinc resampler landed (branch `vgm-resampler`): every chip at its
+own rate, twelve files each — the first native-rate table at full sample size.
+The native figures quoted earlier in this file were two-file medians, and this
+table retires them.
+
+| Chip | 44100, old lerp (n=12) | 44100, sinc (n=12) | native (n=12) |
+|---|---|---|---|
+| SN76489 | 0.5844 | 0.6310 | 0.5855 |
+| YM2413 | 0.9542 | 0.9042 | 0.9767 |
+| YM2612 | 0.9538 | 0.9078 | 0.9041 |
+| YM2151 | 0.9935 | — | **0.9989** |
+| YM2203 | 0.6476 | — | 0.6396 |
+| YM2608 | 0.6257 | — | 0.6009 |
+| YM2610 | 0.5697 | — | 0.5942 |
+| AY8910 | 0.5944 | — | 0.5972 |
+| Game Boy DMG | 0.2807 | — | 0.2948 |
+| NES APU | 0.3319 | — | 0.3340 |
+| OKIM6258 | 0.0000 | — | 0.0000 |
+| OKIM6295 | 0.0080 | — | 0.0080 |
+| HuC6280 | 0.0158 | — | 0.0156 |
+
+Five readings, and the first is the one this file exists to record:
+
+1. **The native column matches the old 44100 column almost chip for chip.** The
+   resampler — old or new — was never a material factor in these parity scores.
+   The two-file "0.9958 / 0.9949 at native" that drove the resampler-as-culprit
+   narrative was file-selection luck: SN76489's per-file native spread runs
+   0.57 to 0.996, and the two files sampled were the well-matching ones. The
+   sinc resampler stays justified entirely by its own unit measurements
+   (worst folded tone −32.7 → below −114 dB), as an audio-quality fix.
+2. **Where the sinc moved a 44100 score, it moved it *down*** — YM2413 0.954 →
+   0.904, YM2612 0.954 → 0.908 — because the old scores were partly two players
+   sharing linear-interpolation artefacts. Cleaning our side decorrelated us
+   from the reference's remaining aliasing. Agreement with an aliased reference
+   is not fidelity, and the drop is the honest number.
+3. **SN76489 scores *higher* at 44100-sinc (0.631) than at native (0.586)**:
+   low-passing to 20 kHz discards the band where the cores disagree most, so
+   the disagreement lives in the high band — the noise channel remains the
+   suspect, now with spectral support.
+4. **YM2151 passes its shared-core bar properly**: 0.9989, and 0.9991 on the
+   ten LFO-free files, at full sample size. The first chip to clear its bar.
+5. **YM2612 at 0.904 with a shared core is now the sharpest open question.**
+   Both sides run Nuked-OPN2 and disagree by ten points at the chip's own rate;
+   that is a driver-level difference (pacing, routing, variant flags — the
+   class pt-4 exists for), not taste. YM2413 at 0.977 is its smaller sibling.
+
+The rest of the table is unchanged from the first run and keeps its readings:
+the three near-silent PCM chips, Game Boy and NES APU far below where clean-room
+implementations should land, and the OPN family's known ADPCM gap.

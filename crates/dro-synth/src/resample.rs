@@ -17,18 +17,23 @@
 //! only gently, so a square wave's harmonics above the output Nyquist survive
 //! the trip and reappear as inharmonic tones somewhere else entirely.
 //!
-//! The reference-parity harness measured what that costs. Against VGMPlay, an
-//! SN76489 rip scored **0.5848** at 44100 and **0.9958** when both sides
-//! rendered at the chip's own 223721 Hz; a YM2612 rip 0.9538 against 0.9949.
-//! See `docs/vgm-multichip-2026-07/RESAMPLER-PLAN.md`.
+//! The evidence for that is measured *here*, against signals whose answers are
+//! known by construction: the old path's worst folded tone was **-32.7 dB**,
+//! this one's is below **-114 dB**, and the passband, DC, alignment and pitch
+//! are pinned by the same suite.
 //!
-//! It is not the explanation for *everything* the scorecard flagged, and an
-//! earlier draft of this comment said it was, on the strength of a ratio table
-//! built from clock rates rather than from what the cores report. Several cores
-//! decimate internally -- the NES APU averages 32 CPU cycles a sample, the
-//! HuC6280 64 -- so their ratios are near 1:1, and the HuC6280 scores 0.016 at
-//! the same ratio where the YM2151 scores 0.994. Those chips are broken in some
-//! other way.
+//! It has to be measured here, because two attempts to prove it through the
+//! reference-parity harness failed, each on numbers that looked decisive and
+//! were not. Two-file medians made the old resampler look like the whole of the
+//! SN76489's parity gap (0.5848 at 44100 against "0.9958 at native"); the
+//! twelve-file table read **0.5855 at native** -- the gap belongs to the cores,
+//! and those two files were simply the well-matching ones. And VGMPlay cannot
+//! arbitrate the question in either direction: its own resampling is linear or
+//! nearest-neighbour, so at 44100 *it* aliases, and the old engine's scores
+//! against it were partly two players sharing the same artefacts. The whole
+//! chronicle is in `docs/vgm-multichip-2026-07/RESAMPLER-PLAN.md` and
+//! `parity/SCORECARD.md`; this module's tests are the part that stands on its
+//! own.
 //!
 //! # What "accurate" is taken to mean
 //!

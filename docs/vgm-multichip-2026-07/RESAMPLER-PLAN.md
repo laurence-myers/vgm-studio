@@ -180,3 +180,18 @@ The OPL control group re-run seals it: unchanged at native rate.
   fault; no filter fixes rendering nothing. Tracked separately (task #16).
 - **YM2413's 0.956** — barely moves at native rate, so it is not this bug
   either.
+
+## Postscript: the full-size control run
+
+The native-rate scorecard at twelve files per chip — the control rs-t3 asked
+for — matches the old 44100 lerp table almost chip for chip (SN76489 0.5855
+native against 0.5844; full table in `parity/SCORECARD.md`). Which settles it:
+**the resampler was never a material factor in the parity scores.** The header
+of this plan, written from a ratio table with wrong rates and a two-file
+native experiment, said otherwise; both inputs are corrected in place above and
+in SCORECARD.md.
+
+What the branch delivered is exactly what `resample.rs`'s own tests measure —
+aliasing to below −114 dB, alignment, exact DC, 8–15× realtime — an audio
+fidelity fix for playback and WAV export. The parity gaps it was hoped to close
+belong to the cores, and the per-chip investigations inherit them.
