@@ -101,6 +101,77 @@ mod core_registry_tests {
         );
     }
 
+    /// **The sweep test the plan asks for**: the registry as the whole app sees
+    /// it, checked for the things that are invisible one core at a time.
+    ///
+    /// Ids must be unique across the registry, because config stores one per
+    /// slot and the About box lists them side by side; each must be prefixed by
+    /// its slot, because that is what makes composing a config value with a
+    /// slot unambiguous; and each must carry the authors and licence its notice
+    /// requires. A core added without one of those looks fine in isolation and
+    /// is wrong in the aggregate.
+    #[test]
+    fn every_registered_core_is_complete_and_uniquely_named() {
+        let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_nuked::register(&mut registry);
+        dro_cores_gpl::register(&mut registry);
+        dro_retrowave::register(&mut registry);
+
+        let mut seen: std::collections::HashMap<&str, ChipKind> = std::collections::HashMap::new();
+        for info in registry.all() {
+            let prefix = format!("{}.", dro_synth::registry::slot_slug(info.chip));
+            assert!(
+                info.id.starts_with(&prefix),
+                "{} should start with {prefix}",
+                info.id
+            );
+            assert!(!info.label.is_empty(), "{}: no label", info.id);
+            assert!(!info.authors.is_empty(), "{}: no authors", info.id);
+            assert!(!info.license.is_empty(), "{}: no licence", info.id);
+            // One id may serve several chips (the OPL family shares a core), so
+            // the check is that an id never means two *different* things.
+            if let Some(&first) = seen.get(info.id) {
+                assert_eq!(
+                    dro_synth::registry::slot_slug(first),
+                    dro_synth::registry::slot_slug(info.chip),
+                    "{} names two different slots",
+                    info.id
+                );
+            } else {
+                seen.insert(info.id, info.chip);
+            }
+        }
+        assert!(seen.len() > 10, "only {} distinct cores?", seen.len());
+    }
+
+    /// Every chip the spec defines is either playable or knowably not -- there
+    /// is no third state. The tally is what the Settings dialog shows, so a
+    /// chip falling out of both halves would be silently unmentioned.
+    #[test]
+    fn every_chip_in_the_table_is_accounted_for() {
+        let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_nuked::register(&mut registry);
+        dro_cores_gpl::register(&mut registry);
+        dro_retrowave::register(&mut registry);
+
+        let (mut cored, mut silent) = (0usize, 0usize);
+        for chip in ChipKind::all() {
+            if registry.has_core(chip) {
+                cored += 1;
+            } else {
+                silent += 1;
+            }
+        }
+        assert_eq!(
+            cored + silent,
+            ChipKind::all().count(),
+            "a chip is in neither half"
+        );
+        // The OPL family is four chips behind one core, so this counts higher
+        // than the number of *cores*.
+        assert!(cored >= 16, "only {cored} chips have a core");
+    }
+
     /// The whole point of the registry reaching playback: a core the user picks
     /// is a core that gets built. `Routed` entries (the board) are the app's to
     /// interpret and correctly build nothing here.

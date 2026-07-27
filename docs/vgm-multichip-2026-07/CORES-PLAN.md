@@ -307,6 +307,43 @@ Nothing has been reordered — the step order is the user's call. Re-run
 `cargo test -p dro-trimmer --release --test chip_index -- --ignored --nocapture`
 with `DROTRIM_VGMRIPS_CORPUS` set to regenerate this table.
 
+## 7.2 · What actually shipped (branch `vgm-cores`)
+
+| Step | Commit | Contents |
+|---|---|---|
+| cr-1 | `d5330f3` | The licence split: per-crate licences, `licenses/`, About core-credits panel, `PROVENANCE.md` |
+| cr-2 | `039e193` | The core registry, `audio.core.<chip>` config + migration, Settings core picker, corpus chip index |
+| cr-3 | `e2f4433` | Nuked-CQM by submodule — **the clang-to-wasm gate, passed** |
+| cr-4 | `be731dd` | YM2612 / YM3438 (Nuked-OPN2) |
+| cr-5 | `8c406a2` | YM2151 / YM2164 (Nuked-OPM) |
+| cr-6 | `a425a64` | NES APU + Game Boy DMG, clean-room |
+| cr-7 | `e85c330`, `c0fedf5` | AY-3-8910 + HuC6280, clean-room |
+| cr-8 | `f829818` | YM2203 / YM2608 / YM2610, assembled from OPN2's FM and the AY's SSG |
+| cr-9 | `aa2142e` | YM2413 (Nuked-OPLL) — **stands up `dro-cores-gpl`** |
+| cr-10 | `83d3cbe` | OKIM6295 + OKIM6258, clean-room; Settings output list made scrollable |
+
+**Thirteen chips play**, covering the great majority of the corpus by weight.
+
+### Still open
+
+- **cr-10's tail**: 26 chips, none above 1.8% — C352, K054539, RF5C68, C140,
+  K051649, YMF278B, RF5C164, YMF271, K053260, YMZ280B, VSU, WonderSwan,
+  uPD7759, X1-010, MultiPCM, SegaPCM, PWM, ES5503, GA20, SAA1099, POKEY, SCSP,
+  ES5505, Mikey, Y8950, YM3526.
+- **The OPN family's ADPCM** (§ `PROVENANCE.md`). YM2610 corpus audibility is
+  9/12 against 12/12 for its relatives, and the gap is the drums. This is the
+  one place a MAME-fmopn port would earn its keep, and it is worth more than
+  several tail chips.
+- **cr-11** entirely: the LLE tier as render-only cores, the oracle `xtask`,
+  Nuked-PSG, ESFMu.
+- **cr-12's remaining sweep**: the registry coverage tests landed with cr-10;
+  the docs pass and a final `PROVENANCE.md` audit have not.
+- **The A/B against VGMPlay, for every core.** Nothing here has been listened
+  to. The per-core output gains — the FM-to-PSG and FM-to-SSG balances
+  especially — are arithmetic that sounds plausible, not judgements anyone has
+  made with their ears. §6.2 has always said a core is unverified until someone
+  does this, and that remains true of all thirteen.
+
 ## 8 · Out of scope, recorded so nobody wonders
 
 - Mesen2/BlastEm code in-binary (GPL-3 — decision 7). Oracle use only.
