@@ -228,8 +228,23 @@
   than claiming there cannot be one -- a Mega Drive rip previews its PSG and not
   its FM. A marked region loops and its seam auditions for any chip.
 
+  **Edit > Fix Header** also catches a file that uses something its declared
+  version does not define -- twenty corpus files use a 1.60 command while
+  calling themselves 1.51 -- and raises the version to what the file actually
+  needs. The opposite, declaring more than is needed, is left alone: 109 corpus
+  files could be stamped lower and 14436 are already exact, so reporting it
+  would make the dialog a nag rather than a warning.
+
+  Building that check turned up a reader bug worth knowing about: a clock field
+  the file's declared version predates was being read as a chip, so about 155
+  rips were described with hardware their streams never touch (a PC-98 YM2203
+  rip came back claiming a WonderSwan, an SAA1099 and an ES5503). The version is
+  now enforced as strictly as the data-start rule.
+
   Still to come: more cores (the YM2612 and YM2413 are the ones that would open
-  up the most rips), and the minimum-version header writer.
+  up the most rips), and the header *shrink* half of the minimum-version work --
+  rewriting an over-claimed header down to its version's size bucket, which
+  means moving every offset in it.
 - Any-chip VGM support -- Phases A-C: any-chip trimming, with no emulator. A VGM for chips the OPL model knows nothing about now opens in the
   editor: rows named by the chip each command targets, selection, delete, undo
   and save, with the header's sample total and loop kept in step by the edit

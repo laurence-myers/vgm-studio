@@ -215,6 +215,32 @@
 > its own sound and nothing here can meter or shape it, but a non-OPL document
 > never reaches that board, so its meter, boost and panning stay live.
 >
+> ### The version computation, and the bug it found (2026-07-27)
+>
+> `dro_core::vgm::version` answers what a file actually requires -- its chips,
+> its commands, its header fields, against a 1.50 floor -- plus `can_downgrade_to`
+> and `blockers` for the normalise operation mc-10 still wants.
+>
+> Pointing it at the corpus found a **reader bug**: `read_chips` took any
+> non-zero clock field inside the header span, even one the declared version
+> predates. A 1.70 file's header runs to 0x100 whether or not the spec had
+> assigned 0xC0 yet, so ~155 rips were reported with chips their streams never
+> write to. The version is now enforced as strictly as the data-start rule, and
+> the module doc says why. **The old comment justifying the permissive read was
+> wrong, and had been for as long as it existed** -- worth remembering when a
+> tolerance is argued for on the grounds that "the bytes are unambiguous".
+>
+> Only the *under*-claiming direction reached the audit: 20 corpus files use a
+> 1.60 command while calling themselves 1.51, which a player trusting the version
+> may mishandle. Over-claiming is near-universal (109 could be stamped lower,
+> 14436 exact) and would turn Edit > Fix Header into a nag. The engine corpus
+> reports all three counts every run.
+>
+> **What is left of mc-10:** shrinking an over-claimed header to its version's
+> size bucket. That means moving every relative offset in the header (GD3, loop,
+> data, EOF), which is why it is separate from restamping the version field --
+> readers find the data through the data-offset field, not by assuming a size.
+>
 > ### Porting notes, kept because they generalise
 >
 > Every `&Song`-shaped stream rebuilder now has a `VgmStream` equivalent:
@@ -1308,7 +1334,7 @@ a deep change with no payoff, since nothing edits through it any more.
 | 12 | mc-7 | AudioService source enum, per-chip output settings (§2.1.10), preview + editor playback wiring | **done** |
 | 13 | mc-8 | SN76489 + YM2612 + YM2413 cores; SMS/MD packs play | SN76489 **done**; YM2612 and YM2413 next |
 | 14 | mc-9 | core waves 1–4, one step per core | per-core |
-| 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | |
+| 15 | mc-10 | minimum-version writer + normalise-header export option (consumes uv-5's audit) | the computation **done** (`vgm::version`); the header *shrink* is what remains |
 
 mc-10 can land any time after mc-4 (mc-5 makes it more valuable: deleting a
 chip's last write lets the normalise action drop the version). The lp-1/mc-5
