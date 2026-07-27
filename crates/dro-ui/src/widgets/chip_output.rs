@@ -284,8 +284,8 @@ mod tests {
             "the SN76489 has a core, so it is listed"
         );
         assert!(
-            !rows.iter().any(|row| row.chip == ChipKind::Ym2612),
-            "the YM2612 does not yet, so it is counted rather than listed"
+            !rows.iter().any(|row| row.chip == ChipKind::C352),
+            "the C352 has no core yet, so it is counted rather than listed"
         );
     }
 

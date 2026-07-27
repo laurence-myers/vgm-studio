@@ -51,6 +51,22 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | Core | Chips | Tier | Read from | Upstream revision | License | Local deltas |
 |---|---|---|---|---|---|---|
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
+| `cores/nes_apu.rs` | NES APU | clean-room | The NESdev documentation: channel layout, the frame sequencer's step boundaries, the length/noise/DMC tables, and the two non-linear mixer formulas | n/a — no code read | MIT OR Apache-2.0 | n/a. Both mixer tables are *regenerated from the formulas in a test*, because they must be integer tables — [`ChipCore`] forbids output that could differ across targets, and floating point in the hot loop is how that promise breaks. One deliberate departure from hardware, documented at `reset`: the channels start **enabled**. Not modelled: the FDS add-on. |
+| `cores/gb_dmg.rs` | Game Boy DMG | clean-room | The Pan Docs: the four channels, the 512 Hz frame sequencer, per-channel stereo routing, and the wave channel's shift-based volume | n/a — no code read | MIT OR Apache-2.0 | n/a. **The plan allowed for SameBoy's APU as a submodule instead**; that C is written against SameBoy's whole `GB_gameboy_t`, so carving it out would have meant editing the upstream — which the sourcing policy forbids, and which would have to be redone on every pull. Not modelled: wave-RAM access quirks while running, the CGB registers. |
+
+### A VGM is a log, not a machine
+
+The NES core starts with every channel enabled, which hardware does not: at
+power-on `$4015` is zero and a channel stays mute until something enables it.
+But a VGM is a *register log*, and a ripper may start it after the driver's
+initialisation has already run. Rips that never write `$4015` at all are not
+rare — `Lemmings (NES)` is one — and from hardware's power-on state they play
+in complete silence.
+
+The corpus made the difference visible: 10 of 12 sampled NES files audible
+before, 12 of 12 after. Worth remembering for the chips still to come — a core
+that is right about the hardware can still be wrong about the format, and only
+real files show which.
 | `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** Freestanding C but for `#include <string.h>`, which `shim/string.h` answers. Its own `writebuf` ring matches Nuked-OPL3's, so `PlayerEngine`'s write spacing suits it unchanged. |
 | `dro-cores-nuked` → `opn2.rs` | YM2612, YM3438 | **submodule + `cc`** | `vendor/upstream/nuked-opn2` (`nukeykt/Nuked-OPN2`), `ym3438.c` + `ym3438.h` | `335747d78cb0abbc3b55b004e62dad9763140115` | LGPL-2.1-or-later | **Compiled unmodified.** Two upstream properties are handled on our side rather than patched — see below. |
 | `dro-cores-nuked` → `opm.rs` | YM2151, YM2164 | **submodule + `cc`** | `vendor/upstream/nuked-opm` (`nukeykt/Nuked-OPM`), `opm.c` + `opm.h` | `23ea53bb442b3f761ded3cd8a27399dd46db34fc` | LGPL-2.1-or-later | **Compiled unmodified.** Same designer, same shape as OPN2: cycle-level clocking (32 cycles to a sample, `clock / 64`) and latched writes. No global chip-type — the YM2164 variant is a flag on this chip's own reset — so no lock. Its write pacing is stricter; see below. |
