@@ -82,13 +82,19 @@ Per output frame: `y = Σ x[n−k] · h((k − phase) / ratio) / norm` over the
 
 ### Cost, bounded up front
 
-Worst case is the NES APU at 1.789 MHz → 44100 (ratio 40.6): ~1300 taps × 2
-channels × 44100 ≈ 115 M multiply-adds/s. Fine in release (a few percent of
-one core); the plan includes a realtime-factor guard test so a regression is
-a red test, not a stutter report. If profiling ever demands it, the escape
-hatches are (a) a half-band pre-decimation cascade or (b) blip-style
-band-limited step synthesis inside individual cores — both explicitly *not*
-now, because one code path that is provably right beats two that are fast.
+**Corrected after measuring.** This section first claimed the worst case was
+the NES APU at 1.789 MHz (ratio 40.6, ~1300 taps, "a few percent of one core").
+Both halves were wrong. The NES core averages 32 CPU cycles into each sample
+and so presents 55.9 kHz, and the HuC6280 divides by 64 — that ratio does not
+exist. And when measured, the hypothetical 40:1 ran at **1.1× realtime**: one
+voice would have eaten a core.
+
+The real worst case is the SN76489 and AY8910 at 223721 → 44100 (ratio 5.07):
+183 taps, measured at **14.6× realtime** once the inner loop was written to
+walk the kernel rather than recompute its index per tap. The guard test is
+pinned there. The escape hatches — a half-band pre-decimation cascade, or
+blip-style band-limited step synthesis inside individual cores — stay unbuilt,
+because nothing now needs them.
 
 ### What it replaces, and where state lives
 
@@ -124,19 +130,37 @@ single tones exactly, which is all these tests need.
 (routing, seeks, loop seams — none of it may notice the swap), plus the
 corpus audibility run (13 chips × 12 files) to prove nothing went quiet.
 
-**rs-t3 · The parity harness is the acceptance bar** — this is why it was
-built first. Two runs:
-1. **Scorecard at 44100** (temporarily re-pointed): SN76489 must move
-   decisively toward its native-rate 0.9958. It will not reach it exactly —
-   the residual is the reference's boxcar versus our sinc, an explainable,
-   frequency-shaped difference — so the bar is ≥ 0.95 with the residual
-   written down in SCORECARD.md.
-2. **Scorecard at native rates**: must not move at all (the resampler is out
-   of that path). This is the control: if it shifts, the change leaked
-   somewhere it should not be.
+**rs-t3 · The parity harness was to be the acceptance bar, and cannot be.**
+Recorded here because the reasoning took two attempts to get right.
 
-The OPL control group re-run seals it: unchanged at native rate, and the
-`lag_drift` diagnostic must show no drift introduced at 44100.
+The plan was: re-point the scorecard at 44100 and require the SN76489 to move
+decisively toward its native-rate score. Run, and it went 0.5848 → 0.6310 —
+nowhere near. The bar was ill-founded. VGMPlay's `ResamplingMode` offers linear
+interpolation, nearest-neighbour, or a mixture; there is no band-limited
+option, and with `ChipSmplMode = 3` it runs an SN76489 at 223721 Hz and
+linearly interpolates down to 44100 — the exact fault this branch removes. At
+44100 the reference is now the aliased one, and scoring well against it would
+mean having its artefacts back.
+
+The second attempt: take the reference's *native* render, put it through our
+filter, and require our 44100 render to agree with it as closely as the two
+agree at native rate. Also unsound — a filter removes content from both sides,
+so where two cores agree above 19.8 kHz and differ below, filtering strips the
+agreeing part and correlation falls for reasons that have nothing to do with
+the filter being right. Measured losses ran −0.007 to +0.345 over six files.
+
+So the acceptance is:
+1. **`resample.rs`'s own tests**, which measure the filter directly against
+   signals whose answers are known by construction. That is the real evidence
+   and it is falsifiable.
+2. **The native-rate scorecard must not move** — the resampler is out of that
+   path, so any change there is leakage.
+3. Left open: the **synthetic probes** of PARITY-PLAN §2, never built. A
+   written-by-us VGM playing one high tone gives a render that must have energy
+   at exactly one frequency, and an aliasing player one that has energy at a
+   second, computable frequency. That would close it against the reference
+   properly.
+The OPL control group re-run seals it: unchanged at native rate.
 
 ## 3 · Steps
 
@@ -156,3 +180,18 @@ The OPL control group re-run seals it: unchanged at native rate, and the
   fault; no filter fixes rendering nothing. Tracked separately (task #16).
 - **YM2413's 0.956** — barely moves at native rate, so it is not this bug
   either.
+
+## Postscript: the full-size control run
+
+The native-rate scorecard at twelve files per chip — the control rs-t3 asked
+for — matches the old 44100 lerp table almost chip for chip (SN76489 0.5855
+native against 0.5844; full table in `parity/SCORECARD.md`). Which settles it:
+**the resampler was never a material factor in the parity scores.** The header
+of this plan, written from a ratio table with wrong rates and a two-file
+native experiment, said otherwise; both inputs are corrected in place above and
+in SCORECARD.md.
+
+What the branch delivered is exactly what `resample.rs`'s own tests measure —
+aliasing to below −114 dB, alignment, exact DC, 8–15× realtime — an audio
+fidelity fix for playback and WAV export. The parity gaps it was hoped to close
+belong to the cores, and the per-chip investigations inherit them.

@@ -82,6 +82,17 @@ fn render_with_at(
     file.stream()?;
 
     let mut engine = VgmEngine::with_cores(Arc::new(file), rate, cores);
+    // DROTRIM_PARITY_RESAMPLER=linear renders our side with the same aliased
+    // conversion VGMPlay uses, making a 44100 comparison like-for-like: both
+    // sides then carry the same class of artefact, which partially
+    // rehabilitates the output-rate scorecard rs-3 had to abandon. Unset, the
+    // accurate default stands.
+    if let Some(mode) = std::env::var("DROTRIM_PARITY_RESAMPLER")
+        .ok()
+        .and_then(|slug| dro_synth::resample::ResampleMode::from_slug(&slug))
+    {
+        engine.set_resample_mode(mode);
+    }
     let wanted = rate as usize * SECONDS * 2;
     let mut samples = Vec::with_capacity(wanted);
     let mut buffer = vec![0i16; 4096 * 2];
@@ -561,6 +572,34 @@ fn the_opl_control_group_calibrates_the_pipeline() {
     println!("the pipeline is sound: {judged} vibrato-free files, worst {worst:.4}");
 }
 
+/// Why there is no test here comparing our 44100 render against the
+/// reference's.
+///
+/// Two were written and both were unsound, which is worth recording so a third
+/// is not attempted on the same footing.
+///
+/// The first asserted that our 44100 score should approach the 0.9958 the
+/// SN76489 reaches at its native rate. It cannot: VGMPlay's `ResamplingMode`
+/// offers linear interpolation, nearest-neighbour, or a mix of the two, and
+/// with `ChipSmplMode = 3` it runs an SN76489 at 223721 Hz and *linearly
+/// interpolates* down to 44100. That is the exact fault this branch removed
+/// from our own engine, so at 44100 the reference is the one with the aliasing
+/// and agreeing with it would now be the bug.
+///
+/// The second took the reference's native render, put it through our filter,
+/// and required our 44100 render to agree with it as well as the two agree at
+/// native rate. That premise is also wrong: a filter removes content from both
+/// sides, so where two cores agree above 19.8 kHz and differ below it,
+/// filtering strips the agreeing part and correlation *falls* -- legitimately.
+/// Measured losses ran from -0.007 to +0.345 across six files, and none of that
+/// spread is attributable to the filter being wrong.
+///
+/// What would work is the synthetic-probe tier `PARITY-PLAN` §2 specifies and
+/// nobody has built: a written-by-us VGM playing one high tone, where a
+/// band-limited render has energy at exactly one frequency and an aliased one
+/// has energy at a second, computable frequency. Until then the filter's
+/// evidence is `dro_synth::resample`'s own tests, which measure it directly
+/// against signals whose answers are known by construction.
 /// **pt-4 and pt-5**: the scorecard, against the frozen per-chip bar.
 ///
 /// The first run against a new reference is expected to *fail* and be read as a
@@ -620,7 +659,11 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             //
             // Costly, and unavoidably so: the reference has to render at that
             // rate too, and `compare`'s cents search is quadratic in it.
-            let rate = native_rate_of(path, chip).unwrap_or(RATE);
+            let rate = if std::env::var_os("DROTRIM_PARITY_AT_OUTPUT_RATE").is_some() {
+                RATE
+            } else {
+                native_rate_of(path, chip).unwrap_or(RATE)
+            };
             let Some(ours) = render_ours_at(path, rate) else {
                 continue;
             };
@@ -669,10 +712,16 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         let steady = (!unmodulated.is_empty()).then(|| median(&mut unmodulated));
         let detune = (!cents.is_empty()).then(|| median(&mut cents));
 
+        // The sample size travels with the number. Three times this programme
+        // has quoted a small-sample median as a chip's score -- a two-file
+        // 0.9958 for a chip whose twelve-file median is 0.5855 was the worst
+        // -- and each time the figure was written down without its n. A median
+        // that arrives labelled cannot be misread that way.
         println!(
-            "{:<14} {:?}  corr {correlation:.4}  lvl {level:.3}  gain {gain:.3}               drop {dropout:.3}  cents {}{}",
+            "{:<14} {:?}  corr {correlation:.4} (n={})  lvl {level:.3}  gain {gain:.3}  drop {dropout:.3}  cents {}{}",
             chip.name(),
             bar.regime,
+            correlations.len(),
             detune.map_or_else(|| "  --".to_owned(), |c| format!("{c:+.1}")),
             bar.known_gap
                 .map_or(String::new(), |why| format!("  [known gap: {why}]")),

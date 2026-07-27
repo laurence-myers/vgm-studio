@@ -28,9 +28,9 @@ is trustworthy to that precision.
 
 | Chip | Regime | corr | level | drop | cents | bar | reading |
 |---|---|---|---|---|---|---|---|
-| SN76489 | clean | 0.5848 | 1.002 | 0.000 | −0.0 | 0.85 | three bugs fixed; 0.996 at native |
+| SN76489 | clean | 0.5848 | 1.002 | 0.000 | −0.0 | 0.85 | three bugs fixed; 0.586 at native (n=12) |
 | YM2413 | shared | 0.9542 | 0.371 | 0.000 | +0.5 | 0.99 | short, still unexplained |
-| YM2612 | shared | 0.9538 | 0.227 | 0.000 | +0.5 | 0.99 | the resampler; 0.995 at native |
+| YM2612 | shared | 0.9538 | 0.227 | 0.000 | +0.5 | 0.99 | 0.904 at native (n=12); open |
 | YM2151 | shared | 0.9935 | 0.500 | 0.000 | +0.5 | 0.99 | **passes** |
 | YM2203 | clean | 0.6476 | 0.486 | 0.000 | −0.5 | 0.80 | different FM core |
 | YM2608 | clean | 0.6257 | 0.639 | 0.000 | −0.5 | 0.60 | ADPCM absent (known) |
@@ -76,22 +76,31 @@ say the remaining gap is something else entirely. Worth stating plainly,
 because three plausible causes found and corrected in a row is exactly the
 situation in which one stops looking.
 
-## The headline: it was our resampler, not our cores
+## The resampler: a large fault, but not the only one
 
 Sorting the table by how far each chip has to be resampled to reach 44100 puts
-it in a different light:
+part of it in a different light. **The rates below are what the cores actually
+report**, which is not the same as clock over some obvious divisor: the NES APU
+averages 32 CPU cycles into each sample and the HuC6280 64, so both present
+around 56 kHz rather than the megahertz their clocks might suggest.
 
 | Chip | native Hz | ratio to 44100 | corr |
 |---|---|---|---|
-| NES APU | 1789773 | 40.6 | 0.332 |
 | AY8910 | 223722 | 5.07 | 0.594 |
 | SN76489 | 223722 | 5.07 | 0.585 |
-| HuC6280 | 223722 | 5.07 | 0.016 |
 | Game Boy DMG | 65536 | 1.49 | 0.281 |
+| NES APU | 55930 | 1.27 | 0.332 |
+| HuC6280 | 55930 | 1.27 | 0.016 |
 | YM2151 | 55930 | 1.27 | 0.994 |
 | YM2612 | 53267 | 1.21 | 0.954 |
 | YMF262 | 49716 | 1.13 | 0.998 |
 | YM2203 | 41667 | 0.94 | 0.648 |
+
+The first version of this table put the NES APU at 1.79 MHz and the HuC6280 at
+224 kHz -- clock rates, not core rates -- and on that basis this section
+claimed the ratio sorted the whole scorecard. It does not. Three chips share
+the ratio 1.27 and score 0.994, 0.332 and 0.016. What the ratio *does* explain
+is the two chips at 5.07, and the measurements below bear that out.
 
 `VgmEngine`'s per-chip resampler is a linear interpolation between
 point-sampled source frames — no decimation filter at all. That is harmless at
@@ -111,10 +120,14 @@ which takes our resampler out of the path entirely:
 | YM2151 | 0.9935 | 0.9964 |
 | YM2413 | 0.9542 | 0.9566 |
 
-The SN76489 goes from failing its clean-room bar to nearly matching a
-*different implementation* sample for sample, and the YM2612 reaches the
-shared-core bar it should always have met. So most of what this scorecard was
-about to blame on thirteen cores belongs to one resampler.
+**Read the sample size before the numbers.** Those native-rate figures are
+medians over *two* files apiece, taken from a run narrowed to get an answer in
+minutes. A later three-file check of the SN76489 at native rate read 0.9445,
+0.9958 and 0.5700 — so "the SN76489 matches a different implementation sample
+for sample", which an earlier draft of this section said, is true of one file
+and not of the chip. What the measurements do support is narrower and still
+substantial: **at ratio 5.07 the resampler was costing a great deal, and it was
+being attributed to cores.**
 
 That makes it a **quality bug in the app**, not merely in the harness: every
 one of these chips plays through that resampler in normal use, and at 44100 a
@@ -124,8 +137,11 @@ is untouched — `PlayerEngine` renders at the chip's own rate.
 The scorecard now compares every chip at its native rate, so that its numbers
 are about cores. Fixing the engine's resampler is separate, and open.
 
-YM2413 barely moves, so its 0.95 is something else. Game Boy at 1.49 and
-YM2203 at 0.94 were never candidates for this explanation either.
+But it is not the whole table. YM2413 barely moves. Game Boy at 1.49, NES APU
+at 1.27 and YM2203 at 0.94 are hardly decimated at all, and the HuC6280 scores
+0.016 at the very ratio where the YM2151 scores 0.994 -- whatever ails those
+four, a decimation filter is not it. They belong with the near-silent PCM
+investigation, not with this one.
 
 ## Reading the table above
 
@@ -157,9 +173,10 @@ search is quadratic in the rate.
    files scored 0.9579 against 0.9538 overall, so the LFO accounted for almost
    none of that gap, and the resampler accounted for nearly all of it. YM2413
    is the one shared-core chip still unexplained.
-4. **`VgmEngine`'s resampler has no decimation filter.** Established above, and
-   the largest single thing this programme has found. It is an engine fix, not
-   a core fix, and it will move most of this table.
+4. **`VgmEngine`'s resampler had no decimation filter.** Established above and
+   since fixed on the `vgm-resampler` branch. It is an engine fix rather than a
+   core fix, and it moves the two chips at ratio 5.07 decisively; it does not
+   account for Game Boy, NES APU, HuC6280 or YM2413.
 5. **Every clean-room chip is quiet**, most around half the reference's level.
    That is the balance question pt-6 exists to settle, now measurable per chip
    rather than per ear.
@@ -170,3 +187,55 @@ search is quadratic in the rate.
 `DROTRIM_PARITY_CACHE` makes a repeat run minutes rather than an hour. Start
 with the three near-silent chips: whatever is wrong there is large enough to
 find quickly, and until it is found their thresholds cannot mean anything.
+
+## The full-size native table, and the end of the resampler story
+
+Run after the sinc resampler landed (branch `vgm-resampler`): every chip at its
+own rate, twelve files each — the first native-rate table at full sample size.
+The native figures quoted earlier in this file were two-file medians, and this
+table retires them.
+
+| Chip | 44100, old lerp (n=12) | 44100, sinc (n=12) | native (n=12) |
+|---|---|---|---|
+| SN76489 | 0.5844 | 0.6310 | 0.5855 |
+| YM2413 | 0.9542 | 0.9042 | 0.9767 |
+| YM2612 | 0.9538 | 0.9078 | 0.9041 |
+| YM2151 | 0.9935 | — | **0.9989** |
+| YM2203 | 0.6476 | — | 0.6396 |
+| YM2608 | 0.6257 | — | 0.6009 |
+| YM2610 | 0.5697 | — | 0.5942 |
+| AY8910 | 0.5944 | — | 0.5972 |
+| Game Boy DMG | 0.2807 | — | 0.2948 |
+| NES APU | 0.3319 | — | 0.3340 |
+| OKIM6258 | 0.0000 | — | 0.0000 |
+| OKIM6295 | 0.0080 | — | 0.0080 |
+| HuC6280 | 0.0158 | — | 0.0156 |
+
+Five readings, and the first is the one this file exists to record:
+
+1. **The native column matches the old 44100 column almost chip for chip.** The
+   resampler — old or new — was never a material factor in these parity scores.
+   The two-file "0.9958 / 0.9949 at native" that drove the resampler-as-culprit
+   narrative was file-selection luck: SN76489's per-file native spread runs
+   0.57 to 0.996, and the two files sampled were the well-matching ones. The
+   sinc resampler stays justified entirely by its own unit measurements
+   (worst folded tone −32.7 → below −114 dB), as an audio-quality fix.
+2. **Where the sinc moved a 44100 score, it moved it *down*** — YM2413 0.954 →
+   0.904, YM2612 0.954 → 0.908 — because the old scores were partly two players
+   sharing linear-interpolation artefacts. Cleaning our side decorrelated us
+   from the reference's remaining aliasing. Agreement with an aliased reference
+   is not fidelity, and the drop is the honest number.
+3. **SN76489 scores *higher* at 44100-sinc (0.631) than at native (0.586)**:
+   low-passing to 20 kHz discards the band where the cores disagree most, so
+   the disagreement lives in the high band — the noise channel remains the
+   suspect, now with spectral support.
+4. **YM2151 passes its shared-core bar properly**: 0.9989, and 0.9991 on the
+   ten LFO-free files, at full sample size. The first chip to clear its bar.
+5. **YM2612 at 0.904 with a shared core is now the sharpest open question.**
+   Both sides run Nuked-OPN2 and disagree by ten points at the chip's own rate;
+   that is a driver-level difference (pacing, routing, variant flags — the
+   class pt-4 exists for), not taste. YM2413 at 0.977 is its smaller sibling.
+
+The rest of the table is unchanged from the first run and keeps its readings:
+the three near-silent PCM chips, Game Boy and NES APU far below where clean-room
+implementations should land, and the OPN family's known ADPCM gap.

@@ -30,21 +30,24 @@ use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
 use crate::engine::{FrameClock, LoopConfig, Position};
-
-/// Fixed-point fractional bits for the per-chip resampler.
-const FRAC_BITS: u32 = 16;
-const FRAC_ONE: u64 = 1 << FRAC_BITS;
+use crate::resample::{ResampleMode, Resampler};
 
 /// One chip instance, with the resampler that brings it to the output rate.
 struct Voice {
     target: ChipTarget,
     core: Box<dyn ChipCore>,
-    /// Source frames per output frame, in `FRAC_BITS` fixed point.
-    step: u64,
-    /// Position between `prev` and `next`, in the same fixed point.
-    position: u64,
-    prev: [i32; 2],
-    next: [i32; 2],
+    /// The rates the resampler was built from, kept so a mode change can
+    /// rebuild it without asking the core to re-derive anything.
+    native_rate: u32,
+    output_rate: u32,
+    /// Band-limited rate conversion from the chip's rate to the engine's.
+    ///
+    /// This used to be a linear interpolation between the two source frames
+    /// straddling each output frame, which is a fair approximation at a ratio
+    /// near 1:1 and nothing of the kind at 5:1 -- the SN76489 renders at
+    /// 223721 Hz, and everything it puts above 22 kHz was folding straight back
+    /// into the audible band. See [`crate::resample`].
+    resampler: Resampler,
 }
 
 impl Voice {
@@ -62,11 +65,9 @@ impl Voice {
         Self {
             target,
             core,
-            step: (u64::from(native) << FRAC_BITS) / u64::from(output_rate.max(1)),
-            // Past the end, so the first frame pulled primes both samples.
-            position: FRAC_ONE * 2,
-            prev: [0; 2],
-            next: [0; 2],
+            native_rate: native,
+            output_rate,
+            resampler: Resampler::new(native, output_rate),
         }
     }
 
@@ -76,34 +77,24 @@ impl Voice {
         self.target.kind == target.kind && self.target.instance == target.instance
     }
 
-    /// The next output frame, linearly interpolated between the source frames
-    /// bracketing it.
+    /// The next output frame, band-limited from the chip's own rate.
     ///
     /// One source frame is pulled at a time. A core that would rather render in
     /// blocks can buffer internally; doing it here would mean either a lookahead
     /// the caller's chunk size could observe, or a buffer flushed between pulls
-    /// -- and the contract is that neither is visible.
+    /// -- and the contract is that neither is visible. It is also what keeps a
+    /// register write landing where the music put it: a resampler that demanded
+    /// a block of source frames would advance the chip past the next write
+    /// before applying it, and chips whose drivers write at audio rate (the
+    /// SN76489's sample playback, every DAC stream) depend on that not
+    /// happening.
     fn next_frame(&mut self) -> [i32; 2] {
-        while self.position >= FRAC_ONE {
-            self.prev = self.next;
+        let core = &mut self.core;
+        self.resampler.next_frame(|| {
             let mut frame = [0i32; 2];
-            self.core.render(&mut frame);
-            self.next = frame;
-            self.position -= FRAC_ONE;
-        }
-        let t = self.position;
-        let lerp = |a: i32, b: i32| -> i32 {
-            let a = i64::from(a);
-            let b = i64::from(b);
-            let value = a + (((b - a) * t as i64) >> FRAC_BITS);
-            value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
-        };
-        let frame = [
-            lerp(self.prev[0], self.next[0]),
-            lerp(self.prev[1], self.next[1]),
-        ];
-        self.position += self.step;
-        frame
+            core.render(&mut frame);
+            frame
+        })
     }
 }
 
@@ -243,6 +234,20 @@ impl VgmEngine {
     }
 
     /// Restarts from the first command with every chip reset.
+    /// Chooses how every voice is brought to the output rate.
+    ///
+    /// [`ResampleMode::Sinc`] is the accurate default; [`ResampleMode::Linear`]
+    /// is the old lerp kept as a deliberate option -- the aliased "crunchy"
+    /// sound of VGMPlay and most classic players. Each voice's resampler is
+    /// rebuilt empty, which is only seamless at a boundary the app already
+    /// treats as one (load, rewind, seek) -- callers switch the mode and then
+    /// restart or reload, exactly as they do for a core change.
+    pub fn set_resample_mode(&mut self, mode: ResampleMode) {
+        for voice in &mut self.voices {
+            voice.resampler = Resampler::with_mode(voice.native_rate, voice.output_rate, mode);
+        }
+    }
+
     pub fn rewind(&mut self) {
         for voice in &mut self.voices {
             // The header's clock and variant are what it was built with; a reset
@@ -260,9 +265,10 @@ impl VgmEngine {
                 // chip it was.
                 voice.core.configure(self.file.header.settings());
             }
-            voice.position = FRAC_ONE * 2;
-            voice.prev = [0; 2];
-            voice.next = [0; 2];
+            // The resampler holds a tail of the passage just left -- about
+            // 0.4 ms of it -- so it is cleared with the chip rather than
+            // allowed to bleed across the seam.
+            voice.resampler.reset();
         }
         self.banks.clear();
         self.table = None;

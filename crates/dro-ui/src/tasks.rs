@@ -48,6 +48,9 @@ pub enum TaskRequest {
         source: AudioSource,
         num_buckets: usize,
         sample_rate: u32,
+        /// How a non-OPL engine reaches the output rate; ignored by an OPL
+        /// source, whose engine renders at the chip's own rate.
+        resampling: dro_synth::resample::ResampleMode,
     },
     RenderWav {
         source: WavSource,
@@ -56,6 +59,9 @@ pub enum TaskRequest {
         mix: RenderMix,
         sample_rate: u32,
         bit_depth: u16,
+        /// As on [`TaskRequest::RenderWaveform`]: the export honours the same
+        /// resampling choice playback does.
+        resampling: dro_synth::resample::ResampleMode,
     },
     Split {
         song: Arc<Song>,
@@ -275,6 +281,7 @@ pub fn run_task(
             source,
             num_buckets,
             sample_rate,
+            resampling,
         } => {
             // A waveform is a picture of the audio, so it comes from whichever
             // engine would make that audio.
@@ -293,6 +300,7 @@ pub fn run_task(
                         Arc::clone(file),
                         *num_buckets,
                         *sample_rate,
+                        *resampling,
                         &mut || !is_cancelled(),
                         &mut |buckets| emit(TaskResult::Waveform(buckets)),
                     );
@@ -304,6 +312,7 @@ pub fn run_task(
             mix,
             sample_rate,
             bit_depth,
+            resampling,
         } => {
             // `song.dro` becomes `song.dro.wav`, the name `drotrim render`
             // writes -- so the same song exported both ways lands in one place.
@@ -322,6 +331,7 @@ pub fn run_task(
                     *sample_rate,
                     *bit_depth,
                     mix.boost,
+                    *resampling,
                     &mut |_| {},
                     &mut || !is_cancelled(),
                 ),
@@ -513,6 +523,7 @@ mod tests {
             source: AudioSource::Opl(Arc::new(song)),
             num_buckets: 32,
             sample_rate: 48_000,
+            resampling: dro_synth::resample::ResampleMode::Sinc,
         }
     }
 
@@ -634,6 +645,7 @@ mod tests {
             mix: RenderMix::default(),
             sample_rate: 48_000,
             bit_depth: 16,
+            resampling: dro_synth::resample::ResampleMode::Sinc,
         };
         assert!(collect(&wav, || true).is_empty());
 
@@ -659,6 +671,7 @@ mod tests {
                 mix: RenderMix::default(),
                 sample_rate: 48_000,
                 bit_depth: 16,
+                resampling: dro_synth::resample::ResampleMode::Sinc,
             },
             || false,
         );

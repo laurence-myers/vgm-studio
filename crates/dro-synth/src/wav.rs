@@ -15,6 +15,7 @@ use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
 use crate::engine::{Muting, Panning, PlayerEngine};
+use crate::resample::ResampleMode;
 use std::sync::Arc;
 
 use dro_core::VgmFile;
@@ -256,12 +257,14 @@ pub fn render_vgm_wav(
     sample_rate: u32,
     bit_depth: u16,
     boost: f32,
+    resampling: ResampleMode,
 ) -> Result<Vec<u8>, hound::Error> {
     render_vgm_wav_cancellable(
         file,
         sample_rate,
         bit_depth,
         boost,
+        resampling,
         &mut |_| {},
         &mut || true,
     )
@@ -278,6 +281,7 @@ pub fn render_vgm_wav_cancellable(
     sample_rate: u32,
     bit_depth: u16,
     boost: f32,
+    resampling: ResampleMode,
     on_progress: &mut dyn FnMut(u64),
     keep_going: &mut dyn FnMut() -> bool,
 ) -> Result<Option<Vec<u8>>, hound::Error> {
@@ -288,6 +292,9 @@ pub fn render_vgm_wav_cancellable(
         sample_format: SampleFormat::Int,
     };
     let mut engine = VgmEngine::new(file, sample_rate);
+    // The render honours the same choice playback does: a user who picked the
+    // crunchy conversion exports the sound they hear, not a cleaned-up cousin.
+    engine.set_resample_mode(resampling);
     let mut rendered = 0u64;
     write_render(
         spec,
@@ -389,7 +396,8 @@ mod tests {
 
     #[test]
     fn a_vgm_for_other_chips_renders_a_wav_of_its_own_length() {
-        let bytes = render_vgm_wav(sms_vgm(), 44_100, 16, 1.0).expect("renders");
+        let bytes =
+            render_vgm_wav(sms_vgm(), 44_100, 16, 1.0, ResampleMode::Sinc).expect("renders");
         let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
         assert_eq!(reader.spec().channels, 2);
         assert_eq!(reader.spec().sample_rate, 44_100);
@@ -399,7 +407,8 @@ mod tests {
 
     #[test]
     fn a_chip_this_app_can_play_comes_out_audible() {
-        let bytes = render_vgm_wav(sms_vgm(), 44_100, 16, 1.0).expect("renders");
+        let bytes =
+            render_vgm_wav(sms_vgm(), 44_100, 16, 1.0, ResampleMode::Sinc).expect("renders");
         let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
         let peak = reader
             .into_samples::<i16>()
@@ -418,7 +427,8 @@ mod tests {
             &[(dro_core::ChipKind::Ym2612, 7_670_454)],
             &[0x52, 0x28, 0xF0, 0x62, 0x66],
         );
-        let bytes = render_vgm_wav(file, 44_100, 16, 1.0).expect("renders anyway");
+        let bytes =
+            render_vgm_wav(file, 44_100, 16, 1.0, ResampleMode::Sinc).expect("renders anyway");
         let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
         assert_eq!(reader.len(), 735 * 2);
         assert!(
@@ -432,12 +442,19 @@ mod tests {
     #[test]
     fn a_cancelled_vgm_render_yields_nothing() {
         let mut calls = 0;
-        let outcome =
-            render_vgm_wav_cancellable(sms_vgm(), 44_100, 16, 1.0, &mut |_| {}, &mut || {
+        let outcome = render_vgm_wav_cancellable(
+            sms_vgm(),
+            44_100,
+            16,
+            1.0,
+            ResampleMode::Sinc,
+            &mut |_| {},
+            &mut || {
                 calls += 1;
                 calls <= 1
-            })
-            .expect("no write error");
+            },
+        )
+        .expect("no write error");
         assert!(outcome.is_none(), "an abandoned render produces no file");
     }
 

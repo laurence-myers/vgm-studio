@@ -32,6 +32,9 @@ pub struct SettingsDialog {
     /// The core chosen per chip slot, edited in place by the picker. The whole
     /// map, not just OPL's row: every chip's core is a setting now.
     cores: BTreeMap<String, String>,
+    /// How non-OPL chips reach the output rate: the `sinc`/`linear` slug,
+    /// kept as the config spells it.
+    resampling: String,
     /// The chosen port, or empty for "whichever one is found".
     retrowave_port: String,
     /// The ports offered in the picker, listed when the dialog opened.
@@ -55,6 +58,7 @@ impl SettingsDialog {
             // must not show a choice the dropdown cannot offer back.
             deck_style: config.ui.deck_style.for_deck(),
             cores: config.audio.cores.clone(),
+            resampling: config.audio.resampling.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
             ports,
         }
@@ -155,6 +159,32 @@ impl SettingsDialog {
                                                     offered_label(offered),
                                                 );
                                             }
+                                        });
+                                });
+                                ui.end_row();
+
+                                // Below the per-chip cores because it shapes
+                                // the same signal: how those cores' output
+                                // reaches the sound card's rate.
+                                ui.label("Resampling").on_hover_text(
+                                    "How non-OPL chips are brought to the output rate.                                      Band-limited is the accurate capture of the chip;                                      linear folds high frequencies back into the audible                                      band, which is inaccurate but crunchy -- the way                                      VGMPlay and most classic players sound. Applies to                                      playback, WAV export and the waveform alike.",
+                                );
+                                ui.scope(|ui| {
+                                    crate::theme::style_dropdown(ui, palette);
+                                    let current = resampling_label(&self.resampling);
+                                    egui::ComboBox::from_id_salt("settings-resampling")
+                                        .selected_text(current)
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(
+                                                &mut self.resampling,
+                                                "sinc".to_owned(),
+                                                RESAMPLING_SINC,
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.resampling,
+                                                "linear".to_owned(),
+                                                RESAMPLING_LINEAR,
+                                            );
                                         });
                                 });
                                 ui.end_row();
@@ -342,6 +372,7 @@ impl SettingsDialog {
         config.audio.buffer_size = self.buffer_size;
         config.audio.bit_depth = self.bit_depth;
         config.audio.cores = self.cores.clone();
+        config.audio.resampling = self.resampling.clone();
         let port = self.retrowave_port.trim();
         config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
         config.ui.tail_length = tail_length;
@@ -419,6 +450,19 @@ fn offered_label(port: &HardwarePortInfo) -> String {
         format!("{} ✓", port.label)
     } else {
         port.label.clone()
+    }
+}
+
+/// The two conversions the Settings dialog offers, spelled for humans.
+const RESAMPLING_SINC: &str = "Band-limited (clean)";
+const RESAMPLING_LINEAR: &str = "Linear (aliased, retro)";
+
+/// The label for a config slug, defaulting unknown spellings to the accurate
+/// choice exactly as the engine will.
+fn resampling_label(slug: &str) -> &'static str {
+    match dro_synth::resample::ResampleMode::from_slug(slug).unwrap_or_default() {
+        dro_synth::resample::ResampleMode::Linear => RESAMPLING_LINEAR,
+        dro_synth::resample::ResampleMode::Sinc => RESAMPLING_SINC,
     }
 }
 

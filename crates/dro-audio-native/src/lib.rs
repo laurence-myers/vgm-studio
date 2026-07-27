@@ -169,7 +169,14 @@ impl NativeAudio {
                 )))
             }
             AudioSource::Vgm(file) => {
-                Engine::Vgm(Box::new(VgmEngine::new(Arc::clone(file), sample_rate)))
+                let mut engine = VgmEngine::new(Arc::clone(file), sample_rate);
+                // The config's slug, with an unknown spelling falling back to
+                // the accurate default -- same policy as an unknown core name.
+                engine.set_resample_mode(
+                    dro_synth::resample::ResampleMode::from_slug(&config.resampling)
+                        .unwrap_or_default(),
+                );
+                Engine::Vgm(Box::new(engine))
             }
         };
         // Boost rides the existing `&AudioConfig`, and the limiter's release is
