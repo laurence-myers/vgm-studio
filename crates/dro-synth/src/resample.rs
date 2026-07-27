@@ -4,10 +4,10 @@
 //!
 //! # What this is for
 //!
-//! Sound chips run at whatever their clock divides down to -- 49716 Hz for an
-//! OPL3, 55930 for a YM2151, 223721 for an SN76489, 1.79 MHz for the NES APU
-//! -- and the output is 44100 or 48000. Something has to bridge that, and for
-//! most of these chips it is bridging *downwards*, by a lot.
+//! Sound chips run at whatever their clock divides down to -- 41667 Hz for a
+//! YM2203, 49716 for an OPL3, 55930 for a YM2151, 223721 for an SN76489 -- and
+//! the output is 44100 or 48000. Something has to bridge that, and for the
+//! faster chips it is bridging *downwards* by a factor of five.
 //!
 //! [`VgmEngine`](crate::vgm_engine::VgmEngine) used to bridge it by pulling one
 //! source frame at a time and interpolating linearly between the two straddling
@@ -20,8 +20,15 @@
 //! The reference-parity harness measured what that costs. Against VGMPlay, an
 //! SN76489 rip scored **0.5848** at 44100 and **0.9958** when both sides
 //! rendered at the chip's own 223721 Hz; a YM2612 rip 0.9538 against 0.9949.
-//! Sorting the whole scorecard by decimation ratio sorted it almost perfectly
-//! by score. See `docs/vgm-multichip-2026-07/RESAMPLER-PLAN.md`.
+//! See `docs/vgm-multichip-2026-07/RESAMPLER-PLAN.md`.
+//!
+//! It is not the explanation for *everything* the scorecard flagged, and an
+//! earlier draft of this comment said it was, on the strength of a ratio table
+//! built from clock rates rather than from what the cores report. Several cores
+//! decimate internally -- the NES APU averages 32 CPU cycles a sample, the
+//! HuC6280 64 -- so their ratios are near 1:1, and the HuC6280 scores 0.016 at
+//! the same ratio where the YM2151 scores 0.994. Those chips are broken in some
+//! other way.
 //!
 //! # What "accurate" is taken to mean
 //!
@@ -64,7 +71,8 @@ use std::sync::OnceLock;
 ///
 /// Sixteen puts the transition band comfortably inside the guard between 20 kHz
 /// and the 22.05 kHz Nyquist while keeping the tap count affordable at the
-/// worst ratio this app sees (the NES APU's 40:1).
+/// worst ratio this app sees -- the SN76489's and AY8910's 5.07:1, which is 183
+/// taps and runs at about 15x realtime.
 const ZERO_CROSSINGS: usize = 16;
 
 /// Kaiser window parameter. Beta 10 gives about -90 dB of stopband rejection,
@@ -143,6 +151,12 @@ fn bessel_i0(x: f64) -> f64 {
 }
 
 /// Reads the half-kernel at `lobes` zero crossings from centre, interpolating.
+///
+/// The hot loop in [`Resampler::next_frame`] does this inline and walks the
+/// table rather than indexing it, which is worth about four times the speed;
+/// this stays as the readable statement of what that loop computes, and is
+/// what the kernel's own test reads.
+#[cfg(test)]
 fn tap(lobes: f64) -> f64 {
     let position = lobes.abs() * SAMPLES_PER_LOBE as f64;
     let index = position as usize;
@@ -243,21 +257,37 @@ impl Resampler {
         let centre = self.phase as f64 / FRAC_ONE as f64;
         let (mut left, mut right, mut weight) = (0.0f64, 0.0f64, 0.0f64);
         let span = 2 * self.half_taps;
-        for offset in 0..=span {
-            // Distance from the kernel's centre to this frame, in source frames.
-            let distance = centre + (self.half_taps as f64 - offset as f64);
-            let h = tap(distance * self.lobes_per_frame);
-            if h == 0.0 {
-                continue;
+
+        // **The loop is written to be walked, not computed.** The distance from
+        // the kernel's centre falls by exactly `lobes_per_frame` per tap, so
+        // the table position is an accumulator rather than a multiply; the ring
+        // is a power of two, so the wrap is a mask rather than a modulo; and
+        // the kernel is read inline rather than through `tap`'s bounds check.
+        //
+        // This is not premature. The first version cost 7 ns a tap, which at
+        // the NES APU's 1445 taps is **1.1x realtime** -- one voice eating a
+        // whole core, and stuttering the moment anything else wanted one. The
+        // guard test caught it; the estimate in the plan (a few percent of a
+        // core) was simply wrong.
+        let table = kernel();
+        let mask = self.history.len() - 1;
+        let step_per_tap = self.lobes_per_frame * SAMPLES_PER_LOBE as f64;
+        let mut position = (centre + self.half_taps as f64) * step_per_tap;
+        let mut index = (self.write + self.history.len() - 1 - span) & mask;
+        for _ in 0..=span {
+            let at = position.abs();
+            let whole = at as usize;
+            if whole < HALF_LEN {
+                let fraction = at - whole as f64;
+                let a = f64::from(table[whole]);
+                let h = a + (f64::from(table[whole + 1]) - a) * fraction;
+                let frame = self.history[index];
+                left += h * f64::from(frame[0]);
+                right += h * f64::from(frame[1]);
+                weight += h;
             }
-            // The newest frame sits one before `write`; `offset` counts back
-            // from the oldest frame the kernel spans.
-            let index =
-                (self.write + self.history.len() - 1 - (span - offset)) % self.history.len();
-            let frame = self.history[index];
-            left += h * f64::from(frame[0]);
-            right += h * f64::from(frame[1]);
-            weight += h;
+            position -= step_per_tap;
+            index = (index + 1) & mask;
         }
         self.phase += self.step;
 
@@ -756,6 +786,49 @@ mod tests {
         assert!((bessel_i0(10.0) - 2_815.716_628_466_254).abs() < 1e-6);
     }
 
+    /// The worst ratio must stay comfortably faster than realtime, because the
+    /// audio thread has no way to complain: a resampler that fell behind would
+    /// surface as stuttering, which is a bug report rather than a red test.
+    ///
+    /// **The worst ratio in this app is 5.07:1, not 40:1.** The NES APU's core
+    /// averages 32 CPU cycles into each output sample, so it presents 55.9 kHz
+    /// rather than the 1.79 MHz its clock might suggest, and the HuC6280 and
+    /// Game Boy divide theirs too. What is actually left is the SN76489 and
+    /// AY8910 at 223721 Hz -- 183 taps, not 1445.
+    ///
+    /// Measuring the hypothetical 40:1 first was still worth it: it read 1.1x
+    /// realtime and forced the inner loop to be written properly. But the bar
+    /// belongs on the ratio that exists.
+    ///
+    /// Deliberately loose (five times realtime) because this guards against a
+    /// change of *order*, not a benchmark: a machine under load should not fail
+    /// it, and doubling the kernel should.
+    #[test]
+    fn the_worst_ratio_runs_faster_than_realtime() {
+        let mut resampler = Resampler::new(SN_NATIVE, OUTPUT);
+        let mut n = 0u64;
+        let started = std::time::Instant::now();
+        let frames = OUTPUT as usize;
+        for _ in 0..frames {
+            std::hint::black_box(resampler.next_frame(|| {
+                let value = ((n % 4_099) as i32) - 2_048;
+                n += 1;
+                [value, value]
+            }));
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        let realtime_factor = 1.0 / elapsed.max(1e-9);
+        println!(
+            "worst real ratio (223721 -> 44100): {} taps, {realtime_factor:.1}x realtime",
+            resampler.taps()
+        );
+        assert!(
+            realtime_factor > 5.0,
+            "one second of the worst ratio took {elapsed:.3} s -- {realtime_factor:.1}x \
+             realtime, which is too close to stuttering"
+        );
+    }
+
     /// The worst ratio this app meets is the NES APU's 40:1, and it must stay
     /// affordable: the tap count is what decides that, so it is pinned.
     #[test]
@@ -765,10 +838,13 @@ mod tests {
         // sinc -- `ZC * native / (2 * CUTOFF * output)` each side.
         assert_eq!(Resampler::new(49_716, OUTPUT).taps(), 2 * 21 + 1);
         assert_eq!(Resampler::new(SN_NATIVE, OUTPUT).taps(), 2 * 91 + 1);
-        let nes = Resampler::new(1_789_773, OUTPUT).taps();
+        // No core presents a ratio like this today -- the NES APU decimates
+        // internally to 55.9 kHz -- but a future one could, and the cost grows
+        // linearly with it, so the bound is kept as a warning shot.
+        let extreme = Resampler::new(1_789_773, OUTPUT).taps();
         assert!(
-            nes <= 1_500,
-            "the NES APU's ratio needs {nes} taps, which is past what was budgeted"
+            extreme <= 1_500,
+            "a 40:1 ratio needs {extreme} taps, which is past what was budgeted"
         );
     }
 }
