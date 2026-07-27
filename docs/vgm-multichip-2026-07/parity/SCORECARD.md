@@ -306,3 +306,15 @@ Phase-class differences may end where the OPL vibrato did: as a bounded,
 explained residual rather than a bug. The difference is that here both sides
 claim the same chip, so the question stays open until one of the two leads
 settles it.
+
+**HuC6280 closed (2026-07-28):** rendering the same file through VGMPlay's
+*other* HuC6280 core answered it. The two reference cores score **−0.188
+against each other** — channel wave phase on this chip is implementation-
+defined even among established emulators, so whole-file correlation cannot
+arbitrate anyone's core. On the phase-insensitive envelope (50 ms windows):
+ours-vs-MAME **0.9670**, ours-vs-OOTK **0.9675**, MAME-vs-OOTK 0.9635 — we
+agree with each reference slightly better than they agree with each other,
+which is the strongest statement a clean-room core can make. Levels: even the
+references differ by 23% (MAME/OOTK 0.777); ours is the quietest (0.52–0.67),
+a bounded pt-6 balance item. The key-on phase fix stands on hardware grounds;
+the chip's frozen threshold will assert envelope, not correlation.
