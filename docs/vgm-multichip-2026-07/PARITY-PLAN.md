@@ -55,13 +55,28 @@ reference version, its config file, and its SHA go in
 `docs/vgm-multichip-2026-07/parity/` so a re-run years later compares against
 the same thing.
 
+> **Done, and it took more than flags.** `parity/REFERENCE.md` records what was
+> pinned and the four behaviours that had to be found by experiment: VGMPlay
+> reads its ini from its *own* directory (so the runner stages a private copy
+> of the player), an empty `LogPath` writes the WAV *beside the input* (i.e.
+> into the corpus), every `Core =` is empty and empty means the vendor default
+> rather than Nuked, and determinism turns out to be a property of the chip
+> rather than of the player. Every one of those would have corrupted the
+> comparison silently rather than failing it.
+
 Environment, following the corpus-test convention:
 
 ```text
 DROTRIM_VGMRIPS_CORPUS  — exists already; the file source
 DROTRIM_REF_PLAYER      — path to the reference executable
+DROTRIM_REF_CONFIG      — the pinned settings file, staged beside a private
+                          copy of the player; parity/VGMPlay.ini
+DROTRIM_REF_ARGS        — optional; extra arguments before the input path
 DROTRIM_PARITY_CACHE    — optional; reference WAVs are deterministic per
-                          (file, ref version, config), so cache them
+                          (file, rate, ref version, config), so cache them
+DROTRIM_PARITY_DUMP     — optional; writes both sides of any flagged pair as
+                          WAVs, which is what makes "listen to the outliers"
+                          an instruction someone can actually follow
 ```
 
 ## 2 · Test material
@@ -151,6 +166,22 @@ balances are the first two customers.
 - **Resampler smear.** Different resamplers blur transients differently;
   correlation and envelope are robust to it, sample-wise L2 is not — which is
   why L2 is not a metric.
+
+  > **Underestimated.** Correlation is *not* robust to it: at 44100 the OPL
+  > control group scored 0.836 on a core proven bit-identical to the
+  > reference's. Both sides now render at the **chip's native rate**, asked per
+  > file because it follows the header's clock, and the same files score
+  > 0.985–0.997. `metrics::lag_drift` was added to tell the two failure modes
+  > apart — an even resampler difference leaves the alignment where it was, a
+  > rate difference slides it as the file plays.
+
+- **Free-running LFOs are chip state, not pipeline error.** The OPL3's vibrato
+  LFO runs from chip reset, and our side and the reference's start it at
+  different points relative to the music. Files that never enable vibrato score
+  0.998–0.999; one that enables it on 46% of its operator writes scores 0.590,
+  with identical average pitch, level and envelope. The control group therefore
+  asserts on vibrato-free files and reports the rest. Expect the same on
+  YM2151's PMS/AMS and YM2612's LFO.
 - **Reference determinism** is asserted, not assumed: pt-1 renders one file
   twice and requires byte-identical output before anything else is built.
 - **Nuked-CQM has no reference** — VGMPlay does not ship it. It stays

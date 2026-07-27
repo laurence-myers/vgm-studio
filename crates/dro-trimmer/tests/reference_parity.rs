@@ -69,15 +69,8 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
     })
 }
 
-/// Renders `path` with a caller-chosen set of cores -- the decomposition the
-/// balance fit needs.
-fn render_with(
-    path: &Path,
-    cores: impl Fn(ChipKind) -> Option<Box<dyn dro_synth::ChipCore>> + Send + 'static,
-) -> Option<Render> {
-    render_with_at(path, RATE, cores)
-}
-
+/// Renders `path` at `rate` with a caller-chosen set of cores -- the
+/// decomposition the balance fit needs.
 fn render_with_at(
     path: &Path,
     rate: u32,
@@ -146,6 +139,92 @@ fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize
         found.push(path);
     }
     found
+}
+
+/// A copy of `path` cut to just past the compared window, or `path` itself if
+/// it is already short enough or will not walk.
+///
+/// **The reference renders whole tracks; we compare twenty seconds of them.**
+/// A three-minute rip at a chip's native rate is nine times the work for the
+/// same answer, and across thirteen chips and a dozen files each that was the
+/// difference between a scorecard that runs in an hour and one that runs in
+/// five. Cutting the input instead of the output is what makes the saving
+/// real -- there is no "render only the first N seconds" switch to ask for.
+///
+/// Both sides are given the *same* cut file, so this cannot bias a comparison:
+/// it is the identical input either way. A couple of seconds past the window
+/// are kept so nothing near the boundary is measured against a decay that one
+/// side was cut off from.
+fn shortened(path: &Path, work_dir: &Path) -> PathBuf {
+    use dro_core::vgm::stream::VgmCommand;
+
+    let keep_samples = (SECONDS as u32 + 2) * 44_100;
+    let Ok(bytes) = std::fs::read(path) else {
+        return path.to_owned();
+    };
+    let name = path.file_name().unwrap_or_default().to_string_lossy();
+    let Ok(mut file) = dro_core::vgm::file::read(&name, &bytes) else {
+        return path.to_owned();
+    };
+    if file.total_samples() <= keep_samples {
+        return path.to_owned();
+    }
+    let Some(stream) = file.stream() else {
+        return path.to_owned();
+    };
+    // The VGM time base is 44100 regardless of what any chip runs at, so the
+    // row to cut at is found by adding up waits, not by any chip's clock.
+    let mut elapsed = 0u32;
+    let mut cut = stream.len();
+    for index in 0..stream.len() {
+        match stream.get(index) {
+            Some(VgmCommand::Wait(samples)) => elapsed += samples,
+            Some(VgmCommand::DacWrite { wait }) => elapsed += wait,
+            _ => {}
+        }
+        if elapsed >= keep_samples {
+            cut = index + 1;
+            break;
+        }
+    }
+    if file.crop_to_region(0, cut).is_none() {
+        return path.to_owned();
+    }
+    let Ok(out) = dro_core::vgm::file::write(&file) else {
+        return path.to_owned();
+    };
+    let short_dir = work_dir.join("shortened");
+    if std::fs::create_dir_all(&short_dir).is_err() {
+        return path.to_owned();
+    }
+    // `.vgm`, not `.vgz`: the writer emits plain bytes, and handing the
+    // reference a file whose name promises gzip would fail at its reader.
+    let target = short_dir.join(format!(
+        "{}.vgm",
+        path.file_stem().unwrap_or_default().to_string_lossy()
+    ));
+    if std::fs::write(&target, out).is_err() {
+        return path.to_owned();
+    }
+    target
+}
+
+/// The rate `chip` runs at in `path`, straight from the core.
+///
+/// **Not a constant, because it is not one.** A core's native rate is derived
+/// from the clock in the file's header -- a YM2151 at 3.58 MHz renders at
+/// 55930 Hz and the same chip at 4 MHz does not -- so the rate to compare at
+/// has to be asked per file. Comparing at anything else puts two resamplers
+/// between the cores and measures those instead, which cost the OPL control
+/// group fifteen points of correlation before it was fixed.
+fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
+    let bytes = std::fs::read(path).ok()?;
+    let name = path.file_name()?.to_string_lossy().to_string();
+    let file = dro_core::vgm::file::read(&name, &bytes).ok()?;
+    let clocked = file.header.chips().iter().find(|c| c.kind == chip)?;
+    let mut core = dro_synth::registry::registry().build(chip, None)?;
+    core.reset(clocked.clock, clocked.variant);
+    Some(core.native_rate())
 }
 
 /// What fraction of an OPL file's operator writes switch vibrato on.
@@ -249,7 +328,9 @@ fn the_reference_player_is_deterministic() {
 
     // The control group leads, then everything the scorecard will compare.
     let mut chips = vec![ChipKind::Ymf262];
-    chips.extend(ChipKind::all().filter(|chip| registry.can_build(*chip) && *chip != ChipKind::Ymf262));
+    chips.extend(
+        ChipKind::all().filter(|chip| registry.can_build(*chip) && *chip != ChipKind::Ymf262),
+    );
 
     let (mut checked, mut flaky) = (0usize, Vec::new());
     for chip in chips {
@@ -270,7 +351,10 @@ fn the_reference_player_is_deterministic() {
         }
     }
 
-    assert!(checked > 0, "nothing was rendered; the reference is unusable");
+    assert!(
+        checked > 0,
+        "nothing was rendered; the reference is unusable"
+    );
     assert!(
         flaky.is_empty(),
         "the reference rendered these differently twice: {}. Every threshold \
@@ -313,7 +397,9 @@ fn the_opl_control_group_calibrates_the_pipeline() {
     let reference = reference.at_rate(native);
 
     let (mut worst, mut judged) = (1.0f64, 0usize);
-    for path in &files {
+    for original in &files {
+        // The same cut file to both sides -- see `shortened`.
+        let path = &shortened(original, &work_dir());
         let Some(ours) = render_ours_at(path, native) else {
             continue;
         };
@@ -332,14 +418,17 @@ fn the_opl_control_group_calibrates_the_pipeline() {
         let score = parity::compare(&ours, &theirs, Settings::default());
         println!(
             "  {:<50} {}  vib {:.0}%",
-            short(path),
+            short(original),
             score.summary(),
             vibrato * 100.0
         );
         if score.worst_correlation() < 0.99
-            && let Some(where_to) = parity::dump_pair(&short(path), &ours, &theirs)
+            && let Some(where_to) = parity::dump_pair(&short(original), &ours, &theirs)
         {
-            println!("    flagged; both renders written to {}", where_to.display());
+            println!(
+                "    flagged; both renders written to {}",
+                where_to.display()
+            );
         }
         // The control group is where a soft correlation has to be *explained*,
         // not merely reported: an even resampler difference and a rate
@@ -415,11 +504,24 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
 
         let (mut correlations, mut cents, mut dropouts, mut gains) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        for path in &files {
-            let Some(ours) = render_ours(path) else {
+        for original in &files {
+            // Both sides render the same cut file, so the saving costs nothing.
+            let path = &shortened(original, &work_dir());
+            // **Native rate only where the core is genuinely shared.** There it
+            // is the same core at the same rate on both sides and neither
+            // resamples. For a clean-room chip "native" is *our* core's rate
+            // and means nothing to the reference, which would simply upsample
+            // its own core into it -- reintroducing the resampler this is
+            // meant to remove, and at up to five times the cost, since some of
+            // these cores run above 200 kHz.
+            let rate = match bar.regime {
+                parity::Regime::SharedCore => native_rate_of(path, chip).unwrap_or(RATE),
+                parity::Regime::CleanRoom => RATE,
+            };
+            let Some(ours) = render_ours_at(path, rate) else {
                 continue;
             };
-            let Ok(bytes) = reference.render(path, &work_dir()) else {
+            let Ok(bytes) = reference.at_rate(rate).render(path, &work_dir()) else {
                 continue;
             };
             let Ok((samples, rate)) = parity::reference::read_wav(&bytes) else {
@@ -427,6 +529,12 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             };
             let theirs = Render::from_interleaved_i16(&samples, rate);
             let score = parity::compare(&ours, &theirs, Settings::default());
+            if score.worst_correlation() < bar.min_correlation {
+                // Named after the original: the cut copy lives in a temp
+                // directory and its bare stem would not say which rip it came
+                // from, which is the one thing a flagged pair has to say.
+                parity::dump_pair(&short(original), &ours, &theirs);
+            }
             correlations.push(score.worst_correlation());
             dropouts.push(score.worst_dropout());
             gains.push(score.channels[0].gain);
@@ -520,7 +628,15 @@ fn the_chip_balance_is_measured_rather_than_guessed() {
     let mut ratios = Vec::new();
     for relative in both.iter().step_by(stride).take(SAMPLE) {
         let path = root.join(relative);
-        let Ok(bytes) = reference.render(&path, &work_dir()) else {
+        // Two chips means two native rates, so *something* gets resampled
+        // whatever rate is chosen -- unlike the single-chip scorecard, where
+        // the native rate takes both resamplers out of the measurement
+        // entirely. Rendering at the FM chip's rate at least spares the part
+        // of the mix carrying most of the energy, and leaves the resampler
+        // acting only on the PSG, where it inflates the residual without
+        // moving the balance the fit is after.
+        let rate = native_rate_of(&path, ChipKind::Ym2612).unwrap_or(RATE);
+        let Ok(bytes) = reference.at_rate(rate).render(&path, &work_dir()) else {
             continue;
         };
         let Ok((samples, rate)) = parity::reference::read_wav(&bytes) else {
@@ -529,14 +645,14 @@ fn the_chip_balance_is_measured_rather_than_guessed() {
         let theirs = Render::from_interleaved_i16(&samples, rate);
 
         let registry = dro_synth::registry::registry();
-        let Some(fm_only) = render_with(&path, move |kind| {
+        let Some(fm_only) = render_with_at(&path, rate, move |kind| {
             (kind == ChipKind::Ym2612)
                 .then(|| registry.build(kind, None))
                 .flatten()
         }) else {
             continue;
         };
-        let Some(psg_only) = render_with(&path, move |kind| {
+        let Some(psg_only) = render_with_at(&path, rate, move |kind| {
             (kind != ChipKind::Ym2612)
                 .then(|| registry.build(kind, None))
                 .flatten()

@@ -551,7 +551,10 @@ mod tests {
         let fast = resampled(&source, 1.0002);
         let (head, head_score, tail, _) =
             lag_drift(&source, &fast, 200).expect("both are long enough");
-        assert!(head_score > 0.85, "the head still aligns well: {head_score}");
+        assert!(
+            head_score > 0.85,
+            "the head still aligns well: {head_score}"
+        );
         assert!(
             (tail - head).abs() > 8,
             "a rate difference must show as movement, got {head} then {tail}"

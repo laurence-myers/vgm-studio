@@ -326,8 +326,11 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(ChipKind::HuC6280),
     clean(ChipKind::Okim6295),
     clean(ChipKind::Okim6258),
-    // The OPN family: OPN2's FM and our SSG, so neither regime cleanly, and
-    // the ADPCM is simply absent.
+    // The OPN family is clean-room *despite* our side being Nuked: VGMPlay
+    // offers a core choice for YM2612 and YM2151 but none at all for
+    // YM2203/2608/2610, whose FM is its own. Add our clean-room SSG and the
+    // absent ADPCM and there is no sense in which these share an
+    // implementation, so they get a band rather than an identity.
     Threshold {
         chip: ChipKind::Ym2203,
         regime: Regime::CleanRoom,

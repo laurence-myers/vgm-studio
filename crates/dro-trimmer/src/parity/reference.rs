@@ -128,9 +128,6 @@ impl Reference {
     pub fn at_rate(&self, rate: u32) -> Self {
         Self {
             rate: Some(rate),
-            // A cached render was made at whatever rate was in force then, so
-            // it cannot be reused across a rate change.
-            cache: None,
             ..self.clone()
         }
     }
@@ -287,12 +284,17 @@ impl Reference {
 
     /// Where a cached render of `input` would live. Keyed by the input's name
     /// and size, which is enough to tell corpus files apart without hashing
-    /// every one of them.
+    /// every one of them -- **and by the rate**, because the same file rendered
+    /// at two rates is two different answers and serving one for the other
+    /// would silently reintroduce the resampler the rate exists to avoid.
     fn cached_path(&self, input: &Path) -> Option<PathBuf> {
         let cache = self.cache.as_ref()?;
         let name = input.file_name()?.to_string_lossy();
         let size = std::fs::metadata(input).ok()?.len();
-        Some(cache.join(format!("{name}.{size}.wav")))
+        let rate = self
+            .rate
+            .map_or_else(|| "default".to_owned(), |r| r.to_string());
+        Some(cache.join(format!("{name}.{size}.{rate}.wav")))
     }
 }
 
@@ -451,7 +453,10 @@ mod tests {
             "{line} -- a directory concatenated with a file name needs its \
              separator, or the render lands in the parent"
         );
-        assert!(target.contains("dir"), "{line} -- it points at the work dir");
+        assert!(
+            target.contains("dir"),
+            "{line} -- it points at the work dir"
+        );
 
         assert!(rewritten.contains("LogSound = 1"), "other settings survive");
         assert!(rewritten.contains("; a comment"), "comments survive");
