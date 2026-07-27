@@ -7,6 +7,7 @@ pub mod header;
 pub mod io;
 pub mod projection;
 pub mod stream;
+pub mod version;
 
 pub use crate::util::VGM_SAMPLE_RATE;
 pub use audit::HeaderFinding;

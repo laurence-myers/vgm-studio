@@ -36,6 +36,15 @@ pub enum HeaderFinding {
     MissingEndMarker,
     /// Bytes sit between the end marker and whatever follows it.
     TrailingBytes { count: usize },
+    /// The file uses something its declared version does not define.
+    ///
+    /// Only this direction is reported. Declaring *more* than is needed is
+    /// harmless and near-universal -- 109 of 16466 corpus files could be stamped
+    /// lower, and reporting that would make this dialog a nag; declaring less is
+    /// a fault, because a player that trusts the version may not look for what
+    /// the file actually contains. Twenty corpus files do, and every one of them
+    /// uses a command from a version after the one it claims.
+    VersionUnderclaimed { declared: u32, needed: u32 },
 }
 
 impl HeaderFinding {
@@ -58,6 +67,11 @@ impl HeaderFinding {
             Self::TrailingBytes { count } => {
                 format!("Trailing data: {count} byte(s) sit after the end marker.")
             }
+            Self::VersionUnderclaimed { declared, needed } => format!(
+                "Version: the header says {}, but the file uses something from {}.",
+                crate::vgm::header::format_version(declared),
+                crate::vgm::header::format_version(needed)
+            ),
         }
     }
 }
@@ -111,6 +125,15 @@ pub fn audit(file: &VgmFile) -> Vec<HeaderFinding> {
         }
         _ => findings.push(HeaderFinding::MissingEndMarker),
     }
+
+    // Last, and one-directional: see `VersionUnderclaimed`.
+    let needed = crate::vgm::version::minimum_version(&file.header, Some(stream));
+    if file.header.version() < needed {
+        findings.push(HeaderFinding::VersionUnderclaimed {
+            declared: file.header.version(),
+            needed,
+        });
+    }
     findings
 }
 
@@ -151,6 +174,15 @@ pub fn fix(file: &mut VgmFile) -> Vec<HeaderFinding> {
     // A loop that resolved to nothing is cleared rather than guessed at.
     file.header.set_loop(absolute, loop_samples);
     file.header.set_total_samples(total);
+    // The version last, computed from the file as it now stands: a structural
+    // fix can remove the very command that was holding the version up. Only
+    // ever raised -- lowering one is a tidy-up nobody asked for here.
+    if let Some(stream) = file.stream() {
+        let needed = crate::vgm::version::minimum_version(&file.header, Some(stream));
+        if file.header.version() < needed {
+            file.header.set_version(needed);
+        }
+    }
     findings
 }
 
@@ -328,5 +360,50 @@ mod tests {
         let before = crate::vgm::file::write(&file).unwrap();
         assert!(!audit(&file).is_empty());
         assert_eq!(crate::vgm::file::write(&file).unwrap(), before);
+    }
+
+    /// A file using a 1.60 command while calling itself 1.51 -- twenty real
+    /// corpus files do exactly this -- is reported and raised.
+    #[test]
+    fn a_version_the_file_outgrew_is_found_and_raised() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x151);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        // `0x90`: a DAC stream setup, which arrived in 1.60.
+        bytes.extend_from_slice(&[0x90, 0x00, 0x02, 0x00, 0x2A, 0x66]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - 4) as u32);
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 0);
+
+        let mut file = read(&bytes);
+        assert_eq!(
+            audit(&file),
+            [HeaderFinding::VersionUnderclaimed {
+                declared: 0x151,
+                needed: 0x160,
+            }]
+        );
+
+        fix(&mut file);
+        assert_eq!(file.header.version(), 0x160);
+        assert!(audit(&file).is_empty(), "and it stays fixed");
+    }
+
+    /// Declaring more than is needed is not a finding: almost every file does,
+    /// and a dialog that opens for almost every file is a dialog nobody reads.
+    #[test]
+    fn a_version_higher_than_needed_is_left_alone() {
+        let mut file = read(&honest());
+        assert!(audit(&file).is_empty());
+        assert_eq!(file.header.version(), 0x161, "it over-claims...");
+
+        fix(&mut file);
+        assert_eq!(file.header.version(), 0x161, "...and keeps doing so");
     }
 }

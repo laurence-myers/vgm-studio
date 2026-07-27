@@ -12,13 +12,19 @@
 //! Versions before 1.50 have no data-offset field at all; their data always
 //! starts at 0x40.
 //!
-//! # Tolerant, but never wrong
+//! # Two rules, both strict
 //!
-//! The data-start rule is enforced strictly, because breaking it means
-//! misreading command bytes as clocks. The version a file declares is treated
-//! as advisory: a chip whose field is inside the header but whose version
-//! postdates the declared one is still reported, with a warning. Such files
-//! exist, the bytes are unambiguous, and refusing to see the chip helps nobody.
+//! The data-start rule is enforced because breaking it means misreading command
+//! bytes as clocks. The **version** is enforced for the same reason: a clock
+//! field the declared version predates is not a chip, it is whatever happens to
+//! sit at that offset. A 1.70 file's header runs to 0x100 whether or not the
+//! spec had assigned 0xC0 yet.
+//!
+//! This reader used to take such a field anyway, on the grounds that the bytes
+//! were inside the header and unambiguous. They are not: twenty PC-98 rips in
+//! the local corpus came back declaring a WonderSwan, an SAA1099 and an ES5503
+//! that their streams never write to. Inventing a chip is the same size of
+//! mistake as losing one, and it is the one that actually happens.
 
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
@@ -492,6 +498,25 @@ impl VgmHeader {
     ///
     /// The spec wants both fields zero when a file does not loop, which is what
     /// clearing writes.
+    /// Restamps the version, in the parsed value and the raw bytes both.
+    ///
+    /// Only the field: the header keeps its size, and readers find the data
+    /// through the data-offset field rather than by assuming a size for the
+    /// version. Shrinking a header to its version's bucket would mean moving
+    /// every offset in it, which is a separate operation and a separate risk.
+    ///
+    /// Returns whether the value changed.
+    pub fn set_version(&mut self, version: u32) -> bool {
+        if self.version == version {
+            return false;
+        }
+        self.version = version;
+        if self.raw.len() >= offset::VERSION + 4 {
+            self.raw[offset::VERSION..offset::VERSION + 4].copy_from_slice(&version.to_le_bytes());
+        }
+        true
+    }
+
     pub fn set_loop(&mut self, absolute: Option<usize>, samples: u32) {
         let (relative, samples) = match absolute {
             Some(absolute) => ((absolute - offset::LOOP_OFFSET) as u32, samples),
@@ -675,14 +700,23 @@ fn read_chips(header: &[u8], version: u32) -> Vec<ChipUse> {
         if clock == 0 {
             continue;
         }
+        // A clock field the file's own version does not define is not a chip.
+        // The bytes are inside the header span -- a 1.70 file's header runs to
+        // 0x100 whether or not the spec had assigned 0xC0 yet -- so something
+        // non-zero there is padding, or a later field's ghost, and reading it
+        // invents chips: a PC-98 YM2203 rip was coming back declaring a
+        // WonderSwan, an SAA1099 and an ES5503 that its stream never writes to.
+        // Trust the version; a file that genuinely under-declares is the rarer
+        // fault, and losing a chip is the same size of mistake as inventing one.
         if version < spec.since {
-            log::warn!(
-                "VGM declares a {} clock, which arrived in v{}, but calls itself v{}; reading it \
-                 anyway",
+            log::debug!(
+                "VGM has bytes at the {} clock, which arrived in v{}, but calls itself v{}; \
+                 not treating them as a chip",
                 spec.name,
                 format_version(spec.since),
                 format_version(version)
             );
+            continue;
         }
         chips.push(ChipUse {
             kind: spec.kind,
@@ -851,6 +885,25 @@ mod tests {
         for kind in ChipKind::all() {
             assert_eq!(ChipKind::from_id(kind.id()), Some(kind));
         }
+    }
+
+    #[test]
+    fn a_restamped_version_reaches_the_raw_bytes() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        bytes[offset::VERSION..offset::VERSION + 4].copy_from_slice(&0x171u32.to_le_bytes());
+        bytes[offset::DATA_OFFSET..offset::DATA_OFFSET + 4]
+            .copy_from_slice(&((0x100 - offset::DATA_OFFSET) as u32).to_le_bytes());
+        let mut header = VgmHeader::parse(&bytes).unwrap();
+
+        assert!(header.set_version(0x151), "it changed");
+        assert_eq!(header.version(), 0x151);
+        assert_eq!(
+            &header.raw()[offset::VERSION..offset::VERSION + 4],
+            &0x151u32.to_le_bytes(),
+            "a write goes out through the bytes, which is what a save emits"
+        );
+        assert!(!header.set_version(0x151), "and setting it again does not");
     }
 
     #[test]
@@ -1039,11 +1092,23 @@ mod tests {
         assert!(!parsed.is_opl_only(), "a file this crowded is not OPL-only");
     }
 
+    /// A clock field the file's version does not define is padding, not a chip.
+    ///
+    /// This reader used to take it anyway, on the grounds that the byte was
+    /// inside the header and unambiguous. The corpus said otherwise: twenty
+    /// PC-98 rips came back declaring a WonderSwan, an SAA1099 and an ES5503
+    /// their streams never write to, because a 1.70 file's header runs to 0x100
+    /// whether or not the spec had assigned 0xC0 yet, and whatever sits there is
+    /// not a clock.
     #[test]
-    fn a_chip_from_a_later_version_is_still_read() {
-        // Tolerant reader: the byte is inside the header and unambiguous, so a
-        // stale version field does not hide the chip.
+    fn a_clock_field_the_version_predates_is_not_a_chip() {
         let mut bytes = header(0x151, 0x100);
+        put_u32(&mut bytes, ChipKind::Mikey.clock_offset(), 16_000_000);
+        let bytes = file(bytes);
+        assert_eq!(VgmHeader::parse(&bytes).unwrap().chip_list(), "");
+
+        // Say the version it needs, and the chip is there.
+        let mut bytes = header(0x172, 0x100);
         put_u32(&mut bytes, ChipKind::Mikey.clock_offset(), 16_000_000);
         let bytes = file(bytes);
         assert_eq!(VgmHeader::parse(&bytes).unwrap().chip_list(), "Mikey");

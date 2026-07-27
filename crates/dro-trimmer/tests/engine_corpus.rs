@@ -105,6 +105,13 @@ fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
 
     let mut played = 0usize;
     let mut in_full = 0usize;
+    // What the minimum-version computation says about real files, reported
+    // rather than asserted: rippers over-claim routinely, and an *under*-claim
+    // is the interesting number, because it means either a bad ripper or a gap
+    // in the version table.
+    let mut over_claimed = 0usize;
+    let mut exact = 0usize;
+    let mut under_claimed: Vec<String> = Vec::new();
     let mut skipped = 0usize;
     let mut total_frames = 0u64;
     let mut failures: Vec<String> = Vec::new();
@@ -124,6 +131,22 @@ fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
         }
         let file = Arc::new(file);
         let stream = file.stream().expect("just checked");
+
+        let declared = file.header.version();
+        let needed = dro_core::vgm::version::minimum_version(&file.header, file.stream());
+        match needed.cmp(&declared) {
+            std::cmp::Ordering::Less => over_claimed += 1,
+            std::cmp::Ordering::Equal => exact += 1,
+            std::cmp::Ordering::Greater => {
+                if under_claimed.len() < 20 {
+                    under_claimed.push(format!(
+                        "{name}: declares {} but needs {}",
+                        dro_core::vgm::header::format_version(declared),
+                        dro_core::vgm::header::format_version(needed)
+                    ));
+                }
+            }
+        }
 
         // What the stream's own waits add up to, in output frames. This is the
         // number the engine must render, and it is derived from the stream
@@ -182,6 +205,14 @@ fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
     eprintln!("played:        {played}");
     eprintln!("  to the end:  {in_full} (the rest were cut off at the render budget)");
     eprintln!("skipped:       {skipped} (unreadable, or commands that will not walk)");
+    eprintln!("version:       {over_claimed} could be stamped lower, {exact} already exact");
+    eprintln!(
+        "               {} declare less than they need:",
+        under_claimed.len()
+    );
+    for line in &under_claimed {
+        eprintln!("                 {line}");
+    }
     eprintln!(
         "audio:         {:.1} hours rendered",
         total_frames as f64 / f64::from(OUTPUT_RATE) / 3600.0
