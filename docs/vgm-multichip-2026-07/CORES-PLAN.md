@@ -34,7 +34,7 @@
    A/B oracles run as separate programs. Non-commercial-clause code stays
    excluded too (a further restriction under GPL — §2.1.9 of the handover).
 8. **The full VGMRips corpus is available** at
-   `F:\GameMusic\VGM\VGMRips_all_of_them_2025-10-17` — 20,236 .vgm/.vgz files
+   `F:\GameMusic\VGM\VGMRips_all_of_them_2025-10-17` — 72,481 .vgm/.vgz files
    in 13 system folders (Arcade, Computers, GameBoy, MegaDrive, Misc, NES,
    NeoGeo, NeoGeoPocket, Other, Pinball, SegaPico, TurboGrafx, WonderSwan).
    It is organised **by system, not by chip** — cr-2 builds a chip index.
@@ -233,7 +233,7 @@ workspace green including the wasm check build.
 | cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. |
 | cr-12 | Sweep: registry-vs-chip-table coverage test, About credits complete, `PROVENANCE.md` complete, docs. |
 
-Corpus-weight note: MegaDrive + NES + GameBoy + Arcade dominate the 20k
+Corpus-weight note: MegaDrive + NES + GameBoy + Arcade dominate the 72k
 files, which is why cr-4..cr-8 front-load those systems. Re-derive the exact
 counts from the cr-2 index rather than trusting this sentence.
 
