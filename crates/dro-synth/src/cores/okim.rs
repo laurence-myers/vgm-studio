@@ -1,0 +1,637 @@
+//! The two OKI ADPCM chips: the OKIM6295 sample player and the OKIM6258
+//! streaming codec.
+//!
+//! 6,365 files in the VGMRips corpus between them -- the OKIM6295 is on a great
+//! deal of Capcom, Toaplan and Kaneko arcade hardware, and the OKIM6258 in the
+//! X68000 and a run of Data East boards.
+//!
+//! **Route B, from the documented ADPCM algorithm**, so both live in the
+//! permissive crate. They share [`Adpcm`], because they share a codec: the same
+//! four-bit nibble, the same twelve-bit accumulator, the same 49-entry step
+//! table. What differs is where the nibbles come from -- a sample ROM the chip
+//! addresses itself, or a stream the host feeds it one byte at a time.
+//!
+//! # The OKIM6295
+//!
+//! Four voices, each playing a sample out of a ROM the VGM delivers as a data
+//! block. The first kilobyte of that ROM is a **table of contents**: eight bytes
+//! per sample, of which the first six are the start and end addresses. A driver
+//! plays a sound by naming its index, not its address.
+//!
+//! Its command interface is two writes, and stateful: one latches a sample
+//! number, the next says which voices to start it on and how loud. Miss that
+//! pairing and nothing plays.
+//!
+//! # The OKIM6258
+//!
+//! No ROM and no voices -- the host writes ADPCM bytes and the chip converts
+//! them. In a VGM those bytes usually arrive through the DAC-stream engine
+//! rather than as register writes, which the engine already routes here.
+//!
+//! Not modelled: the OKIM6295's pin-selected clock divider (the header's flags
+//! byte is honoured, but a file that lies about it plays at the wrong pitch),
+//! and the OKIM6258's 3/4-bit modes, which the corpus does not use.
+
+use crate::chip::ChipCore;
+
+/// How much the accumulator moves per step, doubling roughly every six entries.
+///
+/// The documented Dialogic/OKI table. Regenerated in
+/// `the_step_table_grows_by_a_ninth_each_entry` rather than trusted, since a
+/// single wrong entry is a distortion rather than a failure.
+const STEP_TABLE: [i32; 49] = [
+    16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45, 50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130,
+    143, 157, 173, 190, 209, 230, 253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796,
+    876, 963, 1060, 1166, 1282, 1411, 1552,
+];
+
+/// How the step index moves for each nibble magnitude, 0-7 then repeated for
+/// the negative half. Documented outright.
+const INDEX_DELTA: [i32; 8] = [-1, -1, -1, -1, 2, 5, 7, 9];
+
+/// The shared four-bit ADPCM decoder.
+///
+/// One nibble in, one twelve-bit sample out, and a step index that adapts. Both
+/// chips run exactly this; only their sources differ.
+#[derive(Debug, Default, Clone, Copy)]
+struct Adpcm {
+    signal: i32,
+    step: i32,
+}
+
+impl Adpcm {
+    /// Resets to silence. A voice does this when it is triggered, which is what
+    /// stops the last sample's final level bleeding into the next.
+    fn restart(&mut self) {
+        self.signal = 0;
+        self.step = 0;
+    }
+
+    /// Decodes one nibble, returning the new twelve-bit signal.
+    fn decode(&mut self, nibble: u8) -> i32 {
+        let magnitude = i32::from(nibble & 7);
+        let size = STEP_TABLE[self.step as usize];
+        // The documented reconstruction: an eighth of the step per bit, plus
+        // half a step of bias, which is what keeps the decoder centred.
+        let mut delta = size >> 3;
+        if magnitude & 4 != 0 {
+            delta += size;
+        }
+        if magnitude & 2 != 0 {
+            delta += size >> 1;
+        }
+        if magnitude & 1 != 0 {
+            delta += size >> 2;
+        }
+        if nibble & 8 != 0 {
+            self.signal -= delta;
+        } else {
+            self.signal += delta;
+        }
+        // Twelve bits signed, clamped rather than wrapped: a wrap is an audible
+        // crack where a clamp is the chip's own behaviour.
+        self.signal = self.signal.clamp(-2048, 2047);
+        self.step = (self.step + INDEX_DELTA[magnitude as usize]).clamp(0, 48);
+        self.signal
+    }
+}
+
+/// Peak amplitude of one voice at full volume.
+const PEAK: i32 = 6_000;
+
+/// Volume attenuation in 3 dB steps, as a fraction of unity in 16.16.
+///
+/// The OKIM6295's four-bit volume field is an attenuation of about 3 dB a step,
+/// with the top codes silent. Regenerated in
+/// `the_volume_curve_is_three_decibels_a_step`.
+const VOLUME: [i32; 16] = [
+    65536, 46396, 32846, 23253, 16462, 11654, 8250, 5841, 4135, 2927, 2072, 1467, 1039, 0, 0, 0,
+];
+
+/// One of the OKIM6295's four voices.
+#[derive(Debug, Default, Clone, Copy)]
+struct Voice {
+    playing: bool,
+    adpcm: Adpcm,
+    /// Byte offsets into the sample ROM.
+    position: u32,
+    end: u32,
+    /// Whether the next nibble is the high half of the current byte.
+    high_nibble: bool,
+    volume: usize,
+}
+
+/// The OKIM6295: four ADPCM voices reading from a sample ROM.
+#[derive(Debug, Default)]
+pub struct Okim6295 {
+    rate: u32,
+    voices: [Voice; 4],
+    rom: Vec<u8>,
+    /// The sample number a `0x80`-prefixed write latched, waiting for the write
+    /// that says which voices play it.
+    latched: Option<u8>,
+}
+
+impl Okim6295 {
+    /// A chip with no clock yet; [`reset`](ChipCore::reset) gives it one.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            rate: 8_000,
+            ..Self::default()
+        }
+    }
+
+    /// The start and end offsets of sample `index`, from the ROM's table of
+    /// contents.
+    ///
+    /// Eight bytes per entry: three of start, three of end, two unused. A
+    /// sample whose entry runs past the ROM, or whose end precedes its start,
+    /// is refused rather than played as whatever follows it.
+    fn sample_bounds(&self, index: u8) -> Option<(u32, u32)> {
+        let at = usize::from(index) * 8;
+        let entry = self.rom.get(at..at + 6)?;
+        let read24 = |b: &[u8]| (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        let (start, end) = (read24(&entry[..3]), read24(&entry[3..]));
+        (start < end && (end as usize) < self.rom.len()).then_some((start, end))
+    }
+}
+
+impl ChipCore for Okim6295 {
+    fn reset(&mut self, clock: u32, variant: bool) {
+        let rom = std::mem::take(&mut self.rom);
+        // The divider is pin-selected on the board; the header's flag byte is
+        // what a VGM records of it.
+        let divider = if variant { 165 } else { 132 };
+        *self = Self {
+            rate: (clock / divider).max(1),
+            ..Self::default()
+        };
+        // The ROM arrives before the stream starts and must survive the reset
+        // the engine does when it loads.
+        self.rom = rom;
+    }
+
+    fn native_rate(&self) -> u32 {
+        self.rate
+    }
+
+    /// The command port, which is a two-write state machine.
+    ///
+    /// A write with bit 7 set latches a sample number -- *but only when nothing
+    /// is latched already*. The second write of a pair is a voice mask in its
+    /// top nibble and an attenuation in its bottom, and **voice 4 is bit 7**,
+    /// so the two commands are told apart by sequence rather than by that bit.
+    /// Dispatching on bit 7 alone looks right and makes voice 4 impossible to
+    /// trigger: every command that selects it is read as a sample latch
+    /// instead.
+    fn write(&mut self, _port: u8, _addr: u16, data: u16) {
+        let value = (data & 0xFF) as u8;
+        if self.latched.is_none() && value & 0x80 != 0 {
+            self.latched = Some(value & 0x7F);
+            return;
+        }
+        // The top nibble is a voice mask. With a sample latched it starts
+        // them; without one it stops them.
+        let mask = value >> 4;
+        match self.latched.take() {
+            Some(sample) => {
+                let bounds = self.sample_bounds(sample);
+                for (index, voice) in self.voices.iter_mut().enumerate() {
+                    if mask & (1 << index) == 0 {
+                        continue;
+                    }
+                    let Some((start, end)) = bounds else { continue };
+                    voice.playing = true;
+                    voice.adpcm.restart();
+                    voice.position = start;
+                    voice.end = end;
+                    voice.high_nibble = true;
+                    voice.volume = usize::from(value & 0x0F);
+                }
+            }
+            None => {
+                for (index, voice) in self.voices.iter_mut().enumerate() {
+                    if mask & (1 << index) != 0 {
+                        voice.playing = false;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The sample ROM, delivered as a data block.
+    fn load_rom(&mut self, _block_type: u8, total_size: u32, start: u32, data: &[u8]) {
+        let total = total_size as usize;
+        if self.rom.len() < total {
+            self.rom.resize(total, 0);
+        }
+        let at = start as usize;
+        let end = (at + data.len()).min(self.rom.len());
+        if at < end {
+            self.rom[at..end].copy_from_slice(&data[..end - at]);
+        }
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
+        for frame in out.chunks_exact_mut(2) {
+            let mut sum = 0i32;
+            for voice in &mut self.voices {
+                if !voice.playing {
+                    continue;
+                }
+                let Some(&byte) = self.rom.get(voice.position as usize) else {
+                    voice.playing = false;
+                    continue;
+                };
+                let nibble = if voice.high_nibble {
+                    byte >> 4
+                } else {
+                    byte & 0x0F
+                };
+                let signal = voice.adpcm.decode(nibble);
+                // Two nibbles to a byte, high half first.
+                if voice.high_nibble {
+                    voice.high_nibble = false;
+                } else {
+                    voice.high_nibble = true;
+                    voice.position += 1;
+                    if voice.position > voice.end {
+                        voice.playing = false;
+                    }
+                }
+                // The signal is twelve bits signed; scale, then attenuate.
+                sum += ((signal * PEAK / 2048) * VOLUME[voice.volume]) >> 16;
+            }
+            // Mono: the chip has one output pin.
+            frame[0] = sum;
+            frame[1] = sum;
+        }
+    }
+}
+
+/// The OKIM6258: the same codec with no ROM and no voices, fed a byte at a time.
+#[derive(Debug, Default)]
+pub struct Okim6258 {
+    rate: u32,
+    adpcm: Adpcm,
+    /// The most recent decoded level, held between the nibbles the host feeds.
+    level: i32,
+    /// The low nibble of the byte just written, still to be decoded.
+    pending: Option<u8>,
+    playing: bool,
+}
+
+impl Okim6258 {
+    /// A chip with no clock yet; [`reset`](ChipCore::reset) gives it one.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            rate: 8_000,
+            ..Self::default()
+        }
+    }
+}
+
+impl ChipCore for Okim6258 {
+    /// The divider is in the header's flags byte, which the engine folds into
+    /// the clock before it reaches here; the documented default is 512.
+    fn reset(&mut self, clock: u32, _variant: bool) {
+        *self = Self {
+            rate: (clock / 512).max(1),
+            ..Self::default()
+        };
+    }
+
+    fn native_rate(&self) -> u32 {
+        self.rate
+    }
+
+    /// `$00` is the control register and `$01` the data port. A data byte is
+    /// two nibbles, high half first.
+    fn write(&mut self, _port: u8, addr: u16, data: u16) {
+        let value = (data & 0xFF) as u8;
+        match addr & 0xFF {
+            0x00 => {
+                // Bit 0 starts and stops the codec; stopping resets it, which
+                // is what keeps one sample's tail out of the next.
+                let start = value & 0x01 != 0;
+                if start && !self.playing {
+                    self.adpcm.restart();
+                    self.level = 0;
+                    self.pending = None;
+                }
+                self.playing = start;
+            }
+            0x01 => {
+                self.level = self.adpcm.decode(value >> 4);
+                self.pending = Some(value & 0x0F);
+            }
+            // `$02` is the pan register on the variants that have one, and
+            // carries no audio here.
+            _ => {}
+        }
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
+        for frame in out.chunks_exact_mut(2) {
+            // A byte is two samples: the second nibble falls due on the frame
+            // after the write that carried it.
+            if let Some(nibble) = self.pending.take() {
+                self.level = self.adpcm.decode(nibble);
+            }
+            let sample = if self.playing {
+                self.level * PEAK / 2048
+            } else {
+                0
+            };
+            frame[0] = sample;
+            frame[1] = sample;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A common OKIM6295 clock on Capcom hardware.
+    const M6295_CLOCK: u32 = 1_000_000;
+    const M6258_CLOCK: u32 = 4_000_000;
+
+    fn render6295(chip: &mut Okim6295, frames: usize) -> Vec<i32> {
+        let mut out = vec![0i32; frames * 2];
+        chip.render(&mut out);
+        out.chunks_exact(2).map(|f| f[0]).collect()
+    }
+
+    fn energy(samples: &[i32]) -> i64 {
+        samples.iter().map(|&s| i64::from(s.abs())).sum()
+    }
+
+    /// A ROM whose table of contents points sample 1 at a run of loud nibbles.
+    fn rom_with_one_sample() -> Vec<u8> {
+        let mut rom = vec![0u8; 0x2000];
+        let (start, end) = (0x1000u32, 0x1200u32);
+        // Entry 1 lives at offset 8: three bytes of start, three of end.
+        rom[8..11].copy_from_slice(&start.to_be_bytes()[1..]);
+        rom[11..14].copy_from_slice(&end.to_be_bytes()[1..]);
+        // Alternating extremes: the steepest waveform the codec can produce.
+        for (index, byte) in rom[start as usize..=end as usize].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x77 } else { 0xFF };
+        }
+        rom
+    }
+
+    /// The step table is documented, but it is also a geometric series -- each
+    /// entry is about 1.1 times the last. That relationship is what a
+    /// transcription error breaks.
+    #[test]
+    fn the_step_table_grows_by_a_ninth_each_entry() {
+        assert_eq!(STEP_TABLE[0], 16);
+        assert_eq!(STEP_TABLE[48], 1552);
+        for pair in STEP_TABLE.windows(2) {
+            let ratio = f64::from(pair[1]) / f64::from(pair[0]);
+            assert!(
+                (1.06..=1.14).contains(&ratio),
+                "{} to {} is a ratio of {ratio}",
+                pair[0],
+                pair[1]
+            );
+        }
+        // And the series doubles about every six entries, which is what "3 dB a
+        // step" means for this codec.
+        assert!((STEP_TABLE[6] as f64 / STEP_TABLE[0] as f64 - 1.75).abs() < 0.2);
+    }
+
+    /// Every volume level recomputed from 3 dB a step.
+    #[test]
+    fn the_volume_curve_is_three_decibels_a_step() {
+        for (step, &gain) in VOLUME.iter().enumerate().take(13) {
+            let expected = 65536.0 * 10f64.powf(-3.0 * step as f64 / 20.0);
+            assert_eq!(gain, expected.round() as i32, "step {step}");
+        }
+        assert_eq!(&VOLUME[13..], &[0, 0, 0], "the top codes are silent");
+    }
+
+    /// The codec must move, clamp and adapt -- a decoder that saturates
+    /// immediately produces a square wave out of every sample.
+    #[test]
+    fn the_decoder_tracks_and_clamps() {
+        let mut adpcm = Adpcm::default();
+        // Driving it hard one way must reach the ceiling and stop there.
+        for _ in 0..200 {
+            adpcm.decode(0x7);
+        }
+        assert_eq!(adpcm.signal, 2047, "it must clamp, not wrap");
+        for _ in 0..400 {
+            adpcm.decode(0xF);
+        }
+        assert_eq!(adpcm.signal, -2048);
+        // And the step index must have adapted upward on the way.
+        assert_eq!(adpcm.step, 48);
+
+        adpcm.restart();
+        assert_eq!((adpcm.signal, adpcm.step), (0, 0));
+    }
+
+    #[test]
+    fn a_fresh_chip_is_silent_and_a_triggered_voice_is_not() {
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        assert_eq!(energy(&render6295(&mut chip, 2000)), 0);
+
+        let rom = rom_with_one_sample();
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0, 0x81); // latch sample 1
+        // The low nibble is an *attenuation*, so 0 is loudest and 15 silent.
+        chip.write(0, 0, 0x10); // voice 1, full volume
+        assert!(energy(&render6295(&mut chip, 2000)) > 0);
+    }
+
+    /// **The command interface is stateful and paired.** A write with bit 7 set
+    /// latches a sample; the next says which voices play it. Treating either as
+    /// a standalone command means nothing ever plays.
+    #[test]
+    fn a_sample_needs_both_halves_of_the_command() {
+        let rom = rom_with_one_sample();
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+
+        // The latch on its own does nothing.
+        chip.write(0, 0, 0x81);
+        assert_eq!(energy(&render6295(&mut chip, 500)), 0);
+
+        // And a voice mask with nothing latched *stops* rather than starts.
+        chip.write(0, 0, 0x10);
+        let started = energy(&render6295(&mut chip, 2000));
+        assert!(started > 0, "the pair must start it");
+
+        chip.write(0, 0, 0x10); // mask with no latch: stop voice 1
+        assert_eq!(
+            energy(&render6295(&mut chip, 2000)),
+            0,
+            "a mask with nothing latched must stop the voice"
+        );
+    }
+
+    /// **Voice 4's select bit is bit 7**, the same bit that marks a sample
+    /// latch. The chip tells the two apart by sequence, so a core that
+    /// dispatches on the bit alone can never start voice 4 -- every command
+    /// selecting it is swallowed as a latch, and three voices play where four
+    /// should.
+    #[test]
+    fn the_fourth_voice_can_be_triggered() {
+        let rom = rom_with_one_sample();
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+
+        chip.write(0, 0, 0x81); // latch sample 1
+        chip.write(0, 0, 0x80); // voice 4 only, full volume
+        assert!(chip.voices[3].playing, "voice 4 must start");
+        assert!(
+            chip.voices[..3].iter().all(|voice| !voice.playing),
+            "and no other voice"
+        );
+        assert!(energy(&render6295(&mut chip, 2000)) > 0);
+    }
+
+    /// A sample whose table entry is nonsense must be refused, not played as
+    /// whatever bytes happen to follow. A ROM that has not arrived yet is the
+    /// common case, and it must not produce noise.
+    #[test]
+    fn a_bad_table_entry_plays_nothing() {
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        // No ROM at all.
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert_eq!(energy(&render6295(&mut chip, 2000)), 0);
+
+        // A ROM whose entry runs past its end.
+        let mut rom = vec![0u8; 0x100];
+        rom[8..11].copy_from_slice(&[0x00, 0x00, 0x40]);
+        rom[11..14].copy_from_slice(&[0xFF, 0xFF, 0xFF]);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+        assert_eq!(energy(&render6295(&mut chip, 2000)), 0);
+    }
+
+    /// A voice stops at the end of its sample rather than reading on.
+    #[test]
+    fn a_voice_stops_at_the_end_of_its_sample() {
+        let mut rom = vec![0u8; 0x2000];
+        rom[8..11].copy_from_slice(&[0x00, 0x10, 0x00]);
+        rom[11..14].copy_from_slice(&[0x00, 0x10, 0x0F]); // sixteen bytes
+        for byte in &mut rom[0x1000..=0x100F] {
+            *byte = 0x77;
+        }
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0x10);
+
+        // Sixteen bytes is 32 nibbles, so 32 frames.
+        let _ = render6295(&mut chip, 40);
+        assert!(!chip.voices[0].playing, "it must stop at the end");
+    }
+
+    /// The engine resets a core when it loads, and the ROM arrives first.
+    #[test]
+    fn a_reset_keeps_the_sample_rom() {
+        let mut chip = Okim6295::new();
+        let rom = rom_with_one_sample();
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.reset(M6295_CLOCK, false);
+        assert_eq!(chip.rom.len(), rom.len(), "the reset threw the ROM away");
+    }
+
+    /// The pin-selected divider changes the rate, and the header's flag is what
+    /// a VGM records of it.
+    #[test]
+    fn the_divider_flag_changes_the_rate() {
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        assert_eq!(chip.native_rate(), M6295_CLOCK / 132);
+        chip.reset(M6295_CLOCK, true);
+        assert_eq!(chip.native_rate(), M6295_CLOCK / 165);
+        chip.reset(0, false);
+        assert!(chip.native_rate() >= 1);
+    }
+
+    /// The 6258 has no ROM: the host feeds it bytes, and each is two samples.
+    #[test]
+    fn the_streaming_codec_converts_what_it_is_fed() {
+        let mut chip = Okim6258::new();
+        chip.reset(M6258_CLOCK, false);
+        chip.write(0, 0x00, 0x01); // start
+
+        let mut out = vec![0i32; 64 * 2];
+        let mut total = 0i64;
+        for step in 0..32 {
+            // Alternating extremes again.
+            chip.write(0, 0x01, if step % 2 == 0 { 0x77 } else { 0xFF });
+            chip.render(&mut out[..2 * 2]);
+            total += energy(&out[..4].iter().step_by(2).copied().collect::<Vec<_>>());
+        }
+        assert!(total > 0, "the streaming codec produced nothing");
+
+        // Stopping resets it, so the next sample does not inherit a level.
+        chip.write(0, 0x00, 0x00);
+        chip.render(&mut out);
+        assert!(
+            out.iter().all(|&s| s == 0),
+            "a stopped codec must be silent"
+        );
+    }
+
+    /// Chunking must not change the audio.
+    #[test]
+    fn the_output_does_not_depend_on_how_the_caller_chunks_it() {
+        fn set_up(chip: &mut Okim6295, rom: &[u8]) {
+            chip.reset(M6295_CLOCK, false);
+            chip.load_rom(0x8B, rom.len() as u32, 0, rom);
+            chip.write(0, 0, 0x81);
+            chip.write(0, 0, 0x10);
+        }
+        let rom = rom_with_one_sample();
+        let mut whole = Okim6295::new();
+        set_up(&mut whole, &rom);
+        let mut one_go = vec![0i32; 1024 * 2];
+        whole.render(&mut one_go);
+
+        let mut chunked = Okim6295::new();
+        set_up(&mut chunked, &rom);
+        let mut piecemeal = vec![0i32; 1024 * 2];
+        for chunk in piecemeal.chunks_mut(64 * 2) {
+            chunked.render(chunk);
+        }
+        assert_eq!(one_go, piecemeal);
+    }
+
+    /// Four voices at full volume, and the headroom that implies.
+    #[test]
+    fn a_full_chip_uses_the_range_without_clipping_it() {
+        let rom = rom_with_one_sample();
+        let mut chip = Okim6295::new();
+        chip.reset(M6295_CLOCK, false);
+        chip.load_rom(0x8B, rom.len() as u32, 0, &rom);
+        chip.write(0, 0, 0x81);
+        chip.write(0, 0, 0xF0); // every voice, full volume
+
+        let loudest = render6295(&mut chip, 2000)
+            .iter()
+            .map(|&s| s.abs())
+            .max()
+            .unwrap_or(0);
+        assert!(loudest > PEAK, "four voices peaked at only {loudest}");
+        assert!(
+            loudest < i32::from(i16::MAX),
+            "four voices must not need the mixer's clamp on their own: {loudest}"
+        );
+    }
+}

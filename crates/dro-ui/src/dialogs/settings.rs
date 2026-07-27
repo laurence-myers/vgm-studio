@@ -115,47 +115,58 @@ impl SettingsDialog {
         let mut saved = false;
         let opened_with = self.skin();
         let open = super::dialog_modal(ctx, "settings-modal", "Settings", palette, |ui| {
+            ui.label("Output").on_hover_text(
+                "Which core plays each chip, and where its sound goes. Rendering, \
+                 splitting and the waveform always use an emulator.",
+            );
+            // **Its own scroll area, and that is not cosmetic.** One row per
+            // chip with a core means this section grows with every core added
+            // -- it was two rows when there was one chip and is a dozen now --
+            // and a dialog that outgrows the window puts Save off the bottom of
+            // it. Bounding the section rather than the dialog keeps the buttons
+            // where they have always been.
+            egui::ScrollArea::vertical()
+                .id_salt("settings-output-scroll")
+                .max_height(CHIP_ROWS_MAX_HEIGHT)
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    egui::Grid::new("settings-output-grid")
+                        .num_columns(2)
+                        .spacing([10.0, 6.0])
+                        .show(ui, |ui| {
+                            let ports = &self.ports;
+                            let port = &mut self.retrowave_port;
+                            chip_output::show(ui, palette, &mut self.cores, &mut |ui| {
+                                ui.label("Device").on_hover_text(
+                                    "The board's serial port. On Windows these usually report \
+                             a generic name, so a recognised board is matched by its \
+                             USB ID instead.",
+                                );
+                                ui.scope(|ui| {
+                                    crate::theme::style_dropdown(ui, palette);
+                                    egui::ComboBox::from_id_salt("settings-retrowave-port")
+                                        .selected_text(port_label(port, ports))
+                                        .show_ui(ui, |ui| {
+                                            ui.selectable_value(port, String::new(), AUTO_DETECT);
+                                            for offered in ports {
+                                                ui.selectable_value(
+                                                    port,
+                                                    offered.port_name.clone(),
+                                                    offered_label(offered),
+                                                );
+                                            }
+                                        });
+                                });
+                                ui.end_row();
+                            });
+                        });
+                });
+            ui.add_space(6.0);
+
             egui::Grid::new("settings-grid")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    ui.label("Output").on_hover_text(
-                        "Where each chip's live playback goes. Rendering, splitting \
-                         and the waveform always use the emulator.",
-                    );
-                    ui.label("");
-                    ui.end_row();
-
-                    // One row per chip this app can play. Only OPL has a choice
-                    // -- the RetroWave board is an OPL3 -- but listing the rest
-                    // is the point: it answers "can it play my Mega Drive rips"
-                    // where the old single row could not.
-                    let ports = &self.ports;
-                    let port = &mut self.retrowave_port;
-                    chip_output::show(ui, palette, &mut self.cores, &mut |ui| {
-                        ui.label("Device").on_hover_text(
-                            "The board's serial port. On Windows these usually report \
-                             a generic name, so a recognised board is matched by its \
-                             USB ID instead.",
-                        );
-                        ui.scope(|ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-retrowave-port")
-                                .selected_text(port_label(port, ports))
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(port, String::new(), AUTO_DETECT);
-                                    for offered in ports {
-                                        ui.selectable_value(
-                                            port,
-                                            offered.port_name.clone(),
-                                            offered_label(offered),
-                                        );
-                                    }
-                                });
-                        });
-                        ui.end_row();
-                    });
-
                     // What follows shapes the rendered signal, which hardware
                     // output does not produce.
                     let emulating = self.emulating();
@@ -394,6 +405,12 @@ fn frequency_label(rate: u32) -> String {
 
 /// The dropdown label for a theme.
 /// What an unset port means: pick one at load time.
+/// How tall the per-chip output list may grow before it scrolls.
+///
+/// About eight rows. Chosen so the dialog's overall height stays roughly what
+/// it was when the section was short, because Save and Close live below it.
+const CHIP_ROWS_MAX_HEIGHT: f32 = 190.0;
+
 const AUTO_DETECT: &str = "Detect automatically";
 
 /// A port as offered in the picker, ticked when we recognise the hardware.

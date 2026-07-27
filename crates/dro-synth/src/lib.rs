@@ -29,7 +29,7 @@ pub mod write_queue;
 pub use banks::{Banks, BlockKind};
 pub use capture::capture;
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, playability};
-pub use cores::{Ay8910, GbDmg, HuC6280, NesApu, Sn76489};
+pub use cores::{Ay8910, GbDmg, HuC6280, NesApu, Okim6258, Okim6295, Sn76489};
 pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{Compression, DecompressionTable, decompress};
