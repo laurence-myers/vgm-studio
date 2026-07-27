@@ -269,3 +269,8 @@ the search saturates at ±60) — and is the next investigation.
 Also standing: the corpus audibility suite said 12/12 for all three chips the
 whole time, because multi-chip rips mask a silent chip with their neighbours.
 Single-chip filtering is what exposed every one of these.
+
+**Divider fix verified (same day):** OKIM6295 **0.0171 → 0.6758** (n=12),
+dropouts 0.190 → 0.000, detune +1.5 cents, gain fit 0.835. A normal clean-room
+row; its level (0.497) joins the pt-6 balance queue. HuC6280 is now the only
+chip that sounds without correlating.
