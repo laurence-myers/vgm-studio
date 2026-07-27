@@ -15,13 +15,18 @@
 //! The AY-3-8910 and the YM2149 answer identically; what differs is the DAC.
 //! The Yamaha part has **32 levels** at 1.5 dB a step and the GI part has
 //! **16**, which are the odd entries of the same curve -- so one table serves
-//! both, indexed by twice the volume for the AY. The envelope always resolves
-//! to the 32-level scale, which is why an enveloped channel on a real AY sounds
-//! finer-grained than a fixed-volume one.
+//! both, indexed by twice the volume for the AY. The envelope resolves to
+//! whichever scale the chip's DAC has: all 32 levels on a Yamaha part, only
+//! the coarse 16 on a GI part -- which is why an enveloped channel on a
+//! YM2149 sounds finer-grained than the same ramp on an AY. The header's
+//! *type* byte at `0x78` says which part a file means, and
+//! [`configure`](ChipCore::configure) reads it; the OPN cores drive this one
+//! directly and get the Yamaha envelope, because their SSG *is* a Yamaha.
 //!
-//! Not modelled: the two I/O ports (registers 14 and 15 carry no audio), and
-//! the VGM `0x31` stereo-mask command, which is a command rather than a
-//! register and would need engine support to route.
+//! Not modelled: the two I/O ports (registers 14 and 15 carry no audio), the
+//! header's AY *flags* byte (emulator output-mixing options, not chip
+//! behaviour), and the VGM `0x31` stereo-mask command, which is a command
+//! rather than a register and would need engine support to route.
 
 use crate::chip::ChipCore;
 
@@ -218,6 +223,11 @@ pub struct Ay8910 {
     /// The last value written to each register, so a partial write to a
     /// two-register pair keeps the other half.
     registers: [u8; 16],
+    /// A GI part's envelope resolves to its sixteen DAC levels rather than the
+    /// Yamaha part's thirty-two. Set from the header's type byte by
+    /// [`configure`](ChipCore::configure); the default is the fine scale,
+    /// which is what the OPN cores' Yamaha SSGs get by construction.
+    coarse_envelope: bool,
 }
 
 impl Ay8910 {
@@ -306,7 +316,20 @@ impl Ay8910 {
                     return 0;
                 }
                 let level = if tone.use_envelope {
-                    envelope
+                    if self.coarse_envelope {
+                        // The GI part's envelope only has the sixteen DAC
+                        // levels a fixed volume has, so it takes the same
+                        // mapping: silence at the bottom, odd entries above.
+                        // The ramp's *timing* is untouched -- both parts take
+                        // the same time over a ramp; they differ in how many
+                        // distinct levels are heard on the way.
+                        match envelope >> 1 {
+                            0 => 0,
+                            coarse => (coarse << 1) | 1,
+                        }
+                    } else {
+                        envelope
+                    }
                 } else if tone.volume == 0 {
                     // Volume 0 is *off*, not the quietest step -- so it maps to
                     // the curve's silent entry rather than to `2n + 1`.
@@ -345,6 +368,13 @@ impl ChipCore for Ay8910 {
 
     fn native_rate(&self) -> u32 {
         self.rate
+    }
+
+    /// The header's AY *type* byte: bit 4 marks the Yamaha parts (`0x10` is
+    /// the YM2149 itself), and everything below is a GI part with the coarse
+    /// sixteen-level envelope.
+    fn configure(&mut self, settings: &dro_core::vgm::ChipSettings) {
+        self.coarse_envelope = settings.ay8910_type & 0x10 == 0;
     }
 
     fn write(&mut self, _port: u8, addr: u16, data: u16) {
@@ -640,6 +670,39 @@ mod tests {
             chunked.render(chunk);
         }
         assert_eq!(one_go, piecemeal);
+    }
+
+    /// **A GI part's envelope is coarse.** The type byte says which chip a
+    /// file means; on an AY the envelope resolves to the sixteen fixed-volume
+    /// levels, so adjacent fine steps sound identical -- while a Yamaha part
+    /// distinguishes them. The ramp's timing must not change either way.
+    #[test]
+    fn the_type_byte_coarsens_the_envelope_on_a_gi_part() {
+        fn level_for(fine_step: u8, ay_type: u8) -> i32 {
+            let mut chip = Ay8910::new();
+            chip.reset(CLOCK, false);
+            chip.configure(&dro_core::vgm::ChipSettings {
+                ay8910_type: ay_type,
+                ..Default::default()
+            });
+            chip.write(0, 7, 0xFF); // gate open, nothing selected
+            chip.write(0, 9, 0x00);
+            chip.write(0, 10, 0x00);
+            chip.write(0, 8, 0x10); // channel A follows the envelope
+            chip.envelope.set_shape(0x0D); // rise once, hold at the top
+            chip.envelope.step = fine_step;
+            chip.output()
+        }
+
+        // 0x10 is the YM2149: every fine step is its own level.
+        assert_ne!(level_for(8, 0x10), level_for(9, 0x10));
+        // 0x00 is the AY-3-8910: adjacent fine steps collapse to one coarse
+        // level, and that level is the one a fixed volume of the same height
+        // would give.
+        assert_eq!(level_for(8, 0x00), level_for(9, 0x00));
+        assert_eq!(level_for(9, 0x00), LEVELS[9]);
+        assert_eq!(level_for(31, 0x00), LEVELS[31], "the top is still the top");
+        assert_eq!(level_for(0, 0x00), 0, "and the bottom is still silence");
     }
 
     /// Three channels at full volume, and the headroom convention that implies.
