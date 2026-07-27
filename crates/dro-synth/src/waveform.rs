@@ -222,6 +222,7 @@ pub fn render_vgm_waveform_progressive(
     file: Arc<VgmFile>,
     num_buckets: usize,
     sample_rate: u32,
+    resampling: crate::resample::ResampleMode,
     keep_going: &mut dyn FnMut() -> bool,
     on_update: &mut dyn FnMut(Vec<WaveformBucket>),
 ) -> bool {
@@ -240,6 +241,11 @@ pub fn render_vgm_waveform_progressive(
     let mut next_update = stride;
 
     let mut engine = VgmEngine::new(file, sample_rate);
+    // The waveform shows what playback would sound like, so it follows the
+    // same resampling choice; the difference is invisible at bucket scale, but
+    // drawing from a different render than the one being heard is the kind of
+    // quiet inconsistency that eventually confuses a bug report.
+    engine.set_resample_mode(resampling);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         if !keep_going() {
@@ -265,12 +271,14 @@ pub fn render_vgm_waveform(
     file: Arc<VgmFile>,
     num_buckets: usize,
     sample_rate: u32,
+    resampling: crate::resample::ResampleMode,
 ) -> Vec<WaveformBucket> {
     let mut last = Vec::new();
     render_vgm_waveform_progressive(
         file,
         num_buckets,
         sample_rate,
+        resampling,
         &mut || true,
         &mut |buckets| {
             last = buckets;
@@ -478,7 +486,7 @@ mod tests {
                 0x66,
             ],
         );
-        let buckets = render_vgm_waveform(file, 8, 44_100);
+        let buckets = render_vgm_waveform(file, 8, 44_100, crate::resample::ResampleMode::Sinc);
         assert_eq!(buckets.len(), 8);
         // The first half sounds, the second does not.
         assert!(
@@ -499,7 +507,7 @@ mod tests {
             &[(dro_core::ChipKind::Ym2612, 7_670_454)],
             &[0x52, 0x28, 0xF0, 0x61, 0x44, 0xAC, 0x66],
         );
-        let buckets = render_vgm_waveform(file, 4, 44_100);
+        let buckets = render_vgm_waveform(file, 4, 44_100, crate::resample::ResampleMode::Sinc);
         assert_eq!(buckets.len(), 4);
         assert!(
             buckets
@@ -519,6 +527,7 @@ mod tests {
             file,
             8,
             44_100,
+            crate::resample::ResampleMode::Sinc,
             &mut || {
                 calls += 1;
                 calls <= 1

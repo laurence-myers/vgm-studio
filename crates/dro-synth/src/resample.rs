@@ -176,12 +176,56 @@ fn tap(lobes: f64) -> f64 {
     a + (b - a) * fraction
 }
 
+/// How the rate conversion is done -- a user-facing choice, not an internal.
+///
+/// [`Sinc`](Self::Sinc) is the accurate one: band-limited, nothing above the
+/// output Nyquist folds back. [`Linear`](Self::Linear) is the engine's old
+/// lerp, kept *on purpose*: it aliases, and that crunch is the sound of
+/// VGMPlay (whose `ResamplingMode` offers nothing better), of most classic
+/// players, and so of these soundtracks as a generation actually heard them.
+/// Offering it is honest -- the clean rendering is the more faithful capture
+/// of the chip, but familiarity is a legitimate thing to want -- and it also
+/// lets the parity harness compare against VGMPlay like for like.
+///
+/// Neither mode touches a chip whose rate already matches the output: that is
+/// an exact passthrough either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResampleMode {
+    #[default]
+    Sinc,
+    Linear,
+}
+
+impl ResampleMode {
+    /// The ini spelling, following the registry's slug convention.
+    #[must_use]
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Sinc => "sinc",
+            Self::Linear => "linear",
+        }
+    }
+
+    /// The mode an ini value names, or `None` for one this build does not know
+    /// -- the caller decides the fallback, so a config written by a newer
+    /// version degrades to the default rather than to an error.
+    #[must_use]
+    pub fn from_slug(slug: &str) -> Option<Self> {
+        match slug.trim().to_ascii_lowercase().as_str() {
+            "sinc" => Some(Self::Sinc),
+            "linear" => Some(Self::Linear),
+            _ => None,
+        }
+    }
+}
+
 /// One chip's stereo output, resampled to the engine's rate.
 ///
 /// Pulls source frames from a caller-supplied closure one at a time, so the
 /// output is identical however the caller chunks its requests.
 #[derive(Debug)]
 pub struct Resampler {
+    mode: ResampleMode,
     /// Source frames per output frame, in `FRAC_BITS` fixed point.
     step: u64,
     /// Fractional position of the next output frame within the ring, measured
@@ -208,6 +252,12 @@ impl Resampler {
     /// rate is bit-for-bit untouched.
     #[must_use]
     pub fn new(native: u32, output: u32) -> Self {
+        Self::with_mode(native, output, ResampleMode::Sinc)
+    }
+
+    /// The same, with the conversion method chosen by the caller.
+    #[must_use]
+    pub fn with_mode(native: u32, output: u32, mode: ResampleMode) -> Self {
         let native = native.max(1);
         let output = output.max(1);
         let ratio = f64::from(native) / f64::from(output);
@@ -227,6 +277,7 @@ impl Resampler {
         // instead of -90.
         let half_taps = ((ZERO_CROSSINGS as f64 / lobes_per_frame).ceil() as usize).max(1);
         Self {
+            mode,
             step: (f64::from(native) / f64::from(output) * FRAC_ONE as f64) as u64,
             // Half the kernel's span, not all of it. Priming with the whole
             // span would centre the first output frame `half_taps` source
@@ -236,7 +287,7 @@ impl Resampler {
             // frame zero on source frame zero: the taps reaching back before
             // the start read the zero-filled history, which is what silence
             // before a recording begins actually is.
-            phase: FRAC_ONE * half_taps as u64,
+            phase: FRAC_ONE * Self::priming(mode, half_taps),
             history: vec![[0; 2]; (2 * half_taps + 2).next_power_of_two()],
             write: 0,
             half_taps,
@@ -256,6 +307,21 @@ impl Resampler {
             self.history[self.write] = source();
             self.write = (self.write + 1) % self.history.len();
             self.phase -= FRAC_ONE;
+        }
+
+        if self.mode == ResampleMode::Linear {
+            // The engine's old resampler, verbatim in spirit: the two source
+            // frames straddling the output instant, interpolated. Everything
+            // the sinc path exists to remove is deliberately left in.
+            let mask = self.history.len() - 1;
+            let next = self.history[(self.write + mask) & mask];
+            let prev = self.history[(self.write + mask - 1) & mask];
+            let t = self.phase as f64 / FRAC_ONE as f64;
+            self.phase += self.step;
+            return [
+                clamp(f64::from(prev[0]) + (f64::from(next[0]) - f64::from(prev[0])) * t),
+                clamp(f64::from(prev[1]) + (f64::from(next[1]) - f64::from(prev[1])) * t),
+            ];
         }
 
         // `phase` is the fractional distance past the newest-but-`half_taps`
@@ -314,7 +380,21 @@ impl Resampler {
     pub fn reset(&mut self) {
         self.history.fill([0; 2]);
         self.write = 0;
-        self.phase = FRAC_ONE * self.half_taps as u64;
+        self.phase = FRAC_ONE * Self::priming(self.mode, self.half_taps);
+    }
+
+    /// Source frames pulled before the first output frame, per mode.
+    ///
+    /// Sinc primes half its kernel so output frame zero is centred on source
+    /// frame zero (see `every_chip_is_delayed_by_the_same_amount` for what
+    /// priming the *whole* span cost). Linear pulls two, which lands its first
+    /// output on source frame zero as well -- the two modes agree about time,
+    /// so switching between them cannot shift a file against itself.
+    const fn priming(mode: ResampleMode, half_taps: usize) -> u64 {
+        match mode {
+            ResampleMode::Sinc => half_taps as u64,
+            ResampleMode::Linear => 2,
+        }
     }
 
     /// How many source frames each output frame spans. What the realtime-cost
@@ -323,6 +403,8 @@ impl Resampler {
     pub fn taps(&self) -> usize {
         if self.identity {
             1
+        } else if self.mode == ResampleMode::Linear {
+            2
         } else {
             2 * self.half_taps + 1
         }
@@ -533,23 +615,21 @@ mod tests {
 
         let square = |n: u64| band_limited_square(HZ, SN_NATIVE, n);
 
-        // The old engine's resampler, reproduced exactly: 16-bit phase, one
-        // source frame pulled at a time, linear interpolation between them.
+        // The old engine's behaviour is now a shipping mode rather than a
+        // hand-rolled reproduction, so this test measures the exact code a
+        // user choosing "linear" gets.
         let lerped: Vec<f64> = {
-            let step = (u64::from(SN_NATIVE) << 16) / u64::from(OUTPUT);
-            let (mut position, mut prev, mut next, mut n) = (1u64 << 17, 0i32, 0i32, 0u64);
+            let mut resampler = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+            let mut n = 0u64;
             (0..44_100)
                 .map(|_| {
-                    while position >= 1 << 16 {
-                        prev = next;
-                        next = square(n);
-                        n += 1;
-                        position -= 1 << 16;
-                    }
-                    let t = position as f64 / f64::from(1u32 << 16);
-                    let value = f64::from(prev) + (f64::from(next) - f64::from(prev)) * t;
-                    position += step;
-                    value
+                    f64::from(
+                        resampler.next_frame(|| {
+                            let value = square(n);
+                            n += 1;
+                            [value, value]
+                        })[0],
+                    )
                 })
                 .collect()
         };
@@ -767,6 +847,95 @@ mod tests {
             .map(|_| resampler.next_frame(|| source(&mut n))[0])
             .collect();
         assert_eq!(first, second);
+    }
+
+    /// The linear mode is a deliberate feature now, so its contract is pinned
+    /// like any other: same timing as the sinc, same DC exactness, same chunk
+    /// invariance -- everything except the filtering it exists to omit.
+    #[test]
+    fn the_linear_mode_keeps_every_contract_except_the_filter() {
+        // DC passes exactly: a lerp between equal values is that value.
+        let mut resampler = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+        let out: Vec<i32> = (0..2_000)
+            .map(|_| resampler.next_frame(|| [1_000, -1_000])[0])
+            .collect();
+        for &sample in &out[1_000..] {
+            assert_eq!(sample, 1_000, "linear shifted DC");
+        }
+
+        // Chunk size is invisible, exactly as for the sinc.
+        fn render(chunk: usize, total: usize) -> Vec<i32> {
+            let mut resampler = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+            let mut n = 0u64;
+            let mut out = Vec::with_capacity(total);
+            while out.len() < total {
+                for _ in 0..chunk.min(total - out.len()) {
+                    let frame = resampler.next_frame(|| {
+                        let value = ((n % 977) as i32) * 31 - 15_000;
+                        n += 1;
+                        [value, value / 2]
+                    });
+                    out.push(frame[0]);
+                }
+            }
+            out
+        }
+        assert_eq!(render(128, 8_000), render(4_096, 8_000));
+
+        // And it sits at the same instant as the sinc: a step written at a
+        // given moment comes out at that moment in either mode, so switching
+        // modes cannot shift a file against itself.
+        let mut linear = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+        let step_at = 2 * u64::from(SN_NATIVE) / 100;
+        let mut pulled = 0u64;
+        let out: Vec<f64> = (0..4_000)
+            .map(|_| {
+                f64::from(
+                    linear.next_frame(|| {
+                        let value = if pulled >= step_at { 10_000 } else { 0 };
+                        pulled += 1;
+                        [value, value]
+                    })[0],
+                )
+            })
+            .collect();
+        let crossing = out
+            .iter()
+            .position(|&v| v >= 5_000.0)
+            .expect("step arrives") as f64
+            / f64::from(OUTPUT);
+        let offset = crossing - step_at as f64 / f64::from(SN_NATIVE);
+        assert!(
+            offset.abs() < 2.0 / f64::from(OUTPUT),
+            "linear sits {:.3} ms off the command stream",
+            offset * 1000.0
+        );
+
+        assert_eq!(linear.taps(), 2);
+        // Equal rates are the same exact passthrough in both modes.
+        assert_eq!(
+            Resampler::with_mode(OUTPUT, OUTPUT, ResampleMode::Linear).taps(),
+            1
+        );
+    }
+
+    /// The slugs are what the config file stores, so they are part of the
+    /// format: a rename would silently reset every user who chose linear.
+    #[test]
+    fn the_mode_slugs_are_stable_and_unknowns_are_refused() {
+        assert_eq!(ResampleMode::Sinc.slug(), "sinc");
+        assert_eq!(ResampleMode::Linear.slug(), "linear");
+        assert_eq!(ResampleMode::from_slug("sinc"), Some(ResampleMode::Sinc));
+        assert_eq!(
+            ResampleMode::from_slug(" Linear "),
+            Some(ResampleMode::Linear)
+        );
+        assert_eq!(
+            ResampleMode::from_slug("cubic"),
+            None,
+            "an unknown value is the caller's decision, not a guess"
+        );
+        assert_eq!(ResampleMode::default(), ResampleMode::Sinc);
     }
 
     /// The kernel has to be a windowed sinc and not, say, a table of zeros --

@@ -85,6 +85,16 @@ pub struct AudioConfig {
     /// emulators, and inventing a list to check against would put the truth in
     /// two places. `dro-synth`'s registry is that list.
     pub cores: BTreeMap<String, String>,
+    /// How non-OPL chips are brought to the output rate: `sinc`
+    /// (band-limited, the default) or `linear` (the aliased, "crunchy"
+    /// conversion VGMPlay and most classic players use).
+    ///
+    /// Stored as the slug rather than an enum, for the same reason the core
+    /// names are strings: `dro-synth` owns the list of methods, and a copy
+    /// here to validate against would put the truth in two places. A value
+    /// this build does not know falls back to the default at the point of
+    /// use.
+    pub resampling: String,
     /// The serial port of the RetroWave board, such as `COM3`. `None` picks the
     /// first port that looks like one.
     pub retrowave_port: Option<String>,
@@ -174,6 +184,7 @@ impl Default for AudioConfig {
             buffer_size: 512,
             frequency: 48_000,
             cores: BTreeMap::new(),
+            resampling: "sinc".to_owned(),
             retrowave_port: None,
         }
     }
@@ -482,6 +493,17 @@ impl AppConfig {
         // back, so the file converges on the new spelling after one save.
         // Applied *before* the `core.*` keys so an explicit new-style choice in
         // the same file wins.
+        if let Some(value) = lookup(&ini, "audio", "resampling") {
+            // Normalised but not validated, matching the core names: an empty
+            // value restores the default, anything else is kept verbatim for
+            // `dro-synth` to recognise or fall back from.
+            let value = value.trim().to_ascii_lowercase();
+            self.audio.resampling = if value.is_empty() {
+                AudioConfig::default().resampling
+            } else {
+                value
+            };
+        }
         if let Some(value) = lookup(&ini, "audio", "output_backend") {
             let backend: OutputBackend = parse(value, "audio.output_backend")?;
             self.audio.set_output_backend(backend);
@@ -558,6 +580,10 @@ impl AppConfig {
              # name this build does not have falls back the same way.\n\
              # Rendering and splitting always use an emulator, never hardware.\n\
              {cores}\
+             # How non-OPL chips reach the output rate: \"sinc\" (band-limited,\n\
+             # clean, the default) or \"linear\" (aliased and crunchy, the way\n\
+             # VGMPlay and most classic players sound).\n\
+             resampling={resampling}\n\
              # Serial port of the RetroWave board, e.g. COM3 or /dev/ttyACM0.\n\
              # Leave empty to use the first one detected.\n\
              retrowave_port={retrowave_port}\n\
@@ -590,6 +616,7 @@ impl AppConfig {
                 .iter()
                 .map(|(slot, core)| format!("core.{slot}={core}\n"))
                 .collect::<String>(),
+            resampling = self.audio.resampling,
             retrowave_port = self.audio.retrowave_port.as_deref().unwrap_or_default(),
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
@@ -986,6 +1013,8 @@ mod tests {
                     ("opl3".to_owned(), "retrowave".to_owned()),
                     ("sn76489".to_owned(), "native".to_owned()),
                 ]),
+                // Not the default, so the round trip is proven to carry it.
+                resampling: "linear".to_owned(),
                 retrowave_port: Some("COM7".to_owned()),
             },
             ui: UiConfig {

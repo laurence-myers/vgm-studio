@@ -82,6 +82,17 @@ fn render_with_at(
     file.stream()?;
 
     let mut engine = VgmEngine::with_cores(Arc::new(file), rate, cores);
+    // DROTRIM_PARITY_RESAMPLER=linear renders our side with the same aliased
+    // conversion VGMPlay uses, making a 44100 comparison like-for-like: both
+    // sides then carry the same class of artefact, which partially
+    // rehabilitates the output-rate scorecard rs-3 had to abandon. Unset, the
+    // accurate default stands.
+    if let Some(mode) = std::env::var("DROTRIM_PARITY_RESAMPLER")
+        .ok()
+        .and_then(|slug| dro_synth::resample::ResampleMode::from_slug(&slug))
+    {
+        engine.set_resample_mode(mode);
+    }
     let wanted = rate as usize * SECONDS * 2;
     let mut samples = Vec::with_capacity(wanted);
     let mut buffer = vec![0i16; 4096 * 2];

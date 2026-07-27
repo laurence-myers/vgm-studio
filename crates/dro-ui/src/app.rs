@@ -3589,6 +3589,7 @@ impl DroApp {
         // user who picks a different YM2612 core and hears the old one until
         // they reopen the file would reasonably call that broken.
         if config.audio.cores != self.config.audio.cores
+            || config.audio.resampling != self.config.audio.resampling
             || config.audio.retrowave_port != self.config.audio.retrowave_port
         {
             self.audio.pause();
@@ -3830,6 +3831,7 @@ impl DroApp {
                 mix,
                 sample_rate: self.config.audio.frequency,
                 bit_depth: self.config.audio.bit_depth,
+                resampling: self.resample_mode(),
             },
             None,
         );
@@ -4060,6 +4062,7 @@ impl DroApp {
                 source,
                 num_buckets: waveform::NUM_BUCKETS,
                 sample_rate: self.config.audio.frequency,
+                resampling: self.resample_mode(),
             },
             debounce,
         );
@@ -4067,6 +4070,14 @@ impl DroApp {
 
     /// The loaded document as something an engine can play, of either kind.
     /// `None` with nothing open.
+    /// The configured resampling method, decoded from its config slug. An
+    /// unknown spelling -- a config written by a newer build -- falls back to
+    /// the accurate default rather than failing the whole config.
+    fn resample_mode(&self) -> dro_synth::resample::ResampleMode {
+        dro_synth::resample::ResampleMode::from_slug(&self.config.audio.resampling)
+            .unwrap_or_default()
+    }
+
     fn audio_source(&self) -> Option<dro_synth::AudioSource> {
         match (self.editor.snapshot(), self.editor.vgm()) {
             (Some(song), _) => Some(dro_synth::AudioSource::Opl(song)),

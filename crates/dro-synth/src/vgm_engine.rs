@@ -30,12 +30,16 @@ use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
 use crate::engine::{FrameClock, LoopConfig, Position};
-use crate::resample::Resampler;
+use crate::resample::{ResampleMode, Resampler};
 
 /// One chip instance, with the resampler that brings it to the output rate.
 struct Voice {
     target: ChipTarget,
     core: Box<dyn ChipCore>,
+    /// The rates the resampler was built from, kept so a mode change can
+    /// rebuild it without asking the core to re-derive anything.
+    native_rate: u32,
+    output_rate: u32,
     /// Band-limited rate conversion from the chip's rate to the engine's.
     ///
     /// This used to be a linear interpolation between the two source frames
@@ -61,6 +65,8 @@ impl Voice {
         Self {
             target,
             core,
+            native_rate: native,
+            output_rate,
             resampler: Resampler::new(native, output_rate),
         }
     }
@@ -228,6 +234,20 @@ impl VgmEngine {
     }
 
     /// Restarts from the first command with every chip reset.
+    /// Chooses how every voice is brought to the output rate.
+    ///
+    /// [`ResampleMode::Sinc`] is the accurate default; [`ResampleMode::Linear`]
+    /// is the old lerp kept as a deliberate option -- the aliased "crunchy"
+    /// sound of VGMPlay and most classic players. Each voice's resampler is
+    /// rebuilt empty, which is only seamless at a boundary the app already
+    /// treats as one (load, rewind, seek) -- callers switch the mode and then
+    /// restart or reload, exactly as they do for a core change.
+    pub fn set_resample_mode(&mut self, mode: ResampleMode) {
+        for voice in &mut self.voices {
+            voice.resampler = Resampler::with_mode(voice.native_rate, voice.output_rate, mode);
+        }
+    }
+
     pub fn rewind(&mut self) {
         for voice in &mut self.voices {
             // The header's clock and variant are what it was built with; a reset

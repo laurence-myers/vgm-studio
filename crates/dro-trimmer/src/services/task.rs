@@ -247,6 +247,7 @@ mod tests {
             source: dro_synth::AudioSource::Opl(Arc::new(song)),
             num_buckets: 4,
             sample_rate: 48_000,
+            resampling: dro_synth::resample::ResampleMode::Sinc,
         }
     }
 
