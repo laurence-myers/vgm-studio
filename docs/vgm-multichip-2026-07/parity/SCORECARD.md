@@ -368,3 +368,28 @@ measured the same day:
 YM2610's level (0.318) stays quiet pending the family balance pass — its
 FM_GAIN is still the deferred 5, and the ADPCM scales were chosen
 conservatively; both get calibrated together against the level column.
+
+## The family balance pass (2026-07-28)
+
+One integer per OPN kind on the whole summed frame — FM, SSG and ADPCM in
+step — in `OpnKind::output_scale()`, sized from the level column and verified
+by a fresh native-rate run:
+
+| Chip | scale | lvl before | lvl after | corr before → after |
+|---|---|---|---|---|
+| YM2203 | ×2 | 0.497 | **0.994** | 0.6396 → 0.6396 |
+| YM2610 | ×3 | 0.318 | **0.955** | 0.7689 → 0.7689 |
+| YM2608 | ×1 (deliberate) | 0.641 | 0.641 | 0.6009 → 0.6009 |
+
+The correlations not moving is the point as much as the levels moving: a
+whole-mix scalar cannot change a normalised correlation, so any drift here
+would have meant the change did something it was not supposed to. The YM2608
+is held at ×1 because its measurement is depressed by content this project
+cannot ship (the internal rhythm mask ROM); a scale fitted to that number
+would overshoot every FM-led file. If a rhythm-light measurement is ever
+taken, it gets its own row here first.
+
+The same run's rows for the OKIM chips and the AY predate the settings sweep
+(the binary was built before the 6258 divider, NMK112 and AY-type commits);
+those chips get remeasured in the next full run rather than trusted from
+this one.

@@ -108,6 +108,28 @@ impl OpnKind {
     const fn is_mono(self) -> bool {
         matches!(self, Self::Ym2203)
     }
+
+    /// The whole-mix output scale, **measured against VGMPlay** by the parity
+    /// scorecard's level column (n=12, native rates, no resampler in the
+    /// path). One factor over the entire frame -- FM, SSG and ADPCM together
+    /// -- so every internal balance survives the correction.
+    ///
+    /// - YM2203 measured 0.497: x2 closes it, and its mix is complete (no
+    ///   ADPCM exists to be missing).
+    /// - YM2610 measured 0.318 with the ADPCM sections in: x3 brings it to
+    ///   ~0.95.
+    /// - YM2608 stays at x1 **deliberately**: its measured 0.641 is depressed
+    ///   by the rhythm section this project cannot ship (the chip's internal
+    ///   mask ROM), so scaling to the number would make the parts we *do*
+    ///   render too loud against the reference's. Its correction waits on a
+    ///   measurement over rhythm-light files.
+    const fn output_scale(self) -> i32 {
+        match self {
+            Self::Ym2203 => 2,
+            Self::Ym2608 => 1,
+            Self::Ym2610 => 3,
+        }
+    }
 }
 
 /// ADPCM-A's output scale: a full-level decode against the FM's range.
@@ -377,6 +399,12 @@ impl DeltaTChannel {
 
 /// One of the OPN family: OPN2's FM, an AY's SSG, and -- on the chips that
 /// have them -- the ADPCM sections.
+///
+/// The header's per-chip *AY flags* bytes (`ym2203_ay_flags`,
+/// `ym2608_ay_flags`) are deliberately unread: like the standalone AY's flags
+/// byte, they are emulator output-mixing options rather than chip behaviour.
+/// The SSG here is a Yamaha part by construction, so it keeps [`Ay8910`]'s
+/// default fine-grained envelope without needing a type byte to say so.
 #[derive(Debug)]
 pub struct OpnCore {
     kind: OpnKind,
@@ -580,9 +608,11 @@ impl ChipCore for OpnCore {
             let (a_left, a_right) = self.adpcm_a.render();
             let (b_left, b_right) = self.delta_t.render();
 
-            // The SSG is mono and sums into both sides, as it does on the chip.
-            frame[0] = left + ssg + a_left + b_left;
-            frame[1] = right + ssg + a_right + b_right;
+            // The SSG is mono and sums into both sides, as it does on the
+            // chip; the kind's measured scale then lifts the whole mix.
+            let scale = self.kind.output_scale();
+            frame[0] = (left + ssg + a_left + b_left) * scale;
+            frame[1] = (right + ssg + a_right + b_right) * scale;
         }
     }
 }

@@ -54,7 +54,7 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | `cores/nes_apu.rs` | NES APU | clean-room | The NESdev documentation: channel layout, the frame sequencer's step boundaries, the length/noise/DMC tables, and the two non-linear mixer formulas | n/a — no code read | MIT OR Apache-2.0 | n/a. Both mixer tables are *regenerated from the formulas in a test*, because they must be integer tables — [`ChipCore`] forbids output that could differ across targets, and floating point in the hot loop is how that promise breaks. One deliberate departure from hardware, documented at `reset`: the channels start **enabled**. Not modelled: the FDS add-on. |
 | `cores/ay8910.rs` | AY-3-8910, YM2149 — **and the SSG section of every OPN chip** | clean-room | The datasheets: three 12-bit tone counters, a 17-bit noise register tapped at bits 0 and 3, the shared envelope's four shape bits, and the 1.5 dB DAC curve | n/a — no code read | MIT OR Apache-2.0 | n/a. The 32-level curve is regenerated from "1.5 dB a step" in a test. Written to be *reused* by the OPN cores rather than to serve one chip — `write_register`/`tick`/`output` are `pub` for that -- the OPN cores are in another crate. Not modelled: the I/O ports, the VGM `0x31` stereo mask. |
 | `cores/huc6280.rs` | HuC6280 (PC Engine) | clean-room | The documented register interface: six 32-entry wavetables, banked registers behind a channel-select, per-channel stereo attenuation, DDA, and noise on channels 5-6 | n/a — no code read | MIT OR Apache-2.0 | n/a. Attenuation curve regenerated from 1.5 dB a step, as above. Not modelled: the LFO on channels 1-2, the timer/IRQ registers. |
-| `cores/okim.rs` | OKIM6295, OKIM6258 | clean-room | The documented Dialogic/OKI ADPCM algorithm (the 49-entry step table, the index deltas, the twelve-bit accumulator), the OKIM6295's ROM table of contents and its two-write command protocol | n/a — no code read | MIT OR Apache-2.0 | n/a. Both chips share one decoder, because they share a codec; only the source of the nibbles differs. Step and volume tables regenerated in tests. Not modelled: the OKIM6258's 3-bit modes. |
+| `cores/okim.rs` | OKIM6295, OKIM6258 | clean-room | The documented Dialogic/OKI ADPCM algorithm (the 49-entry step table, the index deltas, the twelve-bit accumulator), the OKIM6295's ROM table of contents and its two-write command protocol | n/a — no code read | MIT OR Apache-2.0 | n/a. Both chips share one decoder, because they share a codec; only the source of the nibbles differs. Step and volume tables regenerated in tests. Both banking schemes modelled (the `$0F` latch and the NMK112's per-quarter banks), and the OKIM6258's header-flag divider honoured. Not modelled: the OKIM6258's 3-bit mode, the OKIM6295's mid-stream clock retune. |
 | `cores/gb_dmg.rs` | Game Boy DMG | clean-room | The Pan Docs: the four channels, the 512 Hz frame sequencer, per-channel stereo routing, and the wave channel's shift-based volume | n/a — no code read | MIT OR Apache-2.0 | n/a. **The plan allowed for SameBoy's APU as a submodule instead**; that C is written against SameBoy's whole `GB_gameboy_t`, so carving it out would have meant editing the upstream — which the sourcing policy forbids, and which would have to be redone on every pull. Not modelled: wave-RAM access quirks while running, the CGB registers. |
 
 | `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** Freestanding C but for `#include <string.h>`, which `shim/string.h` answers. Its own `writebuf` ring matches Nuked-OPL3's, so `PlayerEngine`'s write spacing suits it unchanged. |
@@ -250,6 +250,18 @@ Applied:
 |---|---|---|---|
 | YM2612 (`dro-cores-nuked/opn2.rs`) | 0.227 (n=12); in-mix fit ≈4.0× | ×4.2 | `OUTPUT_GAIN = 21` |
 | YM2151 (`dro-cores-nuked/opm.rs`) | 0.500 (n=12) | ×2 | `OUTPUT_GAIN = 2` |
+| YM2203 (`dro-cores-nuked/opn.rs`) | 0.497 (n=12) | ×2, whole mix | `output_scale() = 2`; 0.994 verified (n=12) |
+| YM2610 (`dro-cores-nuked/opn.rs`) | 0.318 post-ADPCM (n=12) | ×3, whole mix | `output_scale() = 3`; 0.955 verified (n=12) |
+
+The OPN family's corrections are **whole-mix** — one integer on the summed
+frame per chip kind, FM, SSG and ADPCM together — because the per-section
+balance inside the mix is not separately measurable from single-chip corpus
+files, and scaling the sections in step at least cannot disturb it. The
+YM2608 stays at ×1 deliberately: its measured 0.641 is depressed by the
+unshippable rhythm mask ROM, so a scale fitted to it would overshoot every
+file that leans on FM. Correlations were unchanged by the pass (a whole-mix
+scalar cannot move a normalised correlation), which the verification run
+confirmed.
 
 The in-mix fit's PSG coefficients came back negative and were discarded, for a
 reason worth keeping: the fit renders at the YM2612's native rate, where the
@@ -263,10 +275,8 @@ Measured and **deliberately not yet applied** (each carries a reason):
 | Chip | level (n=12) | why deferred |
 |---|---|---|
 | YM2413 | 0.370 | shared-core correlation still open at 0.977; scale after |
-| YM2203 | 0.497 | its SSG flags are still unread (`ChipCore::configure` gap) |
-| YM2608 | 0.641 | rhythm needs the chip's internal mask ROM (unshippable); Delta-T modelled |
-| YM2610 | 0.318 post-ADPCM | scale FM_GAIN and the ADPCM gains together in the family balance pass |
-| AY8910 | 0.720 | type/flags unread; measure again after |
+| YM2608 | 0.641 | rhythm needs the chip's internal mask ROM (unshippable), which depresses the measurement itself; Delta-T modelled. Held at ×1 in the family balance pass for exactly that reason |
+| AY8910 | 0.720 | type byte now read (GI parts get the coarse envelope); flags are emulator mixing options, deliberately unread; measure again |
 | Game Boy DMG | 0.550 | correlation open at 0.295; scale after |
 | NES APU | 0.756 | correlation open at 0.334; scale after |
 | OKIM6295 | 0.497 | remeasure now the divider is right |

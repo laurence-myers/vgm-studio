@@ -403,7 +403,7 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(
         ChipKind::Ym2610,
         0.70,
-        "0.769 observed with ADPCM-A and Delta-T modelled -- the best          clean-room score on the board; level awaits the family balance pass",
+        "0.769 observed with ADPCM-A and Delta-T modelled -- the best          clean-room score on the board; level 0.955 after the family balance pass",
     ),
     clean(
         ChipKind::Okim6258,
