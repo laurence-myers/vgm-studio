@@ -52,9 +52,12 @@ impl Voice {
         target: ChipTarget,
         mut core: Box<dyn ChipCore>,
         chip: &ChipUse,
+        settings: &dro_core::vgm::ChipSettings,
         output_rate: u32,
     ) -> Self {
         core.reset(chip.clock, chip.variant);
+        // After the reset, which is what clears the state this configures.
+        core.configure(settings);
         let native = core.native_rate().max(1);
         Self {
             target,
@@ -196,7 +199,13 @@ impl VgmEngine {
                         instance,
                         port: 0,
                     };
-                    voices.push(Voice::new(target, core, chip, output_rate));
+                    voices.push(Voice::new(
+                        target,
+                        core,
+                        chip,
+                        file.header.settings(),
+                        output_rate,
+                    ));
                 }
             }
         }
@@ -246,6 +255,10 @@ impl VgmEngine {
                 .find(|chip| chip.kind == voice.target.kind)
             {
                 voice.core.reset(chip.clock, chip.variant);
+                // A reset clears what `configure` set, so the two travel
+                // together everywhere -- a rewound engine must be the same
+                // chip it was.
+                voice.core.configure(self.file.header.settings());
             }
             voice.position = FRAC_ONE * 2;
             voice.prev = [0; 2];

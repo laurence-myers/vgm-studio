@@ -18,8 +18,9 @@
 //! A period of zero never expires, so the output stays high -- which is how
 //! games play samples through the chip, by writing volumes at audio rate.
 //!
-//! **Noise.** A 16-bit shift register, tapped at bits 0 and 3, clocked at one of
-//! three fixed divisors or at tone 2's rate. With feedback on it is white noise;
+//! **Noise.** A shift register -- fifteen, sixteen or seventeen bits wide, with
+//! taps to match, both named by the file's header -- clocked at one of three
+//! fixed divisors or at tone 2's rate. With feedback on it is white noise;
 //! with it off the register cycles, giving a periodic buzz an octave and a half
 //! below the tone.
 //!
@@ -39,9 +40,15 @@ const CLOCK_DIVIDER: u32 = 16;
 
 /// Peak amplitude of one channel at full volume.
 ///
-/// Four channels sum, so this is a quarter of full scale less a little headroom:
-/// a chip playing flat out cannot clip the mixer on its own.
-const PEAK: i32 = 8000;
+/// **Measured, not chosen.** With the attenuator curve corrected, this chip
+/// came out a uniform 2.005x louder than VGMPlay across twelve single-chip
+/// corpus files -- every partial in the spectrum at the same ratio, which is
+/// what a single scalar looks like and what a curve error does not. 8000/2.005
+/// is 3990; 4000 is taken because a quarter of a percent is far inside the
+/// spread and this is also exactly an eighth of full scale, so the four
+/// channels together cannot reach half of it and a chip playing flat out has
+/// no way to clip the mixer on its own.
+const PEAK: i32 = 4000;
 
 /// Attenuation, 2 dB a step, from full scale to silence.
 ///
@@ -61,14 +68,30 @@ const PEAK: i32 = 8000;
 /// 0.7%: partials at attenuation 0 agreed exactly, and the rest fell away as
 /// `0.795^n`, which is the ratio between the two formulas.
 const LEVELS: [i32; 16] = [
-    PEAK, 6355, 5048, 4009, 3185, 2530, 2010, 1596, 1268, 1007, 800, 635, 505, 401, 318, 0,
+    PEAK, 3177, 2524, 2005, 1592, 1265, 1005, 798, 634, 504, 400, 318, 252, 200, 159, 0,
 ];
 
-/// The shift register's taps: bits 0 and 3.
-const TAPS: u16 = 0x0009;
-
-/// Where the shift register starts, and what a reset returns it to.
-const LFSR_RESET: u16 = 0x8000;
+/// The shift register's taps and width when the file does not say.
+///
+/// **The file usually does say, and it usually says something else.** VGM 1.10
+/// added a feedback mask and a register width to the header precisely because
+/// the family disagrees, and the corpus exercises the disagreement: the Sega
+/// VDP's PSG is 16 bits tapped at 0 and 3, the discrete TI part 15 bits tapped
+/// at 0 and 1, and Konami's arcade rips declare **seventeen** bits tapped at 2
+/// and 3 -- a width a `u16` register cannot hold at all, which is why the one
+/// here is a `u32`. This core had the Sega shape compiled in and ignored the
+/// header entirely, so on every one of those files its noise channel was not a
+/// poor match for the reference's but an unrelated pseudo-random sequence.
+///
+/// Reading the header did *not* move this chip's parity score (0.5844 before,
+/// 0.5848 after), so it was not what that score was measuring. It is still the
+/// difference between emitting the sequence the file asks for and emitting a
+/// different part's.
+///
+/// These stay as the fallback for the pre-1.10 files that carry no such field,
+/// where Sega hardware is the safer guess.
+const DEFAULT_TAPS: u32 = 0x0009;
+const DEFAULT_WIDTH: u8 = 16;
 
 /// One square-wave channel.
 #[derive(Debug, Default, Clone, Copy)]
@@ -114,8 +137,22 @@ struct Noise {
     /// noise runs at half the rate the divisor suggests -- the same halving a
     /// tone channel's square wave gets.
     half: bool,
-    shift: u16,
+    /// Wider than the sixteen bits the Sega part uses: Konami's arcade rips
+    /// declare a seventeen-bit register, which a `u16` cannot hold at all.
+    shift: u32,
     attenuation: u8,
+    /// Which bits feed back, from the file's header.
+    taps: u32,
+    /// How many bits of shift register, from the file's header. The feedback
+    /// re-enters at the top of *this*, not at any fixed bit.
+    width: u8,
+}
+
+impl Noise {
+    /// The value a reset leaves in the register: the top bit of its width.
+    const fn seed(width: u8) -> u32 {
+        1 << (width.saturating_sub(1) & 0x1f)
+    }
 }
 
 impl Default for Noise {
@@ -125,8 +162,10 @@ impl Default for Noise {
             white: false,
             counter: 0,
             half: false,
-            shift: LFSR_RESET,
+            shift: Self::seed(DEFAULT_WIDTH),
             attenuation: 0x0F,
+            taps: DEFAULT_TAPS,
+            width: DEFAULT_WIDTH,
         }
     }
 }
@@ -154,11 +193,16 @@ impl Noise {
                     // periodic noise feeds back bit 0, so the register simply
                     // cycles and the "noise" is a very low square wave.
                     let feedback = if self.white {
-                        (self.shift & TAPS).count_ones() as u16 & 1
+                        (self.shift & self.taps).count_ones() & 1
                     } else {
                         self.shift & 1
                     };
-                    self.shift = (self.shift >> 1) | (feedback << 15);
+                    // Back in at the top of the *declared* width, not at bit
+                    // 15: a 15-bit register fed at bit 15 grows a sixteenth bit
+                    // that never leaves, and the sequence is then neither
+                    // part's.
+                    let top = u32::from(self.width.saturating_sub(1) & 0x1f);
+                    self.shift = (self.shift >> 1) | (feedback << top);
                 }
             }
         }
@@ -239,7 +283,7 @@ impl Sn76489 {
                 // drum hit start from the same noise every time.
                 self.noise.rate = (data & 0x03) as u8;
                 self.noise.white = data & 0x04 != 0;
-                self.noise.shift = LFSR_RESET;
+                self.noise.shift = Noise::seed(self.noise.width);
                 self.noise.counter = 0;
             }
             (false, _) => {
@@ -258,6 +302,23 @@ impl ChipCore for Sn76489 {
     fn reset(&mut self, clock: u32, _variant: bool) {
         *self = Self::new();
         self.rate = (clock / CLOCK_DIVIDER).max(1);
+    }
+
+    /// Takes the noise shape from the header, when the header states one.
+    ///
+    /// A zero in either field means the file predates VGM 1.10 or its ripper
+    /// left it blank, and the compiled-in Sega shape stands. A width outside
+    /// 1..=16 is refused rather than clamped: it is a corrupt header, and
+    /// guessing at it would produce noise that is wrong in a way nothing
+    /// downstream could attribute.
+    fn configure(&mut self, settings: &dro_core::vgm::ChipSettings) {
+        if settings.sn76489_feedback != 0 {
+            self.noise.taps = u32::from(settings.sn76489_feedback);
+        }
+        if (1..=32).contains(&settings.sn76489_shift_width) {
+            self.noise.width = settings.sn76489_shift_width;
+        }
+        self.noise.shift = Noise::seed(self.noise.width);
     }
 
     fn native_rate(&self) -> u32 {
@@ -458,6 +519,72 @@ mod tests {
         let run = render(&mut white, period * 16 * 2);
         let (first, second) = run.split_at(period * 16);
         assert_ne!(first, second, "white noise is not");
+    }
+
+    /// The header's noise shape has to reach the noise channel, and reaching it
+    /// has to *change* the sound. Every SN76489 file in the corpus declares the
+    /// 15-bit TI part while this core defaulted to the 16-bit Sega one, so for
+    /// every one of them the noise was an unrelated sequence -- a fault no
+    /// local test could see, because both sequences are perfectly good noise.
+    #[test]
+    fn the_headers_noise_shape_reaches_the_shift_register() {
+        fn noise_with(feedback: u16, width: u8) -> Vec<i32> {
+            let mut chip = chip();
+            chip.configure(&dro_core::vgm::ChipSettings {
+                sn76489_feedback: feedback,
+                sn76489_shift_width: width,
+                ..Default::default()
+            });
+            chip.write(0, 0, 0xE4); // white noise, fastest rate
+            chip.write(0, 0, 0xF0); // full volume
+            render(&mut chip, 0x10 * 2 * 40)
+        }
+
+        let sega = noise_with(0x0009, 16);
+        let ti = noise_with(0x0003, 15);
+        assert_ne!(sega, ti, "two parts, two sequences");
+
+        // Periodic noise cycles in exactly as many shifts as the register is
+        // wide, which is the sharpest statement that the width took effect.
+        fn periodic_cycle(width: u8) -> usize {
+            let mut chip = chip();
+            chip.configure(&dro_core::vgm::ChipSettings {
+                sn76489_feedback: 0x0003,
+                sn76489_shift_width: width,
+                ..Default::default()
+            });
+            chip.write(0, 0, 0xE0); // periodic, fastest rate
+            chip.write(0, 0, 0xF0);
+            let step = 0x10 * 2;
+            let run = render(&mut chip, step * usize::from(width) * 2);
+            let (first, second) = run.split_at(step * usize::from(width));
+            assert_eq!(
+                first, second,
+                "width {width} should cycle in {width} shifts"
+            );
+            usize::from(width)
+        }
+        assert_eq!(periodic_cycle(15), 15);
+        assert_eq!(periodic_cycle(16), 16);
+        // Seventeen, because the corpus asks for it and a `u16` register
+        // cannot answer.
+        assert_eq!(periodic_cycle(17), 17);
+
+        // A blank or impossible header leaves the compiled-in shape alone,
+        // rather than producing noise nothing downstream could account for.
+        let mut chip = chip();
+        let before = chip.noise.taps;
+        chip.configure(&dro_core::vgm::ChipSettings::default());
+        assert_eq!(chip.noise.taps, before);
+        assert_eq!(chip.noise.width, DEFAULT_WIDTH);
+        chip.configure(&dro_core::vgm::ChipSettings {
+            sn76489_shift_width: 200,
+            ..Default::default()
+        });
+        assert_eq!(
+            chip.noise.width, DEFAULT_WIDTH,
+            "a corrupt width is refused"
+        );
     }
 
     #[test]

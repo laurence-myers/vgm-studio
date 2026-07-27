@@ -256,20 +256,42 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
 /// simply are not the same waveform. It is not a resampler, a gain, or a
 /// missing voice, and no amount of pipeline work will close it.
 fn vibrato_share(path: &Path) -> Option<f64> {
+    modulation_share(path, ChipKind::Ymf262)
+}
+
+/// The same question for whichever chip has an answer: what share of the writes
+/// that *could* switch the chip's LFO on actually do.
+///
+/// Each chip hides it somewhere different, and only the chips whose rule is
+/// written here can be asked -- the rest return `None`, which reads as "this
+/// outlier is not explained by an LFO" rather than "there is no LFO". A rule
+/// that guessed would be worse than no rule: it would explain away a real bug.
+fn modulation_share(path: &Path, chip: ChipKind) -> Option<f64> {
     use dro_core::vgm::stream::VgmCommand;
     let bytes = std::fs::read(path).ok()?;
     let name = path.file_name()?.to_string_lossy().to_string();
     let file = dro_core::vgm::file::read(&name, &bytes).ok()?;
     let stream = file.stream()?;
+
+    // (registers that carry the switch, the bits that are the switch)
+    let (registers, switch): (std::ops::RangeInclusive<u16>, u16) = match chip {
+        // The operator's AM/VIB/EG/KSR/MULT byte; bit 6 is vibrato.
+        ChipKind::Ymf262 | ChipKind::Ym3812 => (0x20..=0x35, 0x40),
+        // Per-channel L/R/AMS/PMS; the low three bits are PMS, and a channel
+        // with PMS 0 is untouched by the LFO however the LFO is running.
+        ChipKind::Ym2612 => (0xb4..=0xb6, 0x07),
+        // Per-channel PMS (bits 6-4) and AMS (bits 1-0).
+        ChipKind::Ym2151 => (0x38..=0x3f, 0x73),
+        _ => return None,
+    };
+
     let (mut operators, mut vibrato) = (0usize, 0usize);
     for command in (0..stream.len()).filter_map(|index| stream.get(index)) {
-        // 0x20..=0x35 in either bank: the operator's AM/VIB/EG/KSR/MULT byte,
-        // whose bit 6 is that operator's vibrato switch.
         if let VgmCommand::Write { addr, data, .. } = command
-            && matches!(addr & 0xff, 0x20..=0x35)
+            && registers.contains(&(addr & 0xff))
         {
             operators += 1;
-            if data & 0x40 != 0 {
+            if data & switch != 0 {
                 vibrato += 1;
             }
         }
@@ -301,6 +323,76 @@ fn reference() -> Option<Reference> {
 
 fn work_dir() -> PathBuf {
     std::env::temp_dir().join("drotrim-parity")
+}
+
+/// Shortening a file must not change what we render from it.
+///
+/// `shortened` was introduced with the claim that handing both sides the same
+/// cut file "cannot bias a comparison", and that claim was checked on OPL
+/// only, where it held to four decimal places. It does not hold everywhere:
+/// the first full scorecard had OKIM6258, OKIM6295 and HuC6280 rendering
+/// *nothing* from their cut copies while the reference played them, which is a
+/// property of the cut and not of those cores -- all three pass the corpus
+/// audibility suite on the originals.
+///
+/// So the claim is now a test rather than a comment.
+#[test]
+#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+fn shortening_a_file_does_not_change_what_we_render() {
+    let Some(root) = corpus::corpus_root() else {
+        eprintln!("{} not set; skipping", corpus::CORPUS_ENV);
+        return;
+    };
+    dro_trimmer::install_cores();
+    let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
+    let registry = dro_synth::registry::registry();
+
+    let mut trouble = Vec::new();
+    for chip in ChipKind::all().filter(|chip| registry.can_build(*chip)) {
+        for original in single_chip_files(&index, &root, chip, 2) {
+            let cut = shortened(&original, &work_dir());
+            if cut == original {
+                continue;
+            }
+            let (Some(whole), Some(part)) =
+                (render_ours_at(&original, RATE), render_ours_at(&cut, RATE))
+            else {
+                continue;
+            };
+            // The cut keeps two seconds more than the window, so the compared
+            // span is identical -- only the tail beyond it is gone.
+            let frames = whole.len().min(part.len());
+            let score = parity::compare(
+                &whole.truncated(frames),
+                &part.truncated(frames),
+                Settings::default(),
+            );
+            println!(
+                "{:<14} {:<44} frames {}/{}  corr {:.4}",
+                chip.name(),
+                short(&original),
+                part.len(),
+                whole.len(),
+                score.worst_correlation()
+            );
+            if part.is_empty() || score.worst_correlation() < 0.999 {
+                trouble.push(format!(
+                    "{}: {} renders {} frames cut against {} whole, correlating {:.4}",
+                    chip.name(),
+                    short(&original),
+                    part.len(),
+                    whole.len(),
+                    score.worst_correlation()
+                ));
+            }
+        }
+    }
+    assert!(
+        trouble.is_empty(),
+        "cutting a file changed what we render from it, so every score \
+         measured through a cut copy is suspect:\n{}",
+        trouble.join("\n")
+    );
 }
 
 /// **pt-1's acceptance.** The reference must be a fixed point, or every
@@ -504,6 +596,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
 
         let (mut correlations, mut cents, mut dropouts, mut gains, mut levels) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut unmodulated: Vec<f64> = Vec::new();
         for original in &files {
             // Both sides render the same cut file, so the saving costs nothing.
             let path = &shortened(original, &work_dir());
@@ -514,10 +607,20 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             // its own core into it -- reintroducing the resampler this is
             // meant to remove, and at up to five times the cost, since some of
             // these cores run above 200 kHz.
-            let rate = match bar.regime {
-                parity::Regime::SharedCore => native_rate_of(path, chip).unwrap_or(RATE),
-                parity::Regime::CleanRoom => RATE,
-            };
+            // **Every chip at its own rate, not just the shared-core ones.**
+            // Comparing at 44100 measures our resampler, and for a chip whose
+            // native rate is several times that, our resampler is the loudest
+            // thing in the measurement: the SN76489 scores 0.5848 at 44100 and
+            // 0.9958 at its own 223721, the YM2612 0.9538 against 0.9949. The
+            // engine interpolates linearly between point-sampled source frames
+            // with no decimation filter, so five-to-one downsampling folds
+            // everything above 22 kHz back into the band. That is a real fault
+            // in the engine (see SCORECARD.md); it is not the fault this
+            // scorecard is trying to attribute to a core.
+            //
+            // Costly, and unavoidably so: the reference has to render at that
+            // rate too, and `compare`'s cents search is quadratic in it.
+            let rate = native_rate_of(path, chip).unwrap_or(RATE);
             let Some(ours) = render_ours_at(path, rate) else {
                 continue;
             };
@@ -539,6 +642,13 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             dropouts.push(score.worst_dropout());
             gains.push(score.channels[0].gain);
             levels.push(score.channels[0].rms_ratio);
+            // Files that leave the chip's LFO alone are scored separately:
+            // that is where "the same core driven the same way" is actually
+            // true, and where a shared-core bar can mean near-identity. See
+            // `modulation_share`.
+            if modulation_share(path, chip) == Some(0.0) {
+                unmodulated.push(score.worst_correlation());
+            }
             if let Some(measured) = score.worst_cents() {
                 cents.push(measured);
             }
@@ -556,6 +666,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         // Level is what the balance work reads; `gain` conflates level with
         // correlation and only means what it says once correlation is high.
         let level = median(&mut levels);
+        let steady = (!unmodulated.is_empty()).then(|| median(&mut unmodulated));
         let detune = (!cents.is_empty()).then(|| median(&mut cents));
 
         println!(
@@ -566,6 +677,13 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             bar.known_gap
                 .map_or(String::new(), |why| format!("  [known gap: {why}]")),
         );
+        if let Some(steady) = steady {
+            println!(
+                "   {} of {} files leave the LFO off; those score {steady:.4}",
+                unmodulated.len(),
+                correlations.len()
+            );
+        }
 
         let mut trouble = Vec::new();
         if correlation < bar.min_correlation {

@@ -27,6 +27,24 @@ pub trait ChipCore: Send {
     /// dual-mode T6W28). A core that has no variants ignores it.
     fn reset(&mut self, clock: u32, variant: bool);
 
+    /// Hands the core the per-chip configuration bytes from the file's header.
+    ///
+    /// Called once, immediately after [`reset`](Self::reset), which is why the
+    /// default is to ignore it: most cores have nothing here to read.
+    ///
+    /// **This is not decoration.** The VGM header carries settings that change
+    /// what the silicon *is*, not merely how loud it is -- the SN76489's noise
+    /// feedback mask and shift-register width being the sharpest example, since
+    /// a core using the wrong ones emits a completely different pseudo-random
+    /// sequence and no amount of tuning brings it back. The parity harness
+    /// found exactly that: every SN76489 file sampled from the corpus declares
+    /// the 15-bit, `0x0003`-feedback TI part, while the core had the 16-bit
+    /// Sega variant compiled in.
+    ///
+    /// `ChipSettings` also carries the AY8910's type and flags, the SSG flags
+    /// of the OPN family, and the OKIM6258's -- none of which reach a core yet.
+    fn configure(&mut self, _settings: &dro_core::vgm::ChipSettings) {}
+
     /// The rate this core renders at, in Hz. Usually derived from the clock it
     /// was reset with, so call it after [`reset`](Self::reset).
     fn native_rate(&self) -> u32;

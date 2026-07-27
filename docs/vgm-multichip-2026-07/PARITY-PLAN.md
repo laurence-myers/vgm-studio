@@ -213,6 +213,15 @@ cr-11's LLE oracles slot into later — an LLE render is just another
 | pt-3 | Harness + the **OPL control group** | OPL correlation ≥ 0.99 after gain fit, or the pipeline is fixed until it is |
 | pt-4 | Shared-core chips (YM2612, YM2151, YM2413), strict thresholds; variant files included | Calibrated, frozen, green |
 | pt-5 | Clean-room chips: scorecard run, targeted listening on flagged outliers, freeze; known-gaps list started (YM2610 ADPCM) | Thresholds frozen; every expected-fail has a reason |
+
+> **pt-4/pt-5 status: the scorecard runs and has been read; the thresholds are
+> deliberately *not* frozen.** `parity/SCORECARD.md` is the table. YM2151
+> passes. Three real faults were found and fixed in the SN76489 alone, and the
+> outliers needed no listening — the numbers named them. But freezing a bar at
+> what a chip currently scores, when three chips are all but silent and the
+> leading suspect is our own resampler, would retire the harness from the job
+> it was built for. The bars stay where correctness says they belong and the
+> table stays red until the open findings in `SCORECARD.md` are closed.
 | pt-6 | Balance fit (§4) on multi-chip files; update `OUTPUT_GAIN`s; `PROVENANCE.md` records the fit; re-run the corpus audibility suite | Gains documented as measured; residuals reported |
 
 ## 8 · What this still cannot replace
