@@ -233,10 +233,23 @@ fn latch_rule(chip: crate::vgm::ChipKind) -> Option<fn(u16) -> bool> {
         // is level-sensitive, so re-writing it does not re-attack. This is the
         // rule the OPL optimiser has always used, validated over the corpus.
         K::Ym3812 | K::Ymf262 | K::Ym3526 | K::Y8950 => Some(|_| true),
-        // The YM2612 latches too, with two exceptions kept out of caution
-        // rather than proof: `0x2A` is the DAC's sample port, where every write
-        // is a new sample even when the byte repeats, and `0x28` is the key
-        // register, which `chip_cmp` also treats as special.
+        // The YM2612 latches too, with two exceptions.
+        //
+        // `0x2A` is the DAC's sample port. It stays excluded on the reference's
+        // authority -- vgmtools' `chip_cmp` bypasses it entirely -- and for a
+        // structural reason of our own: on real files those writes arrive as
+        // `0x8n` opcodes that carry their own wait, so the write cannot be
+        // dropped without dropping time with it.
+        //
+        // `0x28` is the key register, and this one is now *measured* rather
+        // than assumed: driving Nuked-OPN2 with a value-identical repeat of
+        // `0x28` produces samples identical to omitting it, so the key does not
+        // re-attack and the write is droppable
+        // (`dro-cores-nuked`'s `a_repeated_key_write_is_inaudible_...`).
+        // It is kept regardless, because lifting an exclusion only ever buys
+        // compression while a wrong answer here is silent -- so it belongs
+        // behind a corpus parity run against un-optimised renders, not behind
+        // one register script. cr-11's oracles are where that becomes cheap.
         K::Ym2612 => Some(|addr| !matches!(addr, 0x2A | 0x28)),
         // The YM2413's `0x20`-`0x28` carry the key-on bits.
         K::Ym2413 => Some(|addr| !(0x20..=0x28).contains(&addr)),

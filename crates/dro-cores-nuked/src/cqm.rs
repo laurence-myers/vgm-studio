@@ -29,7 +29,7 @@ const NATIVE_RATE: u32 = 49_716;
 /// The Creative CQM, Nuke.YKT's emulation of it.
 #[derive(Debug)]
 pub struct CqmOpl3 {
-    chip: Box<CqmChip>,
+    chip: CqmChip,
     /// The output rate it was last reset at. Kept for the `Debug` line, which
     /// is what a log says when playback comes out at the wrong pitch.
     rate: u32,
@@ -39,9 +39,7 @@ impl CqmOpl3 {
     /// A chip rendering at `sample_rate` Hz.
     #[must_use]
     pub fn new(sample_rate: u32) -> Self {
-        // Boxed because `cqm_t` is ~50 KiB, most of it the 2048-entry write
-        // buffer, and this ends up owned by an audio callback.
-        let mut chip = Box::new(CqmChip::default());
+        let mut chip = CqmChip::new();
         chip.reset(sample_rate, NATIVE_RATE);
         Self {
             chip,

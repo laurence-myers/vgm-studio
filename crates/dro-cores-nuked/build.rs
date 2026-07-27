@@ -17,18 +17,22 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
 
     let cqm = PathBuf::from(UPSTREAM).join("nuked-cqm");
-    require_submodule(&cqm, "nuked-cqm");
-    println!("cargo::rerun-if-changed={}", cqm.join("cqm.c").display());
-    println!("cargo::rerun-if-changed={}", cqm.join("cqm.h").display());
+    require_submodule(&cqm, "nuked-cqm", "cqm.c");
+    watch(&cqm, &["cqm.c", "cqm.h"]);
+
+    let opn2 = PathBuf::from(UPSTREAM).join("nuked-opn2");
+    require_submodule(&opn2, "nuked-opn2", "ym3438.c");
+    watch(&opn2, &["ym3438.c", "ym3438.h"]);
 
     let mut build = cc::Build::new();
     build
         .file(cqm.join("cqm.c"))
-        // Ours: reports what the C side thinks `cqm_t` measures, so the Rust
-        // mirror of it can be checked against the compiler rather than against
-        // a size copied out of the header.
+        .file(opn2.join("ym3438.c"))
+        // Ours: reports what each upstream struct measures, so the Rust side
+        // can allocate one without declaring a twin of it that could drift.
         .file("shim/layout.c")
         .include(&cqm)
+        .include(&opn2)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")
@@ -41,15 +45,23 @@ fn main() {
         build.flag("-ffreestanding");
     }
 
-    build.compile("nuked_cqm");
+    build.compile("nuked_cores");
+}
+
+/// Rebuild when an upstream source changes -- which here means when a submodule
+/// pin moves, since nothing else ever edits them.
+fn watch(dir: &Path, files: &[&str]) {
+    for file in files {
+        println!("cargo::rerun-if-changed={}", dir.join(file).display());
+    }
 }
 
 /// Fails with an instruction rather than a missing-file error.
 ///
 /// A fresh clone has empty submodule directories, and `cc` would report a
-/// missing `cqm.c` -- true, and useless. This says what to run.
-fn require_submodule(path: &Path, name: &str) {
-    if path.join("cqm.c").exists() {
+/// missing source file -- true, and useless. This says what to run.
+fn require_submodule(path: &Path, name: &str, marker: &str) {
+    if path.join(marker).exists() {
         return;
     }
     panic!(

@@ -21,8 +21,11 @@
 
 mod cqm;
 mod ffi;
+mod opaque;
+mod opn2;
 
 pub use cqm::CqmOpl3;
+pub use opn2::Ym2612;
 
 /// Adds every core here to the registry.
 ///
@@ -43,6 +46,20 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-CQM",
             realtime: true,
             make: dro_synth::CoreMaker::Opl(|rate| Box::new(CqmOpl3::new(rate))),
+        });
+    }
+    for chip in opn2::CHIPS {
+        registry.register(dro_synth::CoreInfo {
+            id: opn2::YM2612_CORE_ID,
+            chip,
+            label: "Nuked-OPN2 (YM2612 / YM3438)",
+            authors: "Nuke.YKT",
+            license: "LGPL-2.1-or-later",
+            upstream: "https://github.com/nukeykt/Nuked-OPN2",
+            realtime: true,
+            // A `ChipCore`, not an `OplChip`: this one plays through
+            // `VgmEngine`, the generic path with no register policy.
+            make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2612::new())),
         });
     }
 }

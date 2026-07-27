@@ -1,154 +1,78 @@
 //! The C ABI of the pinned upstream cores, and the only `unsafe` in this crate.
 //!
-//! Declared by hand rather than bindgen: the surface is five functions and one
-//! opaque-to-us struct, bindgen would add libclang to every build, and a
+//! Declared by hand rather than bindgen: the surface is a dozen functions and
+//! two opaque structs, bindgen would add libclang to every build, and a
 //! generated binding is a thing that can silently drift from the header it was
-//! generated against. These declarations are checked against
-//! `vendor/upstream/nuked-cqm/cqm.h` at the pinned commit, named in
-//! `PROVENANCE.md`.
+//! generated against. These declarations are checked against the headers at the
+//! pinned commits named in `PROVENANCE.md`.
 //!
-//! **The struct is allocated on the Rust side**, which is why its size matters
-//! and why [`CqmChip`] mirrors the upstream layout. The upstream has no
-//! allocator of its own -- `CQM_Reset` `memset`s whatever it is handed -- so
-//! this is the intended usage, not a shortcut.
+//! **No struct is mirrored.** The state is allocated by size reported from C
+//! (see [`crate::opaque`]), so an upstream that adds a field changes a number
+//! rather than silently outgrowing a Rust twin of itself.
 
-/// Upstream's write-buffer depth, from `cqm.h`.
-const WRITEBUF_SIZE: usize = 2048;
+use std::ffi::c_void;
 
-/// One buffered register write. Mirrors `cqm_writebuf`.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-struct CqmWriteBuf {
-    time: u64,
-    reg: u16,
-    data: u8,
-}
-
-/// One operator slot. Mirrors `cqmslot_t`.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-struct CqmSlot {
-    env: i32,
-    phase: u32,
-    mod_: [i32; 2],
-}
-
-/// The chip state. Mirrors `cqm_t` from the pinned `cqm.h`.
-///
-/// Every field is here so the *size* is right; nothing outside this module
-/// reads one. If upstream adds a field, this must grow with it -- which is
-/// what `the_chip_state_is_the_size_upstream_thinks_it_is` guards, by asking
-/// the C side rather than trusting this declaration.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CqmChip {
-    regs: [u8; 256],
-    slotz: [CqmSlot; 48],
-    oddeven: u8,
-    newm: u8,
-    rhy: u8,
-    mode: u8,
-    key: [u8; 18],
-    keyl: u32,
-    okeyl: u32,
-    counter: u16,
-    trem_cnt1: u8,
-    trem_cnt2: u8,
-    trem_cnt3: u8,
-    trem_cnt: u8,
-    dooutput: i32,
-    wave_prev: i32,
-    wavesample: i32,
-    waveshift: i32,
-    wavepan: u8,
-    is4op2: u8,
-    noise: u32,
-    hh_bit1: u8,
-    hh_bit2: u8,
-    rhy_bit: u8,
-
-    rateratio: i32,
-    samplecnt: i32,
-    oldsamples: [i16; 2],
-    samples: [i16; 2],
-
-    writebuf_samplecnt: u64,
-    writebuf_cur: u32,
-    writebuf_last: u32,
-    writebuf_lasttime: u64,
-    writebuf: [CqmWriteBuf; WRITEBUF_SIZE],
-}
-
-impl Default for CqmChip {
-    fn default() -> Self {
-        // Never played in this state: `CQM_Reset` zeroes the whole struct and
-        // sets the chip's real reset values. This exists so the struct can be
-        // created at all before that call.
-        Self {
-            regs: [0; 256],
-            slotz: [CqmSlot::default(); 48],
-            oddeven: 0,
-            newm: 0,
-            rhy: 0,
-            mode: 0,
-            key: [0; 18],
-            keyl: 0,
-            okeyl: 0,
-            counter: 0,
-            trem_cnt1: 0,
-            trem_cnt2: 0,
-            trem_cnt3: 0,
-            trem_cnt: 0,
-            dooutput: 0,
-            wave_prev: 0,
-            wavesample: 0,
-            waveshift: 0,
-            wavepan: 0,
-            is4op2: 0,
-            noise: 0,
-            hh_bit1: 0,
-            hh_bit2: 0,
-            rhy_bit: 0,
-            rateratio: 0,
-            samplecnt: 0,
-            oldsamples: [0; 2],
-            samples: [0; 2],
-            writebuf_samplecnt: 0,
-            writebuf_cur: 0,
-            writebuf_last: 0,
-            writebuf_lasttime: 0,
-            writebuf: [CqmWriteBuf::default(); WRITEBUF_SIZE],
-        }
-    }
-}
+use crate::opaque::OpaqueChip;
 
 unsafe extern "C" {
-    fn CQM_Reset(chip: *mut CqmChip, samplerate: u32, genrate: u32);
-    fn CQM_WriteReg(chip: *mut CqmChip, reg: u16, data: u8);
-    fn CQM_WriteRegBuffered(chip: *mut CqmChip, reg: u16, data: u8);
-    fn CQM_GenerateStream(chip: *mut CqmChip, sndptr: *mut i16, numsamples: u32);
+    // --- ours (shim/layout.c), so the sizes come from the compiler ---
+    fn drotrim_cqm_sizeof() -> usize;
+    fn drotrim_cqm_alignof() -> usize;
+    fn drotrim_ym3438_sizeof() -> usize;
+    fn drotrim_ym3438_alignof() -> usize;
+
+    // --- Nuked-CQM ---
+    fn CQM_Reset(chip: *mut c_void, samplerate: u32, genrate: u32);
+    fn CQM_WriteReg(chip: *mut c_void, reg: u16, data: u8);
+    fn CQM_WriteRegBuffered(chip: *mut c_void, reg: u16, data: u8);
+    fn CQM_GenerateStream(chip: *mut c_void, sndptr: *mut i16, numsamples: u32);
+
+    // --- Nuked-OPN2 ---
+    fn OPN2_Reset(chip: *mut c_void);
+    fn OPN2_SetChipType(chip_type: u32);
+    fn OPN2_Clock(chip: *mut c_void, buffer: *mut i16);
+    fn OPN2_Write(chip: *mut c_void, port: u32, data: u8);
+}
+
+/// Upstream's `ym3438_mode_ym2612`: the discrete YM2612 rather than the CMOS
+/// YM3438, which differs audibly in its DAC.
+pub(crate) const OPN2_MODE_YM2612: u32 = 0x01;
+/// Upstream's `ym3438_mode_readmode`, its own default.
+pub(crate) const OPN2_MODE_READMODE: u32 = 0x02;
+
+/// A Nuked-CQM chip.
+#[derive(Debug)]
+pub(crate) struct CqmChip {
+    state: OpaqueChip,
 }
 
 impl CqmChip {
-    /// Re-initialises the chip: `output_rate` is what samples come out at,
-    /// `native_rate` what the chip itself runs at, and upstream resamples
-    /// between them.
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_cqm_sizeof(), drotrim_cqm_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Re-initialises: `output_rate` is what samples come out at, `native_rate`
+    /// what the chip itself runs at, and upstream resamples between them.
     pub(crate) fn reset(&mut self, output_rate: u32, native_rate: u32) {
-        // SAFETY: `self` is a live, correctly-sized `cqm_t` (see the layout
-        // guard test). `CQM_Reset` only writes through the pointer, and
-        // `native_rate` is non-zero at every call site -- it divides.
-        unsafe { CQM_Reset(self, output_rate, native_rate.max(1)) }
+        // SAFETY: the block is sized by the C's own `sizeof(cqm_t)`, so
+        // `CQM_Reset`'s memset of it stays inside the allocation.
+        // `native_rate` divides, so it must not be zero.
+        unsafe { CQM_Reset(self.state.as_ptr(), output_rate, native_rate.max(1)) }
     }
 
     pub(crate) fn write_reg(&mut self, reg: u16, data: u8) {
-        // SAFETY: as above; `CQM_WriteReg` reads and writes only `*self`.
-        unsafe { CQM_WriteReg(self, reg, data) }
+        // SAFETY: as above; the call reads and writes only the chip block.
+        unsafe { CQM_WriteReg(self.state.as_ptr(), reg, data) }
     }
 
     pub(crate) fn write_reg_buffered(&mut self, reg: u16, data: u8) {
         // SAFETY: as above. The write lands in the chip's own ring buffer,
-        // which is part of the struct.
-        unsafe { CQM_WriteRegBuffered(self, reg, data) }
+        // which is part of the block.
+        unsafe { CQM_WriteRegBuffered(self.state.as_ptr(), reg, data) }
     }
 
     /// Fills `buffer` with interleaved stereo frames.
@@ -160,16 +84,117 @@ impl CqmChip {
         let Ok(frames) = u32::try_from(frames) else {
             // Upstream counts frames in a u32. No caller comes close -- an
             // audio callback asks for hundreds -- but chunking beats wrapping.
-            for chunk in buffer.chunks_mut(u32::MAX as usize & !1) {
+            for chunk in buffer.chunks_mut((u32::MAX as usize) & !1) {
                 self.generate(chunk);
             }
             return;
         };
-        // SAFETY: upstream writes exactly `frames * 2` i16s through `sndptr`
-        // (`CQM_GenerateResampled` per frame, two channels each), and `frames`
-        // is `buffer.len() / 2`, so the write stays inside `buffer`. The
-        // pointer comes from a live mutable slice and is not retained.
-        unsafe { CQM_GenerateStream(self, buffer.as_mut_ptr(), frames) }
+        // SAFETY: upstream writes exactly `frames * 2` i16s through `sndptr`,
+        // and `frames` is `buffer.len() / 2`, so the writes stay inside
+        // `buffer`. The pointer comes from a live mutable slice and is not
+        // retained past the call.
+        unsafe { CQM_GenerateStream(self.state.as_ptr(), buffer.as_mut_ptr(), frames) }
+    }
+}
+
+/// A Nuked-OPN2 chip: the YM3438, or the YM2612 it is the CMOS version of.
+#[derive(Debug)]
+pub(crate) struct Opn2Chip {
+    state: OpaqueChip,
+    /// Which variant this instance is, applied to upstream's **global**
+    /// chip-type for the duration of each [`clocking`](Self::clocking) session.
+    mode: u32,
+}
+
+/// Serialises the window in which upstream's global chip-type is in force.
+///
+/// `OPN2_SetChipType` writes a `static` in `ym3438.c`, not a field of the chip,
+/// so two instances of different variants share one setting. Only `OPN2_Clock`
+/// reads it -- for the YM2612's discrete DAC ladder, which the CMOS YM3438
+/// lacks -- and `OPN2_Read`, which nothing here calls. So the setting has to
+/// hold across a *clocking run*, and this is what makes that true even with two
+/// engines rendering on different threads.
+///
+/// One acquisition per `render` call, not per clock: a render is hundreds of
+/// samples, the lock is uncontended unless two OPN2 chips are being driven at
+/// once, and every holder does nothing but arithmetic. Locking per internal
+/// clock would be 1.3 million acquisitions a second per chip.
+static CHIP_TYPE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// A clocking run with this chip's variant in force.
+///
+/// Writes go through here too: they are consumed *by* the clocks, so they
+/// belong inside the same window.
+pub(crate) struct Opn2Clocking<'a> {
+    chip: &'a mut Opn2Chip,
+    /// Released on drop, which is what ends the window.
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+impl Opn2Chip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_ym3438_sizeof(), drotrim_ym3438_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+            mode: OPN2_MODE_READMODE,
+        }
+    }
+
+    /// Re-initialises as `ym2612` (the discrete chip) or the CMOS YM3438.
+    ///
+    /// Needs no lock: `OPN2_Reset` does not read the global chip-type, only
+    /// `OPN2_Clock` and `OPN2_Read` do.
+    pub(crate) fn reset(&mut self, ym2612: bool) {
+        self.mode = if ym2612 {
+            OPN2_MODE_YM2612 | OPN2_MODE_READMODE
+        } else {
+            OPN2_MODE_READMODE
+        };
+        // SAFETY: the block is sized by the C's own `sizeof(ym3438_t)`, so
+        // `OPN2_Reset`'s initialisation of it stays inside the allocation.
+        unsafe { OPN2_Reset(self.state.as_ptr()) }
+    }
+
+    /// Opens a clocking run with this chip's variant in force.
+    pub(crate) fn clocking(&mut self) -> Opn2Clocking<'_> {
+        // The guarded data is `()`, so a panic while holding leaves nothing
+        // invalid behind -- recovering beats propagating someone else's panic
+        // into an audio callback.
+        let guard = CHIP_TYPE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // SAFETY: writes one `u32` global in the upstream, under the lock that
+        // makes it this chip's until the guard drops. No chip state is touched.
+        unsafe { OPN2_SetChipType(self.mode) }
+        Opn2Clocking {
+            chip: self,
+            _guard: guard,
+        }
+    }
+}
+
+impl Opn2Clocking<'_> {
+    /// Presents `data` on `port` (0/2 select an address, 1/3 the data).
+    ///
+    /// The write is *latched*, not applied: upstream sets a pending flag that
+    /// the next [`clock`](Self::clock) consumes. Two writes with no clock
+    /// between them therefore lose the first, which is why `opn2.rs` queues
+    /// them and drains one per clock.
+    pub(crate) fn write(&mut self, port: u32, data: u8) {
+        // SAFETY: the block is sized by the C's own `sizeof(ym3438_t)`; the
+        // call writes only inside it.
+        unsafe { OPN2_Write(self.chip.state.as_ptr(), port, data) }
+    }
+
+    /// Advances one internal clock (six master clocks) and returns the signed
+    /// 9-bit MOL/MOR pin states.
+    pub(crate) fn clock(&mut self) -> (i32, i32) {
+        let mut pins = [0i16; 2];
+        // SAFETY: upstream writes exactly two i16s through `buffer`, and `pins`
+        // is two i16s. The pointer is not retained past the call.
+        unsafe { OPN2_Clock(self.chip.state.as_ptr(), pins.as_mut_ptr()) }
+        (i32::from(pins[0]), i32::from(pins[1]))
     }
 }
 
@@ -177,30 +202,23 @@ impl CqmChip {
 mod tests {
     use super::*;
 
-    // Upstream's own `sizeof(cqm_t)`, reported by the C side rather than
-    // asserted from this file -- the point is to catch *this* declaration
-    // drifting from the header, and a constant copied out of the header would
-    // drift with it.
-    unsafe extern "C" {
-        #[link_name = "drotrim_cqm_sizeof"]
-        fn cqm_sizeof() -> usize;
-        #[link_name = "drotrim_cqm_alignof"]
-        fn cqm_alignof() -> usize;
-    }
-
-    /// The struct is allocated on the Rust side and written by the C side, so a
-    /// layout disagreement is memory corruption rather than a compile error.
-    /// This is the one thing about the binding that cannot be checked by
-    /// reading it.
+    /// The sizes must be plausible, and the alignments must be something
+    /// `OpaqueChip` can actually promise. A zero would mean the shim did not
+    /// link and every core would be writing into a one-word allocation.
     #[test]
-    fn the_chip_state_is_the_size_upstream_thinks_it_is() {
-        // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (cqm_sizeof(), cqm_alignof()) };
-        assert_eq!(
-            size_of::<CqmChip>(),
-            size,
-            "the Rust mirror of cqm_t has drifted from the pinned header"
-        );
-        assert_eq!(align_of::<CqmChip>(), align, "alignment disagrees");
+    fn the_shim_reports_real_sizes() {
+        // SAFETY: all four return compile-time constants.
+        let (cqm, cqm_align, opn2, opn2_align) = unsafe {
+            (
+                drotrim_cqm_sizeof(),
+                drotrim_cqm_alignof(),
+                drotrim_ym3438_sizeof(),
+                drotrim_ym3438_alignof(),
+            )
+        };
+        assert!(cqm > 1024, "cqm_t came back as {cqm} bytes");
+        assert!(opn2 > 1024, "ym3438_t came back as {opn2} bytes");
+        assert!(cqm_align <= align_of::<u64>(), "{cqm_align}");
+        assert!(opn2_align <= align_of::<u64>(), "{opn2_align}");
     }
 }

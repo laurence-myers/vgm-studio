@@ -51,7 +51,37 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | Core | Chips | Tier | Read from | Upstream revision | License | Local deltas |
 |---|---|---|---|---|---|---|
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
-| `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** The upstream is freestanding C but for `#include <string.h>` (one `memset`), so `crates/dro-cores-nuked/shim/string.h` declares the `mem*` family ahead of it on the include path — glue on our side, per the policy. `shim/layout.c` is also ours: it reports `sizeof(cqm_t)` so the Rust mirror of the struct is checked against the compiler rather than a copied constant. |
+| `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** Freestanding C but for `#include <string.h>`, which `shim/string.h` answers. Its own `writebuf` ring matches Nuked-OPL3's, so `PlayerEngine`'s write spacing suits it unchanged. |
+| `dro-cores-nuked` → `opn2.rs` | YM2612, YM3438 | **submodule + `cc`** | `vendor/upstream/nuked-opn2` (`nukeykt/Nuked-OPN2`), `ym3438.c` + `ym3438.h` | `335747d78cb0abbc3b55b004e62dad9763140115` | LGPL-2.1-or-later | **Compiled unmodified.** Two upstream properties are handled on our side rather than patched — see below. |
+
+### The two Nuked-OPN2 properties worth knowing
+
+Both are upstream's design, not defects, and both would be silent bugs if
+missed:
+
+1. **A register write needs a whole rotation.** `OPN2_Write` only raises a
+   pending flag; the register lands when the chip's 24-cycle rotation reaches
+   *that register's slot* (`if (op_offset[slot] == (chip->address & 0x107))`),
+   and the pending data is discarded the moment the next address arrives. So
+   the wrapper queues writes and hands over **one register per output sample** —
+   which is also the real chip's rate, since a YM2612 raises its busy flag for
+   about a rotation after each write. Draining faster looks like it works (every
+   write is accepted) and silently loses most of them: the symptom is a note
+   that never starts. Nuked-CQM has a write buffer of its own; this one does
+   not, so the buffer is ours.
+2. **`OPN2_SetChipType` writes a file-scope `static`, not a chip field.** Two
+   instances of different variants therefore share one setting, and only
+   `OPN2_Clock` reads it (for the YM2612's discrete DAC ladder, which the CMOS
+   YM3438 lacks) plus `OPN2_Read`, which nothing here calls. The wrapper holds a
+   process-wide lock for the duration of each render call and sets the type
+   inside it, so a YM2612 and a YM3438 in one file — or on two threads — each
+   render as themselves. One acquisition per render, not per clock.
+
+**Not a struct mirror.** Both cores' state is allocated by a size the C reports
+(`shim/layout.c`, ours) and never declared in Rust; see `src/opaque.rs`. A
+`#[repr(C)]` twin is fine until an upstream adds a field, at which point the
+twin is too small and the C writes past it — which on a submodule that exists to
+be pulled is a question of when, not whether.
 | `vendor/nuked-opl3` (optional dependency, `nuked-opl` feature) | YM3812 (OPL2), YMF262 (OPL3) | vendored Rust port (legacy) | The `nuked-opl3` crate 0.1.0, itself a Rust port of Nuke.YKT's Nuked-OPL3 | crates.io 0.1.0 | LGPL-2.1-or-later | Two defect fixes and one pan-law change in `src/core.rs`, all documented in `vendor/nuked-opl3/README.dro-trimmer.md`; both fixes are upstream-PR material. Shipped, byte-tested against the C reference (`c-parity`), wasm-clean. **The one legacy vendored core** — upstream is quiet, so the no-vendoring policy above does not apply retroactively. |
 
 ## Where a core is declared
