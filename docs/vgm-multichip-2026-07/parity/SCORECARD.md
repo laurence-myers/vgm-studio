@@ -239,3 +239,33 @@ Five readings, and the first is the one this file exists to record:
 The rest of the table is unchanged from the first run and keeps its readings:
 the three near-silent PCM chips, Game Boy and NES APU far below where clean-room
 implementations should land, and the OPN family's known ADPCM gap.
+
+## After the PCM fixes (2026-07-28)
+
+The three near-silent chips were three unrelated bugs — inverted control bits
+on the OKIM6258, inverted volume polarity on the HuC6280, a missing bank latch
+plus unmasked table entries on the OKIM6295 (commit a0d7114). Re-measured at
+native rates, n as printed:
+
+| Chip | before | after | reading |
+|---|---|---|---|
+| OKIM6258 | 0.0000, lvl 0.000, drop 1.000 | **0.5573 (n=9), lvl 0.980, drop 0.000** | a normal clean-room row now; level within 2% |
+| OKIM6295 | 0.0080, lvl 0.019 | 0.0171 (n=12), lvl 0.475, drop 0.190 | sounds but does not correlate — see below |
+| HuC6280 | 0.0156, lvl 0.037 | 0.0733 (n=12), lvl 0.521 | sounds but does not correlate — open |
+
+The OKIM6295's residual explained itself on inspection: the pin-7 divider
+mapping was inverted both ways, so every file played **386 cents off** — the
+ratio of the two dividers, far outside the ±60-cent detune search, which is why
+the harness read audible playback as pure decorrelation. Fixed; the re-measure
+is the next run. Its divider test had asserted the same inverted mapping and
+passed — the **third** code-and-test pair caught agreeing on a misreading
+(SN76489 volume curve, HuC6280 polarity, this), and all three were separated
+only by external evidence. That is the standing argument for this harness.
+
+HuC6280 at 0.073-with-sound is the same *shape* as the 6295 was — a systematic
+pitch or timing offset is the first suspect (its cents column reads −4.5 but
+the search saturates at ±60) — and is the next investigation.
+
+Also standing: the corpus audibility suite said 12/12 for all three chips the
+whole time, because multi-chip rips mask a silent chip with their neighbours.
+Single-chip filtering is what exposed every one of these.
