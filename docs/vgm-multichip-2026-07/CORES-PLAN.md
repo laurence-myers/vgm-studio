@@ -224,14 +224,23 @@ workspace green including the wasm check build.
 | cr-2 | Registry + config migration + Settings core picker (§2); corpus chip index tool; `nuked-opl` feature-gating in dro-synth. Registry entries: existing SN76489 + OPL path. |
 | cr-3 | **Submodule infrastructure + Nuked-CQM** (§3, §4): `vendor/upstream/`, `dro-cores-nuked` crate, `build.rs` + clang-to-wasm proof, CQM as an `OplChip`, OPL row entry beside Nuked/RetroWave. Check the PlayerEngine's Nuked-specific buffered-write spacing against CQM's semantics. The PoC gate for the whole submodule approach. |
 | cr-4 | YM2612/YM3438 via Nuked-OPN2 submodule. MegaDrive folder becomes fully audible (PSG + FM). Optimiser: revisit the 0x2A/0x28 exclusions against an LLE render. |
-| cr-5 | YM2413: Nuked-OPLL (G) + emu2413 (P). First `dro-cores-gpl` content. |
-| cr-6 | AY8910 via Ayumi; YM2151 via Nuked-OPM. |
-| cr-7 | Game Boy (SameBoy APU) + NES APU (clean-room). GameBoy + NES folders audible. |
-| cr-8 | OPN family (YM2203/2608/2610): fmopn-logic port (G). NeoGeo folder audible. The biggest single step; LLE oracles stood up first. |
-| cr-9 | HuC6280 + WonderSwan + VSU (all P). TurboGrafx/WonderSwan/NeoGeoPocket-adjacent folders. |
-| cr-10 | PCM long tail, batched (P). Arcade folder converges. |
+| cr-5 | YM2151 via Nuked-OPM (N, submodule). |
+| cr-6 | NES APU (clean-room from NESdev docs) + Game Boy DMG (SameBoy APU). NES + GameBoy folders audible. |
+| cr-7 | OPN family (YM2203/2608/2610): fmopn-logic port (G). NeoGeo folder audible. The biggest single step, and now the one that **stands up `dro-cores-gpl`**; LLE oracles first. |
+| cr-8 | AY8910 via Ayumi (P) + HuC6280 (c6280_mame port, P). TurboGrafx folder audible. |
+| cr-9 | YM2413: Nuked-OPLL (G) + emu2413 (P). OKIM6295 + OKIM6258 alongside — the two biggest of the PCM chips, and both arcade. |
+| cr-10 | PCM long tail, batched (P), plus WonderSwan, VSU and SAA1099. Arcade folder converges. |
 | cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. |
 | cr-12 | Sweep: registry-vs-chip-table coverage test, About credits complete, `PROVENANCE.md` complete, docs. |
+
+> **Reordered 2026-07-27 by corpus weight**, on the user's call, once cr-2's
+> index made §7.1's numbers available. The old order ran YM2413 at cr-5, YM2151
+> at cr-6 and NES APU at cr-7; measured, YM2413 is 1.8% of the corpus while
+> YM2151 is 13.9% and NES APU 9.9%, so each early step now buys as much audible
+> corpus as it can. The steps are independent, so this cost nothing but the
+> numbering. One consequence worth noting: the first `dro-cores-gpl` content
+> moves from cr-5 (Nuked-OPLL) to cr-7 (the fmopn port), so the GPL provider
+> crate is stood up by the OPN family rather than ahead of it.
 
 Corpus-weight note: MegaDrive + NES + GameBoy + Arcade dominate the 72k
 files, which is why cr-4..cr-8 front-load those systems. Re-derive the exact
