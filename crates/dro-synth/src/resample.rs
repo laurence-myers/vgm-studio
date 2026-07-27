@@ -72,7 +72,8 @@ use std::sync::OnceLock;
 /// Sixteen puts the transition band comfortably inside the guard between 20 kHz
 /// and the 22.05 kHz Nyquist while keeping the tap count affordable at the
 /// worst ratio this app sees -- the SN76489's and AY8910's 5.07:1, which is 183
-/// taps and runs at about 15x realtime.
+/// taps and has measured between 8x and 15x realtime depending on what else the
+/// machine was doing.
 const ZERO_CROSSINGS: usize = 16;
 
 /// Kaiser window parameter. Beta 10 gives about -90 dB of stopband rejection,
@@ -803,7 +804,16 @@ mod tests {
     /// Deliberately loose (five times realtime) because this guards against a
     /// change of *order*, not a benchmark: a machine under load should not fail
     /// it, and doubling the kernel should.
+    ///
+    /// **Release only.** A debug build runs this at 0.5x realtime and a release
+    /// build at 14.6x, so in debug the number says nothing about what ships and
+    /// the assertion would fail every ordinary `cargo test`. Ignored rather
+    /// than compiled out, so a debug run still lists it and says why.
     #[test]
+    #[cfg_attr(
+        debug_assertions,
+        ignore = "timing is meaningless in a debug build; run with --release"
+    )]
     fn the_worst_ratio_runs_faster_than_realtime() {
         let mut resampler = Resampler::new(SN_NATIVE, OUTPUT);
         let mut n = 0u64;
