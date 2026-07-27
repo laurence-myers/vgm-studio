@@ -20,6 +20,7 @@ pub mod limiter;
 pub mod opl;
 pub mod peak;
 pub mod registry;
+pub mod resample;
 pub mod split;
 pub mod vgm_engine;
 pub mod wav;
