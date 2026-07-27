@@ -208,8 +208,15 @@ impl Resampler {
         let half_taps = ((ZERO_CROSSINGS as f64 / lobes_per_frame).ceil() as usize).max(1);
         Self {
             step: (f64::from(native) / f64::from(output) * FRAC_ONE as f64) as u64,
-            // Start past the end so the first output frame fills the history.
-            phase: FRAC_ONE * (2 * half_taps) as u64,
+            // Half the kernel's span, not all of it. Priming with the whole
+            // span would centre the first output frame `half_taps` source
+            // frames in -- the output would run 0.4 ms *ahead* of the command
+            // stream, and the first 0.4 ms of the chip would be swallowed as
+            // filter history and never heard. Priming with half centres output
+            // frame zero on source frame zero: the taps reaching back before
+            // the start read the zero-filled history, which is what silence
+            // before a recording begins actually is.
+            phase: FRAC_ONE * half_taps as u64,
             history: vec![[0; 2]; (2 * half_taps + 2).next_power_of_two()],
             write: 0,
             half_taps,
@@ -271,7 +278,7 @@ impl Resampler {
     pub fn reset(&mut self) {
         self.history.fill([0; 2]);
         self.write = 0;
-        self.phase = FRAC_ONE * (2 * self.half_taps) as u64;
+        self.phase = FRAC_ONE * self.half_taps as u64;
     }
 
     /// How many source frames each output frame spans. What the realtime-cost
@@ -552,6 +559,71 @@ mod tests {
             "the filter should bury the aliasing, not merely improve on it: \
              {old:.1} dB became {new:.1} dB"
         );
+    }
+
+    /// **Every chip must be delayed by the same amount**, or a file's chips
+    /// drift apart from each other: a Mega Drive rip runs a YM2612 at 53 kHz
+    /// beside an SN76489 at 224 kHz, and if the filter delayed those by
+    /// different amounts the two would sit milliseconds apart in the mix.
+    ///
+    /// Measured from the step response rather than read off the formula, so it
+    /// is the behaviour that is pinned and not the arithmetic.
+    #[test]
+    fn every_chip_is_delayed_by_the_same_amount() {
+        /// How long after a step goes in it comes half-way out, in seconds.
+        ///
+        /// Silence first, or there is nothing to time: the history is primed
+        /// by pulling source frames on the first call, so a source that is
+        /// already high has its step arrive before output frame zero.
+        fn delay_seconds(native: u32) -> f64 {
+            let mut resampler = Resampler::new(native, OUTPUT);
+            // The step goes in once the kernel is full of silence.
+            let step_at = 2 * u64::from(native) / 100;
+            let mut pulled = 0u64;
+            let out: Vec<f64> = (0..8_000)
+                .map(|_| {
+                    f64::from(
+                        resampler.next_frame(|| {
+                            let value = if pulled >= step_at { 10_000 } else { 0 };
+                            pulled += 1;
+                            [value, value]
+                        })[0],
+                    )
+                })
+                .collect();
+            let crossing = out
+                .iter()
+                .position(|&sample| sample >= 5_000.0)
+                .expect("the step must arrive") as f64
+                / f64::from(OUTPUT);
+            crossing - step_at as f64 / f64::from(native)
+        }
+
+        let rates = [49_716, 53_267, 55_930, SN_NATIVE, 1_789_773];
+        let measured: Vec<f64> = rates.iter().map(|&rate| delay_seconds(rate)).collect();
+        let spread = measured.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+            - measured.iter().cloned().fold(f64::INFINITY, f64::min);
+        // One output frame of slack: the measurement is quantised to that.
+        assert!(
+            spread <= 1.5 / f64::from(OUTPUT),
+            "the chips are delayed by different amounts, spread {:.3} ms: {:?}",
+            spread * 1000.0,
+            measured.iter().map(|d| d * 1000.0).collect::<Vec<_>>()
+        );
+
+        // And they are aligned with the command stream, not merely with each
+        // other: a step written at a given moment comes out at that moment.
+        // This is what priming the history with *half* the kernel's span buys.
+        // With the whole span -- the obvious way to fill a filter before using
+        // it -- the output ran 0.4 ms ahead of the music and the chip's first
+        // 0.4 ms was swallowed as history and never heard.
+        for (&rate, &seconds) in rates.iter().zip(&measured) {
+            assert!(
+                seconds.abs() < 2.0 / f64::from(OUTPUT),
+                "{rate} Hz sits {:.3} ms away from where the command stream put it",
+                seconds * 1000.0
+            );
+        }
     }
 
     /// A constant in must be the same constant out, at every ratio, or the
