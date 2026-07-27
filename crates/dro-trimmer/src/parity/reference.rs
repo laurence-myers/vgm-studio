@@ -32,6 +32,13 @@ pub const PLAYER_ENV: &str = "DROTRIM_REF_PLAYER";
 pub const ARGS_ENV: &str = "DROTRIM_REF_ARGS";
 /// Optional: where to keep rendered reference WAVs between runs.
 pub const CACHE_ENV: &str = "DROTRIM_PARITY_CACHE";
+/// Optional: a settings file staged beside the player before each run.
+///
+/// For VGMPlay this is its `VGMPlay.ini`, which carries the loop count, the
+/// fade and the per-chip core selection -- everything that decides what the
+/// reference *is*. Pinning it is what makes a comparison reproducible.
+/// See [`Reference::stage`] for why the player is copied rather than pointed at.
+pub const CONFIG_ENV: &str = "DROTRIM_REF_CONFIG";
 
 /// An external player, and the record of which one it was.
 #[derive(Debug, Clone)]
@@ -39,6 +46,7 @@ pub struct Reference {
     executable: PathBuf,
     extra_args: Vec<String>,
     cache: Option<PathBuf>,
+    config: Option<PathBuf>,
 }
 
 /// Why a reference render did not happen.
@@ -102,6 +110,7 @@ impl Reference {
                 .map(str::to_owned)
                 .collect(),
             cache: std::env::var_os(CACHE_ENV).map(PathBuf::from),
+            config: std::env::var_os(CONFIG_ENV).map(PathBuf::from),
         })
     }
 
@@ -112,13 +121,16 @@ impl Reference {
             .map(|meta| meta.len())
             .unwrap_or(0);
         format!(
-            "{} ({size} bytes){}",
+            "{} ({size} bytes){}{}",
             self.executable.display(),
             if self.extra_args.is_empty() {
                 String::new()
             } else {
                 format!(" args={:?}", self.extra_args)
-            }
+            },
+            self.config
+                .as_ref()
+                .map_or(String::new(), |path| format!(" config={}", path.display())),
         )
     }
 
@@ -134,12 +146,16 @@ impl Reference {
         }
 
         std::fs::create_dir_all(work_dir)?;
-        let output = work_dir.join("reference.wav");
-        let _ = std::fs::remove_file(&output);
+        // A stale WAV from an earlier run would be picked up as this one's, so
+        // the directory starts empty.
+        clear_wavs(work_dir);
+        let staged = self.stage(work_dir)?;
 
-        let mut command = std::process::Command::new(&self.executable);
-        command.args(&self.extra_args).arg(input).arg(&output);
-        command.current_dir(work_dir);
+        let mut command = std::process::Command::new(&staged);
+        command.args(&self.extra_args).arg(input);
+        command.current_dir(staged.parent().unwrap_or(work_dir));
+        // No console to read from: the player must run headless or not at all.
+        command.stdin(std::process::Stdio::null());
         let status = command
             .output()
             .map_err(|error| ReferenceError::Failed(format!("spawning: {error}")))?;
@@ -150,12 +166,17 @@ impl Reference {
                 String::from_utf8_lossy(&status.stderr).trim()
             )));
         }
-        let bytes = std::fs::read(&output).map_err(|error| {
+        // The player names its own output after the input, so it is found
+        // rather than dictated. Anything else would make the runner specific to
+        // one player's command line.
+        let output = sole_wav(work_dir).ok_or_else(|| {
             ReferenceError::Failed(format!(
-                "the player exited cleanly but wrote no {}: {error}",
-                output.display()
+                "the player exited cleanly but wrote no .wav into {}. Check that \
+                 the pinned config sets LogSound to 1.",
+                work_dir.display()
             ))
         })?;
+        let bytes = std::fs::read(&output)?;
         if let Some(cached) = self.cached_path(input) {
             if let Some(parent) = cached.parent() {
                 let _ = std::fs::create_dir_all(parent);
@@ -181,6 +202,7 @@ impl Reference {
             executable: self.executable.clone(),
             extra_args: self.extra_args.clone(),
             cache: None,
+            config: self.config.clone(),
         };
         let first = bare.render(input, &work_dir.join("determinism-a"))?;
         let second = bare.render(input, &work_dir.join("determinism-b"))?;
@@ -188,6 +210,55 @@ impl Reference {
             return Err(ReferenceError::NotDeterministic);
         }
         Ok(())
+    }
+
+    /// Copies the player and its pinned config into `work_dir`, and returns the
+    /// staged executable.
+    ///
+    /// Two behaviours of VGMPlay force this, both established by experiment
+    /// rather than read off a manual:
+    ///
+    /// 1. **It reads `VGMPlay.ini` from its own directory, not the working
+    ///    directory.** Dropping a pinned config next to where the process was
+    ///    started has no effect at all -- the run silently uses whatever the
+    ///    installation happens to hold, which is exactly the unreproducibility
+    ///    pinning exists to prevent. The only way to make the pinned settings
+    ///    win without editing someone's installed copy is to stand up our own.
+    /// 2. **An empty `LogPath` means "beside the input file".** Left empty, a
+    ///    render writes an eight-megabyte WAV into the corpus directory it is
+    ///    reading from. So `LogPath` is rewritten to point here, and the rest of
+    ///    the pinned file is copied through untouched.
+    fn stage(&self, work_dir: &Path) -> Result<PathBuf, ReferenceError> {
+        let staged_dir = work_dir.join("player");
+        std::fs::create_dir_all(&staged_dir)?;
+        let source_dir = self.executable.parent().ok_or_else(|| {
+            ReferenceError::Failed(format!("{} has no directory", self.executable.display()))
+        })?;
+        // The player's neighbours matter: VGMPlay needs its zlib beside it.
+        let neighbours = std::fs::read_dir(source_dir).map_err(|error| {
+            ReferenceError::Failed(format!("reading {}: {error}", source_dir.display()))
+        })?;
+        for entry in neighbours.flatten() {
+            let from = entry.path();
+            if !from.is_file() {
+                continue;
+            }
+            let to = staged_dir.join(entry.file_name());
+            // Copying is one-time; later renders reuse the staged tree.
+            if !to.exists() {
+                std::fs::copy(&from, &to)?;
+            }
+        }
+        if let Some(config) = &self.config
+            && let Some(name) = config.file_name()
+        {
+            let pinned = std::fs::read_to_string(config)?;
+            std::fs::write(&staged_dir.join(name), log_path_set_to(&pinned, work_dir))?;
+        }
+        let name = self.executable.file_name().ok_or_else(|| {
+            ReferenceError::Failed(format!("{} has no file name", self.executable.display()))
+        })?;
+        Ok(staged_dir.join(name))
     }
 
     /// Where a cached render of `input` would live. Keyed by the input's name
@@ -199,6 +270,71 @@ impl Reference {
         let size = std::fs::metadata(input).ok()?.len();
         Some(cache.join(format!("{name}.{size}.wav")))
     }
+}
+
+/// Returns `config` with its `LogPath` pointed at `dir`.
+///
+/// Everything else passes through byte for byte -- the pinned file stays the
+/// authority on loop count, fade, sample rate and core selection, and only the
+/// one setting that cannot be known until a work directory exists is written.
+fn log_path_set_to(config: &str, dir: &Path) -> String {
+    // A trailing separator, because the setting is documented as a directory
+    // and is concatenated with the file name: without it the render lands in
+    // the *parent* under a run-together name.
+    let mut target = dir.display().to_string();
+    if !target.ends_with(std::path::MAIN_SEPARATOR) {
+        target.push(std::path::MAIN_SEPARATOR);
+    }
+    let mut out = String::with_capacity(config.len() + target.len());
+    for line in config.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\r', '\n']);
+        if body
+            .split('=')
+            .next()
+            .is_some_and(|key| key.trim().eq_ignore_ascii_case("LogPath"))
+            && body.contains('=')
+        {
+            out.push_str(&format!("LogPath = {target}"));
+            out.push_str(&line[body.len()..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
+/// Removes any WAV already in `dir`, so the next run's output is unambiguous.
+fn clear_wavs(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+        {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// The one WAV in `dir`, or `None` if there is not exactly one.
+///
+/// Exactly one, not the newest: two would mean the previous run was not
+/// cleared, and quietly taking one of them is how a comparison ends up
+/// measuring the wrong file.
+fn sole_wav(dir: &Path) -> Option<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+        })
+        .collect();
+    (found.len() == 1).then(|| found.remove(0))
 }
 
 /// Reads a 16-bit stereo WAV into interleaved samples.
@@ -242,6 +378,7 @@ mod tests {
             executable: PathBuf::from("no-such-player-anywhere"),
             extra_args: Vec::new(),
             cache: None,
+            config: None,
         };
         let error = missing
             .render(
@@ -253,6 +390,38 @@ mod tests {
             matches!(error, ReferenceError::Failed(_)),
             "got {error} -- a missing binary is a failure to run, not a panic"
         );
+    }
+
+    /// An empty `LogPath` makes VGMPlay write its render *beside the input* --
+    /// which, for a corpus test, means depositing megabytes of WAV into the
+    /// user's music collection. Discovered the hard way. The rewrite is the
+    /// only thing standing between the harness and that behaviour, so it is
+    /// tested rather than trusted.
+    #[test]
+    fn the_log_path_is_redirected_and_nothing_else_is_touched() {
+        let pinned = "; a comment\r\nLogSound = 1\r\nLogPath =\r\nSampleRate = 44100\r\n";
+        let rewritten = log_path_set_to(pinned, Path::new("X:/work/dir"));
+
+        let line = rewritten
+            .lines()
+            .find(|line| line.starts_with("LogPath"))
+            .expect("the setting survives");
+        let target = line.trim_start_matches("LogPath =").trim();
+        assert!(
+            target.ends_with(std::path::MAIN_SEPARATOR),
+            "{line} -- a directory concatenated with a file name needs its \
+             separator, or the render lands in the parent"
+        );
+        assert!(target.contains("dir"), "{line} -- it points at the work dir");
+
+        assert!(rewritten.contains("LogSound = 1"), "other settings survive");
+        assert!(rewritten.contains("; a comment"), "comments survive");
+        assert_eq!(
+            rewritten.lines().count(),
+            pinned.lines().count(),
+            "the file keeps its shape"
+        );
+        assert!(rewritten.contains("\r\n"), "and its line endings");
     }
 
     /// The WAV reader refuses a shape it cannot compare, rather than converting

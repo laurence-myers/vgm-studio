@@ -151,6 +151,14 @@ fn work_dir() -> PathBuf {
 /// **pt-1's acceptance.** The reference must be a fixed point, or every
 /// threshold downstream is noise -- and the symptom would look like flaky cores
 /// rather than a flaky reference.
+///
+/// Checked **per chip**, on the same single-chip files the scorecard compares,
+/// because determinism turns out not to be a property of the player: the first
+/// run of this test drew a YMF262+YMZ280B rip and the reference disagreed with
+/// itself on 0.9% of samples, at full scale -- the signature of a PCM chip
+/// reading sample memory it never wrote. A player that is a fixed point for FM
+/// and a coin toss for PCM would have quietly widened exactly the thresholds
+/// that are supposed to be catching our bugs.
 #[test]
 #[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
 fn the_reference_player_is_deterministic() {
@@ -159,18 +167,39 @@ fn the_reference_player_is_deterministic() {
         eprintln!("{} not set; skipping", corpus::CORPUS_ENV);
         return;
     };
+    dro_trimmer::install_cores();
     let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
-    let Some(file) = index.sample(ChipKind::Ymf262, 1).into_iter().next() else {
-        eprintln!("no OPL file in the corpus; skipping");
-        return;
-    };
+    let registry = dro_synth::registry::registry();
 
-    reference
-        .self_check(&file, &work_dir())
-        .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
-    println!(
-        "the reference rendered {} identically twice",
-        file.display()
+    // The control group leads, then everything the scorecard will compare.
+    let mut chips = vec![ChipKind::Ymf262];
+    chips.extend(ChipKind::all().filter(|chip| registry.can_build(*chip) && *chip != ChipKind::Ymf262));
+
+    let (mut checked, mut flaky) = (0usize, Vec::new());
+    for chip in chips {
+        let Some(file) = single_chip_files(&index, &root, chip, 1).into_iter().next() else {
+            println!("{:<14} no single-chip corpus file", chip.name());
+            continue;
+        };
+        match reference.self_check(&file, &work_dir()) {
+            Ok(()) => {
+                checked += 1;
+                println!("{:<14} identical twice   {}", chip.name(), short(&file));
+            }
+            Err(ReferenceError::NotDeterministic) => {
+                flaky.push(format!("{} ({})", chip.name(), short(&file)));
+                println!("{:<14} DIFFERED           {}", chip.name(), short(&file));
+            }
+            Err(other) => eprintln!("{:<14} unusable: {other}", chip.name()),
+        }
+    }
+
+    assert!(checked > 0, "nothing was rendered; the reference is unusable");
+    assert!(
+        flaky.is_empty(),
+        "the reference rendered these differently twice: {}. Every threshold \
+         for them would be noise, and the symptom would look like flaky cores.",
+        flaky.join(", ")
     );
 }
 
