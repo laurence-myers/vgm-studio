@@ -11,10 +11,17 @@ unsafe extern "C" {
     // Ours (shim/layout.c), so the size comes from the compiler.
     fn drotrim_opll_sizeof() -> usize;
     fn drotrim_opll_alignof() -> usize;
+    fn drotrim_ympsg_sizeof() -> usize;
+    fn drotrim_ympsg_alignof() -> usize;
 
     fn OPLL_Reset(chip: *mut c_void, chip_type: u32);
     fn OPLL_Clock(chip: *mut c_void, buffer: *mut i32);
     fn OPLL_Write(chip: *mut c_void, port: u32, data: u8);
+
+    fn YMPSG_Init(chip: *mut c_void);
+    fn YMPSG_Write(chip: *mut c_void, data: u8);
+    fn YMPSG_Clock(chip: *mut c_void);
+    fn YMPSG_GetOutput(chip: *mut c_void) -> f32;
 }
 
 /// Upstream's `opll_type_ym2413`: the Yamaha part a VGM means by "YM2413".
@@ -108,6 +115,50 @@ impl OpllChip {
     }
 }
 
+/// A Nuked-PSG chip: the SN76489 as Sega's VDPs integrate it.
+#[derive(Debug)]
+pub(crate) struct PsgChip {
+    state: OpaqueChip,
+}
+
+impl PsgChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_ympsg_sizeof(), drotrim_ympsg_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Re-initialises: upstream's init memsets the struct and pulses IC for a
+    /// full prescaler cycle, exactly what power-on does.
+    pub(crate) fn reset(&mut self) {
+        // SAFETY: the block is sized by the C's own `sizeof(ympsg_t)`, so the
+        // memset inside `YMPSG_Init` stays within the allocation.
+        unsafe { YMPSG_Init(self.state.as_ptr()) }
+    }
+
+    /// Presents one command byte on the chip's single write port. The chip
+    /// consumes it on its next internal clock.
+    pub(crate) fn write(&mut self, data: u8) {
+        // SAFETY: as above; the call writes only inside the chip block.
+        unsafe { YMPSG_Write(self.state.as_ptr(), data) }
+    }
+
+    /// Advances one internal clock.
+    pub(crate) fn clock(&mut self) {
+        // SAFETY: as above.
+        unsafe { YMPSG_Clock(self.state.as_ptr()) }
+    }
+
+    /// The four DAC levels summed, as upstream's float arithmetic has them --
+    /// unipolar, `0.0..=4.0` at the rails.
+    pub(crate) fn output(&mut self) -> f32 {
+        // SAFETY: as above; reads chip state and touches nothing else.
+        unsafe { YMPSG_GetOutput(self.state.as_ptr()) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +170,11 @@ mod tests {
         // SAFETY: both return compile-time constants.
         let (size, align) = unsafe { (drotrim_opll_sizeof(), drotrim_opll_alignof()) };
         assert!(size > 128, "opll_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (drotrim_ympsg_sizeof(), drotrim_ympsg_alignof()) };
+        assert!(size > 64, "ympsg_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }

@@ -10,3 +10,6 @@
 [submodule "vendor/upstream/nuked-opll"]
 	path = vendor/upstream/nuked-opll
 	url = https://github.com/nukeykt/Nuked-OPLL.git
+[submodule "vendor/upstream/nuked-psg"]
+	path = vendor/upstream/nuked-psg
+	url = https://github.com/nukeykt/Nuked-PSG.git

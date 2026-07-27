@@ -20,14 +20,28 @@ fn main() {
         println!("cargo::rerun-if-changed={}", opll.join(file).display());
     }
 
+    let psg = PathBuf::from(UPSTREAM).join("nuked-psg");
+    require_submodule(&psg, "nuked-psg", "ympsg.c");
+    for file in ["ympsg.c", "ympsg.h"] {
+        println!("cargo::rerun-if-changed={}", psg.join(file).display());
+    }
+
     let mut build = cc::Build::new();
     build
         .file(opll.join("opll.c"))
+        .file(psg.join("ympsg.c"))
         .file("shim/layout.c")
         .include(&opll)
+        .include(&psg)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")
+        // Nuked-PSG's DAC is summed in `float`. Contraction would let a
+        // compiler fuse those into FMAs on one target and not another, and
+        // `ChipCore` promises identical output everywhere -- so forbid it
+        // where the compiler understands the flag (MSVC does not contract
+        // under its default /fp:precise).
+        .flag_if_supported("-ffp-contract=off")
         .warnings(false);
 
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
