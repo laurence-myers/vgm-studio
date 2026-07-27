@@ -327,6 +327,7 @@ pub enum Regime {
 /// investigation is in SCORECARD.md, and a regression from the observed level
 /// fails loudly. Raising a bar when its chip improves is expected; lowering
 /// one requires the same standard of evidence that set it.
+#[derive(Debug)]
 pub struct Threshold {
     pub chip: ChipKind,
     pub regime: Regime,

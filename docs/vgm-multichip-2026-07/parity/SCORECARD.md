@@ -318,3 +318,39 @@ which is the strongest statement a clean-room core can make. Levels: even the
 references differ by 23% (MAME/OOTK 0.777); ours is the quietest (0.52–0.67),
 a bounded pt-6 balance item. The key-on phase fix stands on hardware grounds;
 the chip's frozen threshold will assert envelope, not correlation.
+
+## The scorecard passes (2026-07-28)
+
+`every_cored_chip_matches_the_reference_within_its_band` is **green** for the
+first time, under thresholds frozen as regression floors: each bar sits under
+its chip's observed n=12 median, and every bar below its regime's ideal
+carries the reason on the entry itself, enforced by a policy test.
+
+The pt-6 gain corrections verified in the same run:
+
+| Chip | level before | level after | correction |
+|---|---|---|---|
+| YM2612 | 0.227 | **0.955** | ×4.2, measured two independent ways |
+| YM2151 | 0.500 | **1.000** | ×2 |
+
+YM2151 also ticked up to 0.9991 — comfortably the best chip on the board.
+The final standings, all at native rate, n=12 unless marked:
+
+| Chip | corr | lvl | frozen bar | state |
+|---|---|---|---|---|
+| YM2151 | 0.9991 | 1.000 | 0.99 shared | **passes the ideal** |
+| YM2413 | 0.9767 | 0.370 | 0.95 | open: shared-core shortfall |
+| YM2612 | 0.9042 | 0.955 | 0.88 | open: driver-level difference |
+| OKIM6295 | 0.6758 | 0.497 | 0.60 | settled clean-room |
+| YM2203 | 0.6396 | 0.497 | 0.60 | different FM core |
+| YM2608 | 0.6009 | 0.641 | 0.55 | ADPCM gap |
+| AY8910 | 0.5972 | 0.720 | 0.55 | clean-room band |
+| YM2610 | 0.5942 | 0.284 | 0.55 | ADPCM gap |
+| SN76489 | 0.5855 | 0.984 | 0.55 | open: HF/noise band |
+| OKIM6258 | 0.5573 (n=9) | 0.980 | 0.50 | settled clean-room |
+| NES APU | 0.3340 | 0.756 | 0.30 | open: far below family |
+| Game Boy DMG | 0.2948 | 0.550 | 0.25 | open: far below family |
+| HuC6280 | 0.0746 | 0.499 | corr n/a | envelope arbitrates (0.97) |
+
+pt-1 through pt-6 are complete. What remains open is exactly what the table
+says is open, each with a tripwire under its current level.
