@@ -31,6 +31,22 @@ scoop install main/rustup
 `rust-toolchain.toml` pins the channel, components and the `wasm32-unknown-unknown`
 target, so the first `cargo` command installs whatever is missing.
 
+Some emulator cores are upstream C, consumed as **git submodules pinned to a
+commit** and compiled as they stand (`vendor/upstream/`, built by
+`crates/dro-cores-nuked`). A fresh clone needs them:
+
+```PowerShell
+git submodule update --init --recursive
+```
+
+The build fails with that instruction rather than a missing-file error if it is
+skipped. They compile with clang — including to `wasm32-unknown-unknown`, which
+is why these cores reach the web build. Never edit anything under
+`vendor/upstream/`: upgrading is `git -C vendor/upstream/<x> pull` plus a pin
+bump, and that only stays true while there is nothing local to merge against.
+Whatever the build needs and an upstream does not provide goes in that crate's
+`shim/`. See `crates/dro-synth/PROVENANCE.md`.
+
 ```PowerShell
 cargo test --workspace                                       # unit + integration tests
 cargo fmt --all                                              # format

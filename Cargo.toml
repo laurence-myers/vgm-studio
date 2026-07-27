@@ -38,6 +38,7 @@ dro-synth = { path = "crates/dro-synth" }
 dro-audio-native = { path = "crates/dro-audio-native" }
 dro-retrowave = { path = "crates/dro-retrowave" }
 dro-ui = { path = "crates/dro-ui" }
+dro-cores-nuked = { path = "crates/dro-cores-nuked" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
 # Since 0.34, eframe's default renderer is wgpu -- glow left the default
@@ -92,6 +93,12 @@ rtrb = "0.3"
 # workspace test job is Windows-only, and the Linux CI jobs are per-crate and
 # exclude this crate.
 serialport = "4.9"
+
+# Compiles the pinned upstream C cores in `vendor/upstream/` (dro-cores-nuked).
+# A build-dependency only; it is clang that does the work, and clang can target
+# wasm32-unknown-unknown directly, which is what keeps those cores in the web
+# build. See `crates/dro-cores-nuked/build.rs`.
+cc = "1"
 
 # CLI tooling for the `drotrim` binary (native only).
 anyhow = "1"

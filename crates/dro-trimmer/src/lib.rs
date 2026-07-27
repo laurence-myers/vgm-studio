@@ -32,6 +32,10 @@ pub use pack_zip::{PackZipOutput, build_pack_zip};
 /// Settings dialog stops offering hardware it could never reach.
 pub fn install_cores() {
     let mut registry = dro_synth::CoreRegistry::with_builtins();
+    // After the built-ins: Nuked-OPL3 is the faithful YMF262 and CQM is
+    // Creative's clone of one, so CQM is an authenticity flavour beside it
+    // rather than a better default.
+    dro_cores_nuked::register(&mut registry);
     dro_retrowave::register(&mut registry);
     if dro_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed
@@ -59,29 +63,59 @@ pub fn read_song_from_path(path: &Path) -> Result<Song> {
 mod core_registry_tests {
     use dro_core::vgm::ChipKind;
 
-    /// `dro-ui` declares a stand-in RetroWave entry for its dialog tests, since
-    /// it compiles to wasm and cannot link this native-only crate. The two
-    /// declarations drifting apart would mean the snapshot documents a picker
-    /// the app does not actually show -- the exact failure a snapshot exists to
-    /// prevent, made invisible.
+    /// `dro-ui` declares stand-in provider entries for its dialog tests, since
+    /// it compiles to wasm and can link neither the native-only board crate nor
+    /// the C-toolchain one. Those declarations drifting from these would mean
+    /// the snapshot documents a picker the app does not actually show -- the
+    /// exact failure a snapshot exists to prevent, made invisible.
     #[test]
     fn the_test_registry_matches_the_apps() {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_nuked::register(&mut registry);
         dro_retrowave::register(&mut registry);
 
-        let hardware = registry
-            .for_chip(ChipKind::Ymf262)
-            .find(|info| info.id == "opl3.retrowave")
-            .expect("the board is offered for OPL");
-        assert_eq!(hardware.label, "RetroWave OPL3 (hardware)");
-        assert_eq!(hardware.license, "GPL-2.0-or-later");
+        for (id, label, license) in [
+            ("opl3.cqm", "Nuked-CQM (Creative CQM)", "LGPL-2.1-or-later"),
+            (
+                "opl3.retrowave",
+                "RetroWave OPL3 (hardware)",
+                "GPL-2.0-or-later",
+            ),
+        ] {
+            let info = registry
+                .for_chip(ChipKind::Ymf262)
+                .find(|info| info.id == id)
+                .unwrap_or_else(|| panic!("{id} is offered for OPL"));
+            assert_eq!(info.label, label);
+            assert_eq!(info.license, license);
+        }
 
-        // And it is an alternative, not the default: a first run must not go
-        // hunting for a serial port.
-        assert_ne!(
+        // Both are alternatives, not defaults: a first run must not go hunting
+        // for a serial port, and the faithful YMF262 stays ahead of Creative's
+        // clone of one.
+        assert_eq!(
             registry.default_for(ChipKind::Ymf262).map(|info| info.id),
-            Some("opl3.retrowave"),
-            "the emulator stays the default"
+            Some("opl3.nuked"),
+            "Nuked-OPL3 stays the default OPL core"
         );
+    }
+
+    /// The whole point of the registry reaching playback: a core the user picks
+    /// is a core that gets built. `Routed` entries (the board) are the app's to
+    /// interpret and correctly build nothing here.
+    #[test]
+    fn a_picked_opl_core_is_the_one_that_gets_built() {
+        let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_nuked::register(&mut registry);
+        dro_retrowave::register(&mut registry);
+
+        assert!(registry.build_opl(Some("cqm"), 49_716).is_some());
+        assert!(registry.build_opl(Some("nuked"), 49_716).is_some());
+        assert!(
+            registry.build_opl(Some("retrowave"), 49_716).is_none(),
+            "the board is a whole audio service, not a chip the engine pulls from"
+        );
+        // An unknown name falls back to the default, which does build.
+        assert!(registry.build_opl(Some("nonesuch"), 49_716).is_some());
     }
 }

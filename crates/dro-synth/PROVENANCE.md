@@ -51,6 +51,7 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 | Core | Chips | Tier | Read from | Upstream revision | License | Local deltas |
 |---|---|---|---|---|---|---|
 | `cores/sn76489.rs` | SN76489 (+ Sega VDP variant) | clean-room | Documented behaviour: the latch/data protocol, ten-bit periods, the 16-bit LFSR tapped at bits 0 and 3, four-bit attenuation at 2 dB a step | n/a — no code read | MIT OR Apache-2.0 | n/a. Every constant is *derived in a test* rather than transcribed: the volume table is recomputed from "2 dB a step, last step off", and pitch is counted in rising edges against `clock / (32 × period)`. Not modelled: the Game Gear stereo register, T6W28 split addressing. |
+| `dro-cores-nuked` → `cqm.rs` | YM3812 (OPL2), YMF262 (OPL3) — as the Creative CQM clone | **submodule + `cc`** | `vendor/upstream/nuked-cqm` (`nukeykt/Nuked-CQM`), `cqm.c` + `cqm.h` | `274a4c463ab2f8e193b1c1192f9d4e0d02df521a` | LGPL-2.1-or-later | **Compiled unmodified.** The upstream is freestanding C but for `#include <string.h>` (one `memset`), so `crates/dro-cores-nuked/shim/string.h` declares the `mem*` family ahead of it on the include path — glue on our side, per the policy. `shim/layout.c` is also ours: it reports `sizeof(cqm_t)` so the Rust mirror of the struct is checked against the compiler rather than a copied constant. |
 | `vendor/nuked-opl3` (optional dependency, `nuked-opl` feature) | YM3812 (OPL2), YMF262 (OPL3) | vendored Rust port (legacy) | The `nuked-opl3` crate 0.1.0, itself a Rust port of Nuke.YKT's Nuked-OPL3 | crates.io 0.1.0 | LGPL-2.1-or-later | Two defect fixes and one pan-law change in `src/core.rs`, all documented in `vendor/nuked-opl3/README.dro-trimmer.md`; both fixes are upstream-PR material. Shipped, byte-tested against the C reference (`c-parity`), wasm-clean. **The one legacy vendored core** — upstream is quiet, so the no-vendoring policy above does not apply retroactively. |
 
 ## Where a core is declared
@@ -65,7 +66,36 @@ Registered outside `dro-synth`, and why:
 
 | Provider | Registers | Why not here |
 |---|---|---|
+| `dro-cores-nuked` | `opl3.cqm` — Nuked-CQM | LGPL-2.1-or-later. `dro-synth` is permissive; the app links this. |
 | `dro-retrowave` | `opl3.retrowave` — the RetroWave OPL3 board | Native-only (serial ports). The web build never registers it, so its Settings dialog does not offer hardware it could never reach. |
+
+## Upgrading a submodule core
+
+The whole reason these are submodules rather than ports:
+
+```bash
+git -C vendor/upstream/nuked-cqm pull
+```
+
+then commit the new pin, re-run the crate's tests, and A/B against VGMPlay. No
+re-port, no merge against local edits — there are none. A fresh clone needs
+`git submodule update --init --recursive` first; the build fails with that
+instruction rather than a missing-file error if it is skipped.
+
+**What was proven at cr-3**, and what the rest of the nukeykt family inherits:
+the upstream C compiles to `wasm32-unknown-unknown` directly through clang, so
+these cores reach the web build too. Verified by the object's own contents —
+`llvm-nm` on the wasm build's `cqm.o` lists `CQM_Reset`, `CQM_GenerateStream`
+and the rest, and `file` calls it a WebAssembly binary. The only thing standing
+in the way was the libc include, which `shim/string.h` answers.
+
+**And the buffered-write question the plan raised**: `PlayerEngine` spaces
+queued register writes a couple of samples apart because Nuked-OPL3 resolves
+key-on/off edges at sample-generation time. Upstream CQM has its own `writebuf`
+ring with the same two-sample delay, so the spacing suits it unchanged — and
+`buffered_writes_retrigger_where_immediate_ones_collapse` in `cqm.rs` asserts
+that in *behaviour* rather than by reading the header, so an upstream change
+that broke it would be caught.
 
 ## Non-core third-party code
 

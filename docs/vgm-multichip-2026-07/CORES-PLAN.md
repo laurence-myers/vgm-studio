@@ -237,6 +237,54 @@ Corpus-weight note: MegaDrive + NES + GameBoy + Arcade dominate the 72k
 files, which is why cr-4..cr-8 front-load those systems. Re-derive the exact
 counts from the cr-2 index rather than trusting this sentence.
 
+### 7.1 · What the corpus actually says (measured 2026-07-27, cr-2's index)
+
+72,481 files, 39 of the 42 chips present (no SCSP, ES5505 or Mikey), 18 files
+whose header would not read. Share is of all files, and sums past 100% because
+a multi-chip rip counts once per chip.
+
+| Chip | Files | Share | Plan step |
+|---|---:|---:|---|
+| YM2612 | 14,622 | 20.2% | cr-4 |
+| SN76489 | 11,845 | 16.3% | **done** |
+| **YM2151** | **10,069** | **13.9%** | cr-6 |
+| **NES APU** | **7,191** | **9.9%** | cr-7 |
+| YM2203 | 7,020 | 9.7% | cr-8 |
+| YM2610 | 4,449 | 6.1% | cr-8 |
+| AY8910 | 4,228 | 5.8% | cr-6 |
+| HuC6280 | 4,178 | 5.8% | cr-9 |
+| YM3812 | 3,934 | 5.4% | **done** |
+| Game Boy DMG | 3,827 | 5.3% | cr-7 |
+| OKIM6295 | 3,465 | 4.8% | cr-10 |
+| OKIM6258 | 2,900 | 4.0% | cr-10 |
+| YM2608 | 2,408 | 3.3% | cr-8 |
+| QSound | 1,699 | 2.3% | cr-10 |
+| **YM2413** | **1,284** | **1.8%** | **cr-5** |
+| YMF262 | 1,003 | 1.4% | **done** |
+
+Tail below 1%: C352 1,271 · K054539 872 · RF5C68 705 · C140 639 · K051649 512 ·
+YMF278B 494 · RF5C164 419 · YMF271 376 · K053260 366 · YMZ280B 354 · VSU 353 ·
+Y8950 268 · WonderSwan 266 · YM3526 247 · uPD7759 240 · X1-010 229 · MultiPCM
+224 · Sega PCM 215 · PWM 184 · ES5503 145 · GA20 136 · SAA1099 116 · POKEY 30.
+
+**Two places the measured order disagrees with §7, for the user to rule on:**
+
+1. **YM2413 is cr-5 but is only 1.8% of the corpus** — below YM2151, NES APU,
+   YM2203, YM2610, AY8910, HuC6280, Game Boy and both OKIM chips. It was
+   presumably placed early because it is a small chip with a permissive core
+   available (emu2413), which is a fine reason to do it *cheaply*, but a poor
+   reason to do it *fifth*.
+2. **YM2151 (13.9%, third overall) sits at cr-6 and NES APU (9.9%, fourth) at
+   cr-7**, behind YM2413. Swapping YM2413 later and pulling those two forward
+   would make each early step buy more audible corpus.
+
+`OKIM6295` and `OKIM6258` are also worth noting: together 6,365 files, ranked
+11th and 12th, but filed in the cr-10 "PCM long tail" batch.
+
+Nothing has been reordered — the step order is the user's call. Re-run
+`cargo test -p dro-trimmer --release --test chip_index -- --ignored --nocapture`
+with `DROTRIM_VGMRIPS_CORPUS` set to regenerate this table.
+
 ## 8 · Out of scope, recorded so nobody wonders
 
 - Mesen2/BlastEm code in-binary (GPL-3 — decision 7). Oracle use only.

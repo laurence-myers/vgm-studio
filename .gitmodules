@@ -1,0 +1,3 @@
+[submodule "vendor/upstream/nuked-cqm"]
+	path = vendor/upstream/nuked-cqm
+	url = https://github.com/nukeykt/Nuked-CQM.git

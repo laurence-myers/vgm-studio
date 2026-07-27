@@ -10,7 +10,11 @@ use nuked_opl3::Opl3Chip;
 /// Implementations must be deterministic and free of floating-point rounding
 /// differences across targets: native and wasm builds are expected to produce
 /// bit-identical output, and a test asserts exactly that.
-pub trait OplChip {
+///
+/// `Debug + Send` because a chip is now chosen at *runtime* -- the Settings
+/// core picker means the engine holds a `Box<dyn OplChip>` -- and the engine it
+/// lives in is both printed and moved into an audio callback on another thread.
+pub trait OplChip: fmt::Debug + Send {
     /// Discards all chip state and re-initialises at `sample_rate`.
     fn reset(&mut self, sample_rate: u32);
 
@@ -104,6 +108,33 @@ impl OplChip for NukedOpl3 {
         self.chip
             .generate_stream(buffer)
             .expect("buffer holds at least one frame");
+    }
+}
+
+/// A boxed chip is a chip.
+///
+/// What makes the core picker possible: the engine is generic over `C: OplChip`
+/// and stays so, but `C` can now be `Box<dyn OplChip>` chosen from the registry
+/// at load time. Without this the choice would have to be a compile-time type,
+/// which is exactly the arrangement the registry exists to undo.
+impl OplChip for Box<dyn OplChip> {
+    fn reset(&mut self, sample_rate: u32) {
+        (**self).reset(sample_rate);
+    }
+
+    fn write_reg(&mut self, reg: u16, value: u8) {
+        (**self).write_reg(reg, value);
+    }
+
+    fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+        // Forwarded rather than left to the trait's default, which would turn
+        // every buffered write into an immediate one and silently drop fast
+        // retriggers -- the exact bug the buffered path exists to avoid.
+        (**self).write_reg_buffered(reg, value);
+    }
+
+    fn generate_samples(&mut self, buffer: &mut [i16]) {
+        (**self).generate_samples(buffer);
     }
 }
 

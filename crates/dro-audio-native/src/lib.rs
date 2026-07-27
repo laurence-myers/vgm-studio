@@ -22,7 +22,9 @@ use cpal::{SampleFormat, StreamConfig};
 use dro_core::Song;
 use dro_core::config::AudioConfig;
 use dro_synth::vgm_engine::VgmEngine;
-use dro_synth::{AudioSource, BoostLimiter, LoopConfig, Muting, Panning, PlayerEngine, Position};
+use dro_synth::{
+    AudioSource, BoostLimiter, LoopConfig, Muting, OplChip, Panning, PlayerEngine, Position,
+};
 
 /// What can go wrong opening or driving the audio device.
 #[derive(Debug, thiserror::Error)]
@@ -153,7 +155,18 @@ impl NativeAudio {
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
         let engine = match source {
             AudioSource::Opl(song) => {
-                Engine::Opl(Box::new(PlayerEngine::new(Arc::clone(song), sample_rate)))
+                // The configured core, or the registry's default if this build
+                // does not have it -- a config naming `retrowave` reaches here
+                // whenever the board could not be opened, and falling back
+                // beats refusing to play.
+                let chip = dro_synth::registry::registry()
+                    .build_opl(config.core(dro_core::config::OPL_SLOT), sample_rate)
+                    .unwrap_or_else(|| Box::new(dro_synth::DefaultOplChip::new(sample_rate)));
+                Engine::Opl(Box::new(PlayerEngine::with_chip(
+                    Arc::clone(song),
+                    chip,
+                    sample_rate,
+                )))
             }
             AudioSource::Vgm(file) => {
                 Engine::Vgm(Box::new(VgmEngine::new(Arc::clone(file), sample_rate)))
@@ -334,7 +347,11 @@ impl fmt::Debug for NativeAudio {
 /// rather than an error: a mute command arriving for a Mega Drive rip means the
 /// UI has not caught up, not that anything is wrong.
 enum Engine {
-    Opl(Box<PlayerEngine<Arc<Song>>>),
+    /// Boxed `dyn OplChip` rather than a concrete core: which OPL emulator
+    /// plays is the user's choice now, made in Settings and resolved from the
+    /// registry at `load()`. That is also the whole contract -- a core swap
+    /// applies to the next load, never to a stream already running.
+    Opl(Box<PlayerEngine<Arc<Song>, Box<dyn OplChip>>>),
     Vgm(Box<VgmEngine>),
 }
 

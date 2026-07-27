@@ -213,12 +213,13 @@ fn label_for(row: &ChipOutputRow, name: &str) -> String {
 /// Installs a registry shaped like the real app's, for tests.
 ///
 /// `dro-ui` alone knows only `dro-synth`'s built-in cores, so without this its
-/// OPL row would state one core rather than offer a choice -- and the dialog
-/// snapshot would stop documenting the hardware picker, which is the part most
-/// worth catching a regression in. The hardware entry is declared here rather
-/// than depended on: `dro-retrowave` is native-only and `dro-ui` compiles to
-/// wasm, so this crate must not link it. The two declarations agreeing is what
-/// `the_test_registry_matches_the_apps` in `dro-trimmer` checks.
+/// OPL row would state one core rather than offer the three the app has -- and
+/// the dialog snapshot would stop documenting the picker, which is the part
+/// most worth catching a regression in. The provider entries are declared here
+/// rather than depended on: `dro-retrowave` is native-only and
+/// `dro-cores-nuked` needs a C toolchain, while `dro-ui` compiles to wasm, so
+/// this crate must not link either. The declarations agreeing with the app's is
+/// what `the_test_registry_matches_the_apps` in `dro-trimmer` checks.
 ///
 /// Idempotent and safe to call from any test in any order: every caller
 /// installs the same content, and the first one wins.
@@ -228,6 +229,18 @@ pub(crate) fn install_test_cores() {
     ONCE.call_once(|| {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
         for chip in registry::OPL_CHIPS {
+            registry.register(CoreInfo {
+                id: "opl3.cqm",
+                chip,
+                label: "Nuked-CQM (Creative CQM)",
+                authors: "Nuke.YKT",
+                license: "LGPL-2.1-or-later",
+                upstream: "https://github.com/nukeykt/Nuked-CQM",
+                realtime: true,
+                // The real one builds a chip; a stand-in only has to be
+                // listable, and this crate cannot link the C provider.
+                make: dro_synth::CoreMaker::Routed,
+            });
             registry.register(CoreInfo {
                 id: "opl3.retrowave",
                 chip,

@@ -24,6 +24,7 @@
 use dro_core::vgm::ChipKind;
 
 use crate::chip::ChipCore;
+use crate::opl::OplChip;
 
 /// How a registered core is brought into being.
 ///
@@ -35,9 +36,14 @@ use crate::chip::ChipCore;
 pub enum CoreMaker {
     /// Built here and driven by `VgmEngine`.
     Generic(fn() -> Box<dyn ChipCore>),
-    /// Registered so it can be listed and selected; the app knows what its id
-    /// means. Every OPL entry is one of these today -- cr-3 gives the emulated
-    /// ones real makers, once there are two of them to choose between.
+    /// Built here and driven by `PlayerEngine`, which carries the OPL register
+    /// policy the generic trait has no place for. Takes the sample rate,
+    /// because an OPL core resamples to it rather than declaring its own.
+    Opl(fn(u32) -> Box<dyn OplChip>),
+    /// Registered so it can be listed and selected, but not constructed here:
+    /// the app knows what its id means. RetroWave hardware is one -- choosing
+    /// it swaps the whole audio *service*, since a board that mixes its own
+    /// sound is not something the engine pulls samples from.
     Routed,
 }
 
@@ -45,6 +51,7 @@ impl core::fmt::Debug for CoreMaker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(match self {
             Self::Generic(_) => "Generic(..)",
+            Self::Opl(_) => "Opl(..)",
             Self::Routed => "Routed",
         })
     }
@@ -92,7 +99,21 @@ impl CoreInfo {
     pub fn build(&self) -> Option<Box<dyn ChipCore>> {
         match self.make {
             CoreMaker::Generic(make) => Some(make()),
-            CoreMaker::Routed => None,
+            CoreMaker::Opl(_) | CoreMaker::Routed => None,
+        }
+    }
+
+    /// Builds this core as an OPL chip, or `None` when it is not one.
+    ///
+    /// Separate from [`build`](Self::build) because the two engines are
+    /// separate: `VgmEngine` pulls samples from a `ChipCore`, `PlayerEngine`
+    /// drives an `OplChip` through muting, panning and buffered writes. A core
+    /// answers to one or the other, never both.
+    #[must_use]
+    pub fn build_opl(&self, sample_rate: u32) -> Option<Box<dyn OplChip>> {
+        match self.make {
+            CoreMaker::Opl(make) => Some(make(sample_rate)),
+            CoreMaker::Generic(_) | CoreMaker::Routed => None,
         }
     }
 }
@@ -137,7 +158,7 @@ impl CoreRegistry {
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
                 realtime: true,
-                make: CoreMaker::Routed,
+                make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
         }
         registry.register(CoreInfo {
@@ -232,6 +253,17 @@ impl CoreRegistry {
     pub fn resolve_choice(&self, chip: ChipKind, choice: Option<&str>) -> Option<&CoreInfo> {
         let id = choice.map(|choice| format!("{}.{}", slot_slug(chip), choice));
         self.resolve(chip, id.as_deref())
+    }
+
+    /// Builds the OPL core the config names, at `sample_rate`.
+    ///
+    /// `None` when the choice is a routed one (hardware) or this build has no
+    /// OPL core at all -- both mean "`PlayerEngine` must fall back to its
+    /// default chip", which is what the caller does.
+    #[must_use]
+    pub fn build_opl(&self, choice: Option<&str>, sample_rate: u32) -> Option<Box<dyn OplChip>> {
+        self.resolve_choice(ChipKind::Ymf262, choice)?
+            .build_opl(sample_rate)
     }
 
     /// Builds the generic core for `chip`, honouring a configured id.
