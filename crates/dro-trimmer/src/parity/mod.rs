@@ -398,12 +398,12 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(
         ChipKind::Ym2608,
         0.55,
-        "ADPCM-A rhythm and ADPCM-B are not modelled",
+        "the rhythm section reads the chip's internal mask ROM, which a VGM          does not carry and this project cannot ship; Delta-T is modelled",
     ),
     clean(
         ChipKind::Ym2610,
-        0.55,
-        "ADPCM-A rhythm and ADPCM-B are not modelled",
+        0.70,
+        "0.769 observed with ADPCM-A and Delta-T modelled -- the best          clean-room score on the board; level awaits the family balance pass",
     ),
     clean(
         ChipKind::Okim6258,

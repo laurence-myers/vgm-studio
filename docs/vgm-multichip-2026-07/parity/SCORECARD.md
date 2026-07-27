@@ -354,3 +354,17 @@ The final standings, all at native rate, n=12 unless marked:
 
 pt-1 through pt-6 are complete. What remains open is exactly what the table
 says is open, each with a tripwire under its current level.
+
+## The ADPCM sections land (2026-07-28)
+
+Clean-room ADPCM-A and Delta-T (`dro-synth/src/adpcm.rs`, glue in `opn.rs`),
+measured the same day:
+
+| Chip | corr before | corr after | note |
+|---|---|---|---|
+| YM2610 | 0.5942 | **0.7689** | the largest single improvement of the programme; best clean-room score on the board; bar raised to 0.70 |
+| YM2608 | 0.6009 | 0.6009 | as predicted: its sample content is the *internal* rhythm ROM, which a VGM does not carry — permanent by this route; Delta-T is modelled |
+
+YM2610's level (0.318) stays quiet pending the family balance pass — its
+FM_GAIN is still the deferred 5, and the ADPCM scales were chosen
+conservatively; both get calibrated together against the level column.

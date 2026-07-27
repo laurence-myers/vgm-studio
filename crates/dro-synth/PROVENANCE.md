@@ -264,8 +264,8 @@ Measured and **deliberately not yet applied** (each carries a reason):
 |---|---|---|
 | YM2413 | 0.370 | shared-core correlation still open at 0.977; scale after |
 | YM2203 | 0.497 | its SSG flags are still unread (`ChipCore::configure` gap) |
-| YM2608 | 0.641 | level inflated-low by the absent ADPCM content |
-| YM2610 | 0.284 | same, more so — most of its mix is the missing ADPCM |
+| YM2608 | 0.641 | rhythm needs the chip's internal mask ROM (unshippable); Delta-T modelled |
+| YM2610 | 0.318 post-ADPCM | scale FM_GAIN and the ADPCM gains together in the family balance pass |
 | AY8910 | 0.720 | type/flags unread; measure again after |
 | Game Boy DMG | 0.550 | correlation open at 0.295; scale after |
 | NES APU | 0.756 | correlation open at 0.334; scale after |
