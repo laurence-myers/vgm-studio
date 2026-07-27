@@ -1,5 +1,12 @@
 # HANDOVER — Any-chip VGM support (Phases A–C and the unification shipped; playback next)
 
+> **2026-07-27, later:** the core-emulation programme (what mc-8/mc-9 sketched)
+> now has its own plan — **`CORES-PLAN.md`** in this directory — locking a
+> license split (GPL-2.0-or-later app, MIT/Apache dro-synth + dro-core), a
+> per-chip runtime core registry, a no-vendoring submodule policy, and
+> Nuked-CQM as an OPL3 option. Read it before touching cores; the §7 audit
+> table below is superseded by the licensing analysis it encodes.
+
 > **Second revision, 2026-07-26 (evening).** After mc-1..mc-5 shipped, the
 > user redirected the plan with four directives, folded in below as locked
 > decisions §2.1.13–17 and a new phase (uv-1..uv-5, §Phase C2) that now
