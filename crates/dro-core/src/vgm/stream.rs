@@ -122,6 +122,9 @@ pub enum VgmCommand {
 
 /// The version at which `0x40`-`0x4E` grew from one operand to two.
 const TWO_OPERAND_RESERVED_VERSION: u32 = 0x0000_0160;
+/// `0x00`, which the spec defines as nothing at all -- so in a real file it is
+/// padding, and this reader steps over it. See [`command_size`].
+pub const PADDING: u8 = 0x00;
 /// `0x66`, end of sound data.
 pub const END_OF_DATA: u8 = 0x66;
 /// `0x67`, a data block. Followed by a `0x66` compatibility byte.
@@ -211,6 +214,18 @@ pub fn command_size(bytes: &[u8], version: u32) -> Result<usize> {
         return Err(Error::file("VGM stream ended where a command was expected"));
     };
     let size = match opcode {
+        // A zero byte is not a command; the spec assigns `0x00` no length at
+        // all. It is what padding looks like, and real rips carry it: five
+        // files in the local corpus stop dead on one -- twelve zeros before the
+        // first command of a Mega Drive rip, and a single stray zero before the
+        // end marker of four Ys II Special rips.
+        //
+        // Skipping it is safe *because* the walk is self-checking: if this were
+        // a desynchronised stream rather than padding, the bytes after it would
+        // not walk cleanly to an end marker, and the file would be rejected on
+        // the next undefined opcode instead. Every other undefined byte still
+        // stops the walk.
+        PADDING => 1,
         0x30..=0x3F => 2,
         // Reserved, and Mikey at 0x40 from v1.72. One operand before v1.60,
         // two from then on -- sizing this wrong desynchronises everything after.
@@ -242,7 +257,7 @@ pub fn command_size(bytes: &[u8], version: u32) -> Result<usize> {
         0xA0..=0xBF => 3,
         0xC0..=0xDF => 4,
         0xE0..=0xFF => 5,
-        // 0x00..=0x2F and 0x60, 0x65, 0x69..=0x6F have no defined length: the
+        // 0x01..=0x2F and 0x60, 0x65, 0x69..=0x6F have no defined length: the
         // spec assigns none, so the stream cannot be walked past one.
         _ => {
             return Err(Error::file(format!(
@@ -680,6 +695,32 @@ mod tests {
         }
         bytes.push(END_OF_DATA);
         bytes
+    }
+
+    /// Padding is stepped over, and everything else undefined still stops the
+    /// walk -- which is what makes stepping over padding safe.
+    #[test]
+    fn a_zero_byte_is_padding_and_the_rest_of_the_undefined_range_is_not() {
+        assert_eq!(command_size(&[PADDING], 0x151).unwrap(), 1);
+        for opcode in [0x01u8, 0x2F, 0x60, 0x65, 0x69, 0x6F] {
+            assert!(
+                command_size(&[opcode], 0x151).is_err(),
+                "{opcode:#04X} should still stop the walk"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stream_with_padding_around_its_commands_walks() {
+        // Twelve zeros, a write, a stray zero, a wait, and the end -- the two
+        // shapes the corpus actually contains, in one stream.
+        let mut bytes = vec![PADDING; 12];
+        bytes.extend_from_slice(&[0x5A, 0x20, 0x01, PADDING, 0x61, 0x2C, 0x00, END_OF_DATA]);
+        let stream = VgmStream::parse(bytes, 0x151).expect("it walks");
+        assert_eq!(stream.len(), 15, "twelve pads, a write, a pad, a wait");
+        assert_eq!(stream.raw_command(12), Some([0x5A, 0x20, 0x01].as_slice()));
+        assert_eq!(stream.raw_command(13), Some([PADDING].as_slice()));
+        assert_eq!(stream.total_samples(), 0x2C);
     }
 
     #[test]
