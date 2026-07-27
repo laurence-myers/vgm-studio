@@ -274,3 +274,35 @@ Single-chip filtering is what exposed every one of these.
 dropouts 0.190 → 0.000, detune +1.5 cents, gain fit 0.835. A normal clean-room
 row; its level (0.497) joins the pt-6 balance queue. HuC6280 is now the only
 chip that sounds without correlating.
+
+## HuC6280: the residual is channel phase, and it survives the first fix
+
+Diagnosed by direct A/B against the reference's cached render (Fishing Master,
+01 Title BGM, both sides at 55930 Hz): pitch matches to −5 cents, envelopes
+align to **0 ms** early and late, level is a clean 0.5× — and sample
+correlation is ~0.07. Harmonic profiles match except where channels share a
+tone: three channels sit at 196 Hz in this rip, and one shared harmonic reads
+0.917 (reference) against 0.312 (ours). That is channel *phase* interference:
+inaudible per channel, decisive in a mix.
+
+One phase bug was real and is fixed: the core reset its wave pointer on every
+key-on, where the silicon keeps one pointer for reads and writes and resets it
+only on a DDA 1→0 transition (the fourth code-and-test pair to agree on a
+misreading). All twelve unit tests pass under the corrected rule — **and the
+whole-file correlation did not move.** So the reference's phases differ in some
+further way. Two leads for the next pass, in order:
+
+1. **The pinned reference core for HuC6280 is Ootake (`OOTK`), not MAME.** The
+   corrected semantics follow the hardware documentation and MAME; Ootake may
+   do something else entirely. Re-pinning `[HuC6280] Core = MAME` in
+   VGMPlay.ini and re-rendering would separate "our bug" from "core taste" —
+   but note the reference cache is keyed by (file, size, rate) only, so a
+   config change silently invalidates it: clear `refcache` for this chip.
+2. Frequency-register writes mid-note: whether the divider counter keeps its
+   value (ours) or reloads on write — sub-step phase that accumulates through
+   every vibrato slide.
+
+Phase-class differences may end where the OPL vibrato did: as a bounded,
+explained residual rather than a bug. The difference is that here both sides
+claim the same chip, so the question stays open until one of the two leads
+settles it.

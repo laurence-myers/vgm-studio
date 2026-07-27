@@ -59,9 +59,21 @@ struct Channel {
     /// Twelve bits. The wave advances one step every `frequency` master clocks.
     frequency: u16,
     counter: u32,
+    /// **One pointer for reads and writes**, as the silicon has: `$0806`
+    /// writes store at it and advance it, playback reads at it and advances
+    /// it, and only a DDA 1->0 transition resets it. Key-on does *not* -- a
+    /// driver loads exactly 32 samples, which wraps the pointer to zero by
+    /// itself, and a driver keying on mid-wave keeps its phase.
+    ///
+    /// The first version had a separate read pointer reset on every key-on.
+    /// Audibly identical -- same pitch, same envelope, same level -- but every
+    /// channel's *phase* differed from the reference's, and with three
+    /// channels of this rip sharing a 196 Hz tone their harmonics added where
+    /// the reference's cancelled: measured as one harmonic 3x off (0.917
+    /// against 0.312) and a sample correlation of 0.073 on renders whose
+    /// envelopes aligned to the millisecond. Phase is inaudible per channel
+    /// and decisive in a mix.
     position: u8,
-    /// Where the next `$0806` write lands while the channel is being loaded.
-    write_index: u8,
     wave: [u8; WAVE_LEN],
     /// Five bits of *attenuation*, and the channel's on/off bit.
     volume: u8,
@@ -85,7 +97,6 @@ impl Default for Channel {
             frequency: 0,
             counter: 0,
             position: 0,
-            write_index: 0,
             wave: [0; WAVE_LEN],
             volume: 0,
             on: false,
@@ -228,20 +239,16 @@ impl ChipCore for HuC6280 {
                             (channel.frequency & 0x00FF) | (u16::from(value & 0x0F) << 8);
                     }
                     0x04 => {
-                        let was_on = channel.on;
+                        let was_dda = channel.dda;
                         channel.on = value & 0x80 != 0;
                         channel.dda = value & 0x40 != 0;
                         channel.volume = value & 0x1F;
-                        // Switching a channel on resets its table pointer, which
-                        // is what lets a driver retrigger a waveform cleanly.
-                        if channel.on && !was_on {
+                        // The only thing that resets the wave pointer: leaving
+                        // DDA. Not key-on -- see the field's comment for what
+                        // resetting there did to the mix's phases.
+                        if was_dda && !channel.dda {
                             channel.position = 0;
                             channel.counter = 0;
-                        }
-                        // Leaving DDA resets the write pointer, so the next
-                        // table load starts at the beginning.
-                        if !channel.dda {
-                            channel.write_index = 0;
                         }
                     }
                     0x05 => channel.balance = [(value >> 4) & 0x0F, value & 0x0F],
@@ -249,8 +256,12 @@ impl ChipCore for HuC6280 {
                         if channel.dda {
                             channel.dda_sample = value & 0x1F;
                         } else {
-                            channel.wave[usize::from(channel.write_index)] = value & 0x1F;
-                            channel.write_index = (channel.write_index + 1) % WAVE_LEN as u8;
+                            // Stored at the shared pointer and advanced -- the
+                            // same pointer playback reads, which is why a full
+                            // 32-sample load leaves it wrapped to zero and
+                            // ready.
+                            channel.wave[usize::from(channel.position)] = value & 0x1F;
+                            channel.position = (channel.position + 1) % WAVE_LEN as u8;
                         }
                     }
                     // Noise is channels 5 and 6 only; on the others the
@@ -475,21 +486,38 @@ mod tests {
         assert!(energy(&render(&mut chip, 4000)) > 0, "the noise must sound");
     }
 
-    /// Switching a channel on restarts its table, so a retrigger begins at the
-    /// same point in the waveform every time.
+    /// **Key-on does not reset the wave pointer; leaving DDA does.** This test
+    /// asserted the opposite for as long as it existed -- the fourth
+    /// code-and-test pair to agree on a misreading -- and the cost was not
+    /// audible on any single channel: pitch, envelope and level all come out
+    /// right either way. What it wrecked was the *mix*. Every key-on gave a
+    /// channel a fresh phase, so channels sharing a tone (three of them at
+    /// 196 Hz in the rip that exposed this) interfered differently from the
+    /// hardware, one harmonic measured 3x off, and whole-file correlation
+    /// against the reference sat at 0.073 on renders whose envelopes aligned
+    /// to the millisecond.
     #[test]
-    fn switching_a_channel_on_restarts_its_table() {
+    fn key_on_keeps_the_phase_and_leaving_dda_resets_it() {
         let mut chip = HuC6280::new();
         chip.reset(PCE, false);
         key_on(&mut chip, 0, 0x100);
         let _ = render(&mut chip, 500);
-        assert_ne!(chip.channels[0].position, 0, "it should have moved on");
+        let parked = chip.channels[0].position;
+        assert_ne!(parked, 0, "it should have moved on");
 
         chip.write(0, 0x04, 0x00); // off
         chip.write(0, 0x04, 0x9F); // on again, full volume
         assert_eq!(
+            chip.channels[0].position, parked,
+            "a retrigger continues from where the wave stopped"
+        );
+
+        // DDA on and off again: the one transition that rewinds.
+        chip.write(0, 0x04, 0xDF); // on, DDA
+        chip.write(0, 0x04, 0x9F); // back to the wave
+        assert_eq!(
             chip.channels[0].position, 0,
-            "a retrigger starts at the top"
+            "leaving DDA is what starts the table over"
         );
     }
 
