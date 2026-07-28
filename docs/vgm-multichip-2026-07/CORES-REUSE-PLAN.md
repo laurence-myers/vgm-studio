@@ -169,6 +169,13 @@ no stubs. This is precisely why the clean-room tier keeps a job.
 
 ## 5 · The libvgm question — gated, with options
 
+> **Update 2026-07-28:** the owner asked for a plan that *assumes* option 2
+> succeeds. [LIBVGM-PLAN.md](LIBVGM-PLAN.md) is that plan — libvgm as the
+> **primary** core source, not one provider among several, because one API
+> covers all 50 of its device IDs and five of them are chips we cannot play
+> at all. It is engineering-ready and gated at step lv-0 on the grant below
+> actually existing. The audit in §1 stands unchanged until then.
+
 libvgm would have answered the entire PCM tail in one integration. It is blocked
 on §1. The options, for the owner's decision:
 
