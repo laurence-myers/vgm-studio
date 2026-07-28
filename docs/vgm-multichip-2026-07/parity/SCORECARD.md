@@ -414,3 +414,25 @@ Also in that submodule: `fmopna_rom.h`, the YM2608's decapped internal
 rhythm ROM. The "unshippable" 2608 rhythm gap has a shippable GPL-tier
 route — wrap the 2608 die, or hand the ROM to the clean-room ADPCM-A
 section through the registry — when that work is scheduled.
+
+## The 2608 die arrives with the drums (2026-07-28)
+
+The 2608 die is wrapped (`dro-cores-gpl/src/lle_opna.rs`): the DRAM bus
+served pin by pin, and — the point — **the decapped internal rhythm mask
+ROM plays**. A bass-drum key-on with no sample block loaded sounds, from
+silicon this project could never ship by any other route. Two packages, two
+serial framings: this die clocks its serial line at the master rate with no
+trailing bit, where the OPM's ran at half rate trailing by one — each
+pinned by its own idle-decodes-to-zero probe.
+
+It is deliberately **not on the oracle bench yet**. A trial row read
+corr 0.07–0.42 with the die far too quiet — the serial frame's structure
+while Delta-T is active (dac_damode regates SH1 and multiplexes the FM and
+ADPCM words onto one pin) is unpinned, so the number measured the harness,
+not the emulation, and a number that indicts the wrong party is worse than
+no number. The bench comment in `tests/oracle_lle.rs` records exactly what
+to pin before the row returns.
+
+The 2610 die — the original target, for our weakest OPN core — does not
+compile upstream in its configuration (unguarded 2608-only GPIO writes at
+the pin; a different error one commit back). It waits for upstream, not us.

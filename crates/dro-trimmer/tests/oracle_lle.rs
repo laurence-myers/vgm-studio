@@ -121,6 +121,16 @@ fn the_shipping_cores_match_the_die() {
     let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
 
     // (chip, master clocks per sample, LLE core builder, median bar)
+    //
+    // The 2608 die is wrapped (`dro_cores_gpl::Ym2608Lle` -- FM and the
+    // mask-ROM rhythm verified by its unit tests) but is NOT on the bench
+    // yet: a trial row read corr 0.07-0.42 with the die far too quiet,
+    // which measures the harness, not the emulation. The suspect is the
+    // serial frame's structure when Delta-T is active -- `dac_damode`
+    // regates SH1 and switches the data pin between the FM and ADPCM
+    // words, and the tap currently decodes every window as FM. Pin that
+    // with a probe before the row returns; a number that indicts the wrong
+    // party is worse than no number.
     let bench: [(ChipKind, u32, fn() -> Box<dyn dro_synth::ChipCore>, f64); 2] = [
         (
             ChipKind::Ym2151,

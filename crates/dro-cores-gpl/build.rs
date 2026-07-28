@@ -32,14 +32,18 @@ fn main() {
         println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
     }
 
-    // The OPN-family dies: one implementation compiled per chip macro. Only
-    // the YM2612 die is wrapped so far; the 2608/2610 dies join when their
-    // harnesses (external ROM/RAM buses, the analog pin) are written.
+    // The OPN-family dies: one implementation compiled per chip macro. The
+    // 2612 and 2608 dies are wrapped. The 2610 configuration does not
+    // compile upstream (unguarded 2608-only GPIO writes at the pin; a
+    // different error one commit back -- checked 2026-07-28), so it waits
+    // for upstream rather than for us.
     let opna_lle = PathBuf::from(UPSTREAM).join("ym2608-lle");
     require_submodule(&opna_lle, "ym2608-lle", "fmopna_2612.c");
     for file in [
         "fmopna_2612.c",
         "fmopna_2612.h",
+        "fmopna_2608.c",
+        "fmopna_2608.h",
         "fmopna_impl.c",
         "fmopna_impl.h",
         "fmopna_rom.h",
@@ -53,9 +57,11 @@ fn main() {
         .file(psg.join("ympsg.c"))
         .file(opm_lle.join("fmopm.c"))
         .file(opna_lle.join("fmopna_2612.c"))
+        .file(opna_lle.join("fmopna_2608.c"))
         .file("shim/layout.c")
         .file("shim/lle_opm.c")
         .file("shim/lle_opn2.c")
+        .file("shim/lle_opna.c")
         .include(&opll)
         .include(&psg)
         .include(&opm_lle)

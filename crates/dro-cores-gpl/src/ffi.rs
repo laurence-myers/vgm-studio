@@ -53,6 +53,22 @@ unsafe extern "C" {
     fn drotrim_fmopna2612_out_mol(chip: *const c_void) -> i32;
     fn drotrim_fmopna2612_out_mor(chip: *const c_void) -> i32;
     fn FMOPNA_2612_Clock(chip: *mut c_void, clk: i32);
+
+    fn drotrim_fmopna2608_sizeof() -> usize;
+    fn drotrim_fmopna2608_alignof() -> usize;
+    fn drotrim_fmopna2608_set_pins(
+        chip: *mut c_void,
+        ic: i32,
+        cs: i32,
+        wr: i32,
+        a0: i32,
+        a1: i32,
+        data: i32,
+    );
+    fn drotrim_fmopna2608_serve_dm(chip: *mut c_void, dm: i32);
+    fn drotrim_fmopna2608_dram_pins(chip: *const c_void, dm: *mut i32, a8: *mut i32) -> i32;
+    fn drotrim_fmopna2608_dac_pins(chip: *const c_void, analog: *mut f32) -> i32;
+    fn FMOPNA_Clock(chip: *mut c_void, clk: i32);
 }
 
 /// Upstream's `opll_type_ym2413`: the Yamaha part a VGM means by "YM2413".
@@ -376,6 +392,103 @@ impl Opn2LleChip {
     }
 }
 
+/// The YM2608 die of YM2608-LLE, driven by its pins.
+///
+/// The package with its own memory bus: the Delta-T sample store is DRAM
+/// the wrapper serves -- RAS/CAS multiplexed address on the dm lines, WE
+/// for the die's own writes -- while the rhythm ROM is internal to the
+/// decap and needs no pins at all. FM, rhythm and ADPCM leave on the
+/// serial DAC; the SSG on the analog pin.
+#[derive(Debug)]
+pub(crate) struct OpnaLleChip {
+    state: OpaqueChip,
+}
+
+/// The DRAM bus as the die presents it after a clock.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DramBus {
+    /// The 8-bit multiplexed address/data lines.
+    pub dm: i32,
+    /// The ninth bit presented alongside.
+    pub a8: bool,
+    /// Row-address strobe, de-inverted: true means asserted.
+    pub ras: bool,
+    /// Column-address strobe, de-inverted.
+    pub cas: bool,
+    /// Write-enable, de-inverted: true means the die is writing.
+    pub we: bool,
+    /// True when the die expects data *in* on the lines.
+    pub reading: bool,
+}
+
+impl OpnaLleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_fmopna2608_sizeof(), drotrim_fmopna2608_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Zeroes the die, as power-off does.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+    }
+
+    pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            drotrim_fmopna2608_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.a1),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// Puts the served memory byte on the DRAM data-in lines.
+    pub(crate) fn serve_dm(&mut self, dm: u8) {
+        // SAFETY: the shim writes one input field of the sized block.
+        unsafe { drotrim_fmopna2608_serve_dm(self.state.as_ptr(), i32::from(dm)) }
+    }
+
+    /// One half of the master clock.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopna_t)`.
+        unsafe { FMOPNA_Clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The DRAM bus after the last edge. The strobes come back active-low
+    /// from the pins and are de-inverted here, once.
+    pub(crate) fn dram_bus(&mut self) -> DramBus {
+        let (mut dm, mut a8) = (0, 0);
+        // SAFETY: the shim reads fields of the sized block into our locals.
+        let strobes =
+            unsafe { drotrim_fmopna2608_dram_pins(self.state.as_ptr(), &mut dm, &mut a8) };
+        DramBus {
+            dm,
+            a8: a8 != 0,
+            ras: strobes & 1 == 0,
+            cas: strobes & 2 == 0,
+            we: strobes & 4 == 0,
+            reading: strobes & 8 != 0,
+        }
+    }
+
+    /// The serial DAC strobes and data bit, plus the analog (SSG) level:
+    /// (sh1, sh2, serial bit, analog).
+    pub(crate) fn dac_pins(&mut self) -> (bool, bool, bool, f32) {
+        let mut analog = 0.0f32;
+        // SAFETY: as above.
+        let packed = unsafe { drotrim_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
+        (packed & 1 != 0, packed & 2 != 0, packed & 4 != 0, analog)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,6 +515,11 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (drotrim_fmopna2612_sizeof(), drotrim_fmopna2612_alignof()) };
         assert!(size > 1024, "fmopna_2612_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (drotrim_fmopna2608_sizeof(), drotrim_fmopna2608_alignof()) };
+        assert!(size > 1024, "fmopna_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }
