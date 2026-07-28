@@ -320,6 +320,16 @@ impl CoreRegistry {
             make: CoreMaker::Generic(|| Box::new(crate::cores::Pwm::new())),
         });
         registry.register(CoreInfo {
+            id: "es5503.native",
+            chip: ChipKind::Es5503,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Es5503::new())),
+        });
+        registry.register(CoreInfo {
             id: "qsound.native",
             chip: ChipKind::QSound,
             label: "Clean-room (this project)",
