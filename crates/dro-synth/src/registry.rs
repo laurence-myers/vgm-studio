@@ -232,6 +232,26 @@ impl CoreRegistry {
             make: CoreMaker::Generic(|| Box::new(crate::cores::K051649::new())),
         });
         registry.register(CoreInfo {
+            id: "rf5c68.native",
+            chip: ChipKind::Rf5c68,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
+        });
+        registry.register(CoreInfo {
+            id: "rf5c164.native",
+            chip: ChipKind::Rf5c164,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
+        });
+        registry.register(CoreInfo {
             id: "okim6258.native",
             chip: ChipKind::Okim6258,
             label: "Clean-room (this project)",

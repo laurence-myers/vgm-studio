@@ -336,7 +336,7 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             // the first byte.
             let address = word(1);
             let target = ChipTarget::first(C_RANGE[(opcode & 0x0F) as usize]);
-            let (target, addr) = if opcode == 0xC0 {
+            let (mut target, addr) = if opcode == 0xC0 {
                 (
                     if address & 0x8000 == 0 {
                         target
@@ -348,6 +348,14 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             } else {
                 (second_if(target, byte(2)), address & 0x7FFF)
             };
+            // `0xC1`/`0xC2` are the RF chips' direct *memory* pokes, where
+            // `0xB0`/`0xB1` carry their register writes -- and the two
+            // address spaces overlap from a core's point of view. The port
+            // is this library's own convention, so it carries the
+            // distinction: registers on port 0, memory on port 1.
+            if matches!(opcode, 0xC1 | 0xC2) {
+                target.port = 1;
+            }
             write(target, addr, u16::from(byte(3)))
         }
         0xD0..=0xD6 => write(
