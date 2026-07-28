@@ -230,8 +230,8 @@ workspace green including the wasm check build.
 | cr-8 | OPN family (YM2203/2608/2610): fmopn-logic port (G) reusing cr-7's SSG. NeoGeo folder audible. The biggest single step, and the one that **stands up `dro-cores-gpl`**; LLE oracles first. |
 | cr-9 | YM2413: Nuked-OPLL (G) + emu2413 (P). OKIM6295 + OKIM6258 alongside — the two biggest of the PCM chips, and both arcade. |
 | cr-10 | PCM long tail, batched (P), plus WonderSwan, VSU and SAA1099. Arcade folder converges. |
-| cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. |
-| cr-12 | Sweep: registry-vs-chip-table coverage test, About credits complete, `PROVENANCE.md` complete, docs. |
+| cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. **DONE 2026-07-28** (ESFMu skipped): Nuked-PSG as the SN76489's picker alternative; YM2151-LLE and the 2612 die of YM2608-LLE as `realtime: false` cores; the oracle is `tests/oracle_lle.rs` (corpus-gated, `--ignored`). First verdicts: Nuked-OPM 0.9742 and Nuked-OPN2 **0.9848** against their own dies — the 2612 number is the second witness that put the open 0.904-vs-VGMPlay row on the reference driver's side of the ledger. The 2608/2610 dies (external ROM/RAM pin-serving) are follow-on work; note `fmopna_rom.h` in that submodule is the 2608's decapped rhythm mask ROM, which gives the "unshippable" rhythm gap a shippable GPL-tier route. |
+| cr-12 | Sweep: registry-vs-chip-table coverage test, About credits complete, `PROVENANCE.md` complete, docs. About credits are registry-derived (a core cannot link in uncredited), so the new cores covered themselves; PROVENANCE rows landed with each core's commit. |
 
 > **Nuked-OPNB is not usable, checked 2026-07-27.** §5 hoped for it "when it
 > leaves WIP"; it has not. `nukeykt/Nuked-OPNB` (and `Nuked-OPNA`, which is the
