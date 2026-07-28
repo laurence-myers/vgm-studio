@@ -39,6 +39,7 @@ pub mod segapcm;
 pub mod sn76489;
 pub mod vsu;
 pub mod wonderswan;
+pub mod x1010;
 #[cfg(feature = "nuked-opl")]
 pub mod y8950;
 pub mod ymf278b;
@@ -64,6 +65,7 @@ pub use segapcm::SegaPcm;
 pub use sn76489::Sn76489;
 pub use vsu::Vsu;
 pub use wonderswan::WonderSwan;
+pub use x1010::X1010;
 #[cfg(feature = "nuked-opl")]
 pub use y8950::Y8950;
 pub use ymf278b::Ymf278b;
