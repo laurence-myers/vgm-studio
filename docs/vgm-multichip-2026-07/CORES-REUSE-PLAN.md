@@ -42,7 +42,7 @@ verified on 2026-07-28, by fetching the actual files:
 | Upstream | Licence | Evidence | Verdict |
 |---|---|---|---|
 | **ymfm** | **BSD-3-Clause** | Explicit header in `src/ymfm.h`: "2021, Aaron Giles" | **Clear — permissive tier** |
-| **vgsound_emu** | **zlib** | Stated repo-wide; v1 was BSD-3 | **Clear — permissive tier** |
+| **vgsound_emu** | **zlib** | Root `LICENSE`, "(C) 2022-present cam900 and contributors" — **covers the shared framework too**, which is precisely what libvgm lacks. Its zlib variant adds "you must notify your modifications": trivially satisfied, since we never modify a submodule. Active home is **GitLab** (`gitlab.com/cam900/vgsound_emu`); the GitHub repo is an archived v1 mirror | **Clear — permissive tier** |
 | **emu2413 / emu8950** | **MIT** | Stated repo-wide | **Clear — permissive tier** |
 | **Nuked-\*** (in tree) | LGPL-2.1 / GPL-2 | Explicit | Clear — copyleft tiers, unchanged |
 | **libvgm** | **NONE FOUND** | No `LICENSE`/`COPYING` at root; GitHub licence API 404s; `Compiling.txt` silent; `EmuStructs.h`, `SoundEmu.h`, `2612intf.c`, `qsound_ctr.c` all carry **no licence tag**; only some MAME-derived files (e.g. `multipcm.c`) retain `// license:BSD-3-Clause` | **BLOCKED — see §5** |
@@ -244,7 +244,7 @@ default. Per core:
 | **ru-4** | Y8950 and YMF278B, including the OPL-routing audit Y8950 has always needed. |
 | **ru-5** | The OPM/OPLL/OPL alternatives as picker entries (permissive-build defaults), OPL invariant intact. |
 | **ru-6** | `dro-cores-gpl` gains ymfm-plus-rhythm-ROM for a complete YM2608. |
-| **ru-7** | vgsound_emu provider crate: ES5505/06 (new chip), X1-010, SCC, OKIM6295, K053260. |
+| **ru-7** | vgsound_emu provider crate (C++11, zlib, from GitLab). Its **V2 list is much wider than the archived v1 mirror suggests**: AY-3-8910, SN76489, ES5504/5505/5506, GA20, HuC6280, K005289, K007232, K053260, MMC5, MSM5205/6585, MSM6295, Namco 163, **C140/C219**, NDS, NES APU, SCC, SM8521, VRC VI, X1-010. Priority within it: **ES5505/06** (a chip we cannot play at all), **X1-010** (ours 0.029), **C219** (ours is a stated approximation, audibly silent on NA-1/NA-2), **NES APU** (ours 0.334). |
 | **ru-8** | The libvgm decision from §5, whatever it turns out to be. |
 | **ru-9** | Sweep: About credits, `PROVENANCE.md`, docs, Settings picker copy, the CORES-PLAN §5 table superseded. |
 
