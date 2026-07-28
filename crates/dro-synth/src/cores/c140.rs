@@ -244,10 +244,10 @@ impl ChipCore for C140 {
                 left += (value * i32::from(voice.left_volume)) >> 8;
                 right += (value * i32::from(voice.right_volume)) >> 8;
             }
-            // One voice at full scale lands near +-2k; the x4 puts it at the
-            // ~8k one-channel headroom the other cores use.
-            frame[0] = left * 4;
-            frame[1] = right * 4;
+            // x10 rather than the first draft's x4: the scorecard measured
+            // our level at 0.385 of the reference's.
+            frame[0] = left * 10;
+            frame[1] = right * 10;
         }
     }
 }

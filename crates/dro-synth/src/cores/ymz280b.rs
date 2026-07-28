@@ -241,7 +241,9 @@ impl ChipCore for Ymz280b {
                 };
                 voice.position += u32::from(voice.pitch) + 1;
 
-                let scaled = (value * i32::from(voice.level)) >> 10;
+                // >>7 rather than the first draft's >>10: the scorecard measured
+                // our level at 0.124 of the reference's.
+                let scaled = (value * i32::from(voice.level)) >> 7;
                 let pan = i32::from(voice.pan.clamp(0, 15));
                 left += (scaled * (16 - pan)) >> 3;
                 right += (scaled * pan.max(1)) >> 3;

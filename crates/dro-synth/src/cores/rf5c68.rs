@@ -185,7 +185,9 @@ impl ChipCore for Rf5c68 {
                     } else {
                         -magnitude
                     };
-                    let scaled = sample * i32::from(ch.envelope);
+                    // x3 on the first draft: the scorecard measured our
+                    // level at 0.344 of the reference's.
+                    let scaled = sample * i32::from(ch.envelope) * 3;
                     left += (scaled * i32::from(ch.pan & 0x0F)) >> 5;
                     right += (scaled * i32::from(ch.pan >> 4)) >> 5;
                 }

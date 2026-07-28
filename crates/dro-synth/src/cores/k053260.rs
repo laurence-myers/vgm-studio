@@ -201,10 +201,12 @@ impl ChipCore for K053260 {
                 };
                 voice.position = voice.position.wrapping_add(voice.step());
 
+                // x5.5 on the first draft's net scale: the scorecard
+                // measured our level at 0.178 of the reference's.
                 let scaled = (value * i32::from(voice.volume)) >> 1;
                 let pan = i32::from(voice.pan.clamp(1, 7));
-                left += (scaled * (8 - pan)) >> 2;
-                right += (scaled * pan) >> 2;
+                left += (scaled * (8 - pan) * 11) >> 3;
+                right += (scaled * pan * 11) >> 3;
             }
             frame[0] = left;
             frame[1] = right;
