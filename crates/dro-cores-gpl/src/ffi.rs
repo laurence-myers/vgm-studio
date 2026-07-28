@@ -487,6 +487,14 @@ impl OpnaLleChip {
         let packed = unsafe { drotrim_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
         (packed & 1 != 0, packed & 2 != 0, packed & 4 != 0, analog)
     }
+
+    /// The serial bit-clock pin.
+    pub(crate) fn s_pin(&mut self) -> bool {
+        let mut analog = 0.0f32;
+        // SAFETY: as above.
+        let packed = unsafe { drotrim_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
+        packed & 8 != 0
+    }
 }
 
 #[cfg(test)]

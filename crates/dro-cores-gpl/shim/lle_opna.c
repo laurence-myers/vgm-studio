@@ -64,7 +64,8 @@ int drotrim_fmopna2608_dram_pins(const fmopna_t *chip, int *dm, int *a8) {
 /* The serial DAC strobes and data, and the analog (SSG) pin. */
 int drotrim_fmopna2608_dac_pins(const fmopna_t *chip, float *analog) {
 	*analog = chip->o_analog;
-	/* Packed: bit 0 = sh1, bit 1 = sh2, bit 2 = opo (serial data). */
+	/* Packed: bit 0 = sh1, bit 1 = sh2, bit 2 = opo (serial data),
+	 * bit 3 = s (the serial bit clock). */
 	return (chip->o_sh1 & 1) | ((chip->o_sh2 & 1) << 1) |
-	       ((chip->o_opo & 1) << 2);
+	       ((chip->o_opo & 1) << 2) | ((chip->o_s & 1) << 3);
 }

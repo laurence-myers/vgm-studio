@@ -106,39 +106,50 @@ impl DramPort {
     }
 }
 
-/// Taps the serial stream and cuts words at a strobe's falling edge -- the
-/// OPM die's tap, same wire cadence, same decode.
+/// Taps the serial stream and cuts words at a strobe's falling edge.
+///
+/// **This package has a bit-clock pin, and it is not decorative.** The OPM
+/// die's serial line ran at a steady half-master rate, so its tap could
+/// sample every clock; this one gates its bit clock (`o_s`), and sampling
+/// at master rate smears the word across a shifting alignment -- the
+/// symptom was FM a hundred times too quiet while the framing looked
+/// plausible. The tap shifts only on the bit clock's rising edges, which
+/// is what the real YM3016 on the board does.
 #[derive(Debug, Default, Clone, Copy)]
 struct DacCapture {
     strobe_was_high: bool,
+    s_was_high: bool,
     stream: u32,
 }
 
 impl DacCapture {
-    fn feed(&mut self, strobe: bool, so: bool) -> Option<i32> {
-        self.stream = (self.stream << 1) | u32::from(so);
+    fn feed(&mut self, strobe: bool, so: bool, s: bool) -> Option<i32> {
+        if s && !self.s_was_high {
+            self.stream = (self.stream << 1) | u32::from(so);
+        }
+        self.s_was_high = s;
         let decoded = (!strobe && self.strobe_was_high).then(|| decode_serial(self.stream));
         self.strobe_was_high = strobe;
         decoded
     }
 }
 
-/// The serial word before a falling edge, to linear PCM.
-///
-/// The same word the OPM die transmits -- floating mantissa-then-exponent,
-/// offset-binary mantissa, exponent amplifying -- but **this package clocks
-/// its serial line at the master rate with no trailing bit**, where the
-/// OPM's ran at half rate trailing by one. Pinned the same way: a pin probe
-/// of the idle stream, which reads mantissa 512 (offset-binary zero) with
-/// exponent 3 only under this framing, decoding to exactly zero.
+/// The serial word before a falling edge, to linear PCM: the OPM die's
+/// arrangement -- read backwards from the edge, exponent then mantissa MSB
+/// down, offset-binary mantissa, exponent amplifying -- at bit-clock rate
+/// with no trailing bit. Pinned by probe: a keyed-on tone hand-decodes to a
+/// slowly evolving sine under exactly this reading.
 fn decode_serial(stream: u32) -> i32 {
     let bit = |i: u32| ((stream >> i) & 1) as i32;
     let exponent = (bit(0) << 2) | (bit(1) << 1) | bit(2);
-    let mut mantissa = 0;
+    let mut mantissa: i32 = 0;
     for i in 0..10 {
         mantissa = (mantissa << 1) | bit(3 + i);
     }
-    (mantissa - 512) << (exponent.max(1) - 1)
+    // Two's complement on this package -- the idle word is mantissa 0, not
+    // the OPM DAC's offset-binary 512.
+    let signed = (mantissa << 22) >> 22;
+    signed << (exponent.max(1) - 1)
 }
 
 /// Scales the analog (SSG) pin's average into the serial DAC's range.
@@ -220,10 +231,11 @@ impl Ym2608Lle {
         self.chip.serve_dm(served);
 
         let (sh1, sh2, so, analog) = self.chip.dac_pins();
-        if let Some(sample) = self.capture[0].feed(sh1, so) {
+        let s = self.chip.s_pin();
+        if let Some(sample) = self.capture[0].feed(sh1, so, s) {
             self.held[0] = sample;
         }
-        if let Some(sample) = self.capture[1].feed(sh2, so) {
+        if let Some(sample) = self.capture[1].feed(sh2, so, s) {
             self.held[1] = sample;
         }
         analog

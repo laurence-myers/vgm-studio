@@ -436,3 +436,18 @@ to pin before the row returns.
 The 2610 die — the original target, for our weakest OPN core — does not
 compile upstream in its configuration (unguarded 2608-only GPIO writes at
 the pin; a different error one commit back). It waits for upstream, not us.
+
+## The 2608 die reaches the bench (2026-07-28, same day, later)
+
+Two harness gaps found and pinned by probe: this package's serial line is
+**bit-clock gated** (`o_s` is a real pin; sampling at master rate smeared
+every word, which was the whisper-quiet FM), and its mantissa is **two's
+complement** where the OPM DAC's was offset binary (the idle word said so).
+With both fixed the trial 0.13 became **0.4883 median (n=4)**, above its
+tripwire bar, pitch exact — and the row is on the bench.
+
+Still owed: the die reads 2–11× quieter than our core file by file, with
+the FM channel-slot accumulation, the SSG scale and the Delta-T DA
+time-slots the open suspects. The row's comment carries the list; the
+number is a floor under a harness still being tightened, not a verdict on
+either emulation yet.

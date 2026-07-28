@@ -121,17 +121,7 @@ fn the_shipping_cores_match_the_die() {
     let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
 
     // (chip, master clocks per sample, LLE core builder, median bar)
-    //
-    // The 2608 die is wrapped (`dro_cores_gpl::Ym2608Lle` -- FM and the
-    // mask-ROM rhythm verified by its unit tests) but is NOT on the bench
-    // yet: a trial row read corr 0.07-0.42 with the die far too quiet,
-    // which measures the harness, not the emulation. The suspect is the
-    // serial frame's structure when Delta-T is active -- `dac_damode`
-    // regates SH1 and switches the data pin between the FM and ADPCM
-    // words, and the tap currently decodes every window as FM. Pin that
-    // with a probe before the row returns; a number that indicts the wrong
-    // party is worse than no number.
-    let bench: [(ChipKind, u32, fn() -> Box<dyn dro_synth::ChipCore>, f64); 2] = [
+    let bench: [(ChipKind, u32, fn() -> Box<dyn dro_synth::ChipCore>, f64); 3] = [
         (
             ChipKind::Ym2151,
             64,
@@ -148,6 +138,22 @@ fn the_shipping_cores_match_the_die() {
             144,
             || Box::new(dro_cores_gpl::Ym2612Lle::new()),
             0.90,
+        ),
+        // The 2608 row is different in kind: the die HAS the rhythm mask
+        // ROM the clean-room core cannot ship, so a low correlation here
+        // is not a bug in either side. 0.4883 observed (n=4) -- part the
+        // measured cost of the missing drums, part harness still owed: the
+        // first trial exposed two gaps since pinned (the serial line is
+        // bit-clock gated; its mantissa is two's complement), and the die
+        // still reads 2-11x quiet against our core, with the FM
+        // channel-slot accumulation, the SSG scale and the Delta-T DA
+        // time-slots the open suspects. The bar is a tripwire under the
+        // current number, not a target.
+        (
+            ChipKind::Ym2608,
+            144,
+            || Box::new(dro_cores_gpl::Ym2608Lle::new()),
+            0.20,
         ),
     ];
 
