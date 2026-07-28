@@ -68,9 +68,9 @@ Unchanged in shape from CORES-PLAN §1 — what changes is *who populates them*.
 
 | Crate | Licence | Populated by | Job |
 |---|---|---|---|
-| `dro-synth` | MIT OR Apache-2.0 | our clean-room cores | **wasm + fallback.** Every chip playable everywhere, no C toolchain, no submodules. |
-| `dro-cores-ymfm` *(new)* | MIT OR Apache-2.0 (wrapping BSD-3 ymfm) | ymfm submodule | **The Yamaha accuracy tier.** Native. |
-| `dro-cores-pcm` *(new, later)* | MIT OR Apache-2.0 (wrapping zlib/MIT upstreams) | vgsound_emu, emu2413/8950 | **PCM + misc accuracy tier.** Native. |
+| `dro-synth` | MIT OR Apache-2.0 | **only the two clean-room cores that cleared 0.90: K053260 and C140** (§6) | Permissive fallback. No longer a complete wasm tier — see §6's cost note. |
+| `dro-cores-ymfm` | MIT OR Apache-2.0 (wrapping BSD-3 ymfm) | ymfm submodule | Yamaha accuracy tier — **conditional on the ru-2 parity gate**; removed entirely if it does not clear. |
+| `dro-cores-pcm` *(only if libvgm's licence gate fails)* | MIT OR Apache-2.0 (wrapping zlib/MIT upstreams) | vgsound_emu | Contingency PCM tier. |
 | `dro-cores-nuked` | LGPL-2.1 | Nuked submodules | Cycle-accurate OPL/OPN2/OPM/PSG. Unchanged. |
 | `dro-cores-gpl` | GPL-2.0-or-later | Nuked-OPLL, the LLE dies | Extreme accuracy + the decapped ROMs. Unchanged. |
 
@@ -80,6 +80,14 @@ That is better than the brief asked for. The GPL crate keeps its existing job �
 the LLE dies and the decapped 2608 rhythm ROM — and gains nothing new.
 
 ## 3 · Sourcing, per chip
+
+> **Amended 2026-07-28 by the owner's three decisions:** OPL2/OPL3 is out of
+> scope for reuse and keeps Nuked-OPL3 / Nuked-CQM / RetroWave (§6); the
+> sub-0.90 clean-room cores are deleted *before* libvgm rather than kept as a
+> fallback (§6); and ymfm survives only where already integrated **and**
+> measured good (§8, ru-2). The table below therefore describes the
+> **destination**, and between ru-0 and ru-3 most of these chips have **no
+> core at all** — that gap is the deliberate cost recorded in §6.
 
 Accuracy default first. **P** = permissive, **N** = LGPL, **G** = GPL,
 **CR** = our clean-room (fallback/wasm everywhere it appears).
@@ -94,7 +102,7 @@ Accuracy default first. **P** = permissive, **N** = LGPL, **G** = GPL,
 | YM2413 | ymfm (P) — alt to Nuked-OPLL | Nuked-OPLL (G) | Gives dro-synth-only builds a real OPLL |
 | YM2151 | ymfm (P) — alt | Nuked-OPM (N) 0.999 | Nuked stays default; ymfm is a permissive-build option |
 | YM2612 / 3438 | ymfm (P) — alt | Nuked-OPN2 (N) 0.985 | as above |
-| YM3526 / YM3812 / YMF262 | ymfm (P) — alt | Nuked-OPL3 | as above; **does not disturb the OPL routing invariant** — see §6 |
+| **OPL2 / OPL3 (YM3812, YMF262, YM3526)** | **no change — out of scope for reuse** | Nuked-OPL3 (default), Nuked-CQM, RetroWave | Owner's decision: these three options stay and nothing is added. `PlayerEngine` is the DRO *editing* engine, not merely a playback core |
 | YM2149 / AY8910 | ymfm SSG (P) — alt | CR 0.597 | — |
 | ES5505/06, ES5504 | **vgsound_emu** (P) | none / CR | Also unblocks ES5505, currently unplayable |
 | K053260 | vgsound_emu (P) | CR 0.990 | Only if it beats us — we are already good here |
@@ -203,29 +211,58 @@ on §1. The options, for the owner's decision:
 most, (3) meanwhile.** Nothing about §4 depends on this decision, which is why
 ymfm goes first.
 
-## 6 · What happens to the clean-room cores
+## 6 · The cull — what happens to the clean-room cores
 
-They stay. They are not deleted, not deprecated, and their tests keep running.
-What changes is their **job description**:
+> **Owner's decision, 2026-07-28:** delete every clean-room core scoring
+> **below 0.90** on the frozen scorecard, and do it **before** libvgm is
+> implemented rather than after.
 
-- They are the wasm tier, where no C or C++ core can currently follow.
-- They are the fallback when a submodule is absent (`--no-default-features`, a
-  fresh clone without `git submodule update`).
-- They remain the default for any chip where they measure better.
-- **They stop being accuracy investments.** The ten open investigations in the
-  threshold reasons are no longer work items; they become documentation of a
-  known ceiling. A clean-room core gets touched again only if it is the
-  *shipping* core for a chip and something is outright broken (silence, a
-  crash), not to chase correlation.
+**Two survive**, measured against VGMPlay at `bee82d7`:
 
-The frozen scorecard rows stay exactly as they are and become the **baseline a
-reused core must beat** to take the default. That is the acceptance gate.
+| Kept | Score | Note |
+|---|---|---|
+| **K053260** | 0.9895 (n=6) | The cleanest tail row on the board. |
+| **C140** | 0.9740 (n=12) | Keeps its stated C219 gap: that variant is approximated as linear addressing and is audibly silent on NA-1/NA-2 rips. |
 
-**The OPL invariant is untouched.** `has_core` vs `can_build` (CORES-PLAN §2)
-still holds: OPL2/OPL3 documents route through `PlayerEngine`, and adding
-ymfm's OPL chips as *listed alternatives* must not make them generically
-buildable. Y8950 arriving via ymfm is registered under the same rule and needs
-the same audit before it can claim an OPL document.
+**Twenty-eight modules go.** Twenty-five measured below the bar — YM2610
+0.769, K054539 0.748, OKIM6295 0.676, YMZ280B 0.664, YM2203 0.640, YM2608
+0.601, AY8910 0.597, SN76489 0.586, OKIM6258 0.557, C352 0.456, RF5C68 0.432,
+NES APU 0.334, Game Boy DMG 0.295, YMF278B 0.075, HuC6280 0.075, VSU 0.074,
+QSound 0.046, MultiPCM 0.034, SAA1099 0.031, X1-010 0.029, RF5C164 0.025,
+WonderSwan 0.022, PWM 0.016, ES5503 0.015, uPD7759 0.010 — plus **SegaPCM,
+K051649 and GA20**, which have no single-chip corpus file and therefore cannot
+demonstrate 0.90, and **Y8950**, which was never registered.
+
+Two notes on the edges, recorded so the rule is applied knowingly rather than
+blindly. **HuC6280** is not demonstrably bad — correlation is meaningless for
+it (VGMPlay's own two cores score -0.19 against each other) and its envelope
+agreement is 0.97 — but it cannot *prove* 0.90 by the agreed metric, and
+libvgm carries `DEVID_C6280`, so it goes with the rest. **YM2203/2608/2610**
+are labelled clean-room but are hybrids: cr-8 assembled them from Nuked-OPN2
+for the FM and the clean-room AY for the SSG. Culling them removes that
+assembly, and ymfm (§8, ru-2) is what must replace it.
+
+**The scorecard rows for culled chips are deleted with their cores**, since a
+threshold guards a core that no longer exists. The SCORECARD chronicle stays —
+it is the *evidence* for the cull and must outlive the code.
+
+**What this costs, stated plainly.** Between the cull and libvgm landing, the
+app plays only OPL2/OPL3, YM2413, YM2612/YM3438, YM2151, C140, K053260, and
+SN76489 via Nuked-PSG — plus whatever ymfm keeps at ru-2. Full corpus
+playability drops from 99.07% to a fraction of that, and **the web build loses
+every non-OPL chip**, because the clean-room cores were the only wasm-capable
+ones. This is a deliberate, bounded interval, not a regression to be
+discovered: `rust` must not take this state (see §8, ru-0's note), and
+`scratchpad/coverage.py` should re-measure so the number is known rather than
+assumed.
+
+**The OPL invariant is untouched, and OPL is now explicitly out of scope for
+reuse.** Per the owner: OPL2/OPL3 keep **Nuked-OPL3 (default, the vendored
+Rust port), Nuked-CQM, and RetroWave** — and nothing else. libvgm and ymfm do
+**not** supply OPL cores here. `PlayerEngine` carries the buffered-write
+spacing, muting and panning that the DRO editor depends on, so this is the
+editing engine, not merely a playback core. `has_core` vs `can_build`
+(CORES-PLAN §2) still holds.
 
 ## 7 · Acceptance — how a swap is proven
 
@@ -245,15 +282,13 @@ default. Per core:
 
 | Step | Work |
 |---|---|
-| **ru-1** | ymfm submodule + `dro-cores-ymfm` crate skeleton + `build.rs` compiling one chip + a linking test. **The PoC gate** — if `clang++` cannot build ymfm into our workspace, stop and re-plan (cf. cr-3). |
-| **ru-2** | The C shim's full surface (§4) + the `ChipCore` wrapper + write pacing established per family. |
-| **ru-3** | Register the OPN family (2203/2608/2610/2612) — the biggest accuracy win. Scorecard rows vs the frozen clean-room baselines. |
-| **ru-4** | Y8950 and YMF278B, including the OPL-routing audit Y8950 has always needed. |
-| **ru-5** | The OPM/OPLL/OPL alternatives as picker entries (permissive-build defaults), OPL invariant intact. |
-| **ru-6** | `dro-cores-gpl` gains ymfm-plus-rhythm-ROM for a complete YM2608. |
-| **ru-7** | vgsound_emu provider crate (C++11, zlib, from GitLab). Its **V2 list is much wider than the archived v1 mirror suggests**: AY-3-8910, SN76489, ES5504/5505/5506, GA20, HuC6280, K005289, K007232, K053260, MMC5, MSM5205/6585, MSM6295, Namco 163, **C140/C219**, NDS, NES APU, SCC, SM8521, VRC VI, X1-010. Priority within it: **ES5505/06** (a chip we cannot play at all), **X1-010** (ours 0.029), **C219** (ours is a stated approximation, audibly silent on NA-1/NA-2), **NES APU** (ours 0.334). |
-| **ru-8** | The libvgm decision from §5, whatever it turns out to be. |
-| **ru-9** | Sweep: About credits, `PROVENANCE.md`, docs, Settings picker copy, the CORES-PLAN §5 table superseded. |
+| **ru-0** | **The cull (§6), first.** Delete the 28 sub-0.90 clean-room modules, their registry entries, their `ChipKind` core mappings and their parity threshold rows; regrow the settings snapshot; re-measure coverage. Keep K053260 and C140. **Method: subtract from the green tree, never reconstruct one** — every VGM decode fix (`0xC1`-`0xC3` port routing, `0xE1` and `0xC5`-`0xC8` big-endian, `0xC4` QSound, `banks::block_owner`) lives *inside* a clean-room core commit, so it survives only by not being touched. `rust` must not take this state; it stays at the `vgm-multichip` foundation until coverage is restored. |
+| **ru-1** | *(DONE, `c0fb1ea`)* ymfm submodule + `dro-cores-ymfm` + the PoC gate: all six OPN-family chips build, link, take writes and sound. |
+| **ru-2** | **The ymfm parity gate.** Per the owner: ymfm survives *only* where it is already integrated **and** scores well. Complete the shim surface and write pacing, register the OPN family, and measure. Chips that score below the bar are dropped from the registry; if none clear it, `dro-cores-ymfm` is removed entirely and libvgm carries the Yamaha family alone. **No further ymfm investment (Y8950, YMF278B, the rhythm-ROM variant) until this gate reports.** |
+| **ru-3** | libvgm, per [LIBVGM-PLAN.md](LIBVGM-PLAN.md) lv-0..lv-8. This is where coverage comes back. |
+| **ru-4** | vgsound_emu (C++11, zlib, from GitLab) — **only if libvgm's lv-0 licence gate fails**, or for chips libvgm serves worse. Its V2 list: AY-3-8910, SN76489, ES5504/5505/5506, GA20, HuC6280, K005289, K007232, K053260, MMC5, MSM5205/6585, MSM6295, Namco 163, C140/C219, NDS, NES APU, SCC, SM8521, VRC VI, X1-010. |
+| **ru-5** | Merge to `rust` **only once playable-chip coverage meets or beats the pre-cull 99.07%**. |
+| **ru-6** | Sweep: About credits, `PROVENANCE.md`, docs, Settings picker copy, the CORES-PLAN §5 table superseded. |
 
 Steps are independently shippable and each ends green (fmt, clippy, suite,
 `--no-default-features`, wasm check).

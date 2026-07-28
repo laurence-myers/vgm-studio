@@ -60,8 +60,8 @@ cannot be a dependency of anything permissive.
 | **Accuracy (primary)** | **`dro-cores-libvgm`** *(new, GPL-2.0-or-later)* | libvgm submodule | The default core for nearly every chip in the GPL app build. |
 | Extreme accuracy | `dro-cores-gpl` | Nuked-OPLL, LLE dies | Unchanged. The dies stay the oracle tier. |
 | LGPL | `dro-cores-nuked` | Nuked submodules | Unchanged; still the OPL3 path. |
-| **Permissive** | `dro-cores-ymfm`, later `dro-cores-pcm` | ymfm, vgsound_emu | **Not wasted.** They are what a permissive consumer of `dro-synth` gets, and what the app falls back to when the GPL crate is excluded. |
-| **wasm + fallback** | `dro-synth` | our clean-room cores | Unchanged — unless §6's spike succeeds. |
+| **Permissive** | `dro-cores-ymfm` | ymfm | **Conditional.** Kept only if the CORES-REUSE-PLAN ru-2 parity gate says it is already integrated *and* scoring well; otherwise removed and libvgm carries the Yamaha family alone. |
+| **Fallback** | `dro-synth` | **K053260 and C140 only** | The two clean-room cores that cleared 0.90. The other 28 are deleted at ru-0, *before* libvgm — so between the cull and lv-4 these chips have no core, and the web build has no non-OPL chips until §6's spike reports. |
 
 A **new crate** rather than folding into `dro-cores-gpl`: libvgm is a large C
 build with its own failure modes, and keeping it separate means a broken pin
@@ -121,11 +121,14 @@ the fix is to compile libvgm with the duplicated cores disabled and let our
 existing submodules serve those chips. **This must be settled at lv-1, not
 discovered at link time in lv-4.**
 
-**The OPL invariant still holds.** libvgm has YM3812, YMF262 and Y8950 cores,
-and registering them must not make OPL generically buildable — OPL documents
-route through `PlayerEngine`. `has_core` versus `can_build` (CORES-PLAN §2) is
-unchanged, and Y8950 still needs its routing audit before it can claim an OPL
-document.
+**OPL is out of scope, by the owner's decision.** libvgm has YM3812, YMF262,
+YM3526 and Y8950 cores and **we do not use them.** OPL2/OPL3 keeps exactly
+three options — Nuked-OPL3 (default, the vendored Rust port), Nuked-CQM and
+RetroWave — because `PlayerEngine` carries the buffered-write spacing, muting
+and panning the DRO *editor* depends on, making it the editing engine rather
+than a swappable playback core. Those libvgm device IDs are simply never
+registered. `has_core` versus `can_build` (CORES-PLAN §2) is unchanged, and
+Y8950 remains unregistered pending its routing audit.
 
 **Our parity reference shares libvgm's lineage.** VGMPlay and libvgm are both
 Valley Bell's, and libvgm is described upstream as the modular rewrite of
@@ -149,6 +152,7 @@ deliberately is the same discipline the Nuked submodules already use.
 
 | Step | Work |
 |---|---|
+| **ru-0** | *(prerequisite, in CORES-REUSE-PLAN)* **The cull happens first**, by the owner's decision: the 28 sub-0.90 clean-room cores are deleted before any libvgm work begins, so this plan is written against a tree that no longer has them. |
 | **lv-0** | **The licence gate.** Obtain the explicit repository-wide grant described at the top. Nothing below starts without it. |
 | **lv-1** | Submodule + `dro-cores-libvgm` crate + `build.rs` compiling `SoundEmu.c`, `logging.c`, `panning.c` and **one** core, with the Nuked-collision policy decided and encoded. A test that `SndEmu_Start` returns a working device. **The PoC gate.** |
 | **lv-2** | The generic `LibVgmChip: ChipCore` — construction, native rate, planar-to-interleaved render, `Stop` on drop. One chip end to end, with a parity row. Expect a very high score (§4); a low one means the binding is wrong. |
@@ -170,18 +174,22 @@ What libvgm needs beyond that is an **allocator** (it uses `malloc`/`free`
 freely) and stubs for its logging path. A small `shim/alloc.c` forwarding to
 Rust's allocator would likely suffice.
 
-If that works, the consequence is large: **the GPL web build could carry
-accurate cores**, and the clean-room tier would fall back to being purely the
-permissive fallback rather than the web tier. Worth one timeboxed spike at
-**lv-1a**, immediately after the PoC gate, because the answer changes how much
-further investment the clean-room cores deserve.
+The stakes are now higher than when this section was first written. Because
+the cull (ru-0) deletes the clean-room cores *before* libvgm arrives, **the web
+build has no non-OPL chips in the interim**, and libvgm-on-wasm is the only
+thing that restores them — there is no longer a fallback tier waiting behind
+it. So **lv-1a is no longer optional colour; it is the web build's whole
+recovery path**, and it should run immediately after the lv-1 PoC gate. If it
+fails, the honest options are to accept an OPL-only web build or to restore a
+small number of clean-room cores behind a wasm `cfg`, and that choice belongs
+to the owner.
 
 ## 7 · What this does not change
 
 - The licence split, registry, picker, wasm rules and acceptance gates from
   CORES-PLAN §§1, 2, 4, 6.
-- The clean-room cores keep their demoted job (CORES-REUSE-PLAN §6): fallback,
-  and the wasm tier unless §6 succeeds. They are still not accuracy
-  investments.
+- The clean-room cores are **deleted at ru-0** except K053260 and C140
+  (CORES-REUSE-PLAN §6). Nothing here restores them; libvgm is what fills the
+  gap they leave.
 - The scorecard remains the arbiter. No core takes a default it has not earned
   against the frozen row it replaces.
