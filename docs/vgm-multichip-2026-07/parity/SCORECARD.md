@@ -451,3 +451,40 @@ the FM channel-slot accumulation, the SSG scale and the Delta-T DA
 time-slots the open suspects. The row's comment carries the list; the
 number is a floor under a harness still being tightened, not a verdict on
 either emulation yet.
+
+## The tail gets its numbers (2026-07-28)
+
+Twenty rows entered the board at once — every chip the two tail tiers
+shipped. The cold run (the one that also caught the WonderSwan crash) and
+a fixed-binary rerun from the same cache agreed on every row neither
+build touched, so the numbers are stable; the floors in `parity/mod.rs`
+now sit just under the observed medians, majors-style. Three chips —
+SegaPCM, K051649, GA20 — have **no single-chip corpus file at all**, so
+their bars stay tripwires with that as the recorded reason.
+
+The measurement did its job before it was even frozen. It caught four
+healthy-but-quiet cores (level 0.12–0.39), and the gain fixes it dictated
+brought **C140 to 0.974 / level 0.96** and **K053260 to 0.990 /
+level 0.97** — the cleanest tail rows on the board, K054539 (0.748) and
+YMZ280B behind them. It also caught **RF5C164 rendering nothing at all**:
+the Mega CD rips upload sample RAM through `0x68` PCM RAM writes, which
+the engine dropped wholesale. Probing Dark Wizard settled the semantics
+(one type-`0x02` stream bank, then thousands of copies at *absolute*
+chip addresses — the first sixteen fill all sixteen 4 KiB pages), and
+with the path implemented the row went from silence to level 1.00. Its
+waveform still disagrees (corr 0.025, +20 cents), which the row's reason
+carries as the open investigation.
+
+One trade is recorded rather than hidden: YMZ280B's x8 gain fix brought
+its level from 0.12 to 0.81 but cost correlation (0.773 quiet, 0.664
+loud, with dropout windows appearing) — clipping is the suspect and a
+rebalance is owed.
+
+The structurally-wrong cluster — QSound (0.046, +14.5 cents), MultiPCM
+(0.034), YMF278B (0.075, the FM half unrouted), uPD7759 and PWM (one
+single-chip file each), and the wavetable/square family (WonderSwan,
+VSU, SAA1099, ES5503, X1-010) — is frozen at tripwire floors with its
+suspects named per row. The wavetable family's near-zero correlations
+carry the HuC6280 precedent: phase is implementation-defined, and the
+reference's own two HuC6280 cores score -0.19 against each other, so
+whole-file correlation may be measuring the metric there, not the cores.
