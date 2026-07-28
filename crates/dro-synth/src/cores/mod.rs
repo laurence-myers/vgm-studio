@@ -28,6 +28,7 @@ pub mod k051649;
 pub mod k054539;
 pub mod nes_apu;
 pub mod okim;
+pub mod qsound;
 pub mod rf5c68;
 pub mod sn76489;
 
@@ -40,5 +41,6 @@ pub use k051649::K051649;
 pub use k054539::K054539;
 pub use nes_apu::NesApu;
 pub use okim::{Okim6258, Okim6295};
+pub use qsound::QSound;
 pub use rf5c68::Rf5c68;
 pub use sn76489::Sn76489;

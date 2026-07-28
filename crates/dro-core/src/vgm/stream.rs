@@ -330,6 +330,15 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             u16::from(byte(1) & 0x7F),
             u16::from(byte(2)),
         ),
+        // QSound is its own arrangement: `0xC4 mm ll rr` is a 16-bit value
+        // (big-endian) into register `rr` -- the address and data trade
+        // places relative to the rest of the range, so it is normalised
+        // here: `addr` is the register, `data` the 16-bit value.
+        0xC4 => write(
+            ChipTarget::first(ChipKind::QSound),
+            u16::from(byte(3)),
+            (u16::from(byte(1)) << 8) | u16::from(byte(2)),
+        ),
         0xC0..=0xC8 => {
             // 16-bit address, one data byte -- except Sega PCM, whose second
             // chip is marked in the high bit of the address word rather than of
