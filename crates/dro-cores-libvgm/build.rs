@@ -358,12 +358,31 @@ const DEVICES: &[Device] = &[
 /// big-endian `0xE1`, and the RF5C pair's port-1 memory convention. lv-4 grows
 /// it, each chip earning its default against the frozen row it replaces.
 ///
-/// Deliberately absent for now: the chips whose command handler upstream is a
-/// special case rather than one of the shapes below -- NES APU (`Cmd_NES_Reg`'s
-/// FDS remap), OKIM6295 (`Cmd_OKIM6295_Reg`'s bank handling), WonderSwan,
-/// SAA1099, Game Boy, the 32X PWM's `Cmd_Ofs4_Data12`, and the OPN/OPL family.
-/// Each needs its own transcription, and a guessed one is silent rather than
-/// wrong-sounding.
+/// Deliberately absent for now, each for its own reason:
+///
+/// - **A handler that is genuinely a special case**, needing a `WriteRule` of
+///   its own: NES APU (`Cmd_NES_Reg` remaps the FDS registers), OKIM6295
+///   (`Cmd_OKIM6295_Reg` strips a stray bit from register `0x0B`), WonderSwan
+///   (`Cmd_WSwan_Reg` offsets every address by `0x80`), SAA1099 (`Cmd_SAA_Reg`
+///   is a two-write pair in the *reverse* order to the Yamaha one -- register
+///   to offset 1, data to offset 0), and the 32X PWM (`Cmd_Ofs4_Data12` takes
+///   its register from the high nibble and a 12-bit value spanning both bytes,
+///   which our own decoder does not preserve).
+/// - **Linked devices**, which this crate does not implement yet: the OPN
+///   family's SSG is a separate `DEVID_AY8910` that `opnintf.c` declares and
+///   expects to be started and linked, and the YMF278B links to a YMF262.
+/// - **The OPL family**, out of scope by the owner's decision, permanently.
+/// - **YM2612/YM2151/YM2413**, which need no linking and would fit the
+///   existing `RegisterLatch` rule -- but Nuked already holds those rows at
+///   0.985/0.999, the pinned reference runs `Core = NUKE` for all three, and
+///   the matching libvgm core is one this build disables. See
+///   `CORES_SERVED_ELSEWHERE`; lv-4 has to resolve that circularity before a
+///   comparison there means anything.
+///
+/// Game Boy is **not** in that list: it is a plain `Cmd_Ofs8_Data8`, so it
+/// needs no new rule and is a one-line addition whenever lv-4 wants it. Its
+/// only wrinkle is that the device has two cores (MAME and SameBoy) and the
+/// pinned reference names neither.
 const ENABLED: &[&str] = &[
     "SN76496", "SEGAPCM", "RF5C68", "YMZ280B", "YMW258", "UPD7759", "MSM6258", "K051649",
     "K054539", "C6280", "C140", "K053260", "QSOUND", "VBOY_VSU", "ES5503", "X1_010", "C352",
