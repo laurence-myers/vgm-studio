@@ -43,7 +43,7 @@ pub use opl::CReferenceOpl3;
 pub use opl::NukedOpl3;
 pub use opl::{DefaultOplChip, OplChip, SilentOpl};
 pub use peak::{Peak, measure_peak, measure_peak_cancellable};
-pub use registry::{CoreInfo, CoreMaker, CoreRegistry, install, registry};
+pub use registry::{CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, install, registry};
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split, split_cancellable};
 pub use vgm_engine::VgmEngine;
 pub use wav::{

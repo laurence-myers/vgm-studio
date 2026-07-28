@@ -656,6 +656,7 @@ pub(crate) fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
             realtime: true,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(make),
         });
     }

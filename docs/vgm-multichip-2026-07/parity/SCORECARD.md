@@ -621,3 +621,48 @@ silent in a corpus run:
 - A device named in a spec but missing from `build.rs`'s `ENABLED` starts
   nothing and is *silently silent*. Two lists that cannot see each other now
   have a test that walks one against the other.
+
+## 2026-07-28 — a core's level belongs to the core
+
+The reused cores correlated at 1.0000 and read 0.50–0.85 on level, which is
+not a contradiction: correlation is scale-invariant, so the two numbers were
+saying "the waveform is identical and the gain is not".
+
+**It is not the file's volume data.** Both candidates were checked and both
+ruled out. The header's volume modifier is already excluded by the sample
+filter, so it is zero across every measured file. The extra header's per-chip
+volumes were *named* in that filter's comment but never actually checked — now
+they are, and re-measuring K053260, C140 and YMZ280B afterwards gave identical
+correlations, levels and sample counts. No file in those samples carried one.
+
+**It is the reference's own volume chain**, which we do not implement:
+VGMPlay's built-in `_CHIP_VOLUME[]` table, its hardcoded per-core patches
+(K051649 ×8/5, C140 ×2/3), `_PB_VOL_AMNT[]` and `NormalizeOverallVolume()`.
+Our engine applies none of it. What it had instead was four hand-fitted
+constants baked *inside* clean-room cores at `010b189` — `cores/k053260.rs`
+carries a literal `* 11 >> 3`, a ×5.5 derived from one scorecard reading.
+
+That works exactly as long as a chip has one core, and stopped working the
+moment a second arrived. So the calibration moves to where it belongs:
+`CoreInfo::level`, 8.8 fixed point, applied by the registry when it builds a
+core. Unity means no wrapper at all, so nothing uncalibrated pays for the
+mechanism, and the existing clean-room constants are untouched.
+
+| chip | before | after |
+|---|---|---|
+| YMZ280B | corr 1.0000, lvl 0.842, gain 1.185 | corr 1.0000, **lvl 0.997, gain 1.001** |
+| C140 | corr 1.0000, lvl 0.749, gain 1.297 | corr 1.0000, **lvl 0.971, gain 1.001** |
+| K053260 | corr 1.0000, lvl 0.505, gain 1.930 | corr 1.0000, **lvl 0.968, gain 1.000** |
+
+Residual fitted gain is unity to three decimals, and correlation did not move —
+which is the check that says a gain was corrected and nothing else was.
+
+**A level here is a measurement.** It is the harness's own least-squares gain,
+and it only means anything for a core whose correlation is high enough that one
+scalar describes the whole difference. The other fourteen libvgm rows stay at
+unity, honestly uncalibrated, until lv-4 measures them.
+
+The principled fix is still to transcribe VGMPlay's volume chain, which would
+let all four of `010b189`'s magic numbers go and would calibrate the chips that
+were never fitted at all. This does not block it; it is the same field, filled
+in per core instead of per chip.

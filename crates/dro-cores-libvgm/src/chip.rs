@@ -24,6 +24,7 @@
 use std::ffi::c_void;
 
 use dro_core::vgm::{ChipKind, ChipSettings};
+use dro_synth::LEVEL_UNITY;
 use dro_synth::chip::ChipCore;
 
 use crate::ffi::{
@@ -193,6 +194,18 @@ pub(crate) struct ChipSpec {
     pub(crate) emu_core: u32,
     /// How writes fold.
     pub(crate) write: WriteRule,
+    /// This core's measured output calibration, 8.8 fixed point, as
+    /// [`CoreInfo::level`](dro_synth::CoreInfo::level).
+    ///
+    /// **Measured or unity, never guessed.** Our clean-room cores carry
+    /// hand-fitted scale factors *inside* them (`cores/k053260.rs`'s `* 11 >> 3`
+    /// is a x5.5); libvgm's carry whatever its own upstream chose, and the two
+    /// need not agree. The number here is the least-squares gain the parity
+    /// harness reports against the pinned reference, and it is only meaningful
+    /// because these rows correlate at 1.0000 -- where a single scalar really
+    /// does describe the whole difference. A row that has not been measured
+    /// stays at unity and is honest about being uncalibrated.
+    pub(crate) level: u16,
     /// The `user` selector for each of the chip's two sample-memory spaces.
     ///
     /// libvgm files a chip's ROM writers by `user`, and the value is per chip:
@@ -681,7 +694,8 @@ impl ChipCore for LibVgmChip {
 macro_rules! chip_specs {
     ($(
         $make:ident : $id:literal => $kind:ident,
-        $device:expr, $emu_core:expr, $write:expr, $rom_spaces:expr, $configure:expr ;
+        $device:expr, $emu_core:expr, $write:expr, $rom_spaces:expr,
+        $level:expr, $configure:expr ;
     )*) => {
         /// Every chip this crate can build, in the order the registry lists
         /// them.
@@ -699,6 +713,7 @@ macro_rules! chip_specs {
                 emu_core: $emu_core,
                 write: $write,
                 rom_spaces: $rom_spaces,
+                level: $level,
                 configure: $configure,
                 make: $make,
             },
@@ -725,57 +740,57 @@ chip_specs! {
     // it by measurement** before either takes a row.
 
     make_sn76489: "sn76489.libvgm" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], configure_sn76496;
+        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;  // measured 1.000 (n=12) -- already exact
     make_huc6280: "huc6280.libvgm" => HuC6280,
-        ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // Plain 8-bit register files: `Cmd_Ofs8_Data8` upstream.
     make_k053260: "k053260.libvgm" => K053260,
-        ffi::DEVID_K053260, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_K053260, 0, WriteRule::Register, [0, 0], 494, configure_none;  // measured 1.930 (n=6)
     make_ga20: "ga20.libvgm" => Ga20,
-        ffi::DEVID_GA20, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_GA20, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_upd7759: "upd7759.libvgm" => Upd7759,
-        ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_okim6258: "okim6258.libvgm" => Okim6258,
-        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_multipcm: "multipcm.libvgm" => MultiPcm,
-        ffi::DEVID_YMW258, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_YMW258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
     make_es5503: "es5503.libvgm" => Es5503,
-        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], configure_none;
+        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // The Yamaha latch pair.
     make_ymz280b: "ymz280b.libvgm" => Ymz280b,
-        ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], configure_none;
+        ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], 303, configure_none;  // measured 1.185 (n=12)
     make_k051649: "k051649.libvgm" => K051649,
-        ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], configure_none;
+        ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
 
     // Memory-space writes with the address arriving whole (`0xC0`, `0xC7`,
     // `0xC8`).
     make_segapcm: "segapcm.libvgm" => SegaPcm,
-        ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], configure_none;
+        ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
     make_x1010: "x1010.libvgm" => X1010,
-        ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], configure_none;
+        ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
     make_vsu: "vsu.libvgm" => Vsu,
-        ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], configure_none;
+        ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
 
     // ...and with it split across our `port`/`addr` (`0xD3`, `0xD4`).
     make_c140: "c140.libvgm" => C140,
-        ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], configure_none;
+        ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_none;  // measured 1.297 (n=12)
     make_k054539: "k054539.libvgm" => K054539,
-        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], configure_none;
+        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_none;
 
     // The three one-off shapes the plan named.
     make_c352: "c352.libvgm" => C352,
-        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], configure_none;
+        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_none;
     make_qsound: "qsound.libvgm" => QSound,
-        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], configure_none;
+        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_none;
     make_rf5c68: "rf5c68.libvgm" => Rf5c68,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], configure_none;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_none;
     // The same device; `flags` (our `variant`) is what makes it the 164, and
     // the engine sets that from the header.
     make_rf5c164: "rf5c164.libvgm" => Rf5c164,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], configure_none;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_none;
 }
 
 /// A chip whose configuration is only the generic fields.

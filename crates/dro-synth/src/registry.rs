@@ -88,17 +88,49 @@ pub struct CoreInfo {
     /// transport must not offer a core that cannot keep up), while the WAV
     /// render does not (it has all the time in the world).
     pub realtime: bool,
+    /// This core's output calibration, in 8.8 fixed point
+    /// ([`LEVEL_UNITY`] = 1.0). Applied to every sample it renders.
+    ///
+    /// **Two cores for one chip need not agree on how loud that chip is**, and
+    /// until now there was nowhere to say so. Our clean-room cores were each
+    /// scaled to the reference by hand *inside the core* -- `cores/k053260.rs`
+    /// carries a literal `* 11 >> 3`, a x5.5 fitted from one scorecard reading
+    /// -- which works exactly as long as a chip has one core. It stopped
+    /// working the moment a second arrived: a reused core has none of those
+    /// constants and reads low by whatever factor its own upstream chose.
+    ///
+    /// So the calibration belongs to the *core*, not to the chip, and this is
+    /// where it goes. 8.8 fixed point rather than a float because the
+    /// reference expresses its own chip volumes that way (VGMPlay's
+    /// `MulFixed8x8`), which is what a proper fix would transcribe, and because
+    /// [`ChipCore`] forbids output that could differ across targets.
+    ///
+    /// **A number here is a measurement, not a preference.** It is the
+    /// least-squares gain the parity harness reports against the pinned
+    /// reference, and it is only meaningful for a core whose correlation is
+    /// high enough that a single scalar describes the difference. Leave it at
+    /// [`LEVEL_UNITY`] until measured; an unmeasured guess is worse than no
+    /// correction, because it looks like one.
+    pub level: u16,
     /// How to build it, or why it is not built here.
     pub make: CoreMaker,
 }
 
+/// Unity in the 8.8 fixed point [`CoreInfo::level`] uses: no correction.
+pub const LEVEL_UNITY: u16 = 0x0100;
+
 impl CoreInfo {
-    /// Builds this core, or `None` when it is one the app routes rather than
-    /// constructs.
+    /// Builds this core with its [`level`](Self::level) applied, or `None`
+    /// when it is one the app routes rather than constructs.
+    ///
+    /// The wrapper is what makes the calibration belong to the registry rather
+    /// than to each provider: a core stays raw, and the row that describes it
+    /// says how loud it is. At [`LEVEL_UNITY`] there is no wrapper at all, so
+    /// every core that has not been measured pays nothing for the mechanism.
     #[must_use]
     pub fn build(&self) -> Option<Box<dyn ChipCore>> {
         match self.make {
-            CoreMaker::Generic(make) => Some(make()),
+            CoreMaker::Generic(make) => Some(Leveled::wrap(make(), self.level)),
             CoreMaker::Opl(_) | CoreMaker::Routed => None,
         }
     }
@@ -114,6 +146,82 @@ impl CoreInfo {
         match self.make {
             CoreMaker::Opl(make) => Some(make(sample_rate)),
             CoreMaker::Generic(_) | CoreMaker::Routed => None,
+        }
+    }
+}
+
+/// A core with its [`CoreInfo::level`] applied to everything it renders.
+///
+/// Only interposed when the level is not unity, so the common case is the bare
+/// core and not a virtual call per buffer.
+struct Leveled {
+    inner: Box<dyn ChipCore>,
+    /// 8.8 fixed point, as [`CoreInfo::level`].
+    level: u16,
+}
+
+// `ChipCore` is not `Debug` (a core is a pile of emulator state, and printing
+// it would be neither possible nor useful), so this reports what it wraps
+// rather than deriving.
+impl core::fmt::Debug for Leveled {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Leveled")
+            .field("level", &self.level)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Leveled {
+    fn wrap(inner: Box<dyn ChipCore>, level: u16) -> Box<dyn ChipCore> {
+        if level == LEVEL_UNITY {
+            return inner;
+        }
+        Box::new(Self { inner, level })
+    }
+}
+
+impl ChipCore for Leveled {
+    fn reset(&mut self, clock: u32, variant: bool) {
+        self.inner.reset(clock, variant);
+    }
+
+    fn configure(&mut self, settings: &dro_core::vgm::ChipSettings) {
+        self.inner.configure(settings);
+    }
+
+    fn native_rate(&self) -> u32 {
+        self.inner.native_rate()
+    }
+
+    fn write(&mut self, port: u8, addr: u16, data: u16) {
+        self.inner.write(port, addr, data);
+    }
+
+    fn load_rom(&mut self, block_type: u8, total_size: u32, start: u32, data: &[u8]) {
+        self.inner.load_rom(block_type, total_size, start, data);
+    }
+
+    fn write_ram(&mut self, offset: u32, data: &[u8]) {
+        self.inner.write_ram(offset, data);
+    }
+
+    fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+        self.inner.write_ram_absolute(address, data);
+    }
+
+    /// Renders, then scales.
+    ///
+    /// Integer throughout: `i64` for the product so a loud sample times a gain
+    /// above unity cannot wrap, and a saturating cast rather than a truncating
+    /// one so the worst case is a clipped peak instead of a sign flip. The
+    /// engine still clips once at the end -- this only stops the intermediate
+    /// from lying.
+    fn render(&mut self, out: &mut [i32]) {
+        self.inner.render(out);
+        let level = i64::from(self.level);
+        for sample in out.iter_mut() {
+            let scaled = (i64::from(*sample) * level) >> 8;
+            *sample = scaled.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
         }
     }
 }
@@ -158,6 +266,7 @@ impl CoreRegistry {
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
                 realtime: true,
+                level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
         }
@@ -169,6 +278,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Sn76489::new())),
         });
         registry.register(CoreInfo {
@@ -179,6 +289,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::NesApu::new())),
         });
         registry.register(CoreInfo {
@@ -189,6 +300,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::GbDmg::new())),
         });
         registry.register(CoreInfo {
@@ -199,6 +311,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Ay8910::new())),
         });
         registry.register(CoreInfo {
@@ -209,6 +322,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::HuC6280::new())),
         });
         registry.register(CoreInfo {
@@ -219,6 +333,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Okim6295::new())),
         });
         registry.register(CoreInfo {
@@ -229,6 +344,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::K051649::new())),
         });
         // The Y8950 core exists (`cores::y8950`, FM + Delta-T, tests green)
@@ -247,6 +363,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::SegaPcm::new())),
         });
         registry.register(CoreInfo {
@@ -257,6 +374,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Ga20::new())),
         });
         registry.register(CoreInfo {
@@ -267,6 +385,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Ymz280b::new())),
         });
         registry.register(CoreInfo {
@@ -277,6 +396,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::K053260::new())),
         });
         registry.register(CoreInfo {
@@ -287,6 +407,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::WonderSwan::new())),
         });
         registry.register(CoreInfo {
@@ -297,6 +418,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Vsu::new())),
         });
         registry.register(CoreInfo {
@@ -307,6 +429,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Saa1099::new())),
         });
         registry.register(CoreInfo {
@@ -317,6 +440,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Pwm::new())),
         });
         registry.register(CoreInfo {
@@ -327,6 +451,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Es5503::new())),
         });
         registry.register(CoreInfo {
@@ -337,6 +462,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Ymf278b::new())),
         });
         registry.register(CoreInfo {
@@ -347,6 +473,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::X1010::new())),
         });
         registry.register(CoreInfo {
@@ -357,6 +484,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::MultiPcm::new())),
         });
         registry.register(CoreInfo {
@@ -367,6 +495,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Upd7759::new())),
         });
         registry.register(CoreInfo {
@@ -377,6 +506,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::QSound::new())),
         });
         registry.register(CoreInfo {
@@ -387,6 +517,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::C352::new())),
         });
         registry.register(CoreInfo {
@@ -397,6 +528,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::C140::new())),
         });
         registry.register(CoreInfo {
@@ -407,6 +539,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::K054539::new())),
         });
         registry.register(CoreInfo {
@@ -417,6 +550,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
         });
         registry.register(CoreInfo {
@@ -427,6 +561,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
         });
         registry.register(CoreInfo {
@@ -437,6 +572,7 @@ impl CoreRegistry {
             license: "MIT OR Apache-2.0",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Okim6258::new())),
         });
         registry
@@ -750,6 +886,119 @@ mod tests {
         }
     }
 
+    /// A core that renders a constant, so a gain is visible in the output.
+    #[derive(Debug, Default)]
+    struct Tone {
+        writes: usize,
+        resets: usize,
+    }
+
+    impl ChipCore for Tone {
+        fn reset(&mut self, _clock: u32, _variant: bool) {
+            self.resets += 1;
+        }
+        fn native_rate(&self) -> u32 {
+            44_100
+        }
+        fn write(&mut self, _port: u8, _addr: u16, _data: u16) {
+            self.writes += 1;
+        }
+        fn render(&mut self, out: &mut [i32]) {
+            out.fill(1000);
+        }
+    }
+
+    fn tone_info(id: &'static str, level: u16) -> CoreInfo {
+        CoreInfo {
+            id,
+            chip: ChipKind::Sn76489,
+            label: id,
+            authors: "test",
+            license: "MIT",
+            upstream: "",
+            realtime: true,
+            level,
+            make: CoreMaker::Generic(|| Box::new(Tone::default())),
+        }
+    }
+
+    fn rendered(info: &CoreInfo) -> Vec<i32> {
+        let mut core = info.build().expect("a generic core builds");
+        let mut out = vec![0i32; 8];
+        core.render(&mut out);
+        out
+    }
+
+    /// A core's level scales what it renders, and unity leaves it alone.
+    ///
+    /// The point of the whole field: two cores for one chip need not agree on
+    /// how loud that chip is, and the registry is where that is recorded.
+    #[test]
+    fn a_cores_level_scales_what_it_renders() {
+        assert_eq!(
+            rendered(&tone_info("sn76489.plain", LEVEL_UNITY)),
+            [1000; 8]
+        );
+        // 1.930, the gain the parity harness measured for libvgm's K053260.
+        assert_eq!(rendered(&tone_info("sn76489.loud", 494)), [1929; 8]);
+        // And a level below unity attenuates rather than being ignored.
+        assert_eq!(rendered(&tone_info("sn76489.quiet", 128)), [500; 8]);
+    }
+
+    /// The wrapper forwards everything else untouched.
+    ///
+    /// A gain adapter that swallowed a register write would be the worst kind
+    /// of bug here: the chip would play, quietly, and wrongly.
+    #[test]
+    fn the_level_wrapper_forwards_the_rest_of_the_trait() {
+        let info = tone_info("sn76489.loud", 494);
+        let mut core = info.build().expect("builds");
+        core.reset(3_579_545, true);
+        core.configure(&dro_core::vgm::ChipSettings::default());
+        core.write(1, 0x28, 0xF0);
+        core.load_rom(0x8E, 16, 0, &[0u8; 16]);
+        core.write_ram(0, &[0u8; 4]);
+        core.write_ram_absolute(0, &[0u8; 4]);
+        assert_eq!(core.native_rate(), 44_100, "the rate is the inner core's");
+
+        // The scaling still happened, so the wrapper is genuinely interposed
+        // and these calls really did pass through it.
+        let mut out = vec![0i32; 4];
+        core.render(&mut out);
+        assert_eq!(out, [1929; 4]);
+    }
+
+    /// A loud sample times a gain above unity saturates rather than wrapping.
+    ///
+    /// `i32::MAX * 1.93` does not fit in an `i32`, and a truncating cast would
+    /// turn the loudest possible sample into a negative one -- an inaudible
+    /// arithmetic detail that would be an audible click.
+    #[test]
+    fn scaling_saturates_instead_of_wrapping() {
+        #[derive(Debug, Default)]
+        struct Full;
+        impl ChipCore for Full {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(i32::MAX);
+            }
+        }
+
+        let mut registry = CoreRegistry::new();
+        registry.register(CoreInfo {
+            make: CoreMaker::Generic(|| Box::new(Full)),
+            ..tone_info("sn76489.full", 494)
+        });
+        let mut core = registry.build(ChipKind::Sn76489, None).expect("builds");
+        let mut out = vec![0i32; 4];
+        core.render(&mut out);
+        assert_eq!(out, [i32::MAX; 4], "saturated, not wrapped");
+    }
+
     fn info(id: &'static str) -> CoreInfo {
         CoreInfo {
             id,
@@ -759,6 +1008,7 @@ mod tests {
             license: "MIT",
             upstream: "",
             realtime: true,
+            level: LEVEL_UNITY,
             make: CoreMaker::Generic(|| Box::new(crate::cores::Sn76489::new())),
         }
     }

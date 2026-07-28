@@ -44,6 +44,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPLL",
             realtime: true,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2413::new())),
         });
     }
@@ -56,6 +57,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/Nuked-PSG",
             realtime: true,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Sn76489Nuked::new())),
         });
     }
@@ -68,6 +70,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2151-LLE",
             realtime: false,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2151Lle::new())),
         });
     }
@@ -80,6 +83,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
             realtime: false,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2612Lle::new())),
         });
     }
@@ -92,6 +96,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
             realtime: false,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2608Lle::new())),
         });
     }

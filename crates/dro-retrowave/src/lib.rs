@@ -52,6 +52,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/SudoMaker/RetroWave",
             realtime: true,
+            level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Routed,
         });
     }

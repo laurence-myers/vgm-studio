@@ -85,6 +85,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
+            level: spec.level,
             make: spec.maker(),
         });
     }
