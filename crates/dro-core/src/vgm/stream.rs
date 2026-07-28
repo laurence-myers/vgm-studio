@@ -342,8 +342,15 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
         0xC0..=0xC8 => {
             // 16-bit address, one data byte -- except Sega PCM, whose second
             // chip is marked in the high bit of the address word rather than of
-            // the first byte.
-            let address = word(1);
+            // the first byte. The spec switches byte order mid-range: `0xC0`-
+            // `0xC2` write their address as `bbaa` (little-endian), `0xC5`-
+            // `0xC8` as `mmll` (big-endian) -- the X1-010's corpus streams
+            // arbitrated, exactly as the C352's did for `0xE1`.
+            let address = if opcode >= 0xC5 {
+                (u16::from(byte(1)) << 8) | u16::from(byte(2))
+            } else {
+                word(1)
+            };
             let target = ChipTarget::first(C_RANGE[(opcode & 0x0F) as usize]);
             let (mut target, addr) = if opcode == 0xC0 {
                 (
