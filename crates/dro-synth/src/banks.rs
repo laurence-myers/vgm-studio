@@ -160,6 +160,28 @@ pub const fn block_owner(kind: u8) -> Option<ChipKind> {
     })
 }
 
+/// The chip a *stream* bank type belongs to, for `0x68` PCM RAM writes.
+///
+/// `0x68`'s chip byte reuses the `0x00`-`0x3F` stream-block numbering, not
+/// the ROM/RAM table above: type `0x01` data is RF5C68 sample RAM, `0x02`
+/// RF5C164, and so on down the spec's list. The corpus's Mega CD rips are
+/// the big user -- one type-`0x02` block, then thousands of `0x68` copies
+/// out of it.
+#[must_use]
+pub const fn stream_owner(kind: u8) -> Option<ChipKind> {
+    Some(match kind {
+        0x01 => ChipKind::Rf5c68,
+        0x02 => ChipKind::Rf5c164,
+        0x03 => ChipKind::Pwm,
+        0x04 => ChipKind::Okim6258,
+        0x05 => ChipKind::HuC6280,
+        0x06 => ChipKind::Scsp,
+        0x07 => ChipKind::NesApu,
+        // 0x00 is the YM2612's DAC bank, which 0x68 has no business with.
+        _ => return None,
+    })
+}
+
 /// The sample streams a file has handed over, kept by type and arrival order.
 ///
 /// `0x95` addresses a bank by "the nth block of this type", so order within a
@@ -201,6 +223,28 @@ impl Banks {
             .filter(|(block_kind, _)| *block_kind == kind)
             .flat_map(|(_, data)| data.iter().copied())
             .collect()
+    }
+
+    /// Up to `length` bytes at `offset` into the type's concatenated bank --
+    /// what a `0x68` PCM RAM write reads -- without building the whole
+    /// concatenation. Short if the bank runs out.
+    #[must_use]
+    pub fn read(&self, kind: u8, offset: usize, length: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(length.min(0x1_0000));
+        let mut skip = offset;
+        for (_, data) in self.blocks.iter().filter(|(k, _)| *k == kind) {
+            if skip >= data.len() {
+                skip -= data.len();
+                continue;
+            }
+            let take = (data.len() - skip).min(length - out.len());
+            out.extend_from_slice(&data[skip..skip + take]);
+            skip = 0;
+            if out.len() == length {
+                break;
+            }
+        }
+        out
     }
 
     /// How many blocks are stored, of every type.
@@ -293,5 +337,20 @@ mod tests {
 
         banks.clear();
         assert!(banks.is_empty());
+    }
+
+    /// `read` spans block boundaries and comes back short at the end --
+    /// never panicking, never padding.
+    #[test]
+    fn a_ranged_read_walks_the_blocks_without_concatenating() {
+        let mut banks = Banks::new();
+        banks.push(0x02, vec![0, 1, 2]);
+        banks.push(0x01, vec![99]);
+        banks.push(0x02, vec![3, 4, 5]);
+
+        assert_eq!(banks.read(0x02, 1, 3), vec![1, 2, 3]);
+        assert_eq!(banks.read(0x02, 4, 10), vec![4, 5]);
+        assert_eq!(banks.read(0x02, 9, 4), Vec::<u8>::new());
+        assert_eq!(banks.read(0x01, 0, 1), vec![99]);
     }
 }

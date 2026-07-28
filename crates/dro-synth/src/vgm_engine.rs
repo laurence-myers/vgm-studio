@@ -25,7 +25,7 @@ use dro_core::VgmFile;
 use dro_core::vgm::header::ChipUse;
 use dro_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
-use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header};
+use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header, stream_owner};
 use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
@@ -509,7 +509,11 @@ impl VgmEngine {
                 self.dac_stream(stream, index, opcode, stream_id);
                 0
             }
-            VgmCommand::PcmRamWrite { .. } | VgmCommand::SeekPcm(_) | VgmCommand::Raw { .. } => 0,
+            VgmCommand::PcmRamWrite { .. } => {
+                self.pcm_ram_write(stream, index);
+                0
+            }
+            VgmCommand::SeekPcm(_) | VgmCommand::Raw { .. } => 0,
             VgmCommand::OverrideWait { which, samples } => {
                 // `0x64 62|63 nnnn` redefines what the short waits mean.
                 match which {
@@ -627,6 +631,51 @@ impl VgmEngine {
                     self.deliver_to_core(kind, instance, |core| core.write_ram(ram.offset, data));
                 }
             }
+        }
+    }
+
+    /// Performs a `0x68` PCM RAM write: `0x68 0x66 cc oo3 dd3 ss3` copies
+    /// `ss` bytes from offset `oo` of the type-`cc` stream bank to the
+    /// owning chip's RAM at *absolute* address `dd`.
+    ///
+    /// This is the other way sample RAM arrives, alongside the `0xC0`-range
+    /// blocks: the corpus's Mega CD rips send one type-`0x02` bank and then
+    /// thousands of these copies (Dark Wizard alone has 8,300), which is why
+    /// dropping the command left those files silent. The chip byte's high
+    /// bit picks the second chip, as everywhere; a zero size means
+    /// `0x0100_0000` per the spec, clamped here to what the bank holds.
+    fn pcm_ram_write(&mut self, stream: &VgmStream, index: usize) {
+        let Some(bytes) = stream.raw_command(index) else {
+            return;
+        };
+        if bytes.len() < 12 {
+            return;
+        }
+        let u24 = |at: usize| -> u32 {
+            u32::from(bytes[at])
+                | (u32::from(bytes[at + 1]) << 8)
+                | (u32::from(bytes[at + 2]) << 16)
+        };
+        let kind = bytes[2] & 0x7F;
+        let instance = u8::from(bytes[2] & 0x80 != 0);
+        let (read_offset, address) = (u24(3), u24(6));
+        let size = match u24(9) {
+            0 => 0x0100_0000,
+            other => other,
+        };
+        let Some(owner) = stream_owner(kind) else {
+            return;
+        };
+        let data = self.banks.read(kind, read_offset as usize, size as usize);
+        if data.is_empty() {
+            return;
+        }
+        if let Some(voice) = self
+            .voices
+            .iter_mut()
+            .find(|voice| voice.target.kind == owner && voice.target.instance == instance)
+        {
+            voice.core.write_ram_absolute(address, &data);
         }
     }
 
@@ -947,6 +996,54 @@ mod tests {
             *seen.lock().expect("not poisoned"),
             [(0x80, 0x1000, 0x40, 3)],
             "the header was split off and the piece handed over"
+        );
+    }
+
+    /// A `0x68` PCM RAM write copies a slice of the stream bank into the
+    /// owning chip's RAM at an absolute address -- the Mega CD upload path.
+    #[test]
+    fn a_pcm_ram_write_copies_the_bank_into_the_chip() {
+        // A type-0x02 (RF5C164) stream bank of ten counting bytes...
+        let mut stream = vec![0x67, 0x66, 0x02];
+        stream.extend_from_slice(&10u32.to_le_bytes());
+        stream.extend_from_slice(&[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        // ...then `0x68 0x66 cc oo3 dd3 ss3`: four bytes from offset 2 of
+        // that bank to chip address 0x1234.
+        stream.extend_from_slice(&[0x68, 0x66, 0x02, 2, 0, 0, 0x34, 0x12, 0, 4, 0, 0]);
+        stream.push(0x66);
+
+        let file = vgm(&[(ChipKind::Rf5c164, 12_500_000)], &stream);
+        let seen: Log<(u32, Vec<u8>)> = Arc::new(Mutex::new(Vec::new()));
+
+        struct RamTap(Log<(u32, Vec<u8>)>);
+        impl ChipCore for RamTap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+                self.0
+                    .lock()
+                    .expect("not poisoned")
+                    .push((address, data.to_vec()));
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+
+        let seen_for_factory = Arc::clone(&seen);
+        let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            Some(Box::new(RamTap(Arc::clone(&seen_for_factory))))
+        });
+        let mut out = vec![0i16; 16];
+        engine.render(&mut out);
+
+        assert_eq!(
+            *seen.lock().expect("not poisoned"),
+            [(0x1234, vec![2, 3, 4, 5])],
+            "the copy read the bank at its offset and named the absolute address"
         );
     }
 

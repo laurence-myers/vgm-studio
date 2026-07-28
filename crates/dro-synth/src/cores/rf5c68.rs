@@ -14,10 +14,13 @@
 //!
 //! Unlike its ROM-reading cousins, this chip plays from **RAM the driver
 //! streams into it** -- through a 4 KiB window a bank register slides over
-//! the 64 KiB. A VGM carries those uploads two ways: `0xC0`-type data
-//! blocks, and direct `0xC1`/`0xC2` pokes, which [the stream
-//! decoder](dro_core::vgm::stream) hands this core on **port 1** so they
-//! cannot collide with the register writes on port 0.
+//! the 64 KiB. A VGM carries those uploads three ways: `0xC0`-type data
+//! blocks and direct `0xC1`/`0xC2` pokes, both window-relative, which [the
+//! stream decoder](dro_core::vgm::stream) hands this core on **port 1** so
+//! they cannot collide with the register writes on port 0 -- and `0x68`
+//! PCM RAM writes, whose addresses are **absolute** (the Mega CD rips that
+//! use them fill all sixteen pages), delivered via
+//! [`write_ram_absolute`](ChipCore::write_ram_absolute).
 //!
 //! Two behaviours define the sound and are pinned by tests. Samples are
 //! **sign-magnitude**, not two's complement -- bit 7 set means positive --
@@ -154,6 +157,14 @@ impl ChipCore for Rf5c68 {
                 break;
             };
             *slot = byte;
+        }
+    }
+
+    /// A `0x68` PCM RAM write: the address is absolute, not through the
+    /// window -- the Mega CD rips that use it fill all sixteen pages.
+    fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+        for (index, &byte) in data.iter().enumerate() {
+            self.ram[(address as usize + index) & 0xFFFF] = byte;
         }
     }
 
@@ -303,6 +314,18 @@ mod tests {
         chip.write(0, 0x07, 0xC0); // back on
         chip.write(0, 0x08, 0xFF); // all channels off
         assert_eq!(energy(&render(&mut chip, 500)), 0);
+    }
+
+    /// A `0x68` PCM RAM write is absolute: it lands where it says,
+    /// regardless of where the bank window points.
+    #[test]
+    fn an_absolute_ram_write_ignores_the_window() {
+        let mut chip = Rf5c68::new();
+        chip.reset(CLOCK, false);
+        chip.write(0, 0x07, 0x02); // window at 0x2000 -- and irrelevant
+        chip.write_ram_absolute(0xF234, &[0xAB, 0xCD]);
+        assert_eq!(chip.ram[0xF234], 0xAB);
+        assert_eq!(chip.ram[0xF235], 0xCD);
     }
 
     /// Memory pokes (port 1) go through the bank window, exactly like the

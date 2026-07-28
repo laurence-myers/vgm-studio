@@ -66,6 +66,15 @@ pub trait ChipCore: Send {
     /// Writes `data` into the chip's RAM at `offset`. The default ignores it.
     fn write_ram(&mut self, _offset: u32, _data: &[u8]) {}
 
+    /// Writes `data` at an *absolute* RAM `address`, for the `0x68` PCM RAM
+    /// write. The default treats it as [`write_ram`](Self::write_ram); a chip
+    /// whose `write_ram` goes through a banked window (the RF5C68) overrides
+    /// this to bypass it -- `0x68`'s 24-bit address field spans the whole
+    /// RAM, and the corpus's rips fill all of it.
+    fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+        self.write_ram(address, data);
+    }
+
     /// Renders `out.len() / 2` interleaved stereo frames at
     /// [`native_rate`](Self::native_rate).
     ///
