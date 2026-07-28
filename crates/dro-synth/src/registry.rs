@@ -260,6 +260,16 @@ impl CoreRegistry {
             make: CoreMaker::Generic(|| Box::new(crate::cores::Ga20::new())),
         });
         registry.register(CoreInfo {
+            id: "ymz280b.native",
+            chip: ChipKind::Ymz280b,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Ymz280b::new())),
+        });
+        registry.register(CoreInfo {
             id: "qsound.native",
             chip: ChipKind::QSound,
             label: "Clean-room (this project)",

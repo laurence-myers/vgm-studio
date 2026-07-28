@@ -35,6 +35,7 @@ pub mod segapcm;
 pub mod sn76489;
 #[cfg(feature = "nuked-opl")]
 pub mod y8950;
+pub mod ymz280b;
 
 pub use ay8910::Ay8910;
 pub use c140::C140;
@@ -52,3 +53,4 @@ pub use segapcm::SegaPcm;
 pub use sn76489::Sn76489;
 #[cfg(feature = "nuked-opl")]
 pub use y8950::Y8950;
+pub use ymz280b::Ymz280b;
