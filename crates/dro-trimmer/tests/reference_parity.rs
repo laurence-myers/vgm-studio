@@ -189,7 +189,22 @@ fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize
         // gap closes, a file that uses them would show a gain difference that
         // is real but is not the chip's -- so they are filtered out rather
         // than explained away in every result.
+        //
+        // **Both of them**, which this used to say and only half do: the
+        // modifier was checked and the extra header's per-chip volumes were
+        // not, so a file carrying one could still enter the sample and put a
+        // gain difference into the result that no core was responsible for.
+        // That matters more now than it did, because a reused core's level is
+        // the one number lv-4 has to fit, and it cannot be fitted against a
+        // sample with an unaccounted multiplier in it.
         if file.header.volume_modifier() != 0 {
+            continue;
+        }
+        if file
+            .header
+            .extra()
+            .is_some_and(|extra| !extra.volumes.is_empty())
+        {
             continue;
         }
         found.push(path);
