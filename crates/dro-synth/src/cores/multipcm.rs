@@ -250,7 +250,7 @@ impl ChipCore for MultiPcm {
                 let value = i32::from(byte as i8) << 8;
                 let mut scaled = (value * level_gain(voice.total_level)) >> 18;
                 if fading {
-                    scaled = scaled * i32::from(voice.release) >> 8;
+                    scaled = (scaled * i32::from(voice.release)) >> 8;
                     voice.release = voice.release.saturating_sub(2);
                 }
                 // Pan: 0 centre, 1-7 right-attenuating, 8-15 left (linear,

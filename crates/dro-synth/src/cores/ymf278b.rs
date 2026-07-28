@@ -133,7 +133,7 @@ impl Ymf278b {
                 // Two samples in three bytes: [a11-4][a3-0 b3-0][b11-4].
                 let at = (base + (index / 2) * 3) as usize;
                 let trio = self.rom.get(at..at + 3)?;
-                let value = if index % 2 == 0 {
+                let value = if index.is_multiple_of(2) {
                     (i32::from(trio[0] as i8) << 4) | i32::from(trio[1] >> 4)
                 } else {
                     (i32::from(trio[2] as i8) << 4) | i32::from(trio[1] & 0x0F)
@@ -254,7 +254,7 @@ impl ChipCore for Ymf278b {
                 // mixer with 24 voices in play.
                 let mut scaled = (value * level_gain(voice.total_level)) >> 18;
                 if fading {
-                    scaled = scaled * i32::from(voice.release) >> 8;
+                    scaled = (scaled * i32::from(voice.release)) >> 8;
                     voice.release = voice.release.saturating_sub(2);
                 }
                 // Pan: 0 is centre; 1-7 attenuates the right side, 9-15
