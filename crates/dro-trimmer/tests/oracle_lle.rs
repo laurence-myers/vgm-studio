@@ -109,6 +109,10 @@ fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize
     found
 }
 
+/// One row of the bench: the chip, its master clocks per sample, how to build
+/// its LLE oracle, and the median correlation it must clear.
+type BenchRow = (ChipKind, u32, fn() -> Box<dyn dro_synth::ChipCore>, f64);
+
 /// The bench: every chip with both a shipping core and an LLE oracle.
 #[test]
 #[ignore = "corpus-gated die-speed run; see the module doc for the command"]
@@ -121,7 +125,7 @@ fn the_shipping_cores_match_the_die() {
     let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
 
     // (chip, master clocks per sample, LLE core builder, median bar)
-    let bench: [(ChipKind, u32, fn() -> Box<dyn dro_synth::ChipCore>, f64); 3] = [
+    let bench: [BenchRow; 3] = [
         (
             ChipKind::Ym2151,
             64,

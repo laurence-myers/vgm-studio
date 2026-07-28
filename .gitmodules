@@ -22,3 +22,6 @@
 [submodule "vendor/upstream/ymfm"]
 	path = vendor/upstream/ymfm
 	url = https://github.com/aaronsgiles/ymfm.git
+[submodule "vendor/upstream/libvgm"]
+	path = vendor/upstream/libvgm
+	url = https://github.com/ValleyBell/libvgm.git

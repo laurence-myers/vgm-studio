@@ -1210,6 +1210,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dro-cores-libvgm"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "dro-core",
+ "dro-synth",
+]
+
+[[package]]
 name = "dro-cores-nuked"
 version = "5.1.0"
 dependencies = [

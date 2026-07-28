@@ -39,12 +39,20 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
 2. **crates.io dependency.** Where a maintained Rust crate of the right
    license exists. Same non-vendored property, cargo-native.
 3. **Rust port with a provenance header.** Last resort, for upstreams that
-   cannot be consumed directly: C++ sources (no C++ toolchain here, and C++ to
-   `wasm32-unknown-unknown` needs a runtime we do not ship), and libvgm's
-   BSD-tagged C files, which `#include` untagged framework headers — compiling
-   those would drag unlicensed code into the build, so the tagged file's logic
-   is ported and cited instead. A ported file carries the upstream notice and
+   cannot be consumed directly. A ported file carries the upstream notice and
    names the revision it matches.
+
+   *Amended 2026-07-28.* This tier used to say C++ could not be consumed here;
+   `clang++` is now in the toolchain and `dro-cores-ymfm` compiles C++ directly,
+   so that only holds for `wasm32-unknown-unknown`, which has no C++ standard
+   library. It also used to route libvgm here, on the grounds that compiling its
+   BSD-tagged files drags in untagged framework headers. **That finding stands
+   and is unresolved** — libvgm publishes no licence grant at all (see
+   `crates/dro-cores-libvgm/src/lib.rs`) — but the project owner has directed
+   that libvgm be integrated as a submodule under tier 1 regardless, so the
+   engineering no longer waits on it. What remains open is *release*: shipping a
+   binary containing that object code is the redistribution the missing grant
+   does not cover. `docs/vgm-multichip-2026-07/LIBVGM-PLAN.md` lv-0 tracks it.
 
 ## Cores
 
