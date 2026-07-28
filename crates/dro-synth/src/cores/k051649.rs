@@ -59,7 +59,7 @@ impl Channel {
         // The wave pointer advances at clock/(period+1); one internal tick is
         // sixteen clocks, so sixteen wave steps' worth of clocks pass per
         // tick.
-        self.step = (u32::from(CLOCK_DIVIDER) << 16) / (u32::from(self.period) + 1);
+        self.step = (CLOCK_DIVIDER << 16) / (u32::from(self.period) + 1);
     }
 }
 
@@ -128,7 +128,7 @@ impl ChipCore for K051649 {
             0x01 => {
                 let channel = addr / 2;
                 if let Some(ch) = self.channels.get_mut(channel) {
-                    let period = if addr % 2 == 0 {
+                    let period = if addr.is_multiple_of(2) {
                         (ch.period & 0x0F00) | u16::from(data)
                     } else {
                         (ch.period & 0x00FF) | (u16::from(data & 0x0F) << 8)
@@ -150,12 +150,9 @@ impl ChipCore for K051649 {
                 }
             }
             // The SCC+'s own window onto channel 5's wave memory.
-            0x04 => {
-                if self.plus {
-                    self.waves[4][addr % 32] = data as i8;
-                }
-            }
-            // Port 5 is the deformation/test register: not modelled.
+            0x04 if self.plus => self.waves[4][addr % 32] = data as i8,
+            // Port 5 is the deformation/test register: not modelled, and
+            // port 4 on the plain SCC does not exist.
             _ => {}
         }
     }
