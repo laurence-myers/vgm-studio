@@ -30,6 +30,7 @@ pub mod nes_apu;
 pub mod okim;
 pub mod qsound;
 pub mod rf5c68;
+pub mod segapcm;
 pub mod sn76489;
 #[cfg(feature = "nuked-opl")]
 pub mod y8950;
@@ -45,6 +46,7 @@ pub use nes_apu::NesApu;
 pub use okim::{Okim6258, Okim6295};
 pub use qsound::QSound;
 pub use rf5c68::Rf5c68;
+pub use segapcm::SegaPcm;
 pub use sn76489::Sn76489;
 #[cfg(feature = "nuked-opl")]
 pub use y8950::Y8950;
