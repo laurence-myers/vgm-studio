@@ -141,19 +141,22 @@ fn the_shipping_cores_match_the_die() {
         ),
         // The 2608 row is different in kind: the die HAS the rhythm mask
         // ROM the clean-room core cannot ship, so a low correlation here
-        // is not a bug in either side. 0.4883 observed (n=4) -- part the
-        // measured cost of the missing drums, part harness still owed: the
-        // first trial exposed two gaps since pinned (the serial line is
-        // bit-clock gated; its mantissa is two's complement), and the die
-        // still reads 2-11x quiet against our core, with the FM
-        // channel-slot accumulation, the SSG scale and the Delta-T DA
-        // time-slots the open suspects. The bar is a tripwire under the
-        // current number, not a target.
+        // is not a bug in either side. **0.5829 observed (n=4)**, levels
+        // 0.79-1.05 -- the "die reads 2-11x quiet" defect is gone, and it
+        // was the harness all along: this package does not use the OPM's
+        // floating-point DAC word at all but the YM3016's 16-bit linear
+        // one, LSB first, and its SH1 frames the *left* word rather than
+        // the right. Both pinned by probe against the die's own shifter.
+        // What remains is believed to be the genuine article -- the drums
+        // our core cannot play -- but the per-file spread (0.31 to 0.72,
+        // envelope 0.08 to 0.40) is wider than a fixed missing section
+        // should give, so it is not yet proven that no harness gap is
+        // left. The bar stays a tripwire under the observed median.
         (
             ChipKind::Ym2608,
             144,
             || Box::new(dro_cores_gpl::Ym2608Lle::new()),
-            0.20,
+            0.50,
         ),
     ];
 

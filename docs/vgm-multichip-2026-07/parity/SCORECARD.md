@@ -488,3 +488,33 @@ suspects named per row. The wavetable family's near-zero correlations
 carry the HuC6280 precedent: phase is implementation-defined, and the
 reference's own two HuC6280 cores score -0.19 against each other, so
 whole-file correlation may be measuring the metric there, not the cores.
+
+## The 2608 die stops being quiet (2026-07-28, later still)
+
+The "die reads 2–11× quieter than our core" defect was never the die. It
+was the last of the harness, and the correction is the same lesson this
+tier keeps teaching: **the DAC word's format is per package, and only the
+silicon can be asked.** The wrapper had been decoding the OPM's
+floating-point word — three-bit exponent, offset-binary mantissa, read
+backwards from the falling edge. This package does not send one. Its
+shifter loads the summed 18-bit accumulator as a **16-bit linear word**,
+sign inverted into the top bit, and shifts it out **LSB first** — the
+YM3016's input format, where the OPM's YM3012 took the float. The die's
+own shifter line (`ac_shifter[0] = ac_shifter[1] >> 1`) says so, and the
+idle die's single set bit two clocks before the strobe falls — positive
+zero's inverted sign — pinned the alignment.
+
+A second inversion came with it: **SH1 frames the left word here**, not
+the right. Accumulator 1 collects the pan bits the register map calls
+left, and in Delta-T DA mode the die gates `o_sh1` with the left enable.
+The OPM's wiring had suggested the opposite, and copying it had been
+swapping the channels on every render.
+
+**0.4883 → 0.5829 median (n=4), levels 0.79–1.05.** The quietness is
+gone; the row's bar rises from its 0.20 tripwire to 0.50. What is left
+*should* be the genuine article — the drums our clean-room core cannot
+play — but the per-file spread (0.31 to 0.72, envelope agreement 0.08 to
+0.40) is wider than one fixed missing section ought to produce, so the
+row does not yet claim the remainder is all rhythm. The sibling rows are
+unmoved (OPM 0.9742, OPN2 0.9848), which is the check that says this was
+the 2608 wrapper and nothing shared.

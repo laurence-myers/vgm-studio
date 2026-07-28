@@ -19,9 +19,10 @@
 //! data either direction -- the die writes it through register `$08` and
 //! reads it back at playback, so the wrapper is a memory chip, holding
 //! whatever the VGM's `0x81` data blocks preloaded and whatever the die
-//! stores. FM, rhythm and ADPCM leave on the serial DAC (the OPM die's
-//! backwards-from-the-falling-edge decode); the SSG leaves on the analog
-//! pin, scaled into the mix.
+//! stores. FM, rhythm and ADPCM leave on the serial DAC as one 16-bit
+//! linear word per side per sample -- the YM3016's offset-binary format,
+//! LSB first, *not* the OPM's floating point; see [`decode_serial`] -- and
+//! the SSG leaves on the analog pin, scaled into the mix.
 //!
 //! `realtime: false`, like every die: render and oracle only.
 
@@ -134,26 +135,41 @@ impl DacCapture {
     }
 }
 
-/// The serial word before a falling edge, to linear PCM: the OPM die's
-/// arrangement -- read backwards from the edge, exponent then mantissa MSB
-/// down, offset-binary mantissa, exponent amplifying -- at bit-clock rate
-/// with no trailing bit. Pinned by probe: a keyed-on tone hand-decodes to a
-/// slowly evolving sine under exactly this reading.
+/// The serial word before a falling edge, to linear PCM.
+///
+/// **Not the OPM's float format.** The die loads its 18-bit accumulator
+/// (FM + rhythm + Delta-T, already summed per side) into the shifter as a
+/// *16-bit linear* word -- low 15 bits of the sum, the sign inverted into
+/// bit 15, saturated by the shifter's clip gates -- and shifts it out **LSB
+/// first** (`fmopna_impl.c`: `ac_shifter[0] = ac_shifter[1] >> 1`). That is
+/// the YM3016's offset-binary input, where the OPM's YM3012 took a
+/// three-bit-exponent float.
+///
+/// Framing, pinned by probe: 24 bit clocks per half-frame; the word rides
+/// bits 7..22, the strobe rises at bit 16 and falls at bit 24, so at the
+/// falling edge the stream holds one trailing bit and then the word,
+/// bit-reversed. The idle die shifts exactly one set bit -- positive zero's
+/// inverted sign -- two clocks before the fall, which is what nailed the
+/// alignment; a keyed tone then hand-decodes to a slowly evolving sine.
 fn decode_serial(stream: u32) -> i32 {
-    let bit = |i: u32| ((stream >> i) & 1) as i32;
-    let exponent = (bit(0) << 2) | (bit(1) << 1) | bit(2);
-    let mut mantissa: i32 = 0;
-    for i in 0..10 {
-        mantissa = (mantissa << 1) | bit(3 + i);
+    let mut value: u32 = 0;
+    for i in 0..16 {
+        // Skip the trailing bit at stream bit 0; word LSB is the oldest bit.
+        value |= ((stream >> (16 - i)) & 1) << i;
     }
-    // Two's complement on this package -- the idle word is mantissa 0, not
-    // the OPM DAC's offset-binary 512.
-    let signed = (mantissa << 22) >> 22;
-    signed << (exponent.max(1) - 1)
+    // Un-invert the sign and sign-extend: offset binary to two's complement.
+    i32::from((value as u16 ^ 0x8000) as i16)
 }
 
 /// Scales the analog (SSG) pin's average into the serial DAC's range.
-const SSG_SCALE: f32 = 8192.0;
+///
+/// One SSG channel flat out is `1.0` on the pin (the die's own `volume_lut`
+/// tops there); the shipping core's AY plays the same channel at 8000. The
+/// FM word needs no factor of its own -- a full-scale channel is 4096 in
+/// the decoded word against 3840 in the shipping frame (256 over three
+/// enabled cycles of four, times its FM gain of 5) -- so matching the SSG
+/// alone lines the two mixes up.
+const SSG_SCALE: f32 = 8000.0;
 
 /// The YM2608, as its own die computes it -- mask ROM and all.
 #[derive(Debug)]
@@ -314,9 +330,12 @@ impl ChipCore for Ym2608Lle {
             // same range -- calibrated against the shipping core through
             // the oracle's level column, like every balance.
             let ssg = (analog_sum / CLOCKS_PER_SAMPLE as f32 * SSG_SCALE) as i32;
-            // SH1 frames the right channel's word, SH2 the left's.
-            frame[0] = self.held[1] + ssg;
-            frame[1] = self.held[0] + ssg;
+            // SH1 frames the LEFT word: accumulator 1 collects the pan bits
+            // the register map calls left (`$B4` bit 7, rhythm bit 7), and
+            // in Delta-T DA mode the die gates `o_sh1` with `ad_reg_l` --
+            // the left enable. The opposite of what the OPM wiring suggested.
+            frame[0] = self.held[0] + ssg;
+            frame[1] = self.held[1] + ssg;
         }
     }
 }
