@@ -16,6 +16,7 @@
 //! Only the first two need storing, which is why this module is about them.
 
 use dro_core::error::{Error, Result};
+use dro_core::vgm::ChipKind;
 
 /// The highest type byte that is an uncompressed sample stream.
 const UNCOMPRESSED_MAX: u8 = 0x3F;
@@ -119,6 +120,44 @@ pub fn ram_header(kind: u8, payload: &[u8]) -> Result<(RamBlock, &[u8])> {
         _ => u32::from_le_bytes(payload[0..4].try_into().expect("checked")),
     };
     Ok((RamBlock { offset }, &payload[width..]))
+}
+
+/// The chip a ROM or RAM block type belongs to, from the spec's table.
+///
+/// This is what lets a multi-chip file's sample images reach the right
+/// core: without it a block can only be delivered when exactly one chip is
+/// clocked, which was the standing limitation until the tail-chip cores
+/// arrived to need the real table. `None` means the spec assigns the type
+/// to a chip this table has no entry for yet -- the caller falls back to
+/// its single-chip heuristic rather than guessing.
+#[must_use]
+pub const fn block_owner(kind: u8) -> Option<ChipKind> {
+    Some(match kind {
+        0x80 => ChipKind::SegaPcm,
+        0x81 => ChipKind::Ym2608,
+        0x82 | 0x83 => ChipKind::Ym2610,
+        0x84 | 0x87 => ChipKind::Ymf278b,
+        0x85 => ChipKind::Ymf271,
+        0x86 => ChipKind::Ymz280b,
+        0x88 => ChipKind::Y8950,
+        0x89 => ChipKind::MultiPcm,
+        0x8A => ChipKind::Upd7759,
+        0x8B => ChipKind::Okim6295,
+        0x8C => ChipKind::K054539,
+        0x8D => ChipKind::C140,
+        0x8E => ChipKind::K053260,
+        0x8F => ChipKind::QSound,
+        0x90 => ChipKind::Es5505,
+        0x91 => ChipKind::X1010,
+        0x92 => ChipKind::C352,
+        0x93 => ChipKind::Ga20,
+        0xC0 => ChipKind::Rf5c68,
+        0xC1 => ChipKind::Rf5c164,
+        0xC2 => ChipKind::NesApu,
+        0xE0 => ChipKind::Scsp,
+        0xE1 => ChipKind::Es5503,
+        _ => return None,
+    })
 }
 
 /// The sample streams a file has handed over, kept by type and arrival order.

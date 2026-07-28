@@ -25,7 +25,7 @@ use dro_core::VgmFile;
 use dro_core::vgm::header::ChipUse;
 use dro_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
-use crate::banks::{Banks, BlockKind, ram_header, rom_header};
+use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header};
 use crate::chip::{ChipCore, core_for};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
@@ -632,12 +632,24 @@ impl VgmEngine {
 
     /// Runs `act` against the core a ROM or RAM block of type `kind` belongs to.
     ///
-    /// Which chip that is comes from the spec's block-type table. Until that
-    /// table is filled in (it arrives with the cores that need it, in mc-8/mc-9),
-    /// a block goes to the only chip that could want it: if exactly one voice is
-    /// clocked, it is that one, and otherwise nothing happens rather than
-    /// something wrong.
-    fn deliver_to_core(&mut self, _kind: u8, instance: u8, act: impl FnOnce(&mut dyn ChipCore)) {
+    /// Which chip that is comes from the spec's block-type table
+    /// ([`block_owner`]). A type the table does not know falls back to the
+    /// old heuristic -- the only chip that could want it: if exactly one
+    /// voice is clocked, it is that one, and otherwise nothing happens
+    /// rather than something wrong.
+    fn deliver_to_core(&mut self, kind: u8, instance: u8, act: impl FnOnce(&mut dyn ChipCore)) {
+        if let Some(owner) = block_owner(kind) {
+            if let Some(voice) = self
+                .voices
+                .iter_mut()
+                .find(|voice| voice.target.kind == owner && voice.target.instance == instance)
+            {
+                act(voice.core.as_mut());
+            }
+            // The owner is known but absent (no core, or the file is lying):
+            // dropping the block beats feeding it to a chip it was never for.
+            return;
+        }
         let mut candidates = self
             .voices
             .iter_mut()

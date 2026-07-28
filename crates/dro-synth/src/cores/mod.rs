@@ -22,6 +22,7 @@
 pub mod ay8910;
 pub mod gb_dmg;
 pub mod huc6280;
+pub mod k051649;
 pub mod nes_apu;
 pub mod okim;
 pub mod sn76489;
@@ -29,6 +30,7 @@ pub mod sn76489;
 pub use ay8910::Ay8910;
 pub use gb_dmg::GbDmg;
 pub use huc6280::HuC6280;
+pub use k051649::K051649;
 pub use nes_apu::NesApu;
 pub use okim::{Okim6258, Okim6295};
 pub use sn76489::Sn76489;
