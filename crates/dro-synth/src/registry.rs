@@ -290,6 +290,16 @@ impl CoreRegistry {
             make: CoreMaker::Generic(|| Box::new(crate::cores::WonderSwan::new())),
         });
         registry.register(CoreInfo {
+            id: "vsu.native",
+            chip: ChipKind::Vsu,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Vsu::new())),
+        });
+        registry.register(CoreInfo {
             id: "qsound.native",
             chip: ChipKind::QSound,
             label: "Clean-room (this project)",

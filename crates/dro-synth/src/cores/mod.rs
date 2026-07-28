@@ -34,6 +34,7 @@ pub mod qsound;
 pub mod rf5c68;
 pub mod segapcm;
 pub mod sn76489;
+pub mod vsu;
 pub mod wonderswan;
 #[cfg(feature = "nuked-opl")]
 pub mod y8950;
@@ -54,6 +55,7 @@ pub use qsound::QSound;
 pub use rf5c68::Rf5c68;
 pub use segapcm::SegaPcm;
 pub use sn76489::Sn76489;
+pub use vsu::Vsu;
 pub use wonderswan::WonderSwan;
 #[cfg(feature = "nuked-opl")]
 pub use y8950::Y8950;
