@@ -498,8 +498,8 @@ pub const THRESHOLDS: &[Threshold] = &[
     ),
     clean(
         ChipKind::WonderSwan,
-        0.015,
-        "0.022 observed: wavetable phase is implementation-defined (the HuC6280 precedent), and level 0.22 is owed besides; under investigation",
+        0.85,
+        "0.895 observed (n=12), dropouts gone: the 0.022 that stood here was the decoder leaving 0xC6 on port 0, so the wave RAM was never written and four channels read a constant -- not the wavetable-phase gap it was filed as. Level 0.50 is still owed",
     ),
     clean(
         ChipKind::Vsu,
@@ -529,7 +529,7 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(
         ChipKind::X1010,
         0.02,
-        "0.029 observed: the envelope-walk rate is a stated approximation and wave phase implementation-defined; under investigation",
+        "0.029 observed: the envelope-walk rate is a stated approximation and wave phase implementation-defined; under investigation. Level is 0.939 since the second-chip flag was read from the right byte -- it was 0.674 while 43.7% of the corpus's writes were being sent to a chip that is not there",
     ),
     clean(
         ChipKind::MultiPcm,

@@ -666,3 +666,58 @@ The principled fix is still to transcribe VGMPlay's volume chain, which would
 let all four of `010b189`'s magic numbers go and would calibrate the chips that
 were never fitted at all. This does not block it; it is the same field, filled
 in per core instead of per chip.
+
+## The 16-bit write range marks its second chip in the address (2026-07-29)
+
+Two decode faults in one match arm, found by reading `0xC5`-`0xC8` against
+upstream's `Cmd_Ofs16_Data8` rather than against the handover note that
+described the range. Neither is a core's fault, and both were sitting under
+rows this scorecard had filed as emulation gaps.
+
+**1. The second-chip flag was read from the wrong byte.** `0xC0`-`0xC8` mark a
+second instance in bit 15 of the 16-bit address — the bit the `0x7FFF` mask
+exists to clear — so which *byte* carries it follows the byte order: byte 2 for
+`0xC0`-`0xC3`'s little-endian address, byte 1 for `0xC5`-`0xC8`'s big-endian
+one. Upstream writes that rule twice, once per convention (`Cmd_SegaPCM_Mem`
+tests `fData[0x02]`, `Cmd_Ofs16_Data8` tests `fData[0x01]`). This decoder read
+byte 2 for the whole range while masking byte 1 out of the address, so the two
+halves of its rule disagreed, and every big-endian write whose *low* address
+byte had bit 7 set was retargeted to a second chip. The engine builds voices
+only for declared instances, so those writes were dropped: **43.7% of the
+corpus's 11.0M X1-010 writes, 25.2% of its 64,736 WonderSwan RAM pokes, 0.56%
+of its 4.2M VSU writes.**
+
+Not one corpus file declares a dual SCSP, WonderSwan, VSU or X1-010 — and none
+declares an SCSP at all — which is exactly why this survived: it looks like a
+dual-chip bug, and the dual-chip path is the one part of the range no rip in
+the corpus exercises.
+
+**2. The WonderSwan's wave RAM was never written.** `0xC6` is a *memory* write
+against `0xBC`'s registers, the same collision the port-1 convention was
+invented for at `0xC1`/`0xC2` — and `cores::WonderSwan` has always documented
+port 1 as its memory path. The decoder never set it. Every wave-RAM poke in the
+corpus's 266 WonderSwan rips was read as a register write, `wave_ram` kept its
+initial contents, and all four wavetable channels rendered a constant.
+
+A/B against the pinned reference, same build and the same twelve files per
+chip, the decoder line the only difference:
+
+| chip | before | flag byte fixed | + `0xC6` on port 1 |
+|---|---|---|---|
+| X1-010 | corr 0.0290, lvl 0.674 | corr 0.0290, **lvl 0.939** | unchanged |
+| VSU | corr 0.0735, lvl 0.464 | corr 0.0735, lvl 0.468 | unchanged |
+| WonderSwan | corr 0.0224, lvl 0.221, drop 0.057 | unchanged | **corr 0.8949, lvl 0.498, drop 0.000** |
+
+The X1-010's correlation does not move because what was missing was half its
+envelope and wave RAM — that is level, not phase — and its row keeps its 0.02
+floor and its envelope-walk suspect. The WonderSwan's row does not: **0.022 to
+0.8949** retires "wavetable phase is implementation-defined (the HuC6280
+precedent)" as its explanation, and its floor is re-frozen at 0.85. Level 0.50
+is still owed there.
+
+Two lessons, both familiar. A row whose *stated* suspect is untestable —
+"phase is implementation-defined" — is a row that stops being investigated;
+the HuC6280 precedent is real but it makes a comfortable place to file
+anything. And the harness measures four numbers for a reason: correlation
+alone would have shown nothing at all for the X1-010 here, and level alone
+nothing for the WonderSwan.

@@ -583,8 +583,14 @@ second instances; chip-volume list = `count × {chip_id (bit 7 = paired chip),
 flags (bit 0 = second instance), u16 volume (bit 15 = relative ×/0x100)}`.
 
 **Dual chips:** bit 30 (0x4000_0000) in the clock. Second-instance routing:
-SN76489 → commands 0x30/0x3F; YM-family 0x5n → 0xAn; everything else sets
-bit 7 of the first operand byte (Sega PCM: high bit of the address word).
+SN76489 → commands 0x30/0x3F; YM-family 0x5n → 0xAn; the 16-bit-addressed
+range 0xC0–0xC8 sets **bit 15 of the address word** (so bit 7 of byte 2 for
+0xC0–0xC3's little-endian address, bit 7 of byte 1 for 0xC5–0xC8's big-endian
+one — upstream's `Cmd_SegaPCM_Mem` and `Cmd_Ofs16_Data8` respectively);
+everything else sets bit 7 of the first operand byte. This line named Sega PCM
+as the *only* address-word case until 2026-07-29, and reading byte 2 for
+0xC5–0xC8 on the strength of it retargeted 43.7% of the corpus's X1-010 writes
+to a second chip that is not there.
 The existing OPL code already honours this for dual OPL2 (0xAA), including the
 `dro2vgm` quirk of writing 0xC000_0000.
 

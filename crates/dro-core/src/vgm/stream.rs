@@ -340,38 +340,51 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             (u16::from(byte(1)) << 8) | u16::from(byte(2)),
         ),
         0xC0..=0xC8 => {
-            // 16-bit address, one data byte -- except Sega PCM, whose second
-            // chip is marked in the high bit of the address word rather than of
-            // the first byte. The spec switches byte order mid-range: `0xC0`-
-            // `0xC2` write their address as `bbaa` (little-endian), `0xC5`-
-            // `0xC8` as `mmll` (big-endian) -- the X1-010's corpus streams
-            // arbitrated, exactly as the C352's did for `0xE1`.
+            // 16-bit address, one data byte. The spec switches byte order
+            // mid-range: `0xC0`-`0xC3` write their address as `bbaa`
+            // (little-endian), `0xC5`-`0xC8` as `mmll` (big-endian) -- the
+            // X1-010's corpus streams arbitrated, exactly as the C352's did for
+            // `0xE1`.
+            //
+            // Nothing here marks its second instance in bit 7 of the *first
+            // byte*, the way the rest of the write range does: this range marks
+            // it in bit 15 of the *assembled address*, which is the byte the
+            // `0x7FFF` mask below clears. So which byte carries the flag
+            // follows the byte order -- byte 2 for the little-endian half, byte
+            // 1 for the big-endian one. Upstream states this twice, once per
+            // convention (`Cmd_SegaPCM_Mem` tests `fData[0x02]`,
+            // `Cmd_Ofs16_Data8` tests `fData[0x01]`); assembling the address
+            // first says it once, and cannot drift from the mask.
+            //
+            // Reading it from byte 2 across the whole range -- which this did
+            // until 2026-07-29 -- silently retargets any big-endian write whose
+            // *low* address byte happens to have bit 7 set. That is not an edge
+            // case: 43.7% of the corpus's X1-010 writes and 25.2% of its
+            // WonderSwan RAM writes land there, and the engine drops a write to
+            // an instance the header never declared.
             let address = if opcode >= 0xC5 {
                 (u16::from(byte(1)) << 8) | u16::from(byte(2))
             } else {
                 word(1)
             };
-            let target = ChipTarget::first(C_RANGE[(opcode & 0x0F) as usize]);
-            let (mut target, addr) = if opcode == 0xC0 {
-                (
-                    if address & 0x8000 == 0 {
-                        target
-                    } else {
-                        target.to_second()
-                    },
-                    address & 0x7FFF,
-                )
-            } else {
-                (second_if(target, byte(2)), address & 0x7FFF)
-            };
+            let mut target = ChipTarget::first(C_RANGE[(opcode & 0x0F) as usize]);
+            if address & 0x8000 != 0 {
+                target = target.to_second();
+            }
+            let addr = address & 0x7FFF;
             // `0xC1`/`0xC2` are the RF chips' direct *memory* pokes, where
             // `0xB0`/`0xB1` carry their register writes -- and the two
             // address spaces overlap from a core's point of view. The port
             // is this library's own convention, so it carries the
             // distinction: registers on port 0, memory on port 1. `0xC3`
             // is the MultiPCM's bank command against `0xB5`'s registers --
-            // the same collision, the same fix.
-            if matches!(opcode, 0xC1..=0xC3) {
+            // the same collision, the same fix. So is `0xC6`, the
+            // WonderSwan's wave RAM against `0xBC`'s registers, which this
+            // left on port 0 until 2026-07-29: `cores::WonderSwan` has always
+            // documented port 1 as its memory path, so every wave-RAM poke in
+            // the corpus's 266 rips was being read as a register write and the
+            // wave RAM never filled -- four channels reading a constant.
+            if matches!(opcode, 0xC1..=0xC3 | 0xC6) {
                 target.port = 1;
             }
             write(target, addr, u16::from(byte(3)))
@@ -867,7 +880,7 @@ mod tests {
 
     #[test]
     fn writes_are_routed_to_the_right_chip_and_port() {
-        let cases: [(&[u8], ChipKind, u8, u8); 8] = [
+        let cases: [(&[u8], ChipKind, u8, u8); 14] = [
             (&[0x50, 0x9F], ChipKind::Sn76489, 0, 0),
             (&[0x52, 0x28, 0xF0], ChipKind::Ym2612, 0, 0),
             (&[0x53, 0x28, 0xF0], ChipKind::Ym2612, 0, 1),
@@ -876,6 +889,15 @@ mod tests {
             (&[0xA2, 0x28, 0xF0], ChipKind::Ym2612, 1, 0),
             (&[0xB3, 0x10, 0x80], ChipKind::GameBoyDmg, 0, 0),
             (&[0xBF, 0x10, 0x80], ChipKind::Ga20, 0, 0),
+            // The memory-versus-register pairs, where the port is what keeps
+            // one from being read as the other: the RF chips, the MultiPCM's
+            // bank, and the WonderSwan's wave RAM against its register file.
+            (&[0xB1, 0x07, 0xFF], ChipKind::Rf5c164, 0, 0),
+            (&[0xC2, 0x00, 0x08, 0xFF], ChipKind::Rf5c164, 0, 1),
+            (&[0xB5, 0x02, 0x11], ChipKind::MultiPcm, 0, 0),
+            (&[0xC3, 0x02, 0x40, 0x00], ChipKind::MultiPcm, 0, 1),
+            (&[0xBC, 0x0F, 0x20], ChipKind::WonderSwan, 0, 0),
+            (&[0xC6, 0x01, 0x80, 0x8E], ChipKind::WonderSwan, 0, 1),
         ];
         for (bytes, kind, instance, port) in cases {
             let VgmCommand::Write { target, .. } = decode(bytes) else {
@@ -890,7 +912,7 @@ mod tests {
     }
 
     /// Most chips mark their second instance in bit 7 of the first operand;
-    /// Sega PCM marks it in the high bit of its 16-bit address instead.
+    /// the 16-bit-addressed range marks it in bit 15 of the address instead.
     #[test]
     fn the_second_instance_bit_is_read_where_each_chip_keeps_it() {
         let VgmCommand::Write { target, addr, .. } = decode(&[0xB3, 0x90, 0x80]) else {
@@ -905,6 +927,48 @@ mod tests {
         assert_eq!(target.kind, ChipKind::SegaPcm);
         assert_eq!(target.instance, 1, "bit 15 of the address word");
         assert_eq!(addr, 0x1234);
+    }
+
+    /// The flag is bit 15 of the *assembled* address, so it moves between bytes
+    /// with the byte order: byte 2 for `0xC0`'s little-endian address, byte 1
+    /// for `0xC5`-`0xC8`'s big-endian one. Reading byte 2 across the whole
+    /// range instead sent every big-endian write with a high low-byte to a
+    /// second instance that mostly does not exist -- 43.7% of the corpus's
+    /// X1-010 writes, which the engine then dropped.
+    #[test]
+    fn a_high_low_address_byte_is_an_address_not_a_second_chip() {
+        // Little-endian: the low byte comes first, and its top bit is address.
+        let VgmCommand::Write { target, addr, .. } = decode(&[0xC0, 0xB4, 0x12, 0x01]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::SegaPcm, 0));
+        assert_eq!(addr, 0x12B4);
+
+        // Big-endian: the low byte comes second, and its top bit is address.
+        for (opcode, kind) in [
+            (0xC5u8, ChipKind::Scsp),
+            (0xC6, ChipKind::WonderSwan),
+            (0xC7, ChipKind::Vsu),
+            (0xC8, ChipKind::X1010),
+        ] {
+            let VgmCommand::Write { target, addr, .. } = decode(&[opcode, 0x1F, 0x80, 0x42]) else {
+                panic!("a write");
+            };
+            assert_eq!(
+                (target.kind, target.instance),
+                (kind, 0),
+                "{opcode:#04X} 1F 80 is one chip's address 0x1F80"
+            );
+            assert_eq!(addr, 0x1F80);
+
+            // ...and bit 7 of byte 1 is what marks the second instance, which
+            // the mask then clears -- upstream's `Cmd_Ofs16_Data8`.
+            let VgmCommand::Write { target, addr, .. } = decode(&[opcode, 0x9F, 0x80, 0x42]) else {
+                panic!("a write");
+            };
+            assert_eq!((target.kind, target.instance), (kind, 1), "{opcode:#04X}");
+            assert_eq!(addr, 0x1F80, "the flag is not part of the address");
+        }
     }
 
     #[test]
