@@ -105,18 +105,23 @@ impl ChipCore for WonderSwan {
             }
             return;
         }
-        match addr & 0xFF {
+        // The register index, not the raw address: a stream write to
+        // 0x208 is register 0x08, and indexing with the raw value was an
+        // out-of-bounds panic the corpus harness caught on its first
+        // full sweep.
+        let reg = addr & 0xFF;
+        match reg {
             // Pitch pairs.
             0x00 | 0x02 | 0x04 | 0x06 => {
-                let ch = &mut self.channels[usize::from(addr >> 1) & 3];
+                let ch = &mut self.channels[usize::from(reg >> 1) & 3];
                 ch.pitch = (ch.pitch & 0x0700) | u16::from(data);
             }
             0x01 | 0x03 | 0x05 | 0x07 => {
-                let ch = &mut self.channels[usize::from(addr >> 1) & 3];
+                let ch = &mut self.channels[usize::from(reg >> 1) & 3];
                 ch.pitch = (ch.pitch & 0x00FF) | (u16::from(data & 0x07) << 8);
             }
             // Volumes.
-            0x08..=0x0B => self.channels[usize::from(addr - 0x08)].volume = data,
+            0x08..=0x0B => self.channels[usize::from(reg - 0x08)].volume = data,
             // The sweep.
             0x0C => self.sweep_step = data as i8,
             0x0D => self.sweep_time = data,

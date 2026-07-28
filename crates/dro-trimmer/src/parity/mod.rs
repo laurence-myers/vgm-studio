@@ -440,6 +440,30 @@ pub const THRESHOLDS: &[Threshold] = &[
             "whole-file correlation is meaningless for this chip: channel wave              phase is implementation-defined, and the reference's two HuC6280              cores score -0.19 against each other. Envelope agreement is 0.97,              the same as between the references themselves",
         ),
     },
+    // The tail cores, first measurement in flight: provisional floors at
+    // 0.05 so the scorecard renders and prints them without pretending a
+    // bar exists before a number does. Each gets its observed band frozen
+    // in as soon as the cold run lands, exactly as the majors did.
+    clean(ChipKind::K051649, 0.05, "first measurement pending"),
+    clean(ChipKind::Rf5c68, 0.05, "first measurement pending"),
+    clean(ChipKind::Rf5c164, 0.05, "first measurement pending"),
+    clean(ChipKind::K054539, 0.05, "first measurement pending"),
+    clean(ChipKind::C140, 0.05, "first measurement pending"),
+    clean(ChipKind::C352, 0.05, "first measurement pending"),
+    clean(ChipKind::QSound, 0.05, "first measurement pending"),
+    clean(ChipKind::SegaPcm, 0.05, "first measurement pending"),
+    clean(ChipKind::Ga20, 0.05, "first measurement pending"),
+    clean(ChipKind::Ymz280b, 0.05, "first measurement pending"),
+    clean(ChipKind::K053260, 0.05, "first measurement pending"),
+    clean(ChipKind::WonderSwan, 0.05, "first measurement pending"),
+    clean(ChipKind::Vsu, 0.05, "first measurement pending"),
+    clean(ChipKind::Saa1099, 0.05, "first measurement pending"),
+    clean(ChipKind::Pwm, 0.05, "first measurement pending"),
+    clean(ChipKind::Es5503, 0.05, "first measurement pending"),
+    clean(ChipKind::Ymf278b, 0.05, "first measurement pending"),
+    clean(ChipKind::X1010, 0.05, "first measurement pending"),
+    clean(ChipKind::MultiPcm, 0.05, "first measurement pending"),
+    clean(ChipKind::Upd7759, 0.05, "first measurement pending"),
 ];
 
 /// A shared-core chip's bar: near-identity, because a gap is a driver fault.
