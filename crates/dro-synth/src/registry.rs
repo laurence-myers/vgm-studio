@@ -360,6 +360,16 @@ impl CoreRegistry {
             make: CoreMaker::Generic(|| Box::new(crate::cores::MultiPcm::new())),
         });
         registry.register(CoreInfo {
+            id: "upd7759.native",
+            chip: ChipKind::Upd7759,
+            label: "Clean-room (this project)",
+            authors: "this project",
+            license: "MIT OR Apache-2.0",
+            upstream: "",
+            realtime: true,
+            make: CoreMaker::Generic(|| Box::new(crate::cores::Upd7759::new())),
+        });
+        registry.register(CoreInfo {
             id: "qsound.native",
             chip: ChipKind::QSound,
             label: "Clean-room (this project)",
