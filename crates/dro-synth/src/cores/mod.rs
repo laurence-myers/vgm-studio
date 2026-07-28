@@ -20,6 +20,7 @@
 //! `docs/vgm-multichip-2026-07/CORES-PLAN.md` for the programme.
 
 pub mod ay8910;
+pub mod c140;
 pub mod gb_dmg;
 pub mod huc6280;
 pub mod k051649;
@@ -30,6 +31,7 @@ pub mod rf5c68;
 pub mod sn76489;
 
 pub use ay8910::Ay8910;
+pub use c140::C140;
 pub use gb_dmg::GbDmg;
 pub use huc6280::HuC6280;
 pub use k051649::K051649;
