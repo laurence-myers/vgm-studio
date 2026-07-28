@@ -368,8 +368,10 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             // `0xB0`/`0xB1` carry their register writes -- and the two
             // address spaces overlap from a core's point of view. The port
             // is this library's own convention, so it carries the
-            // distinction: registers on port 0, memory on port 1.
-            if matches!(opcode, 0xC1 | 0xC2) {
+            // distinction: registers on port 0, memory on port 1. `0xC3`
+            // is the MultiPCM's bank command against `0xB5`'s registers --
+            // the same collision, the same fix.
+            if matches!(opcode, 0xC1 | 0xC2 | 0xC3) {
                 target.port = 1;
             }
             write(target, addr, u16::from(byte(3)))
