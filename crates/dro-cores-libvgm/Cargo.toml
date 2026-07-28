@@ -18,6 +18,8 @@ repository.workspace = true
 [dependencies]
 dro-core.workspace = true
 dro-synth.workspace = true
+# A device that refuses to start is reported rather than silently silent.
+log.workspace = true
 
 [build-dependencies]
 cc.workspace = true

@@ -518,3 +518,71 @@ play — but the per-file spread (0.31 to 0.72, envelope agreement 0.08 to
 row does not yet claim the remainder is all rhythm. The sibling rows are
 unmoved (OPM 0.9742, OPN2 0.9848), which is the check that says this was
 the 2608 wrapper and nothing shared.
+
+---
+
+## 2026-07-28 — libvgm arrives, and the SN76489's open question closes
+
+`LIBVGM-PLAN` lv-2 needed one chip measured end to end through the new
+`LibVgmChip` binding. The chip was the SN76489, and the run answers a question
+this chronicle had left open rather than merely adding a row.
+
+**The measurement**, all twelve files, one pinned reference (`VGMPlay 0.52`,
+`docs/.../parity/VGMPlay.ini`), each core rendered at its own native rate:
+
+| our core | corr | level | gain dB | drop | cents |
+|---|---|---|---|---|---|
+| clean-room (the default) | 0.5855 | 0.984 | +0.580 | 0.000 | −0.0 |
+| libvgm, `FCC_MAME` — *the reference runs `MAXM`* | 0.5353 | 1.006 | −0.068 | 0.000 | −0.0 |
+| **libvgm, `FCC_MAXM` — the core the reference runs** | **1.0000** | 1.000 | 1.000 | 0.000 | −0.0 |
+
+**1.0000 over twelve files.** Not "high": the metric does not resolve a
+difference. `LIBVGM-PLAN` §4 predicted exactly this — reference and core share
+a lineage, so a shared-core comparison should be near-exact and *a low score
+would mean our binding was wrong*. That prediction is now a passed test rather
+than an expectation, and it validates the whole lv-2 path at once: config
+mapping, native rate, write fold, planar-to-interleaved render. Any one of them
+wrong and 1.0000 is unreachable.
+
+**What it says about the clean-room row.** That row's threshold has carried
+"HF/noise-band disagreement under investigation; tones match to 1%" since the
+freeze. There is no longer anything to investigate: with the reference's own
+core on our side the agreement is exact, so the missing 0.41 is the clean-room
+core differing from Maxim's, and nothing about noise bands, our engine, or the
+resampler. The earlier `0.9958` native-rate figure — two files, flagged here as
+too small a sample — was seeing the same thing from one file's worth of
+evidence.
+
+**Three ways to get a meaningless number, all met on the way.** Each produced a
+plausible score, which is why they are written down:
+
+1. **No `DROTRIM_REF_CONFIG`.** The pinned ini is what the harness rewrites the
+   render rate into, so without it the reference rendered at its own 44100
+   while we rendered at 223721. Every core scored ≈0.006 — including the
+   clean-room one, whose frozen row is 0.586. A baseline that fails to
+   reproduce its own frozen number is the tell, and it is worth checking first.
+2. **Core mismatch.** `emuCore: 0` takes libvgm's *default* (`FCC_MAME`) while
+   the pinned ini selects `MAXM`. 0.5353 — a number about two emulators
+   disagreeing, dressed as a number about our binding. This ini's own header
+   warns about precisely this and it still happened.
+3. **The challenger measured at the incumbent's rate.** `native_rate_of` asked
+   the registry *default* for the rate while rendering through the challenger,
+   putting our resampler back in the middle of the one measurement built to
+   exclude it. Cost: −3.5 cents and 0.11 of correlation. Fixed — it now asks
+   the core under test.
+
+Two harness affordances came out of it, both of which lv-4 needs per chip:
+`DROTRIM_PARITY_CORE` (measure a provider that is not the default yet) and
+`DROTRIM_PARITY_CHIPS` (measure one chip instead of thirty-nine, an hour into a
+minute).
+
+**A property worth knowing before the next chip.** Maxim's SN76489 *ignores*
+`srMode` and renders at whatever `smplRate` asks for — upstream's `EmuStructs.h`
+warns that some cores do. So a libvgm chip's rate does not necessarily follow
+its clock, unlike ymfm's. Pinned by a test, because code written on the obvious
+assumption would look correct and drift pitch.
+
+**The row does not change hands here.** `CORES-REUSE-PLAN` §7 gives the default
+to the core that beats the frozen row, and 1.0000 beats 0.5855 — but taking
+defaults is lv-4's step, chip by chip, and libvgm is registered as a selectable
+alternative until then.

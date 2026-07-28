@@ -1216,6 +1216,7 @@ dependencies = [
  "cc",
  "dro-core",
  "dro-synth",
+ "log",
 ]
 
 [[package]]
@@ -1275,6 +1276,7 @@ dependencies = [
  "dro-audio-native",
  "dro-core",
  "dro-cores-gpl",
+ "dro-cores-libvgm",
  "dro-cores-nuked",
  "dro-retrowave",
  "dro-synth",

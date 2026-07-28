@@ -52,11 +52,43 @@
 //! native rate and resample with `dro_synth::resample`, and our engine already
 //! implements the VGM `0x90`-`0x95` DAC stream commands itself.
 
+mod chip;
 mod ffi;
 /// Test-only: nothing in the shipped library reads a struct offset, so the
 /// guard and its `extern` declarations exist purely to fail a test.
 #[cfg(test)]
 mod layout;
+
+pub use chip::LibVgmChip;
+
+/// The id every libvgm core is registered under, per chip slot.
+///
+/// One suffix for the whole provider rather than one per chip, because the id
+/// is `"<slot>.<core>"` and the slot already names the chip. A user who has
+/// chosen `core.sn76489=libvgm` has chosen this provider.
+pub const CORE_SUFFIX: &str = "libvgm";
+
+/// Adds every chip this build can serve to the registry.
+///
+/// **Registered after the built-ins, so nothing changes by default.** libvgm
+/// takes a chip's default only when it has beaten the frozen parity row that
+/// chip already has (`CORES-REUSE-PLAN.md` §7), which is lv-4's job and not
+/// this one. Until then these are picker alternatives: selectable, measurable,
+/// and off unless asked for.
+pub fn register(registry: &mut dro_synth::CoreRegistry) {
+    for spec in chip::SPECS {
+        registry.register(dro_synth::CoreInfo {
+            id: spec.registry_id(),
+            chip: spec.kind,
+            label: "libvgm (Valley Bell)",
+            authors: "Valley Bell and the upstream core authors",
+            license: "see PROVENANCE.md -- upstream publishes no grant",
+            upstream: "https://github.com/ValleyBell/libvgm",
+            realtime: true,
+            make: spec.maker(),
+        });
+    }
+}
 
 #[cfg(test)]
 mod tests {

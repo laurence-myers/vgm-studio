@@ -38,6 +38,10 @@ pub fn install_cores() {
     // rather than a better default.
     dro_cores_nuked::register(&mut registry);
     dro_cores_gpl::register(&mut registry);
+    // After both, so libvgm is an *alternative* everywhere and a default
+    // nowhere. It takes a chip's default only once it has beaten that chip's
+    // frozen parity row, which is LIBVGM-PLAN lv-4's job, chip by chip.
+    dro_cores_libvgm::register(&mut registry);
     dro_retrowave::register(&mut registry);
     if dro_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed

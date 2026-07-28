@@ -64,9 +64,54 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
         return Some(Render::from_interleaved_i16(samples, wav_rate));
     }
 
-    render_with_at(path, rate, |kind| {
-        dro_synth::registry::registry().build(kind, None)
-    })
+    render_with_at(path, rate, build_core)
+}
+
+/// Builds `kind`'s core, honouring `DROTRIM_PARITY_CORE`.
+///
+/// **The mechanism a core swap is judged by.** `CORES-REUSE-PLAN` §7 says a
+/// reused core takes a chip's default only once it has beaten the frozen
+/// clean-room row it would replace — so there has to be a way to point this
+/// harness at a core that is *not* the default yet. The variable names a
+/// provider suffix, not a full id:
+///
+/// ```text
+/// DROTRIM_PARITY_CORE=libvgm  cargo test ... --test reference_parity -- --ignored
+/// ```
+///
+/// `resolve_choice` composes it with each chip's own slot (`sn76489` +
+/// `libvgm` → `sn76489.libvgm`) and falls back to the default for any chip
+/// that provider does not serve — so one run measures the new provider
+/// everywhere it exists and changes nothing elsewhere. Unset, this is exactly
+/// what it always was: the registry's default per chip.
+fn build_core(kind: ChipKind) -> Option<Box<dyn dro_synth::ChipCore>> {
+    let registry = dro_synth::registry::registry();
+    match std::env::var("DROTRIM_PARITY_CORE") {
+        Ok(choice) if !choice.is_empty() => registry.resolve_choice(kind, Some(&choice))?.build(),
+        _ => registry.build(kind, None),
+    }
+}
+
+/// Whether `chip` is in `DROTRIM_PARITY_CHIPS`, which defaults to all of them.
+///
+/// The companion to [`build_core`]: judging one core swap means re-measuring
+/// *one* chip against its frozen row, and the scorecard walks thirty-nine of
+/// them at a dozen files and twenty seconds each. Naming slugs turns an hour
+/// into a minute.
+///
+/// ```text
+/// DROTRIM_PARITY_CHIPS=sn76489,ym2612  cargo test ... -- --ignored
+/// ```
+fn chip_wanted(chip: ChipKind) -> bool {
+    let Ok(list) = std::env::var("DROTRIM_PARITY_CHIPS") else {
+        return true;
+    };
+    if list.trim().is_empty() {
+        return true;
+    }
+    list.split(',')
+        .map(str::trim)
+        .any(|slug| slug.eq_ignore_ascii_case(chip.slug()))
 }
 
 /// Renders `path` at `rate` with a caller-chosen set of cores -- the
@@ -233,7 +278,14 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
     let name = path.file_name()?.to_string_lossy().to_string();
     let file = dro_core::vgm::file::read(&name, &bytes).ok()?;
     let clocked = file.header.chips().iter().find(|c| c.kind == chip)?;
-    let mut core = dro_synth::registry::registry().build(chip, None)?;
+    // **The core under test, not the default.** Two cores for one chip need
+    // not agree on a native rate, and asking the default for it while
+    // rendering through a challenger puts our resampler back in the middle of
+    // exactly the measurement the native rate exists to keep it out of. It is
+    // not hypothetical: measuring libvgm's SN76489 at the clean-room core's
+    // rate showed -3.5 cents of pitch error that is the resampler's, not the
+    // core's.
+    let mut core = build_core(chip)?;
     core.reset(clocked.clock, clocked.variant);
     Some(core.native_rate())
 }
@@ -620,7 +672,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
 
     let mut failures = Vec::new();
     for chip in ChipKind::all() {
-        if !registry.can_build(chip) {
+        if !registry.can_build(chip) || !chip_wanted(chip) {
             continue;
         }
         let Some(bar) = parity::threshold_for(chip) else {

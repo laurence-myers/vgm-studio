@@ -58,6 +58,20 @@ pub(crate) const DEVRW_MEMSIZE: u8 = 0x81;
 /// SN76496 and its variants -- SN76489(A), SEGA PSG, T6W28.
 pub(crate) const DEVID_SN76496: u8 = 0x00;
 
+// --- Emulation-core codes (`EmuCores.h`) ----------------------------------
+//
+// The four-character code in `DEV_GEN_CFG::emuCore` picks *which* emulator
+// serves a device, and `0` takes whichever the device lists first. Naming one
+// is not a refinement: it is what makes a parity measurement mean anything.
+// The pinned reference config (`docs/vgm-multichip-2026-07/parity/VGMPlay.ini`)
+// names a core per chip for exactly this reason, and a row here that does not
+// match it measures two different emulators and blames the difference on us.
+
+/// MAME's cores. libvgm's default for several devices, including the SN76496.
+pub(crate) const FCC_MAME: u32 = 0x4D414D45;
+/// Maxim's SN76489, from in_vgm -- what the pinned reference selects.
+pub(crate) const FCC_MAXM: u32 = 0x4D41584D;
+
 // --- Function-pointer types (`EmuStructs.h`) ------------------------------
 
 pub(crate) type DevFuncStart =
