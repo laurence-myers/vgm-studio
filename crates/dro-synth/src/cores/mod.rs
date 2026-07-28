@@ -41,6 +41,7 @@ pub mod vsu;
 pub mod wonderswan;
 #[cfg(feature = "nuked-opl")]
 pub mod y8950;
+pub mod ymf278b;
 pub mod ymz280b;
 
 pub use ay8910::Ay8910;
@@ -65,4 +66,5 @@ pub use vsu::Vsu;
 pub use wonderswan::WonderSwan;
 #[cfg(feature = "nuked-opl")]
 pub use y8950::Y8950;
+pub use ymf278b::Ymf278b;
 pub use ymz280b::Ymz280b;
