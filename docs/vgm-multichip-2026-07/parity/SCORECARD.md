@@ -393,3 +393,24 @@ The same run's rows for the OKIM chips and the AY predate the settings sweep
 (the binary was built before the 6258 divider, NMK112 and AY-type commits);
 those chips get remeasured in the next full run rather than trusted from
 this one.
+
+## The die weighs in on the YM2612 (2026-07-28)
+
+The LLE oracle bench (`tests/oracle_lle.rs`) gained the 2612 die from the
+YM2608-LLE decap. First measurement: **Nuked-OPN2 vs the die, median 0.9848
+(n=4), levels 1.00, pitch exact, zero dropouts** — the shipping core is
+die-accurate. The YM2151 row reads 0.9742 by the same method (its residual
+is the noise LFSR's phase plus write-burst jitter; in lockstep the cores
+agree 1.0000 on tones).
+
+This is the second witness the 0.904 row needed. Our core agrees with the
+reference *player* at 0.904 and with the *die* at 0.985; the difference
+between those two numbers lives in VGMPlay's driver — its write pacing,
+busy-flag model or DAC path — not in our emulation. The threshold reason in
+`parity/mod.rs` now says so. The row stays open as a fact about the
+comparison, no longer as a suspicion about the core.
+
+Also in that submodule: `fmopna_rom.h`, the YM2608's decapped internal
+rhythm ROM. The "unshippable" 2608 rhythm gap has a shippable GPL-tier
+route — wrap the 2608 die, or hand the ROM to the clean-room ADPCM-A
+section through the registry — when that work is scheduled.

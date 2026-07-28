@@ -32,16 +32,34 @@ fn main() {
         println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
     }
 
+    // The OPN-family dies: one implementation compiled per chip macro. Only
+    // the YM2612 die is wrapped so far; the 2608/2610 dies join when their
+    // harnesses (external ROM/RAM buses, the analog pin) are written.
+    let opna_lle = PathBuf::from(UPSTREAM).join("ym2608-lle");
+    require_submodule(&opna_lle, "ym2608-lle", "fmopna_2612.c");
+    for file in [
+        "fmopna_2612.c",
+        "fmopna_2612.h",
+        "fmopna_impl.c",
+        "fmopna_impl.h",
+        "fmopna_rom.h",
+    ] {
+        println!("cargo::rerun-if-changed={}", opna_lle.join(file).display());
+    }
+
     let mut build = cc::Build::new();
     build
         .file(opll.join("opll.c"))
         .file(psg.join("ympsg.c"))
         .file(opm_lle.join("fmopm.c"))
+        .file(opna_lle.join("fmopna_2612.c"))
         .file("shim/layout.c")
         .file("shim/lle_opm.c")
+        .file("shim/lle_opn2.c")
         .include(&opll)
         .include(&psg)
         .include(&opm_lle)
+        .include(&opna_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")

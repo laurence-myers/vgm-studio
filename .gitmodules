@@ -16,3 +16,6 @@
 [submodule "vendor/upstream/ym2151-lle"]
 	path = vendor/upstream/ym2151-lle
 	url = https://github.com/nukeykt/YM2151-LLE.git
+[submodule "vendor/upstream/ym2608-lle"]
+	path = vendor/upstream/ym2608-lle
+	url = https://github.com/nukeykt/YM2608-LLE.git

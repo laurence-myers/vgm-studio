@@ -16,10 +16,12 @@
 
 mod ffi;
 mod lle_opm;
+mod lle_opn2;
 mod opll;
 mod psg;
 
 pub use lle_opm::Ym2151Lle;
+pub use lle_opn2::Ym2612Lle;
 pub use opll::Ym2413;
 pub use psg::Sn76489Nuked;
 
@@ -65,6 +67,18 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/YM2151-LLE",
             realtime: false,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2151Lle::new())),
+        });
+    }
+    for chip in lle_opn2::CHIPS {
+        registry.register(dro_synth::CoreInfo {
+            id: lle_opn2::CORE_ID,
+            chip,
+            label: "YM2612-LLE (die sim, offline)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/YM2608-LLE",
+            realtime: false,
+            make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2612Lle::new())),
         });
     }
 }

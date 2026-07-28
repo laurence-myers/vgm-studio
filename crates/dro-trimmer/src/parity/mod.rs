@@ -363,7 +363,7 @@ pub const THRESHOLDS: &[Threshold] = &[
         max_dropout: 0.01,
         max_envelope: None,
         known_gap: Some(
-            "0.904 observed (n=12) against a shared core; a driver-level              difference under investigation -- the ideal here is 0.99",
+            "0.904 observed (n=12) against a shared core; the LLE oracle puts          Nuked-OPN2 at 0.985 against the 2612 die, so the gap to VGMPlay          lives in the reference player's driver, not our emulation",
         ),
     },
     Threshold {

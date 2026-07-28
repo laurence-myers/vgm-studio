@@ -38,6 +38,21 @@ unsafe extern "C" {
     fn drotrim_fmopm_out_sh2(chip: *const c_void) -> i32;
     fn drotrim_fmopm_out_so(chip: *const c_void) -> i32;
     fn FMOPM_Clock(chip: *mut c_void, clk: i32);
+
+    fn drotrim_fmopna2612_sizeof() -> usize;
+    fn drotrim_fmopna2612_alignof() -> usize;
+    fn drotrim_fmopna2612_set_pins(
+        chip: *mut c_void,
+        ic: i32,
+        cs: i32,
+        wr: i32,
+        a0: i32,
+        a1: i32,
+        data: i32,
+    );
+    fn drotrim_fmopna2612_out_mol(chip: *const c_void) -> i32;
+    fn drotrim_fmopna2612_out_mor(chip: *const c_void) -> i32;
+    fn FMOPNA_2612_Clock(chip: *mut c_void, clk: i32);
 }
 
 /// Upstream's `opll_type_ym2413`: the Yamaha part a VGM means by "YM2413".
@@ -271,6 +286,96 @@ impl OpmLleChip {
     }
 }
 
+/// The YM2612 die of YM2608-LLE, driven by its pins.
+///
+/// Same idea as [`OpmLleChip`], different package: two bank-select address
+/// lines instead of one, and the DAC leaves on two parallel time-multiplexed
+/// 9-bit pins rather than a serial stream -- the ladder asymmetry included,
+/// because the die computes it.
+#[derive(Debug)]
+pub(crate) struct Opn2LleChip {
+    state: OpaqueChip,
+}
+
+/// The non-clock input pins of the OPN2 bus. `ic`/`cs`/`wr` are active-low
+/// levels, as electrical as [`LlePins`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Opn2Pins {
+    /// Reset, active low.
+    pub ic: bool,
+    /// Chip select, active low.
+    pub cs: bool,
+    /// Write strobe, active low.
+    pub wr: bool,
+    /// 0 presents an address, 1 a value.
+    pub a0: bool,
+    /// Selects the register bank: part I or part II.
+    pub a1: bool,
+    pub data: u8,
+}
+
+impl Default for Opn2Pins {
+    fn default() -> Self {
+        Self {
+            ic: true,
+            cs: true,
+            wr: true,
+            a0: false,
+            a1: false,
+            data: 0,
+        }
+    }
+}
+
+impl Opn2LleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_fmopna2612_sizeof(), drotrim_fmopna2612_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Zeroes the die, as power-off does; the electrical reset is the
+    /// wrapper's job.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+    }
+
+    pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            drotrim_fmopna2612_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.a1),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// One half of the master clock: `high` is the level of the clk pin.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopna_2612_t)`.
+        unsafe { FMOPNA_2612_Clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The multiplexed DAC pins after the last edge: (left, right).
+    pub(crate) fn dac_pins(&mut self) -> (i32, i32) {
+        let chip = self.state.as_ptr();
+        // SAFETY: the shim reads two fields of the sized block.
+        unsafe {
+            (
+                drotrim_fmopna2612_out_mol(chip),
+                drotrim_fmopna2612_out_mor(chip),
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,6 +397,11 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (drotrim_fmopm_sizeof(), drotrim_fmopm_alignof()) };
         assert!(size > 1024, "fmopm_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (drotrim_fmopna2612_sizeof(), drotrim_fmopna2612_alignof()) };
+        assert!(size > 1024, "fmopna_2612_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }
