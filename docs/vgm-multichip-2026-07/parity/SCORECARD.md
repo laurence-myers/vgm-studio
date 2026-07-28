@@ -586,3 +586,38 @@ assumption would look correct and drift pitch.
 to the core that beats the frozen row, and 1.0000 beats 0.5855 — but taking
 defaults is lv-4's step, chip by chip, and libvgm is registered as a selectable
 alternative until then.
+
+## 2026-07-28 — lv-3: the write table, and where the remaining gap actually is
+
+The per-chip write table landed with eighteen chips. A spot check of three,
+each exercising a *different* fold, against the same pinned reference:
+
+| chip | rule exercised | libvgm corr | clean-room row | level |
+|---|---|---|---|---|
+| YMZ280B | `RegisterLatch` (the address/data pair) | **1.0000** (n=12) | 0.664 | 0.842 |
+| C140 | `MemoryPortHigh` (16-bit offset split across our port/addr) | **1.0000** (n=12) | 0.974 | 0.749 |
+| K053260 | `Register` (straight `write8`) | **1.0000** (n=6) | 0.990 | 0.505 |
+
+Three folds, three exact agreements. Taken with the SN76489's, that is four of
+the seven rules confirmed against the reference rather than only reasoned about.
+
+**And it isolates what is left.** Correlation is level-invariant, so 1.0000
+with a level of 0.505 says the waveform is identical and the *gain* is not.
+That is not a defect in the binding — it is that `010b189` calibrated our output
+scaling per chip against the **clean-room** cores, and a libvgm core has its own
+raw scale. So every chip libvgm takes at lv-4 needs its level re-fitted, and the
+harness already reports the number to fit against. Worth stating plainly because
+the opposite mistake is easy: reading a 0.505 level as "the core is wrong" and
+going looking for an emulation bug that is not there.
+
+**Two things the table's own tests caught**, both of which would have been
+silent in a corpus run:
+
+- **SegaPCM exposes its 16-bit-address writer under `RWF_REGISTER`, not
+  `RWF_MEMORY`.** Fetching only the memory space found nothing and every one of
+  its writes was dropped. libvgm's player has the same split — it fetches that
+  field from `RWF_MEMORY` for some chips and `RWF_REGISTER` for others — so the
+  space is per chip, not per width, and we now try both.
+- A device named in a spec but missing from `build.rs`'s `ENABLED` starts
+  nothing and is *silently silent*. Two lists that cannot see each other now
+  have a test that walks one against the other.

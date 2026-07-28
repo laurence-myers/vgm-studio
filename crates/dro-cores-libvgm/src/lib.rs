@@ -247,14 +247,15 @@ mod tests {
     fn a_device_left_out_of_the_build_is_refused() {
         let cfg = sn76489_config(3_579_545);
         let mut dev = DevInfo::empty();
-        // `DEVID_QSOUND` (0x1F) is a real device that this build does not
-        // compile. It becomes available the moment `ENABLED` names it.
+        // `DEVID_MSM5232` (0x2D) is a real device this build does not compile.
+        // It becomes available the moment `ENABLED` names it -- as QSound,
+        // which stood here until lv-3 enabled it, duly did.
         // SAFETY: as above; an uncompiled device ID is simply unknown.
         let started =
-            unsafe { ffi::SndEmu_Start(0x1F, (&raw const cfg).cast::<DevGenCfg>(), &raw mut dev) };
+            unsafe { ffi::SndEmu_Start(0x2D, (&raw const cfg).cast::<DevGenCfg>(), &raw mut dev) };
         assert_ne!(
             started, EERR_OK,
-            "QSOUND is not in build.rs's ENABLED list, so it must not start"
+            "MSM5232 is not in build.rs's ENABLED list, so it must not start"
         );
     }
 

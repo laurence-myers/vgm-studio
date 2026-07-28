@@ -57,6 +57,25 @@ pub(crate) const DEVRW_MEMSIZE: u8 = 0x81;
 
 /// SN76496 and its variants -- SN76489(A), SEGA PSG, T6W28.
 pub(crate) const DEVID_SN76496: u8 = 0x00;
+pub(crate) const DEVID_SEGAPCM: u8 = 0x04;
+/// RF5C68; the RF5C164 is the same device with `flags` set.
+pub(crate) const DEVID_RF5C68: u8 = 0x05;
+pub(crate) const DEVID_YMZ280B: u8 = 0x0F;
+/// MultiPCM (315-5560).
+pub(crate) const DEVID_YMW258: u8 = 0x15;
+pub(crate) const DEVID_UPD7759: u8 = 0x16;
+pub(crate) const DEVID_MSM6258: u8 = 0x17;
+pub(crate) const DEVID_K051649: u8 = 0x19;
+pub(crate) const DEVID_K054539: u8 = 0x1A;
+pub(crate) const DEVID_C6280: u8 = 0x1B;
+pub(crate) const DEVID_C140: u8 = 0x1C;
+pub(crate) const DEVID_K053260: u8 = 0x1D;
+pub(crate) const DEVID_QSOUND: u8 = 0x1F;
+pub(crate) const DEVID_VBOY_VSU: u8 = 0x22;
+pub(crate) const DEVID_ES5503: u8 = 0x24;
+pub(crate) const DEVID_X1_010: u8 = 0x26;
+pub(crate) const DEVID_C352: u8 = 0x27;
+pub(crate) const DEVID_GA20: u8 = 0x28;
 
 // --- Emulation-core codes (`EmuCores.h`) ----------------------------------
 //
@@ -71,6 +90,8 @@ pub(crate) const DEVID_SN76496: u8 = 0x00;
 pub(crate) const FCC_MAME: u32 = 0x4D414D45;
 /// Maxim's SN76489, from in_vgm -- what the pinned reference selects.
 pub(crate) const FCC_MAXM: u32 = 0x4D41584D;
+/// Ootake's HuC6280 -- what the pinned reference selects for that chip.
+pub(crate) const FCC_OOTK: u32 = 0x4F4F544B;
 
 // --- Function-pointer types (`EmuStructs.h`) ------------------------------
 

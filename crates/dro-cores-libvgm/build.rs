@@ -349,17 +349,26 @@ const DEVICES: &[Device] = &[
 
 /// The devices this build compiles.
 ///
-/// **lv-1 (the PoC gate) enables one device**, per the plan: prove the
-/// framework compiles, links and starts a chip before widening. SN76496 is the
-/// choice because it carries an extended config struct (`SN76496_CFG`) *and*
-/// two selectable cores, so a single row exercises both of the mechanisms the
-/// later steps depend on -- the `emuCore` picker (lv-6) and the per-chip
-/// configuration that the frozen scorecard already caught us getting wrong once
-/// (the SN76489's noise taps and shift-register width).
+/// **This list and `chip.rs`'s `chip_specs!` must agree**: a spec whose device
+/// is missing here starts nothing and is silently silent, which is why
+/// `every_spec_can_actually_start` asserts every row of one against the other.
 ///
-/// lv-4 grows this list one chip at a time, each earning its place against the
-/// frozen parity row it replaces.
-const ENABLED: &[&str] = &["SN76496"];
+/// lv-3's batch is chosen to exercise every [`WriteRule`] at least once and to
+/// cover the three inversions the plan named -- QSound's `0xC4`, the C352's
+/// big-endian `0xE1`, and the RF5C pair's port-1 memory convention. lv-4 grows
+/// it, each chip earning its default against the frozen row it replaces.
+///
+/// Deliberately absent for now: the chips whose command handler upstream is a
+/// special case rather than one of the shapes below -- NES APU (`Cmd_NES_Reg`'s
+/// FDS remap), OKIM6295 (`Cmd_OKIM6295_Reg`'s bank handling), WonderSwan,
+/// SAA1099, Game Boy, the 32X PWM's `Cmd_Ofs4_Data12`, and the OPN/OPL family.
+/// Each needs its own transcription, and a guessed one is silent rather than
+/// wrong-sounding.
+const ENABLED: &[&str] = &[
+    "SN76496", "SEGAPCM", "RF5C68", "YMZ280B", "YMW258", "UPD7759", "MSM6258", "K051649",
+    "K054539", "C6280", "C140", "K053260", "QSOUND", "VBOY_VSU", "ES5503", "X1_010", "C352",
+    "GA20",
+];
 
 /// Cores we deliberately do not compile, and why.
 ///
