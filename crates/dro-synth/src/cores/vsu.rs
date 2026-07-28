@@ -157,8 +157,7 @@ impl ChipCore for Vsu {
                 let sample: i32 = if index == 5 {
                     if self.noise & 1 != 0 { 31 } else { -32 }
                 } else {
-                    let step =
-                        (u32::from(CLOCK_DIVIDER) << 16) / (2048 - u32::from(ch.frequency)) / 32;
+                    let step = (CLOCK_DIVIDER << 16) / (2048 - u32::from(ch.frequency)) / 32;
                     ch.phase = ch.phase.wrapping_add(step << 5);
                     let position = (ch.phase >> 16) as usize % 32;
                     // 6-bit unsigned samples, centred.

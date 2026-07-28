@@ -173,11 +173,11 @@ impl ChipCore for WonderSwan {
                     if self.noise & 1 != 0 { 7 } else { -8 }
                 } else {
                     // The wavetable: 32 packed 4-bit samples, centred.
-                    let step = (u32::from(CLOCK_DIVIDER) << 16) / (2048 - u32::from(ch.pitch));
+                    let step = (CLOCK_DIVIDER << 16) / (2048 - u32::from(ch.pitch));
                     ch.phase = ch.phase.wrapping_add(step);
                     let position = (ch.phase >> 16) as usize % 32;
                     let byte = self.wave_ram[index * 16 + position / 2];
-                    let nibble = if position % 2 == 0 {
+                    let nibble = if position.is_multiple_of(2) {
                         byte & 0x0F
                     } else {
                         byte >> 4

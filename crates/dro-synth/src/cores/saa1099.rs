@@ -191,7 +191,7 @@ impl ChipCore for Saa1099 {
                     2 => 1 << 12,
                     _ => {
                         let ch = &self.channels[unit * 3];
-                        ((u32::from(CLOCK_DIVIDER) << 16) / (511 - u32::from(ch.frequency)).max(1))
+                        ((CLOCK_DIVIDER << 16) / (511 - u32::from(ch.frequency)).max(1))
                             << ch.octave
                             >> 9
                     }
@@ -218,8 +218,7 @@ impl ChipCore for Saa1099 {
             let mut right = 0i32;
             for (index, ch) in self.channels.iter_mut().enumerate() {
                 // The square advances regardless of the mixer.
-                let step = ((u32::from(CLOCK_DIVIDER) << 16)
-                    / (511 - u32::from(ch.frequency)).max(1))
+                let step = ((CLOCK_DIVIDER << 16) / (511 - u32::from(ch.frequency)).max(1))
                     << ch.octave
                     >> 9;
                 ch.phase = ch.phase.wrapping_add(step);

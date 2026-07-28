@@ -46,7 +46,7 @@ struct Voice {
 
 impl Voice {
     fn step(&self) -> u32 {
-        (u32::from(CLOCK_DIVIDER) << 16) / (0x1000 - u32::from(self.pitch & 0x0FFF)).max(1)
+        (CLOCK_DIVIDER << 16) / (0x1000 - u32::from(self.pitch & 0x0FFF)).max(1)
     }
 }
 
