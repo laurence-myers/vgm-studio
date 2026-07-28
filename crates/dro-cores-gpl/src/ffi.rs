@@ -22,6 +22,22 @@ unsafe extern "C" {
     fn YMPSG_Write(chip: *mut c_void, data: u8);
     fn YMPSG_Clock(chip: *mut c_void);
     fn YMPSG_GetOutput(chip: *mut c_void) -> f32;
+
+    fn drotrim_fmopm_sizeof() -> usize;
+    fn drotrim_fmopm_alignof() -> usize;
+    fn drotrim_fmopm_set_pins(
+        chip: *mut c_void,
+        ym2164: i32,
+        ic: i32,
+        cs: i32,
+        wr: i32,
+        a0: i32,
+        data: i32,
+    );
+    fn drotrim_fmopm_out_sh1(chip: *const c_void) -> i32;
+    fn drotrim_fmopm_out_sh2(chip: *const c_void) -> i32;
+    fn drotrim_fmopm_out_so(chip: *const c_void) -> i32;
+    fn FMOPM_Clock(chip: *mut c_void, clk: i32);
 }
 
 /// Upstream's `opll_type_ym2413`: the Yamaha part a VGM means by "YM2413".
@@ -159,6 +175,102 @@ impl PsgChip {
     }
 }
 
+/// The YM2151-LLE die simulation, driven by its pins.
+///
+/// The API surface *is* the package: a clock pin, the bus, and the serial
+/// DAC output. Everything above wire level -- write pacing, reset timing,
+/// the YM3012 float decode -- belongs to the wrapper, which is the point of
+/// an LLE core: nothing between the VGM and the netlist but electricity.
+#[derive(Debug)]
+pub(crate) struct OpmLleChip {
+    state: OpaqueChip,
+    /// The bus pins as last presented; re-presented on every clock edge.
+    pins: LlePins,
+}
+
+/// The non-clock input pins. `ic`/`cs`/`wr` are active-low levels, kept
+/// electrical here so the driver reads like a schematic.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LlePins {
+    pub ym2164: bool,
+    /// Reset, active low.
+    pub ic: bool,
+    /// Chip select, active low.
+    pub cs: bool,
+    /// Write strobe, active low.
+    pub wr: bool,
+    /// 0 presents an address, 1 a value.
+    pub a0: bool,
+    pub data: u8,
+}
+
+impl Default for LlePins {
+    fn default() -> Self {
+        Self {
+            ym2164: false,
+            ic: true,
+            cs: true,
+            wr: true,
+            a0: false,
+            data: 0,
+        }
+    }
+}
+
+impl OpmLleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (drotrim_fmopm_sizeof(), drotrim_fmopm_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+            pins: LlePins::default(),
+        }
+    }
+
+    /// Zeroes the die. The electrical reset (holding `ic` low while
+    /// clocking) is the wrapper's job; this only clears the allocation, as
+    /// power-off does.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+        self.pins = LlePins::default();
+    }
+
+    pub(crate) fn set_pins(&mut self, pins: LlePins) {
+        self.pins = pins;
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            drotrim_fmopm_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ym2164),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// One half of the master clock: `high` is the level of the clk pin.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopm_t)`.
+        unsafe { FMOPM_Clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The serial DAC pins after the last edge: (sh1, sh2, so).
+    pub(crate) fn dac_pins(&mut self) -> (bool, bool, bool) {
+        let chip = self.state.as_ptr();
+        // SAFETY: the shim reads three fields of the sized block.
+        unsafe {
+            (
+                drotrim_fmopm_out_sh1(chip) != 0,
+                drotrim_fmopm_out_sh2(chip) != 0,
+                drotrim_fmopm_out_so(chip) != 0,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +287,11 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (drotrim_ympsg_sizeof(), drotrim_ympsg_alignof()) };
         assert!(size > 64, "ympsg_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (drotrim_fmopm_sizeof(), drotrim_fmopm_alignof()) };
+        assert!(size > 1024, "fmopm_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }

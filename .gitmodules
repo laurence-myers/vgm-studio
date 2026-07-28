@@ -13,3 +13,6 @@
 [submodule "vendor/upstream/nuked-psg"]
 	path = vendor/upstream/nuked-psg
 	url = https://github.com/nukeykt/Nuked-PSG.git
+[submodule "vendor/upstream/ym2151-lle"]
+	path = vendor/upstream/ym2151-lle
+	url = https://github.com/nukeykt/YM2151-LLE.git

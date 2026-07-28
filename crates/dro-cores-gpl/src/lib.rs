@@ -15,9 +15,11 @@
 //! `licenses/README.md` for the split.
 
 mod ffi;
+mod lle_opm;
 mod opll;
 mod psg;
 
+pub use lle_opm::Ym2151Lle;
 pub use opll::Ym2413;
 pub use psg::Sn76489Nuked;
 
@@ -51,6 +53,18 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-PSG",
             realtime: true,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Sn76489Nuked::new())),
+        });
+    }
+    for chip in lle_opm::CHIPS {
+        registry.register(dro_synth::CoreInfo {
+            id: lle_opm::CORE_ID,
+            chip,
+            label: "YM2151-LLE (die sim, offline)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/YM2151-LLE",
+            realtime: false,
+            make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2151Lle::new())),
         });
     }
 }

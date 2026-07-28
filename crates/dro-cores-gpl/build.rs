@@ -26,13 +26,22 @@ fn main() {
         println!("cargo::rerun-if-changed={}", psg.join(file).display());
     }
 
+    let opm_lle = PathBuf::from(UPSTREAM).join("ym2151-lle");
+    require_submodule(&opm_lle, "ym2151-lle", "fmopm.c");
+    for file in ["fmopm.c", "fmopm.h"] {
+        println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
+    }
+
     let mut build = cc::Build::new();
     build
         .file(opll.join("opll.c"))
         .file(psg.join("ympsg.c"))
+        .file(opm_lle.join("fmopm.c"))
         .file("shim/layout.c")
+        .file("shim/lle_opm.c")
         .include(&opll)
         .include(&psg)
+        .include(&opm_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")
@@ -42,6 +51,12 @@ fn main() {
         // where the compiler understands the flag (MSVC does not contract
         // under its default /fp:precise).
         .flag_if_supported("-ffp-contract=off")
+        // The LLE core simulates the die pin by pin -- millions of calls per
+        // emulated second -- and an unoptimised build of it makes even the
+        // tests crawl. The C is deterministic integer logic (plus the
+        // contraction-pinned floats above), so optimisation level does not
+        // change output, only how long a debug test run takes.
+        .opt_level(2)
         .warnings(false);
 
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
