@@ -40,6 +40,7 @@ dro-retrowave = { path = "crates/dro-retrowave" }
 dro-ui = { path = "crates/dro-ui" }
 dro-cores-nuked = { path = "crates/dro-cores-nuked" }
 dro-cores-gpl = { path = "crates/dro-cores-gpl" }
+dro-cores-ymfm = { path = "crates/dro-cores-ymfm" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
 # Since 0.34, eframe's default renderer is wgpu -- glow left the default
