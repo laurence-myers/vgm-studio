@@ -31,6 +31,8 @@ pub mod okim;
 pub mod qsound;
 pub mod rf5c68;
 pub mod sn76489;
+#[cfg(feature = "nuked-opl")]
+pub mod y8950;
 
 pub use ay8910::Ay8910;
 pub use c140::C140;
@@ -44,3 +46,5 @@ pub use okim::{Okim6258, Okim6295};
 pub use qsound::QSound;
 pub use rf5c68::Rf5c68;
 pub use sn76489::Sn76489;
+#[cfg(feature = "nuked-opl")]
+pub use y8950::Y8950;

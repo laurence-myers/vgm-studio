@@ -242,7 +242,7 @@ impl ChipCore for K054539 {
                             ch.playing = false;
                             continue;
                         };
-                        let nibble = if steps % 2 == 0 {
+                        let nibble = if steps.is_multiple_of(2) {
                             byte & 0x0F
                         } else {
                             byte >> 4

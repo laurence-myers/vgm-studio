@@ -231,6 +231,14 @@ impl CoreRegistry {
             realtime: true,
             make: CoreMaker::Generic(|| Box::new(crate::cores::K051649::new())),
         });
+        // The Y8950 core exists (`cores::y8950`, FM + Delta-T, tests green)
+        // but is deliberately NOT registered: the Y8950 is one of the OPL
+        // chips, and the standing invariant -- OPL is listed for Settings
+        // but never buildable for `VgmEngine`, because OPL documents route
+        // through `PlayerEngine` -- is load-bearing for every `playability`
+        // caller. Registering it here would send Y8950 files down two paths
+        // at once. Letting it in means auditing that routing first; the
+        // core waits for that step rather than pretending it happened.
         registry.register(CoreInfo {
             id: "qsound.native",
             chip: ChipKind::QSound,

@@ -175,7 +175,7 @@ impl ChipCore for C352 {
     fn render(&mut self, out: &mut [i32]) {
         for frame in out.chunks_exact_mut(2) {
             // One noise step per frame; every noise voice shares it.
-            let feedback = ((self.noise >> 0) ^ (self.noise >> 1)) & 1;
+            let feedback = (self.noise ^ (self.noise >> 1)) & 1;
             self.noise = (self.noise >> 1) | (feedback << 30);
             let noise_sample = if self.noise & 1 != 0 { 0x1000 } else { -0x1000 };
 
