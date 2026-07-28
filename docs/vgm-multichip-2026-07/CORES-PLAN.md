@@ -1,5 +1,14 @@
 # CORES-PLAN — every chip playable, the most accurate core selectable per chip
 
+> **SUPERSEDED IN PART, 2026-07-28.** §3 (sourcing policy) and §5 (which core
+> per chip) are re-scoped by [CORES-REUSE-PLAN.md](CORES-REUSE-PLAN.md): upstream
+> emulators become the accuracy tier and the clean-room cores written under this
+> plan become the wasm-and-fallback tier. This document remains the record of
+> what was built and why, and its §1 licence split, §2 registry, §4 wasm rules,
+> §6 acceptance gates and §7.2 shipping log all still stand. Read the re-scope
+> first; §1's own warning about libvgm's untagged framework headers turned out
+> to be the decisive fact and is re-affirmed there.
+
 > Written 2026-07-27, from the licensing analysis session. Supersedes the
 > mc-8/mc-9 sketch in `HANDOVER.md` (the "corpus-ordered core waves") with a
 > concrete programme: a **license split**, a **multi-core registry**, an
