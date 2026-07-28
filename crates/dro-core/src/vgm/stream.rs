@@ -366,7 +366,14 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             u16::from(byte(2)),
             u16::from(byte(3)),
         ),
-        0xE1 => write(ChipTarget::first(ChipKind::C352), word(1), word(3)),
+        // The C352 write is the one command whose operands are big-endian:
+        // the corpus's own streams say so (register addresses land on the
+        // voice-times-eight grid only under that reading).
+        0xE1 => write(
+            ChipTarget::first(ChipKind::C352),
+            (u16::from(byte(1)) << 8) | u16::from(byte(2)),
+            (u16::from(byte(3)) << 8) | u16::from(byte(4)),
+        ),
 
         // Waits.
         0x61 => VgmCommand::Wait(u32::from(word(1))),
