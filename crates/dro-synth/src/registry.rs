@@ -94,6 +94,12 @@ pub struct CoreInfo {
     /// transport must not offer a core that cannot keep up), while the WAV
     /// render does not (it has all the time in the world).
     pub realtime: bool,
+    /// Whether this core can place individual channels in the stereo image --
+    /// [`ChipCore::set_channel_pans`](crate::ChipCore::set_channel_pans) for a
+    /// generic core, the stereo-ext register path for an OPL one. The UI
+    /// hides pan controls when the resolved core says `false`, rather than
+    /// drawing knobs that turn and do nothing.
+    pub channel_pan: bool,
     /// This core's output calibration, in 8.8 fixed point
     /// ([`LEVEL_UNITY`] = 1.0). Applied to every sample it renders.
     ///
@@ -215,6 +221,18 @@ impl ChipCore for Leveled {
         self.inner.write_ram_absolute(address, data);
     }
 
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.inner.set_channel_mutes(muted);
+    }
+
+    fn set_channel_pans(&mut self, pans: &[i16]) {
+        self.inner.set_channel_pans(pans);
+    }
+
+    fn supports_pan(&self) -> bool {
+        self.inner.supports_pan()
+    }
+
     /// Renders, then scales.
     ///
     /// Integer throughout: `i64` for the product so a loud sample times a gain
@@ -275,6 +293,7 @@ impl CoreRegistry {
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
                 realtime: true,
+                channel_pan: false,
                 level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
@@ -444,6 +463,18 @@ impl CoreRegistry {
         );
         self.for_chip(chip)
             .find(|info| info.realtime && matches!(info.make, CoreMaker::Generic(_)))
+    }
+
+    /// Whether the core live playback would actually use for `chip` can place
+    /// individual channels in the stereo image.
+    ///
+    /// Asks the *resolved* choice -- the user's pick, through the realtime
+    /// fallback -- because that is the core whose knobs the UI would be
+    /// drawing. `false` for a chip with no core at all.
+    #[must_use]
+    pub fn pan_capable(&self, chip: ChipKind) -> bool {
+        self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
+            .is_some_and(|info| info.channel_pan)
     }
 }
 
@@ -759,6 +790,7 @@ mod tests {
             license: "MIT",
             upstream: "",
             realtime: true,
+            channel_pan: false,
             level,
             make: CoreMaker::Generic(|| Box::new(Tone::default())),
         }
@@ -780,6 +812,7 @@ mod tests {
         registry.register(tone_info("sn76489.fast", LEVEL_UNITY));
         registry.register(CoreInfo {
             realtime: false,
+            channel_pan: false,
             ..tone_info("sn76489.die", LEVEL_UNITY)
         });
 

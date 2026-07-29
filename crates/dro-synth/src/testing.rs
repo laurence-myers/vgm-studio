@@ -96,6 +96,7 @@ pub(crate) fn install_registry_with_stub() {
         license: "MIT OR Apache-2.0",
         upstream: "",
         realtime: true,
+        channel_pan: false,
         level: LEVEL_UNITY,
         make: CoreMaker::Generic(|| Box::new(ToneStub::new())),
     });

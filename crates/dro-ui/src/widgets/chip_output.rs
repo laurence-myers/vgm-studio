@@ -298,6 +298,7 @@ pub(crate) fn install_test_cores() {
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-CQM",
                 realtime: true,
+                channel_pan: false,
                 level: dro_synth::LEVEL_UNITY,
                 // The real one builds a chip; a stand-in only has to be
                 // listable, and this crate cannot link the C provider.
@@ -311,6 +312,7 @@ pub(crate) fn install_test_cores() {
                 license: "GPL-2.0-or-later",
                 upstream: "https://github.com/SudoMaker/RetroWave",
                 realtime: true,
+                channel_pan: false,
                 level: dro_synth::LEVEL_UNITY,
                 make: dro_synth::CoreMaker::Routed,
             });
@@ -329,6 +331,7 @@ pub(crate) fn install_test_cores() {
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
+            channel_pan: false,
             level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(ToneStub::new())),
         });

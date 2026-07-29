@@ -12,6 +12,7 @@ pub mod adpcm;
 pub mod banks;
 pub mod capture;
 pub mod chip;
+pub mod chip_mix;
 pub mod credits;
 pub mod dac_stream;
 pub mod decompress;
@@ -32,6 +33,7 @@ pub mod write_queue;
 pub use banks::{Banks, BlockKind};
 pub use capture::capture;
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_realtime, playability};
+pub use chip_mix::{ChipMuting, ChipPanning};
 pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{Compression, DecompressionTable, decompress};
@@ -47,7 +49,8 @@ pub use registry::{CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, install, regi
 pub use split::{SplitData, SplitFormat, SplitOptions, SplitOutput, split, split_cancellable};
 pub use vgm_engine::VgmEngine;
 pub use wav::{
-    RenderMix, render_vgm_wav, render_vgm_wav_cancellable, render_wav, render_wav_boosted,
+    RenderMix, VgmRenderMix, render_vgm_wav, render_vgm_wav_cancellable,
+    render_vgm_wav_mixed_cancellable, render_wav, render_wav_boosted,
     render_wav_boosted_with_progress, render_wav_cancellable, render_wav_mixed, render_wav_muted,
     render_wav_muted_with_progress,
 };

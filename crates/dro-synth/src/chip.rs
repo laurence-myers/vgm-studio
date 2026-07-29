@@ -84,6 +84,32 @@ pub trait ChipCore: Send {
     /// leave headroom for the mixer; the engine scales and clips once, at the
     /// end, rather than once per chip.
     fn render(&mut self, out: &mut [i32]);
+
+    /// Mutes the channels whose bits are set, in the canonical order of
+    /// [`dro_core::vgm::channels_of`] -- bit `i` is entry `i`. Zero unmutes
+    /// everything.
+    ///
+    /// The default ignores it: a core that cannot mute plays everything,
+    /// which is what it did before this method existed. **A mask does not
+    /// survive [`reset`](Self::reset)** -- the engine reapplies it, and a
+    /// provider whose device restarts on reset must too.
+    fn set_channel_mutes(&mut self, _muted: u32) {}
+
+    /// Places each channel in the stereo image: entry `i` is channel `i`'s
+    /// position, `-0x100 ..= 0x100` for hard left through hard right, `0`
+    /// centre (see [`chip_mix`](crate::chip_mix)).
+    ///
+    /// Only meaningful when [`supports_pan`](Self::supports_pan) says so;
+    /// the default ignores it. Like the mute mask, it does not survive
+    /// [`reset`](Self::reset).
+    fn set_channel_pans(&mut self, _pans: &[i16]) {}
+
+    /// Whether [`set_channel_pans`](Self::set_channel_pans) reaches this
+    /// core's mix. The UI hides pan controls when it does not, rather than
+    /// drawing knobs that turn and do nothing.
+    fn supports_pan(&self) -> bool {
+        false
+    }
 }
 
 /// Whether this app can play a file, and what it would be missing if not.
@@ -191,6 +217,14 @@ pub struct RecordingChip {
     pub roms: Vec<(u8, u32, u32, usize)>,
     /// Every `(offset, len)` written to RAM.
     pub ram: Vec<(u32, usize)>,
+    /// Every mute mask handed over, in order -- so a test can see not only
+    /// the mask in force but that a reset was followed by a reapplication.
+    pub mutes: Vec<u32>,
+    /// Every pan array handed over, in order.
+    pub pans: Vec<Vec<i16>>,
+    /// What [`ChipCore::supports_pan`] reports, for tests exercising the
+    /// pan-capable path.
+    pub pan_capable: bool,
     /// Frames rendered so far.
     pub frames: usize,
     /// The rate to report. Zero means "derive from the clock", which is what a
@@ -247,6 +281,18 @@ impl ChipCore for RecordingChip {
     fn render(&mut self, out: &mut [i32]) {
         self.frames += out.len() / 2;
         out.fill(0);
+    }
+
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.mutes.push(muted);
+    }
+
+    fn set_channel_pans(&mut self, pans: &[i16]) {
+        self.pans.push(pans.to_vec());
+    }
+
+    fn supports_pan(&self) -> bool {
+        self.pan_capable
     }
 }
 

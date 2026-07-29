@@ -14,6 +14,7 @@ use std::io::Cursor;
 use dro_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
+use crate::chip_mix::{ChipMuting, ChipPanning};
 use crate::engine::{Muting, Panning, PlayerEngine};
 use crate::resample::ResampleMode;
 use std::sync::Arc;
@@ -285,6 +286,60 @@ pub fn render_vgm_wav_cancellable(
     on_progress: &mut dyn FnMut(u64),
     keep_going: &mut dyn FnMut() -> bool,
 ) -> Result<Option<Vec<u8>>, hound::Error> {
+    let mix = VgmRenderMix {
+        boost,
+        ..VgmRenderMix::default()
+    };
+    render_vgm_wav_mixed_cancellable(
+        file,
+        sample_rate,
+        bit_depth,
+        &mix,
+        resampling,
+        on_progress,
+        keep_going,
+    )
+}
+
+/// The [`RenderMix`] counterpart for a multichip render: which channels of
+/// which chips are silenced or placed, and how hard the signal is driven.
+///
+/// [`Default`] is the faithful render: nothing muted, every chip's own
+/// stereo image, no boost.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VgmRenderMix {
+    pub muting: ChipMuting,
+    pub panning: ChipPanning,
+    /// Multiplies the signal through the playback peak limiter. `1.0` is
+    /// bit-transparent.
+    pub boost: f32,
+}
+
+impl Default for VgmRenderMix {
+    fn default() -> Self {
+        Self {
+            muting: ChipMuting::new(),
+            panning: ChipPanning::new(),
+            boost: 1.0,
+        }
+    }
+}
+
+/// As [`render_vgm_wav_cancellable`], with channel mutes and pans baked into
+/// the render -- what the GUI's toggles and knobs export, and what the
+/// per-channel split renders each solo through.
+///
+/// # Errors
+/// See [`render_vgm_wav`].
+pub fn render_vgm_wav_mixed_cancellable(
+    file: Arc<VgmFile>,
+    sample_rate: u32,
+    bit_depth: u16,
+    mix: &VgmRenderMix,
+    resampling: ResampleMode,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
     let spec = WavSpec {
         channels: 2,
         sample_rate,
@@ -295,11 +350,20 @@ pub fn render_vgm_wav_cancellable(
     // The render honours the same choice playback does: a user who picked the
     // crunchy conversion exports the sound they hear, not a cleaned-up cousin.
     engine.set_resample_mode(resampling);
+    // Only when they say something: the faithful render stays exactly the
+    // engine's own output, mirroring the OPL render's `Panning::Original`
+    // rule.
+    if !mix.muting.is_neutral() {
+        engine.set_muting(mix.muting.clone());
+    }
+    if !mix.panning.is_neutral() {
+        engine.set_panning(mix.panning.clone());
+    }
     let mut rendered = 0u64;
     write_render(
         spec,
         bit_depth,
-        boost,
+        mix.boost,
         &mut |buffer| {
             let frames = engine.render(buffer);
             rendered += frames as u64;

@@ -27,6 +27,7 @@ use dro_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
 use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header, stream_owner};
 use crate::chip::{ChipCore, core_for};
+use crate::chip_mix::{ChipMuting, ChipPanning};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
 use crate::engine::{FrameClock, LoopConfig, Position};
@@ -137,6 +138,11 @@ pub struct VgmEngine {
     wait_60hz: u32,
     wait_50hz: u32,
     output_rate: u32,
+    /// The channel mutes in force, kept so every reset (rewind, seek) can
+    /// say them again -- a core's mask does not survive its own reset.
+    muting: ChipMuting,
+    /// The channel pans in force, reapplied the same way.
+    panning: ChipPanning,
 }
 
 impl std::fmt::Debug for VgmEngine {
@@ -223,6 +229,44 @@ impl VgmEngine {
             wait_60hz: WAIT_60HZ,
             wait_50hz: WAIT_50HZ,
             output_rate: output_rate.max(1),
+            muting: ChipMuting::new(),
+            panning: ChipPanning::new(),
+        }
+    }
+
+    /// Applies (and keeps) which channels are muted. Live: a playing stream
+    /// changes mid-note, exactly as the OPL engine's muting does.
+    pub fn set_muting(&mut self, muting: ChipMuting) {
+        self.muting = muting;
+        self.apply_mix();
+    }
+
+    /// Applies (and keeps) where each channel sits in the stereo image.
+    /// Ignored by cores that cannot pan (see
+    /// [`ChipCore::supports_pan`](crate::ChipCore::supports_pan)).
+    pub fn set_panning(&mut self, panning: ChipPanning) {
+        self.panning = panning;
+        self.apply_mix();
+    }
+
+    /// Pushes the stored mutes and pans into every voice.
+    ///
+    /// Also called after every reset (rewind, seek): a core's mask and pans
+    /// do not survive its own reset, so the engine restates them -- the
+    /// generic counterpart of the OPL engine's `mask_replay` rule, where the
+    /// bug would be a muted channel coming back after a seek.
+    fn apply_mix(&mut self) {
+        for voice in &mut self.voices {
+            voice.core.set_channel_mutes(
+                self.muting
+                    .mask_for(voice.target.kind, voice.target.instance),
+            );
+            if let Some(pans) = self
+                .panning
+                .pans_for(voice.target.kind, voice.target.instance)
+            {
+                voice.core.set_channel_pans(pans);
+            }
         }
     }
 
@@ -288,6 +332,8 @@ impl VgmEngine {
         self.restart_loop_count();
         self.wait_60hz = WAIT_60HZ;
         self.wait_50hz = WAIT_50HZ;
+        // The resets above cleared every core's mutes and pans; restate them.
+        self.apply_mix();
     }
 
     /// Jumps to row `index`, putting the chips in the state the music expects
@@ -922,6 +968,99 @@ mod tests {
                 (ChipKind::Sn76489, 0, 0x00, 0x9F),
             ],
             "each write went to its own chip, on its own port"
+        );
+    }
+
+    /// The generic counterpart of the OPL `mask_replay` guarantee: a mute
+    /// mask lands on the instance it names, and a seek -- which resets every
+    /// core, clearing whatever mask it held -- restates it.
+    #[test]
+    fn muting_reaches_its_instance_and_survives_a_seek() {
+        // Bit 30 of the clock declares a second instance.
+        let file = vgm(
+            &[(ChipKind::Sn76489, 3_579_545 | 0x4000_0000)],
+            &[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x30, 0x8E, 0x66],
+        );
+        // Each event is (voice number in build order, event, value).
+        let log: Log<(u8, &'static str, u32)> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Tap {
+            voice: u8,
+            log: Log<(u8, &'static str, u32)>,
+        }
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {
+                self.log
+                    .lock()
+                    .expect("not poisoned")
+                    .push((self.voice, "reset", 0));
+            }
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+            fn set_channel_mutes(&mut self, muted: u32) {
+                self.log
+                    .lock()
+                    .expect("not poisoned")
+                    .push((self.voice, "mute", muted));
+            }
+            fn set_channel_pans(&mut self, pans: &[i16]) {
+                self.log
+                    .lock()
+                    .expect("not poisoned")
+                    .push((self.voice, "pan", pans.len() as u32));
+            }
+        }
+
+        let counter = Arc::new(Mutex::new(0u8));
+        let log_for_factory = Arc::clone(&log);
+        let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            let mut counter = counter.lock().expect("not poisoned");
+            let voice = *counter;
+            *counter += 1;
+            Some(Box::new(Tap {
+                voice,
+                log: Arc::clone(&log_for_factory),
+            }))
+        });
+        assert_eq!(engine.voiced_chips().len(), 2, "a dual chip is two voices");
+
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Sn76489, 1, 0b1000);
+        engine.set_muting(muting);
+        let mut panning = ChipPanning::new();
+        panning.set(ChipKind::Sn76489, 0, vec![0, 0, 0, 0]);
+        engine.set_panning(panning);
+
+        log.lock().expect("not poisoned").clear();
+        engine.seek_to_row(2);
+
+        let events = log.lock().expect("not poisoned").clone();
+        let after_resets: Vec<_> = events
+            .iter()
+            .skip_while(|(_, event, _)| *event != "reset")
+            .filter(|(_, event, _)| *event != "reset")
+            .copied()
+            .collect();
+        assert!(
+            after_resets.contains(&(0, "mute", 0)),
+            "instance 1's voice is restated as unmuted: {events:?}"
+        );
+        assert!(
+            after_resets.contains(&(1, "mute", 0b1000)),
+            "instance 2's mask came back after the reset: {events:?}"
+        );
+        assert!(
+            after_resets.contains(&(0, "pan", 4)),
+            "instance 1's pans came back after the reset: {events:?}"
+        );
+        assert!(
+            !after_resets.contains(&(1, "pan", 4)),
+            "instance 2 has no pan image set: {events:?}"
         );
     }
 

@@ -47,6 +47,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-CQM",
             realtime: true,
+            channel_pan: false,
             level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Opl(|rate| Box::new(CqmOpl3::new(rate))),
         });
@@ -60,6 +61,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
             realtime: true,
+            channel_pan: false,
             level: dro_synth::LEVEL_UNITY,
             // A `ChipCore`, not an `OplChip`: this one plays through
             // `VgmEngine`, the generic path with no register policy.
@@ -75,6 +77,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPM",
             realtime: true,
+            channel_pan: false,
             level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(Ym2151::new())),
         });
