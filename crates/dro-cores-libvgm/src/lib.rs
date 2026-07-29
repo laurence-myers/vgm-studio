@@ -70,11 +70,11 @@ pub const CORE_SUFFIX: &str = "libvgm";
 
 /// Adds every chip this build can serve to the registry.
 ///
-/// **Registered after the built-ins, so nothing changes by default.** libvgm
-/// takes a chip's default only when it has beaten the frozen parity row that
-/// chip already has (`CORES-REUSE-PLAN.md` §7), which is lv-4's job and not
-/// this one. Until then these are picker alternatives: selectable, measurable,
-/// and off unless asked for.
+/// **Registered ahead of the other providers, so libvgm is the default for
+/// every chip it serves** -- the 2026-07-29 owner decision: libvgm is the
+/// source of truth, no parity gating. The app's `install_cores` calls this
+/// first; the Nuked and LLE integrations register behind it as picker
+/// options, and OPL is untouched because this crate compiles no OPL device.
 pub fn register(registry: &mut dro_synth::CoreRegistry) {
     for spec in chip::SPECS {
         registry.register(dro_synth::CoreInfo {

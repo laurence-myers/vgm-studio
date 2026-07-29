@@ -33,15 +33,16 @@ pub use pack_zip::{PackZipOutput, build_pack_zip};
 /// Settings dialog stops offering hardware it could never reach.
 pub fn install_cores() {
     let mut registry = dro_synth::CoreRegistry::with_builtins();
-    // After the built-ins: Nuked-OPL3 is the faithful YMF262 and CQM is
-    // Creative's clone of one, so CQM is an authenticity flavour beside it
-    // rather than a better default.
-    dro_cores_nuked::register(&mut registry);
-    dro_cores_gpl::register(&mut registry);
-    // After both, so libvgm is an *alternative* everywhere and a default
-    // nowhere. It takes a chip's default only once it has beaten that chip's
-    // frozen parity row, which is LIBVGM-PLAN lv-4's job, chip by chip.
+    // libvgm first, per the 2026-07-29 owner decision: it is the source of
+    // truth and the default for every chip it serves. It carries no OPL rows,
+    // so the built-ins' Nuked-OPL3 keeps that family's default untouched.
     dro_cores_libvgm::register(&mut registry);
+    // Behind it, the Nuked integrations stay as picker options: CQM is
+    // Creative's clone of a YMF262 beside the faithful one, and OPN2/OPM are
+    // flavours behind libvgm's rows once those exist.
+    dro_cores_nuked::register(&mut registry);
+    // The LLE dies and Nuked-OPLL/PSG: options, per the same decision.
+    dro_cores_gpl::register(&mut registry);
     dro_retrowave::register(&mut registry);
     if dro_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed
@@ -118,9 +119,9 @@ mod core_registry_tests {
     #[test]
     fn every_registered_core_is_complete_and_uniquely_named() {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_libvgm::register(&mut registry);
         dro_cores_nuked::register(&mut registry);
         dro_cores_gpl::register(&mut registry);
-        dro_cores_libvgm::register(&mut registry);
         dro_retrowave::register(&mut registry);
 
         let mut seen: std::collections::HashMap<&str, ChipKind> = std::collections::HashMap::new();
@@ -156,9 +157,9 @@ mod core_registry_tests {
     #[test]
     fn every_chip_in_the_table_is_accounted_for() {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
+        dro_cores_libvgm::register(&mut registry);
         dro_cores_nuked::register(&mut registry);
         dro_cores_gpl::register(&mut registry);
-        dro_cores_libvgm::register(&mut registry);
         dro_retrowave::register(&mut registry);
 
         let (mut cored, mut silent) = (0usize, 0usize);

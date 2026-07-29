@@ -17,9 +17,11 @@
 //! should follow the registry rather than offer something absent.
 //!
 //! **Priority is registration order.** The first core registered for a chip is
-//! its default, so the app registers accuracy-tier providers *before*
-//! [`CoreRegistry::with_builtins`]'s permissive ones and a Nuked-class core
-//! wins where present.
+//! its default: the app registers `dro-cores-libvgm` ahead of the other
+//! providers, so libvgm is the default for every chip it serves and the Nuked
+//! and LLE integrations are the picker's alternatives. OPL is the standing
+//! exception -- libvgm compiles no OPL device, so the built-in Nuked-OPL3 row
+//! keeps that family.
 
 use dro_core::vgm::ChipKind;
 
