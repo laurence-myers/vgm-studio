@@ -328,27 +328,22 @@ impl VgmEngine {
         self.restart_loop_count();
         // The position readout counts from the start of the song, not from the
         // seek, so it restates where the seek landed rather than resetting.
-        let samples = stream.total_samples() - stream.samples_from(index);
+        let samples = stream.samples_before(index);
         self.frames_rendered =
             samples * u64::from(self.output_rate) / u64::from(dro_core::vgm::VGM_SAMPLE_RATE);
     }
 
     /// Jumps to the row playing at `ms`, for a transport that seeks by time.
+    ///
+    /// A target inside a delay stops on that delay, never after it -- the same
+    /// prefix-sum rule as [`PlayerEngine::seek_to_ms`](crate::PlayerEngine),
+    /// so the two engines agree about what seeking means.
     pub fn seek_to_ms(&mut self, ms: u32) {
         let Some(stream) = self.file.stream() else {
             return;
         };
         let target = u64::from(ms) * u64::from(dro_core::vgm::VGM_SAMPLE_RATE) / 1000;
-        let mut elapsed = 0u64;
-        let mut row = stream.len();
-        for index in 0..stream.len() {
-            if elapsed >= target {
-                row = index;
-                break;
-            }
-            elapsed += u64::from(stream.wait_samples(index));
-        }
-        self.seek_to_row(row);
+        self.seek_to_row(stream.seek_index_for_samples(target));
     }
 
     /// Sets (or clears) the region playback loops over.

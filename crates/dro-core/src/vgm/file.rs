@@ -173,6 +173,52 @@ impl VgmFile {
         crate::util::smp_to_ms(self.header.total_samples(), crate::util::VGM_SAMPLE_RATE)
     }
 
+    /// The song's length in milliseconds, summed from the stream's own delays.
+    ///
+    /// The header's [`total_ms`](Self::total_ms) is a claim; this is the fact.
+    /// The timeline (waveform, cursor, seeks) uses this so a lying header
+    /// cannot put the cursor somewhere the audio is not. Zero when the body
+    /// holds no parsed stream.
+    #[must_use]
+    pub fn stream_total_ms(&self) -> u32 {
+        self.stream().map_or(0, |stream| {
+            crate::util::smp64_to_ms(stream.total_samples(), crate::util::VGM_SAMPLE_RATE)
+        })
+    }
+
+    /// The time at which command `index` plays, in milliseconds.
+    ///
+    /// The counterpart of [`Song::ms_offset_at`](crate::Song::ms_offset_at);
+    /// `None` when the body holds no parsed stream or `index` is past its end.
+    #[must_use]
+    pub fn ms_offset_at(&self, index: usize) -> Option<u32> {
+        let stream = self.stream()?;
+        if index > stream.len() {
+            return None;
+        }
+        Some(crate::util::smp64_to_ms(
+            stream.samples_before(index),
+            crate::util::VGM_SAMPLE_RATE,
+        ))
+    }
+
+    /// Maps a position along the waveform (`0.0 ..= 1.0`) to a command and the
+    /// time at which it plays.
+    ///
+    /// The returned milliseconds always equal [`ms_offset_at`](Self::ms_offset_at)
+    /// of the returned index, so selecting the row and seeking to it agree --
+    /// the same contract as
+    /// [`Song::index_and_ms_offset_at_pct`](crate::Song::index_and_ms_offset_at_pct).
+    #[must_use]
+    pub fn index_and_ms_offset_at_pct(&self, position_pct: f64) -> Option<(usize, u32)> {
+        let stream = self.stream()?;
+        let (index, samples) = stream.index_at_pct(position_pct)?;
+        Some((
+            index,
+            crate::util::smp64_to_ms(samples, crate::util::VGM_SAMPLE_RATE),
+        ))
+    }
+
     /// The loop's length in samples, or `None` if the file does not loop.
     #[must_use]
     pub const fn loop_samples(&self) -> Option<u32> {
@@ -943,6 +989,27 @@ mod tests {
         assert_eq!(file.total_ms(), 227);
         assert_eq!(file.tag.as_ref(), Some(&tag()));
         assert_eq!(file.body.raw(), MEGA_DRIVE_BODY);
+    }
+
+    /// The timeline methods answer from the stream's own delays, not from the
+    /// header's claim -- a lying header cannot put the cursor where the audio
+    /// is not.
+    #[test]
+    fn the_timeline_reads_from_the_stream_not_the_header() {
+        // Body rows: write, write, delay 10000, DAC write (delay 0) -- but a
+        // header that swears the song is ten times longer.
+        let mut bytes = mega_drive(false);
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 100_000);
+        let file = read("sonic.vgm", &bytes).unwrap();
+
+        assert_eq!(file.total_ms(), 2268, "the header's claim");
+        assert_eq!(file.stream_total_ms(), 227, "the stream's fact");
+        assert_eq!(file.ms_offset_at(0), Some(0));
+        assert_eq!(file.ms_offset_at(2), Some(0), "the delay's own start");
+        assert_eq!(file.ms_offset_at(3), Some(227), "after the delay");
+        assert_eq!(file.ms_offset_at(4), Some(227), "len() is the total");
+        assert_eq!(file.ms_offset_at(5), None);
+        assert_eq!(file.index_and_ms_offset_at_pct(1.0), Some((3, 227)));
     }
 
     /// The point of the opaque body: commands the OPL reader rejects outright

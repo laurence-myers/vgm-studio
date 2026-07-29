@@ -13,7 +13,13 @@ pub const VGM_SAMPLE_RATE: u32 = 44_100;
 #[must_use]
 pub fn smp_to_ms(samples: u32, frequency: u32) -> u32 {
     debug_assert!(frequency > 0, "frequency must be non-zero");
-    let samples = u64::from(samples);
+    smp64_to_ms(u64::from(samples), frequency)
+}
+
+/// As [`smp_to_ms`], for the stream-summed totals that arrive as `u64`.
+#[must_use]
+pub fn smp64_to_ms(samples: u64, frequency: u32) -> u32 {
+    debug_assert!(frequency > 0, "frequency must be non-zero");
     let frequency = u64::from(frequency);
     let ms = (2 * samples * 1000 + frequency) / (2 * frequency);
     u32::try_from(ms).unwrap_or(u32::MAX)

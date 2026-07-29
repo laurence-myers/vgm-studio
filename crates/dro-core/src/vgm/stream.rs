@@ -318,6 +318,15 @@ fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(slice.try_into().expect("four bytes")))
 }
 
+/// How long `command` waits, in samples. Zero for anything that does not wait.
+const fn command_wait(command: &VgmCommand) -> u32 {
+    match command {
+        VgmCommand::Wait(samples) => *samples,
+        VgmCommand::DacWrite { wait } => *wait,
+        _ => 0,
+    }
+}
+
 /// Decodes one command from the bytes it starts at.
 ///
 /// `bytes` must begin at a command boundary and hold at least that command.
@@ -620,6 +629,12 @@ pub struct VgmStream {
     /// Where the end marker sits (or `data.len()` if the stream has none).
     tail: u32,
     version: u32,
+    /// Cumulative delay in samples: entry `i` is the samples waited before
+    /// command `i`, and the last entry (index `len`) is the stream's total.
+    /// The counterpart of `Song::delay_prefix`, and what makes the timeline
+    /// questions -- "when does row N play", "what plays at 40%" -- O(log n)
+    /// instead of a stream walk. Rebuilt with the index on every splice.
+    wait_prefix: Vec<u64>,
 }
 
 impl VgmStream {
@@ -644,11 +659,19 @@ impl VgmStream {
             at += size;
         };
         let tail = u32::try_from(tail).map_err(|_| Error::file("VGM data is larger than 4 GiB"))?;
+        let mut wait_prefix = Vec::with_capacity(offsets.len() + 1);
+        let mut elapsed = 0u64;
+        wait_prefix.push(elapsed);
+        for &offset in &offsets {
+            elapsed += u64::from(command_wait(&decode(&data[offset as usize..])));
+            wait_prefix.push(elapsed);
+        }
         Ok(Self {
             data,
             offsets,
             tail,
             version,
+            wait_prefix,
         })
     }
 
@@ -737,17 +760,24 @@ impl VgmStream {
     /// not wait.
     #[must_use]
     pub fn wait_samples(&self, index: usize) -> u32 {
-        match self.get(index) {
-            Some(VgmCommand::Wait(samples)) => samples,
-            Some(VgmCommand::DacWrite { wait }) => wait,
-            _ => 0,
-        }
+        self.get(index)
+            .map_or(0, |command| command_wait(&command))
     }
 
     /// The stream's total length in samples, summed from its waits.
     #[must_use]
     pub fn total_samples(&self) -> u64 {
-        self.samples_from(0)
+        *self
+            .wait_prefix
+            .last()
+            .expect("the prefix always has len() + 1 entries")
+    }
+
+    /// The samples waited before command `index` -- the time at which it plays.
+    /// `index == len()` (and beyond) yields the stream's total.
+    #[must_use]
+    pub fn samples_before(&self, index: usize) -> u64 {
+        self.wait_prefix[index.min(self.len())]
     }
 
     /// The samples waited from command `index` to the end of the stream --
@@ -755,9 +785,55 @@ impl VgmStream {
     /// `index` is the loop point.
     #[must_use]
     pub fn samples_from(&self, index: usize) -> u64 {
-        (index..self.len())
-            .map(|index| u64::from(self.wait_samples(index)))
-            .sum()
+        self.total_samples() - self.samples_before(index)
+    }
+
+    /// The command a seek to `target` samples lands on.
+    ///
+    /// Playback resumes *before* the target when the target falls inside a
+    /// delay, stopping on that delay rather than overshooting; a target on a
+    /// boundary lands on the first command at that time. May return `len()`,
+    /// meaning "past the last command". The same rule as
+    /// [`Song::seek_index_for_ms`](crate::Song::seek_index_for_ms), so the two
+    /// engines agree about what seeking means.
+    #[must_use]
+    pub fn seek_index_for_samples(&self, target: u64) -> usize {
+        let target = target.min(self.total_samples());
+        let first_at_or_after = self.wait_prefix.partition_point(|&offset| offset < target);
+        if self.wait_prefix.get(first_at_or_after) == Some(&target) {
+            first_at_or_after
+        } else {
+            // The target fell strictly inside a delay: stop on that delay.
+            first_at_or_after.saturating_sub(1)
+        }
+    }
+
+    /// Maps a position along the waveform (`0.0 ..= 1.0`) to a command and the
+    /// samples elapsed when it plays.
+    ///
+    /// The returned samples always equal `samples_before(index)`, so selecting
+    /// the row and seeking to it agree. `None` for an empty stream or a
+    /// non-finite percentage. The counterpart of
+    /// [`Song::index_and_ms_offset_at_pct`](crate::Song::index_and_ms_offset_at_pct),
+    /// with the same boundary rules.
+    #[must_use]
+    pub fn index_at_pct(&self, position_pct: f64) -> Option<(usize, u64)> {
+        if self.is_empty() || !position_pct.is_finite() {
+            return None;
+        }
+        // Compare in f64: the target rarely lands on a whole sample, and
+        // rounding first would move the boundary between two commands.
+        let target = self.total_samples() as f64 * position_pct.clamp(0.0, 1.0);
+        let first_at_or_after = self
+            .wait_prefix
+            .partition_point(|&offset| (offset as f64) < target);
+
+        let index = match self.wait_prefix.get(first_at_or_after) {
+            Some(&offset) if offset as f64 == target => first_at_or_after,
+            _ => first_at_or_after.saturating_sub(1),
+        };
+        let index = index.min(self.len() - 1);
+        Some((index, self.wait_prefix[index]))
     }
 
     /// Removes the commands at `indices`, leaving everything else -- the end
@@ -1251,6 +1327,64 @@ mod tests {
         assert_eq!(stream.describe(5), "override delay 0x62 = 10000");
     }
 
+    /// A write, delay 100, a write, delay 200 -- prefix `[0, 0, 100, 100, 300]`.
+    fn two_delay_stream() -> VgmStream {
+        let bytes = vec![
+            0x50, 0x9F, // write
+            0x61, 0x64, 0x00, // delay 100
+            0x50, 0x8E, // write
+            0x61, 0xC8, 0x00, // delay 200
+            END_OF_DATA,
+        ];
+        VgmStream::parse(bytes, 0x151).unwrap()
+    }
+
+    /// The seek rule `Song` established: a target inside a delay stops *on*
+    /// that delay, a boundary target lands on the first command at that time.
+    #[test]
+    fn seeking_by_samples_stops_on_the_delay() {
+        let stream = two_delay_stream();
+        assert_eq!(stream.seek_index_for_samples(0), 0);
+        assert_eq!(stream.seek_index_for_samples(50), 1, "inside the delay");
+        assert_eq!(stream.seek_index_for_samples(100), 2, "on the boundary");
+        assert_eq!(stream.seek_index_for_samples(150), 3);
+        assert_eq!(stream.seek_index_for_samples(300), 4, "the end is len()");
+        assert_eq!(stream.seek_index_for_samples(999), 4, "clamped to the end");
+    }
+
+    /// The waveform contract: the returned samples always equal
+    /// `samples_before(index)`, so a click and the row it selects agree.
+    #[test]
+    fn pct_maps_to_a_command_and_its_own_start_time() {
+        let stream = two_delay_stream();
+        assert_eq!(stream.index_at_pct(0.0), Some((0, 0)));
+        // A sixth of 300 samples falls inside the first delay.
+        let (index, samples) = stream.index_at_pct(1.0 / 6.0).unwrap();
+        assert_eq!((index, samples), (1, 0));
+        assert_eq!(samples, stream.samples_before(index));
+        // The far edge clamps to the last command, not past it.
+        assert_eq!(stream.index_at_pct(1.0), Some((3, 100)));
+        assert_eq!(stream.index_at_pct(f64::NAN), None);
+        assert_eq!(
+            VgmStream::parse(vec![END_OF_DATA], 0x151)
+                .unwrap()
+                .index_at_pct(0.5),
+            None,
+            "an empty stream has no rows to land on"
+        );
+    }
+
+    /// The prefix is rebuilt with the index: a splice cannot leave stale time.
+    #[test]
+    fn editing_rebuilds_the_prefix() {
+        let mut stream = two_delay_stream();
+        assert_eq!(stream.total_samples(), 300);
+        stream.delete_many(&[1]); // drop the delay 100
+        assert_eq!(stream.total_samples(), 200);
+        assert_eq!(stream.samples_before(2), 0, "the second write moved up");
+        assert_eq!(stream.samples_before(3), 200);
+    }
+
     #[test]
     fn a_reserved_opcode_survives_as_raw_bytes() {
         let bytes = vec![0xC9, 1, 2, 3, 0x62, END_OF_DATA];
@@ -1418,6 +1552,31 @@ mod proptests {
                 prop_assert!(!stream.describe(index).is_empty());
                 let at = stream.byte_offset(index).unwrap();
                 prop_assert_eq!(stream.index_at_byte_offset(at), Some(index));
+            }
+        }
+
+        /// The prefix sum is a cache, and this is its definition: every timing
+        /// question answers exactly what a naive walk of the waits would say,
+        /// whatever the stream holds.
+        #[test]
+        fn the_wait_prefix_matches_a_naive_walk(
+            commands in prop::collection::vec(any_command(), 0..40),
+        ) {
+            let mut bytes: Vec<u8> = commands.iter().flatten().copied().collect();
+            bytes.push(END_OF_DATA);
+            let stream = VgmStream::parse(bytes, 0x172)?;
+
+            let mut elapsed = 0u64;
+            for index in 0..stream.len() {
+                prop_assert_eq!(stream.samples_before(index), elapsed);
+                elapsed += u64::from(stream.wait_samples(index));
+            }
+            prop_assert_eq!(stream.total_samples(), elapsed);
+            for index in 0..=stream.len() {
+                prop_assert_eq!(
+                    stream.samples_from(index),
+                    elapsed - stream.samples_before(index)
+                );
             }
         }
 
