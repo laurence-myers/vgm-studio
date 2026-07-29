@@ -7,8 +7,10 @@
 //! receives writes, ROM and RAM, and renders frames at whatever rate it likes;
 //! everything else -- routing, banks, timing, mixing -- is the engine's.
 //!
-//! No core is registered yet. That is mc-8's job; this is the shape they plug
-//! into, and [`RecordingChip`] is what proves the engine right without one.
+//! This crate registers no generic core of its own (the clean-room tier was
+//! culled 2026-07-29): provider crates -- `dro-cores-libvgm` first among them
+//! -- fill the registry, and [`RecordingChip`] is what proves the engine
+//! right without any of them.
 
 use dro_core::vgm::ChipKind;
 
