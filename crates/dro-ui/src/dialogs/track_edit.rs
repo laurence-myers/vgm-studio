@@ -73,9 +73,16 @@ impl TrackEditDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open =
-            super::dialog_modal(ctx, "track-edit-modal", "Quick Edit Track", palette, |ui| {
+        // The body borrows `self` mutably, so the footer reports clicks through
+        // cells and the save runs after the call returns.
+        let close = std::cell::Cell::new(false);
+        let save_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "track-edit-modal",
+            "Quick Edit Track",
+            palette,
+            |ui| {
                 egui::Grid::new("track-edit-grid")
                     .num_columns(2)
                     .spacing([10.0, 6.0])
@@ -107,17 +114,21 @@ impl TrackEditDialog {
 
                         super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
                     });
-                ui.add_space(8.0);
+            },
+            |ui| {
                 super::dialog_footer(ui, |ui| {
                     if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
+                        close.set(true);
                     }
-                    if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                        close = true;
+                    if bevel::button(ui, palette, "Save").clicked() {
+                        save_clicked.set(true);
                     }
                 });
-            });
-        open && !close
+            },
+        );
+        // Only a clicked Save runs the validation; a refused one leaves the dialog open.
+        let saved = save_clicked.get() && self.save(actions);
+        open && !(close.get() || saved)
     }
 
     /// Validates the derived name, then emits the quick edit; returns `false`

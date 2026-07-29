@@ -73,20 +73,22 @@ pub(crate) fn dialog_window(
 ///
 /// The body scrolls when it is taller than the window can hold: a modal cannot
 /// be dragged out of the way, so a dialog that overflows a short window would
-/// otherwise have its ends -- including its buttons -- simply unreachable. The
-/// heading stays put above the scrolled part. Dialogs whose content grows with
-/// the song still cap their own tables (Find Loop, Split Songs) and Bulk Tag
-/// still scrolls its list between a pinned heading and footer; this is the
-/// backstop under all of them, for when the *window* is the thing that is too
-/// small.
+/// otherwise have its ends simply unreachable. The heading stays put above the
+/// scrolled part and `footer` -- the dialog's button row -- stays put below it,
+/// so Save and Close are reachable however short the window gets. Dialogs whose
+/// content grows with the song still cap their own tables (Find Loop, Split
+/// Songs) and Bulk Tag still scrolls its list between a pinned heading and
+/// footer; this is the backstop under all of them, for when the *window* is the
+/// thing that is too small.
 pub(crate) fn dialog_modal(
     ctx: &egui::Context,
     id: &str,
     title: &str,
     palette: &crate::theme::Palette,
     body: impl FnOnce(&mut egui::Ui),
+    footer: impl FnOnce(&mut egui::Ui),
 ) -> bool {
-    dialog_modal_sized(ctx, id, title, palette, MODAL_WIDTH, body)
+    dialog_modal_sized(ctx, id, title, palette, MODAL_WIDTH, body, footer)
 }
 
 /// As [`dialog_modal`], but laid out at `width` rather than the usual one --
@@ -99,16 +101,18 @@ pub(crate) fn dialog_modal_sized(
     palette: &crate::theme::Palette,
     width: f32,
     body: impl FnOnce(&mut egui::Ui),
+    footer: impl FnOnce(&mut egui::Ui),
 ) -> bool {
     let width = modal_width(ctx, width);
-    // What is left for the body once the window's margins, the heading and its
-    // groove are accounted for. Generous rather than exact: the cost of
-    // over-estimating is a dialog that runs a little closer to the window edge.
-    let max_height = (ctx.content_rect().height() - 96.0).max(120.0);
+    // What is left for the body once the window's margins, the heading, its
+    // groove and the pinned footer are accounted for. Generous rather than
+    // exact: the cost of over-estimating is a dialog that runs a little closer
+    // to the window edge.
+    let max_height = (ctx.content_rect().height() - 140.0).max(120.0);
     // Whether to scroll is decided from what the body measured *last* frame, so
-    // a dialog that fits is drawn plainly -- no scroll area, no fixed height, no
-    // buttons floating at the bottom of an over-tall box. A dialog that has just
-    // opened measures itself on its first frame and scrolls from the second.
+    // a dialog that fits is drawn plainly -- no scroll area, no fixed height. A
+    // dialog that has just opened measures itself on its first frame and
+    // scrolls from the second.
     let id = egui::Id::new(id);
     let height_id = id.with("body-height");
     let scrolls = ctx
@@ -123,17 +127,21 @@ pub(crate) fn dialog_modal_sized(
             // A viewport of a stated height, not a shrink-to-fit one: a modal
             // blocks input outside its own rect, and a scroll area that
             // under-reports its height leaves everything drawn past that rect
-            // visible but unclickable -- buttons included.
-            egui::ScrollArea::vertical()
+            // visible but unclickable.
+            let output = egui::ScrollArea::vertical()
                 .max_height(max_height)
                 .auto_shrink([false, false])
-                .show(ui, body)
-                .content_size
-                .y
+                .show(ui, body);
+            crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
+            output.content_size.y
         } else {
             ui.scope(body).response.rect.height()
         };
         ctx.data_mut(|data| data.insert_temp(height_id, measured));
+        // The footer sits outside the scrolled viewport, so the buttons are on
+        // screen whatever the body's height.
+        ui.add_space(8.0);
+        footer(ui);
     });
     !modal.should_close()
 }

@@ -81,7 +81,7 @@ impl BulkTagDialog {
             crate::theme::separator_clipped(ui, palette);
             ui.add_space(6.0);
 
-            egui::ScrollArea::vertical()
+            let output = egui::ScrollArea::vertical()
                 .max_height(body_height)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
@@ -108,6 +108,7 @@ impl BulkTagDialog {
                     crate::theme::separator_clipped(ui, palette);
                     self.target_picker(ui, palette);
                 });
+            crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
 
             ui.add_space(8.0);
             crate::theme::separator_clipped(ui, palette);

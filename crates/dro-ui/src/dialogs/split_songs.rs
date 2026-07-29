@@ -100,70 +100,81 @@ impl SplitSongsDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "split-songs-modal", "Split Songs", palette, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Gap threshold:")
-                        .color(palette.data_label)
-                        .strong(),
+        // The body borrows `self` and `actions` mutably, so the footer reports
+        // clicks through cells and the export runs after the call returns.
+        let close = std::cell::Cell::new(false);
+        let export_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "split-songs-modal",
+            "Split Songs",
+            palette,
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Gap threshold:")
+                            .color(palette.data_label)
+                            .strong(),
+                    );
+                    let slider = bevel::slider(
+                        ui,
+                        palette,
+                        &mut self.threshold_secs,
+                        MIN_THRESHOLD_SECS..=MAX_THRESHOLD_SECS,
+                        0.05,
+                        " s",
+                    );
+                    if slider.changed() {
+                        self.redetect();
+                    }
+                });
+                ui.add_space(2.0);
+                ui.colored_label(
+                    palette.muted,
+                    "Songs are split where the capture goes silent for at least this long.",
                 );
-                let slider = bevel::slider(
-                    ui,
-                    palette,
-                    &mut self.threshold_secs,
-                    MIN_THRESHOLD_SECS..=MAX_THRESHOLD_SECS,
-                    0.05,
-                    " s",
-                );
-                if slider.changed() {
-                    self.redetect();
-                }
-            });
-            ui.add_space(2.0);
-            ui.colored_label(
-                palette.muted,
-                "Songs are split where the capture goes silent for at least this long.",
-            );
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Keep decay tail:")
-                        .color(palette.data_label)
-                        .strong(),
-                );
-                bevel::slider(
-                    ui,
-                    palette,
-                    &mut self.tail_secs,
-                    0.0..=MAX_TAIL_SECS,
-                    0.05,
-                    " s",
-                )
-                .on_hover_text(
-                    "How much of the silence after each song to keep, for release tails",
-                );
-            });
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Keep decay tail:")
+                            .color(palette.data_label)
+                            .strong(),
+                    );
+                    bevel::slider(
+                        ui,
+                        palette,
+                        &mut self.tail_secs,
+                        0.0..=MAX_TAIL_SECS,
+                        0.05,
+                        " s",
+                    )
+                    .on_hover_text(
+                        "How much of the silence after each song to keep, for release tails",
+                    );
+                });
 
-            ui.add_space(6.0);
-            // Clipped, not full-width: the full-width groove paints into the
-            // background layer, which under a modal would be a line drawn right
-            // across the dimmed app behind it.
-            crate::theme::separator_clipped(ui, palette);
-            self.boundary_table(ui, palette, actions);
-
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Export...").clicked() && self.save(actions) {
-                    close = true;
-                }
-            });
-        });
-        open && !close
+                ui.add_space(6.0);
+                // Clipped, not full-width: the full-width groove paints into the
+                // background layer, which under a modal would be a line drawn right
+                // across the dimmed app behind it.
+                crate::theme::separator_clipped(ui, palette);
+                self.boundary_table(ui, palette, actions);
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, "Export...").clicked() {
+                        export_clicked.set(true);
+                    }
+                });
+            },
+        );
+        // Only a clicked Export runs the save; a refused one leaves the dialog open.
+        let exported = export_clicked.get() && self.save(actions);
+        open && !(close.get() || exported)
     }
 
     /// The song count and the scrollable boundary list (number, start, length, an
@@ -194,7 +205,7 @@ impl SplitSongsDialog {
         let rate = self.rate;
         // Auditioning a piece plays it, which needs a chip we can render.
         let can_preview = self.source.can_preview();
-        egui::ScrollArea::vertical()
+        let output = egui::ScrollArea::vertical()
             .max_height(220.0)
             .show(ui, |ui| {
                 egui::Grid::new("split-songs-boundaries")
@@ -231,6 +242,7 @@ impl SplitSongsDialog {
                         }
                     });
             });
+        crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
     }
 
     /// Emits the export request, or queues an alert and stays open if nothing is

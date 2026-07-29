@@ -95,8 +95,8 @@ impl UnwalkableVgmDialog {
                     "This app cannot read this file's command stream, so there are no rows to \
                      show for it. Open the folder as a pack to edit its tags.",
                 );
-
-                ui.add_space(8.0);
+            },
+            |ui| {
                 super::dialog_footer(ui, |ui| {
                     if bevel::button(ui, palette, "Close").clicked() {
                         keep_open = false;

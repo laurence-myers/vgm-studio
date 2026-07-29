@@ -46,59 +46,70 @@ impl RenderWavDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "render-wav-modal", "Render to WAV", palette, |ui| {
-            ui.label("Apply to the render:");
-            ui.add_space(4.0);
+        // The body borrows `self` mutably, so the footer reports clicks through
+        // cells and the render is emitted after the call returns.
+        let close = std::cell::Cell::new(false);
+        let render_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "render-wav-modal",
+            "Render to WAV",
+            palette,
+            |ui| {
+                ui.label("Apply to the render:");
+                ui.add_space(4.0);
 
-            option_row(
-                ui,
-                "Channel toggles",
-                "Leave out the channels muted in the channel panel",
-                &mut self.use_toggles,
-            );
-            option_row(
-                ui,
-                "Channel panning",
-                "Place each channel where its pan knob is set",
-                &mut self.use_panning,
-            );
-
-            ui.horizontal(|ui| {
                 option_row(
                     ui,
-                    "Boost",
-                    "Drive the signal through the peak limiter",
-                    &mut self.use_boost,
+                    "Channel toggles",
+                    "Leave out the channels muted in the channel panel",
+                    &mut self.use_toggles,
                 );
-                ui.add_enabled_ui(self.use_boost, |ui| {
-                    super::text_field(ui, palette, &mut self.boost, 44.0)
-                        .on_hover_text(format!("{MIN_BOOST}x to {MAX_BOOST}x"));
-                    ui.label("x");
+                option_row(
+                    ui,
+                    "Channel panning",
+                    "Place each channel where its pan knob is set",
+                    &mut self.use_panning,
+                );
+
+                ui.horizontal(|ui| {
+                    option_row(
+                        ui,
+                        "Boost",
+                        "Drive the signal through the peak limiter",
+                        &mut self.use_boost,
+                    );
+                    ui.add_enabled_ui(self.use_boost, |ui| {
+                        super::text_field(ui, palette, &mut self.boost, 44.0)
+                            .on_hover_text(format!("{MIN_BOOST}x to {MAX_BOOST}x"));
+                        ui.label("x");
+                    });
                 });
-            });
 
-            ui.add_space(6.0);
-            if bevel::button(ui, palette, "All of the above").clicked() {
-                self.use_toggles = true;
-                self.use_panning = true;
-                self.use_boost = true;
-            }
-
-            ui.add_space(8.0);
-            ui.label(egui::RichText::new("Frequency and bit depth: see Settings.").small());
-
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
+                ui.add_space(6.0);
+                if bevel::button(ui, palette, "All of the above").clicked() {
+                    self.use_toggles = true;
+                    self.use_panning = true;
+                    self.use_boost = true;
                 }
-                if bevel::button(ui, palette, "Render").clicked() && self.save(actions) {
-                    close = true;
-                }
-            });
-        });
-        open && !close
+
+                ui.add_space(8.0);
+                ui.label(egui::RichText::new("Frequency and bit depth: see Settings.").small());
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, "Render").clicked() {
+                        render_clicked.set(true);
+                    }
+                });
+            },
+        );
+        // Only a clicked Render runs the save; a refused one leaves the dialog open.
+        let rendered = render_clicked.get() && self.save(actions);
+        open && !(close.get() || rendered)
     }
 
     /// Emits the render request, or queues an error box and stays open.

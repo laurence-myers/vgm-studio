@@ -44,28 +44,40 @@ impl Gd3TagDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "gd3-tag-modal", "GD3 Tag", palette, |ui| {
-            egui::Grid::new("gd3-grid")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    gd3_fields(ui, palette, &mut self.fields);
+        // The body borrows the fields mutably, so the footer reports clicks
+        // through cells and the save is emitted after the call returns.
+        let close = std::cell::Cell::new(false);
+        let save_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "gd3-tag-modal",
+            "GD3 Tag",
+            palette,
+            |ui| {
+                egui::Grid::new("gd3-grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .show(ui, |ui| {
+                        gd3_fields(ui, palette, &mut self.fields);
+                    });
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, "Save").clicked() {
+                        save_clicked.set(true);
+                    }
                 });
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Save").clicked() {
-                    actions.push(Action::SaveGd3(Box::new(Gd3Tag::from_fields(
-                        self.fields.clone(),
-                    ))));
-                    close = true;
-                }
-            });
-        });
-        open && !close
+            },
+        );
+        if save_clicked.get() {
+            actions.push(Action::SaveGd3(Box::new(Gd3Tag::from_fields(
+                self.fields.clone(),
+            ))));
+        }
+        open && !(close.get() || save_clicked.get())
     }
 }
 

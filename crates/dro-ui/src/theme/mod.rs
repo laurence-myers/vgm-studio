@@ -118,6 +118,31 @@ pub fn frame_scrollbar(ui: &egui::Ui, palette: &Palette, bar: egui::Rect) {
     bevel::paint_bevel(ui.painter(), bar, palette, bevel::Bevel::Sunken);
 }
 
+/// [`frame_scrollbar`] for a scroll area that was just shown: works the bar's
+/// rect out from the viewport (`inner_rect`) and the style's bar metrics, and
+/// paints nothing when the content fits -- there is no bar to frame then.
+///
+/// The bar sits `bar_inner_margin` to the right of the viewport, which is the
+/// breathing room [`style_for`](style::style_for) opens between content and
+/// channel so text never runs hard up against the well.
+pub fn frame_scroll_output(
+    ui: &egui::Ui,
+    palette: &Palette,
+    inner_rect: egui::Rect,
+    content_size: egui::Vec2,
+) {
+    if content_size.y <= inner_rect.height() {
+        return;
+    }
+    let scroll = ui.spacing().scroll;
+    let left = inner_rect.right() + scroll.bar_inner_margin;
+    let bar = egui::Rect::from_min_max(
+        egui::pos2(left, inner_rect.top()),
+        egui::pos2(left + scroll.bar_width, inner_rect.bottom()),
+    );
+    frame_scrollbar(ui, palette, bar);
+}
+
 /// A fascia plate as a single [`egui::Shape`]: the case's vertical brushed-metal
 /// gradient from `plate_top` down to `plate_bottom`. The panel-seam grooves
 /// supply the lit/shadow plate edges, so this is the gradient fill only.

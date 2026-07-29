@@ -103,7 +103,10 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
     spacing.scroll = ScrollStyle {
         bar_width: 14.0,
         handle_min_length: 24.0,
-        bar_inner_margin: 0.0,
+        // Breathing room between the content and the bar's channel, so text
+        // never runs hard up against the well. The channel itself is framed
+        // with the sunken bevel by `frame_scrollbar` wherever it shows.
+        bar_inner_margin: 6.0,
         bar_outer_margin: 0.0,
         // Ink the handle with `fg_stroke` rather than the face `bg_fill` that a
         // solid bar defaults to. Every case's face sits close to its own trough

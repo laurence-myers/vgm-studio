@@ -126,50 +126,58 @@ impl ScreenshotRenameDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
         let (title, current_label, commit) = self.words();
-        let open = super::dialog_modal(ctx, "screenshot-rename-modal", title, palette, |ui| {
-            egui::Grid::new("screenshot-rename-grid")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    // The file as it stands: what is on disk (a rename), or what
-                    // was picked (an add). Either way the new name below reads as
-                    // a change from something rather than out of nowhere.
-                    ui.label(current_label);
-                    let mut current = self.original_name.clone();
-                    ui.add(
-                        super::wrapping_edit(&mut current, palette, f32::INFINITY, 1)
-                            .interactive(false)
-                            .text_color(palette.muted),
-                    );
-                    ui.end_row();
+        // The body borrows `self` mutably, so the footer reports clicks through
+        // cells and the save runs after the call returns.
+        let close = std::cell::Cell::new(false);
+        let commit_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "screenshot-rename-modal",
+            title,
+            palette,
+            |ui| {
+                egui::Grid::new("screenshot-rename-grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .show(ui, |ui| {
+                        // The file as it stands: what is on disk (a rename), or what
+                        // was picked (an add). Either way the new name below reads as
+                        // a change from something rather than out of nowhere.
+                        ui.label(current_label);
+                        let mut current = self.original_name.clone();
+                        ui.add(
+                            super::wrapping_edit(&mut current, palette, f32::INFINITY, 1)
+                                .interactive(false)
+                                .text_color(palette.muted),
+                        );
+                        ui.end_row();
 
-                    ui.label("Name:");
-                    super::text_field(ui, palette, &mut self.stem, f32::INFINITY).on_hover_text(
+                        ui.label("Name:");
+                        super::text_field(ui, palette, &mut self.stem, f32::INFINITY).on_hover_text(
                         "Prefilled from the game name. Add a suffix -- \"(Japan)\", \"(EGA)\" -- \
                          to keep more than one screenshot in the pack.",
                     );
-                    ui.end_row();
+                        ui.end_row();
 
-                    // What actually lands on disk, since the rules may have
-                    // rewritten what was typed.
-                    ui.label("New name:");
-                    let mut derived = self.derived_name();
-                    ui.add(
-                        super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
-                            .interactive(false)
-                            .text_color(palette.data_text),
-                    );
-                    ui.end_row();
+                        // What actually lands on disk, since the rules may have
+                        // rewritten what was typed.
+                        ui.label("New name:");
+                        let mut derived = self.derived_name();
+                        ui.add(
+                            super::wrapping_edit(&mut derived, palette, f32::INFINITY, 1)
+                                .interactive(false)
+                                .text_color(palette.data_text),
+                        );
+                        ui.end_row();
 
-                    // Only an add writes new bytes, so only an add can choose
-                    // how they are packed.
-                    if matches!(self.job, Job::Add(_)) {
-                        ui.label("Recompress:");
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut self.recompress, "");
-                            if ui
+                        // Only an add writes new bytes, so only an add can choose
+                        // how they are packed.
+                        if matches!(self.job, Job::Add(_)) {
+                            ui.label("Recompress:");
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut self.recompress, "");
+                                if ui
                                 .add(
                                     egui::Label::new("Losslessly, with oxipng")
                                         .sense(egui::Sense::click()),
@@ -182,21 +190,25 @@ impl ScreenshotRenameDialog {
                             {
                                 self.recompress = !self.recompress;
                             }
-                        });
-                        ui.end_row();
+                            });
+                            ui.end_row();
+                        }
+                    });
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, commit).clicked() {
+                        commit_clicked.set(true);
                     }
                 });
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, commit).clicked() && self.save(actions) {
-                    close = true;
-                }
-            });
-        });
-        open && !close
+            },
+        );
+        // Only a clicked commit runs the save; a refused one leaves the dialog open.
+        let committed = commit_clicked.get() && self.save(actions);
+        open && !(close.get() || committed)
     }
 
     /// Validates the derived name, then emits the rename or the add; returns

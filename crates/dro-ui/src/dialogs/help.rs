@@ -195,50 +195,57 @@ impl HelpDialog {
         let mut close = false;
         // Wider than the app's other dialogs: this one is a reference table read
         // across, not a form filled in down.
-        let open = super::dialog_modal_sized(ctx, "help-modal", "Help", palette, 820.0, |ui| {
-            ui.colored_label(palette.muted, ADVICE);
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
-                ui.colored_label(palette.muted, "Full instructions:");
-                ui.hyperlink(ONLINE);
-            });
+        let open = super::dialog_modal_sized(
+            ctx,
+            "help-modal",
+            "Help",
+            palette,
+            820.0,
+            |ui| {
+                ui.colored_label(palette.muted, ADVICE);
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.colored_label(palette.muted, "Full instructions:");
+                    ui.hyperlink(ONLINE);
+                });
 
-            for section in SECTIONS {
-                ui.add_space(10.0);
-                ui.label(
-                    egui::RichText::new(section.title)
-                        .color(palette.data_label)
-                        .strong(),
-                );
-                if let Some(note) = section.note {
-                    ui.colored_label(palette.muted, note);
+                for section in SECTIONS {
+                    ui.add_space(10.0);
+                    ui.label(
+                        egui::RichText::new(section.title)
+                            .color(palette.data_label)
+                            .strong(),
+                    );
+                    if let Some(note) = section.note {
+                        ui.colored_label(palette.muted, note);
+                    }
+                    ui.add_space(2.0);
+                    egui::Grid::new(section.title)
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([16.0, 3.0])
+                        .min_col_width(150.0)
+                        .show(ui, |ui| {
+                            for (keys, meaning) in section.rows {
+                                ui.label(
+                                    egui::RichText::new(keys.text())
+                                        .monospace()
+                                        .color(palette.data_text),
+                                );
+                                ui.label(egui::RichText::new(*meaning).color(palette.label));
+                                ui.end_row();
+                            }
+                        });
                 }
-                ui.add_space(2.0);
-                egui::Grid::new(section.title)
-                    .num_columns(2)
-                    .striped(true)
-                    .spacing([16.0, 3.0])
-                    .min_col_width(150.0)
-                    .show(ui, |ui| {
-                        for (keys, meaning) in section.rows {
-                            ui.label(
-                                egui::RichText::new(keys.text())
-                                    .monospace()
-                                    .color(palette.data_text),
-                            );
-                            ui.label(egui::RichText::new(*meaning).color(palette.label));
-                            ui.end_row();
-                        }
-                    });
-            }
-
-            ui.add_space(10.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-            });
-        });
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close = true;
+                    }
+                });
+            },
+        );
         open && !close
     }
 }

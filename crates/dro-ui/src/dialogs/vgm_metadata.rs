@@ -129,74 +129,86 @@ impl VgmMetadataDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "vgm-metadata-modal", "VGM Metadata", palette, |ui| {
-            egui::Grid::new("vgm-meta-grid")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    ui.label("Loop start (instruction):");
-                    ui.add(
-                        super::wrapping_edit(&mut self.loop_point, palette, FIELD_WIDTH, 1)
-                            .return_key(None)
-                            .hint_text("empty = no loop"),
-                    );
-                    ui.end_row();
-
-                    ui.label("Loop end (instruction):");
-                    ui.add(
-                        super::wrapping_edit(&mut self.loop_end, palette, FIELD_WIDTH, 1)
-                            .return_key(None)
-                            .hint_text("empty = end of song"),
-                    );
-                    ui.end_row();
-
-                    ui.label("Loop length (samples):");
-                    let mut samples = self.loop_samples_display();
-                    ui.add_enabled(
-                        false,
-                        super::wrapping_edit(&mut samples, palette, FIELD_WIDTH, 1),
-                    );
-                    ui.end_row();
-
-                    for (label, value) in [
-                        ("Loop base:", &mut self.loop_base),
-                        ("Loop modifier:", &mut self.loop_modifier),
-                    ] {
-                        ui.label(label);
-                        super::text_field(ui, palette, value, FIELD_WIDTH);
+        // The body borrows `self` and `actions` mutably, so the footer reports
+        // clicks through cells and the save runs after the call returns.
+        let close = std::cell::Cell::new(false);
+        let save_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "vgm-metadata-modal",
+            "VGM Metadata",
+            palette,
+            |ui| {
+                egui::Grid::new("vgm-meta-grid")
+                    .num_columns(2)
+                    .spacing([10.0, 6.0])
+                    .show(ui, |ui| {
+                        ui.label("Loop start (instruction):");
+                        ui.add(
+                            super::wrapping_edit(&mut self.loop_point, palette, FIELD_WIDTH, 1)
+                                .return_key(None)
+                                .hint_text("empty = no loop"),
+                        );
                         ui.end_row();
-                    }
 
-                    // Volume modifier gets a "Measure" button that fills it from
-                    // the song's peak, and a live gloss of what the byte means.
-                    ui.label("Volume modifier:");
-                    ui.horizontal(|ui| {
-                        super::text_field(ui, palette, &mut self.volume_modifier, 70.0);
-                        if bevel::button(ui, palette, "Measure")
-                            .on_hover_text(
-                                "Measure the song's peak and suggest a modifier that brings it \
-                                 to full scale",
-                            )
-                            .clicked()
-                        {
-                            actions.push(Action::MeasureVolumeModifier);
+                        ui.label("Loop end (instruction):");
+                        ui.add(
+                            super::wrapping_edit(&mut self.loop_end, palette, FIELD_WIDTH, 1)
+                                .return_key(None)
+                                .hint_text("empty = end of song"),
+                        );
+                        ui.end_row();
+
+                        ui.label("Loop length (samples):");
+                        let mut samples = self.loop_samples_display();
+                        ui.add_enabled(
+                            false,
+                            super::wrapping_edit(&mut samples, palette, FIELD_WIDTH, 1),
+                        );
+                        ui.end_row();
+
+                        for (label, value) in [
+                            ("Loop base:", &mut self.loop_base),
+                            ("Loop modifier:", &mut self.loop_modifier),
+                        ] {
+                            ui.label(label);
+                            super::text_field(ui, palette, value, FIELD_WIDTH);
+                            ui.end_row();
                         }
-                        ui.label(self.volume_modifier_readout());
+
+                        // Volume modifier gets a "Measure" button that fills it from
+                        // the song's peak, and a live gloss of what the byte means.
+                        ui.label("Volume modifier:");
+                        ui.horizontal(|ui| {
+                            super::text_field(ui, palette, &mut self.volume_modifier, 70.0);
+                            if bevel::button(ui, palette, "Measure")
+                                .on_hover_text(
+                                    "Measure the song's peak and suggest a modifier that brings it \
+                                 to full scale",
+                                )
+                                .clicked()
+                            {
+                                actions.push(Action::MeasureVolumeModifier);
+                            }
+                            ui.label(self.volume_modifier_readout());
+                        });
+                        ui.end_row();
                     });
-                    ui.end_row();
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, "Save").clicked() {
+                        save_clicked.set(true);
+                    }
                 });
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Save").clicked() && self.save(actions) {
-                    close = true;
-                }
-            });
-        });
-        open && !close
+            },
+        );
+        // Only a clicked Save runs the validation; a refused one leaves the dialog open.
+        let saved = save_clicked.get() && self.save(actions);
+        open && !(close.get() || saved)
     }
 
     /// Parses and emits the save; `false` (with an error box queued) if any

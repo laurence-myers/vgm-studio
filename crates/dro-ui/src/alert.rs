@@ -71,12 +71,13 @@ pub fn show_front(
         // check that did not pass -- so cap it and scroll rather than letting
         // the box grow until its buttons are off the bottom of the screen.
         // Height shrinks to fit, so a one-line alert is still a small box.
-        egui::ScrollArea::vertical()
+        let output = egui::ScrollArea::vertical()
             .max_height(body_height)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 ui.label(&alert.message);
             });
+        crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
         ui.add_space(8.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if is_confirm && bevel::button(ui, palette, "Cancel").clicked() {

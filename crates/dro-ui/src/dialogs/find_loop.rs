@@ -218,74 +218,92 @@ impl FindLoopDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "find-loop-modal", "Find Loop", palette, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Minimum loop length:")
-                        .color(palette.data_label)
-                        .strong(),
-                );
-                ui.add(
-                    egui::DragValue::new(&mut self.min_secs)
-                        .range(MIN_SECS..=MAX_SECS)
-                        .speed(0.1)
-                        .fixed_decimals(1)
-                        .suffix(" s"),
-                );
-            });
-            ui.add_space(2.0);
-            ui.colored_label(
-                palette.muted,
-                "A repeated block must be at least this long to count as a loop.",
-            );
-
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if self.searching {
-                    if bevel::button(ui, palette, "Cancel").clicked() {
-                        actions.push(Action::CancelLoopSearch);
-                    }
-                    ui.spinner();
-                    ui.colored_label(
-                        palette.muted,
-                        format!("Searching... ({} found)", self.candidates.len()),
+        // The body borrows `self` and `actions` mutably, so the footer works
+        // from values read here and reports clicks through cells; the deferred
+        // handlers after the call re-check the live selection.
+        let has_selection = self.selected_candidate().is_some();
+        let is_vgm = self.is_vgm;
+        let close = std::cell::Cell::new(false);
+        let apply_clicked = std::cell::Cell::new(false);
+        let audition_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "find-loop-modal",
+            "Find Loop",
+            palette,
+            |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Minimum loop length:")
+                            .color(palette.data_label)
+                            .strong(),
                     );
-                } else if bevel::button(ui, palette, "Search").clicked() {
-                    self.on_search(actions);
-                }
-            });
+                    ui.add(
+                        egui::DragValue::new(&mut self.min_secs)
+                            .range(MIN_SECS..=MAX_SECS)
+                            .speed(0.1)
+                            .fixed_decimals(1)
+                            .suffix(" s"),
+                    );
+                });
+                ui.add_space(2.0);
+                ui.colored_label(
+                    palette.muted,
+                    "A repeated block must be at least this long to count as a loop.",
+                );
 
-            ui.add_space(6.0);
-            // Clipped, not full-width: the full-width groove paints into the
-            // background layer, which under a modal would be a line drawn right
-            // across the dimmed app behind it.
-            crate::theme::separator_clipped(ui, palette);
-            self.results_table(ui, palette, actions);
-
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                let selected = self.selected_candidate();
-                ui.add_enabled_ui(selected.is_some() && self.is_vgm, |ui| {
-                    let apply = bevel::button(ui, palette, "Apply");
-                    if apply.clicked() {
-                        self.on_apply(actions);
-                    }
-                    if !self.is_vgm {
-                        apply.on_hover_text("Only VGM files store loop points.");
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if self.searching {
+                        if bevel::button(ui, palette, "Cancel").clicked() {
+                            actions.push(Action::CancelLoopSearch);
+                        }
+                        ui.spinner();
+                        ui.colored_label(
+                            palette.muted,
+                            format!("Searching... ({} found)", self.candidates.len()),
+                        );
+                    } else if bevel::button(ui, palette, "Search").clicked() {
+                        self.on_search(actions);
                     }
                 });
-                ui.add_enabled_ui(selected.is_some(), |ui| {
-                    if bevel::button(ui, palette, "Audition").clicked() {
-                        self.on_audition(actions);
+
+                ui.add_space(6.0);
+                // Clipped, not full-width: the full-width groove paints into the
+                // background layer, which under a modal would be a line drawn right
+                // across the dimmed app behind it.
+                crate::theme::separator_clipped(ui, palette);
+                self.results_table(ui, palette, actions);
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
                     }
+                    ui.add_enabled_ui(has_selection && is_vgm, |ui| {
+                        let apply = bevel::button(ui, palette, "Apply");
+                        if apply.clicked() {
+                            apply_clicked.set(true);
+                        }
+                        if !is_vgm {
+                            apply.on_hover_text("Only VGM files store loop points.");
+                        }
+                    });
+                    ui.add_enabled_ui(has_selection, |ui| {
+                        if bevel::button(ui, palette, "Audition").clicked() {
+                            audition_clicked.set(true);
+                        }
+                    });
                 });
-            });
-        });
-        open && !close
+            },
+        );
+        if apply_clicked.get() {
+            self.on_apply(actions);
+        }
+        if audition_clicked.get() {
+            self.on_audition(actions);
+        }
+        open && !close.get()
     }
 
     /// The scrollable results table: one row per candidate, clickable to mark it.
@@ -314,7 +332,7 @@ impl FindLoopDialog {
         let selected = &mut self.selected;
         frame.show(ui, |ui| {
             ui.style_mut().interaction.selectable_labels = false;
-            egui::ScrollArea::vertical()
+            let output = egui::ScrollArea::vertical()
                 .max_height(220.0)
                 .show(ui, |ui| {
                     TableBuilder::new(ui)
@@ -367,6 +385,7 @@ impl FindLoopDialog {
                             }
                         });
                 });
+            crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
         });
     }
 }

@@ -34,51 +34,63 @@ impl SplitDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        let open = super::dialog_modal(ctx, "split-modal", "Split Channels", palette, |ui| {
-            ui.label("Write each channel as:");
-            ui.add_space(4.0);
-            ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
-                .on_hover_text("Render each channel on its own");
-            ui.radio_value(
-                &mut self.format,
-                SplitFormat::Song,
-                "Song data (DRO or VGM)",
-            )
-            .on_hover_text("Re-record each channel in the song's own format");
+        // The body borrows `self` mutably, so the footer reports clicks through
+        // cells and the split is emitted after the call returns.
+        let close = std::cell::Cell::new(false);
+        let split_clicked = std::cell::Cell::new(false);
+        let open = super::dialog_modal(
+            ctx,
+            "split-modal",
+            "Split Channels",
+            palette,
+            |ui| {
+                ui.label("Write each channel as:");
+                ui.add_space(4.0);
+                ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
+                    .on_hover_text("Render each channel on its own");
+                ui.radio_value(
+                    &mut self.format,
+                    SplitFormat::Song,
+                    "Song data (DRO or VGM)",
+                )
+                .on_hover_text("Re-record each channel in the song's own format");
 
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.isolate_percussion, "");
-                if ui
-                    .add(
-                        egui::Label::new("Give each drum its own file").sense(egui::Sense::click()),
-                    )
-                    .on_hover_text("Splits the percussion channel per drum, not as one")
-                    .clicked()
-                {
-                    self.isolate_percussion = !self.isolate_percussion;
-                }
-            });
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.isolate_percussion, "");
+                    if ui
+                        .add(
+                            egui::Label::new("Give each drum its own file")
+                                .sense(egui::Sense::click()),
+                        )
+                        .on_hover_text("Splits the percussion channel per drum, not as one")
+                        .clicked()
+                    {
+                        self.isolate_percussion = !self.isolate_percussion;
+                    }
+                });
 
-            ui.add_space(8.0);
-            ui.label(
+                ui.add_space(8.0);
+                ui.label(
                 egui::RichText::new("Channels the song never uses are skipped.\nFiles already in the chosen folder are overwritten.")
                     .small(),
             );
-
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Split").clicked() {
-                    self.save(actions);
-                    close = true;
-                }
-            });
-        });
-        open && !close
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        close.set(true);
+                    }
+                    if bevel::button(ui, palette, "Split").clicked() {
+                        split_clicked.set(true);
+                    }
+                });
+            },
+        );
+        if split_clicked.get() {
+            self.save(actions);
+        }
+        open && !(close.get() || split_clicked.get())
     }
 
     /// Emits the split request. Nothing to validate: both options are choices,
