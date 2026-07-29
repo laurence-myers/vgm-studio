@@ -173,26 +173,48 @@ deliberately is the same discipline the Nuked submodules already use.
 | **lv-7** | **Re-freeze the parity thresholds upward** now that reference and core share lineage, and rewrite the SCORECARD chronicle to say what the board now measures. |
 | **lv-8** | Sweep: About credits, `PROVENANCE.md`, the GPL notice in the About box, docs, and CORES-REUSE-PLAN's §5 resolved. |
 
-## 6 · The wasm question, which libvgm may answer better than ymfm
+## 6 · The wasm question — **SPIKED 2026-07-29: the route works, end to end**
 
-libvgm is **C**, not C++. The blocker that keeps ymfm off the web —
+libvgm is **C**, not C++, so the blocker that keeps ymfm off the web —
 `wasm32-unknown-unknown` has no C++ standard library — does not apply. The
-Nuked cores already prove the route: `-ffreestanding` plus our own
-`shim/string.h`, with `compiler_builtins` supplying the `mem*` family.
+spike proved it past any doubt: the full 38-device build compiles, links
+into a **541 KB module that imports nothing**, and *runs* — node instantiates
+it with an empty import object and both smoke chips genuinely sound
+(SN76489 peak 4096; the YM2203's *linked SSG* — the allocator-heaviest path —
+peak 4080).
 
-What libvgm needs beyond that is an **allocator** (it uses `malloc`/`free`
-freely) and stubs for its logging path. A small `shim/alloc.c` forwarding to
-Rust's allocator would likely suffice.
+What it took, all in `dro-cores-libvgm` (the submodule untouched, per policy):
 
-The stakes are now higher than when this section was first written. Because
-the cull (ru-0) deletes the clean-room cores *before* libvgm arrives, **the web
-build has no non-OPL chips in the interim**, and libvgm-on-wasm is the only
-thing that restores them — there is no longer a fallback tier waiting behind
-it. So **lv-1a is no longer optional colour; it is the web build's whole
-recovery path**, and it should run immediately after the lv-1 PoC gate. If it
-fails, the honest options are to accept an OPL-only web build or to restore a
-small number of clean-room cores behind a wasm `cfg`, and that choice belongs
-to the owner.
+- **`shim/wasm-libc/`** — freestanding stand-ins for the five headers the
+  compiled sources include (`stdlib.h`, `string.h`, `math.h`, `stdio.h`,
+  `assert.h`); clang's own freestanding headers cover the rest.
+- **`src/wasm_libc.rs`** — the symbols: the allocator family over Rust's own
+  allocator (a 16-byte size header bridges C's sizeless `free` to Rust's
+  `dealloc`), the `str*` family, `rand` as a fixed-seed LCG (deterministic,
+  as `ChipCore` demands), and the math family forwarded to the pure-Rust
+  `libm` crate — the cores build volume tables with libc doubles, never
+  per-sample, so software math costs nothing.
+- **`shim/wasm_stubs.c`** — `vsnprintf`/`snprintf` truncating to empty
+  (variadics cannot come from Rust; no log callback is ever registered).
+- **`examples/wasm_smoke.rs`** — a `cdylib` example, because only a final
+  link proves the symbols resolve; an rlib check happily skips that. It
+  doubles as the artifact node executes.
+
+To reproduce:
+
+```text
+cargo build -p dro-cores-libvgm --example wasm_smoke \
+    --target wasm32-unknown-unknown --release
+node crates/dro-cores-libvgm/examples/run_wasm_smoke.mjs \
+    target/wasm32-unknown-unknown/release/examples/wasm_smoke.wasm
+```
+
+What remains is **wiring, not proof**, and waits for the web app itself
+(`dro-web`/`dro-synth-worklet` are placeholders for Step 8 of the rewrite):
+register `dro_cores_libvgm` in the web build's startup exactly as
+`install_cores` does natively, mind that the AudioWorklet module is the one
+that must link the cores if rendering happens there, and re-measure the
+module-size budget with the app around it.
 
 ## 7 · What this does not change
 

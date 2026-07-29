@@ -439,6 +439,18 @@ fn main() {
         build.define("_CRT_SECURE_NO_WARNINGS", None);
     }
 
+    // `wasm32-unknown-unknown` has no libc and no sysroot: `-ffreestanding`
+    // says so, `shim/wasm-libc` declares the slice of libc the cores include
+    // (stdlib/string/math/stdio/assert), and the symbols come from
+    // `src/wasm_libc.rs` plus the printf stubs below -- the dro-cores-nuked
+    // precedent, with an allocator and a math family on top.
+    let wasm = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32");
+    if wasm {
+        build.flag("-ffreestanding");
+        build.include("shim/wasm-libc");
+        build.file("shim/wasm_stubs.c");
+    }
+
     // Every emulator here is a hot per-sample loop, as the Nuked and LLE
     // builds already are. The arithmetic is deterministic integer work, so
     // optimising changes how long a test waits and not what it produces.

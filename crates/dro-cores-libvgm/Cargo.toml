@@ -21,8 +21,21 @@ dro-synth.workspace = true
 # A device that refuses to start is reported rather than silently silent.
 log.workspace = true
 
+# The math half of the wasm libc shim: the cores build their volume tables
+# with libc doubles, and wasm32-unknown-unknown has no libm to link. Pure
+# Rust, deterministic IEEE -- which is what `ChipCore` demands anyway.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+libm = "0.2"
+
 [build-dependencies]
 cc.workspace = true
+
+# The wasm smoke is a cdylib so the final link resolves every symbol the C
+# objects reference -- an rlib check skips that entirely. On native it doubles
+# as a runnable `cargo run --example wasm_smoke` printing the same numbers.
+[[example]]
+name = "wasm_smoke"
+crate-type = ["cdylib"]
 
 [lints.rust]
 # As in the other provider crates: FFI needs unsafe, confined to `ffi.rs`.

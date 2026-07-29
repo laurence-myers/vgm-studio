@@ -1216,6 +1216,7 @@ dependencies = [
  "cc",
  "dro-core",
  "dro-synth",
+ "libm",
  "log",
 ]
 

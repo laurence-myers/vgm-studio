@@ -58,6 +58,8 @@ mod ffi;
 /// guard and its `extern` declarations exist purely to fail a test.
 #[cfg(test)]
 mod layout;
+#[cfg(target_arch = "wasm32")]
+mod wasm_libc;
 
 pub use chip::LibVgmChip;
 
