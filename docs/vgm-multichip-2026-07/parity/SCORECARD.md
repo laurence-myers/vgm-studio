@@ -721,3 +721,72 @@ the HuC6280 precedent is real but it makes a comfortable place to file
 anything. And the harness measures four numbers for a reason: correlation
 alone would have shown nothing at all for the X1-010 here, and level alone
 nothing for the WonderSwan.
+
+## The MultiPCM's bank select reached no core at all (2026-07-29)
+
+The row above filed MultiPCM's 0.034 as "the ROM-header envelopes are
+unmodelled and a structural gap is under investigation". The structural gap was
+`0xC3`, and it is the same class of fault as the two above it: a decode read
+against the handover note rather than against upstream.
+
+**The spec's field names are wrong, and the decoder believed them.** `0xC3 cc
+bbaa` is documented as "write set bank offset aabb to channel cc", and `cc` is
+not a channel. Upstream reads it as `chipID << 7 | bankmask` (`Cmd_YMW_Bank`
+takes `fData[0x01] & 0x03`), and the corpus settles it: across all 72,481 files
+`0xC3` appears **296 times in 175 files**, and `cc` is only ever `0x01`, `0x02`
+or `0x03` — one bit per 512 KiB bank. A 28-voice chip whose channel number
+never exceeds three is not naming a channel. `bbaa` is a little-endian offset
+in 64 KiB units; its high byte is zero in all 296 (which is why upstream can
+ignore it and say so — no YMW258 ROM over 16 MB).
+
+The decoder assembled `addr = (bb << 8) | cc` and `data = aa`, the shape the
+rest of the `0xC0`-`0xC8` range takes. Information-preserving, and meaningless:
+
+- **the clean-room core** reads `addr << 16` as the bank, so a file saying
+  `0x10_0000` banked to `0x1003_0000` — every banked sample thrown past the end
+  of the ROM, and this core kills a voice whose fetch misses;
+- **the libvgm binding** had no bank rule at all (`WriteRule::Register`), so
+  `write8(cc, aa)` landed on the *register file*, where `cc` of 1 and 2 are the
+  slot and register selects. 96 of the 296 commands silently retargeted
+  whichever write came next.
+
+The fix is a port. `addr` and `data` are two fields and the command has two
+operands, but neither is an address, so the bank select takes a *third* space
+of the chip beside the register-versus-memory pair the port already separates
+(`stream::BANK_PORT`), and the operands go back to meaning what the command
+says: mask in `addr`, offset in `data`. `WriteRule::MultiPcmBank` then does
+what `Cmd_YMW_Bank` does — register `0x10` for Model 1's 1 MB window,
+`0x11`/`0x12` for Multi 32's two 512 KiB halves — and the clean-room core grows
+the second bank latch it never had. Its power-on pair is chosen to reproduce
+the single `0x18_0000` bank it held before, so the unbanked rips it was
+calibrated against fetch from exactly where they used to.
+
+A/B against the pinned reference, same build, the same twelve files, the decode
+the only difference. 175 of the 224 single-chip MultiPCM files in the corpus
+carry a `0xC3`, so the sample is not sparse in them:
+
+| core | before | after |
+|---|---|---|
+| clean-room (default) | corr 0.0343, lvl 0.413, **drop 0.111** | corr 0.0338, lvl **0.491**, **drop 0.030** |
+| libvgm (`DROTRIM_PARITY_CORE=libvgm`) | corr 0.0780, lvl 2.104, +36.0 cents | corr 0.0780, lvl 2.141, +36.0 cents |
+
+The X1-010 lesson again, and more sharply: **correlation did not move at all**,
+and would have reported this fix as a no-op. Level and dropout are what a bank
+select can change — a voice fetching from the wrong megabyte is silent, not
+out of phase — and dropout falling by a factor of nearly four is the honest
+measure of it. The row keeps its 0.03 floor; what it no longer keeps is the
+"structural gap" clause, because the structure is now right and the remaining
+distance is the unmodelled ROM-header envelopes on their own.
+
+Two things this leaves open, both new and neither this fix's:
+
+- **libvgm's YMW258 runs +36.0 cents sharp against the reference's**, at level
+  2.14, and its correlation is *double* the clean-room core's despite that. The
+  reference plays a MAME YMW258 too, so a detune that large is a rate or clock
+  question in our binding, not an emulation difference. That is lv-4's to
+  settle before this chip's default can move.
+- the clean-room core's banking is now MAME's rule (bit 20 selects banked, bit
+  19 chooses the half) but its *power-on* state is still a departure from it:
+  MAME does not bank at all until a bank command arrives, where this banks from
+  reset. The 129 corpus files that never send a `0xC3` are what that default
+  was fitted to, and re-deriving it is a separate measurement.

@@ -134,6 +134,22 @@ const PCM_RAM_WRITE: u8 = 0x68;
 /// The data-block size field's high bit: the block is the second chip's.
 const SECOND_CHIP_BLOCK: u32 = 0x8000_0000;
 
+/// The port a chip's *memory* window takes, where the format gives one chip
+/// both a register file and a memory space at overlapping addresses.
+///
+/// This library's own convention, not the format's: `0xB0`/`0xC1` are two
+/// commands into one RF5C68, and a core handed `(0x07, 0xFF)` cannot otherwise
+/// tell "register 7" from "the eighth byte of wave RAM". The WonderSwan's wave
+/// RAM (`0xBC` against `0xC6`) is the same shape.
+pub const MEMORY_PORT: u8 = 1;
+
+/// The port the MultiPCM's bank registers take -- a *third* space of the same
+/// chip, and neither its register file nor a memory window.
+///
+/// See the `0xC3` arm of [`decode`] for why a bank select gets a port of its
+/// own rather than being folded into an address.
+pub const BANK_PORT: u8 = 2;
+
 /// The chip a `0xB0`-`0xBF` (`aa dd`) write targets.
 const B_RANGE: [ChipKind; 16] = [
     ChipKind::Rf5c68,
@@ -339,12 +355,59 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             u16::from(byte(3)),
             (u16::from(byte(1)) << 8) | u16::from(byte(2)),
         ),
+        // `0xC3 cc bbaa` is the MultiPCM's bank select, and the only command in
+        // the 16-bit-address range that addresses nothing at all -- so it is
+        // decoded here rather than below, where every field would be a lie.
+        //
+        // **`cc` is a bank mask, not a channel.** The spec calls it "channel
+        // cc" and the corpus says otherwise: across all 72,481 files `0xC3`
+        // appears 296 times in 175 files, and `cc` is only ever `0x01`, `0x02`
+        // or `0x03` -- one bit per 512 KiB bank, exactly as upstream reads it
+        // (`Cmd_YMW_Bank` takes `fData[0x01] & 0x03`). A 28-voice chip whose
+        // channel number never exceeds three is not a channel number. `bbaa`
+        // is a little-endian bank offset in 64 KiB units; `aa` is zero in every
+        // one of those 296 commands, which is why upstream can ignore it and
+        // say so ("we don't support YMW258 ROMs > 16 MB"). It is kept whole
+        // here anyway: dropping a byte the command carries is the decoder's
+        // business to avoid, and a write rule is free to narrow it later.
+        //
+        // **Why a port rather than an address.** The mask and the offset are
+        // two operands and `Write` has two, but neither is an address, so
+        // packing them into `addr` (as this did until 2026-07-29 -- `addr` was
+        // `(bb << 8) | cc` and `data` was `aa`) leaves a command that is
+        // information-preserving and means nothing: the channel byte sat in the
+        // low bits of an "address" and the offset was split across both fields.
+        // The port already carries "which space of this chip" for the
+        // register-versus-memory pairs ([`MEMORY_PORT`]), so the bank file
+        // takes [`BANK_PORT`] and the two operands go back to meaning what the
+        // command says -- `addr` the mask, `data` the offset. A dedicated
+        // variant was the alternative and buys nothing: every consumer of
+        // `Write` (the state fold, the engine, the row labels) wants exactly
+        // what a write wants, and `ChipCore::write` is the only path into a
+        // core, so a variant would be lowered back to (port, addr, data) one
+        // layer down and the encoding question would just be asked twice.
+        //
+        // What the old layout cost, on both cores: the clean-room one read
+        // `addr << 16` as the offset and so banked to `0x1003_0000` where the
+        // file said `0x10_0000`, throwing every banked sample past the end of
+        // the ROM -- and this core kills a voice whose fetch misses. The
+        // libvgm binding had no bank rule at all, so `write8(cc, aa)` landed on
+        // its *register* file, where `cc` of 1 and 2 are the slot and register
+        // selects: 96 of the 296 commands silently retargeted the next write.
+        0xC3 => {
+            // Upstream reads the second instance from bit 7 of this byte, not
+            // from bit 15 of an address -- there is no address. Inert on this
+            // corpus (bit 7 is never set) and correct regardless.
+            let target = second_if(ChipTarget::port(ChipKind::MultiPcm, BANK_PORT), byte(1));
+            write(target, u16::from(byte(1) & 0x03), word(2))
+        }
         0xC0..=0xC8 => {
-            // 16-bit address, one data byte. The spec switches byte order
-            // mid-range: `0xC0`-`0xC3` write their address as `bbaa`
-            // (little-endian), `0xC5`-`0xC8` as `mmll` (big-endian) -- the
-            // X1-010's corpus streams arbitrated, exactly as the C352's did for
-            // `0xE1`.
+            // 16-bit address, one data byte -- `0xC0`-`0xC2` and `0xC5`-`0xC8`,
+            // the bank select and the QSound having taken their own arms above.
+            // The spec switches byte order mid-range: `0xC0`-`0xC2` write their
+            // address as `bbaa` (little-endian), `0xC5`-`0xC8` as `mmll`
+            // (big-endian) -- the X1-010's corpus streams arbitrated, exactly as
+            // the C352's did for `0xE1`.
             //
             // Nothing here marks its second instance in bit 7 of the *first
             // byte*, the way the rest of the write range does: this range marks
@@ -376,16 +439,15 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             // `0xB0`/`0xB1` carry their register writes -- and the two
             // address spaces overlap from a core's point of view. The port
             // is this library's own convention, so it carries the
-            // distinction: registers on port 0, memory on port 1. `0xC3`
-            // is the MultiPCM's bank command against `0xB5`'s registers --
-            // the same collision, the same fix. So is `0xC6`, the
-            // WonderSwan's wave RAM against `0xBC`'s registers, which this
-            // left on port 0 until 2026-07-29: `cores::WonderSwan` has always
-            // documented port 1 as its memory path, so every wave-RAM poke in
-            // the corpus's 266 rips was being read as a register write and the
-            // wave RAM never filled -- four channels reading a constant.
-            if matches!(opcode, 0xC1..=0xC3 | 0xC6) {
-                target.port = 1;
+            // distinction: registers on port 0, memory on [`MEMORY_PORT`].
+            // So is `0xC6`, the WonderSwan's wave RAM against `0xBC`'s
+            // registers, which this left on port 0 until 2026-07-29:
+            // `cores::WonderSwan` has always documented port 1 as its memory
+            // path, so every wave-RAM poke in the corpus's 266 rips was being
+            // read as a register write and the wave RAM never filled -- four
+            // channels reading a constant.
+            if matches!(opcode, 0xC1 | 0xC2 | 0xC6) {
+                target.port = MEMORY_PORT;
             }
             write(target, addr, u16::from(byte(3)))
         }
@@ -890,14 +952,21 @@ mod tests {
             (&[0xB3, 0x10, 0x80], ChipKind::GameBoyDmg, 0, 0),
             (&[0xBF, 0x10, 0x80], ChipKind::Ga20, 0, 0),
             // The memory-versus-register pairs, where the port is what keeps
-            // one from being read as the other: the RF chips, the MultiPCM's
-            // bank, and the WonderSwan's wave RAM against its register file.
+            // one from being read as the other: the RF chips, and the
+            // WonderSwan's wave RAM against its register file. The MultiPCM's
+            // bank select is the same shape one space further out -- neither
+            // registers nor memory, so neither port 0 nor `MEMORY_PORT`.
             (&[0xB1, 0x07, 0xFF], ChipKind::Rf5c164, 0, 0),
-            (&[0xC2, 0x00, 0x08, 0xFF], ChipKind::Rf5c164, 0, 1),
+            (&[0xC2, 0x00, 0x08, 0xFF], ChipKind::Rf5c164, 0, MEMORY_PORT),
             (&[0xB5, 0x02, 0x11], ChipKind::MultiPcm, 0, 0),
-            (&[0xC3, 0x02, 0x40, 0x00], ChipKind::MultiPcm, 0, 1),
+            (&[0xC3, 0x02, 0x40, 0x00], ChipKind::MultiPcm, 0, BANK_PORT),
             (&[0xBC, 0x0F, 0x20], ChipKind::WonderSwan, 0, 0),
-            (&[0xC6, 0x01, 0x80, 0x8E], ChipKind::WonderSwan, 0, 1),
+            (
+                &[0xC6, 0x01, 0x80, 0x8E],
+                ChipKind::WonderSwan,
+                0,
+                MEMORY_PORT,
+            ),
         ];
         for (bytes, kind, instance, port) in cases {
             let VgmCommand::Write { target, .. } = decode(bytes) else {
@@ -969,6 +1038,43 @@ mod tests {
             assert_eq!((target.kind, target.instance), (kind, 1), "{opcode:#04X}");
             assert_eq!(addr, 0x1F80, "the flag is not part of the address");
         }
+    }
+
+    /// `0xC3 cc bbaa` is a bank select, not an addressed write: `cc` is a mask
+    /// naming which of the MultiPCM's two 512 KiB banks to move (upstream's
+    /// `Cmd_YMW_Bank` takes `fData[0x01] & 0x03`) and `bbaa` is a little-endian
+    /// offset in 64 KiB units. Assembling them the way the rest of the range
+    /// does -- an address word from bytes 1-2, data from byte 3 -- puts the
+    /// mask in the low bits of an "address" and splits the offset across both
+    /// fields, which is information-preserving and means nothing.
+    #[test]
+    fn the_multipcm_bank_select_keeps_its_mask_and_its_offset_apart() {
+        // Daytona USA's, and 125 of the corpus's 296 bank commands: both banks
+        // to 0x10 * 64 KiB = the megabyte at 0x10_0000.
+        let VgmCommand::Write { target, addr, data } = decode(&[0xC3, 0x03, 0x10, 0x00]) else {
+            panic!("a write");
+        };
+        assert_eq!(target.kind, ChipKind::MultiPcm);
+        assert_eq!(target.port, BANK_PORT);
+        assert_eq!(addr, 0x03, "the bank mask, not an address");
+        assert_eq!(data, 0x0010, "the offset whole, not its low byte");
+
+        // The high offset byte is upstream's ">16 MB ROM" case: it ignores the
+        // byte, so nothing in the corpus sets it, but the decoder still carries
+        // what the command carries.
+        let VgmCommand::Write { addr, data, .. } = decode(&[0xC3, 0x01, 0x28, 0x01]) else {
+            panic!("a write");
+        };
+        assert_eq!((addr, data), (0x01, 0x0128));
+
+        // Bit 7 of the mask byte is the second instance -- byte 1, as
+        // `Cmd_YMW_Bank` reads it, and not bit 15 of an address word that does
+        // not exist here. No corpus file sets it.
+        let VgmCommand::Write { target, addr, .. } = decode(&[0xC3, 0x82, 0x20, 0x00]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::MultiPcm, 1));
+        assert_eq!(addr, 0x02, "the flag is not part of the mask");
     }
 
     #[test]

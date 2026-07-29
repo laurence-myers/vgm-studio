@@ -11,11 +11,14 @@
 //!
 //! The write interface is indirect: one port selects the voice, one the
 //! register, one carries the value. The VGM's `0xC3` bank command offsets
-//! sample fetches for rips of banked boards.
+//! sample fetches for rips of banked boards -- Sega's two 512 KiB latches,
+//! which Model 1 drives as one 1 MB window.
 //!
 //! Stated approximations, as the OPL4 core's: the envelope is instant
 //! attack, sustain at total level, fast fade on key-off; the LFO is
 //! unmodelled; pan is linear.
+
+use dro_core::vgm::stream::BANK_PORT;
 
 use crate::chip::ChipCore;
 
@@ -74,8 +77,15 @@ pub struct MultiPcm {
     /// The indirect interface's latches.
     selected_voice: usize,
     selected_register: u8,
-    /// The `0xC3` bank offset, in bytes.
-    bank: u32,
+    /// The `0xC3` bank offsets in bytes, one per 512 KiB half: `bank_low`
+    /// serves addresses with bit 19 clear, `bank_high` those with it set.
+    ///
+    /// Two of them because the command sets them independently -- Sega Multi 32
+    /// wires the halves to separate bank latches, and 96 of the corpus's 296
+    /// bank commands name one half without the other. A 1 MB bank select
+    /// (Model 1) is the case where they are one window, and it just sets both.
+    bank_low: u32,
+    bank_high: u32,
     rom: Vec<u8>,
 }
 
@@ -88,8 +98,34 @@ impl MultiPcm {
             voices: [Voice::default(); 28],
             selected_voice: 0,
             selected_register: 0,
-            bank: 0x18_0000,
+            // The power-on default is the 1 MB window at `0x18_0000` -- the
+            // pair a `0xC3` of that offset would set. See `set_bank`.
+            bank_low: 0x18_0000,
+            bank_high: 0x20_0000,
             rom: Vec::new(),
+        }
+    }
+
+    /// The `0xC3` bank select: `mask` names the halves, `offset` is in 64 KiB
+    /// units.
+    ///
+    /// The three cases are upstream's `Cmd_YMW_Bank`, which is where the mask's
+    /// bit order comes from: **bit 1 is the low half, bit 0 the high one**.
+    /// Both halves at a megabyte-aligned offset is Model 1's single 1 MB
+    /// window, so the high half sits half a megabyte above the low one; every
+    /// other mask moves the halves it names to the same place.
+    fn set_bank(&mut self, mask: u16, offset: u16) {
+        let base = u32::from(offset) << 16;
+        if mask & 0x03 == 0x03 && base & 0x08_0000 == 0 {
+            self.bank_low = base;
+            self.bank_high = base | 0x08_0000;
+            return;
+        }
+        if mask & 0x02 != 0 {
+            self.bank_low = base;
+        }
+        if mask & 0x01 != 0 {
+            self.bank_high = base;
         }
     }
 
@@ -177,12 +213,11 @@ impl ChipCore for MultiPcm {
     /// register -- the corpus's own write pattern arbitrated it (the
     /// register/data pairs come in equal counts on 0 and 2, and offset 1
     /// spams the effect slots between them). Slot numbers skip every
-    /// eighth encoding, the chip's 28-of-32 map. `0xC3` arrives as port 1
-    /// with the bank offset.
+    /// eighth encoding, the chip's 28-of-32 map. `0xC3` arrives on
+    /// [`BANK_PORT`] with the mask in `addr` and the offset in `data`.
     fn write(&mut self, port: u8, addr: u16, data: u16) {
-        if port == 1 {
-            // The 0xC3 bank command: the offset word in 64 KiB units.
-            self.bank = u32::from(addr) << 16;
+        if port == BANK_PORT {
+            self.set_bank(addr, data);
             return;
         }
         let data8 = (data & 0xFF) as u8;
@@ -227,17 +262,22 @@ impl ChipCore for MultiPcm {
                     let span = voice.end.saturating_sub(voice.loop_start).max(1);
                     sample_index = voice.loop_start + (sample_index - voice.end) % span;
                 }
-                // Banking, calibrated against the corpus: only addresses
-                // with bit 20 set pass through the bank register. Daytona
-                // writes bank 0x100000 (identity for its layout) and every
-                // sample decodes into its delivered ROM regions; OutRunners
-                // writes no bank at all and its high samples land only
-                // under the 0x180000 power-on default. Low addresses are
-                // never banked -- both rips' low samples decode at face
-                // value.
+                // Banking, as MAME's `multipcm.cpp` documents it: only
+                // addresses with bit 20 set are banked, and bit 19 chooses
+                // which half's latch replaces the top of the address. The
+                // corpus agrees at both ends -- Daytona writes a 1 MB bank of
+                // 0x100000 and every sample decodes into its delivered ROM
+                // regions, OutRunners writes no bank at all and its high
+                // samples land only under the power-on default, and both rips'
+                // low samples decode at face value unbanked.
                 let mut address = voice.start + sample_index;
                 if address & 0x10_0000 != 0 {
-                    address = (address & 0x0F_FFFF) + self.bank;
+                    let bank = if address & 0x08_0000 == 0 {
+                        self.bank_low
+                    } else {
+                        self.bank_high
+                    };
+                    address = (address & 0x07_FFFF) | bank;
                 }
                 let at = address as usize;
                 let Some(&byte) = self.rom.get(at) else {
@@ -304,11 +344,15 @@ mod tests {
     }
 
     fn key_on(chip: &mut MultiPcm) {
+        key_on_sample(chip, 0x00);
+    }
+
+    fn key_on_sample(chip: &mut MultiPcm, sample: u16) {
         chip.write(0, 1, 0x00); // select slot 0
         chip.write(0, 2, 0x00); // register: pan/sample-high
         chip.write(0, 0, 0x00);
         chip.write(0, 2, 0x01); // register: sample number (loads header)
-        chip.write(0, 0, 0x00);
+        chip.write(0, 0, sample);
         chip.write(0, 2, 0x03); // octave 0, fnum hi 0
         chip.write(0, 0, 0x00);
         chip.write(0, 2, 0x05); // full level
@@ -343,5 +387,118 @@ mod tests {
         assert!(energy(&render(&mut chip, 60)) > 0, "the release fades");
         render(&mut chip, 200);
         assert_eq!(energy(&render(&mut chip, 100)), 0);
+    }
+
+    /// The `0xC3` bank select, case for case against upstream's
+    /// `Cmd_YMW_Bank` -- which is the only place the mask's bit order is
+    /// written down.
+    #[test]
+    fn the_bank_select_moves_the_half_its_mask_names() {
+        let mut chip = MultiPcm::new();
+
+        // Both banks at a megabyte-aligned offset: one 1 MB window, so the
+        // high half follows half a megabyte above the low one.
+        chip.set_bank(0x03, 0x0010);
+        assert_eq!((chip.bank_low, chip.bank_high), (0x10_0000, 0x18_0000));
+
+        // Half a megabyte in, which one window cannot express: both halves go
+        // to the same place instead, exactly as upstream's second branch does.
+        chip.set_bank(0x03, 0x0018);
+        assert_eq!((chip.bank_low, chip.bank_high), (0x18_0000, 0x18_0000));
+
+        // Bit 1 is the low half and bit 0 the high one -- the way round
+        // `Cmd_YMW_Bank` has it, and the opposite of how the bits read.
+        chip.set_bank(0x02, 0x0020);
+        assert_eq!((chip.bank_low, chip.bank_high), (0x20_0000, 0x18_0000));
+        chip.set_bank(0x01, 0x0028);
+        assert_eq!((chip.bank_low, chip.bank_high), (0x20_0000, 0x28_0000));
+
+        // A mask naming no half moves nothing.
+        chip.set_bank(0x00, 0x0000);
+        assert_eq!((chip.bank_low, chip.bank_high), (0x20_0000, 0x28_0000));
+    }
+
+    /// Splitting one bank into two must not move a single fetch on the rips
+    /// this core was calibrated against.
+    ///
+    /// Those never send a `0xC3` at all, so they run on the power-on pair, and
+    /// the pair is chosen to reproduce the single `0x18_0000` bank the core
+    /// held until 2026-07-29 -- which masked twenty bits and *added*, where
+    /// this masks nineteen and ORs the half the address selects. The two agree
+    /// for every address, and this is that proof rather than a promise.
+    #[test]
+    fn the_power_on_banks_fetch_where_the_single_bank_did() {
+        let chip = MultiPcm::new();
+        assert_eq!((chip.bank_low, chip.bank_high), (0x18_0000, 0x20_0000));
+        for address in (0..0x40_0000u32).step_by(0x111) {
+            let was = if address & 0x10_0000 == 0 {
+                address
+            } else {
+                (address & 0x0F_FFFF) + 0x18_0000
+            };
+            let now = if address & 0x10_0000 == 0 {
+                address
+            } else if address & 0x08_0000 == 0 {
+                (address & 0x07_FFFF) | chip.bank_low
+            } else {
+                (address & 0x07_FFFF) | chip.bank_high
+            };
+            assert_eq!(was, now, "{address:#08X}");
+        }
+    }
+
+    /// Banking is fetch-time, and only for addresses above the megabyte line:
+    /// a bank select must move the samples it names and leave the rest alone.
+    #[test]
+    fn only_addresses_above_the_megabyte_line_are_banked() {
+        // Sample 0 lives at 0x1000, below the line; sample 1 at 0x10_1000,
+        // above it. Only the waveform at 0x20_1000 is filled in, so sample 1
+        // is audible exactly when the low bank points there.
+        let mut sample_rom = rom();
+        sample_rom.resize(0x20_2000, 0);
+        for (index, byte) in sample_rom[0x20_1000..0x20_1100].iter_mut().enumerate() {
+            *byte = if index % 2 == 0 { 0x7F } else { 0x81 };
+        }
+        sample_rom[12] = 0x10;
+        sample_rom[13] = 0x10;
+        sample_rom[14] = 0x00;
+        let end_field = 0x1_0000u32 - 0x100;
+        sample_rom[17] = (end_field >> 8) as u8;
+        sample_rom[18] = (end_field & 0xFF) as u8;
+
+        let start = |bank: Option<u16>| {
+            let mut chip = MultiPcm::new();
+            chip.reset(CLOCK, false);
+            chip.load_rom(0x89, sample_rom.len() as u32, 0, &sample_rom);
+            if let Some(offset) = bank {
+                chip.write(BANK_PORT, 0x02, offset);
+            }
+            chip
+        };
+
+        // Below the line: audible whatever the bank says.
+        let mut chip = start(None);
+        key_on_sample(&mut chip, 0x00);
+        assert_eq!(chip.voices[0].start, 0x1000);
+        assert!(energy(&render(&mut chip, 200)) > 0);
+
+        // Above it, and the power-on window sends it to 0x18_1000, which is
+        // zeroes.
+        let mut chip = start(None);
+        key_on_sample(&mut chip, 0x01);
+        assert_eq!(chip.voices[0].start, 0x10_1000, "the header is not banked");
+        assert_eq!(energy(&render(&mut chip, 200)), 0);
+
+        // Bank the low half to 0x20_0000 and the same voice finds its waveform.
+        let mut chip = start(Some(0x0020));
+        key_on_sample(&mut chip, 0x01);
+        assert!(energy(&render(&mut chip, 200)) > 0, "0x20_1000 holds it");
+
+        // ...and the *high* half is a different latch, so naming it instead
+        // leaves this fetch where it was.
+        let mut chip = start(None);
+        chip.write(BANK_PORT, 0x01, 0x0020);
+        key_on_sample(&mut chip, 0x01);
+        assert_eq!(energy(&render(&mut chip, 200)), 0, "bit 19 is clear here");
     }
 }

@@ -534,7 +534,7 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(
         ChipKind::MultiPcm,
         0.03,
-        "0.034 observed at level 0.41: the ROM-header envelopes are unmodelled and a structural gap is under investigation",
+        "0.034 observed. The structural gap this row named was the `0xC3` bank select, which reached no core at all until 2026-07-29: fixing it took level 0.41 -> 0.49 and dropout 0.111 -> 0.030 and left correlation exactly where it was, so what remains is the unmodelled ROM-header envelopes alone",
     ),
     clean(
         ChipKind::Upd7759,

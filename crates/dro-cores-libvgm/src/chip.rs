@@ -23,6 +23,7 @@
 
 use std::ffi::c_void;
 
+use dro_core::vgm::stream::BANK_PORT;
 use dro_core::vgm::{ChipKind, ChipSettings};
 use dro_synth::LEVEL_UNITY;
 use dro_synth::chip::ChipCore;
@@ -122,6 +123,23 @@ pub(crate) enum WriteRule {
     /// port 1 to keep them apart -- a convention of ours, not the format's.
     /// Here the two are different libvgm functions, so the port chooses which.
     RegisterOrMemoryByPort,
+    /// The MultiPCM: its register file on port 0, its `0xC3` bank select on
+    /// [`BANK_PORT`]. Upstream's `Cmd_Ofs8_Data8` (`0xB5`) and `Cmd_YMW_Bank`
+    /// (`0xC3`), which are two commands into one chip.
+    ///
+    /// **The bank is not a register write and does not arrive as one.** The
+    /// YMW258 has no bank register on its bus; libvgm's core invents three
+    /// (`0x10` for Sega Model 1's 1 MB window, `0x11`/`0x12` for Multi 32's two
+    /// 512 KiB banks) and `Cmd_YMW_Bank` translates the command into them. This
+    /// rule is that translation, and it has to be here rather than in the
+    /// decoder because the register numbers are libvgm's invention -- our
+    /// clean-room core models the same banks with no registers at all.
+    ///
+    /// Both halves come from the command: `addr` is its bank mask and `data`
+    /// its offset in 64 KiB units. The offset's *high* byte is dropped, exactly
+    /// as upstream drops `fData[0x03]`, because these registers hold a byte and
+    /// cannot express a ROM larger than 16 MB. The corpus never sets it.
+    MultiPcmBank,
 }
 
 /// Exactly what a [`WriteRule`] decided to put on libvgm's bus.
@@ -143,6 +161,10 @@ enum Bus {
     Mem8(u16, u8),
     /// One `writeM16(addr, data)`, fetched as a register writer.
     Reg16(u16, u16),
+    /// Nothing at all. Only [`WriteRule::MultiPcmBank`] produces it, for a bank
+    /// select whose mask names no bank -- upstream's `Cmd_YMW_Bank` reaches the
+    /// same conclusion by taking neither of its two `if`s.
+    Nothing,
 }
 
 /// Turns our engine's `(port, addr, data)` into the bytes libvgm expects.
@@ -169,6 +191,31 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
                 Bus::Reg8(addr as u8, data as u8)
             } else {
                 Bus::Mem8(addr, data as u8)
+            }
+        }
+        WriteRule::MultiPcmBank => {
+            if port != BANK_PORT {
+                return Bus::Reg8(addr as u8, data as u8);
+            }
+            // `Cmd_YMW_Bank`, register for register. The offset's low byte is
+            // the whole bank as far as these registers go, and each divides it
+            // down to what its own shift expects: the core does `data << 20`
+            // for `0x10` and `data << 19` for `0x11`/`0x12`, so both land on
+            // `(offset & 0xFF) << 16` bytes -- the 64 KiB units the command
+            // counts in.
+            let bank = (data & 0xFF) as u8;
+            match addr & 0x03 {
+                // 1 MB banking (Sega Model 1): both halves of one window, and
+                // only when the offset is a whole megabyte. An offset with bit
+                // 3 set is half a megabyte in, which one window cannot express,
+                // so upstream falls through to the pair below.
+                0x03 if bank & 0x08 == 0 => Bus::Reg8(0x10, bank / 0x10),
+                // 512 KB banking (Sega Multi 32): mask bit 1 is the low bank,
+                // bit 0 the high one, and both may be set.
+                0x03 => Bus::Reg8Pair((0x11, bank / 0x08), (0x12, bank / 0x08)),
+                0x02 => Bus::Reg8(0x11, bank / 0x08),
+                0x01 => Bus::Reg8(0x12, bank / 0x08),
+                _ => Bus::Nothing,
             }
         }
     }
@@ -355,9 +402,10 @@ impl Writers {
     /// is worth saying out loud at start rather than leaving as "no sound".
     const fn serves(&self, rule: WriteRule) -> bool {
         match rule {
-            WriteRule::Register | WriteRule::RegisterLatch | WriteRule::QSound => {
-                self.reg8.is_some()
-            }
+            WriteRule::Register
+            | WriteRule::RegisterLatch
+            | WriteRule::QSound
+            | WriteRule::MultiPcmBank => self.reg8.is_some(),
             WriteRule::Memory | WriteRule::MemoryPortHigh => self.mem8.is_some(),
             WriteRule::RegisterAddr16Data16 => self.reg16.is_some(),
             // Needs both, and a chip missing either is half-mute.
@@ -596,6 +644,7 @@ impl ChipCore for LibVgmChip {
                         write(chip, address, value);
                     }
                 }
+                Bus::Nothing => {}
             }
         }
     }
@@ -753,8 +802,6 @@ chip_specs! {
         ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_okim6258: "okim6258.libvgm" => Okim6258,
         ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_multipcm: "multipcm.libvgm" => MultiPcm,
-        ffi::DEVID_YMW258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
     make_es5503: "es5503.libvgm" => Es5503,
         ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
@@ -780,11 +827,18 @@ chip_specs! {
     make_k054539: "k054539.libvgm" => K054539,
         ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_none;
 
-    // The three one-off shapes the plan named.
+    // The one-off shapes: the three the plan named, plus the MultiPCM's bank.
     make_c352: "c352.libvgm" => C352,
         ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_none;
     make_qsound: "qsound.libvgm" => QSound,
         ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_none;
+    // A register file plus a second command that is not a register write:
+    // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
+    // `Cmd_YMW_Bank`. `Register` served it until 2026-07-29, which sent the
+    // bank select at the register file and dropped the bank entirely.
+    make_multipcm: "multipcm.libvgm" => MultiPcm,
+        ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_none;
+
     make_rf5c68: "rf5c68.libvgm" => Rf5c68,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_none;
     // The same device; `flags` (our `variant`) is what makes it the 164, and
@@ -1145,6 +1199,51 @@ mod tests {
             fold(WriteRule::RegisterOrMemoryByPort, 1, 0x07, 0xC0),
             Bus::Mem8(0x0007, 0xC0),
             "port 1 is the RAM window -- the same number, a different space"
+        );
+
+        // `Cmd_Ofs8_Data8` and `Cmd_YMW_Bank`, the MultiPCM's two commands.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, 0, 0x01, 0x1E),
+            Bus::Reg8(0x01, 0x1E),
+            "port 0 is still the ordinary `0xB5` register file"
+        );
+        // A whole-megabyte offset with both banks named: Model 1's single 1 MB
+        // window, register 0x10, and the value divided down to what the core's
+        // `data << 20` expects. `0x10` counts 64 KiB units, so this is
+        // `0x10_0000` bytes -- Daytona's, and 125 of the corpus's 296.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0010),
+            Bus::Reg8(0x10, 0x01)
+        );
+        // Half a megabyte in, so one window cannot express it and upstream
+        // takes the Multi 32 path for both banks instead -- `0x11` before
+        // `0x12`, and `data << 19` this time.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0018),
+            Bus::Reg8Pair((0x11, 0x03), (0x12, 0x03))
+        );
+        // One bank at a time: **mask bit 1 is the low bank and bit 0 the
+        // high one**, which is the way round `Cmd_YMW_Bank` has it and the
+        // opposite of how the bits read. 96 of the corpus's commands are these.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x02, 0x0020),
+            Bus::Reg8(0x11, 0x04)
+        );
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x01, 0x0028),
+            Bus::Reg8(0x12, 0x05)
+        );
+        // A mask naming no bank writes nothing, rather than writing zero
+        // somewhere: upstream takes neither `if`.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x00, 0x0010),
+            Bus::Nothing
+        );
+        // The offset's high byte is dropped where upstream drops `fData[0x03]`.
+        assert_eq!(
+            fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0110),
+            Bus::Reg8(0x10, 0x01),
+            "these registers hold a byte; a ROM over 16 MB is not expressible"
         );
     }
 
