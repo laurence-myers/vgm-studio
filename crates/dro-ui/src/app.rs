@@ -366,6 +366,11 @@ impl DroApp {
         initial_file: Option<PickedFile>,
     ) -> Self {
         let config = config_store.load();
+        // The registry-side copy of `audio.core.<slug>`: every engine built
+        // from here on (playback, WAV render, waveform, peak scan) reads it
+        // through `core_for`, so the cores the user chose are the cores that
+        // actually play.
+        dro_synth::registry::set_core_choices(config.audio.cores.clone());
         let initial_frequency = config.audio.frequency;
         Self {
             editor: Editor::new(),
@@ -2149,8 +2154,33 @@ impl DroApp {
                         self.channels = ChipPanels::for_vgm(file);
                         self.position.set_length_ms(file.total_ms());
                         self.position.set_position_ms(0);
-                        self.status =
-                            format!("Opened {name} ({chips}); playback is not supported yet.");
+                        // What the status promises has to match what the
+                        // registry can actually build: most VGMs play in full
+                        // now, and "not supported" is only true when *no* chip
+                        // in the file has a core.
+                        let kinds: Vec<_> = file
+                            .header
+                            .chips()
+                            .iter()
+                            .map(|chip| chip.kind)
+                            .collect();
+                        self.status = match dro_synth::playability(&kinds) {
+                            dro_synth::Playability::Full => {
+                                format!("Successfully opened {name} ({chips}).")
+                            }
+                            dro_synth::Playability::Partial(missing) => {
+                                let missing: Vec<&str> =
+                                    missing.iter().map(|kind| kind.name()).collect();
+                                format!(
+                                    "Opened {name} ({chips}); no core yet for {}, which will \
+                                     stay silent.",
+                                    missing.join(", ")
+                                )
+                            }
+                            dro_synth::Playability::None => {
+                                format!("Opened {name} ({chips}); playback is not supported yet.")
+                            }
+                        };
                     }
                 }
             }
@@ -3596,6 +3626,9 @@ impl DroApp {
             self.audio.unload();
             self.audio_revision = None;
         }
+        // Keep the registry's copy of the choices current, so the reload (and
+        // every offline render) builds the cores just saved.
+        dro_synth::registry::set_core_choices(config.audio.cores.clone());
         if let Err(error) = self.config_store.save(&config) {
             self.alerts
                 .push_back(Alert::error(format!("Could not save settings: {error}")));
