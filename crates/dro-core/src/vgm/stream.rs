@@ -158,6 +158,16 @@ pub const BANK_PORT: u8 = 2;
 /// a different chip, and neither collides with anything.
 pub const STEREO_PORT: u8 = 2;
 
+/// The port an ES5506 16-bit register write (`0xD6`) arrives on, beside
+/// `0xBE`'s 8-bit writes on port 0.
+///
+/// The two commands address one register file at two widths, and a core must
+/// know which width the driver used -- `0xD6`'s value is `ReadLE16` upstream
+/// (`Cmd_Ofs8_Data16`) and goes to a dedicated 16-bit writer. Folding both
+/// onto port 0 loses exactly that bit: an 8-bit write of register 0 and a
+/// 16-bit write of register 0 would arrive identical.
+pub const DATA16_PORT: u8 = 3;
+
 /// The chip a `0xB0`-`0xBF` (`aa dd`) write targets. `0xB2` keeps its row for
 /// the table's shape but decodes in its own arm: the PWM's operands are a
 /// nibble register and a 12-bit value, not `aa dd`.
@@ -503,13 +513,33 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             }
             write(target, addr, u16::from(byte(3)))
         }
-        0xD0..=0xD6 => write(
+        // `0xD6 pp aa bb` is the ES5506's 16-bit register write -- upstream's
+        // `Cmd_Ofs8_Data16`, not the range's port+register shape: the first
+        // operand is the *register* (bit 7 the second chip) and the value is
+        // little-endian across the last two. It rides [`DATA16_PORT`] so the
+        // width survives to the core; `0xBE`'s 8-bit writes stay on port 0.
+        0xD6 => write(
+            second_if(ChipTarget::port(ChipKind::Es5505, DATA16_PORT), byte(1)),
+            u16::from(byte(1) & 0x7F),
+            word(2),
+        ),
+        0xD0..=0xD5 => write(
             second_if(
                 ChipTarget::port(D_RANGE[(opcode & 0x0F) as usize], byte(1) & 0x7F),
                 byte(1),
             ),
             u16::from(byte(2)),
             u16::from(byte(3)),
+        ),
+        // `0x40 aa dd` is the Mikey's register write from v1.72 -- upstream's
+        // `Cmd_Ofs8_Data8`, bit 7 of the address the second chip. In an older
+        // file the opcode is a one-operand reserved command; `command_size`
+        // already sized it that way, and a Mikey write in a file whose header
+        // cannot declare a Mikey is dropped by the engine's routing.
+        0x40 => write(
+            second_if(ChipTarget::first(ChipKind::Mikey), byte(1)),
+            u16::from(byte(1) & 0x7F),
+            u16::from(byte(2)),
         ),
         // The C352 write is the one command whose operands are big-endian:
         // the corpus's own streams say so (register addresses land on the

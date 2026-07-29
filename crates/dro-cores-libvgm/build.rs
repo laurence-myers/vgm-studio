@@ -353,40 +353,33 @@ const DEVICES: &[Device] = &[
 /// is missing here starts nothing and is silently silent, which is why
 /// `every_spec_can_actually_start` asserts every row of one against the other.
 ///
-/// lv-3's batch is chosen to exercise every [`WriteRule`] at least once and to
-/// cover the three inversions the plan named -- QSound's `0xC4`, the C352's
-/// big-endian `0xE1`, and the RF5C pair's port-1 memory convention. lv-4 grows
-/// it, each chip earning its default against the frozen row it replaces.
+/// Since the 2026-07-29 redirect this is **every device our corpus can name**,
+/// libvgm being the default core for all of them. The special-case handlers
+/// (NES's FDS remap, OKIM6295's pin-7 strip, WonderSwan's `0x80` offset,
+/// SAA1099's reversed pair, the PWM's 12-bit writer, the ES5506's two widths)
+/// each have their own `WriteRule`; the OPN family's linked SSG and the
+/// OPL4's linked FM go through `start_links`.
 ///
-/// Deliberately absent for now, each for its own reason:
+/// Still absent, deliberately:
 ///
-/// - **A handler that is genuinely a special case**, needing a `WriteRule` of
-///   its own: NES APU (`Cmd_NES_Reg` remaps the FDS registers), OKIM6295
-///   (`Cmd_OKIM6295_Reg` strips a stray bit from register `0x0B`), WonderSwan
-///   (`Cmd_WSwan_Reg` offsets every address by `0x80`), SAA1099 (`Cmd_SAA_Reg`
-///   is a two-write pair in the *reverse* order to the Yamaha one -- register
-///   to offset 1, data to offset 0), and the 32X PWM (`Cmd_Ofs4_Data12` takes
-///   its register from the high nibble and a 12-bit value spanning both bytes,
-///   which our own decoder does not preserve).
-/// - **Linked devices**, which this crate does not implement yet: the OPN
-///   family's SSG is a separate `DEVID_AY8910` that `opnintf.c` declares and
-///   expects to be started and linked, and the YMF278B links to a YMF262.
-/// - **The OPL family**, out of scope by the owner's decision, permanently.
-/// - **YM2612/YM2151/YM2413**, which need no linking and would fit the
-///   existing `RegisterLatch` rule -- but Nuked already holds those rows at
-///   0.985/0.999, the pinned reference runs `Core = NUKE` for all three, and
-///   the matching libvgm core is one this build disables. See
-///   `CORES_SERVED_ELSEWHERE`; lv-4 has to resolve that circularity before a
-///   comparison there means anything.
-///
-/// Game Boy is **not** in that list: it is a plain `Cmd_Ofs8_Data8`, so it
-/// needs no new rule and is a one-line addition whenever lv-4 wants it. Its
-/// only wrinkle is that the device has two cores (MAME and SameBoy) and the
-/// pinned reference names neither.
+/// - **The OPL family as chips of their own** (`YM3812`, `YM3526`, `Y8950`) --
+///   out of scope by the owner's decision, permanently: OPL plays through
+///   `PlayerEngine`. `YMF262` *is* compiled, but only as the OPL4's linked FM
+///   half; no OPL chip is ever registered from this crate.
+/// - **C219** rides the `C140` spec: the header's type byte picks the device
+///   at start.
+/// - **ES5505/ES5506**: upstream's `es5506.c` is a 32-line stub -- a
+///   `DEV_DECL` whose core list is `{ NULL }` -- so enabling it buys a device
+///   that `SndEmu_Start` cannot start. It returns when upstream writes the
+///   emulator.
+/// - The devices no VGM commands reach in our decoder yet: K007232, K005289,
+///   MSM5205, MSM5232, BSMT2000, ICS2115 (and the C++-only YM2414).
 const ENABLED: &[&str] = &[
     "SN76496", "SEGAPCM", "RF5C68", "YMZ280B", "YMW258", "UPD7759", "MSM6258", "K051649",
-    "K054539", "C6280", "C140", "K053260", "QSOUND", "VBOY_VSU", "ES5503", "X1_010", "C352",
-    "GA20",
+    "K054539", "C6280", "C140", "C219", "K053260", "QSOUND", "VBOY_VSU", "ES5503", "X1_010",
+    "C352", "GA20", "YM2413", "YM2612", "YM2151", "YM2203", "YM2608", "YM2610", "YMF278B",
+    "YMF262", "YMF271", "AY8910", "32X_PWM", "GAMEBOY", "NES_APU", "MSM6295", "POKEY", "SCSP",
+    "WSWAN", "SAA1099", "MIKEY",
 ];
 
 /// Cores we deliberately do not compile, and why.

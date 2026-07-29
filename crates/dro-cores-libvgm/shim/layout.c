@@ -16,6 +16,9 @@
 #include <stddef.h>
 
 #include "EmuStructs.h"
+#include "cores/ayintf.h"
+#include "cores/okim6258.h"
+#include "cores/segapcm.h"
 #include "cores/sn764intf.h"
 
 /* `offsetof` past a char gives the alignment the compiler actually uses;
@@ -37,6 +40,23 @@ size_t drotrim_libvgm_rwfunc_alignof(void) { return DROTRIM_ALIGNOF(DEVDEF_RWFUN
 
 size_t drotrim_libvgm_sn76496cfg_sizeof(void) { return sizeof(SN76496_CFG); }
 size_t drotrim_libvgm_sn76496cfg_alignof(void) { return DROTRIM_ALIGNOF(SN76496_CFG); }
+
+size_t drotrim_libvgm_ay8910cfg_sizeof(void) { return sizeof(AY8910_CFG); }
+size_t drotrim_libvgm_ay8910cfg_alignof(void) { return DROTRIM_ALIGNOF(AY8910_CFG); }
+size_t drotrim_libvgm_ay8910cfg_off_chiptype(void) { return offsetof(AY8910_CFG, chipType); }
+
+size_t drotrim_libvgm_msm6258cfg_sizeof(void) { return sizeof(MSM6258_CFG); }
+size_t drotrim_libvgm_msm6258cfg_alignof(void) { return DROTRIM_ALIGNOF(MSM6258_CFG); }
+size_t drotrim_libvgm_msm6258cfg_off_divider(void) { return offsetof(MSM6258_CFG, divider); }
+
+size_t drotrim_libvgm_segapcmcfg_sizeof(void) { return sizeof(SEGAPCM_CFG); }
+size_t drotrim_libvgm_segapcmcfg_alignof(void) { return DROTRIM_ALIGNOF(SEGAPCM_CFG); }
+size_t drotrim_libvgm_segapcmcfg_off_bnkshift(void) { return offsetof(SEGAPCM_CFG, bnkshift); }
+
+size_t drotrim_libvgm_devlink_sizeof(void) { return sizeof(DEVLINK_INFO); }
+size_t drotrim_libvgm_devlink_alignof(void) { return DROTRIM_ALIGNOF(DEVLINK_INFO); }
+size_t drotrim_libvgm_devlink_off_linkid(void) { return offsetof(DEVLINK_INFO, linkID); }
+size_t drotrim_libvgm_devlink_off_cfg(void) { return offsetof(DEVLINK_INFO, cfg); }
 
 /* Where the fields actually sit, for the two structs we index into most.
  * A size match alone would not catch two fields swapped. */

@@ -46,6 +46,10 @@ pub(crate) const RWF_WRITE: u8 = 0x00;
 pub(crate) const RWF_REGISTER: u8 = 0x00;
 pub(crate) const RWF_MEMORY: u8 = 0x10;
 
+/// Matches any width -- used with a `user` code to fetch a chip's special
+/// entry points, such as the AY8910's stereo-mask function.
+pub(crate) const DEVRW_ALL: u8 = 0x00;
+
 pub(crate) const DEVRW_A8D8: u8 = 0x11;
 pub(crate) const DEVRW_A8D16: u8 = 0x12;
 pub(crate) const DEVRW_A16D8: u8 = 0x21;
@@ -53,29 +57,61 @@ pub(crate) const DEVRW_A16D16: u8 = 0x22;
 pub(crate) const DEVRW_BLOCK: u8 = 0x80;
 pub(crate) const DEVRW_MEMSIZE: u8 = 0x81;
 
+/// The `user` code the AY8910 cores file their stereo-mask writer under:
+/// `'ST'`, as upstream's `Cmd_AY_Stereo` fetches it.
+pub(crate) const USER_STEREO_MASK: u16 = 0x5354;
+
 // --- Device IDs (`SoundDevs.h`) -------------------------------------------
 
 /// SN76496 and its variants -- SN76489(A), SEGA PSG, T6W28.
 pub(crate) const DEVID_SN76496: u8 = 0x00;
+pub(crate) const DEVID_YM2413: u8 = 0x01;
+pub(crate) const DEVID_YM2612: u8 = 0x02;
+pub(crate) const DEVID_YM2151: u8 = 0x03;
 pub(crate) const DEVID_SEGAPCM: u8 = 0x04;
 /// RF5C68; the RF5C164 is the same device with `flags` set.
 pub(crate) const DEVID_RF5C68: u8 = 0x05;
+pub(crate) const DEVID_YM2203: u8 = 0x06;
+pub(crate) const DEVID_YM2608: u8 = 0x07;
+pub(crate) const DEVID_YM2610: u8 = 0x08;
+/// The OPL3. Never registered as a chip from this crate -- OPL plays through
+/// `PlayerEngine` -- compiled and declared only as the OPL4's linked FM half.
+pub(crate) const DEVID_YMF262: u8 = 0x0C;
+/// The OPL4. Not an OPL row here -- the OPL family plays through
+/// `PlayerEngine` -- but the OPL4's own wave half is this device, which links
+/// a YMF262 child for its FM half.
+pub(crate) const DEVID_YMF278B: u8 = 0x0D;
+pub(crate) const DEVID_YMF271: u8 = 0x0E;
 pub(crate) const DEVID_YMZ280B: u8 = 0x0F;
+pub(crate) const DEVID_32X_PWM: u8 = 0x11;
+pub(crate) const DEVID_AY8910: u8 = 0x12;
+pub(crate) const DEVID_GB_DMG: u8 = 0x13;
+pub(crate) const DEVID_NES_APU: u8 = 0x14;
 /// MultiPCM (315-5560).
 pub(crate) const DEVID_YMW258: u8 = 0x15;
 pub(crate) const DEVID_UPD7759: u8 = 0x16;
 pub(crate) const DEVID_MSM6258: u8 = 0x17;
+pub(crate) const DEVID_MSM6295: u8 = 0x18;
 pub(crate) const DEVID_K051649: u8 = 0x19;
 pub(crate) const DEVID_K054539: u8 = 0x1A;
 pub(crate) const DEVID_C6280: u8 = 0x1B;
 pub(crate) const DEVID_C140: u8 = 0x1C;
 pub(crate) const DEVID_K053260: u8 = 0x1D;
+pub(crate) const DEVID_POKEY: u8 = 0x1E;
 pub(crate) const DEVID_QSOUND: u8 = 0x1F;
+pub(crate) const DEVID_SCSP: u8 = 0x20;
+pub(crate) const DEVID_WSWAN: u8 = 0x21;
 pub(crate) const DEVID_VBOY_VSU: u8 = 0x22;
+pub(crate) const DEVID_SAA1099: u8 = 0x23;
 pub(crate) const DEVID_ES5503: u8 = 0x24;
+/// ES5506; the ES5505 is a variant of the same device.
+pub(crate) const DEVID_ES5506: u8 = 0x25;
 pub(crate) const DEVID_X1_010: u8 = 0x26;
 pub(crate) const DEVID_C352: u8 = 0x27;
 pub(crate) const DEVID_GA20: u8 = 0x28;
+pub(crate) const DEVID_MIKEY: u8 = 0x29;
+/// The C219, a C140 variant with its own device ("TODO: renumber" upstream).
+pub(crate) const DEVID_C219: u8 = 0x80;
 
 // --- Emulation-core codes (`EmuCores.h`) ----------------------------------
 //
@@ -92,6 +128,11 @@ pub(crate) const FCC_MAME: u32 = 0x4D414D45;
 pub(crate) const FCC_MAXM: u32 = 0x4D41584D;
 /// Ootake's HuC6280 -- what the pinned reference selects for that chip.
 pub(crate) const FCC_OOTK: u32 = 0x4F4F544B;
+/// EMU2149/EMU2413 -- what upstream's link callback selects for an OPN's SSG.
+/// `"EMU\0"`, not `"EMU_"`: the fourth character really is a NUL upstream.
+pub(crate) const FCC_EMU_: u32 = 0x454D5500;
+/// adlibemu -- what upstream's link callback selects for the OPL4's FM half.
+pub(crate) const FCC_ADLE: u32 = 0x41444C45;
 
 // --- Function-pointer types (`EmuStructs.h`) ------------------------------
 
@@ -177,6 +218,58 @@ pub(crate) struct Sn76496Cfg {
     /// The tone half of a T6W28, which is two SN76489As linked. Null for
     /// everything else.
     pub t6w28_tone: *mut c_void,
+}
+
+/// A special writer fetched by `user` code with [`DEVRW_ALL`]: upstream's
+/// `DEVFUNC_OPTMASK` shape, used for the AY8910's stereo mask.
+pub(crate) type DevFuncWriteOptMask = unsafe extern "C" fn(info: *mut c_void, bits: u32);
+
+/// `AY8910_CFG` from `cores/ayintf.h`: the chip type and flags bytes the VGM
+/// header carries at `0x78`/`0x79` (and, for an OPN's SSG, at `0x7A`/`0x7B`).
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub(crate) struct Ay8910Cfg {
+    pub gen_cfg: DevGenCfg,
+    pub chip_type: u8,
+    pub chip_flags: u8,
+}
+
+/// `MSM6258_CFG` from `cores/okim6258.h`, filled from the header's flags byte
+/// at `0x94` exactly as upstream's `DEVID_MSM6258` case does.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub(crate) struct Msm6258Cfg {
+    pub gen_cfg: DevGenCfg,
+    /// 0 = /1024, 1 = /768, 2 = /512.
+    pub divider: u8,
+    /// Bits per ADPCM sample: 3 or 4; 0 takes the default (4).
+    pub adpcm_bits: u8,
+    /// DAC output precision: 10 or 12; 0 takes the default (10).
+    pub output_bits: u8,
+}
+
+/// `SEGAPCM_CFG` from `cores/segapcm.h`: the interface register the header
+/// carries at `0x3C`.
+#[derive(Debug, Clone, Copy, Default)]
+#[repr(C)]
+pub(crate) struct SegaPcmCfg {
+    pub gen_cfg: DevGenCfg,
+    pub bnkshift: u8,
+    pub bnkmask: u8,
+}
+
+/// `DEVLINK_INFO` from `EmuStructs.h`: one linkable child device, declared by
+/// a parent's `Start` and freed by [`SndEmu_FreeDevLinkData`].
+#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+pub(crate) struct DevLinkInfo {
+    /// `DEVID_` constant of the expected child.
+    pub dev_id: u8,
+    /// The id `LinkDevice` is called with.
+    pub link_id: u8,
+    /// The child's configuration, allocated by the parent -- mutated in place
+    /// before the child starts, exactly as upstream's link callback does.
+    pub cfg: *mut DevGenCfg,
 }
 
 /// `DEVDEF_RWFUNC`: one entry in a core's read/write function table.

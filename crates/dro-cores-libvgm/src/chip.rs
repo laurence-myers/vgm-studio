@@ -23,15 +23,15 @@
 
 use std::ffi::c_void;
 
-use dro_core::vgm::stream::BANK_PORT;
+use dro_core::vgm::stream::{BANK_PORT, MEMORY_PORT, STEREO_PORT};
 use dro_core::vgm::{ChipKind, ChipSettings};
 use dro_synth::LEVEL_UNITY;
 use dro_synth::chip::ChipCore;
 
 use crate::ffi::{
-    self, DevFuncWriteA8D8, DevFuncWriteA16D8, DevFuncWriteA16D16, DevFuncWriteBlock,
-    DevFuncWriteMemSize, DevGenCfg, DevInfo, EERR_OK, RWF_MEMORY, RWF_REGISTER, RWF_WRITE,
-    Sn76496Cfg,
+    self, Ay8910Cfg, DevFuncWriteA8D8, DevFuncWriteA8D16, DevFuncWriteA16D8, DevFuncWriteA16D16,
+    DevFuncWriteBlock, DevFuncWriteMemSize, DevFuncWriteOptMask, DevGenCfg, DevInfo, DevLinkInfo,
+    EERR_OK, Msm6258Cfg, RWF_MEMORY, RWF_REGISTER, RWF_WRITE, SegaPcmCfg, Sn76496Cfg,
 };
 
 /// The rate asked for in `DEV_GEN_CFG::smplRate`.
@@ -140,6 +140,43 @@ pub(crate) enum WriteRule {
     /// as upstream drops `fData[0x03]`, because these registers hold a byte and
     /// cannot express a ROM larger than 16 MB. The corpus never sets it.
     MultiPcmBank,
+    /// The NES APU with upstream's FDS remap: `Cmd_NES_Reg`. `0x3F` becomes
+    /// `0x23` (FDS I/O enable) and `0x20`-`0x3E` become `0x80 | (a & 0x1F)`
+    /// (the FDS registers), everything else passes through.
+    ///
+    /// The remap is the *player's*, not the chip's: VGM stores FDS writes in a
+    /// compressed range the NSFPlay core does not use, so a binding that skips
+    /// it sends every FDS register at the wrong file.
+    NesApu,
+    /// The OKIM6295 with upstream's pin-7 strip: `Cmd_OKIM6295_Reg`. A write
+    /// to `0x0B` (the clock select) drops bit 7 -- "a bug in some MAME VGM
+    /// logs", per upstream's own comment -- and everything else passes.
+    Okim6295,
+    /// The WonderSwan: registers offset by `0x80` on port 0 (`Cmd_WSwan_Reg`
+    /// writes `0x80 + (a & 0x7F)` because the chip's ports really do live
+    /// there), wave RAM through the memory writer on [`MEMORY_PORT`]
+    /// (`Cmd_Ofs16_Data8`, our `0xC6` convention).
+    WonderSwan,
+    /// The SAA1099's two-write pair in the *reverse* order to the Yamaha one:
+    /// `Cmd_SAA_Reg` puts the register at offset 1 and the data at offset 0,
+    /// because that is where the chip's own bus has them.
+    ReversedLatch,
+    /// One 16-bit-data register write: `writeD16(addr, data)`. Upstream's
+    /// `Cmd_Ofs4_Data12` -- the 32X PWM, whose nibble register and 12-bit
+    /// value our decoder already delivers as `addr`/`data`. (The ES5506's
+    /// `0xD6` would take a two-width sibling of this rule, but libvgm ships
+    /// only a stub declaration for that device -- see the spec table.)
+    Data16,
+    /// The AY8910: its register file on port 0, its `0x31` stereo mask on
+    /// [`STEREO_PORT`] -- which goes to a dedicated per-core function
+    /// (`Cmd_AY_Stereo` fetches it by the `'ST'` user code), never to the
+    /// register file. Decoding it as a register write is exactly the bug the
+    /// 2026-07-29 audit fixed in our own core.
+    RegisterWithStereo,
+    /// The OPN family (YM2203/2608/2610): the Yamaha latch pair on its ports,
+    /// plus the YM2203's SSG stereo mask on [`STEREO_PORT`], which lands on
+    /// the *linked* AY8910's mask function.
+    OpnFamily,
 }
 
 /// Exactly what a [`WriteRule`] decided to put on libvgm's bus.
@@ -161,6 +198,10 @@ enum Bus {
     Mem8(u16, u8),
     /// One `writeM16(addr, data)`, fetched as a register writer.
     Reg16(u16, u16),
+    /// One `writeD16(addr, data)` -- an 8-bit address with 16-bit data.
+    RegD16(u8, u16),
+    /// The chip's dedicated stereo-mask function, with the six mask bits.
+    StereoMask(u8),
     /// Nothing at all. Only [`WriteRule::MultiPcmBank`] produces it, for a bank
     /// select whose mask names no bank -- upstream's `Cmd_YMW_Bank` reaches the
     /// same conclusion by taking neither of its two `if`s.
@@ -191,6 +232,57 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
                 Bus::Reg8(addr as u8, data as u8)
             } else {
                 Bus::Mem8(addr, data as u8)
+            }
+        }
+        WriteRule::NesApu => {
+            // `Cmd_NES_Reg`'s FDS remap, register for register.
+            let a = addr as u8;
+            let remapped = if a == 0x3F {
+                0x23
+            } else if a & 0xE0 == 0x20 {
+                0x80 | (a & 0x1F)
+            } else {
+                a
+            };
+            Bus::Reg8(remapped, data as u8)
+        }
+        WriteRule::Okim6295 => {
+            // `Cmd_OKIM6295_Reg`: the clock-select register drops the stray
+            // pin-7 bit some MAME logs carry.
+            let value = if addr == 0x0B {
+                (data as u8) & 0x7F
+            } else {
+                data as u8
+            };
+            Bus::Reg8(addr as u8, value)
+        }
+        WriteRule::WonderSwan => {
+            if port == MEMORY_PORT {
+                Bus::Mem8(addr, data as u8)
+            } else {
+                // `Cmd_WSwan_Reg`: the audio ports live at 0x80 on the chip's
+                // own bus, and our decoder keeps the file's 0-based numbers.
+                Bus::Reg8(0x80 + (addr as u8 & 0x7F), data as u8)
+            }
+        }
+        WriteRule::ReversedLatch => {
+            // `Cmd_SAA_Reg`: register to offset 1, then data to offset 0 --
+            // the mirror image of the Yamaha pair.
+            Bus::Reg8Pair((0x01, addr as u8), (0x00, data as u8))
+        }
+        WriteRule::Data16 => Bus::RegD16(addr as u8, data),
+        WriteRule::RegisterWithStereo => {
+            if port == STEREO_PORT {
+                Bus::StereoMask(data as u8 & 0x3F)
+            } else {
+                Bus::Reg8(addr as u8, data as u8)
+            }
+        }
+        WriteRule::OpnFamily => {
+            if port == STEREO_PORT {
+                Bus::StereoMask(data as u8 & 0x3F)
+            } else {
+                Bus::Reg8Pair(((port << 1), addr as u8), ((port << 1) | 1, data as u8))
             }
         }
         WriteRule::MultiPcmBank => {
@@ -303,6 +395,12 @@ pub(crate) enum DevConfig {
     /// The SN76496 family, whose noise taps and shift-register width decide
     /// which of a dozen parts it actually is.
     Sn76496(Sn76496Cfg),
+    /// The AY8910 family, whose type and flags bytes select the variant.
+    Ay8910(Ay8910Cfg),
+    /// The OKIM6258, whose divider and bit widths come from the header flags.
+    Msm6258(Msm6258Cfg),
+    /// Sega PCM, whose bank shift and mask come from the interface register.
+    SegaPcm(SegaPcmCfg),
 }
 
 impl DevConfig {
@@ -311,6 +409,9 @@ impl DevConfig {
         match self {
             Self::Generic(cfg) => cfg,
             Self::Sn76496(cfg) => &mut cfg.gen_cfg,
+            Self::Ay8910(cfg) => &mut cfg.gen_cfg,
+            Self::Msm6258(cfg) => &mut cfg.gen_cfg,
+            Self::SegaPcm(cfg) => &mut cfg.gen_cfg,
         }
     }
 
@@ -319,6 +420,9 @@ impl DevConfig {
         match self {
             Self::Generic(cfg) => std::ptr::from_ref(cfg),
             Self::Sn76496(cfg) => std::ptr::from_ref(cfg).cast::<DevGenCfg>(),
+            Self::Ay8910(cfg) => std::ptr::from_ref(cfg).cast::<DevGenCfg>(),
+            Self::Msm6258(cfg) => std::ptr::from_ref(cfg).cast::<DevGenCfg>(),
+            Self::SegaPcm(cfg) => std::ptr::from_ref(cfg).cast::<DevGenCfg>(),
         }
     }
 }
@@ -332,10 +436,7 @@ impl DevConfig {
 /// construction and means [`WriteRule`] can stay a pure description of a fold.
 ///
 /// The names mirror `player/vgmplayer.cpp`'s `CHIP_DEVICE` fields so the two
-/// can be read side by side. Its `writeD16` (`RWF_REGISTER | DEVRW_A8D16`) has
-/// no field here yet: the only chips that use it are the ES5506 and the 32X
-/// PWM, neither of which lv-3 enables, and a fetched-but-uncalled pointer is a
-/// guess about a chip nobody has measured. It arrives with the ES5506 at lv-5. **Note `reg16` in particular**: upstream calls it
+/// can be read side by side. **Note `reg16` in particular**: upstream calls it
 /// `writeM16` and fetches it with `RWF_REGISTER`, not `RWF_MEMORY`. Copying the
 /// name without reading the fetch would have put the C352's writes into the
 /// wrong space.
@@ -343,10 +444,16 @@ impl DevConfig {
 struct Writers {
     /// `write8`: `RWF_REGISTER | DEVRW_A8D8`.
     reg8: Option<DevFuncWriteA8D8>,
+    /// `writeD16`: `RWF_REGISTER | DEVRW_A8D16` -- the 32X PWM and ES5506.
+    data16: Option<DevFuncWriteA8D16>,
     /// `writeM16`: `RWF_REGISTER | DEVRW_A16D16` -- register, despite the name.
     reg16: Option<DevFuncWriteA16D16>,
     /// `writeM8`: `RWF_MEMORY | DEVRW_A16D8`.
     mem8: Option<DevFuncWriteA16D8>,
+    /// The stereo-mask function AY8910 cores file under the `'ST'` user code.
+    /// For an OPN chip it is fetched from the *linked* SSG device instead --
+    /// see `start_links`.
+    stereo: Option<DevFuncWriteOptMask>,
     /// `romSize`/`romSizeB`: `RWF_MEMORY | DEVRW_MEMSIZE`, per memory space.
     rom_size: [Option<DevFuncWriteMemSize>; 2],
     /// `romWrite`/`romWriteB`: `RWF_MEMORY | DEVRW_BLOCK`, per memory space.
@@ -369,8 +476,12 @@ impl Writers {
             Self {
                 reg8: reg(ffi::DEVRW_A8D8, 0)
                     .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteA8D8>(p)),
+                data16: reg(ffi::DEVRW_A8D16, 0)
+                    .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteA8D16>(p)),
                 reg16: reg(ffi::DEVRW_A16D16, 0)
                     .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteA16D16>(p)),
+                stereo: reg(ffi::DEVRW_ALL, ffi::USER_STEREO_MASK)
+                    .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteOptMask>(p)),
                 // **Memory first, then register** -- the space a chip files
                 // its 16-bit-address writer under is per chip, not per width.
                 // Upstream's player fetches this same field with `RWF_MEMORY`
@@ -405,11 +516,20 @@ impl Writers {
             WriteRule::Register
             | WriteRule::RegisterLatch
             | WriteRule::QSound
-            | WriteRule::MultiPcmBank => self.reg8.is_some(),
+            | WriteRule::MultiPcmBank
+            | WriteRule::NesApu
+            | WriteRule::Okim6295
+            | WriteRule::ReversedLatch
+            // The stereo mask is optional per core; the register file is not.
+            | WriteRule::RegisterWithStereo
+            | WriteRule::OpnFamily => self.reg8.is_some(),
             WriteRule::Memory | WriteRule::MemoryPortHigh => self.mem8.is_some(),
             WriteRule::RegisterAddr16Data16 => self.reg16.is_some(),
+            WriteRule::Data16 => self.data16.is_some(),
             // Needs both, and a chip missing either is half-mute.
-            WriteRule::RegisterOrMemoryByPort => self.reg8.is_some() && self.mem8.is_some(),
+            WriteRule::RegisterOrMemoryByPort | WriteRule::WonderSwan => {
+                self.reg8.is_some() && self.mem8.is_some()
+            }
         }
     }
 }
@@ -422,11 +542,94 @@ impl Writers {
 /// the first space and the exceptions are listed rather than computed.
 const fn rom_space(block_type: u8) -> u8 {
     match block_type {
+        // The YM2608's Delta-T, the second space beside its (internal)
+        // rhythm ROM.
+        0x81 => 1,
         // The YM2610's ADPCM-B (Delta-T), beside `0x82`'s ADPCM-A.
         0x83 => 1,
         // The YMF278B's RAM, beside `0x84`'s ROM.
         0x87 => 1,
         _ => 0,
+    }
+}
+
+/// One of a chip's linked child devices -- an OPN's SSG, the OPL4's FM half.
+///
+/// libvgm links devices for *register* traffic (the parent forwards SSG
+/// register I/O through hooks `LinkDevice` installs), but each device renders
+/// its own audio stream at its own rate -- upstream gives every link its own
+/// resampler and volume. So a child here carries a small linear resampler
+/// into the parent's rate and a gain, mirroring `GetChipVolume`'s link column.
+struct LinkedDev {
+    dev: DevInfo,
+    /// The child's level relative to the parent, 8.8 fixed point --
+    /// upstream's `GetChipVolume(..., isLinked=1)` over `isLinked=0`: half
+    /// for the YM2203's SSG, unity otherwise.
+    gain: u16,
+    /// Child frames per parent frame, 32.32 fixed point.
+    step: u64,
+    /// Position between [`last`](Self::last) and the next child frame, 32.32.
+    pos: u64,
+    /// The child frame behind the cursor, for interpolation across calls.
+    last: [i32; 2],
+    /// Scratch planes for the child's own `Update`.
+    left: Vec<i32>,
+    right: Vec<i32>,
+}
+
+impl LinkedDev {
+    /// Renders `frames` parent-rate frames of the child, linearly resampled,
+    /// and mixes them into `out_left`/`out_right` at [`gain`](Self::gain).
+    ///
+    /// # Safety
+    /// The child device must be live.
+    unsafe fn mix_into(&mut self, out_left: &mut [i32], out_right: &mut [i32], frames: usize) {
+        const ONE: u64 = 1 << 32;
+        let Some(update) = (unsafe { *self.dev.dev_def }).update else {
+            return;
+        };
+
+        // How many child frames the cursor will cross while `frames` parent
+        // frames advance it by `step` each: everything left of the final
+        // position's integer part.
+        let end = self.pos + self.step * frames as u64;
+        let needed = (end >> 32) as usize;
+        if self.left.len() < needed.max(1) {
+            self.left.resize(needed.max(1), 0);
+            self.right.resize(needed.max(1), 0);
+        }
+        if needed > 0 {
+            let mut planes = [self.left.as_mut_ptr(), self.right.as_mut_ptr()];
+            // SAFETY: a live child; the planes hold `needed` frames.
+            unsafe { update(self.dev.data_ptr, needed as u32, planes.as_mut_ptr()) };
+        }
+
+        let gain = i64::from(self.gain);
+        let mut consumed = 0usize;
+        for frame in 0..frames {
+            self.pos += self.step;
+            while self.pos >= ONE {
+                self.last = [
+                    self.left.get(consumed).copied().unwrap_or(0),
+                    self.right.get(consumed).copied().unwrap_or(0),
+                ];
+                consumed += 1;
+                self.pos -= ONE;
+            }
+            let next = [
+                self.left.get(consumed).copied().unwrap_or(self.last[0]),
+                self.right.get(consumed).copied().unwrap_or(self.last[1]),
+            ];
+            let frac = (self.pos >> 16) as i64; // 0..65536
+            let blend = |last: i32, next: i32| -> i64 {
+                let interpolated =
+                    i64::from(last) + (((i64::from(next) - i64::from(last)) * frac) >> 16);
+                (interpolated * gain) >> 8
+            };
+            out_left[frame] = out_left[frame].saturating_add(blend(self.last[0], next[0]) as i32);
+            out_right[frame] = out_right[frame].saturating_add(blend(self.last[1], next[1]) as i32);
+        }
+        debug_assert!(consumed <= needed, "resampler overran its buffer");
     }
 }
 
@@ -436,6 +639,9 @@ pub struct LibVgmChip {
     /// Zeroed while stopped; `data_ptr` non-null means started.
     dev: DevInfo,
     writers: Writers,
+    /// Children started from the parent's `linkDevs` declarations, rendering
+    /// their own streams beside it.
+    links: Vec<LinkedDev>,
     /// What the last [`reset`](ChipCore::reset) asked for, kept so
     /// [`configure`](ChipCore::configure) can restart at the same clock.
     clock: u32,
@@ -479,6 +685,7 @@ impl LibVgmChip {
             spec,
             dev: DevInfo::empty(),
             writers: Writers::default(),
+            links: Vec::new(),
             clock: 0,
             variant: false,
             settings: ChipSettings::default(),
@@ -491,8 +698,18 @@ impl LibVgmChip {
         !self.dev.data_ptr.is_null()
     }
 
-    /// Stops the device, if one is running. Idempotent.
+    /// Stops the device and its linked children, if running. Idempotent.
+    ///
+    /// Children first, then the parent -- the reverse of how they were
+    /// started, and the order upstream's `FreeDeviceTree` uses.
     fn stop(&mut self) {
+        for mut link in self.links.drain(..) {
+            // SAFETY: each child was filled by its own successful start.
+            unsafe {
+                ffi::SndEmu_FreeDevLinkData(&raw mut link.dev);
+                ffi::SndEmu_Stop(&raw mut link.dev);
+            }
+        }
         if !self.is_started() {
             return;
         }
@@ -521,11 +738,13 @@ impl LibVgmChip {
             return;
         }
 
+        // Which config shape the device reads: the chips with extended
+        // structs, and the generic prefix for everything else.
         let mut config = match self.spec.kind {
-            // The one chip whose extended config lv-2 carries; lv-3's table
-            // is where this becomes a per-spec constructor rather than a
-            // match. Kept here for now so the enum has exactly one writer.
             ChipKind::Sn76489 => DevConfig::Sn76496(Sn76496Cfg::default()),
+            ChipKind::Ay8910 => DevConfig::Ay8910(Ay8910Cfg::default()),
+            ChipKind::Okim6258 => DevConfig::Msm6258(Msm6258Cfg::default()),
+            ChipKind::SegaPcm => DevConfig::SegaPcm(SegaPcmCfg::default()),
             _ => DevConfig::Generic(DevGenCfg::default()),
         };
         {
@@ -538,15 +757,23 @@ impl LibVgmChip {
         }
         (self.spec.configure)(&mut config, &self.settings);
 
+        // The C219 is its own libvgm device rather than a C140 flag, so the
+        // header's type byte picks the device -- upstream's `DEVID_C140` case
+        // does exactly this.
+        let device = if self.spec.kind == ChipKind::C140 && self.settings.c140_type == 2 {
+            ffi::DEVID_C219
+        } else {
+            self.spec.device
+        };
+
         let mut dev = DevInfo::empty();
         // SAFETY: `config` outlives the call, its pointer is the documented
         // cast to the generic prefix, and `dev` is a valid out-param.
-        let started = unsafe { ffi::SndEmu_Start(self.spec.device, config.as_ptr(), &raw mut dev) };
+        let started = unsafe { ffi::SndEmu_Start(device, config.as_ptr(), &raw mut dev) };
         if started != EERR_OK || dev.data_ptr.is_null() || dev.dev_def.is_null() {
             log::warn!(
-                "libvgm refused to start {} (device {:#04x}): error {started:#04x}",
+                "libvgm refused to start {} (device {device:#04x}): error {started:#04x}",
                 self.spec.kind.name(),
-                self.spec.device,
             );
             return;
         }
@@ -562,6 +789,20 @@ impl LibVgmChip {
             );
         }
 
+        // Option bits VGMPlay sets by default, applied before any register
+        // arrives so the core never runs in a state the reference never uses.
+        let option_bits = default_option_bits(self.spec.kind);
+        if option_bits != 0 {
+            // SAFETY: a live device from the start above.
+            unsafe {
+                if let Some(set_options) = (*dev.dev_def).set_option_bits {
+                    set_options(dev.data_ptr, option_bits);
+                }
+            }
+        }
+
+        self.start_links();
+
         // SAFETY: as above -- a live device, reset exactly as upstream's own
         // example does immediately after starting.
         unsafe {
@@ -569,6 +810,133 @@ impl LibVgmChip {
                 reset(dev.data_ptr);
             }
         }
+    }
+
+    /// Starts the linked children the parent's `Start` declared, and links
+    /// them -- the transcription of upstream's `SetupLinkedDevices` plus the
+    /// per-child tweaks its `DeviceLinkCallback` applies.
+    fn start_links(&mut self) {
+        if self.dev.link_dev_count == 0 || self.dev.link_devs.is_null() {
+            return;
+        }
+        // SAFETY: `SndEmu_Start` filled `link_devs` with `link_dev_count`
+        // entries, owned by us until `SndEmu_FreeDevLinkData`.
+        let declared = unsafe {
+            std::slice::from_raw_parts(
+                self.dev.link_devs.cast::<DevLinkInfo>(),
+                self.dev.link_dev_count as usize,
+            )
+        };
+        // SAFETY: a live parent device.
+        let link_device = unsafe { (*self.dev.dev_def).link_device };
+        let Some(link_device) = link_device else {
+            return;
+        };
+
+        for declaration in declared {
+            if declaration.cfg.is_null() {
+                continue;
+            }
+            // The child's core and header bytes, exactly as upstream's link
+            // callback sets them: EMU2149 for an OPN's SSG (with the header's
+            // per-chip SSG flags), adlibemu for the OPL4's FM half.
+            //
+            // SAFETY: `cfg` points at a config the parent allocated for us to
+            // adjust -- that is its documented purpose.
+            unsafe {
+                match declaration.dev_id {
+                    ffi::DEVID_AY8910 => {
+                        (*declaration.cfg).emu_core = ffi::FCC_EMU_;
+                        let ay = declaration.cfg.cast::<Ay8910Cfg>();
+                        match self.spec.kind {
+                            ChipKind::Ym2203 => {
+                                (*ay).chip_flags = self.settings.ym2203_ay_flags;
+                            }
+                            ChipKind::Ym2608 => {
+                                (*ay).chip_flags = self.settings.ym2608_ay_flags;
+                            }
+                            _ => {}
+                        }
+                    }
+                    ffi::DEVID_YMF262 => {
+                        (*declaration.cfg).emu_core = ffi::FCC_ADLE;
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut child = DevInfo::empty();
+            // SAFETY: the parent-allocated cfg outlives the call; `child` is a
+            // valid out-param.
+            let started =
+                unsafe { ffi::SndEmu_Start(declaration.dev_id, declaration.cfg, &raw mut child) };
+            if started != EERR_OK || child.data_ptr.is_null() || child.dev_def.is_null() {
+                log::warn!(
+                    "libvgm's {} refused its linked device {:#04x}: error {started:#04x}",
+                    self.spec.kind.name(),
+                    declaration.dev_id,
+                );
+                continue;
+            }
+            // SAFETY: both devices are live; this is upstream's
+            // `LinkDevice(parent, linkID, &child)` call.
+            unsafe { link_device(self.dev.data_ptr, declaration.link_id, &raw const child) };
+
+            // The stereo mask function lives on the SSG child for the OPN
+            // family -- `Cmd_AY_Stereo` fetches it from the linked device.
+            // Upstream then invokes it with the *parent's* data pointer,
+            // which reads as a bug; the child's own pointer is what the
+            // function's core expects, and is what we use.
+            if declaration.dev_id == ffi::DEVID_AY8910 && self.writers.stereo.is_none() {
+                // SAFETY: a live child device definition.
+                self.writers.stereo = unsafe {
+                    ffi::device_func(
+                        child.dev_def,
+                        RWF_REGISTER | RWF_WRITE,
+                        ffi::DEVRW_ALL,
+                        ffi::USER_STEREO_MASK,
+                    )
+                    .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteOptMask>(p))
+                };
+            }
+
+            let child_rate = child.sample_rate.max(1);
+            let parent_rate = self.dev.sample_rate.max(1);
+            self.links.push(LinkedDev {
+                dev: child,
+                gain: link_gain(self.spec.kind),
+                step: (u64::from(child_rate) << 32) / u64::from(parent_rate),
+                pos: 0,
+                last: [0, 0],
+                left: Vec::new(),
+                right: Vec::new(),
+            });
+        }
+    }
+}
+
+/// The option bits VGMPlay applies to a chip before playing anything --
+/// transcribed from its `InitDevOptions` defaults, so the cores run in the
+/// same mode the reference runs them.
+const fn default_option_bits(kind: ChipKind) -> u32 {
+    match kind {
+        // NSFPlay's recommended APU/DMC options.
+        ChipKind::NesApu => 0x01B7,
+        // `OPT_SCSP_BYPASS_DSP`: the DSP is skipped by default upstream.
+        ChipKind::Scsp => 0x01,
+        _ => 0,
+    }
+}
+
+/// A linked child's level relative to its parent, 8.8 fixed point.
+///
+/// Upstream's `GetChipVolume(..., isLinked=1)`: the YM2203's SSG plays at
+/// half the FM's volume; every other link (the 2608/2610 SSG, the OPL4's FM)
+/// at parity.
+const fn link_gain(kind: ChipKind) -> u16 {
+    match kind {
+        ChipKind::Ym2203 => 0x80,
+        _ => 0x100,
     }
 }
 
@@ -644,6 +1012,25 @@ impl ChipCore for LibVgmChip {
                         write(chip, address, value);
                     }
                 }
+                Bus::RegD16(address, value) => {
+                    if let Some(write) = self.writers.data16 {
+                        write(chip, address, value);
+                    }
+                }
+                Bus::StereoMask(mask) => {
+                    if let Some(write) = self.writers.stereo {
+                        // The AY's own chip for a bare AY8910; the linked
+                        // SSG's for an OPN -- `start_links` fetched the
+                        // function from whichever device carries it, and its
+                        // data pointer travels with it.
+                        let target = self
+                            .links
+                            .iter()
+                            .find(|link| !link.dev.data_ptr.is_null())
+                            .map_or(chip, |link| link.dev.data_ptr);
+                        write(target, u32::from(mask));
+                    }
+                }
                 Bus::Nothing => {}
             }
         }
@@ -674,13 +1061,25 @@ impl ChipCore for LibVgmChip {
         }
     }
 
-    /// A RAM block, through the chip's memory writer, byte by byte.
+    /// A RAM block: through the chip's block writer where it has one, or its
+    /// memory writer byte by byte.
     ///
-    /// libvgm has no block form for RAM -- upstream's `Cmd_PcmRamWrite` loops
-    /// `writeM8` too -- because the chips that take one (the RF5C pair) apply
-    /// a bank offset per byte.
+    /// The split is upstream's. The RF5C pair take RAM through `writeM8`
+    /// (each byte lands through a bank register, so there is no block form),
+    /// while the SCSP's half-megabyte sample RAM arrives through the same
+    /// `DEVRW_BLOCK` writer its ROMs would -- its addresses do not even fit
+    /// the 16-bit memory writer.
     fn write_ram(&mut self, offset: u32, data: &[u8]) {
         if !self.is_started() {
+            return;
+        }
+        if ram_via_block(self.spec.kind) {
+            if let Some(write) = self.writers.rom_write[0]
+                && !data.is_empty()
+            {
+                // SAFETY: a live device; libvgm copies out of `data`.
+                unsafe { write(self.dev.data_ptr, offset, data.len() as u32, data.as_ptr()) };
+            }
             return;
         }
         let Some(write) = self.writers.mem8 else {
@@ -723,6 +1122,21 @@ impl ChipCore for LibVgmChip {
             update(self.dev.data_ptr, frames as u32, planes.as_mut_ptr());
         }
 
+        // The linked children -- an OPN's SSG, the OPL4's FM -- render their
+        // own streams at their own rates and are mixed in here, each through
+        // its resampler and link gain, as upstream mixes each `linkDev`
+        // through its own `Resmpl` chain. Taken out of `self` for the loop so
+        // the planes can be borrowed alongside them.
+        let mut links = std::mem::take(&mut self.links);
+        for link in &mut links {
+            if link.dev.data_ptr.is_null() {
+                continue;
+            }
+            // SAFETY: a live child device.
+            unsafe { link.mix_into(&mut self.left, &mut self.right, frames) };
+        }
+        self.links = links;
+
         for (frame, (&left, &right)) in out
             .chunks_exact_mut(2)
             .zip(self.left.iter().zip(self.right.iter()))
@@ -731,6 +1145,13 @@ impl ChipCore for LibVgmChip {
             frame[1] = right;
         }
     }
+}
+
+/// Whether `kind` takes its RAM blocks through the block writer rather than
+/// the byte-wide memory writer. Only the SCSP today -- see
+/// [`LibVgmChip::write_ram`].
+const fn ram_via_block(kind: ChipKind) -> bool {
+    matches!(kind, ChipKind::Scsp)
 }
 
 /// Declares the chip table and, per row, the bare `fn` the registry needs.
@@ -779,17 +1200,14 @@ macro_rules! chip_specs {
 chip_specs! {
     // --- `emu_core` is named only where the device has more than one core ---
     //
-    // For a single-core device, `0` is unambiguous. Where there is a choice,
-    // the value must match what the pinned reference runs or the parity row
-    // measures two emulators rather than our binding -- the lv-2 lesson,
-    // written into the two rows that need it. `[SN76496] Core = MAXM` and
-    // `[HuC6280] Core = OOTK` are the only relevant selections the pinned ini
-    // makes; QSound and RF5C68 also have a choice and the ini leaves it to
-    // VGMPlay's default, so **their core is unarbitrated and lv-4 must settle
-    // it by measurement** before either takes a row.
+    // For a single-core device, `0` is unambiguous; where there is a choice,
+    // `0` takes libvgm's own default and lv-6 publishes the alternatives as
+    // picker entries. The two named selections predate the scorecard's
+    // retirement and stay: they are the cores the reference ran, and nothing
+    // has since arbitrated a better default.
 
     make_sn76489: "sn76489.libvgm" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;  // measured 1.000 (n=12) -- already exact
+        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
     make_huc6280: "huc6280.libvgm" => HuC6280,
         ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
@@ -801,50 +1219,99 @@ chip_specs! {
     make_upd7759: "upd7759.libvgm" => Upd7759,
         ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_okim6258: "okim6258.libvgm" => Okim6258,
-        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_msm6258;
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
     make_es5503: "es5503.libvgm" => Es5503,
-        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
+    make_gameboydmg: "gameboydmg.libvgm" => GameBoyDmg,
+        ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    make_pokey: "pokey.libvgm" => Pokey,
+        ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    make_mikey: "mikey.libvgm" => Mikey,
+        ffi::DEVID_MIKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+
+    // Plain files with one upstream quirk each -- the remap is the rule's.
+    make_nesapu: "nesapu.libvgm" => NesApu,
+        ffi::DEVID_NES_APU, 0, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
+    make_okim6295: "okim6295.libvgm" => Okim6295,
+        ffi::DEVID_MSM6295, 0, WriteRule::Okim6295, [0, 0], LEVEL_UNITY, configure_none;
+    make_wonderswan: "wonderswan.libvgm" => WonderSwan,
+        ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], LEVEL_UNITY, configure_none;
+    make_saa1099: "saa1099.libvgm" => Saa1099,
+        ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
+
+    // The AY8910, with its `0x31` stereo mask on the dedicated function.
+    make_ay8910: "ay8910.libvgm" => Ay8910,
+        ffi::DEVID_AY8910, 0, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
 
     // The Yamaha latch pair.
     make_ymz280b: "ymz280b.libvgm" => Ymz280b,
         ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], 303, configure_none;  // measured 1.185 (n=12)
     make_k051649: "k051649.libvgm" => K051649,
         ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2413: "ym2413.libvgm" => Ym2413,
+        ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2612: "ym2612.libvgm" => Ym2612,
+        ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2151: "ym2151.libvgm" => Ym2151,
+        ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ymf271: "ymf271.libvgm" => Ymf271,
+        ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    // The OPL4: its wave half is this device, its FM half a linked YMF262.
+    // Not an OPL row -- the OPL family's own chips stay on `PlayerEngine`.
+    make_ymf278b: "ymf278b.libvgm" => Ymf278b,
+        ffi::DEVID_YMF278B, 0, WriteRule::RegisterLatch, [0x524F, 0x5241], LEVEL_UNITY, configure_none;
 
-    // Memory-space writes with the address arriving whole (`0xC0`, `0xC7`,
-    // `0xC8`).
+    // The OPN family: the latch pair, a linked SSG, and the YM2203's stereo
+    // mask riding the SSG's own function.
+    make_ym2203: "ym2203.libvgm" => Ym2203,
+        ffi::DEVID_YM2203, 0, WriteRule::OpnFamily, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2608: "ym2608.libvgm" => Ym2608,
+        ffi::DEVID_YM2608, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
+    make_ym2610: "ym2610.libvgm" => Ym2610,
+        ffi::DEVID_YM2610, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
+
+    // Memory-space writes with the address arriving whole (`0xC0`, `0xC5`,
+    // `0xC7`, `0xC8`).
     make_segapcm: "segapcm.libvgm" => SegaPcm,
-        ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_segapcm;
     make_x1010: "x1010.libvgm" => X1010,
         ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
     make_vsu: "vsu.libvgm" => Vsu,
         ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
+    make_scsp: "scsp.libvgm" => Scsp,
+        ffi::DEVID_SCSP, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_scsp;
 
     // ...and with it split across our `port`/`addr` (`0xD3`, `0xD4`).
     make_c140: "c140.libvgm" => C140,
-        ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_none;  // measured 1.297 (n=12)
+        ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_c140;  // measured 1.297 (n=12)
     make_k054539: "k054539.libvgm" => K054539,
-        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_k054539;
 
-    // The one-off shapes: the three the plan named, plus the MultiPCM's bank.
+    // The one-off shapes: the three the plan named, the MultiPCM's bank, the
+    // PWM's 12-bit values, and the ES5506's two widths.
     make_c352: "c352.libvgm" => C352,
-        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_c352;
     make_qsound: "qsound.libvgm" => QSound,
-        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
     // `Cmd_YMW_Bank`. `Register` served it until 2026-07-29, which sent the
     // bank select at the register file and dropped the bank entirely.
     make_multipcm: "multipcm.libvgm" => MultiPcm,
-        ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_multipcm;
+    make_pwm: "pwm.libvgm" => Pwm,
+        ffi::DEVID_32X_PWM, 0, WriteRule::Data16, [0, 0], LEVEL_UNITY, configure_none;
+    // No ES5505/ES5506 row: libvgm's `es5506.c` is a 32-line stub -- a
+    // `DEV_DECL` whose core list is `{ NULL }` -- so `SndEmu_Start` has
+    // nothing to start. The chip stays unplayable until upstream grows the
+    // emulator; the decoder's `0xBE`/`0xD6` conventions are ready for it.
 
     make_rf5c68: "rf5c68.libvgm" => Rf5c68,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_none;
-    // The same device; `flags` (our `variant`) is what makes it the 164, and
-    // the engine sets that from the header.
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
+    // The same device; `flags` is what makes it the 164.
     make_rf5c164: "rf5c164.libvgm" => Rf5c164,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
 /// A chip whose configuration is only the generic fields.
@@ -852,6 +1319,119 @@ chip_specs! {
 /// Most of them: the clock, the rate mode and the variant flag are set before
 /// this is called, and there is nothing else the header carries.
 fn configure_none(_config: &mut DevConfig, _settings: &ChipSettings) {}
+
+/// The AY8910's type and flags bytes, from the header's `0x78`/`0x79`.
+fn configure_ay8910(config: &mut DevConfig, settings: &ChipSettings) {
+    let DevConfig::Ay8910(cfg) = config else {
+        debug_assert!(false, "the AY8910 spec must be given an Ay8910 config");
+        return;
+    };
+    cfg.chip_type = settings.ay8910_type;
+    cfg.chip_flags = settings.ay8910_flags;
+}
+
+/// The OKIM6258's divider and bit widths, decoded from the header's flags
+/// byte at `0x94` exactly as upstream's `DEVID_MSM6258` case does.
+fn configure_msm6258(config: &mut DevConfig, settings: &ChipSettings) {
+    let DevConfig::Msm6258(cfg) = config else {
+        debug_assert!(false, "the OKIM6258 spec must be given an Msm6258 config");
+        return;
+    };
+    let flags = settings.okim6258_flags;
+    cfg.divider = flags & 0x03;
+    cfg.adpcm_bits = if flags & 0x04 != 0 { 4 } else { 3 };
+    cfg.output_bits = if flags & 0x08 != 0 { 12 } else { 10 };
+}
+
+/// Sega PCM's bank shift and mask, from the interface register at `0x3C`.
+fn configure_segapcm(config: &mut DevConfig, settings: &ChipSettings) {
+    let DevConfig::SegaPcm(cfg) = config else {
+        debug_assert!(false, "the SegaPCM spec must be given a SegaPcm config");
+        return;
+    };
+    cfg.bnkshift = (settings.sega_pcm_interface & 0xFF) as u8;
+    cfg.bnkmask = ((settings.sega_pcm_interface >> 16) & 0xFF) as u8;
+}
+
+/// The K054539's flags byte, plus upstream's low-clock rescue: a "clock"
+/// under 1 MHz is really a sample rate from 2012-era logs, times 384.
+fn configure_k054539(config: &mut DevConfig, settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    generic.flags = settings.k054539_flags;
+    if generic.clock < 1_000_000 {
+        generic.clock *= 384;
+    }
+}
+
+/// The SCSP's low-clock rescue: under 1 MHz is a sample rate, times 512.
+fn configure_scsp(config: &mut DevConfig, _settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    if generic.clock < 1_000_000 {
+        generic.clock *= 512;
+    }
+}
+
+/// The C140's banking type and clock rescues -- and when the type byte says
+/// C219, `start` swaps the *device*, because libvgm gives the variant its own.
+fn configure_c140(config: &mut DevConfig, settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    if settings.c140_type == 2 {
+        if generic.clock == 44_100 {
+            generic.clock = 25_056_500;
+        } else if generic.clock < 1_000_000 {
+            generic.clock *= 576;
+        }
+    } else {
+        if generic.clock == 21_390 {
+            generic.clock = 12_288_000;
+        } else if generic.clock < 1_000_000 {
+            generic.clock *= 576;
+        }
+        generic.flags = settings.c140_type;
+    }
+}
+
+/// The C352's clock divider: `real = VGM clock * 72 / divider`, as upstream
+/// computes it. A zero divider (an unfilled header field) leaves the clock.
+fn configure_c352(config: &mut DevConfig, settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    if settings.c352_clock_divider != 0 {
+        let scaled = u64::from(generic.clock) * 72 / u64::from(settings.c352_clock_divider);
+        generic.clock = u32::try_from(scaled).unwrap_or(generic.clock);
+    }
+}
+
+/// The QSound's clock rescue: old logs stored the 4 MHz serial clock where
+/// the 60 MHz DSP clock belongs.
+fn configure_qsound(config: &mut DevConfig, _settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    if generic.clock < 5_000_000 {
+        generic.clock *= 15;
+    }
+}
+
+/// The ES5503's output-channel count, from the header's `0xD4`.
+fn configure_es5503(config: &mut DevConfig, settings: &ChipSettings) {
+    config.generic_mut().flags = settings.es5503_channels;
+}
+
+/// The MultiPCM's clock fix: VGM stores the old /180-divider clock, and the
+/// core divides by 224, so upstream rescales by 224/180 on the way in.
+fn configure_multipcm(config: &mut DevConfig, _settings: &ChipSettings) {
+    let generic = config.generic_mut();
+    let scaled = u64::from(generic.clock) * 224 / 180;
+    generic.clock = u32::try_from(scaled).unwrap_or(generic.clock);
+}
+
+/// The RF5C68 half of the shared device: `flags` 0, as upstream sets it.
+fn configure_rf5c68(config: &mut DevConfig, _settings: &ChipSettings) {
+    config.generic_mut().flags = 0;
+}
+
+/// The RF5C164 half: `flags` 1 is what makes the shared device the 164.
+fn configure_rf5c164(config: &mut DevConfig, _settings: &ChipSettings) {
+    config.generic_mut().flags = 1;
+}
 
 /// The spec for `kind`.
 ///
@@ -1244,6 +1824,111 @@ mod tests {
             fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0110),
             Bus::Reg8(0x10, 0x01),
             "these registers hold a byte; a ROM over 16 MB is not expressible"
+        );
+
+        // `Cmd_NES_Reg`'s FDS remap: 0x3F is the I/O enable at 0x23, the
+        // 0x20-0x3E block moves to 0x80-0x9E, and the APU's own registers
+        // pass through untouched.
+        assert_eq!(
+            fold(WriteRule::NesApu, 0, 0x3F, 0x80),
+            Bus::Reg8(0x23, 0x80)
+        );
+        assert_eq!(
+            fold(WriteRule::NesApu, 0, 0x22, 0x7F),
+            Bus::Reg8(0x82, 0x7F)
+        );
+        assert_eq!(
+            fold(WriteRule::NesApu, 0, 0x15, 0x0F),
+            Bus::Reg8(0x15, 0x0F)
+        );
+
+        // `Cmd_OKIM6295_Reg`: only the clock-select register strips bit 7.
+        assert_eq!(
+            fold(WriteRule::Okim6295, 0, 0x0B, 0x85),
+            Bus::Reg8(0x0B, 0x05),
+            "the stray pin-7 bit some MAME logs carry is dropped"
+        );
+        assert_eq!(
+            fold(WriteRule::Okim6295, 0, 0x00, 0x85),
+            Bus::Reg8(0x00, 0x85)
+        );
+
+        // `Cmd_WSwan_Reg`: the audio ports live at 0x80 on the chip's own
+        // bus; wave RAM keeps its own writer through our port convention.
+        assert_eq!(
+            fold(WriteRule::WonderSwan, 0, 0x0F, 0x42),
+            Bus::Reg8(0x8F, 0x42)
+        );
+        assert_eq!(
+            fold(WriteRule::WonderSwan, MEMORY_PORT, 0x0123, 0x42),
+            Bus::Mem8(0x0123, 0x42),
+            "wave RAM is a memory poke, not an offset register"
+        );
+
+        // `Cmd_SAA_Reg`: the mirror image of the Yamaha pair -- register to
+        // offset 1, then data to offset 0.
+        assert_eq!(
+            fold(WriteRule::ReversedLatch, 0, 0x14, 0xFF),
+            Bus::Reg8Pair((0x01, 0x14), (0x00, 0xFF))
+        );
+
+        // `Cmd_Ofs4_Data12`: the PWM's nibble register with its 12-bit value,
+        // through the 16-bit-data writer.
+        assert_eq!(
+            fold(WriteRule::Data16, 0, 0x02, 0x0155),
+            Bus::RegD16(0x02, 0x0155)
+        );
+
+        // `Cmd_AY_Stereo`: the mask goes to the dedicated function, never the
+        // register file -- and plain register writes are unaffected.
+        assert_eq!(
+            fold(WriteRule::RegisterWithStereo, STEREO_PORT, 0, 0x2D),
+            Bus::StereoMask(0x2D)
+        );
+        assert_eq!(
+            fold(WriteRule::RegisterWithStereo, 0, 0x01, 0x0F),
+            Bus::Reg8(0x01, 0x0F)
+        );
+
+        // The OPN family: the latch pair on its ports, the YM2203's stereo
+        // mask on the SSG's function.
+        assert_eq!(
+            fold(WriteRule::OpnFamily, 1, 0x28, 0xF1),
+            Bus::Reg8Pair((0x02, 0x28), (0x03, 0xF1))
+        );
+        assert_eq!(
+            fold(WriteRule::OpnFamily, STEREO_PORT, 0, 0x15),
+            Bus::StereoMask(0x15)
+        );
+    }
+
+    /// The OPN family's SSG is a *linked* AY8910 device, and the link is only
+    /// proven by sound: the register writes travel through the parent, the
+    /// audio comes back through the child's own stream and the mixer.
+    #[test]
+    fn an_opn_chips_linked_ssg_actually_sounds() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Ym2203));
+        chip.reset(3_993_600, false);
+        chip.configure(&ChipSettings::default());
+        assert!(chip.is_started(), "the YM2203 starts");
+        assert!(!chip.links.is_empty(), "and brings its SSG up with it");
+
+        let mut quiet = vec![0i32; 4096];
+        chip.render(&mut quiet);
+        let at_rest = energy(&quiet);
+
+        // SSG channel A: a mid period, tone A enabled, full volume -- the
+        // registers live at the bottom of the OPN's first port.
+        chip.write(0, 0x00, 0x50); // fine period
+        chip.write(0, 0x07, 0x3E); // mixer: tone A on, the rest off
+        chip.write(0, 0x08, 0x0F); // channel A volume
+
+        let mut loud = vec![0i32; 4096];
+        chip.render(&mut loud);
+        assert!(
+            energy(&loud) > at_rest * 4 + 1000,
+            "the SSG must sound through the link (rest {at_rest}, playing {})",
+            energy(&loud)
         );
     }
 

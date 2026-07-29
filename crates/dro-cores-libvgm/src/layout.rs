@@ -13,7 +13,10 @@
 
 use std::ffi::c_void;
 
-use crate::ffi::{DevDef, DevDefRwFunc, DevGenCfg, DevInfo, Sn76496Cfg};
+use crate::ffi::{
+    Ay8910Cfg, DevDef, DevDefRwFunc, DevGenCfg, DevInfo, DevLinkInfo, Msm6258Cfg, SegaPcmCfg,
+    Sn76496Cfg,
+};
 
 unsafe extern "C" {
     fn drotrim_libvgm_gencfg_sizeof() -> usize;
@@ -26,6 +29,19 @@ unsafe extern "C" {
     fn drotrim_libvgm_rwfunc_alignof() -> usize;
     fn drotrim_libvgm_sn76496cfg_sizeof() -> usize;
     fn drotrim_libvgm_sn76496cfg_alignof() -> usize;
+    fn drotrim_libvgm_ay8910cfg_sizeof() -> usize;
+    fn drotrim_libvgm_ay8910cfg_alignof() -> usize;
+    fn drotrim_libvgm_ay8910cfg_off_chiptype() -> usize;
+    fn drotrim_libvgm_msm6258cfg_sizeof() -> usize;
+    fn drotrim_libvgm_msm6258cfg_alignof() -> usize;
+    fn drotrim_libvgm_msm6258cfg_off_divider() -> usize;
+    fn drotrim_libvgm_segapcmcfg_sizeof() -> usize;
+    fn drotrim_libvgm_segapcmcfg_alignof() -> usize;
+    fn drotrim_libvgm_segapcmcfg_off_bnkshift() -> usize;
+    fn drotrim_libvgm_devlink_sizeof() -> usize;
+    fn drotrim_libvgm_devlink_alignof() -> usize;
+    fn drotrim_libvgm_devlink_off_linkid() -> usize;
+    fn drotrim_libvgm_devlink_off_cfg() -> usize;
 
     fn drotrim_libvgm_devinfo_off_dataptr() -> usize;
     fn drotrim_libvgm_devinfo_off_samplerate() -> usize;
@@ -102,6 +118,63 @@ mod tests {
                     drotrim_libvgm_sn76496cfg_alignof()
                 ),
                 "SN76496_CFG"
+            );
+            assert_eq!(
+                (size_of::<Ay8910Cfg>(), align_of::<Ay8910Cfg>()),
+                (
+                    drotrim_libvgm_ay8910cfg_sizeof(),
+                    drotrim_libvgm_ay8910cfg_alignof()
+                ),
+                "AY8910_CFG"
+            );
+            assert_eq!(
+                (size_of::<Msm6258Cfg>(), align_of::<Msm6258Cfg>()),
+                (
+                    drotrim_libvgm_msm6258cfg_sizeof(),
+                    drotrim_libvgm_msm6258cfg_alignof()
+                ),
+                "MSM6258_CFG"
+            );
+            assert_eq!(
+                (size_of::<SegaPcmCfg>(), align_of::<SegaPcmCfg>()),
+                (
+                    drotrim_libvgm_segapcmcfg_sizeof(),
+                    drotrim_libvgm_segapcmcfg_alignof()
+                ),
+                "SEGAPCM_CFG"
+            );
+            assert_eq!(
+                (size_of::<DevLinkInfo>(), align_of::<DevLinkInfo>()),
+                (
+                    drotrim_libvgm_devlink_sizeof(),
+                    drotrim_libvgm_devlink_alignof()
+                ),
+                "DEVLINK_INFO"
+            );
+            assert_eq!(
+                offset!(Ay8910Cfg, chip_type),
+                drotrim_libvgm_ay8910cfg_off_chiptype(),
+                "AY8910_CFG::chipType"
+            );
+            assert_eq!(
+                offset!(Msm6258Cfg, divider),
+                drotrim_libvgm_msm6258cfg_off_divider(),
+                "MSM6258_CFG::divider"
+            );
+            assert_eq!(
+                offset!(SegaPcmCfg, bnkshift),
+                drotrim_libvgm_segapcmcfg_off_bnkshift(),
+                "SEGAPCM_CFG::bnkshift"
+            );
+            assert_eq!(
+                offset!(DevLinkInfo, link_id),
+                drotrim_libvgm_devlink_off_linkid(),
+                "DEVLINK_INFO::linkID"
+            );
+            assert_eq!(
+                offset!(DevLinkInfo, cfg),
+                drotrim_libvgm_devlink_off_cfg(),
+                "DEVLINK_INFO::cfg"
             );
         }
     }
