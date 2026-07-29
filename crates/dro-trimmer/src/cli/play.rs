@@ -14,7 +14,7 @@ use dro_audio_native::NativeAudio;
 use dro_core::config::AudioConfig;
 use dro_core::util::ms_to_timestr;
 
-use crate::{load_config, read_song_from_path};
+use crate::{LoadedSong, load_config, read_any_song_from_path};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -36,7 +36,7 @@ pub struct Args {
 /// If the song cannot be read, the boost is out of range, or no audio device
 /// can be opened.
 pub fn run(args: &Args) -> Result<()> {
-    let song = read_song_from_path(&args.input)?;
+    let song = read_any_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
     let mut config = load_config();
@@ -47,9 +47,19 @@ pub fn run(args: &Args) -> Result<()> {
             .validate()
             .with_context(|| format!("invalid --boost {boost}"))?;
     }
-    let total_ms = song.total_delay_ms();
+    let total_ms = song.total_ms();
     match &args.retrowave {
-        Some(port) => play_on_hardware(song, port.as_str(), total_ms),
+        Some(port) => {
+            // The board is an OPL3; only an OPL stream can drive it. Same
+            // refusal the GUI's hardware output makes.
+            let LoadedSong::Opl(song) = song else {
+                anyhow::bail!(
+                    "{} is not an OPL song, and the RetroWave output is an OPL3.",
+                    args.input.display()
+                );
+            };
+            play_on_hardware(song, port.as_str(), total_ms)
+        }
         None => play(song, &config.audio, total_ms),
     }
 }
@@ -80,8 +90,9 @@ impl Playable for dro_retrowave::RetroWaveAudio {
 
 /// Plays `song` through the default output device, showing progress until it
 /// finishes or the process is interrupted.
-fn play(song: dro_core::Song, audio: &AudioConfig, total_ms: u32) -> Result<()> {
-    let player = NativeAudio::new(&dro_synth::AudioSource::Opl(Arc::new(song)), audio)
+fn play(song: LoadedSong, audio: &AudioConfig, total_ms: u32) -> Result<()> {
+    crate::warn_missing_cores(&song.chips(), "playing it would be silence")?;
+    let player = NativeAudio::new(&song.audio_source(), audio)
         .context("opening the audio device (is one available?)")?;
     player.play()?;
     show_progress(&player, total_ms);
