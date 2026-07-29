@@ -321,4 +321,8 @@ pub enum Action {
     /// core picked in Settings is heard at once. Closing the dialog re-emits
     /// the saved map, which reverts.
     PreviewCores(std::collections::BTreeMap<String, String>),
+    /// Audition a resampling mode (the `sinc`/`linear` slug) without saving it:
+    /// the loaded stream is rebuilt in place with it, so a mode picked in
+    /// Settings is heard at once. Closing re-emits the saved mode, which reverts.
+    PreviewResampling(String),
 }

@@ -2087,6 +2087,7 @@ impl DroApp {
                 deck_style,
             } => self.preview_skin(ctx, theme, pad_style, deck_style),
             Action::PreviewCores(cores) => self.preview_cores(cores),
+            Action::PreviewResampling(mode) => self.preview_resampling(mode),
         }
     }
 
@@ -3739,6 +3740,19 @@ impl DroApp {
     /// picked core is heard from the position the old one had reached.
     fn preview_cores(&mut self, cores: std::collections::BTreeMap<String, String>) {
         dro_synth::registry::set_core_choices(cores);
+        self.reload_audio_in_place();
+    }
+
+    /// Auditions a resampling mode without saving it: the loaded stream reads
+    /// its resampling from the live config at build time, so the config's mode
+    /// is set and the stream rebuilt in place. Closing the dialog re-emits the
+    /// saved mode, which reverts this. A DRO plays through the OPL engine, which
+    /// has no resampling, so this is only audible on a VGM.
+    fn preview_resampling(&mut self, mode: String) {
+        if self.config.audio.resampling == mode {
+            return;
+        }
+        self.config.audio.resampling = mode;
         self.reload_audio_in_place();
     }
 

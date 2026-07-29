@@ -75,6 +75,13 @@ pub struct SettingsDialog {
     /// How non-OPL chips reach the output rate: the `sinc`/`linear` slug,
     /// kept as the config spells it.
     resampling: String,
+    /// The resampling slug last auditioned live, so a change is previewed once.
+    /// The resampling analogue of [`Self::previewed_cores`].
+    previewed_resampling: String,
+    /// Whether the "All chips" roster is unfolded. Collapsed by default while a
+    /// song is open (its chips are up in "Current"); shown outright when nothing
+    /// is loaded.
+    all_expanded: bool,
     /// The chosen port, or empty for "whichever one is found".
     retrowave_port: String,
     /// The ports offered in the picker, listed when the dialog opened.
@@ -105,10 +112,14 @@ impl SettingsDialog {
             cores: config.audio.cores.clone(),
             previewed_cores: config.audio.cores.clone(),
             resampling: config.audio.resampling.clone(),
+            previewed_resampling: config.audio.resampling.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
             ports,
             tab: SettingsTab::Output,
             song: None,
+            // No song yet, so the roster is the whole point of the page: shown.
+            // `with_song` folds it once a song gives "Current" something to hold.
+            all_expanded: true,
         }
     }
 
@@ -118,6 +129,9 @@ impl SettingsDialog {
     #[must_use]
     pub fn with_song(mut self, song: SongContext) -> Self {
         self.song = Some(song);
+        // A loaded song's own chips lead the page under "Current", so the full
+        // roster starts folded -- click to open it.
+        self.all_expanded = false;
         self
     }
 
@@ -227,7 +241,28 @@ impl SettingsDialog {
         let closing = close.get() || !open || saved;
         actions.extend(self.preview(opened_with, closing, saved));
         actions.extend(self.preview_cores(closing, saved));
+        actions.extend(self.preview_resampling(closing, saved));
         !closing
+    }
+
+    /// The resampling preview to emit this frame, if any -- the resampling
+    /// analogue of [`Self::preview_cores`]: picking a mode auditions it on the
+    /// live stream at once, closing without saving puts the saved mode back, and
+    /// Save hands it to `ApplySettings` instead.
+    fn preview_resampling(&mut self, closing: bool, saved: bool) -> Option<Action> {
+        if saved {
+            return None;
+        }
+        let wanted = if closing {
+            self.original.audio.resampling.clone()
+        } else {
+            self.resampling.clone()
+        };
+        if wanted == self.previewed_resampling {
+            return None;
+        }
+        self.previewed_resampling = wanted.clone();
+        Some(Action::PreviewResampling(wanted))
     }
 
     /// The Output page: which core plays each chip, and where the sound goes.
@@ -270,19 +305,56 @@ impl SettingsDialog {
             ui.add_space(6.0);
         }
 
-        // "All chips": every other chip, each configurable. Headed only when
-        // there is a Current section above to distinguish it from.
-        if !plan.song.is_empty() {
-            ui.colored_label(palette.muted, "All chips");
+        // "All chips": every other chip, each configurable. While a song is
+        // loaded its own chips lead under "Current", so the full roster folds
+        // behind a click-to-open disclosure; with nothing loaded the roster is
+        // the page and shows outright.
+        let has_song = !plan.song.is_empty();
+        let show_all = if has_song {
+            // CP437 triangles (as the volume stepper uses), so the DOS face has
+            // the glyph rather than falling through to a box.
+            let (glyph, tail) = if self.all_expanded {
+                ("\u{25BC}", String::new()) // down: open
+            } else {
+                ("\u{25BA}", format!(" ({} more)", plan.all.len())) // right: folded
+            };
+            let header = ui
+                .add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("{glyph} All chips{tail}"))
+                            .color(palette.muted),
+                    )
+                    .sense(egui::Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if header.clicked() {
+                self.all_expanded = !self.all_expanded;
+            }
+            self.all_expanded
+        } else {
+            true
+        };
+
+        if show_all {
+            egui::Grid::new("settings-output-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    for row in &plan.all {
+                        chip_output::chip_row(ui, palette, &mut self.cores, row);
+                    }
+                });
         }
-        egui::Grid::new("settings-output-grid")
+
+        // The output-signal settings sit below the roster and stay visible even
+        // when "All chips" is folded -- a separator divides them from the list.
+        ui.add_space(8.0);
+        crate::theme::separator_clipped(ui, palette);
+        ui.add_space(6.0);
+        egui::Grid::new("settings-signal-grid")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
-                for row in &plan.all {
-                    chip_output::chip_row(ui, palette, &mut self.cores, row);
-                }
-
                 // The board's port, only when hardware is the OPL choice: with
                 // an emulator there is no port to pick.
                 if self.backend() == OutputBackend::RetroWave {
@@ -311,8 +383,8 @@ impl SettingsDialog {
                 }
 
                 // Resampling shapes the same signal the cores produce: how their
-                // output reaches the sound card's rate. Always shown -- it is a
-                // property of every non-OPL chip, not of the OPL backend.
+                // output reaches the sound card's rate. Applies live, like a core
+                // pick, and reverts on Close.
                 ui.label("Resampling").on_hover_text(
                     "How non-OPL chips are brought to the output rate. Band-limited is the \
                      accurate capture of the chip; linear folds high frequencies back into \
@@ -938,6 +1010,52 @@ mod tests {
         // Save hands the map to ApplySettings instead of previewing it again.
         dialog.choose_core("ym2612", "nuked");
         assert!(dialog.preview_cores(true, true).is_none());
+    }
+
+    /// Resampling auditions the same way a core does: once on change, reverting
+    /// on Close, and nothing on Save (ApplySettings carries it).
+    #[test]
+    fn picking_resampling_previews_it_once_and_close_reverts() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert!(dialog.preview_resampling(false, false).is_none(), "no change");
+
+        dialog.resampling = "linear".to_owned();
+        let Some(Action::PreviewResampling(mode)) = dialog.preview_resampling(false, false) else {
+            panic!("expected a resampling preview");
+        };
+        assert_eq!(mode, "linear");
+        assert!(
+            dialog.preview_resampling(false, false).is_none(),
+            "previewed once, not every frame"
+        );
+
+        // Close reverts to the saved mode.
+        let Some(Action::PreviewResampling(mode)) = dialog.preview_resampling(true, false) else {
+            panic!("expected the revert preview");
+        };
+        assert_eq!(mode, dialog.original.audio.resampling);
+
+        // Save carries it through ApplySettings, so no preview beside it.
+        dialog.resampling = "sinc".to_owned();
+        assert!(dialog.preview_resampling(true, true).is_none());
+    }
+
+    /// A loaded song folds the roster; an empty editor shows it.
+    #[test]
+    fn the_roster_folds_only_when_a_song_is_loaded() {
+        let plain = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert!(plain.all_expanded, "no song -> the roster is shown");
+
+        let with_song = SettingsDialog::new(&AppConfig::default(), Vec::new()).with_song(
+            SongContext {
+                name: "song.vgm".to_owned(),
+                chips: vec![ChipKind::Ym2612],
+            },
+        );
+        assert!(
+            !with_song.all_expanded,
+            "a loaded song folds it behind the disclosure"
+        );
     }
 
     /// A port saved on another machine, or since unplugged, must still be named
