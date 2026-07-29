@@ -10,12 +10,20 @@
 
 use std::collections::BTreeMap;
 
+use dro_core::chip_docs::ChipAnalyzer;
+use dro_core::vgm::VgmStream;
 use dro_core::{RegisterAnalyzer, RowAnalysis, Song};
 
 #[derive(Debug, Default)]
 pub struct AnalysisCache {
     analyzer: RegisterAnalyzer,
     rows: BTreeMap<usize, RowAnalysis>,
+    /// The multichip counterpart of `analyzer`, for a VGM with no OPL reading.
+    /// Its rows memoise `Option<String>`: `None` is "undocumented -- the caller
+    /// falls back to the generic one-liner", cached so the analyser is not
+    /// re-run for it.
+    chip_analyzer: ChipAnalyzer,
+    chip_rows: BTreeMap<usize, Option<String>>,
 }
 
 impl AnalysisCache {
@@ -27,11 +35,13 @@ impl AnalysisCache {
         Self::default()
     }
 
-    /// Discards everything. Call after any edit, undo or redo: both the memo
-    /// and the cursor's replayed chip state are stale.
+    /// Discards everything. Call after any edit, undo or redo: both memos and
+    /// both cursors' replayed chip state are stale.
     pub fn invalidate(&mut self) {
         self.analyzer.reset();
         self.rows.clear();
+        self.chip_analyzer.reset();
+        self.chip_rows.clear();
     }
 
     /// The Bank and Description columns for `index`, or `None` out of range.
@@ -45,6 +55,26 @@ impl AnalysisCache {
         }
         self.rows.insert(index, row.clone());
         Some(row)
+    }
+
+    /// The documented Description for a multichip row, or `None` when the chip
+    /// or the command is undocumented (the caller shows the generic one-liner).
+    ///
+    /// Memoised like [`row`](Self::row); the cursor must be queried in order,
+    /// which the memo preserves.
+    pub fn chip_row(&mut self, stream: &VgmStream, index: usize) -> Option<String> {
+        if let Some(cached) = self.chip_rows.get(&index) {
+            return cached.clone();
+        }
+        let description = self
+            .chip_analyzer
+            .row(stream, index)
+            .map(std::borrow::Cow::into_owned);
+        if self.chip_rows.len() >= Self::CAPACITY {
+            self.chip_rows.clear();
+        }
+        self.chip_rows.insert(index, description.clone());
+        description
     }
 }
 

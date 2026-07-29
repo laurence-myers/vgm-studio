@@ -94,6 +94,28 @@ pub struct DocCapabilities {
     pub renderable: bool,
 }
 
+/// The "every option this register has" hover text for a multichip write, or
+/// empty when the chip or register is undocumented.
+///
+/// The counterpart of [`Song::instruction_description`] for a VGM row: the
+/// register's full meaning (its name and every field), distinct from the
+/// Description column, which names only the fields a write changed.
+fn register_hover(kind: dro_core::vgm::ChipKind, port: u8, addr: u16) -> String {
+    let Some(doc) = dro_core::chip_docs::register_doc(kind, port, addr) else {
+        return String::new();
+    };
+    if doc.fields.is_empty() {
+        return doc.name.to_owned();
+    }
+    let fields = doc
+        .fields
+        .iter()
+        .map(|field| field.description)
+        .collect::<Vec<_>>()
+        .join(" / ");
+    format!("{}: {fields}", doc.name)
+}
+
 /// Why a file did not open in the editor.
 ///
 /// The distinction is the whole point: "this is not a song" and "this is a
@@ -989,28 +1011,38 @@ impl Editor {
     #[must_use]
     pub fn row_cells(&mut self, index: usize) -> RowCells {
         let position = format!("{index:04X}");
-        if let Some(file) = self.vgm.as_ref().filter(|_| self.shows_chip_rows()) {
-            let Some(stream) = file.stream() else {
+        if self.shows_chip_rows() {
+            // `stream` borrows `self.vgm`, the analyser borrows `self.analysis`
+            // -- disjoint fields, so both live at once without cloning the
+            // stream.
+            let Some(stream) = self.vgm.as_ref().and_then(VgmFile::stream) else {
                 return RowCells {
                     position,
                     ..RowCells::default()
                 };
             };
-            let (chip, register, value) = match stream.get(index) {
+            let (chip, register, value, hover) = match stream.get(index) {
                 Some(VgmCommand::Write { target, addr, data }) => (
                     target.label(),
                     format!("{addr:#06X}"),
                     format!("{data:#04X}"),
+                    register_hover(target.kind, target.port, addr),
                 ),
-                _ => (String::new(), String::new(), String::new()),
+                _ => (String::new(), String::new(), String::new(), String::new()),
             };
+            // A documented chip gets the changed-field description; anything
+            // else keeps the generic one-liner.
+            let description = self
+                .analysis
+                .chip_row(stream, index)
+                .unwrap_or_else(|| stream.describe(index));
             return RowCells {
                 position,
                 bank: chip,
                 register,
                 value,
-                description: stream.describe(index),
-                hover: String::new(),
+                description,
+                hover,
             };
         }
 
@@ -1189,6 +1221,37 @@ mod tests {
         let song = editor.song().expect("and it projects to OPL");
         assert_eq!(song.len(), editor.len());
         assert!(editor.capabilities().playable);
+    }
+
+    /// A documented chip's rows get the changed-field description and the
+    /// register's full meaning on hover; a command with nothing documented
+    /// keeps the generic one-liner and an empty hover.
+    #[test]
+    fn documented_chip_rows_describe_their_fields() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        editor
+            .load(PickedFile {
+                name: "md.vgm".to_owned(),
+                path: None,
+                bytes: mega_drive_vgm(),
+            })
+            .expect("it opens");
+
+        // Row 0: YM2612 0x28 key on -- a first write, so every field counts.
+        let key_on = editor.row_cells(0);
+        assert_eq!(key_on.bank, "YM2612");
+        assert_eq!(key_on.description, "Operator on/off mask / Channel");
+        assert!(
+            key_on.hover.contains("Key on/off"),
+            "the register's full meaning on hover: {:?}",
+            key_on.hover
+        );
+
+        // Row 1: the DAC write is not a register write, so it keeps the
+        // generic one-liner (now "delay"-worded) and has nothing to hover.
+        let dac = editor.row_cells(1);
+        assert!(dac.description.contains("DAC"), "{}", dac.description);
+        assert!(dac.hover.is_empty(), "nothing documented to hover");
     }
 
     /// A minimal YM2612 VGM whose body the OPL command table cannot even size.
