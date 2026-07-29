@@ -417,6 +417,34 @@ impl CoreRegistry {
     pub fn build(&self, chip: ChipKind, id: Option<&str>) -> Option<Box<dyn ChipCore>> {
         self.resolve(chip, id)?.build()
     }
+
+    /// As [`resolve_choice`](Self::resolve_choice), but never a core that
+    /// cannot keep up with playback.
+    ///
+    /// The transport's half of the [`CoreInfo::realtime`] split: an offline
+    /// tier core (the LLE die sims) may be *chosen*, and the WAV render
+    /// honours that choice, but live playback substituting it would underrun
+    /// the audio callback -- so the transport falls back to the chip's best
+    /// realtime core instead, exactly as it falls back from a core this build
+    /// does not have.
+    #[must_use]
+    pub fn resolve_choice_realtime(
+        &self,
+        chip: ChipKind,
+        choice: Option<&str>,
+    ) -> Option<&CoreInfo> {
+        let resolved = self.resolve_choice(chip, choice)?;
+        if resolved.realtime {
+            return Some(resolved);
+        }
+        log::debug!(
+            "{} is offline-only; live playback uses {}'s realtime default instead",
+            resolved.id,
+            chip.name()
+        );
+        self.for_chip(chip)
+            .find(|info| info.realtime && matches!(info.make, CoreMaker::Generic(_)))
+    }
 }
 
 /// The chips one OPL selector governs.
@@ -456,6 +484,37 @@ pub fn slot_slug(chip: ChipKind) -> &'static str {
 
 /// The process-wide registry, installed once at startup.
 static INSTALLED: std::sync::OnceLock<CoreRegistry> = std::sync::OnceLock::new();
+
+/// The user's per-slot core choices, `slot slug -> short name` -- the map
+/// `drotrim.ini`'s `core.<slug>=<name>` lines populate.
+///
+/// Lives beside the registry rather than being threaded through every engine
+/// constructor, because the choice is process-wide state exactly as the
+/// registry is: playback, the WAV render, the waveform and the peak scan must
+/// all agree on which core a chip means *right now*, and passing the map
+/// through each of their signatures would say the same thing five ways. The
+/// app rewrites it whenever the config changes (startup, Settings apply); a
+/// `RwLock` because the audio thread reads it while the GUI thread writes.
+static CHOICES: std::sync::RwLock<std::collections::BTreeMap<String, String>> =
+    std::sync::RwLock::new(std::collections::BTreeMap::new());
+
+/// Replaces the per-slot core choices with `choices` (the config's
+/// `audio.cores` map). Engines built afterwards honour them; engines already
+/// built keep the cores they were born with, which is why the app reloads its
+/// stream when a choice changes.
+pub fn set_core_choices(choices: std::collections::BTreeMap<String, String>) {
+    *CHOICES.write().expect("not poisoned") = choices;
+}
+
+/// The configured short name for `chip`'s slot, if the user chose one.
+#[must_use]
+pub fn core_choice(chip: ChipKind) -> Option<String> {
+    CHOICES
+        .read()
+        .expect("not poisoned")
+        .get(slot_slug(chip))
+        .cloned()
+}
 
 /// Installs the registry the whole program reads.
 ///
@@ -710,6 +769,41 @@ mod tests {
         let mut out = vec![0i32; 8];
         core.render(&mut out);
         out
+    }
+
+    /// The transport's half of the `realtime` split: a chosen offline-tier
+    /// core resolves to the chip's best realtime one instead, while the
+    /// choice-honouring resolver keeps it -- the WAV render's half.
+    #[test]
+    fn an_offline_choice_falls_back_to_realtime_for_the_transport_only() {
+        let mut registry = CoreRegistry::new();
+        registry.register(tone_info("sn76489.fast", LEVEL_UNITY));
+        registry.register(CoreInfo {
+            realtime: false,
+            ..tone_info("sn76489.die", LEVEL_UNITY)
+        });
+
+        // The offline render honours the choice as made...
+        assert_eq!(
+            registry
+                .resolve_choice(ChipKind::Sn76489, Some("die"))
+                .map(|info| info.id),
+            Some("sn76489.die")
+        );
+        // ...the transport substitutes the realtime default...
+        assert_eq!(
+            registry
+                .resolve_choice_realtime(ChipKind::Sn76489, Some("die"))
+                .map(|info| info.id),
+            Some("sn76489.fast")
+        );
+        // ...and a realtime choice passes through untouched.
+        assert_eq!(
+            registry
+                .resolve_choice_realtime(ChipKind::Sn76489, Some("fast"))
+                .map(|info| info.id),
+            Some("sn76489.fast")
+        );
     }
 
     /// A core's level scales what it renders, and unity leaves it alone.

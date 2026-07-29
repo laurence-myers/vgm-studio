@@ -169,7 +169,14 @@ impl NativeAudio {
                 )))
             }
             AudioSource::Vgm(file) => {
-                let mut engine = VgmEngine::new(Arc::clone(file), sample_rate);
+                // Realtime cores only: a chosen offline-tier core (the LLE
+                // die sims) would underrun the callback, so the transport
+                // substitutes the chip's realtime default. The WAV render
+                // keeps the choice as made -- it has all the time in the
+                // world.
+                let mut engine = VgmEngine::with_cores(Arc::clone(file), sample_rate, |kind| {
+                    dro_synth::core_for_realtime(kind)
+                });
                 // The config's slug, with an unknown spelling falling back to
                 // the accurate default -- same policy as an unknown core name.
                 engine.set_resample_mode(

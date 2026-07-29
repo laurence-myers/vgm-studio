@@ -163,6 +163,20 @@ overflow-checks = false
 # took as long as the song; optimised it is two orders of magnitude faster.
 opt-level = 3
 
+# The same reasoning for the VGM path: the provider crates carry the C cores
+# (cc compiles them at the package's own opt-level) and dro-synth carries the
+# sinc resampler and the mixing loop. Unoptimised, a YM2612+SN76489 rip
+# renders at ~2.4x realtime -- underrun territory once the UI competes for the
+# machine -- and optimised it is ~10x.
+[profile.dev.package.dro-cores-libvgm]
+opt-level = 3
+[profile.dev.package.dro-cores-nuked]
+opt-level = 3
+[profile.dev.package.dro-cores-gpl]
+opt-level = 3
+[profile.dev.package.dro-synth]
+opt-level = 3
+
 [workspace.lints.rust]
 # "deny", not "forbid": `dro-synth-worklet` must override this for its
 # `#[unsafe(no_mangle)]` exports.

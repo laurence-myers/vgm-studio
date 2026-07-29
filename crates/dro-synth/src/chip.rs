@@ -119,10 +119,10 @@ impl Playability {
 /// Builds a core for `kind`, or `None` when this build has none for it.
 ///
 /// Delegates to the [registry](crate::registry), which is where cores are
-/// actually declared; this is the convenience form for a caller with no
-/// per-chip preference to honour. One that *does* -- the app, reading
-/// `audio.core.<slug>` -- calls
-/// [`CoreRegistry::build`](crate::registry::CoreRegistry::build) instead.
+/// actually declared, honouring the process-wide per-chip choice the app
+/// installed with [`set_core_choices`](crate::registry::set_core_choices) --
+/// so the WAV render, the waveform and the peak scan all build the core the
+/// user picked in Settings, not merely the registry's default.
 ///
 /// OPL returns `None` on purpose, and not by oversight: an OPL file plays
 /// through `PlayerEngine`, which carries the muting and panning policy this
@@ -130,7 +130,24 @@ impl Playability {
 /// [`playability`] and the Settings picker see them.
 #[must_use]
 pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-    crate::registry::registry().build(kind, None)
+    let registry = crate::registry::registry();
+    registry
+        .resolve_choice(kind, crate::registry::core_choice(kind).as_deref())?
+        .build()
+}
+
+/// As [`core_for`], but never a core that cannot keep up with playback.
+///
+/// What the *transport* builds from: a chosen offline-tier core (the LLE die
+/// sims render slower than realtime by design) falls back to the chip's best
+/// realtime core rather than underrunning the audio callback. Offline renders
+/// keep [`core_for`], which honours the choice as made.
+#[must_use]
+pub fn core_for_realtime(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
+    let registry = crate::registry::registry();
+    registry
+        .resolve_choice_realtime(kind, crate::registry::core_choice(kind).as_deref())?
+        .build()
 }
 
 /// What playing a file with these chips through [`VgmEngine`] would sound like.
