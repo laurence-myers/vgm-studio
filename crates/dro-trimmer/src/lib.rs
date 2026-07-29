@@ -5,8 +5,8 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use dro_core::Song;
 use dro_core::io::read_song;
+use dro_core::{ChipKind, Song};
 
 pub mod cli;
 pub mod config;
@@ -44,6 +44,14 @@ pub fn install_cores() {
     // The LLE dies and Nuked-OPLL/PSG: options, per the same decision.
     dro_cores_gpl::register(&mut registry);
     dro_retrowave::register(&mut registry);
+    // The owner's three named exceptions (2026-07-29): Nuked keeps the
+    // defaults it held before the redirect for exactly these chips, with
+    // libvgm the picker alternative. Promotion rather than registration
+    // order because the OPLL shares a crate with Nuked-PSG and the LLE
+    // dies, which must stay behind libvgm.
+    registry.promote(ChipKind::Ym2612, "ym2612.nuked");
+    registry.promote(ChipKind::Ym2151, "ym2151.nuked");
+    registry.promote(ChipKind::Ym2413, "ym2413.nuked");
     if dro_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed
         // registry is already correct, so this is a note, not a failure.

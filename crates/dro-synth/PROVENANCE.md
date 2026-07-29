@@ -160,7 +160,7 @@ Registered outside `dro-synth`, and why:
 
 | Provider | Registers | Why not here |
 |---|---|---|
-| `dro-cores-libvgm` | `<slug>.libvgm` for every chip it serves -- **registered first, so these are the defaults** -- plus `<slug>.libvgm-<core>` alternative rows | GPL-tier wrapper around an upstream with no published grant; `dro-synth` is permissive. |
+| `dro-cores-libvgm` | `<slug>.libvgm` for every chip it serves -- **registered first, so these are the defaults**, except the YM2612/YM2151/YM2413, which the app promotes back to Nuked (the owner's 2026-07-29 exceptions) -- plus `<slug>.libvgm-<core>` alternative rows | GPL-tier wrapper around an upstream with no published grant; `dro-synth` is permissive. |
 | `dro-cores-nuked` | `opl3.cqm`, `ym2612.nuked`, `ym2151.nuked` | LGPL-2.1-or-later. `dro-synth` is permissive; the app links this. |
 | `dro-cores-gpl` | `ym2413.nuked` — Nuked-OPLL; `sn76489.nuked-psg` — Nuked-PSG; `ym2151.lle` — YM2151-LLE, `ym2612.lle` — YM2612-LLE, `ym2608.lle` — YM2608-LLE (render/oracle only) | **GPL-2.0-or-later.** Neither `dro-synth` nor `dro-cores-nuked` may carry it without becoming something else. |
 | `dro-retrowave` | `opl3.retrowave` — the RetroWave OPL3 board | Native-only (serial ports). The web build never registers it, so its Settings dialog does not offer hardware it could never reach. |

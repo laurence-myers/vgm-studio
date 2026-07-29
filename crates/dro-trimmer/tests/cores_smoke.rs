@@ -60,12 +60,21 @@ fn the_default_sn76489_is_libvgms_and_makes_sound() {
     assert!(peak > 1000, "audible, not silence: peak {peak}");
 }
 
-/// Every libvgm-served chip is that chip's default, and every default that
-/// `VgmEngine` can build actually builds. OPL stays routed to `PlayerEngine`.
+/// Every libvgm-served chip is that chip's default -- except the three the
+/// owner named back to Nuked -- and every default `VgmEngine` can build
+/// actually builds. OPL stays routed to `PlayerEngine`.
 #[test]
 fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
     dro_trimmer::install_cores();
     let registry = dro_synth::registry();
+
+    // The owner's exceptions (2026-07-29): Nuked keeps these three defaults,
+    // with libvgm demoted to the picker.
+    let nuked_led = [
+        (dro_core::ChipKind::Ym2612, "ym2612.nuked"),
+        (dro_core::ChipKind::Ym2151, "ym2151.nuked"),
+        (dro_core::ChipKind::Ym2413, "ym2413.nuked"),
+    ];
 
     for chip in dro_core::ChipKind::all() {
         let Some(default) = registry.default_for(chip) else {
@@ -81,18 +90,30 @@ fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
             continue;
         }
         let libvgm_id = format!("{}.libvgm", chip.slug());
-        if registry.find(chip, &libvgm_id).is_some() {
+        if let Some(&(_, nuked_id)) = nuked_led.iter().find(|&&(named, _)| named == chip) {
+            assert_eq!(
+                default.id,
+                nuked_id,
+                "{}: the owner named Nuked back to this default",
+                chip.name()
+            );
+            assert!(
+                registry.find(chip, &libvgm_id).is_some(),
+                "{}: libvgm stays on the picker behind Nuked",
+                chip.name()
+            );
+        } else if registry.find(chip, &libvgm_id).is_some() {
             assert_eq!(
                 default.id,
                 libvgm_id,
                 "{}: libvgm serves this chip and must lead it",
                 chip.name()
             );
-            assert!(
-                default.build().is_some(),
-                "{}: the default must actually build",
-                chip.name()
-            );
         }
+        assert!(
+            default.build().is_some() || !matches!(default.make, dro_synth::CoreMaker::Generic(_)),
+            "{}: a generic default must actually build",
+            chip.name()
+        );
     }
 }

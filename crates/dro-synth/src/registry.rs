@@ -16,12 +16,16 @@
 //! which matters on wasm, where a provider may simply not exist and the UI
 //! should follow the registry rather than offer something absent.
 //!
-//! **Priority is registration order.** The first core registered for a chip is
-//! its default: the app registers `dro-cores-libvgm` ahead of the other
-//! providers, so libvgm is the default for every chip it serves and the Nuked
-//! and LLE integrations are the picker's alternatives. OPL is the standing
-//! exception -- libvgm compiles no OPL device, so the built-in Nuked-OPL3 row
-//! keeps that family.
+//! **Priority is registration order**, with one named escape hatch. The first
+//! core registered for a chip is its default: the app registers
+//! `dro-cores-libvgm` ahead of the other providers, so libvgm is the default
+//! for every chip it serves and the Nuked and LLE integrations are the
+//! picker's alternatives. OPL is the standing exception -- libvgm compiles no
+//! OPL device, so the built-in Nuked-OPL3 row keeps that family -- and
+//! [`CoreRegistry::promote`] is the owner's per-chip override for the cases
+//! where one chip's default should come from a later provider without
+//! dragging that provider's crate-mates forward (the app promotes Nuked back
+//! over libvgm for the YM2612, YM2151 and YM2413).
 
 use dro_core::vgm::ChipKind;
 
@@ -290,6 +294,34 @@ impl CoreRegistry {
         self.entries.push(info);
     }
 
+    /// Makes the row with `id` the default for `chip`, leaving every other
+    /// chip's order alone.
+    ///
+    /// The owner's per-chip override on top of registration order: provider
+    /// crates register wholesale, and sometimes one chip's default should
+    /// come from a *later* provider without dragging its crate-mates forward
+    /// -- Nuked-OPLL leads the YM2413 while Nuked-PSG and the LLE dies, from
+    /// the same crate, stay behind libvgm. Returns whether the row was found;
+    /// a `false` is a normal build difference (the web build lacks native
+    /// providers), not an error.
+    pub fn promote(&mut self, chip: ChipKind, id: &str) -> bool {
+        let Some(from) = self
+            .entries
+            .iter()
+            .position(|info| info.chip == chip && info.id == id)
+        else {
+            return false;
+        };
+        let Some(first) = self.entries.iter().position(|info| info.chip == chip) else {
+            unreachable!("the row at `from` is itself a row for `chip`");
+        };
+        if from != first {
+            let row = self.entries.remove(from);
+            self.entries.insert(first, row);
+        }
+        true
+    }
+
     /// Every core, in registration order.
     pub fn all(&self) -> impl Iterator<Item = &CoreInfo> {
         self.entries.iter()
@@ -509,6 +541,48 @@ mod tests {
         }
         // Everything else keeps its own key.
         assert_eq!(slot_slug(ChipKind::Sn76489), "sn76489");
+    }
+
+    /// `promote` moves one row to its chip's front, leaves every other chip
+    /// alone, and tolerates ids this build lacks -- the owner's per-chip
+    /// override on top of registration order.
+    #[test]
+    fn promote_makes_a_later_row_the_default_without_touching_neighbours() {
+        let mut registry = CoreRegistry::new();
+        registry.register(info("sn76489.first"));
+        registry.register(info("sn76489.second"));
+        registry.register(CoreInfo {
+            chip: ChipKind::Ym2612,
+            ..tone_info("ym2612.only", LEVEL_UNITY)
+        });
+
+        assert!(registry.promote(ChipKind::Sn76489, "sn76489.second"));
+        assert_eq!(
+            registry.default_for(ChipKind::Sn76489).map(|i| i.id),
+            Some("sn76489.second")
+        );
+        // Both rows survive -- the loser is demoted, not dropped.
+        assert_eq!(registry.for_chip(ChipKind::Sn76489).count(), 2);
+        // The neighbour chip is untouched.
+        assert_eq!(
+            registry.default_for(ChipKind::Ym2612).map(|i| i.id),
+            Some("ym2612.only")
+        );
+
+        // An id this build lacks is a normal difference, not an error, and
+        // changes nothing.
+        assert!(!registry.promote(ChipKind::Sn76489, "sn76489.nonesuch"));
+        assert_eq!(
+            registry.default_for(ChipKind::Sn76489).map(|i| i.id),
+            Some("sn76489.second")
+        );
+
+        // Promoting the sitting default is a found no-op.
+        assert!(registry.promote(ChipKind::Sn76489, "sn76489.second"));
+        assert_eq!(
+            registry.default_for(ChipKind::Sn76489).map(|i| i.id),
+            Some("sn76489.second")
+        );
     }
 
     #[test]

@@ -77,6 +77,9 @@ pub const CORE_SUFFIX: &str = "libvgm";
 /// source of truth, no parity gating. The app's `install_cores` calls this
 /// first; the Nuked and LLE integrations register behind it as picker
 /// options, and OPL is untouched because this crate compiles no OPL device.
+/// Three named exceptions, also the owner's: the app *promotes* Nuked back
+/// over these rows for the YM2612, YM2151 and YM2413, leaving libvgm on
+/// their pickers.
 pub fn register(registry: &mut dro_synth::CoreRegistry) {
     for spec in chip::SPECS {
         registry.register(dro_synth::CoreInfo {
