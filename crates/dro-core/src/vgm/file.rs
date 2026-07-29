@@ -772,7 +772,7 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
             let declared = u64::from(header.total_samples());
             if from_stream != declared {
                 log::warn!(
-                    "VGM header claims {declared} samples, but its waits sum to {from_stream}"
+                    "VGM header claims {declared} samples, but its delays sum to {from_stream}"
                 );
             }
             VgmBody::Commands(stream)
@@ -1378,7 +1378,7 @@ mod tests {
         let stream = cropped.stream().unwrap();
         assert_eq!(stream.len(), 3 + 4, "the restore, then the four kept rows");
         assert_eq!(stream.describe(3), "YM2612 0x0028 <- 0xF0");
-        assert_eq!(stream.describe(4), "wait 20000");
+        assert_eq!(stream.describe(4), "delay 20000");
         assert_eq!(
             cropped.header.total_samples(),
             20_735,
@@ -1664,7 +1664,7 @@ mod tests {
 
         let stream = file.stream().unwrap();
         assert_eq!(stream.len(), 2, "the write, then one merged wait");
-        assert_eq!(stream.describe(1), "wait 30000");
+        assert_eq!(stream.describe(1), "delay 30000");
         assert_eq!(
             stream.total_samples(),
             before,

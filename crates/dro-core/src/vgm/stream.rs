@@ -808,8 +808,8 @@ impl VgmStream {
             VgmCommand::Write { target, addr, data } => {
                 format!("{} {addr:#06X} <- {data:#04X}", target.label())
             }
-            VgmCommand::Wait(samples) => format!("wait {samples}"),
-            VgmCommand::DacWrite { wait } => format!("YM2612 DAC, wait {wait}"),
+            VgmCommand::Wait(samples) => format!("delay {samples}"),
+            VgmCommand::DacWrite { wait } => format!("YM2612 DAC, delay {wait}"),
             VgmCommand::DataBlock {
                 kind,
                 length,
@@ -835,7 +835,7 @@ impl VgmStream {
             }
             VgmCommand::SeekPcm(offset) => format!("seek PCM bank to {offset:#010X}"),
             VgmCommand::OverrideWait { which, samples } => {
-                format!("override wait {which:#04X} = {samples}")
+                format!("override delay {which:#04X} = {samples}")
             }
             VgmCommand::Raw { opcode } => format!("unknown command {opcode:#04X}"),
         }
@@ -1227,6 +1227,28 @@ mod tests {
         );
         assert_eq!(stream.describe(0), "DAC stream #3 setup");
         assert_eq!(stream.describe(1), "DAC stream #3 stop");
+    }
+
+    /// The table says "delay", whichever of the six spellings the file used --
+    /// the app's word for a time advance, not the spec's "wait".
+    #[test]
+    fn every_delay_spelling_describes_as_a_delay() {
+        let bytes = vec![
+            0x61, 0x20, 0x4E, // 20000 samples
+            0x62, // one 60 Hz frame
+            0x63, // one 50 Hz frame
+            0x70, // shortest short form
+            0x8F, // DAC write plus 15 samples
+            0x64, 0x62, 0x10, 0x27, // override 0x62 to 10000
+            END_OF_DATA,
+        ];
+        let stream = VgmStream::parse(bytes, 0x160).unwrap();
+        assert_eq!(stream.describe(0), "delay 20000");
+        assert_eq!(stream.describe(1), "delay 735");
+        assert_eq!(stream.describe(2), "delay 882");
+        assert_eq!(stream.describe(3), "delay 1");
+        assert_eq!(stream.describe(4), "YM2612 DAC, delay 15");
+        assert_eq!(stream.describe(5), "override delay 0x62 = 10000");
     }
 
     #[test]
