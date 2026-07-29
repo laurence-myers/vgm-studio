@@ -760,8 +760,7 @@ impl VgmStream {
     /// not wait.
     #[must_use]
     pub fn wait_samples(&self, index: usize) -> u32 {
-        self.get(index)
-            .map_or(0, |command| command_wait(&command))
+        self.get(index).map_or(0, |command| command_wait(&command))
     }
 
     /// The stream's total length in samples, summed from its waits.
@@ -1310,12 +1309,17 @@ mod tests {
     #[test]
     fn every_delay_spelling_describes_as_a_delay() {
         let bytes = vec![
-            0x61, 0x20, 0x4E, // 20000 samples
+            0x61,
+            0x20,
+            0x4E, // 20000 samples
             0x62, // one 60 Hz frame
             0x63, // one 50 Hz frame
             0x70, // shortest short form
             0x8F, // DAC write plus 15 samples
-            0x64, 0x62, 0x10, 0x27, // override 0x62 to 10000
+            0x64,
+            0x62,
+            0x10,
+            0x27, // override 0x62 to 10000
             END_OF_DATA,
         ];
         let stream = VgmStream::parse(bytes, 0x160).unwrap();
@@ -1330,10 +1334,16 @@ mod tests {
     /// A write, delay 100, a write, delay 200 -- prefix `[0, 0, 100, 100, 300]`.
     fn two_delay_stream() -> VgmStream {
         let bytes = vec![
-            0x50, 0x9F, // write
-            0x61, 0x64, 0x00, // delay 100
-            0x50, 0x8E, // write
-            0x61, 0xC8, 0x00, // delay 200
+            0x50,
+            0x9F, // write
+            0x61,
+            0x64,
+            0x00, // delay 100
+            0x50,
+            0x8E, // write
+            0x61,
+            0xC8,
+            0x00, // delay 200
             END_OF_DATA,
         ];
         VgmStream::parse(bytes, 0x151).unwrap()
