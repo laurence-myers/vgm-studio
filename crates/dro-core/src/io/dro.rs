@@ -119,12 +119,12 @@ fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
     Ok(Song::dro_v1(name.to_owned(), data, ms_length, opl_type))
 }
 
-/// The largest instruction stream a DRO header's `u32` length field can describe.
-const MAX_DRO_DATA_BYTES: usize = u32::MAX as usize;
-
 fn write_v1(song: &Song) -> Vec<u8> {
     let raw = song.data().raw();
-    debug_assert!(raw.len() <= MAX_DRO_DATA_BYTES);
+    debug_assert!(
+        u32::try_from(raw.len()).is_ok(),
+        "DRO data must fit the header's u32 length field"
+    );
 
     // Not `song.ms_length`: recompute it, because V1 and V2 files write this
     // value differently.
@@ -207,7 +207,10 @@ fn read_v2(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
 fn write_v2(song: &Song, data: &DroDataV2) -> Vec<u8> {
     let raw = data.raw();
     let codemap = data.codemap();
-    debug_assert!(raw.len() <= MAX_DRO_DATA_BYTES);
+    debug_assert!(
+        u32::try_from(raw.len()).is_ok(),
+        "DRO data must fit the header's u32 length field"
+    );
     debug_assert!(codemap.len() <= 128, "`DroDataV2::new` caps the codemap");
 
     let mut out = Vec::with_capacity(0x1A + codemap.len() + raw.len());
