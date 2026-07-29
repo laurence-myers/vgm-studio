@@ -319,10 +319,15 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
 /// is data and the alternative is a virtual call per register write.
 #[derive(Debug)]
 pub(crate) struct ChipSpec {
-    /// The registry id, `"<chip slug>.libvgm"`. Written out rather than
-    /// composed at runtime because [`CoreInfo::id`](dro_synth::CoreInfo::id) is
-    /// a `&'static str` that lands in `drotrim.ini`.
+    /// The registry id, `"<chip slug>.libvgm"` -- or, for an alternative
+    /// core, `"<chip slug>.libvgm-<core>"`. Written out rather than composed
+    /// at runtime because [`CoreInfo::id`](dro_synth::CoreInfo::id) is a
+    /// `&'static str` that lands in `drotrim.ini`.
     pub(crate) id: &'static str,
+    /// What the Settings picker calls this row. The default rows share one
+    /// name; an alternative core names the emulator it selects, or the
+    /// dropdown would offer identical entries.
+    pub(crate) label: &'static str,
     /// Our engine's name for the chip -- what the registry keys on.
     pub(crate) kind: ChipKind,
     /// libvgm's `DEVID_` constant.
@@ -1163,21 +1168,23 @@ const fn ram_via_block(kind: ChipKind) -> bool {
 /// the wrong device; this way a chip is one line and the three cannot drift.
 macro_rules! chip_specs {
     ($(
-        $make:ident : $id:literal => $kind:ident,
+        $make:ident : $id:literal / $label:literal => $kind:ident,
         $device:expr, $emu_core:expr, $write:expr, $rom_spaces:expr,
         $level:expr, $configure:expr ;
     )*) => {
         /// Every chip this crate can build, in the order the registry lists
-        /// them.
+        /// them -- so a chip's default row must precede its alternative-core
+        /// rows.
         ///
-        /// lv-4 is what grows this; a row here must also have its device named
-        /// in `build.rs`'s `ENABLED`, or the start fails and the chip is
-        /// silent. A `static` rather than a `const` on purpose: the makers
-        /// below take `&'static` references into it, which a `const` -- being
-        /// a fresh value at each use -- could not give them.
+        /// A row here must also have its device named in `build.rs`'s
+        /// `ENABLED`, or the start fails and the chip is silent. A `static`
+        /// rather than a `const` on purpose: the makers below take `&'static`
+        /// references into it, which a `const` -- being a fresh value at each
+        /// use -- could not give them.
         pub(crate) static SPECS: &[ChipSpec] = &[$(
             ChipSpec {
                 id: $id,
+                label: $label,
                 kind: ChipKind::$kind,
                 device: $device,
                 emu_core: $emu_core,
@@ -1191,127 +1198,153 @@ macro_rules! chip_specs {
 
         $(
             fn $make() -> Box<dyn ChipCore> {
-                Box::new(LibVgmChip::new(spec_for(ChipKind::$kind)))
+                // By id, not by kind: a chip with alternative cores has
+                // several rows of one kind, and each maker must find its own.
+                Box::new(LibVgmChip::new(spec_by_id($id)))
             }
         )*
     };
 }
 
 chip_specs! {
-    // --- `emu_core` is named only where the device has more than one core ---
+    // --- `emu_core` and the alternative rows ------------------------------
     //
-    // For a single-core device, `0` is unambiguous; where there is a choice,
-    // `0` takes libvgm's own default and lv-6 publishes the alternatives as
-    // picker entries. The two named selections predate the scorecard's
-    // retirement and stay: they are the cores the reference ran, and nothing
-    // has since arbitrated a better default.
+    // A chip's first row is its default and carries the plain label; the
+    // `libvgm-<core>` rows behind it publish the device's other emulators as
+    // picker entries, each labelled by what it selects. For a single-core
+    // device `0` is unambiguous and there is nothing to publish. The two
+    // named default selections (Maxim's SN76489, Ootake's HuC6280) predate
+    // the scorecard's retirement and stay: they are the cores the reference
+    // ran, and nothing has since arbitrated a better default.
 
-    make_sn76489: "sn76489.libvgm" => Sn76489,
+    make_sn76489: "sn76489.libvgm" / "libvgm (Valley Bell)" => Sn76489,
         ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
-    make_huc6280: "huc6280.libvgm" => HuC6280,
+    make_sn76489_mame: "sn76489.libvgm-mame" / "libvgm (MAME core)" => Sn76489,
+        ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
+    make_huc6280: "huc6280.libvgm" / "libvgm (Valley Bell)" => HuC6280,
         ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    make_huc6280_mame: "huc6280.libvgm-mame" / "libvgm (MAME core)" => HuC6280,
+        ffi::DEVID_C6280, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // Plain 8-bit register files: `Cmd_Ofs8_Data8` upstream.
-    make_k053260: "k053260.libvgm" => K053260,
+    make_k053260: "k053260.libvgm" / "libvgm (Valley Bell)" => K053260,
         ffi::DEVID_K053260, 0, WriteRule::Register, [0, 0], 494, configure_none;  // measured 1.930 (n=6)
-    make_ga20: "ga20.libvgm" => Ga20,
+    make_ga20: "ga20.libvgm" / "libvgm (Valley Bell)" => Ga20,
         ffi::DEVID_GA20, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_upd7759: "upd7759.libvgm" => Upd7759,
+    make_upd7759: "upd7759.libvgm" / "libvgm (Valley Bell)" => Upd7759,
         ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_okim6258: "okim6258.libvgm" => Okim6258,
+    make_okim6258: "okim6258.libvgm" / "libvgm (Valley Bell)" => Okim6258,
         ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_msm6258;
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
-    make_es5503: "es5503.libvgm" => Es5503,
+    make_es5503: "es5503.libvgm" / "libvgm (Valley Bell)" => Es5503,
         ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
-    make_gameboydmg: "gameboydmg.libvgm" => GameBoyDmg,
+    make_gameboydmg: "gameboydmg.libvgm" / "libvgm (Valley Bell)" => GameBoyDmg,
         ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_pokey: "pokey.libvgm" => Pokey,
+    make_gameboydmg_sameboy: "gameboydmg.libvgm-sameboy" / "libvgm (SameBoy core)" => GameBoyDmg,
+        ffi::DEVID_GB_DMG, ffi::FCC_SBOY, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    make_pokey: "pokey.libvgm" / "libvgm (Valley Bell)" => Pokey,
         ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_mikey: "mikey.libvgm" => Mikey,
+    make_mikey: "mikey.libvgm" / "libvgm (Valley Bell)" => Mikey,
         ffi::DEVID_MIKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // Plain files with one upstream quirk each -- the remap is the rule's.
-    make_nesapu: "nesapu.libvgm" => NesApu,
+    make_nesapu: "nesapu.libvgm" / "libvgm (Valley Bell)" => NesApu,
         ffi::DEVID_NES_APU, 0, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
-    make_okim6295: "okim6295.libvgm" => Okim6295,
+    make_nesapu_nsfplay: "nesapu.libvgm-nsfplay" / "libvgm (NSFPlay core)" => NesApu,
+        ffi::DEVID_NES_APU, ffi::FCC_NSFP, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
+    make_okim6295: "okim6295.libvgm" / "libvgm (Valley Bell)" => Okim6295,
         ffi::DEVID_MSM6295, 0, WriteRule::Okim6295, [0, 0], LEVEL_UNITY, configure_none;
-    make_wonderswan: "wonderswan.libvgm" => WonderSwan,
+    make_wonderswan: "wonderswan.libvgm" / "libvgm (Valley Bell)" => WonderSwan,
         ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], LEVEL_UNITY, configure_none;
-    make_saa1099: "saa1099.libvgm" => Saa1099,
+    make_saa1099: "saa1099.libvgm" / "libvgm (Valley Bell)" => Saa1099,
         ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_saa1099_vb: "saa1099.libvgm-vb" / "libvgm (Valley Bell core)" => Saa1099,
+        ffi::DEVID_SAA1099, ffi::FCC_VBEL, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
 
     // The AY8910, with its `0x31` stereo mask on the dedicated function.
-    make_ay8910: "ay8910.libvgm" => Ay8910,
+    make_ay8910: "ay8910.libvgm" / "libvgm (Valley Bell)" => Ay8910,
         ffi::DEVID_AY8910, 0, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
+    make_ay8910_emu2149: "ay8910.libvgm-emu2149" / "libvgm (EMU2149 core)" => Ay8910,
+        ffi::DEVID_AY8910, ffi::FCC_EMU_, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
 
     // The Yamaha latch pair.
-    make_ymz280b: "ymz280b.libvgm" => Ymz280b,
+    make_ymz280b: "ymz280b.libvgm" / "libvgm (Valley Bell)" => Ymz280b,
         ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], 303, configure_none;  // measured 1.185 (n=12)
-    make_k051649: "k051649.libvgm" => K051649,
+    make_k051649: "k051649.libvgm" / "libvgm (Valley Bell)" => K051649,
         ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2413: "ym2413.libvgm" => Ym2413,
+    make_ym2413: "ym2413.libvgm" / "libvgm (Valley Bell)" => Ym2413,
         ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2612: "ym2612.libvgm" => Ym2612,
+    make_ym2413_emu2413: "ym2413.libvgm-emu2413" / "libvgm (EMU2413 core)" => Ym2413,
+        ffi::DEVID_YM2413, ffi::FCC_EMU_, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2612: "ym2612.libvgm" / "libvgm (Valley Bell)" => Ym2612,
         ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2151: "ym2151.libvgm" => Ym2151,
+    make_ym2612_gens: "ym2612.libvgm-gens" / "libvgm (Gens core)" => Ym2612,
+        ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2151: "ym2151.libvgm" / "libvgm (Valley Bell)" => Ym2151,
         ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_ymf271: "ymf271.libvgm" => Ymf271,
+    make_ymf271: "ymf271.libvgm" / "libvgm (Valley Bell)" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
     // Not an OPL row -- the OPL family's own chips stay on `PlayerEngine`.
-    make_ymf278b: "ymf278b.libvgm" => Ymf278b,
+    make_ymf278b: "ymf278b.libvgm" / "libvgm (Valley Bell)" => Ymf278b,
         ffi::DEVID_YMF278B, 0, WriteRule::RegisterLatch, [0x524F, 0x5241], LEVEL_UNITY, configure_none;
 
     // The OPN family: the latch pair, a linked SSG, and the YM2203's stereo
     // mask riding the SSG's own function.
-    make_ym2203: "ym2203.libvgm" => Ym2203,
+    make_ym2203: "ym2203.libvgm" / "libvgm (Valley Bell)" => Ym2203,
         ffi::DEVID_YM2203, 0, WriteRule::OpnFamily, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2608: "ym2608.libvgm" => Ym2608,
+    make_ym2608: "ym2608.libvgm" / "libvgm (Valley Bell)" => Ym2608,
         ffi::DEVID_YM2608, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
-    make_ym2610: "ym2610.libvgm" => Ym2610,
+    make_ym2610: "ym2610.libvgm" / "libvgm (Valley Bell)" => Ym2610,
         ffi::DEVID_YM2610, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
 
     // Memory-space writes with the address arriving whole (`0xC0`, `0xC5`,
     // `0xC7`, `0xC8`).
-    make_segapcm: "segapcm.libvgm" => SegaPcm,
+    make_segapcm: "segapcm.libvgm" / "libvgm (Valley Bell)" => SegaPcm,
         ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_segapcm;
-    make_x1010: "x1010.libvgm" => X1010,
+    make_x1010: "x1010.libvgm" / "libvgm (Valley Bell)" => X1010,
         ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
-    make_vsu: "vsu.libvgm" => Vsu,
+    make_vsu: "vsu.libvgm" / "libvgm (Valley Bell)" => Vsu,
         ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
-    make_scsp: "scsp.libvgm" => Scsp,
+    make_scsp: "scsp.libvgm" / "libvgm (Valley Bell)" => Scsp,
         ffi::DEVID_SCSP, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_scsp;
 
     // ...and with it split across our `port`/`addr` (`0xD3`, `0xD4`).
-    make_c140: "c140.libvgm" => C140,
+    make_c140: "c140.libvgm" / "libvgm (Valley Bell)" => C140,
         ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_c140;  // measured 1.297 (n=12)
-    make_k054539: "k054539.libvgm" => K054539,
+    make_k054539: "k054539.libvgm" / "libvgm (Valley Bell)" => K054539,
         ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_k054539;
 
-    // The one-off shapes: the three the plan named, the MultiPCM's bank, the
-    // PWM's 12-bit values, and the ES5506's two widths.
-    make_c352: "c352.libvgm" => C352,
+    // The one-off shapes: the three the plan named, the MultiPCM's bank and
+    // the PWM's 12-bit values.
+    make_c352: "c352.libvgm" / "libvgm (Valley Bell)" => C352,
         ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_c352;
-    make_qsound: "qsound.libvgm" => QSound,
+    make_qsound: "qsound.libvgm" / "libvgm (Valley Bell)" => QSound,
         ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
+    make_qsound_ctr: "qsound.libvgm-ctr" / "libvgm (superctr core)" => QSound,
+        ffi::DEVID_QSOUND, ffi::FCC_CTR_, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
     // `Cmd_YMW_Bank`. `Register` served it until 2026-07-29, which sent the
     // bank select at the register file and dropped the bank entirely.
-    make_multipcm: "multipcm.libvgm" => MultiPcm,
+    make_multipcm: "multipcm.libvgm" / "libvgm (Valley Bell)" => MultiPcm,
         ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_multipcm;
-    make_pwm: "pwm.libvgm" => Pwm,
+    make_pwm: "pwm.libvgm" / "libvgm (Valley Bell)" => Pwm,
         ffi::DEVID_32X_PWM, 0, WriteRule::Data16, [0, 0], LEVEL_UNITY, configure_none;
     // No ES5505/ES5506 row: libvgm's `es5506.c` is a 32-line stub -- a
     // `DEV_DECL` whose core list is `{ NULL }` -- so `SndEmu_Start` has
     // nothing to start. The chip stays unplayable until upstream grows the
     // emulator; the decoder's `0xBE`/`0xD6` conventions are ready for it.
 
-    make_rf5c68: "rf5c68.libvgm" => Rf5c68,
+    make_rf5c68: "rf5c68.libvgm" / "libvgm (Valley Bell)" => Rf5c68,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
+    make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens core)" => Rf5c68,
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
     // The same device; `flags` is what makes it the 164.
-    make_rf5c164: "rf5c164.libvgm" => Rf5c164,
+    make_rf5c164: "rf5c164.libvgm" / "libvgm (Valley Bell)" => Rf5c164,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
+    make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens core)" => Rf5c164,
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
 /// A chip whose configuration is only the generic fields.
@@ -1433,16 +1466,31 @@ fn configure_rf5c164(config: &mut DevConfig, _settings: &ChipSettings) {
     config.generic_mut().flags = 1;
 }
 
-/// The spec for `kind`.
-///
-/// # Panics
-/// If `kind` has no row -- which only a maker generated by [`chip_specs!`] can
-/// ask for, and the macro generates one maker per row, so it cannot happen.
+/// The *default* spec for `kind` -- its first row, ahead of any
+/// alternative-core rows. Test-only since the makers moved to id lookup.
+#[cfg(test)]
 #[must_use]
 pub(crate) fn spec_for(kind: ChipKind) -> &'static ChipSpec {
     SPECS
         .iter()
         .find(|spec| spec.kind == kind)
+        .unwrap_or_else(|| unreachable!("chip_specs! generates a maker per row"))
+}
+
+/// The spec with this exact id.
+///
+/// What the generated makers use: a chip with alternative cores has several
+/// rows of one kind, and a lookup by kind would hand every one of them the
+/// default's `emu_core`.
+///
+/// # Panics
+/// If `id` has no row -- which only a maker generated by [`chip_specs!`] can
+/// ask for, and the macro generates one maker per row, so it cannot happen.
+#[must_use]
+fn spec_by_id(id: &str) -> &'static ChipSpec {
+    SPECS
+        .iter()
+        .find(|spec| spec.id == id)
         .unwrap_or_else(|| unreachable!("chip_specs! generates a maker per row"))
 }
 
@@ -1961,16 +2009,30 @@ mod tests {
         }
     }
 
-    /// Registry ids are unique and slot-prefixed, as `dro-synth` requires.
+    /// Registry ids are unique and slot-prefixed, as `dro-synth` requires --
+    /// and each chip's default row comes before its alternative-core rows,
+    /// because registration order is priority order.
     #[test]
     fn every_spec_has_a_well_formed_unique_id() {
         let mut seen = std::collections::BTreeSet::new();
+        let mut first_of: std::collections::BTreeMap<&str, &str> =
+            std::collections::BTreeMap::new();
         for spec in SPECS {
             assert!(seen.insert(spec.id), "duplicate id {}", spec.id);
+            let default_id = format!("{}.{}", spec.kind.slug(), crate::CORE_SUFFIX);
+            assert!(
+                spec.id == default_id || spec.id.starts_with(&format!("{default_id}-")),
+                "{} must be <slot>.libvgm or <slot>.libvgm-<core>",
+                spec.id
+            );
+            first_of.entry(spec.kind.slug()).or_insert(spec.id);
+        }
+        // The first row seen for every chip is its plain default id.
+        for (slug, first_id) in first_of {
             assert_eq!(
-                spec.id,
-                format!("{}.{}", spec.kind.slug(), crate::CORE_SUFFIX),
-                "an id must be <slot>.<core> or the config cannot address it"
+                first_id,
+                format!("{slug}.{}", crate::CORE_SUFFIX),
+                "{slug}'s default row must precede its alternates"
             );
         }
     }

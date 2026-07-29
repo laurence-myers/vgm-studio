@@ -80,7 +80,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
         registry.register(dro_synth::CoreInfo {
             id: spec.registry_id(),
             chip: spec.kind,
-            label: "libvgm (Valley Bell)",
+            label: spec.label,
             authors: "Valley Bell and the upstream core authors",
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",

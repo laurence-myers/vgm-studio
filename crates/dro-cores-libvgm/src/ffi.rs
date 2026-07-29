@@ -133,6 +133,16 @@ pub(crate) const FCC_OOTK: u32 = 0x4F4F544B;
 pub(crate) const FCC_EMU_: u32 = 0x454D5500;
 /// adlibemu -- what upstream's link callback selects for the OPL4's FM half.
 pub(crate) const FCC_ADLE: u32 = 0x41444C45;
+/// Gens -- the YM2612 and RF5C68 alternatives.
+pub(crate) const FCC_GENS: u32 = 0x47454E53;
+/// NSFPlay -- the NES APU alternative.
+pub(crate) const FCC_NSFP: u32 = 0x4E534650;
+/// SameBoy -- the Game Boy DMG alternative.
+pub(crate) const FCC_SBOY: u32 = 0x53424F59;
+/// superctr -- the QSound alternative. `"CTR\0"`, as upstream spells it.
+pub(crate) const FCC_CTR_: u32 = 0x43545200;
+/// Valley Bell's own SAA1099.
+pub(crate) const FCC_VBEL: u32 = 0x5642454C;
 
 // --- Function-pointer types (`EmuStructs.h`) ------------------------------
 
