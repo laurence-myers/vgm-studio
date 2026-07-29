@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 
 pub mod analysis;
+pub mod chip_docs;
 pub mod chip_state;
 pub mod config;
 pub mod convert;

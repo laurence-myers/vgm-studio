@@ -39,12 +39,15 @@ use crate::vgm::stream::{VgmCommand, VgmStream};
 /// Ordered by chip, then instance, then port, then address -- which is not the
 /// emission order (see the module docs) but makes the map deterministic and the
 /// diffing in [`ChipState::changes_from`] straightforward.
+///
+/// `pub` because [`chip_docs`](crate::chip_docs) keys its own replay state the
+/// same way -- one definition of "a register on a particular chip", not two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct Cell {
-    chip: crate::vgm::ChipKind,
-    instance: u8,
-    port: u8,
-    addr: u16,
+pub struct Cell {
+    pub chip: crate::vgm::ChipKind,
+    pub instance: u8,
+    pub port: u8,
+    pub addr: u16,
 }
 
 /// What a cell was last told, and where that instruction came from.
