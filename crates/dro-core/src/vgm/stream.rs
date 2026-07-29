@@ -150,7 +150,9 @@ pub const MEMORY_PORT: u8 = 1;
 /// own rather than being folded into an address.
 pub const BANK_PORT: u8 = 2;
 
-/// The chip a `0xB0`-`0xBF` (`aa dd`) write targets.
+/// The chip a `0xB0`-`0xBF` (`aa dd`) write targets. `0xB2` keeps its row for
+/// the table's shape but decodes in its own arm: the PWM's operands are a
+/// nibble register and a 12-bit value, not `aa dd`.
 const B_RANGE: [ChipKind; 16] = [
     ChipKind::Rf5c68,
     ChipKind::Rf5c164,
@@ -337,6 +339,27 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             second_if(ChipTarget::first(ChipKind::Ay8910), byte(1)),
             u16::from(byte(1) & 0x7F),
             u16::from(byte(2)),
+        ),
+        // `0xB2 ad dd` is the PWM's write, and not the `aa dd` shape the rest
+        // of its range takes: upstream's `Cmd_Ofs4_Data12`, not
+        // `Cmd_Ofs8_Data8`. The register is a *nibble* -- bits 6-4 of the
+        // first operand -- and the value is twelve bits, its high nibble in
+        // bits 3-0 and its low byte in the second operand (big-endian). Bit 7
+        // is the second chip, as the rest of the range has it.
+        //
+        // Reading it as `aa dd` -- which this did until 2026-07-29 -- scrambles
+        // both fields at once: register 2 with a value high-nibble of 1
+        // (`ad` = 0x21) decodes as "register 0x21", which a core masking to
+        // the nibble reads as the *cycle* register, and every value loses its
+        // top four bits. That is not an edge case, it is the whole stream:
+        // 229.0M of the corpus's 229.3M PWM writes carry a non-zero value
+        // nibble, and 54.6M of them landed on the cycle register --
+        // `cores::Pwm` has documented this exact layout at its `write` since
+        // the day it was written, and the decoder never delivered it.
+        0xB2 => write(
+            second_if(ChipTarget::first(ChipKind::Pwm), byte(1)),
+            u16::from((byte(1) >> 4) & 0x07),
+            ((u16::from(byte(1)) << 8) | u16::from(byte(2))) & 0x0FFF,
         ),
         0xB0..=0xBF => write(
             second_if(
@@ -1038,6 +1061,30 @@ mod tests {
             assert_eq!((target.kind, target.instance), (kind, 1), "{opcode:#04X}");
             assert_eq!(addr, 0x1F80, "the flag is not part of the address");
         }
+    }
+
+    /// `0xB2 ad dd` is upstream's `Cmd_Ofs4_Data12`: a nibble register in bits
+    /// 6-4 and a twelve-bit value split across the low nibble and the second
+    /// byte, big-endian. The layout `cores::Pwm::write` has always documented
+    /// -- reading it as the range's usual `aa dd` sent register 2 writes with
+    /// a non-zero value nibble to "register 0x21", which the core's nibble
+    /// mask reads as the *cycle*, and threw away the value's top four bits.
+    #[test]
+    fn the_pwm_write_is_a_nibble_register_and_a_12_bit_value() {
+        // "left duty <- 0x2FF" is `B2 22 FF`.
+        let VgmCommand::Write { target, addr, data } = decode(&[0xB2, 0x22, 0xFF]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::Pwm, 0));
+        assert_eq!(addr, 0x02, "bits 6-4, not the whole operand");
+        assert_eq!(data, 0x02FF, "the value spans both operands");
+
+        // Bit 7 is the second chip, and no part of the register.
+        let VgmCommand::Write { target, addr, data } = decode(&[0xB2, 0xA2, 0xFF]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::Pwm, 1));
+        assert_eq!((addr, data), (0x02, 0x02FF), "the flag is not data either");
     }
 
     /// `0xC3 cc bbaa` is a bank select, not an addressed write: `cc` is a mask

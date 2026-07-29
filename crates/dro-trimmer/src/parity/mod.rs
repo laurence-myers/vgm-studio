@@ -514,7 +514,7 @@ pub const THRESHOLDS: &[Threshold] = &[
     clean(
         ChipKind::Pwm,
         0.01,
-        "the corpus's one single-chip file reads 0.016 (n=1); under investigation",
+        "the corpus's one single-chip file reads 0.017 (n=1). The 0xB2 decode was wrong until 2026-07-29 (nibble register and 12-bit value read as the range's `aa dd`) and fixing it moved this row nothing -- the remaining suspect is the core's stated fixed-rate approximation, which no operand fix can reach",
     ),
     clean(
         ChipKind::Es5503,
