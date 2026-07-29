@@ -1153,10 +1153,17 @@ impl ChipCore for LibVgmChip {
 }
 
 /// Whether `kind` takes its RAM blocks through the block writer rather than
-/// the byte-wide memory writer. Only the SCSP today -- see
-/// [`LibVgmChip::write_ram`].
+/// the byte-wide memory writer -- see [`LibVgmChip::write_ram`].
+///
+/// Read off each core's `rwFuncs` table, not guessed: the SCSP, ES5503 and
+/// NES APU file their sample RAM *only* under `RWF_MEMORY | DEVRW_BLOCK`
+/// (`scsp_write_ram`, `es5503_write_ram`, `nes_write_ram`), so a byte loop
+/// finds no writer and silently drops every wavetable -- the ES5503 came
+/// back 0-of-12 audible on the corpus before this listed it. The RF5C pair
+/// stays on the byte writer: their `A16D8` memory function *is* the banked
+/// window our port-1 convention feeds, and it measured exact.
 const fn ram_via_block(kind: ChipKind) -> bool {
-    matches!(kind, ChipKind::Scsp)
+    matches!(kind, ChipKind::Scsp | ChipKind::Es5503 | ChipKind::NesApu)
 }
 
 /// Declares the chip table and, per row, the bare `fn` the registry needs.
@@ -1286,6 +1293,9 @@ chip_specs! {
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
     // Not an OPL row -- the OPL family's own chips stay on `PlayerEngine`.
+    // Known gap: rips that lean on the YRW801 wave ROM without embedding it
+    // (some MSX MoonSound rips) play only their FM half -- VGMPlay
+    // side-loads `yrw801.rom` from disk, and that ROM is not ours to ship.
     make_ymf278b: "ymf278b.libvgm" / "libvgm (Valley Bell)" => Ymf278b,
         ffi::DEVID_YMF278B, 0, WriteRule::RegisterLatch, [0x524F, 0x5241], LEVEL_UNITY, configure_none;
 
@@ -2081,6 +2091,42 @@ mod tests {
             let mut out = vec![0i32; 256];
             chip.render(&mut out);
             assert_eq!(out.len(), 256, "{} rendered", spec.kind.name());
+        }
+    }
+
+    /// Every chip that takes RAM blocks has the writer its RAM path needs.
+    ///
+    /// `ram_via_block` is a transcription of each core's `rwFuncs` table, and
+    /// the two can drift silently: a chip listed for the block path whose
+    /// core has no block writer -- or the reverse -- drops every wavetable
+    /// and plays silence. The ES5503 shipped exactly that way once: its only
+    /// RAM writer is `DEVRW_BLOCK`, the byte loop found nothing, and the
+    /// corpus came back 0-of-12 audible.
+    #[test]
+    fn every_ram_taking_chip_has_the_writer_its_path_needs() {
+        for kind in [
+            ChipKind::Rf5c68,
+            ChipKind::Rf5c164,
+            ChipKind::NesApu,
+            ChipKind::Scsp,
+            ChipKind::Es5503,
+        ] {
+            let mut chip = LibVgmChip::new(spec(kind));
+            chip.reset(8_000_000, false);
+            assert!(chip.is_started(), "{} starts", kind.name());
+            if ram_via_block(kind) {
+                assert!(
+                    chip.writers.rom_write[0].is_some(),
+                    "{} takes RAM via the block writer, which its core must file",
+                    kind.name()
+                );
+            } else {
+                assert!(
+                    chip.writers.mem8.is_some(),
+                    "{} takes RAM via the byte writer, which its core must file",
+                    kind.name()
+                );
+            }
         }
     }
 
