@@ -34,6 +34,51 @@ pub struct RowCells {
     pub hover: String,
 }
 
+/// A source of timeline facts for the waveform and the transport: the OPL song
+/// when there is one, else the whole VGM.
+///
+/// Both answer the same two questions -- the total time, and which command
+/// plays at a given fraction along -- from the stream's own delays, so a
+/// waveform click lands on the same row whichever document is open. The VGM arm
+/// reads [`VgmFile::stream_total_ms`], not the header's claim, so a lying header
+/// cannot put the cursor where the audio is not.
+#[derive(Debug, Clone, Copy)]
+pub enum TimeSource<'a> {
+    Song(&'a Song),
+    Vgm(&'a VgmFile),
+}
+
+impl TimeSource<'_> {
+    /// The document's length in milliseconds.
+    #[must_use]
+    pub fn total_ms(&self) -> u32 {
+        match self {
+            Self::Song(song) => song.total_delay_ms(),
+            Self::Vgm(file) => file.stream_total_ms(),
+        }
+    }
+
+    /// The time command `index` plays at, or `None` past the end.
+    #[must_use]
+    pub fn ms_offset_at(&self, index: usize) -> Option<u32> {
+        match self {
+            Self::Song(song) => song.ms_offset_at(index),
+            Self::Vgm(file) => file.ms_offset_at(index),
+        }
+    }
+
+    /// The command playing at `pct` along the timeline, and its time. The
+    /// returned milliseconds always equal [`ms_offset_at`](Self::ms_offset_at)
+    /// of the returned index, so a click and the row it selects agree.
+    #[must_use]
+    pub fn index_and_ms_offset_at_pct(&self, pct: f64) -> Option<(usize, u32)> {
+        match self {
+            Self::Song(song) => song.index_and_ms_offset_at_pct(pct),
+            Self::Vgm(file) => file.index_and_ms_offset_at_pct(pct),
+        }
+    }
+}
+
 /// What the loaded document supports, for the panels that only suit some of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DocCapabilities {
@@ -168,6 +213,19 @@ impl Editor {
     #[must_use]
     pub fn vgm(&self) -> Option<&VgmFile> {
         self.vgm.as_ref()
+    }
+
+    /// The timeline the waveform and the transport read from: the OPL song's
+    /// when there is one (a DRO, or a VGM the editor projects to OPL), else the
+    /// whole VGM's -- so a Mega Drive rip gets a clickable, seekable waveform
+    /// too. `None` only when nothing is open.
+    #[must_use]
+    pub fn timeline(&self) -> Option<TimeSource<'_>> {
+        if let Some(song) = self.song() {
+            Some(TimeSource::Song(song))
+        } else {
+            self.vgm.as_ref().map(TimeSource::Vgm)
+        }
     }
 
     /// Whether anything at all is open, of either kind.

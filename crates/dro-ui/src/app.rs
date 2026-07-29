@@ -535,7 +535,7 @@ impl DroApp {
                         };
                         ui.allocate_ui(egui::vec2(wave_width, height), |ui| {
                             let response =
-                                waveform::show(ui, &self.waveform, self.editor.song(), p);
+                                waveform::show(ui, &self.waveform, self.editor.timeline(), p);
                             if let Some((index, ms)) = response.clicked {
                                 actions.extend(waveform_action(
                                     index,
@@ -1493,10 +1493,10 @@ impl DroApp {
         let Some(index) = first else {
             return;
         };
-        let Some(song) = self.editor.song() else {
+        let Some(timeline) = self.editor.timeline() else {
             return;
         };
-        if let Some(ms) = song.ms_offset_at(index) {
+        if let Some(ms) = timeline.ms_offset_at(index) {
             self.waveform.start_ms = ms;
             self.position.set_position_ms(ms);
         }
@@ -1545,7 +1545,7 @@ impl DroApp {
                 // so its position is left exactly where playback paused.
                 let ended = !playing && self.was_playing && self.audio.is_finished();
                 if let Some(end) = ended
-                    .then(|| self.editor.song().map(|song| song.total_delay_ms()))
+                    .then(|| self.editor.timeline().map(|t| t.total_ms()))
                     .flatten()
                 {
                     self.waveform.cursor_ms = end;
@@ -2171,7 +2171,9 @@ impl DroApp {
                         let file = self.editor.vgm().expect("just loaded");
                         let chips = file.chip_list();
                         self.channels = ChipPanels::for_vgm(file);
-                        self.position.set_length_ms(file.total_ms());
+                        // The stream's own summed length, matching the waveform's
+                        // timeline -- not the header's claim, which can lie.
+                        self.position.set_length_ms(file.stream_total_ms());
                         self.position.set_position_ms(0);
                         // What the status promises has to match what the
                         // registry can actually build: most VGMs play in full
@@ -4262,17 +4264,20 @@ impl DroApp {
     fn sync_loop_overlay(&mut self) {
         let markers = self.editor.markers;
         let len = self.editor.len();
-        let worth_showing = self.editor.has_song() && (!markers.is_full(len) || self.loop_enabled);
+        // Any playable document with a waveform can carry a loop overlay now,
+        // not only an OPL one -- the markers and the timeline are both generic.
+        let worth_showing =
+            self.editor.timeline().is_some() && (!markers.is_full(len) || self.loop_enabled);
         self.waveform.loop_overlay = worth_showing
             .then(|| {
-                let song = self.editor.song()?;
+                let timeline = self.editor.timeline()?;
                 Some(waveform::LoopOverlay {
-                    start_ms: song.ms_offset_at(markers.start())?,
+                    start_ms: timeline.ms_offset_at(markers.start())?,
                     // The end is exclusive, so its time is where the *next*
                     // instruction starts -- which for `len` is the end of the song.
-                    end_ms: song
+                    end_ms: timeline
                         .ms_offset_at(markers.end())
-                        .unwrap_or_else(|| song.total_delay_ms()),
+                        .unwrap_or_else(|| timeline.total_ms()),
                     active: self.loop_enabled,
                     unapplied: self.editor.loop_markers_are_unapplied(),
                 })

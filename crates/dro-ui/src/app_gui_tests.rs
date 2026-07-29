@@ -2374,6 +2374,35 @@ fn a_vgm_this_app_can_play_gets_its_transport_back() {
     assert!(audio.playing);
 }
 
+/// The waveform is no longer an OPL-only panel: a VGM this app can play maps a
+/// click to its own timeline -- selecting the row, moving the readout -- with
+/// no OPL projection in sight.
+#[test]
+fn a_non_opl_vgm_waveform_click_seeks() {
+    let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
+    harness.run();
+    assert!(
+        harness.state().editor.song().is_none(),
+        "held as a VGM, no projection"
+    );
+    assert!(
+        harness.state().editor.timeline().is_some(),
+        "but it still has a timeline to map clicks against"
+    );
+
+    act(&mut harness, Action::WaveformClicked { index: 1, ms: 500 });
+    assert_eq!(harness.state().editor.selection.first(), Some(1));
+    assert_eq!(harness.state().position.position_ms(), 500);
+}
+
+/// A playable non-OPL VGM draws its waveform like any other song -- the panel,
+/// the wave, the transport, all present.
+#[test]
+fn snapshot_playable_vgm_waveform() {
+    let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
+    settled_snapshot(&mut harness, "playable_vgm_waveform");
+}
+
 /// Hardware output is an OPL3, so a document that is not OPL never reaches it --
 /// and the controls that only work on samples passing through this program stay
 /// live for one, whatever the output setting says.

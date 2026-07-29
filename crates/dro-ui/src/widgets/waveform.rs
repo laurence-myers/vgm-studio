@@ -9,16 +9,17 @@
 //!   centre line rather than as bars growing from the bottom.
 //! - Hovering also shows the snapped time as a tooltip.
 //!
-//! Everything here is denominated in [`Song::total_delay_ms`], never the
-//! header's `ms_length`, so a DRO with a lying header still maps clicks to the
-//! right instructions.
+//! Everything here is denominated in the document's own summed delays -- via
+//! [`TimeSource`], the OPL song's or the whole VGM's -- never the header's
+//! `ms_length`, so a file with a lying header still maps clicks to the right
+//! commands, and a Mega Drive rip is as clickable as a DRO.
 
-use dro_core::Song;
 use dro_core::util::ms_to_timestr;
 use dro_synth::WaveformBucket;
 use egui::epaint::Mesh;
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
 
+use crate::editor::TimeSource;
 use crate::theme::Palette;
 use crate::theme::bevel::{self, Bevel};
 use crate::theme::paint::{gradient_quad, lerp_color};
@@ -71,7 +72,7 @@ pub struct WaveformResponse {
 pub fn show(
     ui: &mut egui::Ui,
     state: &WaveformState,
-    song: Option<&Song>,
+    timeline: Option<TimeSource<'_>>,
     palette: &Palette,
 ) -> WaveformResponse {
     let (response, painter) = ui.allocate_painter(ui.available_size(), Sense::click());
@@ -79,12 +80,12 @@ pub fn show(
     paint_background(&painter, rect, palette);
 
     let mut out = WaveformResponse::default();
-    let Some(song) = song else {
+    let Some(timeline) = timeline else {
         // Still frame the empty well, so the panel reads as a sunken area.
         bevel::paint_bevel(&painter, rect, palette, Bevel::Sunken);
         return out;
     };
-    let total_ms = song.total_delay_ms();
+    let total_ms = timeline.total_ms();
 
     draw_buckets(&painter, rect, &state.buckets, palette);
 
@@ -95,7 +96,7 @@ pub fn show(
     let mut hover_x = None;
     if let Some(pointer) = response.hover_pos() {
         let pct = f64::from((pointer.x - rect.left()) / rect.width());
-        if let Some((_, ms)) = song.index_and_ms_offset_at_pct(pct) {
+        if let Some((_, ms)) = timeline.index_and_ms_offset_at_pct(pct) {
             hover_x = Some(x_for_ms(rect, ms, total_ms));
             response
                 .clone()
@@ -138,7 +139,7 @@ pub fn show(
         && let Some(pointer) = response.interact_pointer_pos()
     {
         let pct = f64::from((pointer.x - rect.left()) / rect.width());
-        out.clicked = song.index_and_ms_offset_at_pct(pct);
+        out.clicked = timeline.index_and_ms_offset_at_pct(pct);
         out.secondary = secondary;
         out.modifiers = ui.input(|input| input.modifiers);
     }

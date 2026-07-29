@@ -572,7 +572,7 @@ fn waveform_and_meter(ui: &mut egui::Ui, state: &ShowcaseState, p: &Palette) {
                     let wave_width =
                         ui.available_width() - peak_meter::WIDTH - ui.spacing().item_spacing.x;
                     ui.allocate_ui(egui::vec2(wave_width, 120.0), |ui| {
-                        waveform::show(ui, &state.waveform, state.editor.song(), p);
+                        waveform::show(ui, &state.waveform, state.editor.timeline(), p);
                     });
                     peak_meter::show(ui, &state.meter, p);
                 });
