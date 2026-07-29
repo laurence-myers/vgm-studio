@@ -25,6 +25,10 @@ use crate::registry::{CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY};
 pub(crate) struct ToneStub {
     /// Per-channel attenuation, 0xF = silent, as the SN76489 has it.
     volumes: [u8; 4],
+    /// The channel mute mask, bit `c` = channel `c` muted -- so the channel
+    /// splitter, which solos one channel at a time, sees silence for the ones
+    /// it muted.
+    muted: u32,
     /// Absolute frame counter, so chunked renders line up.
     at: u64,
 }
@@ -33,6 +37,7 @@ impl ToneStub {
     pub(crate) fn new() -> Self {
         Self {
             volumes: [0xF; 4],
+            muted: 0,
             at: 0,
         }
     }
@@ -41,6 +46,7 @@ impl ToneStub {
 impl ChipCore for ToneStub {
     fn reset(&mut self, _clock: u32, _variant: bool) {
         self.volumes = [0xF; 4];
+        self.muted = 0;
         self.at = 0;
     }
 
@@ -61,8 +67,18 @@ impl ChipCore for ToneStub {
         }
     }
 
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.muted = muted;
+    }
+
     fn render(&mut self, out: &mut [i32]) {
-        let sounding = self.volumes.iter().any(|&volume| volume < 0xF);
+        // A channel sounds only if it is un-attenuated and not muted -- the
+        // splitter mutes every channel but the one it is isolating.
+        let sounding = self
+            .volumes
+            .iter()
+            .enumerate()
+            .any(|(channel, &volume)| volume < 0xF && (self.muted >> channel) & 1 == 0);
         for frame in out.chunks_exact_mut(2) {
             let sample = if sounding {
                 // ~441 Hz square at 44.1 kHz: flip every 50 frames.

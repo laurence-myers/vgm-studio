@@ -1636,14 +1636,16 @@ impl DroApp {
                 boost,
             } => self.render_to_wav(use_toggles, use_panning, boost),
             Action::OpenSplit => {
-                if !self.require_song() {
+                if !self.require_splittable() {
                     return;
                 }
                 if self.split_is_running() {
                     self.status = "Already splitting channels.".to_owned();
                     return;
                 }
-                self.dialogs.split = Some(SplitDialog::new());
+                // A generic VGM splits to WAV only, per chip channel; an OPL
+                // document keeps the format and percussion options.
+                self.dialogs.split = Some(SplitDialog::new(!self.editor.has_song()));
             }
             Action::SplitSubmitted {
                 format,
@@ -4061,18 +4063,30 @@ impl DroApp {
     /// The shared entry both splits use: guard, stash the request, open the
     /// output-folder picker.
     fn begin_split(&mut self, pending: PendingSplit) {
-        // The channel split decides which channel each register write belongs
-        // to, so it needs an OPL stream; the song split only needs a document.
+        // The song split only needs a document; the channel split needs
+        // something that would actually render -- an OPL stream, or a VGM with
+        // a core for at least one chip.
         let gate = if pending.is_songs() {
             Self::require_document
         } else {
-            Self::require_song
+            Self::require_splittable
         };
         if !gate(self) || self.split_is_running() {
             return;
         }
         self.split_flow = Some(SplitFlow::AwaitingFolder(pending));
         self.files.pick_output_folder();
+    }
+
+    /// Whether the loaded document has channels worth splitting: something that
+    /// renders. Sets the status when not.
+    fn require_splittable(&mut self) -> bool {
+        if self.editor.capabilities().renderable {
+            true
+        } else {
+            self.status = "There is nothing here to split.".to_owned();
+            false
+        }
     }
 
     /// Starts the split now that `dir` is known, or gives up if the picker was
@@ -4084,12 +4098,22 @@ impl DroApp {
         };
         let songs = pending.is_songs();
         let request = match pending {
-            PendingSplit::Channels { options } => self.editor.snapshot().map(|song| {
-                (
-                    TaskRequest::Split { song, options },
-                    "Splitting channels...",
-                )
-            }),
+            PendingSplit::Channels { options } => {
+                // An OPL document splits per OPL channel with its chosen format;
+                // any other VGM splits per chip channel to WAV.
+                let source = match (self.editor.snapshot(), self.editor.vgm()) {
+                    (Some(song), _) => Some(crate::tasks::SplitTaskSource::Opl { song, options }),
+                    (None, Some(file)) => Some(crate::tasks::SplitTaskSource::Vgm {
+                        file: std::sync::Arc::new(file.clone()),
+                        options: dro_synth::VgmSplitOptions {
+                            audio: self.config.audio.clone(),
+                            resampling: self.resample_mode(),
+                        },
+                    }),
+                    (None, None) => None,
+                };
+                source.map(|source| (TaskRequest::Split { source }, "Splitting channels..."))
+            }
             PendingSplit::Songs {
                 threshold_native,
                 included,
@@ -4439,10 +4463,11 @@ impl DroApp {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
             can_render: self.editor.capabilities().renderable,
-            // Specifically an OPL stream, not merely something audible: the
-            // channel split decides which OPL channel each register write
-            // belongs to. Shown for an empty editor, like the rest of the menu.
-            can_split_channels: self.editor.has_song() || !self.editor.has_document(),
+            // Anything that renders can be split per channel now -- an OPL
+            // stream, or a VGM with a core. Shown for an empty editor, like the
+            // rest of the menu.
+            can_split_channels: self.editor.capabilities().renderable
+                || !self.editor.has_document(),
         }
     }
 

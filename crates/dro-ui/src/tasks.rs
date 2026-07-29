@@ -16,9 +16,9 @@ use dro_core::split_songs::{
     detect_segments, detect_segments_in_vgm, materialise, materialise_vgm,
 };
 use dro_synth::{
-    AudioSource, Peak, RenderMix, SplitData, SplitOptions, WaveformBucket,
+    AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmSplitOptions, WaveformBucket,
     measure_peak_cancellable, render_wav_cancellable, render_waveform_progressive,
-    split_cancellable,
+    split_cancellable, split_vgm_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -64,8 +64,7 @@ pub enum TaskRequest {
         resampling: dro_synth::resample::ResampleMode,
     },
     Split {
-        song: Arc<Song>,
-        options: SplitOptions,
+        source: SplitTaskSource,
     },
     SplitSongs {
         source: SplitSource,
@@ -79,7 +78,10 @@ pub enum TaskRequest {
         trailing_tail: u32,
     },
     /// Measures `song`'s peak level by rendering it internally at `sample_rate`.
-    VolumeScan { song: Arc<Song>, sample_rate: u32 },
+    VolumeScan {
+        song: Arc<Song>,
+        sample_rate: u32,
+    },
     /// Measures the peak of every `(file_name, song)` at `sample_rate`, for pack
     /// mode's "Scan Volumes". One background task covers the whole pack so its
     /// many songs never freeze the UI.
@@ -127,6 +129,24 @@ impl WavSource {
             Self::Vgm(file) => &file.name,
         }
     }
+}
+
+/// What a channel split runs over.
+///
+/// An OPL song splits per OPL channel (to WAV or captured song), reading the
+/// register usage to skip untouched channels; a generic VGM splits per chip
+/// channel to WAV, soloing each and keeping what sounds. The two take different
+/// options, so the choice is made here.
+#[derive(Debug, Clone)]
+pub enum SplitTaskSource {
+    Opl {
+        song: Arc<Song>,
+        options: SplitOptions,
+    },
+    Vgm {
+        file: Arc<dro_core::VgmFile>,
+        options: VgmSplitOptions,
+    },
 }
 
 /// What a song split runs over.
@@ -344,8 +364,8 @@ pub fn run_task(
                 Err(message) => emit(TaskResult::Wav(Err(message))),
             }
         }
-        TaskRequest::Split { song, options } => {
-            if let Some(result) = split_to_bytes(song, options.clone(), is_cancelled) {
+        TaskRequest::Split { source } => {
+            if let Some(result) = split_to_bytes(source, is_cancelled) {
                 emit(TaskResult::Split(result));
             }
         }
@@ -481,18 +501,24 @@ fn split_songs_to_bytes(
 
 /// Splits `song` and serialises each output, so what comes back is ready to
 /// write wherever the user chose. `None` if the split was cancelled part-way.
-fn split_to_bytes(
-    song: &Song,
-    options: SplitOptions,
-    is_cancelled: &dyn Fn() -> bool,
-) -> Option<SplitFiles> {
-    let outputs = match split_cancellable(
-        song,
-        &options,
-        &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
-        &mut |_, _| {},
-        &mut || !is_cancelled(),
-    ) {
+fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> Option<SplitFiles> {
+    let outputs = match source {
+        SplitTaskSource::Opl { song, options } => split_cancellable(
+            song,
+            options,
+            &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
+            &mut |_, _| {},
+            &mut || !is_cancelled(),
+        ),
+        SplitTaskSource::Vgm { file, options } => split_vgm_cancellable(
+            file,
+            options,
+            &mut |name| log::info!("split: skipping silent channel {name}"),
+            &mut |_, _| {},
+            &mut || !is_cancelled(),
+        ),
+    };
+    let outputs = match outputs {
         Ok(Some(outputs)) => outputs,
         Ok(None) => return None,
         Err(error) => return Some(Err(error.to_string())),
@@ -650,11 +676,13 @@ mod tests {
         assert!(collect(&wav, || true).is_empty());
 
         let split = TaskRequest::Split {
-            song: Arc::new(tone_song()),
-            options: SplitOptions {
-                format: dro_synth::SplitFormat::Wav,
-                isolate_percussion: false,
-                audio: dro_core::config::AudioConfig::default(),
+            source: SplitTaskSource::Opl {
+                song: Arc::new(tone_song()),
+                options: SplitOptions {
+                    format: dro_synth::SplitFormat::Wav,
+                    isolate_percussion: false,
+                    audio: dro_core::config::AudioConfig::default(),
+                },
             },
         };
         assert!(collect(&split, || true).is_empty());

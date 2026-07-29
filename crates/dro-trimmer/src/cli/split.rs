@@ -7,12 +7,17 @@ use std::cell::RefCell;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use dro_core::io::write_song;
 use dro_core::util::ms_to_timestr;
-use dro_synth::{Position, SplitData, SplitFormat, SplitOptions, split};
+use dro_synth::{
+    Position, SplitData, SplitFormat, SplitOptions, SplitOutput, VgmSplitOptions, split,
+    split_vgm_cancellable,
+};
 
-use crate::{load_config, read_song_from_path};
+use crate::{LoadedSong, load_config, read_any_song_from_path};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -34,37 +39,86 @@ pub struct Args {
 /// If the song cannot be read, a channel cannot be rendered or captured, or an
 /// output cannot be written.
 pub fn run(args: &Args) -> Result<()> {
-    let song = read_song_from_path(&args.input)?;
+    let song = read_any_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
-    let options = SplitOptions {
-        format: if args.song {
-            SplitFormat::Song
-        } else {
-            SplitFormat::Wav
-        },
-        isolate_percussion: args.isolate_percussion,
-        audio: load_config().audio,
-    };
-
+    let config = load_config();
+    let frequency = config.audio.frequency;
     // Report skipped channels and a live per-file render line. Both callbacks
     // share one printer through a RefCell so a skip can close an open progress
     // line before printing over it.
-    let progress = RefCell::new(RenderProgress::new(options.audio.frequency));
-    let outputs = split(
-        &song,
-        &options,
-        &mut |channel| {
-            progress.borrow_mut().finish_line();
-            let bank = channel >> 8;
-            let channel_num = (channel & 0xFF) - 0xAF;
-            println!("Skipping bank {bank}, channel {channel_num:02} (unused)");
-        },
-        &mut |base, frames| progress.borrow_mut().update(base, frames),
-    )?;
+    let progress = RefCell::new(RenderProgress::new(frequency));
+    let outputs = match song {
+        LoadedSong::Opl(song) => {
+            let options = SplitOptions {
+                format: if args.song {
+                    SplitFormat::Song
+                } else {
+                    SplitFormat::Wav
+                },
+                isolate_percussion: args.isolate_percussion,
+                audio: config.audio,
+            };
+            split(
+                &song,
+                &options,
+                &mut |channel| {
+                    progress.borrow_mut().finish_line();
+                    let bank = channel >> 8;
+                    let channel_num = (channel & 0xFF) - 0xAF;
+                    println!("Skipping bank {bank}, channel {channel_num:02} (unused)");
+                },
+                &mut |base, frames| progress.borrow_mut().update(base, frames),
+            )?
+        }
+        LoadedSong::Vgm(file) => {
+            // A per-channel song output needs per-chip write gating that only
+            // the OPL path has; a generic VGM splits to WAV.
+            if args.song {
+                anyhow::bail!(
+                    "--song split is OPL-only; {} splits to WAV",
+                    args.input.display()
+                );
+            }
+            crate::warn_missing_cores(
+                &file
+                    .header
+                    .chips()
+                    .iter()
+                    .map(|chip| chip.kind)
+                    .collect::<Vec<_>>(),
+                "there is nothing to split",
+            )?;
+            let resampling = dro_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
+                .unwrap_or_default();
+            let options = VgmSplitOptions {
+                audio: config.audio,
+                resampling,
+            };
+            split_vgm_cancellable(
+                &Arc::new(*file),
+                &options,
+                &mut |name| {
+                    progress.borrow_mut().finish_line();
+                    println!("Skipping {name} (silent)");
+                },
+                &mut |base, frames| progress.borrow_mut().update(base, frames),
+                &mut || true,
+            )?
+            .unwrap_or_default()
+        }
+    };
     progress.borrow_mut().finish_line();
 
-    let dir = args.input.parent().unwrap_or_else(|| Path::new("."));
+    write_outputs(&args.input, outputs)
+}
+
+/// Writes each split output beside `input`, reporting each and the total.
+///
+/// # Errors
+/// If a captured song cannot be serialised, or a file cannot be written.
+fn write_outputs(input: &Path, outputs: Vec<SplitOutput>) -> Result<()> {
+    let dir = input.parent().unwrap_or_else(|| Path::new("."));
     let count = outputs.len();
     // Consume the outputs so a WAV's bytes move straight into the write.
     for output in outputs {

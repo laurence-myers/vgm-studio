@@ -1445,6 +1445,44 @@ fn splitting_writes_one_file_per_channel_into_the_chosen_folder() {
     );
 }
 
+/// A playable non-OPL VGM splits per chip channel: only the channels that
+/// sound are written, named for the chip and channel.
+#[test]
+fn splitting_a_non_opl_vgm_writes_a_wav_per_sounding_channel() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    let dir = PathBuf::from("C:/out");
+    handles
+        .files
+        .borrow_mut()
+        .output_folders
+        .push_back(Some(dir.clone()));
+
+    open_split_dialog(&mut harness);
+    harness.get_by_label("Split").click();
+    harness.run();
+
+    assert_eq!(handles.files.borrow().pick_output_folder_calls, 1);
+    let files = handles.files.borrow();
+    let written: Vec<String> = files
+        .save_requests
+        .iter()
+        .filter_map(|request| match request {
+            SaveRequest::InPlace { path, .. } => {
+                Some(path.file_name()?.to_string_lossy().into_owned())
+            }
+            SaveRequest::Dialog { .. } => None,
+        })
+        .collect();
+    // Only Tone 1 sounds in the fixture, so exactly one file, named for the
+    // SN76489 and that channel.
+    assert_eq!(written.len(), 1, "one sounding channel: {written:?}");
+    assert!(
+        written[0].contains("sn76489") && written[0].contains("T1"),
+        "named for the chip and channel: {}",
+        written[0]
+    );
+}
+
 #[test]
 fn the_last_written_split_file_reports_the_total() {
     let song = dual_tone_song();
@@ -2342,14 +2380,14 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
         "but there is a core for its chip"
     );
 
-    // The File menu offers the render and withholds the channel split, which is
-    // an OPL idea whatever the chips.
+    // The File menu offers both the render and the channel split now: a VGM
+    // this app can play splits per chip channel to WAV.
     harness.get_by_label("File").click();
     harness.run();
     assert!(harness.query_by_label_contains("Render to WAV").is_some());
     assert!(
-        harness.query_by_label_contains("Split Channels").is_none(),
-        "a channel split needs an OPL stream"
+        harness.query_by_label_contains("Split Channels").is_some(),
+        "a playable VGM can be split per channel"
     );
     harness.key_press(Key::Escape);
     harness.run();

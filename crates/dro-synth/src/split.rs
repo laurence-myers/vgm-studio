@@ -5,10 +5,18 @@
 //! Each channel is rendered (or captured) with all other channels muted, using
 //! the register-usage analysis to skip channels the song never touches.
 
+use std::collections::BTreeSet;
+use std::sync::Arc;
+
 use dro_core::config::AudioConfig;
+use dro_core::vgm::{ChipKind, VgmCommand, VgmFile, channels_of};
 use dro_core::{Bank, Error, OplType, RegisterUsage, Result, Song};
 
-use crate::{Muting, RenderMix, capture, render_wav_cancellable};
+use crate::resample::ResampleMode;
+use crate::{
+    ChipMuting, Muting, RenderMix, VgmRenderMix, capture, render_vgm_wav_mixed_cancellable,
+    render_wav_cancellable,
+};
 
 /// Output format for a split.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,6 +222,155 @@ fn render_one(
     })
 }
 
+/// How to split a multichip VGM.
+#[derive(Debug, Clone)]
+pub struct VgmSplitOptions {
+    pub audio: AudioConfig,
+    pub resampling: ResampleMode,
+}
+
+/// A peak at or below this fraction of full scale is treated as silence: a
+/// channel that was configured but never sounded renders (near-)zero, and its
+/// file is not worth writing. `1/1000` separates "never keyed" from "playing"
+/// with room to spare.
+const SILENCE_DIVISOR: i32 = 1000;
+
+/// Splits a multichip VGM into one WAV per channel it actually sounds.
+///
+/// The chip-agnostic counterpart of [`split_cancellable`]: where that one reads
+/// OPL register usage to know which channels a song touches, this cannot -- the
+/// analysis is OPL-shaped -- so it *renders* each channel soloed and keeps only
+/// the ones that come out above silence. A whole chip instance the stream never
+/// writes is skipped without rendering (the pre-filter), and `on_skip` names
+/// every channel dropped so the CLI can report it.
+///
+/// WAV only: a per-channel song output would need per-chip write gating, which
+/// is out of scope; the OPL split keeps both formats.
+///
+/// `Ok(None)` iff `keep_going` asked it to stop part-way.
+///
+/// # Errors
+/// If a channel cannot be rendered to WAV.
+pub fn split_vgm_cancellable(
+    file: &Arc<VgmFile>,
+    options: &VgmSplitOptions,
+    on_skip: &mut dyn FnMut(&str),
+    on_progress: &mut dyn FnMut(&str, u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<SplitOutput>>> {
+    // Which chip instances the stream ever writes: a chip it never touches is
+    // silent on every channel, so it is skipped without a render each.
+    let written = written_instances(file);
+    let full = if options.audio.bit_depth == 8 {
+        127
+    } else {
+        32_767
+    };
+    let mut outputs = Vec::new();
+
+    for chip in file.header.chips() {
+        let instances = if chip.dual { 2 } else { 1 };
+        let channels = channels_of(chip.kind, chip.variant);
+        for instance in 0..instances {
+            let ever_written = written.contains(&(chip.kind, instance));
+            for (index, channel) in channels.iter().enumerate() {
+                let name = channel_file_name(&file.name, chip.kind, instance, index, channel.short);
+                if !ever_written {
+                    on_skip(&name);
+                    continue;
+                }
+                if !keep_going() {
+                    return Ok(None);
+                }
+                // Solo this channel: every other instance fully muted, and
+                // every other channel of this instance too.
+                let mut muting = ChipMuting::new();
+                for other in file.header.chips() {
+                    let others = if other.dual { 2 } else { 1 };
+                    for other_instance in 0..others {
+                        muting.set(other.kind, other_instance, u32::MAX);
+                    }
+                }
+                muting.set(chip.kind, instance, !(1u32 << index));
+
+                let mix = VgmRenderMix {
+                    muting,
+                    ..VgmRenderMix::default()
+                };
+                let progress_name = name.clone();
+                let rendered = render_vgm_wav_mixed_cancellable(
+                    Arc::clone(file),
+                    options.audio.frequency,
+                    options.audio.bit_depth,
+                    &mix,
+                    options.resampling,
+                    &mut |frames| on_progress(&progress_name, frames),
+                    keep_going,
+                )
+                .map_err(|e| Error::file(format!("Rendering {name} to WAV failed: {e}")))?;
+                let Some(bytes) = rendered else {
+                    return Ok(None);
+                };
+                // A channel that never sounded renders (near-)silence; drop it.
+                if wav_peak(&bytes) <= full / SILENCE_DIVISOR {
+                    on_skip(&name);
+                    continue;
+                }
+                outputs.push(SplitOutput {
+                    name,
+                    data: SplitData::Wav(bytes),
+                });
+            }
+        }
+    }
+    Ok(Some(outputs))
+}
+
+/// The chip instances a stream writes at least once, so the split can skip a
+/// chip it never touches without rendering every one of its channels.
+fn written_instances(file: &VgmFile) -> BTreeSet<(ChipKind, u8)> {
+    let mut written = BTreeSet::new();
+    let Some(stream) = file.stream() else {
+        return written;
+    };
+    for index in 0..stream.len() {
+        if let Some(VgmCommand::Write { target, .. }) = stream.get(index) {
+            written.insert((target.kind, target.instance));
+        }
+    }
+    written
+}
+
+/// The file name for one channel: `<song>.<chip-slug>[#2].<NN>-<short>.wav`.
+fn channel_file_name(
+    song: &str,
+    kind: ChipKind,
+    instance: u8,
+    index: usize,
+    short: &str,
+) -> String {
+    let stem = song.strip_suffix(".vgm").unwrap_or(song);
+    let inst = if instance == 0 {
+        String::new()
+    } else {
+        format!("#{}", instance + 1)
+    };
+    format!("{stem}.{}{inst}.{index:02}-{short}.wav", kind.slug())
+}
+
+/// The largest absolute PCM sample in a rendered WAV, for the silence check.
+fn wav_peak(bytes: &[u8]) -> i32 {
+    let Ok(reader) = hound::WavReader::new(std::io::Cursor::new(bytes)) else {
+        return 0;
+    };
+    reader
+        .into_samples::<i32>()
+        .filter_map(std::result::Result::ok)
+        .map(i32::abs)
+        .max()
+        .unwrap_or(0)
+}
+
 /// The channels to consider, in `dro_split`'s order: melodic `0xB0..=0xB8` (bank
 /// 0 then bank 1), then percussion `0xBD` (bank 0 then bank 1). OPL2 keeps only
 /// the low bank.
@@ -226,6 +383,90 @@ fn channels_to_render(opl_type: OplType) -> Vec<u16> {
         channels.retain(|&channel| channel < 0x100);
     }
     channels
+}
+
+#[cfg(test)]
+mod vgm_split_tests {
+    use super::*;
+
+    /// A one-second SN76489 VGM with only Tone 1 turned on.
+    fn tone1_vgm() -> Arc<VgmFile> {
+        fn put(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put(&mut bytes, 0x08, 0x151);
+        put(&mut bytes, 0x34, 0x100 - 0x34);
+        put(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+        // Latch Tone 1 volume to full (0x90 = channel 0, volume 0), then a
+        // one-second delay so the render has something to measure.
+        bytes.extend_from_slice(&[0x50, 0x90, 0x61, 0x44, 0xAC, 0x66]);
+        let eof = bytes.len();
+        put(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(dro_core::vgm::file::read("song.vgm", &bytes).unwrap())
+    }
+
+    fn options() -> VgmSplitOptions {
+        VgmSplitOptions {
+            audio: AudioConfig::default(),
+            resampling: ResampleMode::default(),
+        }
+    }
+
+    /// Only the channel that sounds gets a file; the silent ones are skipped
+    /// and named so the CLI can report them.
+    #[test]
+    fn a_split_keeps_the_sounding_channel_and_skips_the_rest() {
+        crate::testing::install_registry_with_stub();
+        let file = tone1_vgm();
+        let mut skipped = Vec::new();
+        let outputs = split_vgm_cancellable(
+            &file,
+            &options(),
+            &mut |name| skipped.push(name.to_owned()),
+            &mut |_, _| {},
+            &mut || true,
+        )
+        .unwrap()
+        .expect("not cancelled");
+
+        // The SN76489 has four channels; only Tone 1 was on.
+        assert_eq!(outputs.len(), 1, "one sounding channel");
+        assert!(
+            outputs[0].name.contains("00-T1"),
+            "named for Tone 1: {}",
+            outputs[0].name
+        );
+        assert_eq!(skipped.len(), 3, "the other three are skipped: {skipped:?}");
+        assert!(matches!(outputs[0].data, SplitData::Wav(_)));
+    }
+
+    /// Cancelling part-way emits nothing, like the OPL split.
+    #[test]
+    fn a_cancelled_split_emits_nothing() {
+        crate::testing::install_registry_with_stub();
+        let file = tone1_vgm();
+        let result =
+            split_vgm_cancellable(&file, &options(), &mut |_| {}, &mut |_, _| {}, &mut || {
+                false
+            })
+            .unwrap();
+        assert!(result.is_none(), "a cancelled split completes with None");
+    }
+
+    /// The file names follow the chip slug and the channel's short label.
+    #[test]
+    fn channel_names_carry_the_chip_and_channel() {
+        assert_eq!(
+            channel_file_name("bios.vgm", ChipKind::Sn76489, 0, 3, "N"),
+            "bios.sn76489.03-N.wav"
+        );
+        assert_eq!(
+            channel_file_name("x.vgm", ChipKind::Ym2612, 1, 6, "DA"),
+            "x.ym2612#2.06-DA.wav"
+        );
+    }
 }
 
 #[cfg(test)]

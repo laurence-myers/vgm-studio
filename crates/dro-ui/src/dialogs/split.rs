@@ -10,6 +10,9 @@ use crate::theme::{Palette, bevel};
 pub struct SplitDialog {
     format: SplitFormat,
     isolate_percussion: bool,
+    /// A generic VGM splits to WAV per chip channel; the format and percussion
+    /// choices are OPL-only, so they are hidden for one.
+    wav_only: bool,
 }
 
 impl Default for SplitDialog {
@@ -17,14 +20,19 @@ impl Default for SplitDialog {
         Self {
             format: SplitFormat::Wav,
             isolate_percussion: false,
+            wav_only: false,
         }
     }
 }
 
 impl SplitDialog {
+    /// The dialog for an OPL document, with the format and percussion options.
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(wav_only: bool) -> Self {
+        Self {
+            wav_only,
+            ..Self::default()
+        }
     }
 
     /// Draws the modal. Returns `false` once closed.
@@ -44,35 +52,41 @@ impl SplitDialog {
             "Split Channels",
             palette,
             |ui| {
-                ui.label("Write each channel as:");
-                ui.add_space(4.0);
-                ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
-                    .on_hover_text("Render each channel on its own");
-                ui.radio_value(
-                    &mut self.format,
-                    SplitFormat::Song,
-                    "Song data (DRO or VGM)",
-                )
-                .on_hover_text("Re-record each channel in the song's own format");
+                // The format and percussion options are OPL ideas: a generic
+                // VGM renders each chip channel to WAV, so they are hidden.
+                if self.wav_only {
+                    ui.label("Each chip channel is rendered to its own WAV.");
+                } else {
+                    ui.label("Write each channel as:");
+                    ui.add_space(4.0);
+                    ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
+                        .on_hover_text("Render each channel on its own");
+                    ui.radio_value(
+                        &mut self.format,
+                        SplitFormat::Song,
+                        "Song data (DRO or VGM)",
+                    )
+                    .on_hover_text("Re-record each channel in the song's own format");
 
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.isolate_percussion, "");
-                    if ui
-                        .add(
-                            egui::Label::new("Give each drum its own file")
-                                .sense(egui::Sense::click()),
-                        )
-                        .on_hover_text("Splits the percussion channel per drum, not as one")
-                        .clicked()
-                    {
-                        self.isolate_percussion = !self.isolate_percussion;
-                    }
-                });
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.isolate_percussion, "");
+                        if ui
+                            .add(
+                                egui::Label::new("Give each drum its own file")
+                                    .sense(egui::Sense::click()),
+                            )
+                            .on_hover_text("Splits the percussion channel per drum, not as one")
+                            .clicked()
+                        {
+                            self.isolate_percussion = !self.isolate_percussion;
+                        }
+                    });
+                }
 
                 ui.add_space(8.0);
                 ui.label(
-                egui::RichText::new("Channels the song never uses are skipped.\nFiles already in the chosen folder are overwritten.")
+                egui::RichText::new("Channels the song never sounds are skipped.\nFiles already in the chosen folder are overwritten.")
                     .small(),
             );
             },
@@ -111,7 +125,7 @@ mod tests {
     /// with no flags.
     #[test]
     fn the_defaults_match_the_bare_cli_command() {
-        let dialog = SplitDialog::new();
+        let dialog = SplitDialog::new(false);
         assert_eq!(dialog.format, SplitFormat::Wav);
         assert!(!dialog.isolate_percussion);
     }
@@ -119,7 +133,7 @@ mod tests {
     #[test]
     fn the_defaults_are_what_a_bare_split_requests() {
         let mut actions = Vec::new();
-        SplitDialog::new().save(&mut actions);
+        SplitDialog::new(false).save(&mut actions);
         assert_eq!(
             actions,
             [Action::SplitSubmitted {
@@ -131,7 +145,7 @@ mod tests {
 
     #[test]
     fn the_chosen_options_reach_the_request() {
-        let mut dialog = SplitDialog::new();
+        let mut dialog = SplitDialog::new(false);
         dialog.format = SplitFormat::Song;
         dialog.isolate_percussion = true;
 
