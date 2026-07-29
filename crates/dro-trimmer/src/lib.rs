@@ -268,7 +268,11 @@ mod loaded_song_tests {
         assert_eq!(new.opl_type, old.opl_type);
         assert_eq!(new.len(), old.len());
         for index in 0..old.len() {
-            assert_eq!(new.instruction(index), old.instruction(index), "row {index}");
+            assert_eq!(
+                new.instruction(index),
+                old.instruction(index),
+                "row {index}"
+            );
         }
         std::fs::remove_file(&path).ok();
     }

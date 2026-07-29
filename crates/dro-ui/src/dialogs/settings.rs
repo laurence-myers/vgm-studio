@@ -1017,7 +1017,10 @@ mod tests {
     #[test]
     fn picking_resampling_previews_it_once_and_close_reverts() {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
-        assert!(dialog.preview_resampling(false, false).is_none(), "no change");
+        assert!(
+            dialog.preview_resampling(false, false).is_none(),
+            "no change"
+        );
 
         dialog.resampling = "linear".to_owned();
         let Some(Action::PreviewResampling(mode)) = dialog.preview_resampling(false, false) else {
@@ -1046,12 +1049,11 @@ mod tests {
         let plain = SettingsDialog::new(&AppConfig::default(), Vec::new());
         assert!(plain.all_expanded, "no song -> the roster is shown");
 
-        let with_song = SettingsDialog::new(&AppConfig::default(), Vec::new()).with_song(
-            SongContext {
+        let with_song =
+            SettingsDialog::new(&AppConfig::default(), Vec::new()).with_song(SongContext {
                 name: "song.vgm".to_owned(),
                 chips: vec![ChipKind::Ym2612],
-            },
-        );
+            });
         assert!(
             !with_song.all_expanded,
             "a loaded song folds it behind the disclosure"

@@ -74,9 +74,8 @@ pub fn run(args: &Args) -> Result<()> {
             crate::warn_missing_cores(&chips, "the render would be silence")?;
             // The render honours the config's resampling choice, exactly as
             // playback does -- an export sounds like what the user hears.
-            let resampling =
-                dro_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
-                    .unwrap_or_default();
+            let resampling = dro_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
+                .unwrap_or_default();
             dro_synth::render_vgm_wav_cancellable(
                 Arc::new(*file),
                 freq,
