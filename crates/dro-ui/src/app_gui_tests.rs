@@ -1072,6 +1072,10 @@ fn previewing_wine() -> (Harness<'static, DroApp>, Handles) {
         Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
     harness.run();
 
+    // Theme lives on the Interface tab now; open it before reaching the combo.
+    harness.get_by_label("Interface").click();
+    harness.run();
+
     // A closed combo reports its selection as its value, not its label.
     harness.get_by_value("Petrol").click();
     harness.run();
@@ -1776,8 +1780,16 @@ fn snapshot_settings_output_per_chip() {
     crate::widgets::chip_output::install_test_cores();
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     let config = harness.state().config.clone();
-    harness.state_mut().dialogs.settings =
-        Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
+    // A DRO is loaded, so the Output tab's "This song" section shows the OPL
+    // row hoisted above the rest of the roster.
+    harness.state_mut().dialogs.settings = Some(
+        crate::dialogs::SettingsDialog::new(&config, Vec::new()).with_song(
+            crate::dialogs::SongContext {
+                name: "tone.dro".to_owned(),
+                chips: vec![dro_core::vgm::ChipKind::Ymf262],
+            },
+        ),
+    );
     settled_snapshot(&mut harness, "settings_output_per_chip");
 }
 
@@ -6463,6 +6475,9 @@ fn clicking_a_settings_caption_toggles_its_checkbox() {
     let config = harness.state().config.clone();
     harness.state_mut().dialogs.settings =
         Some(crate::dialogs::SettingsDialog::new(&config, Vec::new()));
+    harness.run();
+    // The toggle lives on the Interface tab; open it first.
+    harness.get_by_label("Interface").click();
     harness.run();
     harness.get_by_label("Allow editing in DRO Info").click();
     harness.run();

@@ -1500,7 +1500,7 @@ mod tests {
                 (0, 0x2A, 0x11),
                 (0, 0x2A, 0x22),
                 (0, 0x2A, 0x44), // after the seek to byte 3
-                // the read past the end wrote nothing
+                                 // the read past the end wrote nothing
             ],
             "bank bytes reached the DAC port, following the seek"
         );

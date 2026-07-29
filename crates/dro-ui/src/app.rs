@@ -1635,10 +1635,14 @@ impl DroApp {
             Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
             Action::OpenSettings => {
                 // Listed at open, so the picker offers what is plugged in now.
-                self.dialogs.settings = Some(SettingsDialog::new(
-                    &self.config,
-                    self.audio.list_hardware_ports(),
-                ));
+                let mut dialog =
+                    SettingsDialog::new(&self.config, self.audio.list_hardware_ports());
+                // Hand the dialog the loaded file's chips, so its Output tab can
+                // surface the cores actually in use before the rest of the roster.
+                if let Some(song) = self.settings_song_context() {
+                    dialog = dialog.with_song(song);
+                }
+                self.dialogs.settings = Some(dialog);
             }
             Action::Exit => {
                 if self.editor.is_dirty() || self.pack_is_dirty() {
@@ -3697,6 +3701,36 @@ impl DroApp {
         self.dialogs.vgm_metadata = None;
         self.dialogs.render_wav = None;
         self.dialogs.split = None;
+    }
+
+    /// The loaded document's name and the chips it clocks, for the Settings
+    /// dialog's "This song" section. `None` when nothing is open.
+    ///
+    /// A VGM reports its header chips in file order; a DRO reports the one OPL
+    /// chip it is. A VGM is always held as a VGM (even an OPL one), so it is
+    /// asked first.
+    fn settings_song_context(&self) -> Option<crate::dialogs::SongContext> {
+        if let Some(file) = self.editor.vgm() {
+            let mut chips: Vec<dro_core::vgm::ChipKind> = Vec::new();
+            for chip in file.header.chips() {
+                if !chips.contains(&chip.kind) {
+                    chips.push(chip.kind);
+                }
+            }
+            if chips.is_empty() {
+                return None;
+            }
+            Some(crate::dialogs::SongContext {
+                name: file.name.clone(),
+                chips,
+            })
+        } else {
+            let song = self.editor.song()?;
+            Some(crate::dialogs::SongContext {
+                name: song.name.clone(),
+                chips: vec![dro_core::vgm::ChipKind::Ymf262],
+            })
+        }
     }
 
     /// Auditions a core map without saving it: the Settings picker's live

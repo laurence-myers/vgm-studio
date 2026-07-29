@@ -33,7 +33,7 @@ pub use goto::GotoDialog;
 pub use help::HelpDialog;
 pub use render_wav::RenderWavDialog;
 pub use screenshot_rename::ScreenshotRenameDialog;
-pub use settings::SettingsDialog;
+pub use settings::{SettingsDialog, SongContext};
 pub use split::SplitDialog;
 pub use split_songs::SplitSongsDialog;
 pub use track_edit::TrackEditDialog;

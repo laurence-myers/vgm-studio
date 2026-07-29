@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use dro_core::config::{AppConfig, OutputBackend, SurfaceChoice, ThemeChoice};
+use dro_core::vgm::ChipKind;
 
 use crate::action::Action;
 use crate::platform::HardwarePortInfo;
@@ -13,6 +14,41 @@ use crate::widgets::chip_output;
 /// The appearance settings, as `(theme, pad_style, deck_style)`. These three
 /// preview live, so they travel together.
 type Skin = (ThemeChoice, SurfaceChoice, SurfaceChoice);
+
+/// The loaded document, for the Output tab's "This song" section: its name and
+/// the chips it clocks, so the cores it actually uses come first.
+#[derive(Debug, Clone)]
+pub struct SongContext {
+    pub name: String,
+    /// The chips the file clocks, in file order. For an OPL document this is the
+    /// single OPL chip; for a VGM, its header chips.
+    pub chips: Vec<ChipKind>,
+}
+
+/// Which page of Settings is showing. The dialog splits into three so no page
+/// outgrows the window: the chip roster is long, and burying frequency and
+/// theme below it meant scrolling past every chip to reach them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingsTab {
+    /// Which core plays each chip, and where the sound goes.
+    Output,
+    /// Rate, buffer, bit depth, tail length -- the signal itself.
+    Audio,
+    /// Theme, pad and deck styles, window behaviour.
+    Interface,
+}
+
+impl SettingsTab {
+    const ALL: [Self; 3] = [Self::Output, Self::Audio, Self::Interface];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Output => "Output",
+            Self::Audio => "Audio",
+            Self::Interface => "Interface",
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct SettingsDialog {
@@ -43,6 +79,11 @@ pub struct SettingsDialog {
     retrowave_port: String,
     /// The ports offered in the picker, listed when the dialog opened.
     ports: Vec<HardwarePortInfo>,
+    /// Which page is showing.
+    tab: SettingsTab,
+    /// The loaded document, for the Output tab's "This song" section. `None`
+    /// when nothing is open.
+    song: Option<SongContext>,
 }
 
 impl SettingsDialog {
@@ -66,7 +107,23 @@ impl SettingsDialog {
             resampling: config.audio.resampling.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
             ports,
+            tab: SettingsTab::Output,
+            song: None,
         }
+    }
+
+    /// Attaches the loaded document, so the Output tab can surface its chips
+    /// first. Builder rather than a constructor argument so the many call sites
+    /// that open Settings with no song (and every test) stay untouched.
+    #[must_use]
+    pub fn with_song(mut self, song: SongContext) -> Self {
+        self.song = Some(song);
+        self
+    }
+
+    /// The loaded song's chips, or an empty slice when nothing is open.
+    fn song_chips(&self) -> &[ChipKind] {
+        self.song.as_ref().map_or(&[], |song| song.chips.as_slice())
     }
 
     /// Whether the settings that only shape the rendered signal still apply.
@@ -129,199 +186,28 @@ impl SettingsDialog {
             "Settings",
             palette,
             |ui| {
-                ui.label("Output").on_hover_text(
-                    "Which core plays each chip, and where its sound goes. Picking a core \
-                 applies as you pick it; Close puts the saved one back. Rendering, \
-                 splitting and the waveform always use an emulator.",
-                );
-                // One flat list, no scroll area of its own: a sub-scrolling section
-                // inside a dialog is easy to miss entirely. The modal chrome scrolls
-                // the whole body (with the buttons pinned below it) when the window
-                // is the thing that is too short.
-                egui::Grid::new("settings-output-grid")
-                .num_columns(2)
-                .spacing([10.0, 6.0])
-                .show(ui, |ui| {
-                    let ports = &self.ports;
-                    let port = &mut self.retrowave_port;
-                    chip_output::show(ui, palette, &mut self.cores, &mut |ui| {
-                        ui.label("Device").on_hover_text(
-                            "The board's serial port. On Windows these usually report \
-                             a generic name, so a recognised board is matched by its \
-                             USB ID instead.",
-                        );
-                        ui.scope(|ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-retrowave-port")
-                                .selected_text(port_label(port, ports))
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(port, String::new(), AUTO_DETECT);
-                                    for offered in ports {
-                                        ui.selectable_value(
-                                            port,
-                                            offered.port_name.clone(),
-                                            offered_label(offered),
-                                        );
-                                    }
-                                });
-                        });
-                        ui.end_row();
-
-                        // Below the per-chip cores because it shapes
-                        // the same signal: how those cores' output
-                        // reaches the sound card's rate.
-                        ui.label("Resampling").on_hover_text(
-                            "How non-OPL chips are brought to the output rate.                              Band-limited is the accurate capture of the chip;                              linear folds high frequencies back into the audible                              band, which is inaccurate but crunchy -- the way                              VGMPlay and most classic players sound. Applies to                              playback, WAV export and the waveform alike.",
-                        );
-                        ui.scope(|ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            let current = resampling_label(&self.resampling);
-                            egui::ComboBox::from_id_salt("settings-resampling")
-                                .selected_text(current)
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        &mut self.resampling,
-                                        "sinc".to_owned(),
-                                        RESAMPLING_SINC,
-                                    );
-                                    ui.selectable_value(
-                                        &mut self.resampling,
-                                        "linear".to_owned(),
-                                        RESAMPLING_LINEAR,
-                                    );
-                                });
-                        });
-                        ui.end_row();
-                    });
+                // The tab strip: a latching pad per page, the active one lit.
+                // Splitting Settings across three pages is what lets the chip
+                // roster be a flat list with no sub-scroll -- the page it lives
+                // on never has to also hold frequency, theme and the rest.
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for tab in SettingsTab::ALL {
+                        let mut on = self.tab == tab;
+                        if bevel::toggle(ui, palette, &mut on, tab.label()).clicked() {
+                            self.tab = tab;
+                        }
+                    }
                 });
                 ui.add_space(6.0);
+                crate::theme::separator_clipped(ui, palette);
+                ui.add_space(8.0);
 
-                egui::Grid::new("settings-grid")
-                    .num_columns(2)
-                    .spacing([10.0, 6.0])
-                    .show(ui, |ui| {
-                        // What follows shapes the rendered signal, which hardware
-                        // output does not produce.
-                        let emulating = self.emulating();
-                        ui.add_enabled_ui(emulating, |ui| {
-                            ui.label("Frequency")
-                                .on_hover_text("49716 Hz is the OPL3's native rate");
-                        });
-                        ui.add_enabled_ui(emulating, |ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-frequency")
-                                .selected_text(frequency_label(self.frequency))
-                                .show_ui(ui, |ui| {
-                                    for rate in FREQUENCIES {
-                                        ui.selectable_value(
-                                            &mut self.frequency,
-                                            rate,
-                                            frequency_label(rate),
-                                        );
-                                    }
-                                });
-                        });
-                        ui.end_row();
-
-                        ui.add_enabled_ui(emulating, |ui| {
-                            ui.label("Buffer size").on_hover_text(
-                                "Frames per audio callback. Smaller responds to seeking and \
-                             muting sooner; larger is safer against dropouts.",
-                            );
-                        });
-                        ui.add_enabled_ui(emulating, |ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-buffer-size")
-                                .selected_text(self.buffer_size.to_string())
-                                .show_ui(ui, |ui| {
-                                    for size in BUFFER_SIZES {
-                                        ui.selectable_value(
-                                            &mut self.buffer_size,
-                                            size,
-                                            size.to_string(),
-                                        );
-                                    }
-                                });
-                        });
-                        ui.end_row();
-
-                        ui.label("Bit depth").on_hover_text("WAV export only");
-                        ui.scope(|ui| {
-                            crate::theme::style_dropdown(ui, palette);
-                            egui::ComboBox::from_id_salt("settings-bit-depth")
-                                .selected_text(self.bit_depth.to_string())
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.bit_depth, 8, "8");
-                                    ui.selectable_value(&mut self.bit_depth, 16, "16");
-                                });
-                        });
-                        ui.end_row();
-
-                        ui.label("Tail length (ms)")
-                            .on_hover_text("How much the \"play last X seconds\" button plays");
-                        super::text_field(ui, palette, &mut self.tail_length, 100.0);
-                        ui.end_row();
-
-                        ui.label("Theme").on_hover_text(
-                            "The case colour. Applies as you pick it; Close puts the old one back.",
-                        );
-                        egui::ComboBox::from_id_salt("settings-theme")
-                            .selected_text(theme_label(self.theme))
-                            .show_ui(ui, |ui| {
-                                for choice in ThemeChoice::ALL {
-                                    ui.selectable_value(
-                                        &mut self.theme,
-                                        choice,
-                                        theme_label(choice),
-                                    );
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("Pad style").on_hover_text(
-                            "The keycap colour: follow the theme, or force light, dark \
-                         or plate-tinted keys on any theme.",
-                        );
-                        egui::ComboBox::from_id_salt("settings-pad-style")
-                            .selected_text(surface_label(self.pad_style))
-                            .show_ui(ui, |ui| {
-                                for choice in SurfaceChoice::ALL {
-                                    ui.selectable_value(
-                                        &mut self.pad_style,
-                                        choice,
-                                        surface_label(choice),
-                                    );
-                                }
-                            });
-                        ui.end_row();
-
-                        ui.label("Deck style").on_hover_text(
-                            "The control panel the pads sit on: follow the theme, or \
-                         force a light, dark or plate-tinted deck.",
-                        );
-                        egui::ComboBox::from_id_salt("settings-deck-style")
-                            .selected_text(surface_label(self.deck_style))
-                            .show_ui(ui, |ui| {
-                                for choice in SurfaceChoice::DECK {
-                                    ui.selectable_value(
-                                        &mut self.deck_style,
-                                        choice,
-                                        surface_label(choice),
-                                    );
-                                }
-                            });
-                        ui.end_row();
-
-                        checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
-                        ui.end_row();
-
-                        checkbox_row(
-                            ui,
-                            "Allow editing in DRO Info",
-                            &mut self.dro_info_edit_enabled,
-                        );
-                        ui.end_row();
-                    });
+                match self.tab {
+                    SettingsTab::Output => self.output_tab(ui, palette),
+                    SettingsTab::Audio => self.audio_tab(ui, palette),
+                    SettingsTab::Interface => self.interface_tab(ui),
+                }
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {
@@ -341,6 +227,249 @@ impl SettingsDialog {
         actions.extend(self.preview(opened_with, closing, saved));
         actions.extend(self.preview_cores(closing, saved));
         !closing
+    }
+
+    /// The Output page: which core plays each chip, and where the sound goes.
+    ///
+    /// The loaded file's own chips come first under a "This song" heading (the
+    /// cores you are actually hearing), then the chips that offer a choice, then
+    /// a folded summary of the single-core chips -- there is nothing to decide
+    /// about those, so they are stated in one line per core rather than listed.
+    fn output_tab(&mut self, ui: &mut egui::Ui, palette: &Palette) {
+        ui.colored_label(
+            palette.muted,
+            "Picking a core applies as you pick it; Close puts the saved one back.",
+        )
+        .on_hover_text(
+            "Rendering, splitting and the waveform always use an emulator, whatever \
+             plays here.",
+        );
+        ui.add_space(4.0);
+
+        let plan = chip_output::plan(self.song_chips());
+
+        // "This song": the loaded file's chips, hoisted so tuning what you hear
+        // is a couple of rows rather than a hunt down the whole roster.
+        let song_name = self.song.as_ref().map(|song| song.name.clone());
+        if let Some(name) = song_name
+            && !plan.song.is_empty()
+        {
+            ui.colored_label(palette.data_label, format!("This song \u{2014} {name}"));
+            egui::Grid::new("settings-song-grid")
+                .num_columns(2)
+                .spacing([10.0, 6.0])
+                .show(ui, |ui| {
+                    for row in &plan.song {
+                        chip_output::chip_row(ui, palette, &mut self.cores, row);
+                    }
+                });
+            ui.add_space(8.0);
+            crate::theme::separator_clipped(ui, palette);
+            ui.add_space(6.0);
+            ui.colored_label(palette.muted, "All chips");
+        }
+
+        egui::Grid::new("settings-output-grid")
+            .num_columns(2)
+            .spacing([10.0, 6.0])
+            .show(ui, |ui| {
+                for row in &plan.choosers {
+                    chip_output::chip_row(ui, palette, &mut self.cores, row);
+                }
+
+                // The board's port, only when hardware is the OPL choice: with
+                // an emulator there is no port to pick.
+                if self.backend() == OutputBackend::RetroWave {
+                    let ports = &self.ports;
+                    let port = &mut self.retrowave_port;
+                    ui.label("Device").on_hover_text(
+                        "The board's serial port. On Windows these usually report a generic \
+                         name, so a recognised board is matched by its USB ID instead.",
+                    );
+                    ui.scope(|ui| {
+                        crate::theme::style_dropdown(ui, palette);
+                        egui::ComboBox::from_id_salt("settings-retrowave-port")
+                            .selected_text(port_label(port, ports))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(port, String::new(), AUTO_DETECT);
+                                for offered in ports {
+                                    ui.selectable_value(
+                                        port,
+                                        offered.port_name.clone(),
+                                        offered_label(offered),
+                                    );
+                                }
+                            });
+                    });
+                    ui.end_row();
+                }
+
+                // Resampling shapes the same signal the cores produce: how their
+                // output reaches the sound card's rate. Always shown -- it is a
+                // property of every non-OPL chip, not of the OPL backend.
+                ui.label("Resampling").on_hover_text(
+                    "How non-OPL chips are brought to the output rate. Band-limited is the \
+                     accurate capture of the chip; linear folds high frequencies back into \
+                     the audible band, which is inaccurate but crunchy -- the way VGMPlay and \
+                     most classic players sound. Applies to playback, WAV export and the \
+                     waveform alike.",
+                );
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    let current = resampling_label(&self.resampling);
+                    egui::ComboBox::from_id_salt("settings-resampling")
+                        .selected_text(current)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut self.resampling,
+                                "sinc".to_owned(),
+                                RESAMPLING_SINC,
+                            );
+                            ui.selectable_value(
+                                &mut self.resampling,
+                                "linear".to_owned(),
+                                RESAMPLING_LINEAR,
+                            );
+                        });
+                });
+                ui.end_row();
+            });
+
+        // The single-core chips, folded to one wrapping line per core: nothing
+        // to decide, so nothing to click -- just a note of what plays them.
+        for group in &plan.folded {
+            ui.add_space(4.0);
+            ui.colored_label(
+                palette.muted,
+                format!("{} also plays {}.", group.label, group.chips.join(", ")),
+            );
+        }
+    }
+
+    /// The Audio page: the signal itself. Frequency and buffer are greyed for
+    /// hardware output, which has no sound card of ours to configure.
+    fn audio_tab(&mut self, ui: &mut egui::Ui, palette: &Palette) {
+        let emulating = self.emulating();
+        egui::Grid::new("settings-audio-grid")
+            .num_columns(2)
+            .spacing([10.0, 6.0])
+            .show(ui, |ui| {
+                ui.add_enabled_ui(emulating, |ui| {
+                    ui.label("Frequency")
+                        .on_hover_text("49716 Hz is the OPL3's native rate");
+                });
+                ui.add_enabled_ui(emulating, |ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-frequency")
+                        .selected_text(frequency_label(self.frequency))
+                        .show_ui(ui, |ui| {
+                            for rate in FREQUENCIES {
+                                ui.selectable_value(
+                                    &mut self.frequency,
+                                    rate,
+                                    frequency_label(rate),
+                                );
+                            }
+                        });
+                });
+                ui.end_row();
+
+                ui.add_enabled_ui(emulating, |ui| {
+                    ui.label("Buffer size").on_hover_text(
+                        "Frames per audio callback. Smaller responds to seeking and muting \
+                         sooner; larger is safer against dropouts.",
+                    );
+                });
+                ui.add_enabled_ui(emulating, |ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-buffer-size")
+                        .selected_text(self.buffer_size.to_string())
+                        .show_ui(ui, |ui| {
+                            for size in BUFFER_SIZES {
+                                ui.selectable_value(&mut self.buffer_size, size, size.to_string());
+                            }
+                        });
+                });
+                ui.end_row();
+
+                ui.label("Bit depth").on_hover_text("WAV export only");
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-bit-depth")
+                        .selected_text(self.bit_depth.to_string())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.bit_depth, 8, "8");
+                            ui.selectable_value(&mut self.bit_depth, 16, "16");
+                        });
+                });
+                ui.end_row();
+
+                ui.label("Tail length (ms)")
+                    .on_hover_text("How much the \"play last X seconds\" button plays");
+                super::text_field(ui, palette, &mut self.tail_length, 100.0);
+                ui.end_row();
+            });
+    }
+
+    /// The Interface page: the case's look and window behaviour. The three skin
+    /// dropdowns preview live, so the whole window shows the choice at once.
+    fn interface_tab(&mut self, ui: &mut egui::Ui) {
+        egui::Grid::new("settings-interface-grid")
+            .num_columns(2)
+            .spacing([10.0, 6.0])
+            .show(ui, |ui| {
+                ui.label("Theme").on_hover_text(
+                    "The case colour. Applies as you pick it; Close puts the old one back.",
+                );
+                egui::ComboBox::from_id_salt("settings-theme")
+                    .selected_text(theme_label(self.theme))
+                    .show_ui(ui, |ui| {
+                        for choice in ThemeChoice::ALL {
+                            ui.selectable_value(&mut self.theme, choice, theme_label(choice));
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Pad style").on_hover_text(
+                    "The keycap colour: follow the theme, or force light, dark or \
+                     plate-tinted keys on any theme.",
+                );
+                egui::ComboBox::from_id_salt("settings-pad-style")
+                    .selected_text(surface_label(self.pad_style))
+                    .show_ui(ui, |ui| {
+                        for choice in SurfaceChoice::ALL {
+                            ui.selectable_value(&mut self.pad_style, choice, surface_label(choice));
+                        }
+                    });
+                ui.end_row();
+
+                ui.label("Deck style").on_hover_text(
+                    "The control panel the pads sit on: follow the theme, or force a light, \
+                     dark or plate-tinted deck.",
+                );
+                egui::ComboBox::from_id_salt("settings-deck-style")
+                    .selected_text(surface_label(self.deck_style))
+                    .show_ui(ui, |ui| {
+                        for choice in SurfaceChoice::DECK {
+                            ui.selectable_value(
+                                &mut self.deck_style,
+                                choice,
+                                surface_label(choice),
+                            );
+                        }
+                    });
+                ui.end_row();
+
+                checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
+                ui.end_row();
+
+                checkbox_row(
+                    ui,
+                    "Allow editing in DRO Info",
+                    &mut self.dro_info_edit_enabled,
+                );
+                ui.end_row();
+            });
     }
 
     /// The core preview to emit this frame, if any -- the cores' analogue of
@@ -789,7 +918,10 @@ mod tests {
     #[test]
     fn picking_a_core_previews_it_once_and_close_reverts() {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
-        assert!(dialog.preview_cores(false, false).is_none(), "no change yet");
+        assert!(
+            dialog.preview_cores(false, false).is_none(),
+            "no change yet"
+        );
 
         dialog.choose_core("ym2612", "lle");
         let Some(Action::PreviewCores(map)) = dialog.preview_cores(false, false) else {
@@ -805,7 +937,7 @@ mod tests {
         let Some(Action::PreviewCores(map)) = dialog.preview_cores(true, false) else {
             panic!("expected the revert preview");
         };
-        assert!(map.get("ym2612").is_none());
+        assert!(!map.contains_key("ym2612"));
 
         // Save hands the map to ApplySettings instead of previewing it again.
         dialog.choose_core("ym2612", "nuked");
