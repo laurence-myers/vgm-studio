@@ -533,6 +533,13 @@ impl ChipCore for OpnCore {
     /// The ADPCM registers -- `$10`-`$1F` on either port, depending on the chip
     /// -- are accepted and dropped. They are the documented gap.
     fn write(&mut self, port: u8, addr: u16, data: u16) {
+        // Only ports 0 and 1 are bus writes. Anything above is one of the
+        // decoder's own spaces -- the YM2203 receives the `0x31` stereo mask
+        // on `STEREO_PORT` -- and reading it as `port & 1` below would fold
+        // it onto port 0, where `addr` 0 is the SSG's channel A fine period.
+        if port > 1 {
+            return;
+        }
         let register = (addr & 0xFF) as u8;
         let value = (data & 0xFF) as u8;
         let second = port & 1 == 1;
@@ -732,6 +739,23 @@ mod tests {
             chip.reset(YM2610_CLOCK, false);
             assert_eq!(energy(&render(&mut chip, 2000)), 0, "{kind:?}");
         }
+    }
+
+    /// Ports above 1 are the decoder's own spaces, not bus writes -- the
+    /// YM2203 receives the `0x31` stereo mask on `STEREO_PORT` -- and folding
+    /// one onto `port & 1` lands it in the SSG register file, where the mask's
+    /// `addr` 0 is channel A's fine period. This test aims a sharper register
+    /// at it: folded, the write is "SSG volume A <- 0" and the tone dies.
+    #[test]
+    fn a_port_beyond_the_second_is_not_a_bus_write() {
+        let mut chip = OpnCore::new(OpnKind::Ym2203);
+        chip.reset(YM2203_CLOCK, false);
+        ssg_key_on(&mut chip);
+        let loud = energy(&render(&mut chip, 2000));
+        assert!(loud > 0);
+        chip.write(dro_core::vgm::stream::STEREO_PORT, 0x08, 0x00);
+        let after = energy(&render(&mut chip, 2000));
+        assert!(after * 2 > loud, "the write reached the register file");
     }
 
     /// **Both halves must sound, and separately.** This core is an assembly of

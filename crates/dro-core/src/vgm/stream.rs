@@ -150,6 +150,14 @@ pub const MEMORY_PORT: u8 = 1;
 /// own rather than being folded into an address.
 pub const BANK_PORT: u8 = 2;
 
+/// The port the AY8910's stereo mask arrives on -- `0x31` is an instruction to
+/// the player rather than a chip write (upstream hands it to a dedicated
+/// per-core mask function, not the register file), so it cannot share port 0.
+///
+/// Port numbers are namespaced per chip: this shares [`BANK_PORT`]'s value on
+/// a different chip, and neither collides with anything.
+pub const STEREO_PORT: u8 = 2;
+
 /// The chip a `0xB0`-`0xBF` (`aa dd`) write targets. `0xB2` keeps its row for
 /// the table's shape but decodes in its own arm: the PWM's operands are a
 /// nibble register and a 12-bit value, not `aa dd`.
@@ -325,7 +333,28 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             1,
             u16::from(byte(1)),
         ),
-        0x31 => write(ChipTarget::first(ChipKind::Ay8910), 1, u16::from(byte(1))),
+        // `0x31 dd` is the AY8910's stereo mask -- upstream's `Cmd_AY_Stereo`,
+        // an instruction to the player rather than a register write: the low
+        // six bits go to a dedicated mask function, bit 6 retargets the whole
+        // command at a YM2203's SSG section, and bit 7 is the second chip. It
+        // rides on [`STEREO_PORT`] so a core that models none of it (both of
+        // ours are mono) can ignore the port instead of eating a register
+        // write. Until 2026-07-29 this decoded as "AY register 1" -- channel
+        // A's coarse period -- which detuned a real voice on every one of the
+        // corpus's 100 masks, and sent the YM2203-flagged and second-chip
+        // halves (30 and 50 of the 100) to a chip the command does not name.
+        0x31 => {
+            let kind = if byte(1) & 0x40 == 0 {
+                ChipKind::Ay8910
+            } else {
+                ChipKind::Ym2203
+            };
+            write(
+                second_if(ChipTarget::port(kind, STEREO_PORT), byte(1)),
+                0,
+                u16::from(byte(1) & 0x3F),
+            )
+        }
 
         // The YM family, and its 0xAn second-instance mirrors.
         0x51..=0x5F => write(ym_family(opcode), u16::from(byte(1)), u16::from(byte(2))),
@@ -1085,6 +1114,34 @@ mod tests {
         };
         assert_eq!((target.kind, target.instance), (ChipKind::Pwm, 1));
         assert_eq!((addr, data), (0x02, 0x02FF), "the flag is not data either");
+    }
+
+    /// `0x31 dd` is `Cmd_AY_Stereo`: a six-bit mask on its own port, with bit
+    /// 6 choosing a YM2203's SSG over the AY8910 and bit 7 the second chip.
+    /// Decoding it as "AY register 1" -- which this did until 2026-07-29 --
+    /// detuned channel A's coarse period with every mask.
+    #[test]
+    fn the_ay_stereo_mask_is_a_player_instruction_not_a_register_write() {
+        let VgmCommand::Write { target, addr, data } = decode(&[0x31, 0x25]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::Ay8910, 0));
+        assert_eq!(target.port, STEREO_PORT, "not the register file");
+        assert_eq!((addr, data), (0, 0x25));
+
+        // Bit 6: the same mask, aimed at a YM2203's SSG section.
+        let VgmCommand::Write { target, data, .. } = decode(&[0x31, 0x65]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.port), (ChipKind::Ym2203, STEREO_PORT));
+        assert_eq!(data, 0x25, "bit 6 routes; it is not part of the mask");
+
+        // Bit 7: the second chip, of whichever kind bit 6 chose.
+        let VgmCommand::Write { target, data, .. } = decode(&[0x31, 0xA5]) else {
+            panic!("a write");
+        };
+        assert_eq!((target.kind, target.instance), (ChipKind::Ay8910, 1));
+        assert_eq!(data, 0x25);
     }
 
     /// `0xC3 cc bbaa` is a bank select, not an addressed write: `cc` is a mask

@@ -377,7 +377,16 @@ impl ChipCore for Ay8910 {
         self.coarse_envelope = settings.ay8910_type & 0x10 == 0;
     }
 
-    fn write(&mut self, _port: u8, addr: u16, data: u16) {
+    fn write(&mut self, port: u8, addr: u16, data: u16) {
+        // Port 0 is the register file. The only other port that arrives is
+        // `STEREO_PORT` -- the `0x31` mask, which this mono core does not
+        // model -- and it must be *consumed* here rather than allowed to
+        // fall through: a mask read as a register write lands on whatever
+        // `addr` says, and this core's decoder hands the mask `addr` 0,
+        // channel A's fine period.
+        if port != 0 {
+            return;
+        }
         self.write_register((addr & 0xFF) as u8, (data & 0xFF) as u8);
     }
 
@@ -409,6 +418,20 @@ mod tests {
 
     fn energy(samples: &[i32]) -> i64 {
         samples.iter().map(|&s| i64::from(s.abs())).sum()
+    }
+
+    /// The `0x31` stereo mask arrives on `STEREO_PORT`, and this mono core
+    /// does not model it -- but consuming it is load-bearing: fallen through
+    /// to the register file, the mask's `addr` 0 writes channel A's fine
+    /// period and detunes a real voice.
+    #[test]
+    fn the_stereo_mask_port_touches_no_register() {
+        let mut chip = Ay8910::new();
+        chip.reset(CLOCK, false);
+        chip.write(0, 0x00, 0xFD); // channel A fine period
+        let before = chip.registers;
+        chip.write(dro_core::vgm::stream::STEREO_PORT, 0x00, 0x25);
+        assert_eq!(chip.registers, before, "a mask is not a register write");
     }
 
     /// Every level recomputed from "1.5 dB a step", rather than transcribed.
