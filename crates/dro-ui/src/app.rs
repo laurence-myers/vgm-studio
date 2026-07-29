@@ -4313,6 +4313,12 @@ mod about_tests {
         // reach the user, and the About box is where it does. Driving it from
         // `dro_synth::credits` rather than typed copy is what stops a new core
         // from shipping uncredited -- this test is that guarantee's teeth.
+        //
+        // Installed first so both reads below see the same registry: the GUI
+        // tests install it concurrently, and text rendered from the ambient
+        // fallback compared against credits read after the install would
+        // disagree about cores neither is wrong about.
+        crate::widgets::chip_output::install_test_cores();
         let text = about_text();
         for core in dro_synth::credits() {
             assert!(

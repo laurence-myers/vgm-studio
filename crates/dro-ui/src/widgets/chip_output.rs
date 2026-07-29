@@ -254,10 +254,93 @@ pub(crate) fn install_test_cores() {
                 make: dro_synth::CoreMaker::Routed,
             });
         }
+        // A generic chip the GUI tests can play: the app's SN76489 comes from
+        // `dro-cores-libvgm` (a C build this wasm-compatible crate must not
+        // link), so the stand-in builds a small tone stub under the same id.
+        // It has to *sound*, not merely build: the render test measures the
+        // WAV's peak, so it obeys the SN76489's volume latches and squares a
+        // fixed pitch while any channel is unmuted.
+        registry.register(CoreInfo {
+            id: "sn76489.libvgm",
+            chip: ChipKind::Sn76489,
+            label: "libvgm (Valley Bell)",
+            authors: "Valley Bell and the upstream core authors",
+            license: "see PROVENANCE.md -- upstream publishes no grant",
+            upstream: "https://github.com/ValleyBell/libvgm",
+            realtime: true,
+            level: dro_synth::LEVEL_UNITY,
+            make: dro_synth::CoreMaker::Generic(|| Box::new(ToneStub::new())),
+        });
         // Already installed means another test got here first with the same
         // content, which is the point of the `Once`.
         let _ = dro_synth::install(registry);
     });
+}
+
+/// A square wave that obeys the SN76489's volume latches and nothing else --
+/// enough for a test file's `0x90` to make sound and its `0x9F` to stop it.
+/// Deterministic and chunk-independent, so renders and waveforms agree.
+#[cfg(test)]
+#[derive(Debug)]
+struct ToneStub {
+    /// Per-channel attenuation, 0xF = silent, as the SN76489 has it.
+    volumes: [u8; 4],
+    /// Absolute frame counter, so chunked renders line up.
+    at: u64,
+}
+
+#[cfg(test)]
+impl ToneStub {
+    fn new() -> Self {
+        Self {
+            volumes: [0xF; 4],
+            at: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+impl dro_synth::ChipCore for ToneStub {
+    fn reset(&mut self, _clock: u32, _variant: bool) {
+        self.volumes = [0xF; 4];
+        self.at = 0;
+    }
+
+    fn native_rate(&self) -> u32 {
+        44_100
+    }
+
+    fn write(&mut self, _port: u8, addr: u16, data: u16) {
+        // Address 1 is the Game Gear stereo mask; only the command byte at
+        // address 0 carries latches.
+        if addr != 0 {
+            return;
+        }
+        let byte = data as u8;
+        // A latch byte selecting a volume register: `1cc1vvvv`.
+        if byte & 0x90 == 0x90 {
+            self.volumes[usize::from((byte >> 5) & 3)] = byte & 0x0F;
+        }
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
+        let sounding = self.volumes.iter().any(|&volume| volume < 0xF);
+        for frame in out.chunks_exact_mut(2) {
+            let sample = if sounding {
+                // ~441 Hz square at 44.1 kHz: flip every 50 frames.
+                if (self.at / 50).is_multiple_of(2) {
+                    8_000
+                } else {
+                    -8_000
+                }
+            } else {
+                0
+            };
+            frame[0] = sample;
+            frame[1] = sample;
+            self.at += 1;
+        }
+    }
 }
 
 #[cfg(test)]

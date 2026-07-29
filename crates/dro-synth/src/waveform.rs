@@ -475,6 +475,7 @@ mod tests {
 
     #[test]
     fn a_vgm_waveform_has_a_bucket_each_and_shows_the_sound() {
+        crate::testing::install_registry_with_stub();
         // A Master System tone for a second, then silence for a second.
         let file = vgm_file(
             &[(dro_core::ChipKind::Sn76489, 3_579_545)],
@@ -503,6 +504,7 @@ mod tests {
 
     #[test]
     fn a_vgm_waveform_with_no_core_is_flat_rather_than_absent() {
+        crate::testing::install_registry_with_stub();
         let file = vgm_file(
             &[(dro_core::ChipKind::Ym2612, 7_670_454)],
             &[0x52, 0x28, 0xF0, 0x61, 0x44, 0xAC, 0x66],
@@ -518,6 +520,7 @@ mod tests {
 
     #[test]
     fn an_abandoned_vgm_waveform_render_says_so() {
+        crate::testing::install_registry_with_stub();
         let file = vgm_file(
             &[(dro_core::ChipKind::Sn76489, 3_579_545)],
             &[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x66],

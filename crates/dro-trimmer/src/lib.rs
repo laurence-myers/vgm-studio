@@ -120,6 +120,7 @@ mod core_registry_tests {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
         dro_cores_nuked::register(&mut registry);
         dro_cores_gpl::register(&mut registry);
+        dro_cores_libvgm::register(&mut registry);
         dro_retrowave::register(&mut registry);
 
         let mut seen: std::collections::HashMap<&str, ChipKind> = std::collections::HashMap::new();
@@ -157,6 +158,7 @@ mod core_registry_tests {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
         dro_cores_nuked::register(&mut registry);
         dro_cores_gpl::register(&mut registry);
+        dro_cores_libvgm::register(&mut registry);
         dro_retrowave::register(&mut registry);
 
         let (mut cored, mut silent) = (0usize, 0usize);

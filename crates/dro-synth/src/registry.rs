@@ -251,6 +251,9 @@ impl CoreRegistry {
     /// registers it and a wasm build simply lacks the entry.
     #[must_use]
     pub fn with_builtins() -> Self {
+        // `mut` is idle without the OPL feature: since the 2026-07-29 cull the
+        // OPL row is the only registration left in here.
+        #[cfg_attr(not(feature = "nuked-opl"), allow(unused_mut))]
         let mut registry = Self::new();
         // Absent from a `--no-default-features` build, because Nuked-OPL3 is
         // the LGPL dependency that build exists to drop. The UI then reports
@@ -270,311 +273,12 @@ impl CoreRegistry {
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
         }
-        registry.register(CoreInfo {
-            id: "sn76489.native",
-            chip: ChipKind::Sn76489,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Sn76489::new())),
-        });
-        registry.register(CoreInfo {
-            id: "nesapu.native",
-            chip: ChipKind::NesApu,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::NesApu::new())),
-        });
-        registry.register(CoreInfo {
-            id: "gameboydmg.native",
-            chip: ChipKind::GameBoyDmg,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::GbDmg::new())),
-        });
-        registry.register(CoreInfo {
-            id: "ay8910.native",
-            chip: ChipKind::Ay8910,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Ay8910::new())),
-        });
-        registry.register(CoreInfo {
-            id: "huc6280.native",
-            chip: ChipKind::HuC6280,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::HuC6280::new())),
-        });
-        registry.register(CoreInfo {
-            id: "okim6295.native",
-            chip: ChipKind::Okim6295,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Okim6295::new())),
-        });
-        registry.register(CoreInfo {
-            id: "k051649.native",
-            chip: ChipKind::K051649,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::K051649::new())),
-        });
-        // The Y8950 core exists (`cores::y8950`, FM + Delta-T, tests green)
-        // but is deliberately NOT registered: the Y8950 is one of the OPL
-        // chips, and the standing invariant -- OPL is listed for Settings
-        // but never buildable for `VgmEngine`, because OPL documents route
-        // through `PlayerEngine` -- is load-bearing for every `playability`
-        // caller. Registering it here would send Y8950 files down two paths
-        // at once. Letting it in means auditing that routing first; the
-        // core waits for that step rather than pretending it happened.
-        registry.register(CoreInfo {
-            id: "segapcm.native",
-            chip: ChipKind::SegaPcm,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::SegaPcm::new())),
-        });
-        registry.register(CoreInfo {
-            id: "ga20.native",
-            chip: ChipKind::Ga20,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Ga20::new())),
-        });
-        registry.register(CoreInfo {
-            id: "ymz280b.native",
-            chip: ChipKind::Ymz280b,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Ymz280b::new())),
-        });
-        registry.register(CoreInfo {
-            id: "k053260.native",
-            chip: ChipKind::K053260,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::K053260::new())),
-        });
-        registry.register(CoreInfo {
-            id: "wonderswan.native",
-            chip: ChipKind::WonderSwan,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::WonderSwan::new())),
-        });
-        registry.register(CoreInfo {
-            id: "vsu.native",
-            chip: ChipKind::Vsu,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Vsu::new())),
-        });
-        registry.register(CoreInfo {
-            id: "saa1099.native",
-            chip: ChipKind::Saa1099,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Saa1099::new())),
-        });
-        registry.register(CoreInfo {
-            id: "pwm.native",
-            chip: ChipKind::Pwm,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Pwm::new())),
-        });
-        registry.register(CoreInfo {
-            id: "es5503.native",
-            chip: ChipKind::Es5503,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Es5503::new())),
-        });
-        registry.register(CoreInfo {
-            id: "ymf278b.native",
-            chip: ChipKind::Ymf278b,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Ymf278b::new())),
-        });
-        registry.register(CoreInfo {
-            id: "x1010.native",
-            chip: ChipKind::X1010,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::X1010::new())),
-        });
-        registry.register(CoreInfo {
-            id: "multipcm.native",
-            chip: ChipKind::MultiPcm,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::MultiPcm::new())),
-        });
-        registry.register(CoreInfo {
-            id: "upd7759.native",
-            chip: ChipKind::Upd7759,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Upd7759::new())),
-        });
-        registry.register(CoreInfo {
-            id: "qsound.native",
-            chip: ChipKind::QSound,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::QSound::new())),
-        });
-        registry.register(CoreInfo {
-            id: "c352.native",
-            chip: ChipKind::C352,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::C352::new())),
-        });
-        registry.register(CoreInfo {
-            id: "c140.native",
-            chip: ChipKind::C140,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::C140::new())),
-        });
-        registry.register(CoreInfo {
-            id: "k054539.native",
-            chip: ChipKind::K054539,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::K054539::new())),
-        });
-        registry.register(CoreInfo {
-            id: "rf5c68.native",
-            chip: ChipKind::Rf5c68,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
-        });
-        registry.register(CoreInfo {
-            id: "rf5c164.native",
-            chip: ChipKind::Rf5c164,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Rf5c68::new())),
-        });
-        registry.register(CoreInfo {
-            id: "okim6258.native",
-            chip: ChipKind::Okim6258,
-            label: "Clean-room (this project)",
-            authors: "this project",
-            license: "MIT OR Apache-2.0",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Okim6258::new())),
-        });
+        // The clean-room tier that used to fill the rest of this function was
+        // culled on 2026-07-29 (CORES-REUSE-PLAN ru-0, as amended): every
+        // non-OPL chip is now served by provider crates -- dro-cores-libvgm
+        // first and foremost -- registered by the application. A build that
+        // registers no provider simply has no generic cores, and the UI
+        // reports exactly that.
         registry
     }
 
@@ -752,15 +456,14 @@ mod tests {
     #[test]
     fn the_builtins_cover_what_this_build_can_play() {
         let registry = CoreRegistry::with_builtins();
-        assert!(registry.has_core(ChipKind::Sn76489));
         assert!(
             registry.has_core(ChipKind::Ymf262),
             "OPL is listed, not built"
         );
-        assert!(!registry.has_core(ChipKind::Ym2612), "no core yet");
-
-        // Routed entries are listed but not constructed here.
-        assert!(registry.build(ChipKind::Sn76489, None).is_some());
+        // Since the 2026-07-29 cull, every generic core comes from a provider
+        // crate; the builtins carry only the OPL entry the app routes.
+        assert!(!registry.has_core(ChipKind::Sn76489), "providers only");
+        assert!(!registry.has_core(ChipKind::Ym2612), "providers only");
         assert!(registry.build(ChipKind::Ymf262, None).is_none());
     }
 
@@ -773,7 +476,10 @@ mod tests {
     #[cfg(feature = "nuked-opl")]
     #[test]
     fn listed_and_buildable_are_different_questions() {
-        let registry = CoreRegistry::with_builtins();
+        let mut registry = CoreRegistry::with_builtins();
+        // A provider-style generic core, so the buildable half of the
+        // distinction is still exercised now that the builtins carry none.
+        registry.register(tone_info("sn76489.stub", LEVEL_UNITY));
         for chip in OPL_CHIPS {
             assert!(registry.has_core(chip), "{} is listed", chip.name());
             assert!(
@@ -837,9 +543,10 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "nuked-opl")]
     #[test]
     fn the_ambient_registry_has_the_builtins_when_nothing_was_installed() {
-        assert!(registry().has_core(ChipKind::Sn76489));
+        assert!(registry().has_core(ChipKind::Ymf262));
     }
 
     /// `dro-core` writes `core.opl3=` without being able to see this crate --
@@ -1000,16 +707,6 @@ mod tests {
     }
 
     fn info(id: &'static str) -> CoreInfo {
-        CoreInfo {
-            id,
-            chip: ChipKind::Sn76489,
-            label: id,
-            authors: "test",
-            license: "MIT",
-            upstream: "",
-            realtime: true,
-            level: LEVEL_UNITY,
-            make: CoreMaker::Generic(|| Box::new(crate::cores::Sn76489::new())),
-        }
+        tone_info(id, LEVEL_UNITY)
     }
 }

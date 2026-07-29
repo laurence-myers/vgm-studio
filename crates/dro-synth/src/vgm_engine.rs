@@ -1052,10 +1052,14 @@ mod tests {
     /// A compressed bank arrives unpacked, and under the type a stream binds
     /// to -- so a file that compressed its samples is indistinguishable
     /// downstream from one that did not.
-    /// The whole path, through the registry the app uses: a real file, a real
-    /// core, and audio out the other end.
+    /// The whole path, through the ambient registry: a real file, a core the
+    /// registry built, and audio out the other end. The core is the test
+    /// stub -- this crate ships none of its own since the cull -- so what this
+    /// proves is the engine's routing and mixing; the same walk with real
+    /// cores lives downstream where the providers are linked.
     #[test]
     fn a_sound_chip_this_app_has_a_core_for_actually_makes_a_sound() {
+        crate::testing::install_registry_with_stub();
         // `0x50 nn` writes a byte to the SN76489. Set tone 0 to period 254 and
         // turn it up, then let it play for a second.
         let stream = &[

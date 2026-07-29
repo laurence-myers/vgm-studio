@@ -396,6 +396,7 @@ mod tests {
 
     #[test]
     fn a_vgm_for_other_chips_renders_a_wav_of_its_own_length() {
+        crate::testing::install_registry_with_stub();
         let bytes =
             render_vgm_wav(sms_vgm(), 44_100, 16, 1.0, ResampleMode::Sinc).expect("renders");
         let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
@@ -407,6 +408,7 @@ mod tests {
 
     #[test]
     fn a_chip_this_app_can_play_comes_out_audible() {
+        crate::testing::install_registry_with_stub();
         let bytes =
             render_vgm_wav(sms_vgm(), 44_100, 16, 1.0, ResampleMode::Sinc).expect("renders");
         let reader = hound::WavReader::new(Cursor::new(bytes)).expect("a readable WAV");
@@ -421,6 +423,7 @@ mod tests {
 
     #[test]
     fn a_chip_this_app_cannot_play_comes_out_silent_rather_than_failing() {
+        crate::testing::install_registry_with_stub();
         // A YM2612 rip: readable, playable in the sense that it renders, and
         // silent because there is no core. Better than a refusal.
         let file = vgm_file(
@@ -441,6 +444,7 @@ mod tests {
 
     #[test]
     fn a_cancelled_vgm_render_yields_nothing() {
+        crate::testing::install_registry_with_stub();
         let mut calls = 0;
         let outcome = render_vgm_wav_cancellable(
             sms_vgm(),

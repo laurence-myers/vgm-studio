@@ -75,6 +75,10 @@ fn build_sized(
     wgpu: bool,
     size: egui::Vec2,
 ) -> (Harness<'static, DroApp>, Handles) {
+    // Every GUI test sees the app-shaped registry: since the cull the
+    // builtins alone have no generic core, so playability, the transport and
+    // the render menu would all answer differently without it.
+    crate::widgets::chip_output::install_test_cores();
     let files = Rc::new(RefCell::new(FileLog::default()));
     let audio = Rc::new(RefCell::new(AudioLog::default()));
     let tasks = Rc::new(RefCell::new(TaskLog::default()));

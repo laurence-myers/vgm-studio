@@ -237,6 +237,10 @@ mod tests {
 
     #[test]
     fn playability_is_per_chip_and_says_what_is_missing() {
+        // The stub registry: this crate ships no generic cores of its own
+        // since the cull, so the buildable half of the question is a test
+        // double and the logic under test is unchanged.
+        crate::testing::install_registry_with_stub();
         assert!(core_for(ChipKind::Sn76489).is_some());
         assert!(core_for(ChipKind::Ym2612).is_none());
 

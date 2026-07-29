@@ -123,24 +123,21 @@ mod tests {
         assert!(registry.can_build(ChipKind::Ym2413));
     }
 
-    /// Nuked-PSG is a picker *alternative*: the clean-room SN76489 registers
-    /// first and stays the default, because the die trace is of one specific
-    /// part -- the Sega VDP's -- and the clean-room core is the one that
-    /// honours the header's feedback/width fields for everything else.
+    /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers
+    /// first (the 2026-07-29 redirect) and takes the SN76489's default; the
+    /// die trace is of one specific part -- the Sega VDP's -- and stays a
+    /// flavour beside it. This crate can only assert its own half of that:
+    /// the row is on the list.
     #[test]
-    fn nuked_psg_is_offered_but_not_the_default() {
+    fn nuked_psg_is_offered() {
         let mut registry = dro_synth::CoreRegistry::with_builtins();
         super::register(&mut registry);
 
-        let default = registry
-            .default_for(ChipKind::Sn76489)
-            .expect("a default exists");
-        assert_ne!(default.id, super::psg::CORE_ID, "the clean room leads");
         assert!(
             registry
                 .for_chip(ChipKind::Sn76489)
                 .any(|info| info.id == super::psg::CORE_ID),
-            "and Nuked-PSG is on the list"
+            "Nuked-PSG is on the list"
         );
     }
 }

@@ -377,170 +377,12 @@ pub const THRESHOLDS: &[Threshold] = &[
             "0.977 observed (n=12) against a shared core; short of the 0.99              ideal, unexplained by the LFO or the resampler",
         ),
     },
-    // Clean-room: floors under the observed band. The family lands near 0.6
-    // against a different implementation; the two far below that carry their
-    // own investigations.
-    clean(
-        ChipKind::Sn76489,
-        0.55,
-        "HF/noise-band disagreement under investigation; tones match to 1%",
-    ),
-    clean(
-        ChipKind::Ay8910,
-        0.55,
-        "with the SN76489 in the ~0.6 clean-room band",
-    ),
-    clean(
-        ChipKind::Ym2203,
-        0.60,
-        "a different FM core on the reference side",
-    ),
-    clean(
-        ChipKind::Ym2608,
-        0.55,
-        "the rhythm section reads the chip's internal mask ROM, which a VGM          does not carry and this project cannot ship; Delta-T is modelled",
-    ),
-    clean(
-        ChipKind::Ym2610,
-        0.70,
-        "0.769 observed with ADPCM-A and Delta-T modelled -- the best          clean-room score on the board; level 0.955 after the family balance pass",
-    ),
-    clean(
-        ChipKind::Okim6258,
-        0.50,
-        "0.557 observed (n=9); clean-room codec differences",
-    ),
-    clean(
-        ChipKind::Okim6295,
-        0.60,
-        "0.676 observed after the bank and divider fixes",
-    ),
-    clean(
-        ChipKind::GameBoyDmg,
-        0.25,
-        "0.295 observed -- far below where a clean-room square-wave chip          should land; under investigation",
-    ),
-    clean(
-        ChipKind::NesApu,
-        0.30,
-        "0.334 observed -- far below where a clean-room square-wave chip          should land; under investigation",
-    ),
-    // Correlation certifies nothing here: wave phase is implementation-defined
-    // and VGMPlay's own two HuC6280 cores score -0.19 against each other. The
-    // envelope is the arbitrating metric; its bar is set once the scorecard
-    // has printed a measured value.
-    Threshold {
-        chip: ChipKind::HuC6280,
-        regime: Regime::CleanRoom,
-        min_correlation: 0.0,
-        max_cents: 5.0,
-        max_dropout: 0.05,
-        max_envelope: None,
-        known_gap: Some(
-            "whole-file correlation is meaningless for this chip: channel wave              phase is implementation-defined, and the reference's two HuC6280              cores score -0.19 against each other. Envelope agreement is 0.97,              the same as between the references themselves",
-        ),
-    },
-    // The tail cores, frozen from the 2026-07-28 measurement (12 files per
-    // chip where the corpus has them; the cold run and the fixed-binary
-    // rerun agreed on every untouched row). Floors sit just under the
-    // observed medians, exactly as the majors' do. Three chips have no
-    // single-chip corpus file at all, so their bars stay tripwires.
-    clean(
-        ChipKind::K051649,
-        0.05,
-        "no single-chip corpus file to measure; the bar is a tripwire until one exists",
-    ),
-    clean(
-        ChipKind::Rf5c68,
-        0.40,
-        "0.432 observed (n=12), level 1.09 after the x3 fix; the waveform gap is under investigation",
-    ),
-    clean(
-        ChipKind::Rf5c164,
-        0.02,
-        "samples arrive since the 0x68 upload path landed (level 1.00, was total silence); corr 0.025 and +20 cents under investigation",
-    ),
-    clean(ChipKind::K054539, 0.70, "0.748 observed (n=12), level 0.90"),
-    clean(
-        ChipKind::C140,
-        0.95,
-        "0.974 observed (n=12) on C140 boards; the C219 variant is a stated approximation and audibly silent on NA-1/NA-2 rips",
-    ),
-    clean(
-        ChipKind::C352,
-        0.42,
-        "0.456 observed (n=12); the mulaw fold and the half-weight rear mix are stated approximations",
-    ),
-    clean(
-        ChipKind::QSound,
-        0.04,
-        "0.046 observed and +14.5 cents sharp: the pitch decode is suspect and the echo/filter DSP unmodelled; under investigation",
-    ),
-    clean(
-        ChipKind::SegaPcm,
-        0.05,
-        "no single-chip corpus file to measure; the bar is a tripwire until one exists",
-    ),
-    clean(
-        ChipKind::Ga20,
-        0.05,
-        "no single-chip corpus file to measure; the bar is a tripwire until one exists",
-    ),
-    clean(
-        ChipKind::Ymz280b,
-        0.62,
-        "0.664 observed (n=12) after the x8 level fix brought level to 0.81; the quiet build read 0.773, so the fix traded correlation -- clipping suspected, rebalance owed",
-    ),
-    clean(
-        ChipKind::K053260,
-        0.96,
-        "0.990 observed (n=6), level 0.97 -- the cleanest tail row",
-    ),
-    clean(
-        ChipKind::WonderSwan,
-        0.85,
-        "0.895 observed (n=12), dropouts gone: the 0.022 that stood here was the decoder leaving 0xC6 on port 0, so the wave RAM was never written and four channels read a constant -- not the wavetable-phase gap it was filed as. Level 0.50 is still owed",
-    ),
-    clean(
-        ChipKind::Vsu,
-        0.06,
-        "0.074 observed: wavetable phase is implementation-defined (the HuC6280 precedent); level 0.46",
-    ),
-    clean(
-        ChipKind::Saa1099,
-        0.02,
-        "pitch exact and level 1.5, yet corr 0.031: square-wave phase sensitivity suspected; under investigation",
-    ),
-    clean(
-        ChipKind::Pwm,
-        0.01,
-        "the corpus's one single-chip file reads 0.017 (n=1). The 0xB2 decode was wrong until 2026-07-29 (nibble register and 12-bit value read as the range's `aa dd`) and fixing it moved this row nothing -- the remaining suspect is the core's stated fixed-rate approximation, which no operand fix can reach",
-    ),
-    clean(
-        ChipKind::Es5503,
-        0.008,
-        "0.015 observed: wavetable phase (the HuC6280 precedent) plus level 0.26; under investigation",
-    ),
-    clean(
-        ChipKind::Ymf278b,
-        0.06,
-        "wave side only: the FM half waits on the OPL routing invariant and every rip leans on it; level 1.21",
-    ),
-    clean(
-        ChipKind::X1010,
-        0.02,
-        "0.029 observed: the envelope-walk rate is a stated approximation and wave phase implementation-defined; under investigation. Level is 0.939 since the second-chip flag was read from the right byte -- it was 0.674 while 43.7% of the corpus's writes were being sent to a chip that is not there",
-    ),
-    clean(
-        ChipKind::MultiPcm,
-        0.03,
-        "0.034 observed. The structural gap this row named was the `0xC3` bank select, which reached no core at all until 2026-07-29: fixing it took level 0.41 -> 0.49 and dropout 0.111 -> 0.030 and left correlation exactly where it was, so what remains is the unmodelled ROM-header envelopes alone",
-    ),
-    clean(
-        ChipKind::Upd7759,
-        0.005,
-        "the corpus's one single-chip file reads 0.010 with drop 0.23 (n=1); under investigation",
-    ),
+    // The clean-room tier this table once measured was culled on 2026-07-29
+    // and the scorecard retired with it (see parity/SCORECARD.md's preamble).
+    // What remains are the shared-lineage rows above: reference and core run
+    // the same upstream, so a low score means the binding or the driver is
+    // wrong, never that "implementations differ" -- which is the only question
+    // this harness still answers.
 ];
 
 /// A shared-core chip's bar: near-identity, because a gap is a driver fault.
@@ -553,19 +395,6 @@ const fn shared(chip: ChipKind) -> Threshold {
         max_dropout: 0.01,
         max_envelope: None,
         known_gap: None,
-    }
-}
-
-/// A clean-room chip's bar: a floor under the observed band, with the reason.
-const fn clean(chip: ChipKind, min_correlation: f64, why: &'static str) -> Threshold {
-    Threshold {
-        chip,
-        regime: Regime::CleanRoom,
-        min_correlation,
-        max_cents: 5.0,
-        max_dropout: 0.05,
-        max_envelope: None,
-        known_gap: Some(why),
     }
 }
 
