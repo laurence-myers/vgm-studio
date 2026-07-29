@@ -567,6 +567,10 @@ const fn rom_space(block_type: u8) -> u8 {
 /// into the parent's rate and a gain, mirroring `GetChipVolume`'s link column.
 struct LinkedDev {
     dev: DevInfo,
+    /// libvgm's `DEVID_` for this child, so a mute mask can be routed to it --
+    /// the OPN family's SSG channels live on the linked `DEVID_AY8910`, not on
+    /// the parent's own mute mask.
+    dev_id: u8,
     /// The child's level relative to the parent, 8.8 fixed point --
     /// upstream's `GetChipVolume(..., isLinked=1)` over `isLinked=0`: half
     /// for the YM2203's SSG, unity otherwise.
@@ -652,6 +656,14 @@ pub struct LibVgmChip {
     clock: u32,
     variant: bool,
     settings: ChipSettings,
+    /// Which channels are muted, in [`dro_core::vgm::channels_of`] order.
+    /// Kept here because a device restart (every `reset`, and `configure`)
+    /// clears the core's own mask, so it is reapplied after each `start`.
+    mute_mask: u32,
+    /// Where each channel sits in the stereo image, libvgm's `-0x100..=0x100`.
+    /// Empty means the chip's own image; reapplied after each `start` like the
+    /// mute mask.
+    pans: Vec<i16>,
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
     right: Vec<i32>,
@@ -694,6 +706,8 @@ impl LibVgmChip {
             clock: 0,
             variant: false,
             settings: ChipSettings::default(),
+            mute_mask: 0,
+            pans: Vec::new(),
             left: Vec::new(),
             right: Vec::new(),
         }
@@ -815,6 +829,61 @@ impl LibVgmChip {
                 reset(dev.data_ptr);
             }
         }
+
+        // The start above cleared any mute mask and pan image the core held,
+        // so restate them -- a reset must not un-mute a channel the user
+        // muted before it.
+        self.apply_muting();
+        self.apply_panning();
+    }
+
+    /// Pushes the stored mute mask into the device (and, for the OPN family,
+    /// its linked SSG). A no-op while stopped or when the core cannot mute.
+    fn apply_muting(&self) {
+        if !self.is_started() {
+            return;
+        }
+        let (parent_mask, ssg_mask) = split_mute(self.spec.kind, self.mute_mask);
+        // SAFETY: a live device; `set_mute_mask` is `DEV_DEF` field 9, taking
+        // `(info, u32)` -- the `DevFuncOptMask` signature it is declared with.
+        unsafe {
+            if let Some(set_mute) = (*self.dev.dev_def).set_mute_mask {
+                set_mute(self.dev.data_ptr, parent_mask);
+            }
+        }
+        let Some(ssg_mask) = ssg_mask else {
+            return;
+        };
+        // The SSG lives on the linked `DEVID_AY8910` child, with its own
+        // 3-bit mask -- the parent's mute mask does not reach it.
+        for link in &self.links {
+            if link.dev_id != ffi::DEVID_AY8910 || link.dev.data_ptr.is_null() {
+                continue;
+            }
+            // SAFETY: a live child device, its own `set_mute_mask` field.
+            unsafe {
+                if let Some(set_mute) = (*link.dev.dev_def).set_mute_mask {
+                    set_mute(link.dev.data_ptr, ssg_mask);
+                }
+            }
+        }
+    }
+
+    /// Pushes the stored pan image into the device, if it has one set and the
+    /// core can pan.
+    fn apply_panning(&self) {
+        if !self.is_started() || self.pans.is_empty() {
+            return;
+        }
+        // SAFETY: a live device; `set_panning` is `DEV_DEF` field 10, taking
+        // `(info, *const i16)` -- the `DevFuncPanAll` signature. The array
+        // outlives the call, and the core reads only as many channels as it
+        // has (it is handed the whole chip's worth).
+        unsafe {
+            if let Some(set_pan) = (*self.dev.dev_def).set_panning {
+                set_pan(self.dev.data_ptr, self.pans.as_ptr());
+            }
+        }
     }
 
     /// Starts the linked children the parent's `Start` declared, and links
@@ -909,6 +978,7 @@ impl LibVgmChip {
             let parent_rate = self.dev.sample_rate.max(1);
             self.links.push(LinkedDev {
                 dev: child,
+                dev_id: declaration.dev_id,
                 gain: link_gain(self.spec.kind),
                 step: (u64::from(child_rate) << 32) / u64::from(parent_rate),
                 pos: 0,
@@ -930,6 +1000,26 @@ const fn default_option_bits(kind: ChipKind) -> u32 {
         // `OPT_SCSP_BYPASS_DSP`: the DSP is skipped by default upstream.
         ChipKind::Scsp => 0x01,
         _ => 0,
+    }
+}
+
+/// Splits a canonical channel mute mask into what the parent device mutes and,
+/// for the OPN family, what its linked SSG child mutes.
+///
+/// [`dro_core::vgm::channels_of`] puts the SSG channels last; libvgm's OPN
+/// parent mutes only its FM (and, on the 2608/2610, the rhythm/ADPCM that
+/// share its device), while the SSG is a separate `DEVID_AY8910` with its own
+/// three-bit mask. Every other chip is identity: the whole mask to the parent,
+/// nothing to a child. The bit positions here are pinned by the parent cores'
+/// own `set_mute_mask` (`fmopn.c`) and the canonical channel table.
+const fn split_mute(kind: ChipKind, mask: u32) -> (u32, Option<u32>) {
+    match kind {
+        // FM 1-3 (bits 0-2), then SSG A-C (bits 3-5).
+        ChipKind::Ym2203 => (mask & 0b111, Some((mask >> 3) & 0b111)),
+        // FM 1-6, ADPCM-A/rhythm 1-6, ADPCM-B (bits 0-12), then SSG A-C
+        // (bits 13-15).
+        ChipKind::Ym2608 | ChipKind::Ym2610 => (mask & 0x1FFF, Some((mask >> 13) & 0b111)),
+        _ => (mask, None),
     }
 }
 
@@ -1150,6 +1240,43 @@ impl ChipCore for LibVgmChip {
             frame[1] = right;
         }
     }
+
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.mute_mask = muted;
+        self.apply_muting();
+    }
+
+    fn set_channel_pans(&mut self, pans: &[i16]) {
+        self.pans = pans.to_vec();
+        self.apply_panning();
+    }
+
+    /// Whether the started core actually carries a pan function -- the
+    /// ground truth the registry's `channel_pan` flag mirrors. `false` while
+    /// stopped, since there is no device to ask.
+    fn supports_pan(&self) -> bool {
+        if !self.is_started() {
+            return false;
+        }
+        // SAFETY: a live device definition; reading a nullable field.
+        unsafe { (*self.dev.dev_def).set_panning.is_some() }
+    }
+}
+
+/// Whether libvgm's *default* core for `kind` can place its channels in the
+/// stereo image -- what the registry's `channel_pan` flag reports, so the UI
+/// hides pan controls for the rest.
+///
+/// Four of libvgm's default cores carry a `SetPanning` function: the SN76489's
+/// Maxim core (our default -- the `-mame` alternative does not pan), the
+/// AY8910's EMU2149, the NES APU's NSFPlay, and the YM2413's EMU2413.
+/// `LibVgmChip::supports_pan` reads the started device's own field, so a wrong
+/// answer here is a hidden-or-shown control, never a dead knob.
+pub(crate) const fn default_core_pans(kind: ChipKind) -> bool {
+    matches!(
+        kind,
+        ChipKind::Sn76489 | ChipKind::Ay8910 | ChipKind::NesApu | ChipKind::Ym2413
+    )
 }
 
 /// Whether `kind` takes its RAM blocks through the block writer rather than
@@ -1630,6 +1757,136 @@ mod tests {
             energy(&loud),
             energy(&after)
         );
+    }
+
+    /// The SN76489's tone 1: latch its period, and un-attenuate it. Factored
+    /// so a mute test can replay it before and after a reset.
+    fn play_sn_tone1(chip: &mut LibVgmChip) {
+        chip.write(0, 0, 0x8E);
+        chip.write(0, 0, 0x02);
+        chip.write(0, 0, 0x90);
+    }
+
+    /// Muting a channel silences it, and the mask survives a reset -- a reset
+    /// restarts the device, which clears the core's own mask, so the wrapper
+    /// must restate it or a seek would un-mute what the user muted.
+    #[test]
+    fn muting_silences_a_channel_and_survives_a_reset() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Sn76489));
+        chip.reset(3_579_545, false);
+        play_sn_tone1(&mut chip);
+        let mut loud = vec![0i32; 4096];
+        chip.render(&mut loud);
+        assert!(energy(&loud) > 1000, "sanity: tone 1 should play");
+
+        // Tone 1 is channel 0 of the canonical SN76489 order.
+        chip.set_channel_mutes(0b0001);
+        let mut muted = vec![0i32; 4096];
+        chip.render(&mut muted);
+        assert!(
+            energy(&muted) * 8 < energy(&loud),
+            "muting tone 1 should silence it (loud {}, muted {})",
+            energy(&loud),
+            energy(&muted)
+        );
+
+        chip.reset(3_579_545, false);
+        play_sn_tone1(&mut chip);
+        let mut after = vec![0i32; 4096];
+        chip.render(&mut after);
+        assert!(
+            energy(&after) * 8 < energy(&loud),
+            "the mute mask must survive a reset (loud {}, after {})",
+            energy(&loud),
+            energy(&after)
+        );
+    }
+
+    /// The OPN family's SSG is a linked `DEVID_AY8910`, not part of the
+    /// parent's mute mask -- so an SSG-channel mute must reach the child.
+    #[test]
+    fn muting_an_opn_ssg_channel_reaches_the_linked_device() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Ym2203));
+        chip.reset(3_579_545, false);
+        // SSG channel A: a tone, enabled in the mixer, full amplitude.
+        chip.write(0, 0x00, 0xFE); // period fine
+        chip.write(0, 0x01, 0x00); // period coarse
+        chip.write(0, 0x07, 0x3E); // mixer: tone A on (bit 0 clear), rest off
+        chip.write(0, 0x08, 0x0F); // channel A amplitude: full
+        let mut loud = vec![0i32; 8192];
+        chip.render(&mut loud);
+        assert!(
+            energy(&loud) > 1000,
+            "sanity: SSG A should play ({})",
+            energy(&loud)
+        );
+
+        // SSG A is channel 3 (FM 1-3, then SSG A-C) in the canonical order.
+        chip.set_channel_mutes(1 << 3);
+        let mut muted = vec![0i32; 8192];
+        chip.render(&mut muted);
+        assert!(
+            energy(&muted) * 8 < energy(&loud),
+            "muting SSG A must reach the linked EMU2149 (loud {}, muted {})",
+            energy(&loud),
+            energy(&muted)
+        );
+    }
+
+    /// Pan capability is the started core's own truth, and it matches what the
+    /// registry advertises: the SN76489 (Maxim default), AY8910, NES APU and
+    /// YM2413 default cores all carry a pan function.
+    #[test]
+    fn pan_capability_matches_the_default_core() {
+        for kind in [
+            ChipKind::Sn76489,
+            ChipKind::Ay8910,
+            ChipKind::NesApu,
+            ChipKind::Ym2413,
+        ] {
+            let mut chip = LibVgmChip::new(spec(kind));
+            chip.reset(3_579_545, false);
+            assert!(
+                chip.supports_pan(),
+                "{}'s default libvgm core should pan",
+                kind.name()
+            );
+            assert!(
+                default_core_pans(kind),
+                "{} should advertise pan in the registry",
+                kind.name()
+            );
+        }
+        // A chip with no pan function: the YM2612's Nuked-OPN2 has none, and
+        // the registry agrees.
+        let mut ym = LibVgmChip::new(spec(ChipKind::Ym2612));
+        ym.reset(7_670_454, false);
+        assert!(
+            !ym.supports_pan(),
+            "the YM2612's libvgm core has no pan function"
+        );
+        assert!(!default_core_pans(ChipKind::Ym2612));
+    }
+
+    /// The OPN mute split: the parent takes its FM (and ADPCM), the SSG bits
+    /// go to the child; every other chip is identity with no child.
+    #[test]
+    fn the_opn_mute_splits_fm_from_ssg() {
+        // YM2203: FM bits 0-2, SSG bits 3-5.
+        assert_eq!(
+            split_mute(ChipKind::Ym2203, 0b000_111),
+            (0b111, Some(0b000))
+        );
+        assert_eq!(
+            split_mute(ChipKind::Ym2203, 0b111_000),
+            (0b000, Some(0b111))
+        );
+        // YM2608 / YM2610: parent bits 0-12, SSG bits 13-15.
+        assert_eq!(split_mute(ChipKind::Ym2610, 0x1FFF), (0x1FFF, Some(0)));
+        assert_eq!(split_mute(ChipKind::Ym2608, 0x7 << 13), (0, Some(0b111)));
+        // Everything else is identity, no child.
+        assert_eq!(split_mute(ChipKind::Sn76489, 0b1010), (0b1010, None));
+        assert_eq!(split_mute(ChipKind::Ym2612, 0x7F), (0x7F, None));
     }
 
     /// `native_rate` reports what the core will *actually* render at, which is

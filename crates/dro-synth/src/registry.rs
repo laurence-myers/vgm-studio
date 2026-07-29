@@ -293,7 +293,10 @@ impl CoreRegistry {
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
                 realtime: true,
-                channel_pan: false,
+                // The OPL3's per-channel pan is the `stereo-ext` register path
+                // `PlayerEngine` drives (not the `ChipCore` mute/pan API); CQM
+                // and the RetroWave board cannot, and keep `false`.
+                channel_pan: true,
                 level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });

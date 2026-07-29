@@ -90,7 +90,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
-            channel_pan: false,
+            channel_pan: chip::default_core_pans(spec.kind),
             level: spec.level,
             make: spec.maker(),
         });
