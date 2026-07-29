@@ -86,7 +86,7 @@ pub fn register(registry: &mut dro_synth::CoreRegistry) {
             id: spec.registry_id(),
             chip: spec.kind,
             label: spec.label,
-            authors: "Valley Bell and the upstream core authors",
+            authors: "the libvgm project and upstream core authors",
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
