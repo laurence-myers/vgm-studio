@@ -783,6 +783,35 @@ mod tests {
         assert_eq!(previewed(dialog.preview(opened_with, true, true)), None);
     }
 
+    /// Picking a core auditions it once, closing without saving reverts to the
+    /// saved map, and Save previews nothing (ApplySettings carries the map) --
+    /// the same lifecycle as the skin preview.
+    #[test]
+    fn picking_a_core_previews_it_once_and_close_reverts() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert!(dialog.preview_cores(false, false).is_none(), "no change yet");
+
+        dialog.choose_core("ym2612", "lle");
+        let Some(Action::PreviewCores(map)) = dialog.preview_cores(false, false) else {
+            panic!("expected a core preview");
+        };
+        assert_eq!(map.get("ym2612").map(String::as_str), Some("lle"));
+        assert!(
+            dialog.preview_cores(false, false).is_none(),
+            "previewed once, not every frame"
+        );
+
+        // Close means none of it: the saved (empty) map comes back.
+        let Some(Action::PreviewCores(map)) = dialog.preview_cores(true, false) else {
+            panic!("expected the revert preview");
+        };
+        assert!(map.get("ym2612").is_none());
+
+        // Save hands the map to ApplySettings instead of previewing it again.
+        dialog.choose_core("ym2612", "nuked");
+        assert!(dialog.preview_cores(true, true).is_none());
+    }
+
     /// A port saved on another machine, or since unplugged, must still be named
     /// rather than silently reading as some other port.
     #[test]
