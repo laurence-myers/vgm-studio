@@ -155,6 +155,9 @@ pub(crate) struct AudioLog {
     pub seeks_pos: Vec<usize>,
     pub mutings: Vec<Muting>,
     pub pannings: Vec<Panning>,
+    /// Every any-chip mute pushed, for the generic channel panel's tests.
+    pub chip_mutings: Vec<dro_synth::ChipMuting>,
+    pub chip_pannings: Vec<dro_synth::ChipPanning>,
     pub boosts: Vec<f32>,
     /// Every loop region pushed at the service, `None` for "stop looping".
     pub loops: Vec<Option<dro_synth::LoopConfig>>,
@@ -246,6 +249,14 @@ impl AudioService for FakeAudioService {
 
     fn set_panning(&mut self, panning: Panning) {
         self.0.borrow_mut().pannings.push(panning);
+    }
+
+    fn set_chip_muting(&mut self, muting: dro_synth::ChipMuting) {
+        self.0.borrow_mut().chip_mutings.push(muting);
+    }
+
+    fn set_chip_panning(&mut self, panning: dro_synth::ChipPanning) {
+        self.0.borrow_mut().chip_pannings.push(panning);
     }
 
     fn set_boost(&mut self, boost: f32) {

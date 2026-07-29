@@ -1951,6 +1951,28 @@ fn opening_a_vgm_for_other_chips_opens_it_for_trimming() {
     );
 }
 
+/// The number keys mute the *selected chip's* channels, not the OPL panel's:
+/// pressing 1 on a Mega Drive-era rip mutes that chip's first channel, and the
+/// mask reaches the audio output as a chip muting.
+#[test]
+fn a_number_key_mutes_the_selected_chip_on_a_non_opl_vgm() {
+    let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
+    harness.run();
+
+    harness.key_press(Key::Num1);
+    harness.run();
+
+    let audio = handles.audio.borrow();
+    let last = audio.chip_mutings.last().expect("a chip muting was pushed");
+    // The file declares one chip (its SSG is a linked child, not a second
+    // declaration), so channel 1 is its FM 1 -- bit 0.
+    assert_eq!(
+        last.mask_for(dro_core::ChipKind::Ym2610, 0),
+        0b1,
+        "the selected chip's first channel is muted"
+    );
+}
+
 /// The hard requirement, end to end: a VGM for chips this app has no core for
 /// can be cropped to a marked region, and undone. Through the menu actions, not
 /// by reaching into the editor -- editing a document is not an OPL idea, and the

@@ -689,8 +689,21 @@ impl DroApp {
                         ui.add_space(PAD);
                         theme::separator_full(ui, p);
                         ui.add_space(PAD);
+                        // Whether the selected chip's pan controls should be
+                        // drawn: for the OPL panel, the output must render
+                        // samples (hardware mixes its own) and the chosen OPL
+                        // core must pan (CQM cannot); for a generic chip, its
+                        // core must pan. Computed before the panel's mutable
+                        // borrow so the closure captures a bool, not `self`.
+                        let opl_can_pan = self.output_renders_samples()
+                            && dro_synth::registry().pan_capable(dro_core::vgm::ChipKind::Ymf262);
+                        let pan_supported = move |chip: Option<dro_core::vgm::ChipKind>| match chip
+                        {
+                            None => opl_can_pan,
+                            Some(kind) => dro_synth::registry().pan_capable(kind),
+                        };
                         // The panel hides its own high bank for a plain OPL2 song.
-                        let channels = self.channels.show(ui, p, self.output_renders_samples());
+                        let channels = self.channels.show(ui, p, pan_supported);
                         if channels.muting_changed {
                             actions.push(Action::MutingChanged);
                         }
@@ -2027,11 +2040,11 @@ impl DroApp {
             }
 
             Action::ToggleChannel(channel) => {
-                self.channels.opl().toggle_channel(channel);
-                self.audio.set_muting(self.channels.muting());
+                self.channels.toggle_selected_channel(channel);
+                self.push_muting();
             }
-            Action::MutingChanged => self.audio.set_muting(self.channels.muting()),
-            Action::PanningChanged => self.audio.set_panning(self.channels.panning()),
+            Action::MutingChanged => self.push_muting(),
+            Action::PanningChanged => self.push_panning(),
             Action::SetBoost { value, persist } => self.set_boost(value, persist),
             Action::SetLockBoost(lock) => self.set_lock_boost(lock),
             Action::MatchVolume => self.match_volume(),
@@ -4209,8 +4222,8 @@ impl DroApp {
             .audio_source()
             .ok_or_else(|| "No song is loaded.".to_owned())?;
         self.audio.load(source, &self.config.audio)?;
-        self.audio.set_muting(self.channels.muting());
-        self.audio.set_panning(self.channels.panning());
+        self.push_muting();
+        self.push_panning();
         self.audio_revision = Some(self.editor.revision());
         // The device may have rejected the configured frequency; positions
         // report frames at the stream's real rate, so the panel must too.
@@ -4224,6 +4237,21 @@ impl DroApp {
         // denominated in it -- so this must follow the load, not precede it.
         self.push_loop_config();
         Ok(())
+    }
+
+    /// Pushes the current muting to the audio output -- both the OPL muting and
+    /// the any-chip mutes, since a document is one or the other and each is a
+    /// no-op on the engine it does not drive.
+    fn push_muting(&mut self) {
+        self.audio.set_muting(self.channels.muting());
+        self.audio.set_chip_muting(self.channels.chip_muting());
+    }
+
+    /// Pushes the current panning to the audio output, both kinds, as
+    /// [`push_muting`](Self::push_muting) does.
+    fn push_panning(&mut self) {
+        self.audio.set_panning(self.channels.panning());
+        self.audio.set_chip_panning(self.channels.chip_panning());
     }
 
     /// Refreshes the waveform's loop brackets from the markers.

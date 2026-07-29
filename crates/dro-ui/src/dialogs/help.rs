@@ -74,10 +74,13 @@ const SECTIONS: &[Section] = &[
         note: None,
         rows: &[
             (Keys::Bound(&[menus::PLAY_STOP]), "Play / stop"),
-            (Keys::Text("1 - 9"), "Mute or unmute channels 1 to 9"),
+            (
+                Keys::Text("1 - 9"),
+                "Mute or unmute channels 1 to 9 of the selected chip",
+            ),
             (
                 Keys::Text("Shift+1 - 9"),
-                "Mute or unmute channels 10 to 18 (OPL3)",
+                "Mute or unmute channels 10 to 18 (chips with more)",
             ),
         ],
     },

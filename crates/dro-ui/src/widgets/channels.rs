@@ -296,11 +296,14 @@ impl ChannelPanel {
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // Low bank: pan row, then the toggle row with Perc. and All. The
-                // toggles are `bevel::toggle`s, each pinned to a fixed rect, so
-                // they never grow or jostle their neighbours across states.
-                response.panning_changed |= self.pan_row(ui, palette, 0, true, panning_supported);
-                ui.end_row();
+                // Low bank: the pan row (only when the output can pan -- it is
+                // omitted, not greyed, otherwise), then the toggle row with
+                // Perc. and All. The toggles are `bevel::toggle`s, each pinned
+                // to a fixed rect, so they never grow or jostle their neighbours.
+                if panning_supported {
+                    response.panning_changed |= self.pan_row(ui, palette, 0, true);
+                    ui.end_row();
+                }
 
                 ui.label("Channels:");
                 for index in 0..9 {
@@ -319,9 +322,10 @@ impl ChannelPanel {
                 ui.end_row();
 
                 if show_high_bank {
-                    response.panning_changed |=
-                        self.pan_row(ui, palette, 1, false, panning_supported);
-                    ui.end_row();
+                    if panning_supported {
+                        response.panning_changed |= self.pan_row(ui, palette, 1, false);
+                        ui.end_row();
+                    }
 
                     ui.label("High bank:");
                     for index in 9..18 {
@@ -338,13 +342,15 @@ impl ChannelPanel {
     /// One bank's pan row: a label, nine pan knobs (over the toggle digits), an
     /// empty cell in the Perc. column, and -- on the low bank -- the
     /// Original/Custom mode toggle under "All". Returns whether panning changed.
+    ///
+    /// Only called when the output can pan; when it cannot the whole row is
+    /// omitted (see [`Self::show`]), so there is no disabled state to draw here.
     fn pan_row(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,
         bank: usize,
         with_mode_toggle: bool,
-        supported: bool,
     ) -> bool {
         let mut changed = false;
         ui.label(if bank == 0 { "Pan:" } else { "" });
@@ -352,46 +358,28 @@ impl ChannelPanel {
         for channel in 0..9 {
             let slot = bank * 9 + channel;
             let label = format!("Pan {} ({bank_name} bank)", channel + 1);
-            if self.custom && supported {
+            if self.custom {
                 changed |=
                     pan_knob::show(ui, palette, &mut self.pans[slot], true, &label).changed();
             } else {
-                // Inert and greyed: either Original mode (showing the policy pan)
-                // or an output that cannot pan at all. The knob does not mutate a
-                // disabled value, so a throwaway copy is safe.
-                let mut shown = if supported {
-                    self.default_pans[slot]
-                } else {
-                    // Nothing here shapes the image, so show it as it plays:
-                    // whatever the song itself does, which the knobs cannot
-                    // represent. Centre is the honest placeholder.
-                    PAN_CENTER
-                };
+                // Original mode: the knob shows the policy pan, inert. It does
+                // not mutate a disabled value, so a throwaway copy is safe.
+                let mut shown = self.default_pans[slot];
                 pan_knob::show(ui, palette, &mut shown, false, &label);
             }
         }
         // The Perc. column has no pan knob (drums pan through channels 7-9).
         ui.label("");
         if with_mode_toggle {
-            const UNSUPPORTED: &str = "Panning is unavailable on hardware output: the chip mixes its own \
-                 sound, and a real OPL2 has no per-channel pan.";
-            let hint = if supported {
-                match self.opl_type {
-                    Some(OplType::DualOpl2) => "Original: chip 1 left, chip 2 right",
-                    Some(OplType::Opl3) => "Original: the song's own panning",
-                    _ => "Original: mono",
-                }
-            } else {
-                UNSUPPORTED
+            let hint = match self.opl_type {
+                Some(OplType::DualOpl2) => "Original: chip 1 left, chip 2 right",
+                Some(OplType::Opl3) => "Original: the song's own panning",
+                _ => "Original: mono",
             };
             let mut custom = self.custom;
-            if ui
-                .add_enabled_ui(supported, |ui| {
-                    bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
-                        .on_hover_text(hint)
-                        .changed()
-                })
-                .inner
+            if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
+                .on_hover_text(hint)
+                .changed()
             {
                 self.custom = custom;
                 // Switching mode changes the effective panning.
@@ -401,27 +389,21 @@ impl ChannelPanel {
             // the extremes a wide image. Live, and engages Custom so it is heard
             // at once.
             ui.horizontal(|ui| {
-                ui.add_enabled_ui(supported, |ui| {
-                    ui.label("Spread:");
-                    let mut spread = self.spread;
-                    if pan_knob::show_spread(ui, palette, &mut spread, "Spread")
-                        .on_hover_text(if supported {
-                            "Stereo spread: mono at centre, wide at the extremes"
-                        } else {
-                            UNSUPPORTED
-                        })
-                        .changed()
-                    {
-                        self.set_spread(spread);
-                        changed = true;
-                    }
-                    if bevel::icon_button(ui, palette, Icon::Reset, "Reset")
-                        .on_hover_text("Reset panning to this song type's default (Original mode)")
-                        .clicked()
-                    {
-                        changed |= self.reset_pans();
-                    }
-                });
+                ui.label("Spread:");
+                let mut spread = self.spread;
+                if pan_knob::show_spread(ui, palette, &mut spread, "Spread")
+                    .on_hover_text("Stereo spread: mono at centre, wide at the extremes")
+                    .changed()
+                {
+                    self.set_spread(spread);
+                    changed = true;
+                }
+                if bevel::icon_button(ui, palette, Icon::Reset, "Reset")
+                    .on_hover_text("Reset panning to this song type's default (Original mode)")
+                    .clicked()
+                {
+                    changed |= self.reset_pans();
+                }
             });
         }
         changed

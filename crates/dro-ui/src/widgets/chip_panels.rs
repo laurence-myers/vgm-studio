@@ -1,39 +1,45 @@
-//! The per-chip control deck: a chip selector, and one panel per chip.
+//! The per-chip control deck: a chip selector strip, and one panel per chip.
 //!
-//! [`ChannelPanel`] is an OPL panel -- eighteen channels across two banks, two
-//! drum groups, an OPL-shaped pan image. That is right for an OPL song and
-//! meaningless for anything else, so it does not belong directly under the
-//! transport where it can only ever describe one chip.
+//! A document declares its chips; each gets a tab in the strip, and the
+//! selected tab draws its own controls. An OPL document (a DRO, or a VGM the
+//! editor opens through its projection) shows the OPL
+//! [`ChannelPanel`](super::channels::ChannelPanel) -- eighteen channels across
+//! two banks, drum groups, the OPL stereo-ext image. Any other chip shows a
+//! [`GenericChannelPanel`](super::chip_channels::GenericChannelPanel): a flat
+//! mute/solo list from [`dro_core::vgm::channels_of`], with pan knobs only
+//! where the chip's core can pan.
 //!
-//! This wraps it. A document declares its chips; each gets an entry, and the
-//! selected entry draws its own controls. A song with one chip -- every DRO, and
-//! every VGM the editor opens today -- shows no selector at all, so the deck
-//! looks exactly as it always has. Only a file with more than one chip pays for
-//! the strip.
+//! The strip is drawn **always** -- even for a single chip, even an empty
+//! editor -- so the deck's shape does not jump as documents come and go, and a
+//! one-chip file names its chip rather than leaving the controls unlabelled.
+//! It is the same [`theme::tabs`](crate::theme::tabs) strip the Editor/Pack
+//! views use.
 //!
 //! The OPL entry covers the whole OPL device, both banks together, rather than
-//! splitting dual OPL2 into two entries: those eighteen channels are one panel's
-//! worth of controls and muting channel 12 should not cost a chip switch.
-//! Chips with no controls yet say so, which is a better answer than an absent
-//! panel with no explanation.
+//! splitting dual OPL2 into two entries: those eighteen channels are one
+//! panel's worth of controls. A generic multichip file instead gets one entry
+//! per chip *instance* -- a dual SN76489 is two tabs -- because a user mutes
+//! one of the pair, not the kind.
 
+use dro_core::vgm::ChipKind;
 use dro_core::{OplType, Song, VgmFile};
-use dro_synth::{Muting, Panning};
+use dro_synth::{ChipMuting, ChipPanning, Muting, Panning};
 
-use crate::theme::{Palette, bevel};
-use crate::widgets::channels::{ChannelPanel, ChannelsResponse};
+use super::channels::{ChannelPanel, ChannelsResponse};
+use super::chip_channels::GenericChannelPanel;
+use crate::theme::{Palette, tabs};
 
 /// What a chip contributes to the deck.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum ChipControls {
-    /// The OPL mute/pan panel.
+    /// The OPL mute/pan panel, shared as [`ChipPanels::opl`].
     Opl,
-    /// A chip this app has no controls for. Named so the deck can say which.
-    None,
+    /// A generic chip's own mute/solo/pan panel.
+    Generic(GenericChannelPanel),
 }
 
 /// One chip in the strip.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 struct ChipEntry {
     label: String,
     controls: ChipControls,
@@ -45,14 +51,19 @@ pub struct ChipPanels {
     entries: Vec<ChipEntry>,
     selected: usize,
     /// The OPL panel. It outlives any particular document's chip list: the
-    /// audio output speaks OPL muting and panning whatever else is loaded.
+    /// audio output speaks OPL muting and panning whenever an OPL document is
+    /// loaded, and an empty editor still shows its channel toggles.
     opl: ChannelPanel,
 }
 
 impl Default for ChipPanels {
     fn default() -> Self {
         Self {
-            entries: Vec::new(),
+            // An empty editor still shows the OPL panel, as it always has.
+            entries: vec![ChipEntry {
+                label: opl_label(OplType::Opl3).to_owned(),
+                controls: ChipControls::Opl,
+            }],
             selected: 0,
             opl: ChannelPanel::new(),
         }
@@ -60,13 +71,13 @@ impl Default for ChipPanels {
 }
 
 impl ChipPanels {
-    /// A deck with no document: no chips, and a fresh OPL panel.
+    /// A deck with no document: the OPL panel, ready.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// The deck for an OPL song: one entry, so no selector is drawn.
+    /// The deck for an OPL song: one OPL entry.
     #[must_use]
     pub fn for_song(song: &Song) -> Self {
         Self {
@@ -79,20 +90,31 @@ impl ChipPanels {
         }
     }
 
-    /// The deck for a VGM the editor cannot decode: one entry per chip the file
-    /// declares, in header order, none of them with controls yet.
+    /// The deck for a generic multichip VGM: one entry per chip instance, in
+    /// header order.
     #[must_use]
     pub fn for_vgm(file: &VgmFile) -> Self {
+        let mut entries = Vec::new();
+        for chip in file.header.chips() {
+            let instances = if chip.dual { 2 } else { 1 };
+            for instance in 0..instances {
+                entries.push(ChipEntry {
+                    label: instance_label(chip.kind, chip.variant, instance),
+                    controls: ChipControls::Generic(GenericChannelPanel::new(
+                        chip.kind,
+                        instance,
+                        chip.variant,
+                    )),
+                });
+            }
+        }
+        // A file that declares no chip at all still gets the OPL panel, rather
+        // than an empty strip with nothing to draw.
+        if entries.is_empty() {
+            return Self::new();
+        }
         Self {
-            entries: file
-                .header
-                .chips()
-                .iter()
-                .map(|chip| ChipEntry {
-                    label: chip.label(),
-                    controls: ChipControls::None,
-                })
-                .collect(),
+            entries,
             selected: 0,
             opl: ChannelPanel::new(),
         }
@@ -104,34 +126,65 @@ impl ChipPanels {
         if let Some(entry) = self
             .entries
             .iter_mut()
-            .find(|entry| entry.controls == ChipControls::Opl)
+            .find(|entry| matches!(entry.controls, ChipControls::Opl))
         {
             entry.label = opl_label(opl_type).to_owned();
         }
     }
 
-    /// The OPL panel, for the keyboard shortcuts and the tests that drive it.
+    /// The OPL panel, for the tests that drive it directly.
     #[must_use]
     pub fn opl(&mut self) -> &mut ChannelPanel {
         &mut self.opl
     }
 
-    /// The muting the OPL panel describes.
+    /// The OPL muting the OPL panel describes (for the OPL playback path).
     #[must_use]
     pub fn muting(&self) -> Muting {
         self.opl.muting()
     }
 
-    /// The panning the OPL panel describes.
+    /// The OPL panning the OPL panel describes.
     #[must_use]
     pub fn panning(&self) -> Panning {
         self.opl.panning()
     }
 
-    /// Whether a chip selector is drawn -- true only with more than one chip.
+    /// The any-chip mutes every generic panel describes (for the generic
+    /// playback path). Empty when the document is OPL.
     #[must_use]
-    pub fn has_selector(&self) -> bool {
-        self.entries.len() > 1
+    pub fn chip_muting(&self) -> ChipMuting {
+        let mut muting = ChipMuting::new();
+        for entry in &self.entries {
+            if let ChipControls::Generic(panel) = &entry.controls {
+                muting.set(panel.kind(), panel.instance(), panel.mask());
+            }
+        }
+        muting
+    }
+
+    /// The any-chip pans every generic panel in Custom mode describes.
+    #[must_use]
+    pub fn chip_panning(&self) -> ChipPanning {
+        let mut panning = ChipPanning::new();
+        for entry in &self.entries {
+            if let ChipControls::Generic(panel) = &entry.controls
+                && let Some(pans) = panel.pan_entry()
+            {
+                panning.set(panel.kind(), panel.instance(), pans);
+            }
+        }
+        panning
+    }
+
+    /// The chip whose controls are on screen, or `None` when the OPL panel is
+    /// selected. What the app asks to decide the selected tab's pan support.
+    #[must_use]
+    pub fn selected_chip(&self) -> Option<ChipKind> {
+        match self.entries.get(self.selected).map(|e| &e.controls) {
+            Some(ChipControls::Generic(panel)) => Some(panel.kind()),
+            _ => None,
+        }
     }
 
     /// The label of the chip whose controls are on screen.
@@ -142,42 +195,47 @@ impl ChipPanels {
             .map(|entry| entry.label.as_str())
     }
 
-    /// Draws the selector (when there is more than one chip) and the selected
-    /// chip's controls.
+    /// Toggles channel `index` on the *selected* chip's panel -- so the number
+    /// keys act on whatever tab is open, not always on the OPL one.
+    pub fn toggle_selected_channel(&mut self, index: usize) {
+        match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
+            Some(ChipControls::Generic(panel)) => panel.toggle_channel(index),
+            // The OPL panel, or an empty deck: the OPL toggles, as before.
+            _ => self.opl.toggle_channel(index),
+        }
+    }
+
+    /// Draws the selector strip (always) and the selected chip's controls.
     ///
-    /// `panning_supported` is false when the output cannot pan -- hardware
-    /// playback mixes on the chip -- which greys the pan controls rather than
-    /// leaving knobs that turn but do nothing.
+    /// `pan_supported(chip)` answers whether pan controls should be drawn for a
+    /// given chip -- `None` for the OPL panel, `Some(kind)` for a generic one.
+    /// The app supplies it because pan capability is a registry-and-output
+    /// question the panel does not own.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,
-        panning_supported: bool,
+        pan_supported: impl Fn(Option<ChipKind>) -> bool,
     ) -> ChannelsResponse {
-        if self.has_selector() {
-            self.selector(ui, palette);
-        }
-        match self.entries.get(self.selected).map(|entry| &entry.controls) {
-            // With no document at all, the OPL panel still draws: an empty
-            // editor has always shown its channel toggles.
-            Some(ChipControls::Opl) | None => self.opl.show(ui, palette, panning_supported),
-            Some(ChipControls::None) => {
-                let label = self.selected_label().unwrap_or("This chip");
-                ui.label(format!("No controls for {label} yet."));
-                ChannelsResponse::default()
-            }
+        self.selector(ui, palette);
+        let supported = pan_supported(self.selected_chip());
+        match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
+            Some(ChipControls::Generic(panel)) => panel.show(ui, palette, supported),
+            // The OPL entry, or (defensively) an out-of-range selection.
+            _ => self.opl.show(ui, palette, supported),
         }
     }
 
     fn selector(&mut self, ui: &mut egui::Ui, palette: &Palette) {
+        let strip: Vec<tabs::Tab> = self
+            .entries
+            .iter()
+            .map(|entry| tabs::Tab::new(entry.label.as_str()))
+            .collect();
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
             ui.label("Chip:");
-            for (index, entry) in self.entries.iter().enumerate() {
-                let mut selected = index == self.selected;
-                if bevel::toggle(ui, palette, &mut selected, &entry.label).clicked() {
-                    self.selected = index;
-                }
+            if let Some(clicked) = tabs::strip(ui, palette, &strip, self.selected) {
+                self.selected = clicked;
             }
         });
     }
@@ -192,12 +250,26 @@ const fn opl_label(opl_type: OplType) -> &'static str {
     }
 }
 
+/// A per-instance tab label: the chip's display name (honouring its variant),
+/// with `" #2"` on the second instance of a dual chip.
+fn instance_label(kind: ChipKind, variant: bool, instance: u8) -> String {
+    let base = match (variant, kind.variant_name()) {
+        (true, Some(name)) => name,
+        _ => kind.name(),
+    };
+    if instance == 0 {
+        base.to_owned()
+    } else {
+        format!("{base} #{}", instance + 1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::test_song::tone_song;
 
-    fn vgm_for(chips: &[(dro_core::ChipKind, u32)]) -> VgmFile {
+    fn vgm_for(chips: &[(ChipKind, u32)]) -> VgmFile {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -214,75 +286,86 @@ mod tests {
         dro_core::vgm::file::read("x.vgm", &bytes).unwrap()
     }
 
-    /// The shipping case: one chip, so the deck is exactly the panel it always
-    /// was, with nothing extra drawn above it.
-    #[test]
-    fn a_single_chip_song_shows_no_selector() {
-        let panels = ChipPanels::for_song(&tone_song());
-        assert!(!panels.has_selector());
-        assert_eq!(panels.selected_label(), Some("YM3812"));
+    fn labels(panels: &ChipPanels) -> Vec<&str> {
+        panels.entries.iter().map(|e| e.label.as_str()).collect()
     }
 
-    /// Dual OPL2 is two chips, but one panel's worth of controls: eighteen
-    /// channels the user should not have to switch chips to reach.
+    /// A single-chip OPL song: one OPL tab.
     #[test]
-    fn dual_opl2_is_one_entry_covering_both_banks() {
+    fn a_single_chip_song_has_one_opl_tab() {
+        let panels = ChipPanels::for_song(&tone_song());
+        assert_eq!(labels(&panels), ["YM3812"]);
+        assert_eq!(panels.selected_chip(), None, "the OPL panel, not a chip");
+    }
+
+    /// Dual OPL2 is two chips, but one panel's worth of controls -- one tab.
+    #[test]
+    fn dual_opl2_is_one_tab_covering_both_banks() {
         let mut song = tone_song();
         song.opl_type = OplType::DualOpl2;
         let panels = ChipPanels::for_song(&song);
-        assert!(!panels.has_selector());
-        assert_eq!(panels.selected_label(), Some("YM3812 x2"));
+        assert_eq!(labels(&panels), ["YM3812 x2"]);
     }
 
     #[test]
-    fn a_multi_chip_file_gets_one_entry_per_chip_in_header_order() {
-        use dro_core::ChipKind;
+    fn a_multi_chip_file_gets_one_tab_per_chip_in_header_order() {
         let file = vgm_for(&[
             (ChipKind::Ym2612, 7_670_454),
             (ChipKind::Sn76489, 3_579_545),
         ]);
         let panels = ChipPanels::for_vgm(&file);
-        assert!(panels.has_selector());
-        assert_eq!(panels.selected_label(), Some("SN76489"), "header order");
-        assert_eq!(
-            panels
-                .entries
-                .iter()
-                .map(|e| e.label.as_str())
-                .collect::<Vec<_>>(),
-            ["SN76489", "YM2612"]
-        );
-        assert!(
-            panels
-                .entries
-                .iter()
-                .all(|e| e.controls == ChipControls::None),
-            "no controls for either chip yet"
-        );
+        assert_eq!(labels(&panels), ["SN76489", "YM2612"], "header order");
+        assert_eq!(panels.selected_chip(), Some(ChipKind::Sn76489));
     }
 
-    /// A file declaring one non-OPL chip is still a single-chip document, so it
-    /// gets no selector either -- there is nothing to select between.
+    /// A dual chip is two tabs, so a user can mute one instance without the
+    /// other.
     #[test]
-    fn a_single_non_opl_chip_shows_no_selector_either() {
-        let file = vgm_for(&[(dro_core::ChipKind::Ym2612, 7_670_454)]);
+    fn a_dual_chip_gets_two_instance_tabs() {
+        let file = vgm_for(&[(ChipKind::Sn76489, 3_579_545 | 0x4000_0000)]);
         let panels = ChipPanels::for_vgm(&file);
-        assert!(!panels.has_selector());
-        assert_eq!(panels.selected_label(), Some("YM2612"));
+        assert_eq!(labels(&panels), ["SN76489", "SN76489 #2"]);
+    }
+
+    /// A single non-OPL chip still gets a (one-tab) strip, so its controls are
+    /// labelled.
+    #[test]
+    fn a_single_non_opl_chip_has_one_named_tab() {
+        let file = vgm_for(&[(ChipKind::Ym2612, 7_670_454)]);
+        let panels = ChipPanels::for_vgm(&file);
+        assert_eq!(labels(&panels), ["YM2612"]);
+        assert_eq!(panels.selected_chip(), Some(ChipKind::Ym2612));
     }
 
     #[test]
-    fn a_dro_info_edit_renames_the_opl_entry() {
+    fn a_dro_info_edit_renames_the_opl_tab() {
         let mut panels = ChipPanels::for_song(&tone_song());
         panels.set_opl_type(OplType::Opl3, None);
         assert_eq!(panels.selected_label(), Some("YMF262"));
     }
 
+    /// The OPL muting/panning still come from the OPL panel.
     #[test]
-    fn muting_and_panning_come_from_the_opl_panel() {
+    fn opl_muting_comes_from_the_opl_panel() {
         let mut panels = ChipPanels::for_song(&tone_song());
         panels.opl().toggle_channel(3);
         assert_eq!(panels.muting(), panels.opl.muting());
-        assert_eq!(panels.panning(), panels.opl.panning());
+        assert!(panels.chip_muting().is_neutral(), "no generic chips here");
+    }
+
+    /// The generic mutes gather every instance's mask, and the number keys act
+    /// on the selected tab.
+    #[test]
+    fn generic_mutes_gather_the_selected_tabs_toggles() {
+        let file = vgm_for(&[
+            (ChipKind::Sn76489, 3_579_545),
+            (ChipKind::Ym2612, 7_670_454),
+        ]);
+        let mut panels = ChipPanels::for_vgm(&file);
+        // The SN76489 tab is selected; number-key channel 1 mutes its Tone 1.
+        panels.toggle_selected_channel(0);
+        let muting = panels.chip_muting();
+        assert_eq!(muting.mask_for(ChipKind::Sn76489, 0), 0b0001);
+        assert_eq!(muting.mask_for(ChipKind::Ym2612, 0), 0, "untouched");
     }
 }
