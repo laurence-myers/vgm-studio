@@ -14,9 +14,15 @@
 //! About box's credits; the picker shows only what a choice sounds like.
 //!
 //! Chips are grouped by what they share a core with: the OPL family is one row,
-//! because one core (or one board) plays all four. A chip with no core at all
-//! is not a row but a tally, which is the honest answer to "why is my Mega
-//! Drive rip silent".
+//! because one core (or one board) plays all four.
+//!
+//! [`plan`] shapes the roster for the Settings dialog rather than handing it
+//! over flat: the loaded song's own chips come first (so tuning what you are
+//! hearing is two rows, not twenty), the chips that offer a real choice come
+//! next, and the single-core chips -- the ones there is nothing to decide about
+//! -- fold into a one-line summary per core instead of a dozen identical rows.
+//! Chips with no core at all are simply left out; a silent chip is not a
+//! setting.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::registry::{self, CoreInfo};
@@ -113,7 +119,11 @@ fn choice(info: &CoreInfo) -> CoreChoice {
     }
 }
 
-/// How many of the spec's chips have no core yet, for the closing line.
+/// How many of the spec's chips have no core yet.
+///
+/// No longer shown -- a silent chip is not a setting -- but kept because it is
+/// how [`every_chip_is_either_a_row_or_counted`](tests) proves the roster
+/// covers the whole chip table with nothing quietly dropped.
 #[must_use]
 pub fn without_cores() -> usize {
     let registry = registry::registry();
@@ -122,62 +132,116 @@ pub fn without_cores() -> usize {
         .count()
 }
 
-/// Draws the rows into an open two-column grid.
+/// A group of single-core chips that share one core: the fold's one line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoldedCore {
+    /// The core every chip in the group plays through, e.g. `"libvgm (Valley Bell)"`.
+    pub label: String,
+    /// The chips it plays, by their display names, in roster order.
+    pub chips: Vec<String>,
+}
+
+/// The Settings roster, shaped for display: the loaded song's chips first, the
+/// remaining choices next, and the single-core chips folded away.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OutputPlan {
+    /// The loaded song's own chips, in file order, deduped by slot. Rendered
+    /// first (choosers where they have alternatives, facts where they don't) so
+    /// the file you are listening to is what you tune. Empty when nothing is
+    /// loaded.
+    pub song: Vec<ChipOutputRow>,
+    /// Chips with a real choice to make -- more than one core -- that are not
+    /// already shown for the song.
+    pub choosers: Vec<ChipOutputRow>,
+    /// Single-core chips not shown for the song, folded to one line per core:
+    /// there is nothing to decide, so they are stated, not listed.
+    pub folded: Vec<FoldedCore>,
+}
+
+/// Shapes the roster for the Settings dialog around `song_chips` (the loaded
+/// file's chips, in file order; empty when nothing is loaded).
 ///
-/// `cores` is the config's slot map, edited in place. `port_row` draws the
-/// RetroWave device picker, which belongs under the row that selected the
-/// board -- so it is a callback rather than a row of its own, and it appears
-/// only when hardware is the OPL choice.
-pub fn show(
+/// A chip appears exactly once: in `song` if the file uses it, otherwise in
+/// `choosers` if it offers a choice or in `folded` if it does not. Pure, so the
+/// partitioning is tested without a UI.
+#[must_use]
+pub fn plan(song_chips: &[ChipKind]) -> OutputPlan {
+    let all = rows();
+
+    // The song's chips, hoisted in file order, one row per slot (the OPL family
+    // and a dual chip both collapse to a single row).
+    let mut song = Vec::new();
+    let mut song_slots: Vec<&'static str> = Vec::new();
+    for &chip in song_chips {
+        let slot = registry::slot_slug(chip);
+        if song_slots.contains(&slot) {
+            continue;
+        }
+        if let Some(row) = all.iter().find(|row| row.slot == slot) {
+            song.push(row.clone());
+            song_slots.push(slot);
+        }
+    }
+
+    // Everything the song did not already claim: choices kept as rows,
+    // single-core chips folded under the core that plays them.
+    let mut choosers = Vec::new();
+    let mut folded: Vec<FoldedCore> = Vec::new();
+    for row in &all {
+        if song_slots.contains(&row.slot) {
+            continue;
+        }
+        if row.is_choice() {
+            choosers.push(row.clone());
+        } else {
+            let label = row.cores[0].label.clone();
+            match folded.iter_mut().find(|group| group.label == label) {
+                Some(group) => group.chips.push(row.label.to_owned()),
+                None => folded.push(FoldedCore {
+                    label,
+                    chips: vec![row.label.to_owned()],
+                }),
+            }
+        }
+    }
+
+    OutputPlan {
+        song,
+        choosers,
+        folded,
+    }
+}
+
+/// Draws one roster row into an open two-column grid: the chip's name, then
+/// either a core chooser (when it has alternatives) or the muted name of the one
+/// core that plays it. Editing the chooser writes the choice into `cores`.
+pub fn chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     cores: &mut std::collections::BTreeMap<String, String>,
-    port_row: &mut dyn FnMut(&mut egui::Ui),
+    row: &ChipOutputRow,
 ) {
-    for row in rows() {
-        ui.label(row.label);
-        // A row with one core states it rather than offering a dropdown of one.
-        let selected = selected_name(cores, &row);
-        if row.is_choice() {
-            ui.scope(|ui| {
-                crate::theme::style_dropdown(ui, palette);
-                let mut choice = selected.clone();
-                egui::ComboBox::from_id_salt(format!("settings-core-{}", row.slot))
-                    .selected_text(label_for(&row, &choice))
-                    .show_ui(ui, |ui| {
-                        for core in &row.cores {
-                            ui.selectable_value(&mut choice, core.name.clone(), &core.label);
-                        }
-                    });
-                if choice != selected {
-                    cores.insert(row.slot.to_owned(), choice);
-                }
-            });
-            ui.end_row();
-        } else {
-            let core = &row.cores[0];
-            ui.colored_label(palette.muted, &core.label);
-            ui.end_row();
-        }
-
-        // The board's port belongs to the row that chose the board.
-        if row.slot == dro_core::config::OPL_SLOT
-            && selected_name(cores, &row) == dro_core::config::RETROWAVE_CORE
-        {
-            port_row(ui);
-        }
+    ui.label(row.label);
+    let selected = selected_name(cores, row);
+    if row.is_choice() {
+        ui.scope(|ui| {
+            crate::theme::style_dropdown(ui, palette);
+            let mut choice = selected.clone();
+            egui::ComboBox::from_id_salt(format!("settings-core-{}", row.slot))
+                .selected_text(label_for(row, &choice))
+                .show_ui(ui, |ui| {
+                    for core in &row.cores {
+                        ui.selectable_value(&mut choice, core.name.clone(), &core.label);
+                    }
+                });
+            if choice != selected {
+                cores.insert(row.slot.to_owned(), choice);
+            }
+        });
+    } else {
+        ui.colored_label(palette.muted, &row.cores[0].label);
     }
-
-    let missing = without_cores();
-    if missing > 0 {
-        ui.colored_label(palette.muted, "Other chips");
-        ui.colored_label(palette.muted, format!("{missing} with no core yet"))
-            .on_hover_text(
-                "A VGM naming one of these opens and edits like any other; it just \
-                 plays silence where that chip would have been.",
-            );
-        ui.end_row();
-    }
+    ui.end_row();
 }
 
 /// The core selected for `row`: the configured one if this build has it, the
@@ -399,6 +463,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The song's chips are hoisted in file order, single-core chips fold, and
+    /// nothing appears twice.
+    #[test]
+    fn plan_hoists_the_song_and_folds_the_rest() {
+        install_test_cores();
+        // The stand-in registry gives the OPL family a choice (emulator, CQM,
+        // hardware) and the SN76489 a single core -- so an OPL song hoists a
+        // chooser above the roster, and the single-core SN76489 folds below.
+        let plan = plan(&[ChipKind::Ymf262]);
+
+        assert_eq!(plan.song.len(), 1, "the one song chip is hoisted");
+        assert_eq!(plan.song[0].slot, "opl3");
+        assert!(plan.song[0].is_choice(), "and it kept its dropdown");
+
+        // The hoisted chip is not repeated among the choosers or the fold.
+        assert!(
+            !plan.choosers.iter().any(|row| row.slot == "opl3"),
+            "a hoisted chooser is not shown a second time below"
+        );
+
+        // Single-core chips are stated once, grouped under the core that plays
+        // them -- the SN76489 through its libvgm stub here.
+        assert!(
+            plan.folded
+                .iter()
+                .any(|group| group.chips.iter().any(|name| name == "SN76489")),
+            "the single-core SN76489 folds into a summary"
+        );
+        for group in &plan.folded {
+            assert!(!group.label.is_empty());
+            assert!(!group.chips.is_empty());
+        }
+    }
+
+    /// With nothing loaded there is no song section, and the whole roster shows
+    /// as choosers plus the fold.
+    #[test]
+    fn plan_without_a_song_has_no_hoisted_rows() {
+        install_test_cores();
+        let plan = plan(&[]);
+        assert!(plan.song.is_empty());
+        assert!(
+            plan.choosers.iter().any(|row| row.slot == "opl3"),
+            "the OPL chooser is in the main list instead"
+        );
     }
 
     /// A `drotrim.ini` naming a core this build lacks -- the native app's
