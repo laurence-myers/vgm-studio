@@ -2082,6 +2082,7 @@ impl DroApp {
                 pad_style,
                 deck_style,
             } => self.preview_skin(ctx, theme, pad_style, deck_style),
+            Action::PreviewCores(cores) => self.preview_cores(cores),
         }
     }
 
@@ -2158,12 +2159,8 @@ impl DroApp {
                         // registry can actually build: most VGMs play in full
                         // now, and "not supported" is only true when *no* chip
                         // in the file has a core.
-                        let kinds: Vec<_> = file
-                            .header
-                            .chips()
-                            .iter()
-                            .map(|chip| chip.kind)
-                            .collect();
+                        let kinds: Vec<_> =
+                            file.header.chips().iter().map(|chip| chip.kind).collect();
                         self.status = match dro_synth::playability(&kinds) {
                             dro_synth::Playability::Full => {
                                 format!("Successfully opened {name} ({chips}).")
@@ -3608,24 +3605,14 @@ impl DroApp {
         // boost, so a boost changed via the transport slider meanwhile would be
         // reverted on Save. Keep the live value (M4/ux-15).
         config.audio.boost = self.config.audio.boost;
-        // Changing where playback goes has to take effect now, not at the next
-        // Play: otherwise the old backend keeps playing and keeps hold of its
-        // device, so a user switching away from hardware output cannot get the
-        // serial port back until they press Play again.
-        //
-        // The whole core map, not just OPL's slot: a core swap applies on the
-        // next `load()` -- the `SwitchingAudioService` precedent, no live-swap
-        // machinery -- so dropping what is loaded is what *makes* it apply. A
-        // user who picks a different YM2612 core and hears the old one until
-        // they reopen the file would reasonably call that broken.
-        if config.audio.cores != self.config.audio.cores
+        // Changing where or through what playback goes has to take effect now,
+        // not at the next Play: otherwise the old backend keeps playing and
+        // keeps hold of its device, so a user switching away from hardware
+        // output cannot get the serial port back until they press Play again.
+        // The rebuild happens below, once the new config is in force.
+        let output_changed = config.audio.cores != self.config.audio.cores
             || config.audio.resampling != self.config.audio.resampling
-            || config.audio.retrowave_port != self.config.audio.retrowave_port
-        {
-            self.audio.pause();
-            self.audio.unload();
-            self.audio_revision = None;
-        }
+            || config.audio.retrowave_port != self.config.audio.retrowave_port;
         // Keep the registry's copy of the choices current, so the reload (and
         // every offline render) builds the cores just saved.
         dro_synth::registry::set_core_choices(config.audio.cores.clone());
@@ -3660,6 +3647,12 @@ impl DroApp {
         if audio_changed {
             // Reload the audio output lazily on the next play.
             self.audio_revision = None;
+        }
+        if output_changed {
+            // A live stream is rebuilt in place -- the saved cores are heard
+            // from where playback had reached, and a backend switch releases
+            // the device it walked away from. An idle transport stays lazy.
+            self.reload_audio_in_place();
         }
         if waveform_changed {
             self.submit_waveform(None);
@@ -3704,6 +3697,43 @@ impl DroApp {
         self.dialogs.vgm_metadata = None;
         self.dialogs.render_wav = None;
         self.dialogs.split = None;
+    }
+
+    /// Auditions a core map without saving it: the Settings picker's live
+    /// preview. The registry choices are replaced and the loaded stream --
+    /// which holds the cores it was built with -- is rebuilt in place, so the
+    /// picked core is heard from the position the old one had reached.
+    fn preview_cores(&mut self, cores: std::collections::BTreeMap<String, String>) {
+        dro_synth::registry::set_core_choices(cores);
+        self.reload_audio_in_place();
+    }
+
+    /// Rebuilds the loaded audio stream with today's cores and config, keeping
+    /// the playback position and the playing/paused state.
+    ///
+    /// A stopped or unloaded transport has nothing to rebuild: the next Play
+    /// builds its stream lazily and picks everything up then, as it always has.
+    fn reload_audio_in_place(&mut self) {
+        let position_ms = self.audio.position().map(|position| position.elapsed_ms);
+        let playing = self.audio.is_playing();
+        if position_ms.is_none() {
+            return;
+        }
+        self.audio.pause();
+        self.audio.unload();
+        self.audio_revision = None;
+        if self.ensure_audio().is_err() {
+            // Nothing to rebuild after all (the document went away, or the
+            // device did); the lazy path will say so when Play is next pressed.
+            return;
+        }
+        if let Some(ms) = position_ms {
+            self.audio.seek_ms(ms);
+        }
+        if playing && let Err(error) = self.audio.play() {
+            self.alerts
+                .push_back(Alert::error(format!("Could not resume playback: {error}")));
+        }
     }
 
     /// Gates an action on a loaded song, setting a status message asking the

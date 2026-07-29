@@ -155,12 +155,21 @@ impl NativeAudio {
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
         let engine = match source {
             AudioSource::Opl(song) => {
-                // The configured core, or the registry's default if this build
+                // The chosen core, or the registry's default if this build
                 // does not have it -- a config naming `retrowave` reaches here
                 // whenever the board could not be opened, and falling back
-                // beats refusing to play.
+                // beats refusing to play. The registry-side choice is asked
+                // first: it tracks the config everywhere and runs ahead of it
+                // while the Settings picker is auditioning a core.
+                let registry_choice =
+                    dro_synth::registry::core_choice(dro_core::vgm::ChipKind::Ymf262);
                 let chip = dro_synth::registry::registry()
-                    .build_opl(config.core(dro_core::config::OPL_SLOT), sample_rate)
+                    .build_opl(
+                        registry_choice
+                            .as_deref()
+                            .or_else(|| config.core(dro_core::config::OPL_SLOT)),
+                        sample_rate,
+                    )
                     .unwrap_or_else(|| Box::new(dro_synth::DefaultOplChip::new(sample_rate)));
                 Engine::Opl(Box::new(PlayerEngine::with_chip(
                     Arc::clone(song),

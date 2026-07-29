@@ -6,12 +6,12 @@
 //! can have more than one emulator, they do not sound alike, and which one is
 //! running is the user's call.
 //!
-//! Every row comes from [`dro_synth::registry`], including the licenses shown
-//! beside the labels: a core that is not registered cannot be chosen, and one
-//! that is registered cannot be offered without its terms. A build that never
-//! registered a provider -- the web build has no serial ports, so no RetroWave
-//! -- simply has no such entry, and the dialog stops offering something it
-//! cannot deliver rather than hiding the gap.
+//! Every row comes from [`dro_synth::registry`]: a core that is not registered
+//! cannot be chosen. A build that never registered a provider -- the web build
+//! has no serial ports, so no RetroWave -- simply has no such entry, and the
+//! dialog stops offering something it cannot deliver rather than hiding the
+//! gap. Licences and authors are registry facts too, but they belong to the
+//! About box's credits; the picker shows only what a choice sounds like.
 //!
 //! Chips are grouped by what they share a core with: the OPL family is one row,
 //! because one core (or one board) plays all four. A chip with no core at all
@@ -30,8 +30,9 @@ pub struct CoreChoice {
     pub name: String,
     /// What the dropdown shows.
     pub label: String,
-    /// SPDX expression, shown small. A user picking a core should see what it
-    /// costs them before they pick it.
+    /// SPDX expression. Not displayed here -- the About box carries the
+    /// credits -- but still required of every row, so a core cannot be
+    /// registered without its terms on record.
     pub license: String,
 }
 
@@ -135,8 +136,7 @@ pub fn show(
 ) {
     for row in rows() {
         ui.label(row.label);
-        // A row with one core states it; the licence still shows, because the
-        // notice is not conditional on there being an alternative.
+        // A row with one core states it rather than offering a dropdown of one.
         let selected = selected_name(cores, &row);
         if row.is_choice() {
             ui.scope(|ui| {
@@ -146,11 +146,7 @@ pub fn show(
                     .selected_text(label_for(&row, &choice))
                     .show_ui(ui, |ui| {
                         for core in &row.cores {
-                            ui.selectable_value(
-                                &mut choice,
-                                core.name.clone(),
-                                format!("{}  --  {}", core.label, core.license),
-                            );
+                            ui.selectable_value(&mut choice, core.name.clone(), &core.label);
                         }
                     });
                 if choice != selected {
@@ -160,8 +156,7 @@ pub fn show(
             ui.end_row();
         } else {
             let core = &row.cores[0];
-            ui.colored_label(palette.muted, &core.label)
-                .on_hover_text(&core.license);
+            ui.colored_label(palette.muted, &core.label);
             ui.end_row();
         }
 
@@ -387,7 +382,8 @@ mod tests {
     }
 
     /// Every row is a picker over registry entries, so a core cannot appear
-    /// without the license it must be offered under.
+    /// without a licence on record -- shown in the About credits, not here,
+    /// but required all the same.
     #[test]
     fn every_offered_core_shows_its_license() {
         install_test_cores();

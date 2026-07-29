@@ -316,4 +316,9 @@ pub enum Action {
         pad_style: SurfaceChoice,
         deck_style: SurfaceChoice,
     },
+    /// Audition a core map without saving it: the registry choices are
+    /// replaced and the loaded stream rebuilt in place at its position, so a
+    /// core picked in Settings is heard at once. Closing the dialog re-emits
+    /// the saved map, which reverts.
+    PreviewCores(std::collections::BTreeMap<String, String>),
 }
