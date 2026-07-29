@@ -790,3 +790,66 @@ Two things this leaves open, both new and neither this fix's:
   MAME does not bank at all until a bank command arrives, where this banks from
   reset. The 129 corpus files that never send a `0xC3` are what that default
   was fitted to, and re-deriving it is a separate measurement.
+
+## The full-range audit, and three more decode-class bugs (2026-07-29)
+
+The `0xC3` find prompted the question it should have: what else reads
+differently from upstream? Every `Cmd_*` handler in libvgm's
+`vgmplayer_cmdhandler.cpp` was read against its arm of `decode()` (and against
+the write rules and cores downstream of it), and every suspected divergence
+was then *counted* over the corpus — a Python walk driven by
+`drotrim-chip-index.tsv`, so only the files declaring the chip are opened.
+Three real bugs, all fixed; a tail of inert divergences, recorded.
+
+**1. `0xB2` (PWM) is `Cmd_Ofs4_Data12`, not `Cmd_Ofs8_Data8`** (`a837273`).
+Nibble register in bits 6-4, twelve-bit big-endian value across the low nibble
+and the second byte — the layout `cores::Pwm::write` has documented since it
+was written, and the decoder never delivered: it read the range's usual
+`aa dd`, so "register 2, value 0x1xx" (`ad` = 0x21) became "register 0x21",
+which the core's nibble mask reads as the *cycle* register, and every value
+lost its top four bits. 229.0M of the corpus's 229.3M PWM writes (180 of 184
+files) carried a non-zero value nibble; 54.6M landed on the cycle register.
+The n=1 parity row does not reward it (0.0156 → 0.0169, lvl 0.338 → 0.328):
+the remaining suspect is the core's stated fixed-rate approximation, which no
+operand fix can reach, and the row's reason now says so.
+
+**2. `0x31` is `Cmd_AY_Stereo`, not a write to AY register 1** (`abb78a1`).
+Six-bit stereo mask to a dedicated per-core function; bit 6 retargets it at a
+YM2203's SSG, bit 7 is the second chip. We wrote the raw byte to the first
+AY8910's register 1 — channel A's coarse period — detuning a live voice on
+each of the corpus's 100 masks (35 files; bit 6 set in 30, bit 7 in 50). The
+mask now rides `stream::STEREO_PORT`, and the fix needed *two core guards*
+beyond the decode: `cores::Ay8910` ignored `port` entirely, and `OpnCore`
+folds `port & 1`, either of which would have eaten the mask as a register
+write one address over. Rows unmoved and expected to be (AY 0.597, YM2203
+0.935): a 35-in-11,177 population is invisible to a twelve-file sample.
+
+**3. The SN76489 core read the Game Gear stereo mask as a latch byte.** The
+decoder and libvgm agree (`SN76496_W_GGST`): `0x4F` is address 1. The
+clean-room core dropped `addr`, so the mask fell into `write_byte`, where the
+overwhelmingly common `0xFF` parses as "noise volume, attenuation 15" — the
+noise channel died on the spot, and the byte corrupted the latch for the data
+byte after it. This is the *largest population of the three*: 13,344 masks in
+8,067 of 11,845 SN76489 files (68%), all but one with bit 7 set. And yet the
+row did not move (0.5855 vs the frozen 0.586): the mask is an init-time write
+and real drivers re-program every volume immediately after, so the mute was a
+transient the correlation window barely weighs. The probed worst case — a mask
+with no volume write behind it — silenced the channel entirely.
+
+The lesson this section exists for: **none of the three was visible in the
+parity table.** One hid behind an n=1 row, one behind sampling odds, one
+behind a transient. The operand *counts* are what found and sized all three —
+the corpus is a better witness to a decode bug than the renderer is, because a
+decode bug's damage is conditional on the driver while its operand layout is
+not.
+
+Divergences audited and left alone, with reasons: `0xE1` (C352) misses
+upstream's `& 0x7FFF`/chip-id read of bit 15 — bit never set in 36.1M
+commands, and the write is dropped either way today; `0xC1`/`0xC2` read a
+second-chip bit that `Cmd_RF5C_Mem` hard-codes to zero — never set in 1.04M
+commands; `0xD6` splits a 16-bit datum across `addr`/`data` — no ES5506 core
+exists on either side of it; `0xB4`'s FDS remap and `0xB8`'s pin-7 strip guard
+features no core models. Self-consistent conventions that would bite only if a
+libvgm row were added for the chip: WonderSwan registers 0-based here versus
+`0x80`-based upstream; the SAA1099's address/data latch order; `0x68` RAM
+addresses treated as absolute where upstream ORs in the RF5C bank register.

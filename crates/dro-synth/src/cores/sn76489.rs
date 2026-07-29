@@ -30,8 +30,9 @@
 //! lets it sit in a `MIT OR Apache-2.0` crate. Every number here is derived in
 //! a test rather than transcribed.
 //!
-//! Not modelled yet, and worth knowing: the Game Gear's stereo register (a
-//! second port, not a register write) and the T6W28's split-chip addressing.
+//! Not modelled yet, and worth knowing: the Game Gear's stereo register
+//! (`addr` 1 -- consumed so it cannot masquerade as a latch byte, but the
+//! panning itself is not applied) and the T6W28's split-chip addressing.
 
 use crate::chip::ChipCore;
 
@@ -327,7 +328,21 @@ impl ChipCore for Sn76489 {
 
     /// The chip has one data port and no register address: the byte *is* the
     /// write, which is how the VGM `0x50` command carries it.
-    fn write(&mut self, _port: u8, _addr: u16, data: u16) {
+    fn write(&mut self, _port: u8, addr: u16, data: u16) {
+        // `addr` 1 is the Game Gear stereo mask (`0x4F`/`0x3F`) -- a register
+        // on the Game Gear's ASIC, not on the chip, which is exactly how the
+        // decoder and libvgm's `SN76496_W_GGST` both file it. This mono core
+        // does not model it, but *consuming* it is load-bearing all the same:
+        // fallen into `write_byte` -- which this did until 2026-07-29 -- a
+        // mask reads as a latch byte, and the overwhelmingly common `0xFF`
+        // ("all four channels to both speakers") parses as "noise volume,
+        // attenuation 15". The noise channel died on the spot, and the next
+        // data byte landed on the wrong latch besides. Not a corner: 13,344
+        // masks across 8,067 of the corpus's 11,845 SN76489 files -- 68% of
+        // them -- and all but one of those bytes has bit 7 set.
+        if addr != 0 {
+            return;
+        }
         self.write_byte((data & 0xFF) as u8);
     }
 
@@ -363,6 +378,35 @@ mod tests {
         let mut out = vec![0i32; frames * 2];
         chip.render(&mut out);
         out.chunks_exact(2).map(|frame| frame[0]).collect()
+    }
+
+    /// The Game Gear stereo mask (`addr` 1) must not be read as a latch byte.
+    /// `0xFF` -- "everything to both speakers", written by 68% of the corpus's
+    /// SN76489 files -- parses as "noise volume, attenuation 15" otherwise,
+    /// and the mask corrupts the latch for the data byte after it too.
+    #[test]
+    fn a_game_gear_stereo_mask_is_not_a_latch_byte() {
+        let mut chip = chip();
+        chip.write(0, 0, 0xF0); // latch: noise volume, full
+        let loud: i64 = render(&mut chip, 200)
+            .iter()
+            .map(|&s| i64::from(s.abs()))
+            .sum();
+        assert!(loud > 0, "the noise channel sounds");
+
+        chip.write(0, 1, 0xFF); // the stereo mask, on its own address
+        let after: i64 = render(&mut chip, 200)
+            .iter()
+            .map(|&s| i64::from(s.abs()))
+            .sum();
+        assert!(after > 0, "a mask is not \"noise volume, attenuation 15\"");
+
+        // And the latch survives it: a mask between a latch byte and its data
+        // byte must not redirect the data byte.
+        chip.write(0, 0, 0x8E); // latch: tone 0 period, low nibble 0xE
+        chip.write(0, 1, 0xFF); // mask in between
+        chip.write(0, 0, 0x1F); // data: the period's high six bits
+        assert_eq!(chip.tones[0].period, (0x1F << 4) | 0xE);
     }
 
     #[test]
