@@ -17,4 +17,4 @@ pub use data::{Gd3Tag, VgmData, VgmMeta};
 pub use file::{RegionReport, VgmBody, VgmFile};
 pub use header::{ChipKind, ChipSettings, ChipUse, ExtraHeader, VgmHeader};
 pub use projection::{OplProjection, opl_type_of};
-pub use stream::{ChipTarget, VgmCommand, VgmStream};
+pub use stream::{ChipTarget, VgmCommand, VgmFindTarget, VgmStream};

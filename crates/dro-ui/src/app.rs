@@ -100,6 +100,27 @@ fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Optio
     }
 }
 
+/// How a multichip find target reads in the status line.
+fn describe_target(target: dro_core::vgm::VgmFindTarget) -> String {
+    use dro_core::vgm::VgmFindTarget;
+    match target {
+        VgmFindTarget::AnyDelay => "a delay".to_owned(),
+        VgmFindTarget::Write {
+            kind,
+            instance,
+            addr,
+        } => {
+            let inst = instance
+                .filter(|&i| i > 0)
+                .map_or_else(String::new, |i| format!(" #{}", i + 1));
+            match addr {
+                Some(addr) => format!("{}{inst} {addr:#06X}", kind.name()),
+                None => format!("a write to {}{inst}", kind.name()),
+            }
+        }
+    }
+}
+
 fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
     let prefix = if auto_trimmed {
         "Despite auto-trimming, t"
@@ -1712,10 +1733,16 @@ impl DroApp {
                 }
             }
             Action::OpenFindRegister => {
-                if self.require_song() {
-                    let song = self.editor.song().expect("gated");
-                    self.dialogs.find_reg = Some(FindRegDialog::new(song));
-                }
+                // Either document kind: an OPL song gets the token/register
+                // list, any other VGM the chip picker.
+                self.dialogs.find_reg = match (self.editor.song(), self.editor.vgm()) {
+                    (Some(song), _) => Some(FindRegDialog::new(song)),
+                    (None, Some(file)) => Some(FindRegDialog::for_vgm(file)),
+                    (None, None) => {
+                        self.require_document();
+                        None
+                    }
+                };
             }
             Action::OpenFindLoop => {
                 // Either representation: the dialog wants a time per row and a
@@ -2054,7 +2081,7 @@ impl DroApp {
             Action::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
             Action::Status(message) => self.status = message,
             Action::GotoSubmitted(text) => self.goto_submitted(&text),
-            Action::FindRegister { target, backwards } => self.find_register(&target, backwards),
+            Action::FindRegister { query, backwards } => self.find_register(&query, backwards),
             Action::UpdateHeader {
                 opl_type,
                 ms_length,
@@ -3565,10 +3592,18 @@ impl DroApp {
     }
 
     fn delay_navigate(&mut self, backwards: bool) {
-        if !self.require_song() {
+        if !self.require_document() {
             return;
         }
-        match self.editor.find_next(FindTarget::AnyDelay, backwards) {
+        // An OPL document searches its instruction stream; any other VGM
+        // searches its command stream. Both step through the delays.
+        let found = if self.editor.has_song() {
+            self.editor.find_next(FindTarget::AnyDelay, backwards)
+        } else {
+            self.editor
+                .find_next_vgm(dro_core::vgm::VgmFindTarget::AnyDelay, backwards)
+        };
+        match found {
             Some(index) => {
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
@@ -3602,21 +3637,31 @@ impl DroApp {
         }
     }
 
-    fn find_register(&mut self, target: &str, backwards: bool) {
-        // An empty choice is a silent no-op.
-        if target.is_empty() || !self.require_song() {
+    fn find_register(&mut self, query: &crate::action::FindQuery, backwards: bool) {
+        if !self.require_document() {
             return;
         }
-        let Ok(parsed) = target.parse::<FindTarget>() else {
-            return;
+        // Each query kind knows how to describe itself for the status line, and
+        // which stream to search.
+        let (found, label) = match query {
+            crate::action::FindQuery::Dro(target) => {
+                let Ok(parsed) = target.parse::<FindTarget>() else {
+                    return;
+                };
+                (self.editor.find_next(parsed, backwards), target.clone())
+            }
+            crate::action::FindQuery::Vgm(target) => (
+                self.editor.find_next_vgm(*target, backwards),
+                describe_target(*target),
+            ),
         };
-        match self.editor.find_next(parsed, backwards) {
+        match found {
             Some(index) => {
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
-                self.status = format!("Occurrence of {target} found at position {index:04X}.");
+                self.status = format!("Occurrence of {label} found at position {index:04X}.");
             }
-            None => self.status = format!("Could not find another occurrence of {target}."),
+            None => self.status = format!("Could not find another occurrence of {label}."),
         }
     }
 
@@ -3805,7 +3850,10 @@ impl DroApp {
         if self.editor.has_song() {
             true
         } else {
-            self.status = "Please open a DRO file first.".to_owned();
+            // The features still behind this gate are genuinely OPL-only
+            // (Convert, DRO Info); a loaded VGM is not "the wrong file", it
+            // just is not an OPL one.
+            self.status = "This needs an OPL song.".to_owned();
             false
         }
     }

@@ -954,6 +954,20 @@ impl Editor {
         song.find_next_instruction(start, target, look_backwards)
     }
 
+    /// The multichip counterpart: the next command matching `target` in the
+    /// VGM stream, for a document with no OPL reading. `None` when the document
+    /// is not a walkable VGM.
+    #[must_use]
+    pub fn find_next_vgm(
+        &self,
+        target: dro_core::vgm::VgmFindTarget,
+        look_backwards: bool,
+    ) -> Option<usize> {
+        let stream = self.vgm.as_ref()?.stream()?;
+        let start = self.selection.last().unwrap_or(0);
+        stream.find_next(start, target, look_backwards)
+    }
+
     /// The Bank and Description columns for one table row.
     ///
     /// The two arms are the same call; they are written out because each has to

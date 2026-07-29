@@ -19,6 +19,15 @@ pub enum AppTab {
     Pack,
 }
 
+/// What the Find Register dialog is searching for: a DRO/OPL token or hex
+/// register (parsed by [`FindTarget`](dro_core::FindTarget)), or a multichip
+/// target for a VGM the editor holds as one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FindQuery {
+    Dro(String),
+    Vgm(dro_core::vgm::VgmFindTarget),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     // File
@@ -291,7 +300,7 @@ pub enum Action {
     Status(String),
     GotoSubmitted(String),
     FindRegister {
-        target: String,
+        query: FindQuery,
         backwards: bool,
     },
     UpdateHeader {

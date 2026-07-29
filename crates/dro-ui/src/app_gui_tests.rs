@@ -1973,6 +1973,58 @@ fn a_number_key_mutes_the_selected_chip_on_a_non_opl_vgm() {
     );
 }
 
+/// Delay navigation and Find Register are no longer OPL-only: on a Mega
+/// Drive-era rip, ArrowRight steps through the delays and the dialog finds a
+/// write to a named chip register.
+#[test]
+fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
+    use crate::action::FindQuery;
+    use dro_core::vgm::VgmFindTarget;
+
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
+    harness.run();
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    // ArrowRight steps to the first delay (row 1), then the second (row 3).
+    act(&mut harness, Action::NextDelay);
+    assert_eq!(harness.state().editor.selection.first(), Some(1));
+    act(&mut harness, Action::NextDelay);
+    assert_eq!(harness.state().editor.selection.first(), Some(3));
+
+    // Find Register opens the chip-picker dialog for a VGM (not "wrong file").
+    act(&mut harness, Action::OpenFindRegister);
+    assert!(harness.state().dialogs.find_reg.is_some());
+
+    // Searching for the AY8910's mixer write lands on row 2.
+    harness.state_mut().editor.selection.select_only(0);
+    act(
+        &mut harness,
+        Action::FindRegister {
+            query: FindQuery::Vgm(VgmFindTarget::Write {
+                kind: dro_core::ChipKind::Ay8910,
+                instance: Some(0),
+                addr: Some(0x07),
+            }),
+            backwards: false,
+        },
+    );
+    assert_eq!(harness.state().editor.selection.first(), Some(2));
+    assert!(
+        harness.state().status.contains("found at position 0002"),
+        "{}",
+        harness.state().status
+    );
+}
+
+/// The Find Register dialog for a multichip VGM: a chip picker, its registers,
+/// and a free hex box -- not the OPL token list.
+#[test]
+fn snapshot_find_register_vgm_dialog() {
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, true);
+    act(&mut harness, Action::OpenFindRegister);
+    settled_snapshot(&mut harness, "find_register_vgm_dialog");
+}
+
 /// The hard requirement, end to end: a VGM for chips this app has no core for
 /// can be cropped to a marked region, and undone. Through the menu actions, not
 /// by reaching into the editor -- editing a document is not an OPL idea, and the

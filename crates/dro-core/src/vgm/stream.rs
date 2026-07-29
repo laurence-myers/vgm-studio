@@ -84,6 +84,25 @@ impl ChipTarget {
     }
 }
 
+/// What a search over a multichip stream looks for -- the peer of
+/// [`FindTarget`](crate::FindTarget) for the Find Register dialog and the delay
+/// navigation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VgmFindTarget {
+    /// Any command that advances time. What ArrowLeft/Right step through.
+    AnyDelay,
+    /// A write to a chip: a given instance and address, or any of either.
+    Write {
+        kind: ChipKind,
+        /// A specific instance, or any of the chip's instances when `None`.
+        instance: Option<u8>,
+        /// A specific register address, or any write to the chip when `None`
+        /// (the dialog's "any write", for chips whose register travels in the
+        /// data byte, like the SN76489).
+        addr: Option<u16>,
+    },
+}
+
 /// What a command in the stream does, as far as this module models it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VgmCommand {
@@ -873,6 +892,48 @@ impl VgmStream {
         *self = rebuilt;
     }
 
+    /// The next command matching `target`, strictly after (or before) `start`.
+    ///
+    /// The multichip counterpart of
+    /// [`Song::find_next_instruction`](crate::Song::find_next_instruction),
+    /// with the same "strictly after / strictly before" boundary so repeated
+    /// Find Next walks the stream without sticking.
+    #[must_use]
+    pub fn find_next(
+        &self,
+        start: usize,
+        target: VgmFindTarget,
+        look_backwards: bool,
+    ) -> Option<usize> {
+        let len = self.len();
+        let matches = |index: usize| self.matches_target(index, target);
+        if look_backwards {
+            (0..start.min(len)).rev().find(|&index| matches(index))
+        } else {
+            (start.saturating_add(1)..len).find(|&index| matches(index))
+        }
+    }
+
+    /// Whether command `index` matches `target`.
+    fn matches_target(&self, index: usize, target: VgmFindTarget) -> bool {
+        match target {
+            // Any command that advances time -- a wait, or a DAC write that
+            // also waits. The same set the delay navigation steps through.
+            VgmFindTarget::AnyDelay => self.wait_samples(index) > 0,
+            VgmFindTarget::Write {
+                kind,
+                instance,
+                addr,
+            } => matches!(
+                self.get(index),
+                Some(VgmCommand::Write { target, addr: a, .. })
+                    if target.kind == kind
+                        && instance.is_none_or(|i| target.instance == i)
+                        && addr.is_none_or(|addr| a == addr)
+            ),
+        }
+    }
+
     /// A one-line description of command `index`, for the editor's table.
     #[must_use]
     pub fn describe(&self, index: usize) -> String {
@@ -1329,6 +1390,83 @@ mod tests {
         assert_eq!(stream.describe(3), "delay 1");
         assert_eq!(stream.describe(4), "YM2612 DAC, delay 15");
         assert_eq!(stream.describe(5), "override delay 0x62 = 10000");
+    }
+
+    /// find_next over a small two-chip stream: delays, a specific chip, a
+    /// specific register, a specific instance, and backwards.
+    #[test]
+    fn find_next_walks_chips_registers_and_delays() {
+        let bytes = vec![
+            0x50,
+            0x9F, // 0: SN76489 write
+            0x52,
+            0x28,
+            0xF0, // 1: YM2612 p0, addr 0x28
+            0x61,
+            0x64,
+            0x00, // 2: delay 100
+            0xA2,
+            0x28,
+            0x00, // 3: YM2612 #2 p0, addr 0x28
+            0x52,
+            0x2A,
+            0x80, // 4: YM2612 p0, addr 0x2A
+            0x61,
+            0xC8,
+            0x00, // 5: delay 200
+            END_OF_DATA,
+        ];
+        let stream = VgmStream::parse(bytes, 0x160).unwrap();
+        use VgmFindTarget::{AnyDelay, Write};
+
+        // Any delay, forwards from the top.
+        assert_eq!(stream.find_next(0, AnyDelay, false), Some(2));
+        assert_eq!(stream.find_next(2, AnyDelay, false), Some(5));
+        assert_eq!(stream.find_next(5, AnyDelay, false), None);
+        // Backwards from the end.
+        assert_eq!(stream.find_next(6, AnyDelay, true), Some(5));
+        assert_eq!(stream.find_next(5, AnyDelay, true), Some(2));
+
+        // Any write to the YM2612 (either instance, any register).
+        let any_ym = Write {
+            kind: ChipKind::Ym2612,
+            instance: None,
+            addr: None,
+        };
+        assert_eq!(stream.find_next(0, any_ym, false), Some(1));
+        assert_eq!(stream.find_next(1, any_ym, false), Some(3));
+        assert_eq!(stream.find_next(3, any_ym, false), Some(4));
+
+        // A specific register on the YM2612.
+        let key = Write {
+            kind: ChipKind::Ym2612,
+            instance: None,
+            addr: Some(0x28),
+        };
+        assert_eq!(stream.find_next(0, key, false), Some(1));
+        assert_eq!(
+            stream.find_next(1, key, false),
+            Some(3),
+            "instance 2's 0x28"
+        );
+        assert_eq!(stream.find_next(3, key, false), None);
+
+        // A specific instance.
+        let second = Write {
+            kind: ChipKind::Ym2612,
+            instance: Some(1),
+            addr: None,
+        };
+        assert_eq!(stream.find_next(0, second, false), Some(3));
+        assert_eq!(stream.find_next(3, second, false), None);
+
+        // A chip that never writes.
+        let none = Write {
+            kind: ChipKind::Ay8910,
+            instance: None,
+            addr: None,
+        };
+        assert_eq!(stream.find_next(0, none, false), None);
     }
 
     /// A write, delay 100, a write, delay 200 -- prefix `[0, 0, 100, 100, 300]`.
