@@ -113,6 +113,10 @@ pub struct VgmEngine {
     /// Scratch for the bytes a frame's streams fall due for. Held rather than
     /// allocated per frame: `mix` runs once per output sample.
     due: Vec<PendingWrite>,
+    /// The YM2612 DAC fast path's read cursor into the concatenated type-`0x00`
+    /// bank: where the next `0x8n` command reads its sample byte. `0xE0` seeks
+    /// it; each `0x8n` advances it.
+    pcm_pos: usize,
     clock: FrameClock,
     /// The next command to execute.
     index: usize,
@@ -207,6 +211,7 @@ impl VgmEngine {
             table: None,
             streams: DacStreams::new(output_rate),
             due: Vec::new(),
+            pcm_pos: 0,
             clock: FrameClock::new(output_rate, dro_core::vgm::VGM_SAMPLE_RATE),
             index: 0,
             pending: 0,
@@ -274,6 +279,7 @@ impl VgmEngine {
         self.table = None;
         self.streams.clear();
         self.due.clear();
+        self.pcm_pos = 0;
         self.clock.reset();
         self.index = 0;
         self.pending = 0;
@@ -496,9 +502,23 @@ impl VgmEngine {
                 other => other,
             },
             VgmCommand::DacWrite { wait } => {
-                // The YM2612 DAC fast path: play the next byte of the PCM bank,
-                // then wait. mc-6's DAC-stream work fills in the byte; the wait
-                // is timing, and timing is this loop's job either way.
+                // The YM2612 DAC fast path: play the next byte of the PCM bank
+                // -- a write to the DAC's sample port, `0x2A` -- then wait. The
+                // cursor advances past the end without wrapping; a file that
+                // reads past its bank just stops making samples, which is what
+                // hardware fed no data does too.
+                if let Some(byte) = self.banks.byte_at(0x00, self.pcm_pos) {
+                    self.write(
+                        ChipTarget {
+                            kind: dro_core::vgm::ChipKind::Ym2612,
+                            instance: 0,
+                            port: 0,
+                        },
+                        0x2A,
+                        u16::from(byte),
+                    );
+                }
+                self.pcm_pos = self.pcm_pos.saturating_add(1);
                 wait
             }
             VgmCommand::DataBlock { kind, .. } => {
@@ -513,7 +533,11 @@ impl VgmEngine {
                 self.pcm_ram_write(stream, index);
                 0
             }
-            VgmCommand::SeekPcm(_) | VgmCommand::Raw { .. } => 0,
+            VgmCommand::SeekPcm(offset) => {
+                self.pcm_pos = offset as usize;
+                0
+            }
+            VgmCommand::Raw { .. } => 0,
             VgmCommand::OverrideWait { which, samples } => {
                 // `0x64 62|63 nnnn` redefines what the short waits mean.
                 match which {
@@ -724,7 +748,10 @@ impl VgmEngine {
             // frame rather than per command -- that is the whole point of them.
             self.due.clear();
             self.streams.advance_frame(&mut self.due);
-            for write in std::mem::take(&mut self.due) {
+            // By index, not by `mem::take`: taking the Vec would drop its
+            // allocation each frame, and this runs inside the audio callback.
+            for at in 0..self.due.len() {
+                let write = self.due[at];
                 self.write(
                     ChipTarget {
                         kind: write.target.kind,
@@ -1421,6 +1448,71 @@ mod tests {
                 (0, 0x2A, 0x44),
             ],
             "the whole bank, one byte at a time, to the DAC register"
+        );
+    }
+
+    /// The `0x8n` fast path: each command plays the next byte of the PCM bank
+    /// into the YM2612's DAC port and waits its low nibble. `0xE0` moves the
+    /// cursor, and reading past the bank stops writing rather than wrapping.
+    #[test]
+    fn dac_fast_path_commands_play_the_bank_through_the_dac_port() {
+        // A four-byte type-0x00 bank.
+        let mut stream = vec![0x67, 0x66, 0x00];
+        stream.extend_from_slice(&4u32.to_le_bytes());
+        stream.extend_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        // Two DAC writes from the start of the bank...
+        stream.extend_from_slice(&[0x80, 0x83]);
+        // ...a seek to byte 3, one more, and one past the end.
+        stream.extend_from_slice(&[0xE0, 0x03, 0x00, 0x00, 0x00]);
+        stream.extend_from_slice(&[0x85, 0x82]);
+        stream.push(0x66);
+
+        let file = vgm(&[(ChipKind::Ym2612, 7_670_454)], &stream);
+        let seen: Log<(u8, u16, u16)> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Tap(Log<(u8, u16, u16)>);
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, port: u8, addr: u16, data: u16) {
+                self.0
+                    .lock()
+                    .expect("not poisoned")
+                    .push((port, addr, data));
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+
+        let seen_for_factory = Arc::clone(&seen);
+        let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            Some(Box::new(Tap(Arc::clone(&seen_for_factory))))
+        });
+        let mut out = vec![0i16; 64];
+        engine.render(&mut out);
+
+        assert_eq!(
+            *seen.lock().expect("not poisoned"),
+            [
+                (0, 0x2A, 0x11),
+                (0, 0x2A, 0x22),
+                (0, 0x2A, 0x44), // after the seek to byte 3
+                // the read past the end wrote nothing
+            ],
+            "bank bytes reached the DAC port, following the seek"
+        );
+
+        // A rewind starts the bank over from byte 0.
+        engine.rewind();
+        seen.lock().expect("not poisoned").clear();
+        engine.render(&mut out);
+        assert_eq!(
+            seen.lock().expect("not poisoned")[0],
+            (0, 0x2A, 0x11),
+            "rewinding reset the PCM cursor"
         );
     }
 

@@ -225,6 +225,22 @@ impl Banks {
             .collect()
     }
 
+    /// The byte at `offset` into the type's concatenated bank, without
+    /// building the concatenation. The YM2612 DAC fast path (`0x8n`) reads
+    /// one of these per command, at up to sample rate, so this walk must not
+    /// allocate. `None` once the bank runs out.
+    #[must_use]
+    pub fn byte_at(&self, kind: u8, offset: usize) -> Option<u8> {
+        let mut skip = offset;
+        for (_, data) in self.blocks.iter().filter(|(k, _)| *k == kind) {
+            if skip < data.len() {
+                return Some(data[skip]);
+            }
+            skip -= data.len();
+        }
+        None
+    }
+
     /// Up to `length` bytes at `offset` into the type's concatenated bank --
     /// what a `0x68` PCM RAM write reads -- without building the whole
     /// concatenation. Short if the bank runs out.
