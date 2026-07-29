@@ -186,21 +186,22 @@ impl SettingsDialog {
             "Settings",
             palette,
             |ui| {
-                // The tab strip: a latching pad per page, the active one lit.
-                // Splitting Settings across three pages is what lets the chip
-                // roster be a flat list with no sub-scroll -- the page it lives
-                // on never has to also hold frequency, theme and the rest.
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for tab in SettingsTab::ALL {
-                        let mut on = self.tab == tab;
-                        if bevel::toggle(ui, palette, &mut on, tab.label()).clicked() {
-                            self.tab = tab;
-                        }
-                    }
-                });
-                ui.add_space(6.0);
-                crate::theme::separator_clipped(ui, palette);
+                // The same display-well tab strip the Editor/Pack switcher uses,
+                // so the two read as one instrument. Splitting Settings across
+                // three pages is what lets the chip roster be a flat list with no
+                // sub-scroll -- the page it lives on never has to also hold
+                // frequency, theme and the rest.
+                let strip: Vec<_> = SettingsTab::ALL
+                    .iter()
+                    .map(|tab| crate::theme::tabs::Tab::new(tab.label()))
+                    .collect();
+                let selected = SettingsTab::ALL
+                    .iter()
+                    .position(|tab| *tab == self.tab)
+                    .unwrap_or(0);
+                if let Some(i) = crate::theme::tabs::strip(ui, palette, &strip, selected) {
+                    self.tab = SettingsTab::ALL[i];
+                }
                 ui.add_space(8.0);
 
                 match self.tab {
@@ -231,10 +232,11 @@ impl SettingsDialog {
 
     /// The Output page: which core plays each chip, and where the sound goes.
     ///
-    /// The loaded file's own chips come first under a "This song" heading (the
-    /// cores you are actually hearing), then the chips that offer a choice, then
-    /// a folded summary of the single-core chips -- there is nothing to decide
-    /// about those, so they are stated in one line per core rather than listed.
+    /// Two sections. "Current" lists the loaded file's own chips -- every one it
+    /// uses, whether it offers a core choice, a single fixed core, or none at
+    /// all -- so tuning what you are hearing is a couple of rows. "All chips"
+    /// holds every other chip, still fully configurable, so a core can be set
+    /// for anything, not just the current song.
     fn output_tab(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         ui.colored_label(
             palette.muted,
@@ -248,32 +250,36 @@ impl SettingsDialog {
 
         let plan = chip_output::plan(self.song_chips());
 
-        // "This song": the loaded file's chips, hoisted so tuning what you hear
-        // is a couple of rows rather than a hunt down the whole roster.
+        // "Current": the loaded file's chips, so tuning what you hear is a
+        // couple of rows rather than a hunt down the whole roster.
         let song_name = self.song.as_ref().map(|song| song.name.clone());
         if let Some(name) = song_name
             && !plan.song.is_empty()
         {
-            ui.colored_label(palette.data_label, format!("This song \u{2014} {name}"));
+            ui.colored_label(palette.data_label, format!("Current \u{2014} {name}"));
             egui::Grid::new("settings-song-grid")
                 .num_columns(2)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
-                    for row in &plan.song {
-                        chip_output::chip_row(ui, palette, &mut self.cores, row);
+                    for entry in &plan.song {
+                        chip_output::song_chip_row(ui, palette, &mut self.cores, entry);
                     }
                 });
             ui.add_space(8.0);
             crate::theme::separator_clipped(ui, palette);
             ui.add_space(6.0);
-            ui.colored_label(palette.muted, "All chips");
         }
 
+        // "All chips": every other chip, each configurable. Headed only when
+        // there is a Current section above to distinguish it from.
+        if !plan.song.is_empty() {
+            ui.colored_label(palette.muted, "All chips");
+        }
         egui::Grid::new("settings-output-grid")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
-                for row in &plan.choosers {
+                for row in &plan.all {
                     chip_output::chip_row(ui, palette, &mut self.cores, row);
                 }
 
@@ -334,16 +340,6 @@ impl SettingsDialog {
                 });
                 ui.end_row();
             });
-
-        // The single-core chips, folded to one wrapping line per core: nothing
-        // to decide, so nothing to click -- just a note of what plays them.
-        for group in &plan.folded {
-            ui.add_space(4.0);
-            ui.colored_label(
-                palette.muted,
-                format!("{} also plays {}.", group.label, group.chips.join(", ")),
-            );
-        }
     }
 
     /// The Audio page: the signal itself. Frequency and buffer are greyed for

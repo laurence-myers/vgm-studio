@@ -132,44 +132,46 @@ pub fn without_cores() -> usize {
         .count()
 }
 
-/// A group of single-core chips that share one core: the fold's one line.
+/// One chip the loaded song uses, as the "Current" section shows it: the chip,
+/// and its roster row when this build has a core for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FoldedCore {
-    /// The core every chip in the group plays through, e.g. `"libvgm (Valley Bell)"`.
-    pub label: String,
-    /// The chips it plays, by their display names, in roster order.
-    pub chips: Vec<String>,
+pub struct SongChipRow {
+    /// The chip the file clocks. Named directly (rather than via `row`) so a
+    /// chip with no core is still shown -- the file uses it, whether or not this
+    /// app can play it.
+    pub kind: ChipKind,
+    /// The roster row, when a core exists: a chooser if the chip has more than
+    /// one, a fact if it has exactly one. `None` when this build plays it silent.
+    pub row: Option<ChipOutputRow>,
 }
 
-/// The Settings roster, shaped for display: the loaded song's chips first, the
-/// remaining choices next, and the single-core chips folded away.
+/// The Settings roster, split into the two sections the Output tab shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OutputPlan {
-    /// The loaded song's own chips, in file order, deduped by slot. Rendered
-    /// first (choosers where they have alternatives, facts where they don't) so
-    /// the file you are listening to is what you tune. Empty when nothing is
+    /// The loaded song's own chips, in file order, deduped by slot -- the
+    /// "Current" section. Every chip the file uses is here, whether it offers a
+    /// core choice, a single fixed core, or none at all. Empty when nothing is
     /// loaded.
-    pub song: Vec<ChipOutputRow>,
-    /// Chips with a real choice to make -- more than one core -- that are not
-    /// already shown for the song.
-    pub choosers: Vec<ChipOutputRow>,
-    /// Single-core chips not shown for the song, folded to one line per core:
-    /// there is nothing to decide, so they are stated, not listed.
-    pub folded: Vec<FoldedCore>,
+    pub song: Vec<SongChipRow>,
+    /// Every other chip that has a core -- the "All chips" section -- so a core
+    /// can be configured for any chip, not just the ones the current song uses.
+    /// Choosers and single-core facts alike; a chip the song already lists is
+    /// not repeated here.
+    pub all: Vec<ChipOutputRow>,
 }
 
 /// Shapes the roster for the Settings dialog around `song_chips` (the loaded
 /// file's chips, in file order; empty when nothing is loaded).
 ///
-/// A chip appears exactly once: in `song` if the file uses it, otherwise in
-/// `choosers` if it offers a choice or in `folded` if it does not. Pure, so the
-/// partitioning is tested without a UI.
+/// A chip appears exactly once: in `song` if the file uses it (with or without a
+/// core), otherwise in `all`. Pure, so the split is tested without a UI.
 #[must_use]
 pub fn plan(song_chips: &[ChipKind]) -> OutputPlan {
-    let all = rows();
+    let rows = rows();
 
-    // The song's chips, hoisted in file order, one row per slot (the OPL family
-    // and a dual chip both collapse to a single row).
+    // The song's chips, in file order, one entry per slot (the OPL family and a
+    // dual chip both collapse to a single row). A chip with no core still gets
+    // an entry -- the file uses it regardless.
     let mut song = Vec::new();
     let mut song_slots: Vec<&'static str> = Vec::new();
     for &chip in song_chips {
@@ -177,38 +179,38 @@ pub fn plan(song_chips: &[ChipKind]) -> OutputPlan {
         if song_slots.contains(&slot) {
             continue;
         }
-        if let Some(row) = all.iter().find(|row| row.slot == slot) {
-            song.push(row.clone());
-            song_slots.push(slot);
-        }
+        song_slots.push(slot);
+        song.push(SongChipRow {
+            kind: chip,
+            row: rows.iter().find(|row| row.slot == slot).cloned(),
+        });
     }
 
-    // Everything the song did not already claim: choices kept as rows,
-    // single-core chips folded under the core that plays them.
-    let mut choosers = Vec::new();
-    let mut folded: Vec<FoldedCore> = Vec::new();
-    for row in &all {
-        if song_slots.contains(&row.slot) {
-            continue;
-        }
-        if row.is_choice() {
-            choosers.push(row.clone());
-        } else {
-            let label = row.cores[0].label.clone();
-            match folded.iter_mut().find(|group| group.label == label) {
-                Some(group) => group.chips.push(row.label.to_owned()),
-                None => folded.push(FoldedCore {
-                    label,
-                    chips: vec![row.label.to_owned()],
-                }),
-            }
-        }
-    }
+    // Every other chip with a core, kept as a row so all of them stay
+    // configurable -- the song's are pulled up into `song`, not hidden.
+    let all = rows
+        .into_iter()
+        .filter(|row| !song_slots.contains(&row.slot))
+        .collect();
 
-    OutputPlan {
-        song,
-        choosers,
-        folded,
+    OutputPlan { song, all }
+}
+
+/// Draws one "Current" section entry: the chip's core row when it has one, or
+/// the chip named with a muted "no core yet" when this build plays it silent.
+pub fn song_chip_row(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    cores: &mut std::collections::BTreeMap<String, String>,
+    entry: &SongChipRow,
+) {
+    match &entry.row {
+        Some(row) => chip_row(ui, palette, cores, row),
+        None => {
+            ui.label(entry.kind.name());
+            ui.colored_label(palette.muted, "no core yet");
+            ui.end_row();
+        }
     }
 }
 
@@ -322,8 +324,8 @@ pub(crate) fn install_test_cores() {
         registry.register(CoreInfo {
             id: "sn76489.libvgm",
             chip: ChipKind::Sn76489,
-            label: "libvgm (Valley Bell)",
-            authors: "Valley Bell and the upstream core authors",
+            label: "libvgm",
+            authors: "the libvgm project and upstream core authors",
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
@@ -468,47 +470,56 @@ mod tests {
     /// The song's chips are hoisted in file order, single-core chips fold, and
     /// nothing appears twice.
     #[test]
-    fn plan_hoists_the_song_and_folds_the_rest() {
+    fn plan_splits_the_song_from_the_rest() {
         install_test_cores();
         // The stand-in registry gives the OPL family a choice (emulator, CQM,
-        // hardware) and the SN76489 a single core -- so an OPL song hoists a
-        // chooser above the roster, and the single-core SN76489 folds below.
+        // hardware) and the SN76489 a single core.
         let plan = plan(&[ChipKind::Ymf262]);
 
-        assert_eq!(plan.song.len(), 1, "the one song chip is hoisted");
-        assert_eq!(plan.song[0].slot, "opl3");
-        assert!(plan.song[0].is_choice(), "and it kept its dropdown");
+        // The song's OPL chip is in "Current", carrying its chooser.
+        assert_eq!(plan.song.len(), 1, "the one song chip is in Current");
+        assert_eq!(plan.song[0].kind, ChipKind::Ymf262);
+        let row = plan.song[0].row.as_ref().expect("OPL has cores");
+        assert_eq!(row.slot, "opl3");
+        assert!(row.is_choice(), "and it kept its dropdown");
 
-        // The hoisted chip is not repeated among the choosers or the fold.
+        // "All chips" holds every *other* chip, still configurable, and does not
+        // repeat the one already in Current.
         assert!(
-            !plan.choosers.iter().any(|row| row.slot == "opl3"),
-            "a hoisted chooser is not shown a second time below"
+            !plan.all.iter().any(|row| row.slot == "opl3"),
+            "the current chip is not repeated in All"
         );
-
-        // Single-core chips are stated once, grouped under the core that plays
-        // them -- the SN76489 through its libvgm stub here.
         assert!(
-            plan.folded
-                .iter()
-                .any(|group| group.chips.iter().any(|name| name == "SN76489")),
-            "the single-core SN76489 folds into a summary"
+            plan.all.iter().any(|row| row.slot == "sn76489"),
+            "the SN76489 stays configurable under All chips"
         );
-        for group in &plan.folded {
-            assert!(!group.label.is_empty());
-            assert!(!group.chips.is_empty());
-        }
     }
 
-    /// With nothing loaded there is no song section, and the whole roster shows
-    /// as choosers plus the fold.
+    /// A song chip this build has no core for is still listed in Current -- the
+    /// file uses it whether or not we can play it.
     #[test]
-    fn plan_without_a_song_has_no_hoisted_rows() {
+    fn plan_lists_a_song_chip_with_no_core() {
+        install_test_cores();
+        // The SCSP has no core in the stand-in registry.
+        let plan = plan(&[ChipKind::Scsp]);
+        assert_eq!(plan.song.len(), 1);
+        assert_eq!(plan.song[0].kind, ChipKind::Scsp);
+        assert!(
+            plan.song[0].row.is_none(),
+            "no core, but still a Current entry"
+        );
+    }
+
+    /// With nothing loaded there is no Current section, and the whole roster is
+    /// under "All chips".
+    #[test]
+    fn plan_without_a_song_has_no_current_section() {
         install_test_cores();
         let plan = plan(&[]);
         assert!(plan.song.is_empty());
         assert!(
-            plan.choosers.iter().any(|row| row.slot == "opl3"),
-            "the OPL chooser is in the main list instead"
+            plan.all.iter().any(|row| row.slot == "opl3"),
+            "every chip is under All chips instead"
         );
     }
 
