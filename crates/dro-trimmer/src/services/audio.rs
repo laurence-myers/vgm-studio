@@ -14,7 +14,7 @@
 
 use dro_audio_native::NativeAudio;
 use dro_core::config::AudioConfig;
-use dro_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
+use dro_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
 use dro_ui::AudioService;
 
 #[derive(Debug, Clone, Copy)]
@@ -34,6 +34,11 @@ pub struct NativeAudioService {
     muting: Muting,
     /// The latest requested panning, flushed on every play.
     panning: Panning,
+    /// The latest requested any-chip mutes (the generic engine's), flushed on
+    /// every play like the OPL muting.
+    chip_muting: ChipMuting,
+    /// The latest requested any-chip pans, likewise.
+    chip_panning: ChipPanning,
     /// The latest requested boost, flushed on every play.
     boost: f32,
     /// The latest requested loop region, flushed on every play.
@@ -49,6 +54,8 @@ impl Default for NativeAudioService {
             playing: false,
             muting: Muting::all(),
             panning: Panning::Original,
+            chip_muting: ChipMuting::new(),
+            chip_panning: ChipPanning::new(),
             boost: 1.0,
             loop_config: None,
             pending_seek: None,
@@ -100,6 +107,8 @@ impl AudioService for NativeAudioService {
         }
         audio.set_muting(self.muting);
         audio.set_panning(self.panning);
+        audio.set_chip_muting(self.chip_muting.clone());
+        audio.set_chip_panning(self.chip_panning.clone());
         audio.set_boost(self.boost);
         audio.set_loop(self.loop_config);
         audio.play().map_err(|e| e.to_string())?;
@@ -163,6 +172,26 @@ impl AudioService for NativeAudioService {
                 .as_mut()
                 .expect("stream_live checked")
                 .set_panning(panning);
+        }
+    }
+
+    fn set_chip_muting(&mut self, muting: ChipMuting) {
+        self.chip_muting = muting.clone();
+        if self.stream_live() {
+            self.audio
+                .as_mut()
+                .expect("stream_live checked")
+                .set_chip_muting(muting);
+        }
+    }
+
+    fn set_chip_panning(&mut self, panning: ChipPanning) {
+        self.chip_panning = panning.clone();
+        if self.stream_live() {
+            self.audio
+                .as_mut()
+                .expect("stream_live checked")
+                .set_chip_panning(panning);
         }
     }
 

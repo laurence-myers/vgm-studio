@@ -23,7 +23,8 @@ use dro_core::Song;
 use dro_core::config::AudioConfig;
 use dro_synth::vgm_engine::VgmEngine;
 use dro_synth::{
-    AudioSource, BoostLimiter, LoopConfig, Muting, OplChip, Panning, PlayerEngine, Position,
+    AudioSource, BoostLimiter, ChipMuting, ChipPanning, LoopConfig, Muting, OplChip, Panning,
+    PlayerEngine, Position,
 };
 
 /// What can go wrong opening or driving the audio device.
@@ -38,12 +39,22 @@ pub enum AudioError {
 }
 
 /// A control message posted from the UI thread into the audio callback.
-#[derive(Debug, Clone, Copy)]
+///
+/// Not `Copy`: the chip mute/pan variants own a small `Vec` (one entry per chip
+/// instance). Toggling a channel is a rare, user-driven event, so the move --
+/// and the drop of the value it replaces in the engine -- is off the per-buffer
+/// hot path; the OPL `Muting`/`Panning` variants stay allocation-free as before.
+#[derive(Debug, Clone)]
 enum Command {
     SeekMs(u32),
     SeekPos(usize),
     SetMuting(Muting),
     SetPanning(Panning),
+    /// Any-chip channel mutes, for the generic engine (a no-op on the OPL arm,
+    /// which has its own [`Muting`]).
+    SetChipMuting(ChipMuting),
+    /// Any-chip channel pans, likewise.
+    SetChipPanning(ChipPanning),
     SetBoost(f32),
     SetLoop(Option<LoopConfig>),
     Rewind,
@@ -281,6 +292,16 @@ impl NativeAudio {
         self.send(Command::SetPanning(panning));
     }
 
+    /// Replaces the any-chip channel mutes (the generic engine's).
+    pub fn set_chip_muting(&mut self, muting: ChipMuting) {
+        self.send(Command::SetChipMuting(muting));
+    }
+
+    /// Replaces the any-chip channel pans (the generic engine's).
+    pub fn set_chip_panning(&mut self, panning: ChipPanning) {
+        self.send(Command::SetChipPanning(panning));
+    }
+
     /// Changes the live playback volume boost. The limiter keeps the boosted
     /// signal from clipping; this never touches a WAV render.
     pub fn set_boost(&mut self, boost: f32) {
@@ -423,6 +444,18 @@ impl Engine {
         }
     }
 
+    fn set_chip_muting(&mut self, muting: ChipMuting) {
+        if let Self::Vgm(engine) = self {
+            engine.set_muting(muting);
+        }
+    }
+
+    fn set_chip_panning(&mut self, panning: ChipPanning) {
+        if let Self::Vgm(engine) = self {
+            engine.set_panning(panning);
+        }
+    }
+
     fn set_loop(&mut self, config: Option<LoopConfig>) {
         match self {
             Self::Opl(engine) => engine.set_loop(config),
@@ -475,6 +508,8 @@ where
                     Command::SeekPos(pos) => engine.seek_to_pos(pos),
                     Command::SetMuting(muting) => engine.set_muting(muting),
                     Command::SetPanning(panning) => engine.set_panning(panning),
+                    Command::SetChipMuting(muting) => engine.set_chip_muting(muting),
+                    Command::SetChipPanning(panning) => engine.set_chip_panning(panning),
                     Command::SetBoost(boost) => limiter.set_boost(boost),
                     Command::SetLoop(config) => engine.set_loop(config),
                     Command::Rewind => engine.rewind(),
@@ -594,7 +629,68 @@ fn channel_peaks(samples: &[i16]) -> (u32, u32) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
+    use dro_core::vgm::ChipKind;
+    use dro_synth::ChipCore;
+
     use super::*;
+
+    /// A minimal one-chip VGM: an SN76489 clocked, one write, one wait, end.
+    fn sn_vgm() -> Arc<dro_core::VgmFile> {
+        fn put(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put(&mut bytes, 0x08, 0x151);
+        put(&mut bytes, 0x34, 0x100 - 0x34);
+        put(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+        bytes.extend_from_slice(&[0x50, 0x9F, 0x61, 0x44, 0xAC, 0x66]);
+        let eof = bytes.len();
+        put(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(dro_core::vgm::file::read("t.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    /// The `Engine::Vgm` arm forwards chip muting to its voices; the wrapper's
+    /// job is only to pick the arm, but that pick is what the callback relies
+    /// on.
+    #[test]
+    fn the_vgm_arm_forwards_chip_muting() {
+        let mutes: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
+
+        struct Tap(Arc<Mutex<Vec<u32>>>);
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+            fn set_channel_mutes(&mut self, muted: u32) {
+                self.0.lock().expect("not poisoned").push(muted);
+            }
+        }
+
+        let mutes_for_factory = Arc::clone(&mutes);
+        let engine = VgmEngine::with_cores(sn_vgm(), 44_100, move |_| {
+            Some(Box::new(Tap(Arc::clone(&mutes_for_factory))))
+        });
+        let mut engine = Engine::Vgm(Box::new(engine));
+
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Sn76489, 0, 0b0010);
+        engine.set_chip_muting(muting);
+        assert!(
+            mutes.lock().expect("not poisoned").contains(&0b0010),
+            "the mask reached the voice"
+        );
+
+        // And the OPL-only command is a no-op on this arm rather than a panic.
+        engine.set_muting(Muting::all());
+    }
 
     #[test]
     fn channel_peaks_takes_the_max_abs_per_channel() {

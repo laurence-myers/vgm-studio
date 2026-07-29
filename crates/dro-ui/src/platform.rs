@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use dro_core::config::AudioConfig;
-use dro_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
+use dro_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
 
 pub use dro_core::config::ConfigStore;
 
@@ -198,11 +198,21 @@ pub trait AudioService {
     /// Returns to the start of the song.
     fn rewind(&mut self);
 
-    /// Replaces the channel/percussion muting, live.
+    /// Replaces the channel/percussion muting, live. An OPL idea; the default
+    /// no-op is for backends that are not the emulated OPL player.
     fn set_muting(&mut self, muting: Muting);
 
     /// Replaces the per-channel panning, live.
     fn set_panning(&mut self, panning: Panning);
+
+    /// Replaces the any-chip channel mutes, live -- the generic engine's
+    /// counterpart of [`set_muting`](Self::set_muting). The default is a no-op,
+    /// for backends with no generic engine (the RetroWave board, the test
+    /// stub, the web shell until it wires one).
+    fn set_chip_muting(&mut self, _muting: ChipMuting) {}
+
+    /// Replaces the any-chip channel pans, live. Default no-op, as above.
+    fn set_chip_panning(&mut self, _panning: ChipPanning) {}
 
     /// Sets the live playback volume boost. A limiter keeps the boosted signal
     /// from clipping. Never affects a WAV render or the waveform.
