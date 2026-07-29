@@ -1,5 +1,15 @@
 # LIBVGM-PLAN — libvgm as the primary core source
 
+> **Unblocked and amended, 2026-07-29, by the owner.** lv-0 is assumed
+> resolved; the licence audit below stays as the record of what was found.
+> Further amendments: the cull removes **all** clean-room cores (K053260 and
+> C140 included); the scorecard is retired, so lv-4 integrates every chip and
+> takes every default **without** parity gating — no core is ever measured
+> against a clean-room row, and no third-party core (ymfm included) is ever
+> measured against libvgm or VGMPlay; lv-7 (re-freezing thresholds) is void.
+> The OPL exception stands: Nuked-OPL3 / Nuked-CQM / RetroWave, untouched.
+> Integrated Nuked cores and the LLE dies remain picker options.
+>
 > **CONDITIONAL PLAN. Read this first.**
 >
 > This document plans on the **assumption, supplied by the project owner on

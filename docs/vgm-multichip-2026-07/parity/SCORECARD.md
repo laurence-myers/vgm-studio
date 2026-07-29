@@ -1,5 +1,14 @@
 # The first scorecard, and what it found
 
+> **RETIRED, 2026-07-29, by the owner.** The clean-room cores this board
+> measured are removed — all of them — and libvgm's cores take every non-OPL
+> default without parity gating. No third-party core (ymfm included) is ever
+> measured against libvgm or VGMPlay. This chronicle stays as the evidence for
+> the cull and the record of the six decode bugs the audit found; the numbers
+> in it gate nothing. The A/B harness survives only as an opt-in tool for
+> validating our own libvgm binding (a shared-lineage row should read ~1.0000,
+> and a low one means the binding is wrong — the lv-2 lesson).
+>
 > Run 2026-07-27 against VGMPlay 0.52 with the pinned config, twelve
 > single-chip corpus files per chip, twenty seconds each. See `REFERENCE.md`
 > for what was pinned and PARITY-PLAN §7 for the steps.

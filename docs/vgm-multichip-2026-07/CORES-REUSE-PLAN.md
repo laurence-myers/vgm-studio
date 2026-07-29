@@ -1,5 +1,22 @@
 # CORES-REUSE-PLAN — reuse upstream emulators; our clean-rooms become the fallback tier
 
+> **Superseded in part, 2026-07-29, by four owner decisions.** They override
+> the corresponding sections below, which are kept for the record:
+>
+> 1. **lv-0 is assumed resolved.** Work proceeds as if libvgm's licence grant
+>    exists; the §1 audit stays as the factual record of what was found.
+> 2. **The cull removes *every* clean-room core — K053260 and C140 included.**
+>    "We will no longer be using clean-room implementations of cores." §6's
+>    two survivors do not survive.
+> 3. **ru-2 stays frozen.** ymfm remains at its PoC, and **no third-party core
+>    is ever measured against libvgm or VGMPlay** — the A/B harness is for
+>    validating our own libvgm binding, nothing else.
+> 4. **libvgm is the source of truth and the default for every chip**,
+>    regardless of the frozen scorecard, which is retired. The exceptions:
+>    OPL2/OPL3 keeps Nuked-OPL3 (default) / Nuked-CQM / RetroWave untouched,
+>    and the other integrated Nuked cores and the LLE dies stay available as
+>    picker options. §7's beat-the-row gate no longer applies.
+>
 > Written 2026-07-28 on branch `cores-reuse`, off `vgm-cores` at `847fe51`.
 > Re-scopes [CORES-PLAN.md](CORES-PLAN.md) §3 and §5 after the user's call:
 > *"I don't want this project to be a complete reimplementation of chip
