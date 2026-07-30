@@ -1282,6 +1282,7 @@ dependencies = [
  "dro-retrowave",
  "dro-synth",
  "dro-ui",
+ "dro-vgmtools",
  "eframe",
  "env_logger",
  "flate2",

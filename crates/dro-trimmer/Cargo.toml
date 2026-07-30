@@ -18,6 +18,8 @@ dro-retrowave.workspace = true
 dro-cores-nuked.workspace = true
 dro-cores-gpl.workspace = true
 dro-cores-libvgm.workspace = true
+# The vgmtools optimisers. Desktop-only, which this binary is.
+dro-vgmtools.workspace = true
 # Reads the reference player's WAV output for the parity harness.
 hound.workspace = true
 dro-ui.workspace = true
