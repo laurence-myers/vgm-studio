@@ -40,12 +40,15 @@
 //! that -- and is refused rather than misread.
 
 mod exe;
+mod pipeline;
 mod run;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use exe::Tool;
+
+pub use pipeline::{Optimised, Options, Stage, StageOutcome, optimize_vgm, passthrough_chips};
 
 /// What a tool did with the file.
 #[derive(Debug, Clone, PartialEq, Eq)]

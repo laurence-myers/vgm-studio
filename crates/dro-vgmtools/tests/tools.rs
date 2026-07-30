@@ -5,7 +5,10 @@
 //! the pinned submodule does, so a pin bump that changes behaviour shows up
 //! here rather than quietly in someone's pack.
 
-use dro_vgmtools::{ToolOutcome, clean_dac_runs, optimize_writes, trim_sample_roms};
+use dro_vgmtools::{
+    Options, StageOutcome, ToolOutcome, clean_dac_runs, optimize_vgm, optimize_writes,
+    passthrough_chips, trim_sample_roms,
+};
 
 mod offset {
     pub(crate) const EOF: usize = 0x04;
@@ -16,6 +19,9 @@ mod offset {
     /// The OKIM6295 -- a chip with a sample ROM, which is what makes `vgm_sro`
     /// look at a file at all.
     pub(crate) const OKIM6295_CLOCK: usize = 0x98;
+    /// The YM3812: an OPL2, so a file declaring one takes the bypass.
+    pub(crate) const YM3812_CLOCK: usize = 0x50;
+    pub(crate) const SAA1099_CLOCK: usize = 0xC8;
 }
 
 const HEADER_LEN: usize = 0x100;
@@ -184,6 +190,135 @@ fn a_stream_vgm_sro_refuses_still_reads_as_untouched() {
     put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
 
     assert_eq!(trim_sample_roms(&bytes), ToolOutcome::Unchanged);
+}
+
+/// The stage names a pass actually ran, paired with what became of each.
+fn stage_names(bytes: &[u8], options: Options) -> Vec<(&'static str, StageOutcome)> {
+    optimize_vgm(bytes, options)
+        .stages
+        .into_iter()
+        .map(|stage| (stage.name, stage.outcome))
+        .collect()
+}
+
+#[test]
+fn the_pass_shrinks_a_redundant_file_and_keeps_its_timing() {
+    let stream = [
+        0x52, 0x22, 0x08, //
+        0x61, 0x10, 0x27, //
+        0x52, 0x22, 0x08, //
+        0x61, 0x20, 0x4E, //
+        0x52, 0x22, 0x08, //
+        0x62, //
+        0x66,
+    ];
+    let original = vgm_with(&stream, 30_735);
+
+    let result = optimize_vgm(&original, Options::default());
+
+    assert!(result.changed(), "stages: {:?}", result.stages);
+    assert_eq!(result.saved(), original.len() - result.bytes.len());
+    assert!(result.failures().is_empty(), "{:?}", result.failures());
+    assert_eq!(
+        total_samples(&result.bytes),
+        total_samples(&original),
+        "the delay total moved"
+    );
+}
+
+#[test]
+fn an_opl_file_bypasses_the_tools_entirely() {
+    // dro_core has covered the OPL family from the start and its output is
+    // pinned byte-for-byte over the corpus. Running the C tools over an OPL
+    // file would re-spell it through a second implementation for no gain, so
+    // the pass must not.
+    let mut bytes = vec![0u8; HEADER_LEN];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, offset::VERSION, 0x161);
+    put_u32(
+        &mut bytes,
+        offset::DATA_OFFSET,
+        (HEADER_LEN - offset::DATA_OFFSET) as u32,
+    );
+    put_u32(&mut bytes, offset::YM3812_CLOCK, 3_579_545);
+    bytes.extend_from_slice(&[
+        0x5A, 0x20, 0x01, // OPL2 write
+        0x5A, 0x20, 0x01, // the same again
+        0x62, //
+        0x66,
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+    let stages = stage_names(&bytes, Options::default());
+
+    assert_eq!(
+        stages.iter().map(|(name, _)| *name).collect::<Vec<&str>>(),
+        vec!["vgmtools", "built-in"],
+        "an OPL file should reach only the built-in optimiser"
+    );
+    assert!(matches!(stages[0].1, StageOutcome::Skipped(_)));
+}
+
+#[test]
+fn a_file_naming_an_saa1099_is_held_back_from_vgm_cmp() {
+    // vgm_cmp.c:537 is missing a `break`, so SAA1099 writes are judged by the
+    // YM2413's rules -- which dedupe every register, including the SAA1099's
+    // envelope registers, where a repeated write is a retrigger rather than a
+    // latch. Until ot-7 measures it, the file goes through untouched.
+    let mut bytes = vgm_with(&[0x66], 0)[..HEADER_LEN].to_vec();
+    put_u32(&mut bytes, offset::SAA1099_CLOCK, 8_000_000);
+    put_u32(&mut bytes, offset::VERSION, 0x171);
+    bytes.extend_from_slice(&[0xBD, 0x18, 0x0F, 0xBD, 0x18, 0x0F, 0x62, 0x66]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+    let stages = stage_names(&bytes, Options::default());
+    let vgm_cmp = stages
+        .iter()
+        .find(|(name, _)| *name == "vgm_cmp")
+        .expect("vgm_cmp should still be reported");
+
+    match &vgm_cmp.1 {
+        StageOutcome::Skipped(reason) => assert!(
+            reason.contains("SAA1099"),
+            "the reason should name the chip: {reason}"
+        ),
+        other => panic!("vgm_cmp should have been held back, got {other:?}"),
+    }
+}
+
+#[test]
+fn turning_a_stage_off_keeps_it_out_of_the_pass() {
+    let stream = [0x52, 0x22, 0x08, 0x62, 0x66];
+    let bytes = vgm_with(&stream, 735);
+
+    let options = Options {
+        sample_roms: false,
+        dac_runs: false,
+    };
+    let names: Vec<&str> = stage_names(&bytes, options)
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+
+    assert!(!names.contains(&"vgm_sro"), "{names:?}");
+    assert!(!names.contains(&"optdac"), "{names:?}");
+    assert!(names.contains(&"vgm_cmp"), "write dedup is not optional");
+}
+
+#[test]
+fn the_passthrough_list_names_only_chips_vgm_cmp_has_no_rules_for() {
+    // A guard against the list drifting into a claim that is not true: the
+    // SAA1099 must never appear here, because vgm_cmp does touch it -- just
+    // with the wrong chip's rules.
+    let chips = passthrough_chips();
+    assert!(!chips.is_empty());
+    assert!(
+        !chips.contains(&dro_core::vgm::ChipKind::Saa1099),
+        "the SAA1099 is processed, not passed through"
+    );
+    assert!(chips.contains(&dro_core::vgm::ChipKind::K053260));
 }
 
 #[test]
