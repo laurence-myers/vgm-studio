@@ -554,14 +554,25 @@ impl Editor {
 
     /// The VGM-held document's half of [`Self::optimize_vgm`].
     ///
-    /// The chip-agnostic pass: it drops only what its per-chip rules call safe,
-    /// and drops nothing at all from a chip it has no rules for.
+    /// Goes out through whole-file bytes rather than editing in place, because
+    /// the desktop route hands them to the vgmtools optimisers as a file (see
+    /// [`crate::optimise`]). Reading the result back is cheap next to what the
+    /// tools just did, and it keeps both arms to one shape.
+    ///
+    /// Whatever route ran, it drops only what its per-chip rules call safe and
+    /// drops nothing at all from a chip it has no rules for.
     fn optimize_vgm_document(&mut self) -> Option<(usize, usize)> {
         let file = self.vgm.as_mut()?;
-        let before = file.body.raw().len();
-        let mut edited = file.clone();
-        let removed = edited.optimize()?;
-        let saved = before.saturating_sub(edited.body.raw().len());
+        let before_bytes = file.body.raw().len();
+        let before_commands = file.len();
+
+        let plain = dro_core::vgm::file::write(file).ok()?;
+        let optimised = crate::optimise::optimised(&plain)?;
+        let mut edited = dro_core::vgm::file::read(&file.name, &optimised).ok()?;
+        edited.name = file.name.clone();
+
+        let saved = before_bytes.saturating_sub(edited.body.raw().len());
+        let removed = before_commands.saturating_sub(edited.len());
 
         self.vgm_undo
             .execute(Box::new(ReplaceVgm::new("Optimize VGM", edited)), file);

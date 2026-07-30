@@ -20,6 +20,12 @@ egui_extras.workspace = true
 image.workspace = true
 log.workspace = true
 
+# The vgmtools optimisers, for the Edit > Optimize action. They run as child
+# processes, so they exist on the desktop only -- `optimise.rs` falls back to
+# `dro_core`'s own pass on the web, and this crate still builds for wasm.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dro-vgmtools.workspace = true
+
 [dev-dependencies]
 # Headless GUI tests (interaction + snapshot). See the workspace manifest for
 # why this is pinned to the 0.32 line.

@@ -1302,6 +1302,7 @@ version = "5.1.0"
 dependencies = [
  "dro-core",
  "dro-synth",
+ "dro-vgmtools",
  "eframe",
  "egui",
  "egui_extras",

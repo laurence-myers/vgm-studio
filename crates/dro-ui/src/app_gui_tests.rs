@@ -2649,6 +2649,58 @@ fn a_non_opl_document_can_be_optimised() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
+/// The payoff of binding vgmtools: a chip `dro_core` has no rules for, which
+/// the editor can now optimise anyway.
+///
+/// The YMZ280B is the case that used to come back byte for byte -- `latch_rule`
+/// covers the OPL family, the YM2612 and the YM2413, and nothing else. `vgm_cmp`
+/// has a table for about thirty chips, and this is the action reaching it.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_chip_the_built_in_pass_cannot_touch_is_optimised_in_the_editor() {
+    use dro_core::ChipKind;
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x161);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    put_u32(&mut bytes, ChipKind::Ymz280b.clock_offset(), 16_934_400);
+    bytes.extend_from_slice(&[
+        0x5D, 0x01, 0x40, //
+        0x62, //
+        0x5D, 0x01, 0x40, // the same value again -- droppable, but only by vgm_cmp
+        0x62, 0x66,
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    // The built-in pass must find nothing here, or the test proves nothing.
+    let mut built_in = dro_core::vgm::file::read("01 Arcade.vgm", &bytes).unwrap();
+    assert!(
+        built_in.optimize().is_none(),
+        "dro_core should have no rules for the YMZ280B"
+    );
+
+    let file = PickedFile {
+        name: "01 Arcade.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/rips/Arcade/01 Arcade.vgm")),
+        bytes,
+    };
+    let (mut harness, _handles) = build(Some(file), false, false);
+    let before = harness.state().editor.save_bytes().unwrap();
+    assert_eq!(harness.state().editor.len(), 4);
+
+    act(&mut harness, Action::OptimizeVgm);
+    let app = harness.state();
+    assert_eq!(app.editor.len(), 3, "the repeat is gone");
+    assert!(app.status.contains("Optimized"), "{}", app.status);
+
+    harness.state_mut().editor.undo();
+    assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
+}
+
 /// A VGM built for chips this app has no core for: an intro write, then a body
 /// the capture ran through twice, each pass a second long.
 fn non_opl_looping_vgm() -> PickedFile {

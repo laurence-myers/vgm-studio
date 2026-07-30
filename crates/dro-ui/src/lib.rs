@@ -18,6 +18,7 @@ pub mod dialogs;
 pub mod editor;
 pub mod markers;
 pub mod menus;
+mod optimise;
 pub mod pack;
 pub mod platform;
 pub mod selection;
