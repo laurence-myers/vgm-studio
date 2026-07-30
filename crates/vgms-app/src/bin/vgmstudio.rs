@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! DRO Trimmer's one executable: the GUI, plus the `play`, `render` and `split`
+//! VGM Studio's one executable: the GUI, plus the `play`, `render` and `split`
 //! subcommands.
 //!
 //! With no subcommand this is a thin `eframe::run_native` shell injecting the
@@ -18,12 +18,12 @@ use vgms_app::services::{
 use vgms_ui::VgmStudioApp;
 use vgms_ui::platform::FileService;
 
-/// Decodes the embedded `dt.ico` into the window/taskbar icon.
+/// Decodes the embedded `vgmstudio.ico` into the window/taskbar icon.
 /// Returns `None` -- no icon, not a failure -- if it can't be decoded, so a bad
 /// icon never blocks startup.
 fn load_icon() -> Option<eframe::egui::IconData> {
     let image = image::load_from_memory_with_format(
-        include_bytes!("../../../../src/dt.ico"),
+        include_bytes!("../../../../src/vgmstudio.ico"),
         image::ImageFormat::Ico,
     )
     .ok()?
@@ -82,7 +82,10 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
 
     let config = vgms_app::load_config();
     let mut viewport = eframe::egui::ViewportBuilder::default()
-        .with_title(format!("DRO Trimmer v{}", env!("CARGO_PKG_VERSION")))
+        .with_title(format!(
+            "VGM Studio v{} \u{2014} Vintage Groove Mangler",
+            env!("CARGO_PKG_VERSION")
+        ))
         .with_inner_size([800.0, 600.0])
         .with_maximized(config.ui.maximize_window)
         .with_drag_and_drop(true);
@@ -127,7 +130,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
 mod tests {
     #[test]
     fn the_window_icon_decodes_to_rgba() {
-        let icon = super::load_icon().expect("dt.ico decodes");
+        let icon = super::load_icon().expect("vgmstudio.ico decodes");
         assert!(icon.width > 0 && icon.height > 0);
         assert_eq!(icon.rgba.len(), (icon.width * icon.height * 4) as usize);
     }

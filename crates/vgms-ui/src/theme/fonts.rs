@@ -165,6 +165,6 @@ mod tests {
             "kanji, hiragana and katakana must all resolve"
         );
         // And the DOS face still serves Latin text.
-        assert!(fonts.has_glyphs(&font_id, "DRO Trimmer 0123"));
+        assert!(fonts.has_glyphs(&font_id, "VGM Studio 0123"));
     }
 }

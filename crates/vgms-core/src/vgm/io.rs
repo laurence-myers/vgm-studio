@@ -991,7 +991,7 @@ mod tests {
             track_author_en: "Sierra".to_owned(),
             track_author_native: String::new(),
             release_date: "1989".to_owned(),
-            creator: "DRO Trimmer".to_owned(),
+            creator: "VGM Studio".to_owned(),
             notes: "line one\nline two".to_owned(),
         }
     }

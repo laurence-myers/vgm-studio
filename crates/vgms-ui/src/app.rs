@@ -4498,7 +4498,7 @@ mod about_tests {
         let text = about_text();
         assert!(text.contains("GNU General Public License"));
         assert!(
-            text.contains("https://github.com/laurence-myers/vgms-app"),
+            text.contains("https://github.com/laurence-myers/vgm-studio"),
             "GPL section 3 wants the corresponding source pointed at"
         );
         assert!(

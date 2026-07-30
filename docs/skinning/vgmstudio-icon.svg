@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- VGM Studio "Caret" app icon, Petrol theme. Colours from PETROL_CASE in
+       crates/dro-ui/src/theme/palette.rs. Vector source; the shipped .ico is
+       hand-rendered per size (see make_icon.py). -->
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2E5A5E"/><stop offset="1" stop-color="#1C3C40"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- petrol plate -->
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#plate)"/>
+  <rect x="10" y="10" width="236" height="236" rx="52" fill="none" stroke="#508286" stroke-opacity=".43" stroke-width="2"/>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="none" stroke="#0A1A1C" stroke-width="3"/>
+
+  <!-- scope screen -->
+  <rect x="34" y="52" width="188" height="152" rx="20" fill="#061416" stroke="#03090A" stroke-width="3"/>
+
+  <!-- selection region + lime loop brackets -->
+  <rect x="118" y="58" width="56" height="140" fill="#C8E86E" opacity=".13"/>
+  <path d="M126 58 H118 V198 H126" fill="none" stroke="#C8E86E" stroke-opacity=".85" stroke-width="3"/>
+  <path d="M166 58 H174 V198 H166" fill="none" stroke="#C8E86E" stroke-opacity=".85" stroke-width="3"/>
+
+  <!-- amber carrier wave -->
+  <path d="M44 128 Q64 100 84 128 T124 128 Q136 104 148 128 Q160 152 172 128 T212 128"
+        fill="none" stroke="#F2C766" stroke-width="7" stroke-linecap="round" filter="url(#glow)"/>
+
+  <!-- edit caret (I-beam), no node square -->
+  <g stroke="#EAF6FF" stroke-width="3" stroke-linecap="round">
+    <line x1="146" y1="60" x2="146" y2="196"/>
+    <line x1="140" y1="60" x2="152" y2="60"/>
+    <line x1="140" y1="196" x2="152" y2="196"/>
+  </g>
+</svg>

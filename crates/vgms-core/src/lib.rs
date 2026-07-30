@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Core of DRO Trimmer: the DRO/VGM data model, file formats, analysis and undo.
+//! Core of VGM Studio: the DRO/VGM data model, file formats, analysis and undo.
 //!
 //! This crate deliberately has no audio, GUI or filesystem dependencies, so it
 //! compiles unchanged for `wasm32-unknown-unknown`. Readers and writers take

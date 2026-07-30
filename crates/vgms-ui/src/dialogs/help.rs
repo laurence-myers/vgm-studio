@@ -175,7 +175,7 @@ const SECTIONS: &[Section] = &[
     },
 ];
 
-const ONLINE: &str = "https://github.com/laurence-myers/vgms-app";
+const ONLINE: &str = "https://github.com/laurence-myers/vgm-studio";
 
 /// The dialog holds nothing: what it shows is the same table every time.
 #[derive(Debug)]

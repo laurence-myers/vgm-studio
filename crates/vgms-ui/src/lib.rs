@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! The DRO Trimmer GUI, as a library.
+//! The VGM Studio GUI, as a library.
 //!
 //! The egui application (`app::VgmStudioApp`) is consumed by the native `vgmstudio`
 //! binary through `eframe::run_native`, and later by the web shell

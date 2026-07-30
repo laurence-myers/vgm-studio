@@ -161,16 +161,17 @@ pub(crate) fn app_about_text(
     optimise_credit: impl std::fmt::Display,
 ) -> String {
     format!(
-        "DRO Trimmer v{}\n\
+        "VGM Studio v{}\n\
+         Vintage Groove Mangler\n\
          Laurence Dougal Myers\n\
          Web: http://www.jestarjokin.net/apps/drotrimmer\n\
-         Web: https://github.com/laurence-myers/vgms-app\n\
+         Web: https://github.com/laurence-myers/vgm-studio\n\
          E-Mail: jestarjokin@jestarjokin.net\n\
          \n\
          This program is licensed under the GNU General Public License,\n\
          version 2 or (at your option) any later version -- it links\n\
          emulator cores under the GPL and LGPL. Complete corresponding\n\
-         source code: https://github.com/laurence-myers/vgms-app\n\
+         source code: https://github.com/laurence-myers/vgm-studio\n\
          \n\
          The file model and playback engine (vgms-core, vgms-synth) are\n\
          separately available under MIT OR Apache-2.0; see licenses/\n\
