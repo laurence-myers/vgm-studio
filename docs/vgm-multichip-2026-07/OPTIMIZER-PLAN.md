@@ -192,6 +192,18 @@ dro-ui`), so the dependency must be declared under
 behind the same `cfg` -- on the web the Optimize action stays on `dro-core`'s
 own optimiser.
 
+**ot-7a -- the cheap half of ot-7, brought forward. DONE.** The SAA1099
+fallthrough found while writing ot-3 is the reason: these tools can carry bugs
+that only real files reveal, so a corpus check belongs *before* anything
+user-facing rather than after it. `dro-vgmtools/tests/corpus.rs` asserts, per
+file, that the result still reads as a VGM, that the delay total is untouched,
+and that the run terminates. Measured over 300 arcade rips and again over 900
+files spanning every system: **no corruption, no timing drift, no failures, no
+timeouts**, 0 unreadable. 41 of the 900 shrank, for 0.01% overall -- low
+because published VGMRips packs have mostly been through these tools already,
+which is the expected shape and not the number that matters. The number that
+matters is the zero in the failure column.
+
 **ot-7 -- corpus verification** (`#[ignore]`, `DROTRIM_CORPUS`). Per chip in
 the chip index, sample N files, run the pipeline, and assert: delay totals
 conserved, idempotence, and **`VgmEngine` render byte-parity** -- render the
@@ -200,6 +212,15 @@ identical samples. That last one is the audio gate for both `vgm_cmp`'s drops
 and `vgm_sro`'s ROM trims: a wrong usage decoder changes the render, and
 parity catches it. Re-run the OPL pins to prove the bypass. Report aggregate
 size reduction per chip.
+
+**It also owns one open verdict.** `vgm_cmp.c:537` is missing a `break`, so
+`case 0xBD` (SAA1099) falls through into `case 0x51` and SAA1099 writes are
+judged by the YM2413's rules -- which dedupe every register. The SAA1099's
+`0x18`/`0x19` reload an envelope rather than latching, so a repeated write is
+a retrigger and dropping it is audible. Because that is a fallthrough rather
+than a considered rule, `pipeline.rs` holds SAA1099 files back from `vgm_cmp`
+(`SAA1099_HELD_BACK`). Render parity over SAA1099 rips is what can lift it,
+and nothing else should.
 
 **ot-8 -- docs, credits, memory.** A PROVENANCE-style note in `dro-vgmtools`
 (GPL binding, upstream commit pin, why there is no clean-room version); About
