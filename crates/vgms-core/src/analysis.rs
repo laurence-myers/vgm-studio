@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
-use crate::song::{Bank, DroInstruction, Song};
+use crate::song::{Bank, Instruction, Song};
 
 /// The analysis of one instruction, for the table's Bank and Description columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +118,7 @@ impl RegisterAnalyzer {
     }
 
     /// Applies one instruction to the cursor and returns its analysis.
-    fn step(&mut self, instruction: DroInstruction) -> RowAnalysis {
+    fn step(&mut self, instruction: Instruction) -> RowAnalysis {
         // A bank switch, or a v2/VGM register that carries its own bank, moves
         // the running bank *before* the row is described. A v1 register carries
         // no bank and leaves it on whatever the last switch selected.
@@ -126,15 +126,15 @@ impl RegisterAnalyzer {
             self.bank = selected;
         }
         let description = match instruction {
-            DroInstruction::DelayMs { ms, .. } => Cow::Owned(format!("Delay: {ms} ms")),
-            DroInstruction::DelaySamples { samples, .. } => {
+            Instruction::DelayMs { ms, .. } => Cow::Owned(format!("Delay: {ms} ms")),
+            Instruction::DelaySamples { samples, .. } => {
                 Cow::Owned(format!("Delay: {samples} smp"))
             }
-            DroInstruction::BankSwitch(_) => Cow::Borrowed(match self.bank {
+            Instruction::BankSwitch(_) => Cow::Borrowed(match self.bank {
                 Bank::Low => "Bank switch: low",
                 Bank::High => "Bank switch: high",
             }),
-            DroInstruction::Register { reg, value, .. } => self.describe_register(reg, value),
+            Instruction::Register { reg, value, .. } => self.describe_register(reg, value),
         };
         RowAnalysis {
             bank: self.bank,
@@ -245,7 +245,7 @@ impl RegisterUsage {
             if let Some(selected) = instruction.selected_bank() {
                 bank = selected;
             }
-            if let DroInstruction::Register { reg, value, .. } = instruction {
+            if let Instruction::Register { reg, value, .. } = instruction {
                 let key = (u16::from(bank.index()) << 8) | u16::from(reg);
                 *usage.counts.entry(key).or_default() += 1;
                 if detailed_percussion && reg == regdata::PERCUSSION_REGISTER {
@@ -300,7 +300,7 @@ pub fn initial_channel_pans(song: &Song) -> [u8; 18] {
         if let Some(selected) = instruction.selected_bank() {
             bank = selected;
         }
-        if let DroInstruction::Register { reg, value, .. } = instruction
+        if let Instruction::Register { reg, value, .. } = instruction
             && (0xC0..=0xC8).contains(&reg)
         {
             let slot = usize::from(bank.index()) * 9 + usize::from(reg - 0xC0);
@@ -362,10 +362,10 @@ mod tests {
                 bank = selected;
             }
             let description = match instruction {
-                DroInstruction::DelayMs { ms, .. } => format!("Delay: {ms} ms"),
-                DroInstruction::DelaySamples { samples, .. } => format!("Delay: {samples} smp"),
-                DroInstruction::BankSwitch(_) => format!("Bank switch: {}", bank.name()),
-                DroInstruction::Register { reg, value, .. } => {
+                Instruction::DelayMs { ms, .. } => format!("Delay: {ms} ms"),
+                Instruction::DelaySamples { samples, .. } => format!("Delay: {samples} smp"),
+                Instruction::BankSwitch(_) => format!("Bank switch: {}", bank.name()),
+                Instruction::Register { reg, value, .. } => {
                     let kind = match bank {
                         Bank::High => regdata::register_kind(0x100 | u16::from(reg))
                             .or_else(|| regdata::register_kind(u16::from(reg))),
@@ -515,7 +515,7 @@ mod tests {
         let rows = RegisterAnalyzer::analyze_all(&song);
         let (index, samples) = (0..song.len())
             .find_map(|i| match song.instruction(i).unwrap() {
-                DroInstruction::DelaySamples { samples, .. } => Some((i, samples)),
+                Instruction::DelaySamples { samples, .. } => Some((i, samples)),
                 _ => None,
             })
             .expect("the VGM fixture contains sample delays");

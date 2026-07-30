@@ -13,7 +13,7 @@
 //! the chosen part.
 
 use crate::song::dro_data::v1_opcode;
-use crate::song::{DroDataV1, DroDataV2, DroInstruction, Song, SongData};
+use crate::song::{DroDataV1, DroDataV2, Instruction, Song, SongData};
 use crate::state_patch::{StateFold, append_patch};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
@@ -61,7 +61,7 @@ pub fn native_rate(song: &Song) -> u32 {
 }
 
 /// One instruction's delay in the song's native unit.
-fn native_delay(instruction: DroInstruction, in_samples: bool) -> u32 {
+fn native_delay(instruction: Instruction, in_samples: bool) -> u32 {
     if in_samples {
         instruction.delay_samples()
     } else {
@@ -764,7 +764,7 @@ mod tests {
         // The high-bank value survives as a high-bank write.
         assert_eq!(
             reread.instruction(1),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0x20,
                 value: 0x09,
                 bank: Some(Bank::High),
@@ -788,7 +788,7 @@ mod tests {
         assert_eq!(piece.len(), first.len());
         assert_eq!(
             piece.instruction(0),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0x20,
                 value: 0x11,
                 bank: Some(Bank::Low),

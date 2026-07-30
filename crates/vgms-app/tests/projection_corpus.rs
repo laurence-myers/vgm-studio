@@ -273,13 +273,13 @@ fn compare_split(
 /// last value, with registers left at zero dropped (a blank chip reads zero, so
 /// writing one explicitly is indistinguishable from never writing it).
 fn opl_state(song: &vgms_core::Song) -> std::collections::BTreeMap<(u8, u8), u8> {
-    use vgms_core::song::{Bank, DroInstruction};
+    use vgms_core::song::{Bank, Instruction};
     let mut state = std::collections::BTreeMap::new();
     let mut bank = Bank::Low;
     for index in 0..song.len() {
         match song.instruction(index) {
-            Some(DroInstruction::BankSwitch(to)) => bank = to,
-            Some(DroInstruction::Register {
+            Some(Instruction::BankSwitch(to)) => bank = to,
+            Some(Instruction::Register {
                 reg,
                 value,
                 bank: at,

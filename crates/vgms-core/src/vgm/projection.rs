@@ -19,10 +19,10 @@
 //! their place in the row numbering, describe themselves generically, and --
 //! because they wait for nothing -- leave every timing untouched. This is what
 //! lets a rip carrying a data block open in the editor at all, without
-//! `DroInstruction` having to grow an arm for something no OPL consumer could
+//! `Instruction` having to grow an arm for something no OPL consumer could
 //! act on.
 
-use crate::song::instruction::{Bank, DelayKind, DroInstruction};
+use crate::song::instruction::{Bank, DelayKind, Instruction};
 use crate::song::{OplType, Song};
 use crate::vgm::data::{VgmData, VgmMeta, command};
 use crate::vgm::header::{ChipKind, VgmHeader};
@@ -94,7 +94,7 @@ impl<'a> OplProjection<'a> {
     /// second YM3812 of a dual pair are the high bank, everything else the low
     /// one.
     #[must_use]
-    pub fn instruction(&self, index: usize) -> Option<DroInstruction> {
+    pub fn instruction(&self, index: usize) -> Option<Instruction> {
         let bytes = self.stream.raw_command(index)?;
         project(bytes)
     }
@@ -123,18 +123,18 @@ impl<'a> OplProjection<'a> {
 /// to spell a wait. Anything else -- including the `0x66` end marker, which the
 /// stream index never yields -- is not an OPL instruction.
 #[must_use]
-pub fn project(bytes: &[u8]) -> Option<DroInstruction> {
+pub fn project(bytes: &[u8]) -> Option<Instruction> {
     let opcode = *bytes.first()?;
     let operand = |at: usize| bytes.get(at).copied().unwrap_or(0);
 
     let register = |bank: Bank| {
-        Some(DroInstruction::Register {
+        Some(Instruction::Register {
             reg: operand(1),
             value: operand(2),
             bank: Some(bank),
         })
     };
-    let wait = |kind: DelayKind, samples: u32| Some(DroInstruction::DelaySamples { kind, samples });
+    let wait = |kind: DelayKind, samples: u32| Some(Instruction::DelaySamples { kind, samples });
 
     match opcode {
         command::YM3812 | command::YMF262_PORT_0 => register(Bank::Low),
@@ -198,7 +198,7 @@ mod tests {
         ]);
         let opl = opl_projection(&stream);
         let reg = |reg, value, bank| {
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg,
                 value,
                 bank: Some(bank),
@@ -225,13 +225,13 @@ mod tests {
         ]);
         let opl = opl_projection(&stream);
         let long = |samples| {
-            Some(DroInstruction::DelaySamples {
+            Some(Instruction::DelaySamples {
                 kind: DelayKind::Long,
                 samples,
             })
         };
         let short = |samples| {
-            Some(DroInstruction::DelaySamples {
+            Some(Instruction::DelaySamples {
                 kind: DelayKind::Short,
                 samples,
             })

@@ -235,7 +235,7 @@ enum VolumeScanPurpose {
     FillModifier,
 }
 
-pub struct DroApp {
+pub struct VgmStudioApp {
     editor: Editor,
     files: Box<dyn FileService>,
     audio: Box<dyn AudioService>,
@@ -336,7 +336,7 @@ pub struct DroApp {
     skin_preview: Option<(ThemeChoice, SurfaceChoice, SurfaceChoice)>,
 }
 
-impl DroApp {
+impl VgmStudioApp {
     #[must_use]
     pub fn new(
         files: Box<dyn FileService>,
@@ -4436,7 +4436,7 @@ impl DroApp {
     }
 }
 
-impl eframe::App for DroApp {
+impl eframe::App for VgmStudioApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.update_impl(ui);
     }
@@ -4448,14 +4448,14 @@ impl eframe::App for DroApp {
 }
 
 // The headless GUI tests live in their own file but mount here, as a child
-// module of `app`, so they can read `DroApp`'s private fields directly.
+// module of `app`, so they can read `VgmStudioApp`'s private fields directly.
 #[cfg(test)]
 #[path = "app_gui_tests.rs"]
 mod gui_tests;
 
-impl fmt::Debug for DroApp {
+impl fmt::Debug for VgmStudioApp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("DroApp")
+        f.debug_struct("VgmStudioApp")
             .field("editor", &self.editor)
             .field("status", &self.status)
             .finish_non_exhaustive()

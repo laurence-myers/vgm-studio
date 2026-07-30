@@ -234,7 +234,7 @@ fn write_v2(song: &Song, data: &DroDataV2) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song::{Bank, DRO_FILE_V1, DRO_FILE_V2, DelayKind, DroInstruction};
+    use crate::song::{Bank, DRO_FILE_V1, DRO_FILE_V2, DelayKind, Instruction};
     use crate::undo::{DeleteInstructions, UndoController};
 
     const DRO_V2_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up_dro2.dro");
@@ -295,7 +295,7 @@ mod tests {
         // codemap[0] = 0x01, value 0x20: "Test LSI Register / Waveform Select Enable"
         assert_eq!(
             song.instruction(0).unwrap(),
-            DroInstruction::Register {
+            Instruction::Register {
                 reg: 0x01,
                 value: 0x20,
                 bank: Some(Bank::Low)
@@ -380,14 +380,14 @@ mod tests {
         assert_eq!(song.total_delay_ms(), 177 + 4661);
         assert_eq!(
             song.instruction(1).unwrap(),
-            DroInstruction::DelayMs {
+            Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms: 177
             }
         );
         assert_eq!(
             song.instruction(5).unwrap(),
-            DroInstruction::Register {
+            Instruction::Register {
                 reg: 0x01,
                 value: 0xFF,
                 bank: None

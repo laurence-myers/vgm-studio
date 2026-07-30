@@ -696,7 +696,7 @@ mod tests {
         let reread = round_trip(&edited);
         assert_eq!(
             reread.instruction(1),
-            Some(crate::song::DroInstruction::Register {
+            Some(crate::song::Instruction::Register {
                 reg: 0x20,
                 value: 0x09,
                 bank: Some(Bank::High),

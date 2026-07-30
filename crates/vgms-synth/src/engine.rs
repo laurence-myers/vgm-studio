@@ -19,7 +19,7 @@ use std::borrow::Borrow;
 use vgms_core::regdata::PERCUSSION_REGISTER;
 use vgms_core::song::DRO_FILE_V1;
 use vgms_core::util::VGM_SAMPLE_RATE;
-use vgms_core::{Bank, DroInstruction, Song, SongFileType};
+use vgms_core::{Bank, Instruction, Song, SongFileType};
 
 use crate::opl::{DefaultOplChip, OplChip};
 
@@ -676,9 +676,9 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// channels' key bits masked off ([`Muting::mask_replay`]). Either way the
     /// bank and the delay clock advance identically, so play and seek can never
     /// diverge.
-    fn execute(&mut self, instruction: DroInstruction, playback: bool) -> u64 {
+    fn execute(&mut self, instruction: Instruction, playback: bool) -> u64 {
         match instruction {
-            DroInstruction::Register { reg, value, .. } => {
+            Instruction::Register { reg, value, .. } => {
                 if let Some(bank) = instruction.selected_bank() {
                     self.bank = bank; // DRO v2 / VGM carry the bank per write.
                 }
@@ -726,12 +726,12 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
                 }
                 0
             }
-            DroInstruction::BankSwitch(bank) => {
+            Instruction::BankSwitch(bank) => {
                 self.bank = bank; // DRO v1 tracks the bank with these.
                 0
             }
-            DroInstruction::DelayMs { ms, .. } => self.clock.frames_for(ms),
-            DroInstruction::DelaySamples { samples, .. } => self.clock.frames_for(samples),
+            Instruction::DelayMs { ms, .. } => self.clock.frames_for(ms),
+            Instruction::DelaySamples { samples, .. } => self.clock.frames_for(samples),
         }
     }
 

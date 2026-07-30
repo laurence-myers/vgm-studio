@@ -471,7 +471,7 @@ mod vgm_split_tests {
 mod tests {
     use super::*;
     use vgms_core::io::{read_song, write_song};
-    use vgms_core::{DroDataV1, DroInstruction, OplType};
+    use vgms_core::{DroDataV1, Instruction, OplType};
 
     /// A small OPL2 song touching channels 0 and 1 and the percussion register,
     /// so a split produces a few outputs without rendering a 99-second fixture.
@@ -581,7 +581,7 @@ mod tests {
     /// Whether `song` writes `value` to `reg`, on either bank.
     fn writes(song: &Song, reg: u8, value: u8) -> bool {
         song.data().iter().any(|i| {
-            matches!(i, DroInstruction::Register { reg: r, value: v, .. } if r == reg && v == value)
+            matches!(i, Instruction::Register { reg: r, value: v, .. } if r == reg && v == value)
         })
     }
 

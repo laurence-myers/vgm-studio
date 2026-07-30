@@ -22,7 +22,7 @@ use vgms_core::io::read_song;
 use vgms_core::optimize::optimize;
 use vgms_core::util::VGM_SAMPLE_RATE;
 use vgms_core::vgm::io::synthesise_header;
-use vgms_core::{Bank, DroInstruction, OplType, Song, VgmData, VgmMeta};
+use vgms_core::{Bank, Instruction, OplType, Song, VgmData, VgmMeta};
 use vgms_synth::{FrameClock, NATIVE_SAMPLE_RATE, NukedOpl3, OplChip};
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
@@ -74,7 +74,7 @@ fn render_indices(song: &Song, indices: &[usize]) -> Vec<i16> {
     let mut bank = Bank::Low;
     for &index in indices {
         match song.instruction(index).unwrap() {
-            DroInstruction::Register {
+            Instruction::Register {
                 reg,
                 value,
                 bank: written,
@@ -84,7 +84,7 @@ fn render_indices(song: &Song, indices: &[usize]) -> Vec<i16> {
                 }
                 chip.write_reg(bank.register_offset() | u16::from(reg), value);
             }
-            DroInstruction::DelaySamples { samples, .. } => {
+            Instruction::DelaySamples { samples, .. } => {
                 let mut frames = clock.frames_for(samples);
                 while frames > 0 {
                     let n = frames.min((scratch.len() / 2) as u64) as usize;
@@ -93,7 +93,7 @@ fn render_indices(song: &Song, indices: &[usize]) -> Vec<i16> {
                     frames -= n as u64;
                 }
             }
-            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {}
+            Instruction::BankSwitch(_) | Instruction::DelayMs { .. } => {}
         }
     }
     out
@@ -168,7 +168,7 @@ fn optimising_a_bloated_real_capture_matches_the_clean_render() {
         bloated_bytes.extend_from_slice(raw);
         if matches!(
             clean.instruction(index),
-            Some(DroInstruction::Register { .. })
+            Some(Instruction::Register { .. })
         ) {
             bloated_bytes.extend_from_slice(raw); // the redundant repeat
         }

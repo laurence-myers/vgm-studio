@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use vgms_core::optimize::optimize;
 use vgms_core::util::VGM_SAMPLE_RATE;
-use vgms_core::{Bank, DroInstruction, Song};
+use vgms_core::{Bank, Instruction, Song};
 use vgms_synth::{FrameClock, NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, render_wav};
 
 /// Renders a VGM through the chip with *immediate* register writes (no write
@@ -39,7 +39,7 @@ fn render_immediate(song: &Song, rate: u32) -> Vec<i16> {
     let mut bank = Bank::Low;
     for index in 0..song.len() {
         match song.instruction(index).unwrap() {
-            DroInstruction::Register {
+            Instruction::Register {
                 reg,
                 value,
                 bank: written,
@@ -49,7 +49,7 @@ fn render_immediate(song: &Song, rate: u32) -> Vec<i16> {
                 }
                 chip.write_reg(bank.register_offset() | u16::from(reg), value);
             }
-            DroInstruction::DelaySamples { samples, .. } => {
+            Instruction::DelaySamples { samples, .. } => {
                 let mut frames = clock.frames_for(samples);
                 while frames > 0 {
                     let n = frames.min((scratch.len() / 2) as u64) as usize;
@@ -58,7 +58,7 @@ fn render_immediate(song: &Song, rate: u32) -> Vec<i16> {
                     frames -= n as u64;
                 }
             }
-            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {}
+            Instruction::BankSwitch(_) | Instruction::DelayMs { .. } => {}
         }
     }
     out

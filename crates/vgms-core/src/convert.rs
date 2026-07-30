@@ -3,7 +3,7 @@
 
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, DelayKind, DroDataV1, DroInstruction, OplType, Song, SongData};
+use crate::song::{Bank, DelayKind, DroDataV1, Instruction, OplType, Song, SongData};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
@@ -105,8 +105,8 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
 
     for instruction in song.data().iter() {
         match instruction {
-            DroInstruction::BankSwitch(selected) => bank = selected, // DRO v1
-            DroInstruction::Register {
+            Instruction::BankSwitch(selected) => bank = selected, // DRO v1
+            Instruction::Register {
                 reg,
                 value,
                 bank: own,
@@ -114,8 +114,8 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
                 // DRO v2 carries the bank on the write; v1 tracks it separately.
                 stream.write(own.unwrap_or(bank), reg, value);
             }
-            DroInstruction::DelayMs { ms, .. } => stream.wait(clock.samples_for_ms(ms)),
-            DroInstruction::DelaySamples { .. } => {
+            Instruction::DelayMs { ms, .. } => stream.wait(clock.samples_for_ms(ms)),
+            Instruction::DelaySamples { .. } => {
                 unreachable!("a DRO song has no sample delays")
             }
         }
@@ -178,14 +178,14 @@ pub fn filter_vgm(
             loop_end = Some(stream.count);
         }
         match instruction {
-            DroInstruction::Register { reg, value, bank } => {
+            Instruction::Register { reg, value, bank } => {
                 let bank = bank.unwrap_or(Bank::Low);
                 if let Some(gated) = gate(bank, reg, value) {
                     stream.write(bank, reg, gated);
                 }
             }
-            DroInstruction::DelaySamples { samples, .. } => stream.wait(u64::from(samples)),
-            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {
+            Instruction::DelaySamples { samples, .. } => stream.wait(u64::from(samples)),
+            Instruction::BankSwitch(_) | Instruction::DelayMs { .. } => {
                 unreachable!("a VGM song has neither bank switches nor millisecond delays")
             }
         }
@@ -253,7 +253,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
 
     for instruction in song.data().iter() {
         match instruction {
-            DroInstruction::DelayMs {
+            Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms,
             } => {
@@ -262,7 +262,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
                 })?;
                 out.extend_from_slice(&[v1_opcode::SHORT_DELAY, value]);
             }
-            DroInstruction::DelayMs {
+            Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms,
             } => {
@@ -272,7 +272,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
                 out.push(v1_opcode::LONG_DELAY);
                 out.extend_from_slice(&value.to_le_bytes());
             }
-            DroInstruction::Register {
+            Instruction::Register {
                 reg,
                 value,
                 bank: own,
@@ -293,7 +293,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
                     out.extend_from_slice(&[reg, value]);
                 }
             }
-            DroInstruction::BankSwitch(_) | DroInstruction::DelaySamples { .. } => {
+            Instruction::BankSwitch(_) | Instruction::DelaySamples { .. } => {
                 unreachable!("a DRO v2 song has neither bank switches nor sample delays")
             }
         }
@@ -516,12 +516,12 @@ mod tests {
                 v2.instruction(index).unwrap(),
             ) {
                 (
-                    DroInstruction::Register {
+                    Instruction::Register {
                         reg: a,
                         value: b,
                         bank: None,
                     },
-                    DroInstruction::Register {
+                    Instruction::Register {
                         reg: c,
                         value: d,
                         bank: Some(Bank::Low),
@@ -614,7 +614,7 @@ mod tests {
         let delays = vgm
             .data()
             .iter()
-            .filter(|i| matches!(i, DroInstruction::DelaySamples { .. }))
+            .filter(|i| matches!(i, Instruction::DelaySamples { .. }))
             .count();
         assert_eq!(filtered.len(), delays, "only the delays should remain");
         assert_eq!(filtered.total_delay_samples(), vgm.total_delay_samples());
@@ -629,7 +629,7 @@ mod tests {
                 .data()
                 .iter()
                 .filter_map(|i| match i {
-                    DroInstruction::Register { value, .. } => Some(value),
+                    Instruction::Register { value, .. } => Some(value),
                     _ => None,
                 })
                 .all(|value| value == 0x7F)

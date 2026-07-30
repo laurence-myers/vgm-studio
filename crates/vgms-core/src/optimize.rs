@@ -42,7 +42,7 @@
 //! tests assert idempotence rather than looping.
 
 use crate::opl_state::OplState;
-use crate::song::{DroInstruction, Song, SongData, StreamSnapshot};
+use crate::song::{Instruction, Song, SongData, StreamSnapshot};
 use crate::vgm::VgmData;
 use crate::vgm::data::command;
 use crate::vgm::stream::{VgmCommand, VgmStream};
@@ -160,7 +160,7 @@ pub fn redundant_indices(song: &Song) -> Vec<usize> {
         if loop_point == Some(index) {
             state.reset();
         }
-        if let Some(DroInstruction::Register { reg, value, bank }) = song.instruction(index) {
+        if let Some(Instruction::Register { reg, value, bank }) = song.instruction(index) {
             // Every VGM write carries a bank; [`OplState`] routes chip 2 / port 1
             // to the high file and everything else to the low file.
             if state.is_set(bank, reg, value) {
@@ -211,13 +211,13 @@ fn merge_delays(
             new_loop_end = Some(new_count);
         }
         match stream.get(index).expect("index < len") {
-            DroInstruction::DelaySamples { .. } => run.push(index),
-            DroInstruction::Register { .. } => {
+            Instruction::DelaySamples { .. } => run.push(index),
+            Instruction::Register { .. } => {
                 flush_run(stream, &mut run, &mut out, &mut new_count);
                 out.extend_from_slice(stream.raw_instruction(index).expect("index < len"));
                 new_count += 1;
             }
-            DroInstruction::BankSwitch(_) | DroInstruction::DelayMs { .. } => {
+            Instruction::BankSwitch(_) | Instruction::DelayMs { .. } => {
                 unreachable!("a VGM stream has neither bank switches nor millisecond delays")
             }
         }
@@ -567,22 +567,22 @@ mod tests {
         // The redundant write went, and the two 100/200 delays merged into one 300.
         assert_eq!(outcome.commands_removed, 2);
         assert_eq!(outcome.data.len(), 3);
-        let kinds: Vec<DroInstruction> = (0..outcome.data.len())
+        let kinds: Vec<Instruction> = (0..outcome.data.len())
             .map(|i| outcome.data.get(i).unwrap())
             .collect();
         assert_eq!(
             kinds,
             vec![
-                DroInstruction::Register {
+                Instruction::Register {
                     reg: 0x20,
                     value: 0x01,
                     bank: Some(Bank::Low)
                 },
-                DroInstruction::DelaySamples {
+                Instruction::DelaySamples {
                     kind: DelayKind::Long,
                     samples: 300
                 },
-                DroInstruction::Register {
+                Instruction::Register {
                     reg: 0x21,
                     value: 0x02,
                     bank: Some(Bank::Low)

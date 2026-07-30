@@ -1,6 +1,6 @@
-//! Headless GUI tests: drive the fully rendered `DroApp` through egui_kittest
+//! Headless GUI tests: drive the fully rendered `VgmStudioApp` through egui_kittest
 //! and assert on editor state and what the fake platform services were asked to
-//! do. Mounted as a child module of `app`, so it can read `DroApp`'s private
+//! do. Mounted as a child module of `app`, so it can read `VgmStudioApp`'s private
 //! fields (`editor`, `dialogs`, `alerts`, `status`) directly.
 //!
 //! Interaction tests use the default (LazyRenderer) harness -- no GPU. The
@@ -20,7 +20,7 @@ use vgms_core::Song;
 use vgms_core::config::{AppConfig, ThemeChoice};
 use vgms_synth::LoopCount;
 
-use super::DroApp;
+use super::VgmStudioApp;
 use crate::action::{Action, AppTab};
 use crate::pack::PackSection;
 use crate::platform::{
@@ -55,7 +55,7 @@ fn picked(song: &Song) -> PickedFile {
     }
 }
 
-/// Build a harness around a `DroApp` wired to fresh fakes.
+/// Build a harness around a `VgmStudioApp` wired to fresh fakes.
 ///
 /// - `inline_tasks`: run the waveform render synchronously (so it has pixels)
 ///   instead of dropping it on the floor.
@@ -64,7 +64,7 @@ fn build(
     initial: Option<PickedFile>,
     inline_tasks: bool,
     wgpu: bool,
-) -> (Harness<'static, DroApp>, Handles) {
+) -> (Harness<'static, VgmStudioApp>, Handles) {
     // Tall enough for the five stacked panels plus table rows.
     build_sized(initial, inline_tasks, wgpu, egui::vec2(1000.0, 720.0))
 }
@@ -74,7 +74,7 @@ fn build_sized(
     inline_tasks: bool,
     wgpu: bool,
     size: egui::Vec2,
-) -> (Harness<'static, DroApp>, Handles) {
+) -> (Harness<'static, VgmStudioApp>, Handles) {
     // Every GUI test sees the app-shaped registry: since the cull the
     // builtins alone have no generic core, so playability, the transport and
     // the render menu would all answer differently without it.
@@ -97,7 +97,7 @@ fn build_sized(
         // Match drotrim.rs startup: the embedded DOS font and feathering-off are
         // what make layout and snapshots deterministic.
         crate::theme::install(&cc.egui_ctx, ThemeChoice::default());
-        DroApp::new(
+        VgmStudioApp::new(
             Box::new(FakeFileService(files)),
             Box::new(FakeAudioService(audio)),
             if inline_tasks {
@@ -127,12 +127,12 @@ fn build_sized(
 }
 
 /// The common case: interaction harness, no song loaded.
-fn empty_harness() -> (Harness<'static, DroApp>, Handles) {
+fn empty_harness() -> (Harness<'static, VgmStudioApp>, Handles) {
     build(None, false, false)
 }
 
 /// Interaction harness with `song` already loaded (via the first-frame open).
-fn harness_with_song(song: &Song) -> (Harness<'static, DroApp>, Handles) {
+fn harness_with_song(song: &Song) -> (Harness<'static, VgmStudioApp>, Handles) {
     build(Some(picked(song)), false, false)
 }
 
@@ -1061,7 +1061,7 @@ fn settings_save_preserves_a_live_changed_boost() {
 
 /// Open Settings and pick Wine from the Theme dropdown, through the real combo
 /// -- the pick is the thing that has to fire the preview.
-fn previewing_wine() -> (Harness<'static, DroApp>, Handles) {
+fn previewing_wine() -> (Harness<'static, VgmStudioApp>, Handles) {
     let (mut harness, handles) = harness_with_song(&tone_song());
     assert_eq!(harness.state().config.ui.theme, ThemeChoice::Petrol);
     let config = harness.state().config.clone();
@@ -1225,7 +1225,7 @@ fn ctrl_s_saves_in_place_and_reports_the_path() {
 // -- render to WAV -----------------------------------------------------------
 
 /// Opens File > Render to WAV..., which needs the menu to be walked.
-fn open_render_wav_dialog(harness: &mut Harness<'static, DroApp>) {
+fn open_render_wav_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
     harness.get_by_label("File").click();
     harness.run();
     harness.get_by_label_contains("Render to WAV").click();
@@ -1379,7 +1379,7 @@ fn a_failed_render_alerts_instead_of_saving() {
 // -- split channels ----------------------------------------------------------
 
 /// Opens File > Split Channels...
-fn open_split_dialog(harness: &mut Harness<'static, DroApp>) {
+fn open_split_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
     harness.get_by_label("File").click();
     harness.run();
     harness.get_by_label_contains("Split Channels").click();
@@ -1620,7 +1620,7 @@ fn a_vgm_can_be_split_too() {
 // -- split songs -------------------------------------------------------------
 
 /// Opens File > Split Songs...
-fn open_split_songs_dialog(harness: &mut Harness<'static, DroApp>) {
+fn open_split_songs_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
     harness.get_by_label("File").click();
     harness.run();
     harness.get_by_label_contains("Split Songs").click();
@@ -1798,7 +1798,7 @@ fn previewing_a_song_seeks_to_its_start_and_plays() {
 /// paints a synthetic mouse cursor whenever a pointer position is live (e.g.
 /// after a click), which would bake a cursor triangle and hover state into
 /// the baselines.
-fn settled_snapshot(harness: &mut Harness<'static, DroApp>, name: &str) {
+fn settled_snapshot(harness: &mut Harness<'static, VgmStudioApp>, name: &str) {
     harness.remove_cursor();
     harness.run();
     harness.snapshot(name);
@@ -3053,7 +3053,7 @@ fn four_track_folder() -> PickedFolder {
 }
 
 /// Queues a folder and runs a frame so `poll_folder` installs it.
-fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder: PickedFolder) {
+fn open_folder(harness: &mut Harness<'static, VgmStudioApp>, handles: &Handles, folder: PickedFolder) {
     handles
         .files
         .borrow_mut()
@@ -3064,7 +3064,7 @@ fn open_folder(harness: &mut Harness<'static, DroApp>, handles: &Handles, folder
 
 /// The pack view scrolls as one page, so the track-row and screenshot buttons sit
 /// well below a 720px viewport; a tall harness keeps them clickable.
-fn tall_pack_harness() -> (Harness<'static, DroApp>, Handles) {
+fn tall_pack_harness() -> (Harness<'static, VgmStudioApp>, Handles) {
     build_sized(None, false, false, egui::vec2(1000.0, 1700.0))
 }
 
@@ -3137,7 +3137,7 @@ fn opening_a_folder_switches_to_the_pack_tab_and_prefills() {
 /// Whether the Pack *tab* is greyed. The menu bar carries a "Pack" menu button
 /// with the same label, so pick the node reporting a selected state -- only the
 /// tab cells do.
-fn pack_tab_is_barred(harness: &Harness<'static, DroApp>) -> bool {
+fn pack_tab_is_barred(harness: &Harness<'static, VgmStudioApp>) -> bool {
     harness
         .get_all_by_label("Pack")
         .find(|node| node.accesskit_node().toggled().is_some())
@@ -4084,7 +4084,7 @@ fn tag_of(name: &str, bytes: &[u8]) -> vgms_core::Gd3Tag {
 
 /// Drives a pack run to completion: feed one save outcome per write, plus the
 /// rescan folder, then step the frame loop.
-fn settle_pack_run(harness: &mut Harness<'static, DroApp>, handles: &Handles, writes: usize) {
+fn settle_pack_run(harness: &mut Harness<'static, VgmStudioApp>, handles: &Handles, writes: usize) {
     {
         let mut files = handles.files.borrow_mut();
         for _ in 0..writes {
@@ -5146,7 +5146,7 @@ fn snapshot_pack_checklist_narrow() {
 
 /// A tall interaction harness with the dirty pack open, so the whole submission
 /// checklist is on-screen and its lines are real click targets.
-fn dirty_checklist_harness() -> (Harness<'static, DroApp>, Handles) {
+fn dirty_checklist_harness() -> (Harness<'static, VgmStudioApp>, Handles) {
     let (mut harness, handles) = build_sized(None, false, false, egui::vec2(1280.0, 1400.0));
     open_folder(&mut harness, &handles, dirty_folder());
     harness.run();
@@ -5553,7 +5553,7 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
 
 /// Opens one menu on a pack harness and hands the harness back for querying.
 /// One menu per test: reopening a second one in the same test does not register.
-fn pack_harness_with_menu(menu: &str) -> Harness<'static, DroApp> {
+fn pack_harness_with_menu(menu: &str) -> Harness<'static, VgmStudioApp> {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, complete_folder());
     assert_eq!(harness.state().active_tab, AppTab::Pack);
@@ -5752,7 +5752,7 @@ fn snapshot_bulk_tag_dialog() {
 // -- loop points -------------------------------------------------------------
 
 /// Drives one action through the app the way the frame loop would.
-fn act(harness: &mut Harness<'static, DroApp>, action: Action) {
+fn act(harness: &mut Harness<'static, VgmStudioApp>, action: Action) {
     let ctx = harness.ctx.clone();
     harness.state_mut().handle_action(&ctx, action);
 }
@@ -5765,7 +5765,7 @@ fn act(harness: &mut Harness<'static, DroApp>, action: Action) {
 /// frame the section switches is not clickable until the frame after. (A real
 /// user cannot hit that window; a synthetic click landing the same millisecond
 /// can.)
-fn pack_section(harness: &mut Harness<'static, DroApp>, section: PackSection) {
+fn pack_section(harness: &mut Harness<'static, VgmStudioApp>, section: PackSection) {
     act(harness, Action::PackSelectSection(section));
     harness.run();
     harness.run();
@@ -6351,7 +6351,7 @@ fn snapshot_find_loop_dialog() {
 // -- format-specific menu items ----------------------------------------------
 
 /// Opens the Edit menu and reports which of the format-specific items are on it.
-fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
+fn edit_menu_items(harness: &mut Harness<'static, VgmStudioApp>) -> Vec<&'static str> {
     harness.get_by_label("Edit").click();
     harness.run();
     // The loop items live in the Loop submenu now, which is a menu of its own;
@@ -6375,7 +6375,7 @@ fn edit_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> 
 
 /// Opens File > Convert and reports which conversions it offers. Empty when the
 /// Convert submenu is not shown at all (a VGM, or no song).
-fn convert_menu_items(harness: &mut Harness<'static, DroApp>) -> Vec<&'static str> {
+fn convert_menu_items(harness: &mut Harness<'static, VgmStudioApp>) -> Vec<&'static str> {
     harness.get_by_label("File").click();
     harness.run();
     // The submenu header renders as "Convert âµ" (with a submenu arrow); its
@@ -6605,7 +6605,7 @@ fn dro_info_offers_editing_when_the_setting_is_on() {
     // "Edit" is also the menu bar's Edit menu, which is always on screen, so
     // the dialog's button is the *second* node with that label.
     let edit_nodes =
-        |harness: &mut Harness<'static, DroApp>| harness.get_all_by_label("Edit").count();
+        |harness: &mut Harness<'static, VgmStudioApp>| harness.get_all_by_label("Edit").count();
 
     // Off by default: the dialog is view-only, so only the menu answers.
     act(&mut harness, Action::OpenDroInfo);

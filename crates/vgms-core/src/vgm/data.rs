@@ -1,7 +1,7 @@
 //! The VGM command stream, its GD3 tag, and the header fields we model.
 
 use crate::error::{Error, Result};
-use crate::song::instruction::DroInstruction;
+use crate::song::instruction::Instruction;
 use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
 /// The VGM commands this app understands. Anything else is a hard error -- a
@@ -173,7 +173,7 @@ impl VgmData {
     /// The OPL instruction at `index`, or `None` when the command there is not
     /// one (a data block, a reserved opcode) or the index is past the end.
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<DroInstruction> {
+    pub fn get(&self, index: usize) -> Option<Instruction> {
         let start = *self.offsets.get(index)? as usize;
         crate::vgm::projection::project(&self.data[start..])
     }
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn decode() {
         let data = vgm_fixture();
-        let reg = |reg, value| DroInstruction::Register {
+        let reg = |reg, value| Instruction::Register {
             reg,
             value,
             bank: Some(Bank::Low),
@@ -413,14 +413,14 @@ mod tests {
         assert_eq!(data.get(2), Some(reg(0x04, 0x05)));
         assert_eq!(
             data.get(5),
-            Some(DroInstruction::DelaySamples {
+            Some(Instruction::DelaySamples {
                 kind: DelayKind::Long,
                 samples: 0xB0
             })
         );
         assert_eq!(
             data.get(6),
-            Some(DroInstruction::DelaySamples {
+            Some(Instruction::DelaySamples {
                 kind: DelayKind::Short,
                 samples: 1
             })
@@ -453,21 +453,21 @@ mod tests {
         ])
         .unwrap();
 
-        let low = |reg, value| DroInstruction::Register {
+        let low = |reg, value| Instruction::Register {
             reg,
             value,
             bank: Some(Bank::Low),
         };
-        let high = |reg, value| DroInstruction::Register {
+        let high = |reg, value| Instruction::Register {
             reg,
             value,
             bank: Some(Bank::High),
         };
-        let long = |samples| DroInstruction::DelaySamples {
+        let long = |samples| Instruction::DelaySamples {
             kind: DelayKind::Long,
             samples,
         };
-        let short = |samples| DroInstruction::DelaySamples {
+        let short = |samples| Instruction::DelaySamples {
             kind: DelayKind::Short,
             samples,
         };

@@ -2,7 +2,7 @@
 
 #![allow(dead_code)] // Each integration test uses a different subset.
 
-use vgms_core::{DroDataV2, DroInstruction, SongData};
+use vgms_core::{DroDataV2, Instruction, SongData};
 use vgms_synth::{FrameClock, OplChip};
 
 /// The committed `tests/lsl3_score_up_dro2.dro` fixture.
@@ -65,14 +65,14 @@ pub(crate) fn decode_fixture() -> Vec<Op> {
     let ops: Vec<Op> = data
         .iter()
         .map(|instruction| match instruction {
-            DroInstruction::DelayMs { ms, .. } => Op::Delay(ms),
-            DroInstruction::Register { reg, value, bank } => Op::Write(
+            Instruction::DelayMs { ms, .. } => Op::Delay(ms),
+            Instruction::Register { reg, value, bank } => Op::Write(
                 bank.expect("v2 register writes carry a bank")
                     .register_offset()
                     | u16::from(reg),
                 value,
             ),
-            DroInstruction::BankSwitch(_) | DroInstruction::DelaySamples { .. } => {
+            Instruction::BankSwitch(_) | Instruction::DelaySamples { .. } => {
                 unreachable!("DRO v2 has neither bank switches nor sample delays")
             }
         })

@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use vgms_core::{Bank, DroDataV2, DroInstruction, Error, OplType, Result, Song, SongData};
+use vgms_core::{Bank, DroDataV2, Instruction, Error, OplType, Result, Song, SongData};
 
 use crate::engine::Muting;
 
@@ -200,7 +200,7 @@ pub fn capture(song: &Song, muting: Muting, name: String) -> Result<Song> {
     let mut bank = Bank::Low;
     for instruction in song.data().iter() {
         match instruction {
-            DroInstruction::Register { reg, value, .. } => {
+            Instruction::Register { reg, value, .. } => {
                 if let Some(selected) = instruction.selected_bank() {
                     bank = selected;
                 }
@@ -209,9 +209,9 @@ pub fn capture(song: &Song, muting: Muting, name: String) -> Result<Song> {
                     capture.write(reg, gated)?;
                 }
             }
-            DroInstruction::BankSwitch(selected) => bank = selected,
-            DroInstruction::DelayMs { ms, .. } => capture.render(ms),
-            DroInstruction::DelaySamples { .. } => {
+            Instruction::BankSwitch(selected) => bank = selected,
+            Instruction::DelayMs { ms, .. } => capture.render(ms),
+            Instruction::DelaySamples { .. } => {
                 // Unreachable: a sample delay only occurs in a VGM, which was
                 // routed to `filter_vgm` above. Reported rather than panicked on.
                 return Err(Error::file(
@@ -236,7 +236,7 @@ mod tests {
     fn register_writes(song: &Song) -> usize {
         song.data()
             .iter()
-            .filter(|i| matches!(i, DroInstruction::Register { .. }))
+            .filter(|i| matches!(i, Instruction::Register { .. }))
             .count()
     }
 
@@ -312,7 +312,7 @@ mod tests {
     /// Whether `song` contains a write of `value` to `reg`.
     fn writes(song: &Song, reg: u8, value: u8) -> bool {
         song.data().iter().any(|i| {
-            matches!(i, DroInstruction::Register { reg: r, value: v, .. } if r == reg && v == value)
+            matches!(i, Instruction::Register { reg: r, value: v, .. } if r == reg && v == value)
         })
     }
 
@@ -382,6 +382,6 @@ mod tests {
         // one write -> 122 register writes, all but the last valued 0.
         assert_eq!(register_writes(&captured), 121 + 1);
         let first = captured.instruction(0).unwrap();
-        assert!(matches!(first, DroInstruction::Register { value: 0, .. }));
+        assert!(matches!(first, Instruction::Register { value: 0, .. }));
     }
 }

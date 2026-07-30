@@ -30,7 +30,7 @@
 use std::collections::HashMap;
 
 use crate::Song;
-use crate::song::{Bank, DroInstruction};
+use crate::song::{Bank, Instruction};
 
 /// FNV-64's prime, used as the rolling hash base. Any odd base gives a
 /// position-independent hash, so equal blocks always collide (collisions are
@@ -96,14 +96,14 @@ impl Candidate {
 /// repeat match regardless of how their delays were encoded. Register writes
 /// compare on bank, register and value; bank switches (DRO v1) compare on the
 /// selected bank. The tag bits keep the two kinds from ever colliding.
-fn normalize(instruction: DroInstruction) -> Option<u32> {
+fn normalize(instruction: Instruction) -> Option<u32> {
     match instruction {
-        DroInstruction::Register { reg, value, bank } => {
+        Instruction::Register { reg, value, bank } => {
             let bank_bit = u32::from(matches!(bank, Some(Bank::High)));
             Some((1 << 24) | (bank_bit << 16) | (u32::from(reg) << 8) | u32::from(value))
         }
-        DroInstruction::BankSwitch(bank) => Some((2 << 24) | u32::from(bank.index())),
-        DroInstruction::DelayMs { .. } | DroInstruction::DelaySamples { .. } => None,
+        Instruction::BankSwitch(bank) => Some((2 << 24) | u32::from(bank.index())),
+        Instruction::DelayMs { .. } | Instruction::DelaySamples { .. } => None,
     }
 }
 

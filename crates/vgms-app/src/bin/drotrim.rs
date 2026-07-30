@@ -15,7 +15,7 @@ use vgms_app::cli::Cli;
 use vgms_app::services::{
     IniConfigStore, NativeFileService, NativePackService, SwitchingAudioService, ThreadTaskService,
 };
-use vgms_ui::DroApp;
+use vgms_ui::VgmStudioApp;
 use vgms_ui::platform::FileService;
 
 /// Decodes the embedded `dt.ico` into the window/taskbar icon.
@@ -111,7 +111,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             };
-            Ok(Box::new(DroApp::new(
+            Ok(Box::new(VgmStudioApp::new(
                 Box::new(files),
                 Box::new(SwitchingAudioService::new()),
                 Box::new(ThreadTaskService::with_notifier(repaint_tasks)),

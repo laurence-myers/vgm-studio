@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! The DRO Trimmer GUI, as a library.
 //!
-//! The egui application (`app::DroApp`) is consumed by the native `drotrim`
+//! The egui application (`app::VgmStudioApp`) is consumed by the native `drotrim`
 //! binary through `eframe::run_native`, and later by the web shell
 //! through `eframe::WebRunner`. Every platform difference -- file dialogs,
 //! audio output, background threads, config storage -- is injected through
@@ -34,7 +34,7 @@ mod theme_showcase;
 pub mod widgets;
 
 pub use action::AppTab;
-pub use app::DroApp;
+pub use app::VgmStudioApp;
 pub use pack::PackState;
 pub use platform::{
     AudioService, ConfigStore, FileService, OptimizedImage, PackEntry, PackEntryKind,

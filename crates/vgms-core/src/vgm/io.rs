@@ -441,7 +441,7 @@ pub(crate) fn put_chip_clocks(header: &mut [u8], opl_type: OplType) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song::{Bank, DelayKind, DroInstruction};
+    use crate::song::{Bank, DelayKind, Instruction};
     use crate::undo::{DeleteInstructions, UndoController};
 
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up.vgm");
@@ -466,7 +466,7 @@ mod tests {
         );
         assert_eq!(
             song.instruction(0).unwrap(),
-            DroInstruction::Register {
+            Instruction::Register {
                 reg: 0x01,
                 value: 0x20,
                 bank: Some(Bank::Low)
@@ -1218,7 +1218,7 @@ mod tests {
         let samples: Vec<u32> = song
             .data()
             .iter()
-            .map(DroInstruction::delay_samples)
+            .map(Instruction::delay_samples)
             .collect();
         assert_eq!(samples, [735, 882, 1, 16]);
         assert_eq!(song.total_delay_samples(), 735 + 882 + 1 + 16);

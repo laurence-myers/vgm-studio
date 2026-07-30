@@ -90,7 +90,7 @@ impl DelayKind {
 
 /// One decoded instruction, from a DRO or a VGM stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DroInstruction {
+pub enum Instruction {
     /// Write `value` to `reg`.
     ///
     /// `bank` is `None` only for DRO v1, which tracks the bank with separate
@@ -109,7 +109,7 @@ pub enum DroInstruction {
     DelaySamples { kind: DelayKind, samples: u32 },
 }
 
-impl DroInstruction {
+impl Instruction {
     /// The delay in milliseconds, or `0` for anything that is not a *millisecond*
     /// delay. VGM's sample delays report `0` here -- see [`Self::delay_samples`].
     #[must_use]
@@ -186,15 +186,15 @@ impl FindTarget {
     #[must_use]
     /// Delay tokens match on the *kind*, so they work the same on DRO's
     /// millisecond delays and VGM's sample delays.
-    pub fn matches(self, instruction: DroInstruction) -> bool {
+    pub fn matches(self, instruction: Instruction) -> bool {
         match self {
             Self::Register(wanted) => {
-                matches!(instruction, DroInstruction::Register { reg, .. } if reg == wanted)
+                matches!(instruction, Instruction::Register { reg, .. } if reg == wanted)
             }
             Self::ShortDelay => instruction.delay_kind() == Some(DelayKind::Short),
             Self::LongDelay => instruction.delay_kind() == Some(DelayKind::Long),
             Self::AnyDelay => instruction.is_delay(),
-            Self::BankSwitch => matches!(instruction, DroInstruction::BankSwitch(_)),
+            Self::BankSwitch => matches!(instruction, Instruction::BankSwitch(_)),
         }
     }
 }
@@ -242,8 +242,8 @@ mod tests {
     #[test]
     fn instruction_is_small_and_copy() {
         // Cheap enough to decode per table-row paint without allocating.
-        assert!(size_of::<DroInstruction>() <= 8);
-        let inst = DroInstruction::Register {
+        assert!(size_of::<Instruction>() <= 8);
+        let inst = Instruction::Register {
             reg: 0x20,
             value: 1,
             bank: None,
@@ -254,17 +254,17 @@ mod tests {
 
     #[test]
     fn delay_accessors_report_only_their_own_unit() {
-        let register = DroInstruction::Register {
+        let register = Instruction::Register {
             reg: 1,
             value: 2,
             bank: None,
         };
-        let bank = DroInstruction::BankSwitch(Bank::High);
-        let ms = DroInstruction::DelayMs {
+        let bank = Instruction::BankSwitch(Bank::High);
+        let ms = Instruction::DelayMs {
             kind: DelayKind::Long,
             ms: 49_408,
         };
-        let samples = DroInstruction::DelaySamples {
+        let samples = Instruction::DelaySamples {
             kind: DelayKind::Long,
             samples: 176,
         };
@@ -295,11 +295,11 @@ mod tests {
     /// Find Register works the same on a VGM's sample delays.
     #[test]
     fn find_target_matching_on_sample_delays() {
-        let short = DroInstruction::DelaySamples {
+        let short = Instruction::DelaySamples {
             kind: DelayKind::Short,
             samples: 1,
         };
-        let long = DroInstruction::DelaySamples {
+        let long = Instruction::DelaySamples {
             kind: DelayKind::Long,
             samples: 176,
         };
@@ -331,20 +331,20 @@ mod tests {
 
     #[test]
     fn find_target_matching() {
-        let reg = DroInstruction::Register {
+        let reg = Instruction::Register {
             reg: 0x50,
             value: 5,
             bank: Some(Bank::Low),
         };
-        let short = DroInstruction::DelayMs {
+        let short = Instruction::DelayMs {
             kind: DelayKind::Short,
             ms: 177,
         };
-        let long = DroInstruction::DelayMs {
+        let long = Instruction::DelayMs {
             kind: DelayKind::Long,
             ms: 49_408,
         };
-        let bank = DroInstruction::BankSwitch(Bank::High);
+        let bank = Instruction::BankSwitch(Bank::High);
 
         assert!(FindTarget::Register(0x50).matches(reg));
         assert!(!FindTarget::Register(0x40).matches(reg));

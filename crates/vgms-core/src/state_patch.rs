@@ -21,7 +21,7 @@
 
 use crate::opl_state::OplState;
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, DroInstruction, Song, SongData};
+use crate::song::{Bank, Instruction, Song, SongData};
 
 /// The size of one OPL register file (low or high).
 const REGISTER_COUNT: usize = 256;
@@ -67,14 +67,14 @@ impl StateFold {
     pub(crate) fn advance(&mut self, song: &Song, from: usize, to: usize) {
         for index in from..to.min(song.len()) {
             match song.instruction(index) {
-                Some(DroInstruction::Register { reg, value, bank }) => {
+                Some(Instruction::Register { reg, value, bank }) => {
                     // A v1 write carries no bank of its own: it lands in
                     // whichever bank the last switch selected.
                     let bank = bank.unwrap_or(self.bank);
                     self.state.record(Some(bank), reg, value);
                     self.last_write[usize::from(bank.index())][usize::from(reg)] = Some(index);
                 }
-                Some(DroInstruction::BankSwitch(bank)) => self.bank = bank,
+                Some(Instruction::BankSwitch(bank)) => self.bank = bank,
                 _ => {}
             }
         }
@@ -176,7 +176,7 @@ pub(crate) fn state_after_writes(song: &Song, n: usize) -> Vec<(Bank, u8, u8)> {
         }
         if matches!(
             song.instruction(index),
-            Some(DroInstruction::Register { .. })
+            Some(Instruction::Register { .. })
         ) {
             seen += 1;
         }

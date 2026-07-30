@@ -9,7 +9,7 @@ mod common;
 
 use common::{Op, render_buffered};
 use vgms_core::io::read_song;
-use vgms_core::{DroInstruction, Song};
+use vgms_core::{Instruction, Song};
 use vgms_synth::{
     NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, PlayerEngine, render_wav, render_waveform,
 };
@@ -41,14 +41,14 @@ fn fixture_ops(song: &Song) -> Vec<Op> {
     song.data()
         .iter()
         .map(|instruction| match instruction {
-            DroInstruction::DelayMs { ms, .. } => Op::Delay(ms),
-            DroInstruction::Register { reg, value, bank } => Op::Write(
+            Instruction::DelayMs { ms, .. } => Op::Delay(ms),
+            Instruction::Register { reg, value, bank } => Op::Write(
                 bank.expect("v2 register writes carry a bank")
                     .register_offset()
                     | u16::from(reg),
                 value,
             ),
-            DroInstruction::BankSwitch(_) | DroInstruction::DelaySamples { .. } => {
+            Instruction::BankSwitch(_) | Instruction::DelaySamples { .. } => {
                 unreachable!("the DRO v2 fixture has neither bank switches nor sample delays")
             }
         })

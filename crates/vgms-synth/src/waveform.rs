@@ -8,7 +8,7 @@
 use std::borrow::Borrow;
 
 use vgms_core::util::VGM_SAMPLE_RATE;
-use vgms_core::{DroInstruction, Song};
+use vgms_core::{Instruction, Song};
 
 use std::sync::Arc;
 
@@ -301,9 +301,9 @@ fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32) -> u64 {
     let mut frames = 0u64;
     for instruction in song.data().iter() {
         match instruction {
-            DroInstruction::DelayMs { ms, .. } => frames += clock.frames_for(ms),
-            DroInstruction::DelaySamples { samples, .. } => frames += clock.frames_for(samples),
-            DroInstruction::Register { .. } | DroInstruction::BankSwitch(_) => {}
+            Instruction::DelayMs { ms, .. } => frames += clock.frames_for(ms),
+            Instruction::DelaySamples { samples, .. } => frames += clock.frames_for(samples),
+            Instruction::Register { .. } | Instruction::BankSwitch(_) => {}
         }
     }
     frames

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use vgms_core::undo::{DeleteCommands, DeleteInstructions, ReplaceStream, ReplaceVgm, UpdateHeader};
 use vgms_core::{
-    CropOutcome, DroInstruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
+    CropOutcome, Instruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
     UndoController, UndoableCommand, VgmCommand, VgmFile, convert, io,
 };
 
@@ -406,7 +406,7 @@ impl Editor {
 
         let mut report = LoadReport::default();
         if song.file_type == SongFileType::Dro {
-            if song.instruction(0).is_some_and(DroInstruction::is_delay) {
+            if song.instruction(0).is_some_and(Instruction::is_delay) {
                 // Applied directly rather than through the controller, so it is
                 // never undoable.
                 DeleteInstructions::new([0]).apply(&mut song);

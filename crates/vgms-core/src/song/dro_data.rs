@@ -2,10 +2,10 @@
 //!
 //! Both versions store the instruction stream exactly as it appears in the file,
 //! so writing is a memcpy and round-trips are byte-exact. Instructions are
-//! decoded on access (see [`DroInstruction`]); nothing is materialised.
+//! decoded on access (see [`Instruction`]); nothing is materialised.
 
 use crate::error::{Error, Result};
-use crate::song::instruction::{Bank, DelayKind, DroInstruction};
+use crate::song::instruction::{Bank, DelayKind, Instruction};
 use crate::song::splice::{InsertEntry, byte_ranges_to_delete, splice_in, splice_out};
 
 /// The DRO v1 delay opcodes, which double as its register-escape opcodes.
@@ -132,27 +132,27 @@ impl DroDataV1 {
     }
 
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<DroInstruction> {
+    pub fn get(&self, index: usize) -> Option<Instruction> {
         let start = *self.index_map.get(index)? as usize;
         let opcode = self.data[start];
         let byte = |offset: usize| self.data[start + offset];
         Some(match opcode {
-            v1_opcode::SHORT_DELAY => DroInstruction::DelayMs {
+            v1_opcode::SHORT_DELAY => Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms: u32::from(byte(1)) + 1,
             },
-            v1_opcode::LONG_DELAY => DroInstruction::DelayMs {
+            v1_opcode::LONG_DELAY => Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: (u32::from(byte(1)) | (u32::from(byte(2)) << 8)) + 1,
             },
-            v1_opcode::BANK_LOW => DroInstruction::BankSwitch(Bank::Low),
-            v1_opcode::BANK_HIGH => DroInstruction::BankSwitch(Bank::High),
-            v1_opcode::ESCAPE => DroInstruction::Register {
+            v1_opcode::BANK_LOW => Instruction::BankSwitch(Bank::Low),
+            v1_opcode::BANK_HIGH => Instruction::BankSwitch(Bank::High),
+            v1_opcode::ESCAPE => Instruction::Register {
                 reg: byte(1),
                 value: byte(2),
                 bank: None,
             },
-            reg => DroInstruction::Register {
+            reg => Instruction::Register {
                 reg,
                 value: byte(1),
                 bank: None,
@@ -286,7 +286,7 @@ impl DroDataV2 {
     }
 
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<DroInstruction> {
+    pub fn get(&self, index: usize) -> Option<Instruction> {
         if index >= self.len() {
             return None;
         }
@@ -294,17 +294,17 @@ impl DroDataV2 {
         let code = self.data[start];
         let value = self.data[start + 1];
         Some(if code == self.short_delay_code {
-            DroInstruction::DelayMs {
+            Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms: u32::from(value) + 1,
             }
         } else if code == self.long_delay_code {
-            DroInstruction::DelayMs {
+            Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: (u32::from(value) + 1) << 8,
             }
         } else {
-            DroInstruction::Register {
+            Instruction::Register {
                 // `new` proved every code indexes a real codemap slot.
                 reg: self.codemap[usize::from(code & 0x7F)],
                 value,
@@ -373,7 +373,7 @@ mod tests {
 
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: codemap[0],
                 value: 0x01,
                 bank: Some(Bank::Low)
@@ -381,7 +381,7 @@ mod tests {
         );
         assert_eq!(
             data.get(1),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: codemap[2],
                 value: 0x03,
                 bank: Some(Bank::Low)
@@ -389,7 +389,7 @@ mod tests {
         );
         assert_eq!(
             data.get(2),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: codemap[4],
                 value: 0x05,
                 bank: Some(Bank::Low)
@@ -397,14 +397,14 @@ mod tests {
         );
         assert_eq!(
             data.get(5),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms: 0xB0 + 1
             })
         );
         assert_eq!(
             data.get(6),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: (0xC0 + 1) << 8
             })
@@ -445,7 +445,7 @@ mod tests {
         let data = DroDataV2::new(vec![0xFF, 0xC0], vec![0x10], 0xFE, 0xFF).unwrap();
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: 0xC100
             })
@@ -457,7 +457,7 @@ mod tests {
         let data = DroDataV2::new(vec![0x82, 0x7F], vec![0x10, 0x20, 0x30], 0xFE, 0xFF).unwrap();
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0x30,
                 value: 0x7F,
                 bank: Some(Bank::High)
@@ -483,7 +483,7 @@ mod tests {
 
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0x20,
                 value: 0x01,
                 bank: None
@@ -491,23 +491,23 @@ mod tests {
         );
         assert_eq!(
             data.get(1),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms: 177
             })
         );
         assert_eq!(
             data.get(2),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: 0x1234 + 1
             })
         );
-        assert_eq!(data.get(3), Some(DroInstruction::BankSwitch(Bank::Low)));
-        assert_eq!(data.get(4), Some(DroInstruction::BankSwitch(Bank::High)));
+        assert_eq!(data.get(3), Some(Instruction::BankSwitch(Bank::Low)));
+        assert_eq!(data.get(4), Some(Instruction::BankSwitch(Bank::High)));
         assert_eq!(
             data.get(5),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0x01,
                 value: 0xFF,
                 bank: None
@@ -515,7 +515,7 @@ mod tests {
         );
         assert_eq!(
             data.get(6),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0xBD,
                 value: 0x20,
                 bank: None
@@ -529,7 +529,7 @@ mod tests {
         let data = DroDataV1::new(vec![0x01, 0xFF, 0x00]).unwrap();
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: 0x00FF + 1
             })
@@ -537,7 +537,7 @@ mod tests {
         let data = DroDataV1::new(vec![0x01, 0x00, 0xFF]).unwrap();
         assert_eq!(
             data.get(0),
-            Some(DroInstruction::DelayMs {
+            Some(Instruction::DelayMs {
                 kind: DelayKind::Long,
                 ms: 0xFF00 + 1
             })
@@ -659,10 +659,10 @@ mod tests {
         };
         assert_eq!(v1.index_map, vec![0, 2, 3, 4, 7]);
         assert_eq!(v1.len(), 5);
-        assert_eq!(data.get(1), Some(DroInstruction::BankSwitch(Bank::Low)));
+        assert_eq!(data.get(1), Some(Instruction::BankSwitch(Bank::Low)));
         assert_eq!(
             data.get(4),
-            Some(DroInstruction::Register {
+            Some(Instruction::Register {
                 reg: 0xBD,
                 value: 0x20,
                 bank: None

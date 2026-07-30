@@ -9,7 +9,7 @@ pub(crate) mod splice;
 use core::fmt;
 
 pub use dro_data::{DroDataV1, DroDataV2};
-pub use instruction::{Bank, DelayKind, DroInstruction, FindTarget, ParseFindTargetError};
+pub use instruction::{Bank, DelayKind, Instruction, FindTarget, ParseFindTargetError};
 pub use splice::InsertEntry;
 
 use crate::regdata;
@@ -71,7 +71,7 @@ impl SongData {
 
     /// Decodes the instruction at `index`, or `None` if out of range.
     #[must_use]
-    pub fn get(&self, index: usize) -> Option<DroInstruction> {
+    pub fn get(&self, index: usize) -> Option<Instruction> {
         match self {
             Self::V1(data) => data.get(index),
             Self::V2(data) => data.get(index),
@@ -80,7 +80,7 @@ impl SongData {
     }
 
     /// Iterates the decoded instructions. Allocates nothing.
-    pub fn iter(&self) -> impl Iterator<Item = DroInstruction> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = Instruction> + '_ {
         (0..self.len()).map(move |index| {
             self.get(index)
                 .expect("the index map and the raw bytes agree by construction")
@@ -401,7 +401,7 @@ impl Song {
     }
 
     #[must_use]
-    pub fn instruction(&self, index: usize) -> Option<DroInstruction> {
+    pub fn instruction(&self, index: usize) -> Option<Instruction> {
         self.data.get(index)
     }
 
@@ -433,7 +433,7 @@ impl Song {
         self.data
             .iter()
             .take(index)
-            .map(DroInstruction::delay_samples)
+            .map(Instruction::delay_samples)
             .fold(0u32, u32::saturating_add)
     }
 
@@ -553,9 +553,9 @@ impl Song {
     #[must_use]
     pub fn register_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
-            DroInstruction::BankSwitch(_) => "BANK".to_owned(),
-            DroInstruction::Register { reg, .. } => format!("{reg:02X}"),
-            DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
+            Instruction::BankSwitch(_) => "BANK".to_owned(),
+            Instruction::Register { reg, .. } => format!("{reg:02X}"),
+            Instruction::DelayMs { kind, .. } | Instruction::DelaySamples { kind, .. } => {
                 kind.token().to_owned()
             }
         })
@@ -566,10 +566,10 @@ impl Song {
     #[must_use]
     pub fn value_display(&self, index: usize) -> Option<String> {
         Some(match self.data.get(index)? {
-            DroInstruction::DelayMs { ms, .. } => format!("{ms} ms"),
-            DroInstruction::DelaySamples { samples, .. } => format!("{samples} smp"),
-            DroInstruction::BankSwitch(bank) => bank.name().to_owned(),
-            DroInstruction::Register { value, .. } => format!("{value:02X} ({value})"),
+            Instruction::DelayMs { ms, .. } => format!("{ms} ms"),
+            Instruction::DelaySamples { samples, .. } => format!("{samples} smp"),
+            Instruction::BankSwitch(bank) => bank.name().to_owned(),
+            Instruction::Register { value, .. } => format!("{value:02X} ({value})"),
         })
     }
 
@@ -579,14 +579,14 @@ impl Song {
     #[must_use]
     pub fn instruction_description(&self, index: usize) -> Option<&'static str> {
         Some(match self.data.get(index)? {
-            DroInstruction::DelayMs { kind, .. } | DroInstruction::DelaySamples { kind, .. } => {
+            Instruction::DelayMs { kind, .. } | Instruction::DelaySamples { kind, .. } => {
                 kind.description()
             }
-            DroInstruction::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
-            DroInstruction::BankSwitch(Bank::High) => {
+            Instruction::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
+            Instruction::BankSwitch(Bank::High) => {
                 "Switch to high registers (Dual OPL-2 / OPL-3)"
             }
-            DroInstruction::Register { reg, bank, .. } => register_description(reg, bank),
+            Instruction::Register { reg, bank, .. } => register_description(reg, bank),
         })
     }
 
