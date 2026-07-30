@@ -1,11 +1,7 @@
 //! Pack mode's bulk GD3 tag editor: write chosen fields to many tracks at once.
 //!
-//! Where the quick-edit dialog ([`super::track_edit`]) rewrites one track, this
-//! one writes a chosen set of GD3 fields across a chosen set of tracks. Each
-//! field has its own apply checkbox, so a bulk edit touches only what is checked
-//! and leaves every other field at each track's own value -- which is how you
-//! stamp the shared game name onto all tracks, or fix the composer on just the
-//! half a different musician wrote, without disturbing anything else.
+//! Each field has its own apply checkbox, so a bulk edit touches only what is
+//! checked and leaves every other field at each track's own value.
 //!
 //! Apply emits [`Action::BulkTagSubmitted`]; the app overlays the checked fields
 //! onto each target's existing tag and rewrites the files as one undoable batch.
@@ -53,12 +49,10 @@ impl BulkTagDialog {
 
     /// Draws the dialog. Returns `false` once closed.
     ///
-    /// A modal rather than a floating window, and taken to most of `area`:
-    /// eleven GD3 fields plus a track list is more than the app's default 800pt
-    /// window is tall, and as a plain window the box simply ran off the bottom
-    /// of the screen with its Apply button beyond reach. The heading and the
-    /// footer are pinned; only the middle scrolls, so the buttons stay put
-    /// however many tracks the pack has.
+    /// A modal taken to most of `area`: the eleven GD3 fields plus the track
+    /// list overflow a default window. The heading and footer are pinned; only
+    /// the middle scrolls, so the buttons stay reachable however many tracks the
+    /// pack has.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -73,11 +67,7 @@ impl BulkTagDialog {
         let modal = egui::Modal::new(egui::Id::new("bulk-tag-modal")).show(ctx, |ui| {
             ui.set_width(width);
             ui.heading("Bulk Tag Tracks");
-            ui.colored_label(
-                palette.muted,
-                "Check the fields to write, then choose the tracks. Unchecked fields keep \
-                 each track's own value.",
-            );
+            ui.colored_label(palette.muted, crate::strings::BULK_TAG_INTRO);
             crate::theme::separator_clipped(ui, palette);
             ui.add_space(6.0);
 
@@ -144,10 +134,10 @@ impl BulkTagDialog {
             let selected = self.selected_count();
             ui.colored_label(
                 palette.muted,
-                format!("{selected}/{} selected", self.targets.len()),
+                crate::strings::bulk_tag_selected_count(selected, self.targets.len()),
             );
         });
-        // No scroll area of its own: the whole dialog body scrolls now, and a
+        // No scroll area of its own: the whole dialog body scrolls, and a
         // nested one would trap the wheel over the track list.
         for target in &mut self.targets {
             // Clone the label so the immutable borrow ends before the checkbox
@@ -172,8 +162,8 @@ impl BulkTagDialog {
     fn apply(&mut self, actions: &mut Vec<Action>) -> bool {
         if !self.overlay.writes_anything() {
             actions.push(Action::Alert {
-                title: "Nothing to write".to_owned(),
-                message: "Check at least one field to write to the selected tracks.".to_owned(),
+                title: crate::strings::BULK_TAG_NOTHING_TITLE.to_owned(),
+                message: crate::strings::BULK_TAG_NOTHING_MESSAGE.to_owned(),
             });
             return false;
         }
@@ -185,8 +175,8 @@ impl BulkTagDialog {
             .collect();
         if targets.is_empty() {
             actions.push(Action::Alert {
-                title: "No tracks selected".to_owned(),
-                message: "Select at least one track to tag.".to_owned(),
+                title: crate::strings::BULK_TAG_NO_TRACKS_TITLE.to_owned(),
+                message: crate::strings::BULK_TAG_NO_TRACKS_MESSAGE.to_owned(),
             });
             return false;
         }

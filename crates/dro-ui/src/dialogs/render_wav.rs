@@ -56,19 +56,19 @@ impl RenderWavDialog {
             "Render to WAV",
             palette,
             |ui| {
-                ui.label("Apply to the render:");
+                ui.label(crate::strings::RENDER_WAV_APPLY);
                 ui.add_space(4.0);
 
                 option_row(
                     ui,
                     "Channel toggles",
-                    "Leave out the channels muted in the channel panel",
+                    crate::strings::RENDER_WAV_TOGGLES_HOVER,
                     &mut self.use_toggles,
                 );
                 option_row(
                     ui,
                     "Channel panning",
-                    "Place each channel where its pan knob is set",
+                    crate::strings::RENDER_WAV_PANNING_HOVER,
                     &mut self.use_panning,
                 );
 
@@ -76,12 +76,13 @@ impl RenderWavDialog {
                     option_row(
                         ui,
                         "Boost",
-                        "Drive the signal through the peak limiter",
+                        crate::strings::RENDER_WAV_BOOST_HOVER,
                         &mut self.use_boost,
                     );
                     ui.add_enabled_ui(self.use_boost, |ui| {
-                        super::text_field(ui, palette, &mut self.boost, 44.0)
-                            .on_hover_text(format!("{MIN_BOOST}x to {MAX_BOOST}x"));
+                        super::text_field(ui, palette, &mut self.boost, 44.0).on_hover_text(
+                            crate::strings::render_wav_boost_range(MIN_BOOST, MAX_BOOST),
+                        );
                         ui.label("x");
                     });
                 });
@@ -94,7 +95,7 @@ impl RenderWavDialog {
                 }
 
                 ui.add_space(8.0);
-                ui.label(egui::RichText::new("Frequency and bit depth: see Settings.").small());
+                ui.label(egui::RichText::new(crate::strings::RENDER_WAV_FREQ_NOTE).small());
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {
@@ -121,10 +122,8 @@ impl RenderWavDialog {
                 Ok(boost) if (MIN_BOOST..=MAX_BOOST).contains(&boost) => boost,
                 _ => {
                     actions.push(Action::Alert {
-                        title: "Invalid boost".to_owned(),
-                        message: format!(
-                            "The boost must be a number from {MIN_BOOST} to {MAX_BOOST}."
-                        ),
+                        title: crate::strings::RENDER_WAV_INVALID_TITLE.to_owned(),
+                        message: crate::strings::render_wav_boost_message(MIN_BOOST, MAX_BOOST),
                     });
                     return false;
                 }

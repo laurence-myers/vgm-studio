@@ -28,9 +28,6 @@ const MIN_THRESHOLD_SECS: f32 = 0.2;
 const MAX_THRESHOLD_SECS: f32 = 5.0;
 /// The decay-tail slider's maximum, in seconds. Default is 0 (no tail kept).
 const MAX_TAIL_SECS: f32 = 2.0;
-/// Why Preview is greyed out for a capture of chips there is no core for.
-const PREVIEW_UNAVAILABLE: &str = "There is no core for this file's chips yet, so a piece cannot be auditioned. \
-     Exporting still works.";
 
 #[derive(Debug)]
 pub struct SplitSongsDialog {
@@ -129,10 +126,7 @@ impl SplitSongsDialog {
                     }
                 });
                 ui.add_space(2.0);
-                ui.colored_label(
-                    palette.muted,
-                    "Songs are split where the capture goes silent for at least this long.",
-                );
+                ui.colored_label(palette.muted, crate::strings::SPLIT_SONGS_GAP_EXPLAIN);
 
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
@@ -149,9 +143,7 @@ impl SplitSongsDialog {
                         0.05,
                         " s",
                     )
-                    .on_hover_text(
-                        "How much of the silence after each song to keep, for release tails",
-                    );
+                    .on_hover_text(crate::strings::SPLIT_SONGS_TAIL_HOVER);
                 });
 
                 ui.add_space(6.0);
@@ -181,19 +173,19 @@ impl SplitSongsDialog {
     /// include checkbox, and a Preview button per row).
     fn boundary_table(&mut self, ui: &mut egui::Ui, palette: &Palette, actions: &mut Vec<Action>) {
         if self.segments.is_empty() {
-            ui.colored_label(palette.muted, "No songs found at this threshold.");
+            ui.colored_label(palette.muted, crate::strings::SPLIT_SONGS_NONE_FOUND);
             return;
         }
 
         ui.horizontal(|ui| {
             ui.label(
-                egui::RichText::new(format!("{} song(s) found", self.segments.len()))
+                egui::RichText::new(crate::strings::split_songs_found(self.segments.len()))
                     .color(palette.data_label)
                     .strong(),
             );
             ui.colored_label(
                 palette.muted,
-                format!("{} to export", self.included_count()),
+                crate::strings::split_songs_to_export(self.included_count()),
             );
         });
         ui.add_space(4.0);
@@ -235,7 +227,7 @@ impl SplitSongsDialog {
                                     });
                                 }
                                 if !can_preview {
-                                    preview.on_hover_text(PREVIEW_UNAVAILABLE);
+                                    preview.on_hover_text(crate::strings::SPLIT_SONGS_PREVIEW_UNAVAILABLE);
                                 }
                             });
                             ui.end_row();
@@ -250,8 +242,8 @@ impl SplitSongsDialog {
     fn save(&self, actions: &mut Vec<Action>) -> bool {
         if self.included_count() == 0 {
             actions.push(Action::Alert {
-                title: "Nothing to export".to_owned(),
-                message: "Check at least one song to export.".to_owned(),
+                title: crate::strings::SPLIT_SONGS_NOTHING_TITLE.to_owned(),
+                message: crate::strings::SPLIT_SONGS_NOTHING_MESSAGE.to_owned(),
             });
             return false;
         }

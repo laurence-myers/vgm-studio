@@ -214,7 +214,7 @@ fn write_vgm(file: &VgmFile) -> Result<Vec<u8>, String> {
 
 /// A screenshot in the pack folder. Its bytes are shared (`Arc<[u8]>`) so the
 /// inline preview's per-frame `Image::from_bytes` clone is an Arc bump, not a
-/// full copy of the PNG (uiwidget-9).
+/// full copy of the PNG.
 #[derive(Debug, Clone)]
 pub struct PackImage {
     pub name: String,
@@ -396,12 +396,8 @@ impl PackState {
             .and_then(|name| self.tracks.iter().position(|track| track.file_name == name));
         // A measured peak is a fact about the *audio* -- the command stream and
         // chip -- so it survives a rescan only while those are unchanged. Header
-        // rewrites (a new volume modifier, GD3 tags) keep it; a track that was
-        // edited in the editor and saved back, renamed away, or replaced
-        // wholesale loses it and shows unscanned again.
-        // The music itself, without the header a retag or a volume change
-        // rewrites: two tracks whose command bytes and chip match sound alike,
-        // so a measured peak still describes the file.
+        // rewrites (a new volume modifier, GD3 tags) keep it; a track whose audio
+        // was edited, renamed away, or replaced loses it and shows unscanned.
         let audio_of = |tracks: &[PackTrack], name: &str| {
             let track = tracks.iter().find(|track| track.file_name == name)?;
             Some((track.opl_type(), track.vgm()?.body.raw().to_vec()))
@@ -726,7 +722,7 @@ impl PackState {
                 severity: Severity::Error,
                 category: ReadinessCategory::PackInfo,
                 target: ReadinessTarget::Meta(MetaField::GameName),
-                message: "Enter a game name (it names every file in the pack).".to_owned(),
+                message: crate::strings::PACK_CHECK_GAME_NAME.to_owned(),
             });
         }
         let readable = self
@@ -737,14 +733,13 @@ impl PackState {
         if readable == 0 {
             items.push(file_item(
                 Severity::Error,
-                "There are no readable songs to export.".to_owned(),
+                crate::strings::PACK_CHECK_NO_READABLE.to_owned(),
             ));
         }
         if self.tracks.iter().any(|track| !track.is_readable()) {
             items.push(file_item(
                 Severity::Warning,
-                "Some files could not be read; they ship as-is, without a track-list entry."
-                    .to_owned(),
+                crate::strings::PACK_CHECK_UNREADABLE_FILES.to_owned(),
             ));
         }
         // Not an error, and not the checklist's business to block: the pack is
@@ -753,17 +748,13 @@ impl PackState {
         if !silent.is_empty() {
             items.push(file_item(
                 Severity::Note,
-                format!(
-                    "Playback is not supported yet for {}; those tracks export normally, but \
-                     preview here without them.",
-                    silent.join(", ")
-                ),
+                crate::strings::pack_check_playback(&silent.join(", ")),
             ));
         }
         if self.images.is_empty() {
             items.push(file_item(
                 Severity::Warning,
-                "There is no screenshot (.png) in the folder.".to_owned(),
+                crate::strings::PACK_CHECK_NO_SCREENSHOT.to_owned(),
             ));
         }
 
@@ -775,7 +766,7 @@ impl PackState {
         if numbers.len() != self.tracks.len() {
             items.push(file_item(
                 Severity::Warning,
-                "Some files are not named \"NN Title.ext\".".to_owned(),
+                crate::strings::PACK_CHECK_NAMING.to_owned(),
             ));
         }
         let mut unique = numbers.clone();
@@ -784,12 +775,12 @@ impl PackState {
         if unique.len() != numbers.len() {
             items.push(file_item(
                 Severity::Warning,
-                "Some track numbers are duplicated.".to_owned(),
+                crate::strings::PACK_CHECK_DUP_NUMBERS.to_owned(),
             ));
         } else if !numbers.is_empty() && unique != (1..=numbers.len() as u32).collect::<Vec<_>>() {
             items.push(file_item(
                 Severity::Warning,
-                "Track numbers are not a contiguous 01, 02, 03... sequence.".to_owned(),
+                crate::strings::PACK_CHECK_NONCONTIGUOUS.to_owned(),
             ));
         }
 
@@ -933,7 +924,7 @@ impl PackState {
         } else if !checks.notes.is_empty() {
             (Some(Severity::Note), count(checks.notes.len(), "note"))
         } else {
-            (None, "Ready to submit".to_owned())
+            (None, crate::strings::PACK_READY_TO_SUBMIT.to_owned())
         }
     }
 
@@ -1281,7 +1272,7 @@ pub fn show(
         ui.label(egui::RichText::new(&state.folder_name).strong());
         if state.dirty {
             ui.colored_label(palette.data_text, "\u{2022}")
-                .on_hover_text("The package metadata has unsaved edits");
+                .on_hover_text(crate::strings::PACK_DIRTY_TIP);
         }
     });
 
@@ -1377,9 +1368,9 @@ fn track_tools(
             ui.add_enabled_ui(!scanning, |ui| {
                 if bevel::button(ui, palette, "Scan Volumes")
                     .on_hover_text(if scanning {
-                        "Measuring every track's peak volume..."
+                        crate::strings::PACK_SCAN_VOLUMES_TIP_SCANNING
                     } else {
-                        "Measure every track's peak volume (dBFS)"
+                        crate::strings::PACK_SCAN_VOLUMES_TIP
                     })
                     .clicked()
                 {
@@ -1392,9 +1383,9 @@ fn track_tools(
             ui.add_enabled_ui(scanned, |ui| {
                 if bevel::button(ui, palette, "Apply")
                     .on_hover_text(if scanned {
-                        "Write volume modifiers to each track"
+                        crate::strings::PACK_APPLY_TIP_SCANNED
                     } else {
-                        "Scan volumes first -- there is no peak to level from yet"
+                        crate::strings::PACK_APPLY_TIP_UNSCANNED
                     })
                     .clicked()
                 {
@@ -1404,17 +1395,13 @@ fn track_tools(
                 }
                 // A lit pad, not a checkbox: this modifies what Apply does, so
                 // it belongs beside it, and "lit = on" is the chrome's own rule.
-                bevel::toggle(ui, palette, &mut state.album_normalize, "Album").on_hover_text(
-                    "ON: use the loudest track's peak level.\nOFF: use each track's peak level.",
-                );
+                bevel::toggle(ui, palette, &mut state.album_normalize, "Album")
+                    .on_hover_text(crate::strings::PACK_ALBUM_TIP);
             });
         });
         crate::theme::silkscreen_group(ui, palette.data_label, "TAGS", |ui| {
             if bevel::button(ui, palette, "Bulk Tag\u{2026}")
-                .on_hover_text(
-                    "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
-                     once",
-                )
+                .on_hover_text(crate::strings::PACK_BULK_TAG_TIP)
                 .clicked()
             {
                 actions.push(Action::OpenBulkTag);
@@ -1423,10 +1410,7 @@ fn track_tools(
             // than hidden once there is no slash date left to convert.
             ui.add_enabled_ui(state.has_convertible_dates(), |ui| {
                 if bevel::button(ui, palette, "Fix Dates")
-                    .on_hover_text(
-                        "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01) in the \
-                         pack and every track, as one undoable step",
-                    )
+                    .on_hover_text(crate::strings::PACK_FIX_DATES_TIP)
                     .clicked()
                 {
                     actions.push(Action::PackConvertDatesToHyphens);
@@ -1436,10 +1420,7 @@ fn track_tools(
             // the tag it should have come from.
             ui.add_enabled_ui(state.has_tag_renames(), |ui| {
                 if bevel::button(ui, palette, "Fix File Names")
-                    .on_hover_text(
-                        "Rename each file to \"NN Track Name.ext\" from its GD3 tag, using \
-                         vgm_ren's character rules, as one undoable step",
-                    )
+                    .on_hover_text(crate::strings::PACK_FIX_FILE_NAMES_TIP)
                     .clicked()
                 {
                     actions.push(Action::PackRenameFromTags);
@@ -1574,9 +1555,9 @@ fn hardware_fields(
         };
         if bevel::button(ui, palette, arrow)
             .on_hover_text(if state.show_hardware {
-                "Hide the system, OS and music hardware fields"
+                crate::strings::PACK_HARDWARE_TIP_HIDE
             } else {
-                "Edit the system, OS and music hardware fields"
+                crate::strings::PACK_HARDWARE_TIP_EDIT
             })
             .clicked()
         {
@@ -1631,10 +1612,10 @@ pub fn deck(
         ui.set_min_height(ui.spacing().interact_size.y);
         ui.spacing_mut().item_spacing.x = 6.0;
         crate::theme::led(ui, lamp_colour(severity, palette)).on_hover_text(match severity {
-            None => "Every submission check passes",
-            Some(Severity::Error) => "This must be fixed before the pack can be exported",
-            Some(Severity::Warning) => "Exporting will ask you to confirm these first",
-            Some(Severity::Note) => "Worth a look, but nothing here blocks an export",
+            None => crate::strings::PACK_READINESS_TIP_NONE,
+            Some(Severity::Error) => crate::strings::PACK_READINESS_TIP_ERROR,
+            Some(Severity::Warning) => crate::strings::PACK_READINESS_TIP_WARNING,
+            Some(Severity::Note) => crate::strings::PACK_READINESS_TIP_NOTE,
         });
         ui.label(summary);
         // Only worth a jump when the checklist has something to say.
@@ -1646,7 +1627,7 @@ pub fn deck(
                         .frame(false),
                 )
                 .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Open the submission checklist")
+                .on_hover_text(crate::strings::PACK_VIEW_CHECKLIST_TIP)
                 .clicked()
             {
                 actions.push(Action::PackSelectSection(PackSection::Checklist));
@@ -1655,28 +1636,24 @@ pub fn deck(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             if bevel::button(ui, palette, "Export Zip\u{2026}")
-                .on_hover_text(
-                    "Build the submission zip (songs, screenshot, description, playlist)",
-                )
+                .on_hover_text(crate::strings::PACK_EXPORT_ZIP_TIP)
                 .clicked()
             {
                 actions.push(Action::PackExportZip);
             }
             if bevel::button(ui, palette, "Save Pack")
-                .on_hover_text("Write Game Name.txt and Game Name.m3u into the folder")
+                .on_hover_text(crate::strings::PACK_SAVE_DOCS_TIP)
                 .clicked()
             {
                 actions.push(Action::PackSaveDocs);
             }
             crate::theme::separator(ui, palette);
-            // The two export options, as lit pads rather than the sentence-long
-            // checkboxes that used to crowd the header: the tooltip carries the
+            // The two export options, as lit pads: the tooltip carries the
             // detail, and "lit = on" is the same rule every other pad follows.
-            bevel::toggle(ui, palette, &mut state.optimize_on_export, "Opt.").on_hover_text(
-                "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)",
-            );
+            bevel::toggle(ui, palette, &mut state.optimize_on_export, "Opt.")
+                .on_hover_text(crate::strings::PACK_OPT_TIP);
             bevel::toggle(ui, palette, &mut state.gzip_on_export, "VGZ")
-                .on_hover_text("Gzip each .vgm to .vgz on export -- the VGMRips convention");
+                .on_hover_text(crate::strings::PACK_VGZ_TIP);
         });
     });
 }
@@ -2040,7 +2017,7 @@ fn checklist_link(ui: &mut egui::Ui, palette: &Palette, message: &str) -> egui::
             .wrap_mode(egui::TextWrapMode::Wrap),
     )
     .on_hover_cursor(egui::CursorIcon::PointingHand)
-    .on_hover_text("Click to jump to the fix")
+    .on_hover_text(crate::strings::PACK_CHECKLIST_LINK_TIP)
 }
 
 /// The track table's status cell: a green tick when the track is submission-ready,
@@ -2063,11 +2040,11 @@ fn track_status_glyph(
         .collect();
     if !unreadable && problems.is_empty() {
         ui.colored_label(palette.meter_low, "\u{221A}")
-            .on_hover_text("Ready for submission");
+            .on_hover_text(crate::strings::PACK_TRACK_READY_TIP);
         return;
     }
     let tooltip = if unreadable {
-        "This file could not be read.".to_owned()
+        crate::strings::PACK_TRACK_UNREADABLE_TIP.to_owned()
     } else {
         problems.join("\n")
     };
@@ -2099,7 +2076,7 @@ fn track_table(
     actions: &mut Vec<Action>,
 ) {
     ui.label(
-        egui::RichText::new("Tracks (double-click to open in the editor)")
+        egui::RichText::new(crate::strings::PACK_TRACKS_HEADING)
             .color(palette.data_label)
             .strong(),
     );
@@ -2118,7 +2095,7 @@ fn track_table(
         // Every fixed column states the width it actually draws in, rather than a
         // floor the row then overruns: `remainder` budgets the title from these
         // figures, so an under-declared cell is laid out over the scrollbar and
-        // off the panel edge. That is what the old 200pt action column did.
+        // off the panel edge.
         let mut row_rects: Vec<egui::Rect> = Vec::new();
         TableBuilder::new(ui)
             .striped(true)
@@ -2184,9 +2161,9 @@ fn track_table(
                                             egui::RichText::new("\u{25B6}").color(palette.muted),
                                         ),
                                     )
-                                    .on_disabled_hover_text(format!(
-                                        "Playback for {chips} is not supported yet"
-                                    ));
+                                    .on_disabled_hover_text(
+                                        crate::strings::pack_playback_unsupported(&chips),
+                                    );
                                 }
                                 return;
                             }
@@ -2251,9 +2228,9 @@ fn track_table(
                                                 egui::RichText::new(text).monospace().color(color),
                                             )
                                             .on_hover_text(if peak.clipped {
-                                                "Peak reaches full scale (clipping)"
+                                                crate::strings::PACK_PEAK_TIP_CLIPPED
                                             } else {
-                                                "Loudest peak, in dBFS"
+                                                crate::strings::PACK_PEAK_TIP
                                             });
                                         }
                                         None => {
@@ -2347,7 +2324,7 @@ fn drag_grip(ui: &mut egui::Ui, index: usize, track: &PackTrack, palette: &Palet
         );
     })
     .response
-    .on_hover_text("Drag to reorder");
+    .on_hover_text(crate::strings::PACK_DRAG_TIP);
 }
 
 /// The per-row menu: the two commands that open a window, which are the only
@@ -2370,9 +2347,7 @@ fn row_menu(
         .ui(ui, |ui| {
             let open = ui.add_enabled(editable, egui::Button::new("Open in editor"));
             if !editable {
-                open.on_disabled_hover_text(
-                    "This file's commands could not be read. Quick edit still changes its tags.",
-                );
+                open.on_disabled_hover_text(crate::strings::PACK_OPEN_DISABLED_TIP);
             } else if open.clicked() {
                 actions.push(Action::PackTrackOpen(index));
                 ui.close();
@@ -2449,8 +2424,7 @@ fn drop_target(
 const PREVIEW_MAX_WIDTH: f32 = 360.0;
 
 /// Draws the Screenshots section: each image beside the facts that decide
-/// whether it is the right picture -- dimensions above all, which the app used
-/// to leave unsaid even though it is the thing most likely to be wrong.
+/// whether it is the right picture -- dimensions above all.
 fn screenshots(ui: &mut egui::Ui, state: &PackState, palette: &Palette, actions: &mut Vec<Action>) {
     ui.add_space(2.0);
     if state.images.is_empty() {
@@ -2481,8 +2455,8 @@ fn add_screenshot_button(
     actions: &mut Vec<Action>,
 ) {
     let hover = match state.next_screenshot_name() {
-        Some(name) => format!("Copy a .png into the pack folder as \"{name}\""),
-        None => "Copy a .png into the pack folder".to_owned(),
+        Some(name) => crate::strings::pack_add_screenshot_named(&name),
+        None => crate::strings::PACK_ADD_SCREENSHOT_TIP.to_owned(),
     };
     if bevel::button(ui, palette, "Add Screenshot\u{2026}")
         .on_hover_text(hover)
@@ -2576,19 +2550,13 @@ fn image_facts(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.colored_label(palette.meter_mid, "!");
-            ui.colored_label(
-                palette.muted,
-                "This file's header could not be read as a PNG.",
-            );
+            ui.colored_label(palette.muted, crate::strings::PACK_PNG_UNREADABLE);
         });
     } else if image.info.is_some_and(|info| info.display_mode().is_none()) {
         // Not a rule -- VGMRips sets no resolution requirement -- but an
         // unfamiliar size is usually a rescaled capture rather than a real one.
         ui.add_space(6.0);
-        ui.colored_label(
-            palette.muted,
-            "Not a standard PC display mode; check it was captured, not resized.",
-        );
+        ui.colored_label(palette.muted, crate::strings::PACK_PNG_NONSTANDARD);
     }
 
     ui.add_space(10.0);
@@ -2596,7 +2564,7 @@ fn image_facts(
         ui.spacing_mut().item_spacing.x = 6.0;
         // First, because it acts on the name written above it.
         if bevel::button(ui, palette, "Rename\u{2026}")
-            .on_hover_text("Name this screenshot after the game, or after a variant of it")
+            .on_hover_text(crate::strings::PACK_RENAME_SCREENSHOT_TIP)
             .clicked()
         {
             actions.push(Action::PackRenameScreenshotAt(index));
@@ -2605,19 +2573,19 @@ fn image_facts(
         // pipeline's vgm_cmp step, and two different jobs must not share one
         // word on the same screen.
         if bevel::button(ui, palette, "Recompress")
-            .on_hover_text("Losslessly recompress with oxipng and save in place")
+            .on_hover_text(crate::strings::PACK_RECOMPRESS_TIP)
             .clicked()
         {
             actions.push(Action::OptimizeImage(index));
         }
         if bevel::button(ui, palette, "Replace\u{2026}")
-            .on_hover_text("Overwrite this file with another .png, keeping its name")
+            .on_hover_text(crate::strings::PACK_REPLACE_SCREENSHOT_TIP)
             .clicked()
         {
             actions.push(Action::PackReplaceScreenshot(index));
         }
         if bevel::button(ui, palette, "Delete")
-            .on_hover_text("Remove this screenshot from the pack folder (asks first)")
+            .on_hover_text(crate::strings::PACK_DELETE_SCREENSHOT_TIP)
             .clicked()
         {
             actions.push(Action::PackDeleteScreenshot(index));
@@ -2639,15 +2607,12 @@ fn no_screenshot(
     let framed = frame.show(ui, |ui| {
         ui.vertical_centered(|ui| {
             ui.label(
-                egui::RichText::new("No screenshot in this folder")
+                egui::RichText::new(crate::strings::PACK_NO_SCREENSHOT_TITLE)
                     .color(palette.data_label)
                     .strong(),
             );
             ui.add_space(4.0);
-            ui.colored_label(
-                palette.muted,
-                "A submission needs a title-screen .png at the game's native resolution.",
-            );
+            ui.colored_label(palette.muted, crate::strings::PACK_NO_SCREENSHOT_BODY);
             ui.add_space(12.0);
             add_screenshot_button(ui, state, palette, actions);
         });
@@ -2856,10 +2821,9 @@ mod tests {
         assert_eq!(reread.body, track.vgm().unwrap().body);
     }
 
-    /// Retagging an OPL track used to go through the OPL writer, which
-    /// re-derives the chip clocks from the song's chip *type* -- so a rip
-    /// logged at a non-standard clock came back canonicalised. One reader and
-    /// one writer for every VGM means the header now survives verbatim.
+    /// One reader and one writer for every VGM: an OPL track retagged keeps the
+    /// chip clock it was logged at verbatim, rather than having it re-derived
+    /// from the chip *type* and canonicalised.
     #[test]
     fn retagging_an_opl_track_no_longer_rewrites_its_chip_clock() {
         const ODD_CLOCK: u32 = 3_600_000; // not the canonical 3_579_545

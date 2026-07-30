@@ -55,18 +55,18 @@ impl SplitDialog {
                 // The format and percussion options are OPL ideas: a generic
                 // VGM renders each chip channel to WAV, so they are hidden.
                 if self.wav_only {
-                    ui.label("Each chip channel is rendered to its own WAV.");
+                    ui.label(crate::strings::SPLIT_WAV_ONLY);
                 } else {
-                    ui.label("Write each channel as:");
+                    ui.label(crate::strings::SPLIT_WRITE_EACH_AS);
                     ui.add_space(4.0);
                     ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
-                        .on_hover_text("Render each channel on its own");
+                        .on_hover_text(crate::strings::SPLIT_AUDIO_HOVER);
                     ui.radio_value(
                         &mut self.format,
                         SplitFormat::Song,
                         "Song data (DRO or VGM)",
                     )
-                    .on_hover_text("Re-record each channel in the song's own format");
+                    .on_hover_text(crate::strings::SPLIT_SONG_HOVER);
 
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
@@ -76,7 +76,7 @@ impl SplitDialog {
                                 egui::Label::new("Give each drum its own file")
                                     .sense(egui::Sense::click()),
                             )
-                            .on_hover_text("Splits the percussion channel per drum, not as one")
+                            .on_hover_text(crate::strings::SPLIT_ISOLATE_PERCUSSION_HOVER)
                             .clicked()
                         {
                             self.isolate_percussion = !self.isolate_percussion;
@@ -85,10 +85,7 @@ impl SplitDialog {
                 }
 
                 ui.add_space(8.0);
-                ui.label(
-                egui::RichText::new("Channels the song never sounds are skipped.\nFiles already in the chosen folder are overwritten.")
-                    .small(),
-            );
+                ui.label(egui::RichText::new(crate::strings::SPLIT_SKIPPED_NOTE).small());
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {

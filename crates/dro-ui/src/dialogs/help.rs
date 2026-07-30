@@ -175,12 +175,6 @@ const SECTIONS: &[Section] = &[
     },
 ];
 
-/// The trimming advice the old help box carried, kept because it is the one
-/// thing here that is about *using* the app rather than driving it.
-const ADVICE: &str = "To trim a song: select the instructions to remove and press Del. On a \
-                      looping capture, look for a run of instructions with no delays between \
-                      them -- that is usually where the instruments are set up.";
-
 const ONLINE: &str = "https://github.com/laurence-myers/dro-trimmer";
 
 /// The dialog holds nothing: what it shows is the same table every time.
@@ -205,10 +199,10 @@ impl HelpDialog {
             palette,
             820.0,
             |ui| {
-                ui.colored_label(palette.muted, ADVICE);
+                ui.colored_label(palette.muted, crate::strings::HELP_ADVICE);
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.colored_label(palette.muted, "Full instructions:");
+                    ui.colored_label(palette.muted, crate::strings::HELP_FULL_INSTRUCTIONS);
                     ui.hyperlink(ONLINE);
                 });
 

@@ -275,10 +275,9 @@ impl ChannelPanel {
     ///
     /// Left-click a toggle to mute it; right-click to solo it. Knobs are live only
     /// under Custom; under Original they show the policy pan, greyed. Returns which
-    /// of muting/panning changed this frame.
-    /// Draws the panel. `panning_supported` is false when the output cannot pan
-    /// (hardware playback mixes on the chip), which greys the pan controls
-    /// rather than leaving knobs that turn but do nothing.
+    /// of muting/panning changed this frame. `panning_supported` is false when the
+    /// output cannot pan (hardware playback mixes on the chip), which omits the pan
+    /// controls.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -296,10 +295,9 @@ impl ChannelPanel {
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                // Low bank: the pan row (only when the output can pan -- it is
-                // omitted, not greyed, otherwise), then the toggle row with
-                // Perc. and All. The toggles are `bevel::toggle`s, each pinned
-                // to a fixed rect, so they never grow or jostle their neighbours.
+                // Low bank: the pan row (only when the output can pan), then the
+                // toggle row with Perc. and All. The toggles are pinned to a fixed
+                // rect so they never grow or jostle their neighbours.
                 if panning_supported {
                     response.panning_changed |= self.pan_row(ui, palette, 0, true);
                     ui.end_row();
@@ -309,10 +307,15 @@ impl ChannelPanel {
                 for index in 0..9 {
                     response.muting_changed |= self.channel_toggle(ui, palette, index);
                 }
-                response.muting_changed |=
-                    self.percussion_toggle(ui, palette, 0, "Perc.", "Percussion (low bank)");
+                response.muting_changed |= self.percussion_toggle(
+                    ui,
+                    palette,
+                    0,
+                    "Perc.",
+                    crate::strings::CHANNELS_PERCUSSION_LOW,
+                );
                 if bevel::icon_button(ui, palette, Icon::All, "All")
-                    .on_hover_text("Unmute every channel and drum (panning is left alone)")
+                    .on_hover_text(crate::strings::CHANNELS_UNMUTE_ALL)
                     .clicked()
                 {
                     response.muting_changed |=
@@ -331,8 +334,13 @@ impl ChannelPanel {
                     for index in 9..18 {
                         response.muting_changed |= self.channel_toggle(ui, palette, index);
                     }
-                    response.muting_changed |=
-                        self.percussion_toggle(ui, palette, 1, "Perc.", "Percussion (high bank)");
+                    response.muting_changed |= self.percussion_toggle(
+                        ui,
+                        palette,
+                        1,
+                        "Perc.",
+                        crate::strings::CHANNELS_PERCUSSION_HIGH,
+                    );
                     ui.end_row();
                 }
             });
@@ -357,7 +365,7 @@ impl ChannelPanel {
         let bank_name = if bank == 0 { "low" } else { "high" };
         for channel in 0..9 {
             let slot = bank * 9 + channel;
-            let label = format!("Pan {} ({bank_name} bank)", channel + 1);
+            let label = crate::strings::channels_pan_label(channel, bank_name);
             if self.custom {
                 changed |=
                     pan_knob::show(ui, palette, &mut self.pans[slot], true, &label).changed();
@@ -372,9 +380,9 @@ impl ChannelPanel {
         ui.label("");
         if with_mode_toggle {
             let hint = match self.opl_type {
-                Some(OplType::DualOpl2) => "Original: chip 1 left, chip 2 right",
-                Some(OplType::Opl3) => "Original: the song's own panning",
-                _ => "Original: mono",
+                Some(OplType::DualOpl2) => crate::strings::CHANNELS_ORIGINAL_DUAL_OPL2,
+                Some(OplType::Opl3) => crate::strings::CHANNELS_ORIGINAL_OPL3,
+                _ => crate::strings::CHANNELS_ORIGINAL_MONO,
             };
             let mut custom = self.custom;
             if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
@@ -386,20 +394,19 @@ impl ChannelPanel {
                 changed = true;
             }
             // The Spread knob: one global stereo-width control, -1..+1. 0 is mono,
-            // the extremes a wide image. Live, and engages Custom so it is heard
-            // at once.
+            // the extremes a wide image. Engages Custom so it is heard at once.
             ui.horizontal(|ui| {
                 ui.label("Spread:");
                 let mut spread = self.spread;
                 if pan_knob::show_spread(ui, palette, &mut spread, "Spread")
-                    .on_hover_text("Stereo spread: mono at centre, wide at the extremes")
+                    .on_hover_text(crate::strings::CHANNELS_SPREAD)
                     .changed()
                 {
                     self.set_spread(spread);
                     changed = true;
                 }
                 if bevel::icon_button(ui, palette, Icon::Reset, "Reset")
-                    .on_hover_text("Reset panning to this song type's default (Original mode)")
+                    .on_hover_text(crate::strings::CHANNELS_RESET)
                     .clicked()
                 {
                     changed |= self.reset_pans();
@@ -426,11 +433,7 @@ impl ChannelPanel {
             &label,
             egui::vec2(side, side),
         )
-        .on_hover_text(format!(
-            "Channel {} ({} bank). Left-click mutes, right-click solos.",
-            index % 9 + 1,
-            if index < 9 { "low" } else { "high" },
-        ));
+        .on_hover_text(crate::strings::channels_channel_hover(index));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_channel(index);
@@ -450,10 +453,7 @@ impl ChannelPanel {
     ) -> bool {
         let response =
             bevel::icon_toggle(ui, palette, &mut self.percussion[bank], Icon::Perc, label)
-                .on_hover_text(format!(
-                    "{hover}. Drums sound through channels 7-9's pans. \
-                 Left-click mutes, right-click solos."
-                ));
+                .on_hover_text(crate::strings::channels_percussion_hover(hover));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo_percussion(bank);
@@ -476,10 +476,8 @@ mod tests {
     use dro_core::{DroDataV1, Song};
 
     /// The panel keeps its edited pans while the output cannot use them, so
-    /// switching back to the emulator restores the image rather than resetting
-    /// it. Only the *controls* are disabled (see `pan_row`); the state is not
-    /// touched, and `panning()` still reports what the panel holds -- the
-    /// hardware backend simply cannot act on it.
+    /// switching back to the emulator restores the image rather than resetting it.
+    /// Only the controls are disabled; `panning()` still reports what it holds.
     #[test]
     fn an_output_that_cannot_pan_does_not_discard_the_panel_state() {
         let mut panel = ChannelPanel::for_song(&opl2_song());

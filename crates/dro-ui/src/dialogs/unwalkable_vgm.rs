@@ -91,10 +91,7 @@ impl UnwalkableVgmDialog {
                     });
 
                 ui.add_space(10.0);
-                ui.label(
-                    "This app cannot read this file's command stream, so there are no rows to \
-                     show for it. Open the folder as a pack to edit its tags.",
-                );
+                ui.label(crate::strings::UNWALKABLE_VGM_BODY);
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {
@@ -111,7 +108,7 @@ impl UnwalkableVgmDialog {
                         None => ("Open a Pack\u{2026}", Action::OpenPackFolder),
                     };
                     if bevel::button(ui, palette, label)
-                        .on_hover_text("Pack mode can edit this file's tags")
+                        .on_hover_text(crate::strings::UNWALKABLE_VGM_OPEN_PACK_HINT)
                         .clicked()
                     {
                         actions.push(action);

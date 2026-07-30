@@ -63,30 +63,13 @@ fn snap_to_center(value: u8) -> u8 {
 ///
 /// Anchored on `0x80` (the semantic centre that recentre and the snap detent
 /// target), so the dot points exactly up there; the two sides scale
-/// independently (128 steps left, 127 right), like [`readout`].
+/// independently (128 steps left, 127 right), like [`crate::strings::pan_knob_readout`].
 fn dot_angle(value: u8) -> f32 {
     let half = SWEEP / 2.0;
     match value.cmp(&CENTER) {
         Ordering::Equal => 0.0,
         Ordering::Less => -half * f32::from(CENTER - value) / f32::from(CENTER),
         Ordering::Greater => half * f32::from(value - CENTER) / f32::from(255 - CENTER),
-    }
-}
-
-/// `num / den` as a rounded percentage.
-fn percent(num: u32, den: u32) -> u32 {
-    (num * 100 + den / 2) / den
-}
-
-/// The hover readout: `"C"` at centre, `"L1".."L100"` left, `"R1".."R100"` right.
-fn readout(value: u8) -> String {
-    match value.cmp(&CENTER) {
-        Ordering::Equal => "C".to_owned(),
-        Ordering::Less => format!("L{}", percent(u32::from(CENTER - value), u32::from(CENTER))),
-        Ordering::Greater => format!(
-            "R{}",
-            percent(u32::from(value - CENTER), u32::from(255 - CENTER))
-        ),
     }
 }
 
@@ -147,17 +130,7 @@ pub fn show(
     if ui.is_rect_visible(rect) {
         paint(ui, rect, palette, *value, enabled);
     }
-    response.on_hover_text(readout(*value))
-}
-
-/// The spread readout: `"Mono"` at centre, else a signed percentage.
-fn spread_readout(spread: f32) -> String {
-    let pct = (spread.abs() * 100.0).round() as i32;
-    if pct == 0 {
-        "Mono".to_owned()
-    } else {
-        format!("{}{pct}%", if spread < 0.0 { "-" } else { "+" })
-    }
+    response.on_hover_text(crate::strings::pan_knob_readout(*value))
 }
 
 /// Draws the bipolar stereo-spread knob for `spread` (`-1.0` .. `0.0` mono ..
@@ -203,7 +176,7 @@ pub fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str
         // 135-degree corners as hard left / hard right.
         paint_dial(ui, rect, palette, *spread * (SWEEP / 2.0), true);
     }
-    response.on_hover_text(spread_readout(*spread))
+    response.on_hover_text(crate::strings::pan_knob_spread_readout(*spread))
 }
 
 /// A circular arc as a stroked polyline (the value arc, the cap glint and rim).
@@ -388,19 +361,21 @@ mod tests {
 
     #[test]
     fn readout_labels_the_pan_position() {
-        assert_eq!(readout(0x80), "C");
-        assert_eq!(readout(0x00), "L100");
-        assert_eq!(readout(0xFF), "R100");
-        assert_eq!(readout(0x40), "L50");
-        assert_eq!(readout(0xC0), "R50");
+        use crate::strings::pan_knob_readout;
+        assert_eq!(pan_knob_readout(0x80), "C");
+        assert_eq!(pan_knob_readout(0x00), "L100");
+        assert_eq!(pan_knob_readout(0xFF), "R100");
+        assert_eq!(pan_knob_readout(0x40), "L50");
+        assert_eq!(pan_knob_readout(0xC0), "R50");
     }
 
     #[test]
     fn spread_readout_labels_the_width() {
-        assert_eq!(spread_readout(0.0), "Mono");
-        assert_eq!(spread_readout(1.0), "+100%");
-        assert_eq!(spread_readout(-1.0), "-100%");
-        assert_eq!(spread_readout(0.5), "+50%");
-        assert_eq!(spread_readout(-0.25), "-25%");
+        use crate::strings::pan_knob_spread_readout;
+        assert_eq!(pan_knob_spread_readout(0.0), "Mono");
+        assert_eq!(pan_knob_spread_readout(1.0), "+100%");
+        assert_eq!(pan_knob_spread_readout(-1.0), "-100%");
+        assert_eq!(pan_knob_spread_readout(0.5), "+50%");
+        assert_eq!(pan_knob_spread_readout(-0.25), "-25%");
     }
 }

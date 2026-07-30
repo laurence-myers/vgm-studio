@@ -1,5 +1,5 @@
-//! The Settings dialog. The web build (Step 8) has no ini file at all, so the
-//! dialog writes through whatever `ConfigStore` the platform injected.
+//! The Settings dialog. The web build has no ini file at all, so the dialog
+//! writes through whatever `ConfigStore` the platform injected.
 
 use std::collections::BTreeMap;
 
@@ -273,14 +273,8 @@ impl SettingsDialog {
     /// holds every other chip, still fully configurable, so a core can be set
     /// for anything, not just the current song.
     fn output_tab(&mut self, ui: &mut egui::Ui, palette: &Palette) {
-        ui.colored_label(
-            palette.muted,
-            "Picking a core applies as you pick it; Close puts the saved one back.",
-        )
-        .on_hover_text(
-            "Rendering, splitting and the waveform always use an emulator, whatever \
-             plays here.",
-        );
+        ui.colored_label(palette.muted, crate::strings::SETTINGS_OUTPUT_CORE_APPLIES)
+            .on_hover_text(crate::strings::SETTINGS_OUTPUT_CORE_HOVER);
         ui.add_space(4.0);
 
         let plan = chip_output::plan(self.song_chips());
@@ -360,10 +354,8 @@ impl SettingsDialog {
                 if self.backend() == OutputBackend::RetroWave {
                     let ports = &self.ports;
                     let port = &mut self.retrowave_port;
-                    ui.label("Device").on_hover_text(
-                        "The board's serial port. On Windows these usually report a generic \
-                         name, so a recognised board is matched by its USB ID instead.",
-                    );
+                    ui.label("Device")
+                        .on_hover_text(crate::strings::SETTINGS_DEVICE_HOVER);
                     ui.scope(|ui| {
                         crate::theme::style_dropdown(ui, palette);
                         egui::ComboBox::from_id_salt("settings-retrowave-port")
@@ -385,13 +377,8 @@ impl SettingsDialog {
                 // Resampling shapes the same signal the cores produce: how their
                 // output reaches the sound card's rate. Applies live, like a core
                 // pick, and reverts on Close.
-                ui.label("Resampling").on_hover_text(
-                    "How non-OPL chips are brought to the output rate. Band-limited is the \
-                     accurate capture of the chip; linear folds high frequencies back into \
-                     the audible band, which is inaccurate but crunchy -- the way VGMPlay and \
-                     most classic players sound. Applies to playback, WAV export and the \
-                     waveform alike.",
-                );
+                ui.label("Resampling")
+                    .on_hover_text(crate::strings::SETTINGS_RESAMPLING_HOVER);
                 ui.scope(|ui| {
                     crate::theme::style_dropdown(ui, palette);
                     let current = resampling_label(&self.resampling);
@@ -424,7 +411,7 @@ impl SettingsDialog {
             .show(ui, |ui| {
                 ui.add_enabled_ui(emulating, |ui| {
                     ui.label("Frequency")
-                        .on_hover_text("49716 Hz is the OPL3's native rate");
+                        .on_hover_text(crate::strings::SETTINGS_FREQUENCY_HOVER);
                 });
                 ui.add_enabled_ui(emulating, |ui| {
                     crate::theme::style_dropdown(ui, palette);
@@ -443,10 +430,8 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.add_enabled_ui(emulating, |ui| {
-                    ui.label("Buffer size").on_hover_text(
-                        "Frames per audio callback. Smaller responds to seeking and muting \
-                         sooner; larger is safer against dropouts.",
-                    );
+                    ui.label("Buffer size")
+                        .on_hover_text(crate::strings::SETTINGS_BUFFER_SIZE_HOVER);
                 });
                 ui.add_enabled_ui(emulating, |ui| {
                     crate::theme::style_dropdown(ui, palette);
@@ -460,7 +445,8 @@ impl SettingsDialog {
                 });
                 ui.end_row();
 
-                ui.label("Bit depth").on_hover_text("WAV export only");
+                ui.label("Bit depth")
+                    .on_hover_text(crate::strings::SETTINGS_BIT_DEPTH_HOVER);
                 ui.scope(|ui| {
                     crate::theme::style_dropdown(ui, palette);
                     egui::ComboBox::from_id_salt("settings-bit-depth")
@@ -473,7 +459,7 @@ impl SettingsDialog {
                 ui.end_row();
 
                 ui.label("Tail length (ms)")
-                    .on_hover_text("How much the \"play last X seconds\" button plays");
+                    .on_hover_text(crate::strings::SETTINGS_TAIL_LENGTH_HOVER);
                 super::text_field(ui, palette, &mut self.tail_length, 100.0);
                 ui.end_row();
             });
@@ -486,9 +472,8 @@ impl SettingsDialog {
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
-                ui.label("Theme").on_hover_text(
-                    "The case colour. Applies as you pick it; Close puts the old one back.",
-                );
+                ui.label("Theme")
+                    .on_hover_text(crate::strings::SETTINGS_THEME_HOVER);
                 egui::ComboBox::from_id_salt("settings-theme")
                     .selected_text(theme_label(self.theme))
                     .show_ui(ui, |ui| {
@@ -498,10 +483,8 @@ impl SettingsDialog {
                     });
                 ui.end_row();
 
-                ui.label("Pad style").on_hover_text(
-                    "The keycap colour: follow the theme, or force light, dark or \
-                     plate-tinted keys on any theme.",
-                );
+                ui.label("Pad style")
+                    .on_hover_text(crate::strings::SETTINGS_PAD_STYLE_HOVER);
                 egui::ComboBox::from_id_salt("settings-pad-style")
                     .selected_text(surface_label(self.pad_style))
                     .show_ui(ui, |ui| {
@@ -511,10 +494,8 @@ impl SettingsDialog {
                     });
                 ui.end_row();
 
-                ui.label("Deck style").on_hover_text(
-                    "The control panel the pads sit on: follow the theme, or force a light, \
-                     dark or plate-tinted deck.",
-                );
+                ui.label("Deck style")
+                    .on_hover_text(crate::strings::SETTINGS_DECK_STYLE_HOVER);
                 egui::ComboBox::from_id_salt("settings-deck-style")
                     .selected_text(surface_label(self.deck_style))
                     .show_ui(ui, |ui| {
@@ -591,8 +572,8 @@ impl SettingsDialog {
         let mut config = self.original.clone();
         let Ok(tail_length) = self.tail_length.trim().parse::<u32>() else {
             actions.push(Action::Alert {
-                title: "Invalid settings".to_owned(),
-                message: "Check that the entered values are numbers.".to_owned(),
+                title: crate::strings::SETTINGS_INVALID_TITLE.to_owned(),
+                message: crate::strings::SETTINGS_INVALID_NUMBERS.to_owned(),
             });
             return false;
         };
@@ -612,7 +593,7 @@ impl SettingsDialog {
 
         if let Err(error) = config.validate() {
             actions.push(Action::Alert {
-                title: "Invalid settings".to_owned(),
+                title: crate::strings::SETTINGS_INVALID_TITLE.to_owned(),
                 message: error.to_string(),
             });
             return false;
@@ -624,11 +605,9 @@ impl SettingsDialog {
 
 /// A settings row whose caption toggles the checkbox beside it.
 ///
-/// The grid puts captions in the left column, where a plain `ui.label` is inert
-/// -- so the only way to change one of these settings was to land on the box
-/// itself, and clicking the words did nothing at all. Every other toolkit
-/// toggles on the caption, which makes a setting that reads as broken when it
-/// isn't.
+/// The grid puts captions in the left column, where a plain `ui.label` is inert,
+/// so this makes clicking the caption toggle the box, as every other toolkit
+/// does.
 fn checkbox_row(ui: &mut egui::Ui, caption: &str, value: &mut bool) {
     if ui
         .add(egui::Label::new(caption).sense(egui::Sense::click()))

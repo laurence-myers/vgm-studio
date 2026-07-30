@@ -1,28 +1,21 @@
-//! Which core plays each chip, one row per chip this app can play at all.
-//!
-//! "Output" used to be one setting, because there was one chip: the RetroWave
-//! board is an OPL3, so choosing it *was* choosing how OPL played. Then it
-//! became one row per chip. Now each row is a **core picker** -- because a chip
-//! can have more than one emulator, they do not sound alike, and which one is
-//! running is the user's call.
+//! Which core plays each chip: one row per chip this app can play, each a **core
+//! picker** -- a chip can have more than one emulator, they do not sound alike,
+//! and which one runs is the user's call.
 //!
 //! Every row comes from [`dro_synth::registry`]: a core that is not registered
 //! cannot be chosen. A build that never registered a provider -- the web build
-//! has no serial ports, so no RetroWave -- simply has no such entry, and the
-//! dialog stops offering something it cannot deliver rather than hiding the
-//! gap. Licences and authors are registry facts too, but they belong to the
-//! About box's credits; the picker shows only what a choice sounds like.
+//! has no serial ports, so no RetroWave -- simply has no such entry, so the
+//! dialog stops offering something it cannot deliver. Licences and authors are
+//! registry facts too, but they belong to the About box's credits; the picker
+//! shows only what a choice sounds like.
 //!
 //! Chips are grouped by what they share a core with: the OPL family is one row,
 //! because one core (or one board) plays all four.
 //!
-//! [`plan`] shapes the roster for the Settings dialog rather than handing it
-//! over flat: the loaded song's own chips come first (so tuning what you are
-//! hearing is two rows, not twenty), the chips that offer a real choice come
-//! next, and the single-core chips -- the ones there is nothing to decide about
-//! -- fold into a one-line summary per core instead of a dozen identical rows.
-//! Chips with no core at all are simply left out; a silent chip is not a
-//! setting.
+//! [`plan`] shapes the roster for the Settings dialog: the loaded song's own
+//! chips come first, the chips that offer a real choice come next, and the
+//! single-core chips fold into a one-line summary per core. Chips with no core at
+//! all are left out; a silent chip is not a setting.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::registry::{self, CoreInfo};
@@ -119,11 +112,9 @@ fn choice(info: &CoreInfo) -> CoreChoice {
     }
 }
 
-/// How many of the spec's chips have no core yet.
-///
-/// No longer shown -- a silent chip is not a setting -- but kept because it is
-/// how [`every_chip_is_either_a_row_or_counted`](tests) proves the roster
-/// covers the whole chip table with nothing quietly dropped.
+/// How many of the spec's chips have no core yet. Not shown, but used by
+/// [`every_chip_is_either_a_row_or_counted`](tests) to prove the roster covers
+/// the whole chip table with nothing quietly dropped.
 #[must_use]
 pub fn without_cores() -> usize {
     let registry = registry::registry();
@@ -208,7 +199,7 @@ pub fn song_chip_row(
         Some(row) => chip_row(ui, palette, cores, row),
         None => {
             ui.label(entry.kind.name());
-            ui.colored_label(palette.muted, "no core yet");
+            ui.colored_label(palette.muted, crate::strings::CHIP_OUTPUT_NO_CORE);
             ui.end_row();
         }
     }
@@ -274,16 +265,15 @@ fn label_for(row: &ChipOutputRow, name: &str) -> String {
 /// Installs a registry shaped like the real app's, for tests.
 ///
 /// `dro-ui` alone knows only `dro-synth`'s built-in cores, so without this its
-/// OPL row would state one core rather than offer the three the app has -- and
-/// the dialog snapshot would stop documenting the picker, which is the part
-/// most worth catching a regression in. The provider entries are declared here
-/// rather than depended on: `dro-retrowave` is native-only and
-/// `dro-cores-nuked` needs a C toolchain, while `dro-ui` compiles to wasm, so
-/// this crate must not link either. The declarations agreeing with the app's is
-/// what `the_test_registry_matches_the_apps` in `dro-trimmer` checks.
+/// OPL row would state one core rather than offer the three the app has. The
+/// provider entries are declared here rather than depended on: `dro-retrowave`
+/// is native-only and `dro-cores-nuked` needs a C toolchain, while `dro-ui`
+/// compiles to wasm, so this crate must not link either. That the declarations
+/// agree with the app's is checked by `the_test_registry_matches_the_apps` in
+/// `dro-trimmer`.
 ///
-/// Idempotent and safe to call from any test in any order: every caller
-/// installs the same content, and the first one wins.
+/// Idempotent and safe to call from any test in any order: every caller installs
+/// the same content, and the first one wins.
 #[cfg(test)]
 pub(crate) fn install_test_cores() {
     static ONCE: std::sync::Once = std::sync::Once::new();
@@ -335,8 +325,6 @@ pub(crate) fn install_test_cores() {
             level: dro_synth::LEVEL_UNITY,
             make: dro_synth::CoreMaker::Generic(|| Box::new(ToneStub::new())),
         });
-        // Already installed means another test got here first with the same
-        // content, which is the point of the `Once`.
         let _ = dro_synth::install(registry);
     });
 }

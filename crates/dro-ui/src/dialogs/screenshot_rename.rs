@@ -154,10 +154,8 @@ impl ScreenshotRenameDialog {
                         ui.end_row();
 
                         ui.label("Name:");
-                        super::text_field(ui, palette, &mut self.stem, f32::INFINITY).on_hover_text(
-                        "Prefilled from the game name. Add a suffix -- \"(Japan)\", \"(EGA)\" -- \
-                         to keep more than one screenshot in the pack.",
-                    );
+                        super::text_field(ui, palette, &mut self.stem, f32::INFINITY)
+                            .on_hover_text(crate::strings::SCREENSHOT_RENAME_NAME_HOVER);
                         ui.end_row();
 
                         // What actually lands on disk, since the rules may have
@@ -182,10 +180,7 @@ impl ScreenshotRenameDialog {
                                     egui::Label::new("Losslessly, with oxipng")
                                         .sense(egui::Sense::click()),
                                 )
-                                .on_hover_text(
-                                    "Shrink the file without touching a pixel. The same pass the \
-                                     Recompress pad runs, done on the way in.",
-                                )
+                                .on_hover_text(crate::strings::SCREENSHOT_RENAME_RECOMPRESS_HOVER)
                                 .clicked()
                             {
                                 self.recompress = !self.recompress;
@@ -219,8 +214,8 @@ impl ScreenshotRenameDialog {
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
         if dro_core::pack::vgm_ren_title(&self.stem).is_empty() {
             actions.push(Action::Alert {
-                title: "Name required".to_owned(),
-                message: "Enter a name for the screenshot file.".to_owned(),
+                title: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_TITLE.to_owned(),
+                message: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_MESSAGE.to_owned(),
             });
             return false;
         }
@@ -234,8 +229,8 @@ impl ScreenshotRenameDialog {
             .any(|sibling| sibling.eq_ignore_ascii_case(&name))
         {
             actions.push(Action::Alert {
-                title: "Duplicate file name".to_owned(),
-                message: format!("Another screenshot in this pack is already named \"{name}\"."),
+                title: crate::strings::SCREENSHOT_RENAME_DUPLICATE_TITLE.to_owned(),
+                message: crate::strings::screenshot_rename_duplicate_message(&name),
             });
             return false;
         }

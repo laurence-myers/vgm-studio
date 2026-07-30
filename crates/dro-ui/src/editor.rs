@@ -482,7 +482,7 @@ impl Editor {
             };
             return bytes.map_err(|e| e.to_string());
         }
-        let song = self.dro.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         io::write_song(song).map_err(|e| e.to_string())
     }
 
@@ -804,7 +804,7 @@ impl Editor {
     /// If no song is loaded, it is already a VGM, or the conversion will not
     /// serialise.
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
-        let song = self.dro.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
         let bytes = io::write_song(&converted).map_err(|e| e.to_string())?;
         let file = dro_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
@@ -824,7 +824,7 @@ impl Editor {
     /// # Errors
     /// If no song is loaded, or it is not a DRO v2.
     pub fn convert_to_dro1(&mut self) -> Result<(), String> {
-        let song = self.dro.as_ref().ok_or("no song is loaded")?;
+        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         let mut converted = convert::dro2_to_dro1(song).map_err(|e| e.to_string())?;
         converted.name = convert::dro1_default_name(&converted.name);
         // v1 re-encodes the stream (bank switches, escapes), so a marked region
@@ -860,17 +860,13 @@ impl Editor {
         self.metadata_dirty = true;
     }
 
-    /// Applies the VGM metadata dialog's Save. Not undoable.
+    /// Applies the edited VGM header fields. Not undoable. Returns `true` if the
+    /// loop point was out of range for the *current* (possibly shortened since
+    /// the dialog opened) song and had to be dropped, so the caller can surface
+    /// it instead of losing it silently.
     ///
-    /// An out-of-range loop point is dropped rather than stored: the dialog
-    /// validated against the length it captured at open, and the VGM writer
-    /// panics on a loop point past the end. The dialog is modal now, so the
-    /// song is unlikely to have shortened underneath it -- but a panic in the
-    /// writer is not the way to find out otherwise.
-    /// Applies the edited VGM header fields. Returns `true` if the loop point
-    /// was out of range for the *current* (possibly shortened since the dialog
-    /// opened) song and had to be dropped, so the caller can surface it instead
-    /// of losing it silently.
+    /// An out-of-range loop point is dropped rather than stored: the VGM writer
+    /// panics on a loop point past the end.
     pub fn set_vgm_metadata(
         &mut self,
         loop_point: Option<usize>,
@@ -1185,9 +1181,9 @@ mod tests {
 
     #[test]
     fn vgm_songs_are_never_auto_trimmed() {
-        // A VGM opening on a sample delay must load untouched (the DRO-only
-        // gate the plan calls out). Convert the bogus-delay song directly, so
-        // its leading delay survives into the VGM.
+        // A VGM opening on a sample delay must load untouched (auto-trim is
+        // DRO-only). Convert the bogus-delay song directly, so its leading
+        // delay survives into the VGM.
         let vgm = convert::dro_to_vgm(&bogus_leading_delay_song()).unwrap();
         assert!(vgm.instruction(0).unwrap().is_delay());
 

@@ -287,8 +287,8 @@ pub trait TaskService {
 /// `is_cancelled` as it goes.
 ///
 /// This is the platform-independent half of every `TaskService`: the native
-/// implementation calls it on a `std::thread`, the web implementation (Step 10)
-/// inside a Worker. A task may `emit` more than once -- the waveform render
+/// implementation calls it on a `std::thread`, the web implementation inside a
+/// Worker. A task may `emit` more than once -- the waveform render
 /// emits progressive snapshots as it fills in, then the finished buckets -- and
 /// emits nothing more once cancelled.
 pub fn run_task(
@@ -356,7 +356,7 @@ pub fn run_task(
                     &mut || !is_cancelled(),
                 ),
             }
-            .map_err(|e| format!("Rendering to WAV failed: {e}"));
+            .map_err(crate::strings::tasks_render_wav_failed);
             // A cancelled render emits nothing at all, like the waveform's.
             match rendered {
                 Ok(None) => {}
@@ -486,7 +486,7 @@ fn split_songs_to_bytes(
                 Some(piece) => {
                     dro_core::vgm::file::write(&piece).map_err(|error| error.to_string())
                 }
-                None => Err(format!("Song {number} could not be extracted.")),
+                None => Err(crate::strings::tasks_song_not_extracted(number)),
             },
         };
         let bytes = match bytes {

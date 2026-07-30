@@ -30,7 +30,7 @@ pub fn loop_count_stepper(
         // rather than rises, and it keeps the two steppers' labels distinct for
         // accessibility (and for the headless tests, which query by label).
         if theme::bevel::button_sized(ui, palette, "\u{2212}", arrow)
-            .on_hover_text("Fewer repeats")
+            .on_hover_text(crate::strings::LOOP_STEPPER_FEWER)
             .clicked()
             && let Some(fewer) = decrement(count)
         {
@@ -47,10 +47,10 @@ pub fn loop_count_stepper(
             rect,
             egui::Label::new(egui::RichText::new(label(count)).color(palette.data_text)),
         )
-        .on_hover_text(hover(count));
+        .on_hover_text(crate::strings::loop_stepper_hover(count));
 
         if theme::bevel::button_sized(ui, palette, "+", arrow)
-            .on_hover_text("More repeats")
+            .on_hover_text(crate::strings::LOOP_STEPPER_MORE)
             .clicked()
             && let Some(more) = increment(count)
         {
@@ -81,18 +81,6 @@ fn label(count: LoopCount) -> String {
     match count {
         LoopCount::Infinite => "\u{221E}".to_owned(),
         LoopCount::Times(times) => format!("{}\u{00d7}", times.max(1)),
-    }
-}
-
-fn hover(count: LoopCount) -> String {
-    match count {
-        LoopCount::Infinite => "Repeat the region until playback is stopped".to_owned(),
-        LoopCount::Times(1) | LoopCount::Times(0) => {
-            "Play the region once, then carry on into the rest of the song".to_owned()
-        }
-        LoopCount::Times(times) => {
-            format!("Play the region {times} times, then carry on into the rest of the song")
-        }
     }
 }
 

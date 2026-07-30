@@ -96,7 +96,7 @@ impl TrackEditDialog {
                                 .interactive(false)
                                 .text_color(palette.muted),
                         )
-                        .on_hover_text("The file's name on disk right now");
+                        .on_hover_text(crate::strings::TRACK_EDIT_CURRENT_NAME_HINT);
                         ui.end_row();
 
                         ui.label("New name:");
@@ -109,7 +109,7 @@ impl TrackEditDialog {
                                 .interactive(false)
                                 .text_color(palette.data_text),
                         )
-                        .on_hover_text("Derived from the track number and Track Name (EN)");
+                        .on_hover_text(crate::strings::TRACK_EDIT_NEW_NAME_HINT);
                         ui.end_row();
 
                         super::gd3_tag::gd3_fields(ui, palette, &mut self.fields);
@@ -141,10 +141,8 @@ impl TrackEditDialog {
         // it is dropped on the way into a file name.
         if dro_core::pack::vgm_ren_title(&self.fields[0]).is_empty() {
             actions.push(Action::Alert {
-                title: "Track name required".to_owned(),
-                message: "Enter a Track Name (EN) the file name can be derived from (\"?\" and \
-                          \"!\" are dropped from file names)."
-                    .to_owned(),
+                title: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_TITLE.to_owned(),
+                message: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_MESSAGE.to_owned(),
             });
             return false;
         }
@@ -158,8 +156,8 @@ impl TrackEditDialog {
                 .any(|sibling| sibling.eq_ignore_ascii_case(&name))
         {
             actions.push(Action::Alert {
-                title: "Duplicate file name".to_owned(),
-                message: format!("Another track in this pack is already named \"{name}\"."),
+                title: crate::strings::TRACK_EDIT_DUPLICATE_TITLE.to_owned(),
+                message: crate::strings::track_edit_duplicate_message(&name),
             });
             return false;
         }

@@ -2,7 +2,7 @@
 //! The DRO Trimmer GUI, as a library.
 //!
 //! The egui application (`app::DroApp`) is consumed by the native `drotrim`
-//! binary through `eframe::run_native`, and later (Step 8) by the web shell
+//! binary through `eframe::run_native`, and later by the web shell
 //! through `eframe::WebRunner`. Every platform difference -- file dialogs,
 //! audio output, background threads, config storage -- is injected through
 //! the traits in [`platform`] and [`tasks`], so this crate stays free of
@@ -22,6 +22,7 @@ mod optimise;
 pub mod pack;
 pub mod platform;
 pub mod selection;
+pub(crate) mod strings;
 pub mod tasks;
 #[cfg(test)]
 mod test_song;

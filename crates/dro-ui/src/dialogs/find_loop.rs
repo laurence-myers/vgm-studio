@@ -144,14 +144,14 @@ impl FindLoopDialog {
         }
     }
 
-    /// Replaces the candidate list from a streamed task snapshot, pre-selecting
-    /// the top (best) candidate so Apply and Audition work straight away.
     /// How many candidates have arrived so far.
     #[must_use]
     pub fn candidate_count(&self) -> usize {
         self.candidates.len()
     }
 
+    /// Replaces the candidate list from a streamed task snapshot, pre-selecting
+    /// the top (best) candidate so Apply and Audition work straight away.
     pub fn set_candidates(&mut self, candidates: Vec<Candidate>) {
         self.selected = (!candidates.is_empty()).then_some(0);
         self.candidates = candidates;
@@ -247,10 +247,7 @@ impl FindLoopDialog {
                     );
                 });
                 ui.add_space(2.0);
-                ui.colored_label(
-                    palette.muted,
-                    "A repeated block must be at least this long to count as a loop.",
-                );
+                ui.colored_label(palette.muted, crate::strings::FIND_LOOP_MIN_LENGTH_HELP);
 
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
@@ -261,7 +258,7 @@ impl FindLoopDialog {
                         ui.spinner();
                         ui.colored_label(
                             palette.muted,
-                            format!("Searching... ({} found)", self.candidates.len()),
+                            crate::strings::find_loop_searching_count(self.candidates.len()),
                         );
                     } else if bevel::button(ui, palette, "Search").clicked() {
                         self.on_search(actions);
@@ -286,7 +283,7 @@ impl FindLoopDialog {
                             apply_clicked.set(true);
                         }
                         if !is_vgm {
-                            apply.on_hover_text("Only VGM files store loop points.");
+                            apply.on_hover_text(crate::strings::FIND_LOOP_APPLY_VGM_ONLY_HINT);
                         }
                     });
                     ui.add_enabled_ui(has_selection, |ui| {
@@ -310,11 +307,11 @@ impl FindLoopDialog {
     fn results_table(&mut self, ui: &mut egui::Ui, palette: &Palette, actions: &mut Vec<Action>) {
         if self.candidates.is_empty() {
             let message = if self.searching {
-                "Searching..."
+                crate::strings::FIND_LOOP_SEARCHING
             } else if self.searched {
-                "No loops found. Try a shorter minimum length."
+                crate::strings::FIND_LOOP_NONE_FOUND
             } else {
-                "Click Search to look for loop points."
+                crate::strings::FIND_LOOP_PROMPT
             };
             ui.colored_label(palette.muted, message);
             return;
@@ -408,12 +405,12 @@ fn fmt_time(ms: u32) -> String {
 /// The hover text explaining a candidate's quality flags and match length.
 fn quality_help(candidate: Candidate) -> String {
     let shape = match (candidate.ends_at_eof, candidate.clean_repeat) {
-        (true, true) => "ends at the song's end and is a clean repeat -- the ideal loop",
-        (true, false) => "the repeat runs to the end of the song",
-        (false, true) => "a clean repeat, but not at the song's end",
-        (false, false) => "a partial or overlapping repeat",
+        (true, true) => crate::strings::FIND_LOOP_QUALITY_IDEAL,
+        (true, false) => crate::strings::FIND_LOOP_QUALITY_TO_END,
+        (false, true) => crate::strings::FIND_LOOP_QUALITY_CLEAN,
+        (false, false) => crate::strings::FIND_LOOP_QUALITY_PARTIAL,
     };
-    format!("{shape} ({} commands matched)", candidate.match_len)
+    crate::strings::find_loop_quality_help(shape, candidate.match_len)
 }
 
 #[cfg(test)]

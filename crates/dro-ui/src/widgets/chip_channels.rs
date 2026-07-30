@@ -168,9 +168,7 @@ impl GenericChannelPanel {
                 if pan_supported {
                     let mut custom = self.custom;
                     if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
-                        .on_hover_text(
-                            "Custom: the pan knobs drive the output. Original: the chip's own image.",
-                        )
+                        .on_hover_text(crate::strings::CHIP_CHANNELS_CUSTOM)
                         .changed()
                     {
                         self.custom = custom;
@@ -178,7 +176,7 @@ impl GenericChannelPanel {
                     }
                 }
                 if bevel::icon_button(ui, palette, Icon::All, "All")
-                    .on_hover_text("Unmute every channel (panning is left alone)")
+                    .on_hover_text(crate::strings::CHIP_CHANNELS_UNMUTE_ALL)
                     .clicked()
                 {
                     response.muting_changed |= self.audible.iter().any(|&on| !on);
@@ -202,10 +200,7 @@ impl GenericChannelPanel {
             channel.short,
             egui::vec2(side, side),
         )
-        .on_hover_text(format!(
-            "{}. Left-click mutes, right-click solos.",
-            channel.name
-        ));
+        .on_hover_text(crate::strings::chip_channels_channel_hover(channel.name));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo(index);

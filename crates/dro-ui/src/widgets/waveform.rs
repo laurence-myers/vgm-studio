@@ -14,7 +14,6 @@
 //! `ms_length`, so a file with a lying header still maps clicks to the right
 //! commands, and a Mega Drive rip is as clickable as a DRO.
 
-use dro_core::util::ms_to_timestr;
 use dro_synth::WaveformBucket;
 use egui::epaint::Mesh;
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
@@ -100,7 +99,7 @@ pub fn show(
             hover_x = Some(x_for_ms(rect, ms, total_ms));
             response
                 .clone()
-                .on_hover_text(format!("{ms} ms ({})", ms_to_timestr(ms)));
+                .on_hover_text(crate::strings::waveform_hover(ms));
         }
     }
     if let Some(x) = hover_x {

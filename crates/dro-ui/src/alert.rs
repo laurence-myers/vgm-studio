@@ -31,7 +31,7 @@ impl Alert {
     /// The default error-alert title.
     #[must_use]
     pub fn error(message: impl Into<String>) -> Self {
-        Self::new("Error", message)
+        Self::new(crate::strings::ALERT_ERROR_TITLE, message)
     }
 
     /// A confirm box: OK runs `action`, Cancel (or Esc) dismisses it.

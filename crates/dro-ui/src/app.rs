@@ -37,61 +37,27 @@ use crate::widgets::{
     table, waveform,
 };
 
-const AUTO_TRIM_TITLE: &str = "DRO auto-trimmed";
-const AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
-                              its first instruction. It has been automatically\n\
-                              removed. (Don't forget to save!)";
-const MISMATCH_TITLE: &str = "DRO timing mismatch";
-
 /// The About box: who wrote it, and -- because this program links copyleft
 /// emulator cores -- what it is licensed under and where each core came from.
 ///
 /// The core stanza is generated from [`dro_synth::credits`] rather than typed
-/// here, so a core cannot be linked in without being credited. cr-2 feeds that
-/// list from the core registry, at which point a newly registered provider
-/// appears in this box automatically.
+/// here, so a core cannot be linked in without being credited.
 fn about_text() -> String {
-    format!(
-        "DRO Trimmer v{}\n\
-         Laurence Dougal Myers\n\
-         Web: http://www.jestarjokin.net/apps/drotrimmer\n\
-         Web: https://github.com/laurence-myers/dro-trimmer\n\
-         E-Mail: jestarjokin@jestarjokin.net\n\
-         \n\
-         This program is licensed under the GNU General Public License,\n\
-         version 2 or (at your option) any later version -- it links\n\
-         emulator cores under the GPL and LGPL. Complete corresponding\n\
-         source code: https://github.com/laurence-myers/dro-trimmer\n\
-         \n\
-         The file model and playback engine (dro-core, dro-synth) are\n\
-         separately available under MIT OR Apache-2.0; see licenses/\n\
-         in the source distribution.\n\
-         \n\
-         Emulator cores in this build:\n\
-         {}\
-         {}\n\
-         RetroWave OPL3 output links the serialport crate, used under\n\
-         the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
+    crate::strings::app_about_text(
         env!("CARGO_PKG_VERSION"),
         dro_synth::credits_text(),
         crate::optimise::credit(),
     )
 }
 
-/// The DRO timing mismatch box, version-specific advice
-/// and all. The v2 advice points at the Settings dialog instead of a hand
-/// edit of drotrim.ini, since the app has one.
+/// The DRO timing mismatch box; the v2 advice points at the Settings dialog
+/// rather than a hand edit of drotrim.ini.
 /// What a click on the waveform means, given the button and whether Shift was
 /// held. `None` for a gesture that does nothing.
 ///
-/// Shift brackets the loop -- left marks the start, right the end -- so the two
-/// markers are one gesture apart rather than one being a modifier deeper than
-/// the other. The end is the *time* clicked, hence that instruction's index
-/// taken exclusively: everything sounding before the click is inside the loop.
-/// What the crop and cut items say when there is no region to act on. Their menu
-/// items are disabled in that case, so this is the belt to that braces.
-const NOTHING_MARKED: &str = "Mark a region first -- the loop markers cover the whole song.";
-
+/// Shift brackets the loop -- left marks the start, right the end. The end is
+/// the *time* clicked, hence that instruction's index taken exclusively:
+/// everything sounding before the click is inside the loop.
 fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Option<Action> {
     match (shift, secondary) {
         (true, false) => Some(Action::SetLoopStart(index)),
@@ -106,7 +72,7 @@ fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Optio
 fn describe_target(target: dro_core::vgm::VgmFindTarget) -> String {
     use dro_core::vgm::VgmFindTarget;
     match target {
-        VgmFindTarget::AnyDelay => "a delay".to_owned(),
+        VgmFindTarget::AnyDelay => crate::strings::APP_TARGET_ANY_DELAY.to_owned(),
         VgmFindTarget::Write {
             kind,
             instance,
@@ -117,7 +83,7 @@ fn describe_target(target: dro_core::vgm::VgmFindTarget) -> String {
                 .map_or_else(String::new, |i| format!(" #{}", i + 1));
             match addr {
                 Some(addr) => format!("{}{inst} {addr:#06X}", kind.name()),
-                None => format!("a write to {}{inst}", kind.name()),
+                None => crate::strings::app_target_write(kind.name(), &inst),
             }
         }
     }
@@ -125,25 +91,18 @@ fn describe_target(target: dro_core::vgm::VgmFindTarget) -> String {
 
 fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
     let prefix = if auto_trimmed {
-        "Despite auto-trimming, t"
+        crate::strings::APP_MISMATCH_PREFIX_TRIMMED
     } else {
-        "T"
+        crate::strings::APP_MISMATCH_PREFIX_PLAIN
     };
     let advice = if file_version == dro_core::song::DRO_FILE_V1 {
-        "Please re-save the file to use the calculated value."
+        crate::strings::APP_MISMATCH_ADVICE_V1
     } else {
-        "Please enable \"Allow editing in DRO Info\" in the\n\
-         Settings dialog, then edit the song length on\n\
-         the DRO Info screen."
+        crate::strings::APP_MISMATCH_ADVICE_V2
     };
     Alert::new(
-        MISMATCH_TITLE,
-        format!(
-            "{prefix}here was a mismatch between\n\
-             the measured length of the song in milliseconds,\n\
-             and the length stored in the DRO file.\n\
-             {advice}"
-        ),
+        crate::strings::APP_MISMATCH_TITLE,
+        crate::strings::app_mismatch_body(prefix, advice),
     )
 }
 
@@ -162,7 +121,6 @@ enum SavePurpose {
     PackDoc,
     /// A track rewritten in place by the quick-edit dialog.
     TrackRewrite,
-    /// A screenshot copied into the pack folder. Unlike the rewrites, this
     /// A screenshot copied into the pack folder. Unlike a replace, there is no
     /// previous file whose bytes could serve as an inverse, so it rescans
     /// without touching the undo stack.
@@ -506,7 +464,6 @@ impl DroApp {
             .show_separator_line(false)
             .show(ui, |ui| {
                 theme::plate_panel(ui, p, |ui| {
-                    // The views, in strip order, with the labels naming them.
                     const VIEWS: [AppTab; 2] = [AppTab::Editor, AppTab::Pack];
                     let strip = [
                         theme::tabs::Tab::new("Editor"),
@@ -539,7 +496,7 @@ impl DroApp {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         // A full-height "skip to start" transport button on the left.
                         if theme::bevel::button_sized(ui, p, "\u{23EE}", egui::vec2(34.0, height))
-                            .on_hover_text("Rewind to the start")
+                            .on_hover_text(crate::strings::APP_TIP_REWIND)
                             .clicked()
                         {
                             actions.push(Action::RewindToStart);
@@ -585,19 +542,19 @@ impl DroApp {
                             if self.pack_service.is_busy() {
                                 // The status text names the operation (export or a
                                 // screenshot optimise); this just shows liveness.
-                                ui.label("Working...");
+                                ui.label(crate::strings::APP_BUSY_WORKING);
                             }
                             // Name the job rather than just "busy": a WAV render can
                             // take a while, and the waveform's own render runs after
                             // every edit.
                             if self.tasks.is_busy_kind(TaskKind::RenderWav) {
-                                ui.label("Rendering WAV...");
+                                ui.label(crate::strings::APP_BUSY_RENDER_WAV);
                             }
                             if self.tasks.is_busy_kind(TaskKind::Split) {
-                                ui.label("Splitting channels...");
+                                ui.label(crate::strings::APP_STATUS_SPLITTING_CHANNELS);
                             }
                             if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
-                                ui.label("Rendering waveform...");
+                                ui.label(crate::strings::APP_BUSY_RENDER_WAVEFORM);
                             }
                         });
                     });
@@ -636,7 +593,7 @@ impl DroApp {
                             ui.set_min_height(ui.spacing().interact_size.y);
                             ui.spacing_mut().item_spacing.x = 12.0;
                             if theme::bevel::icon_button(ui, p, theme::icon::Icon::Del, "Del.")
-                                .on_hover_text("Delete the selected instruction(s)")
+                                .on_hover_text(crate::strings::APP_TIP_DELETE)
                                 .clicked()
                             {
                                 actions.push(Action::DeleteSelection);
@@ -646,13 +603,13 @@ impl DroApp {
                             // this app can render.
                             if playable {
                                 if theme::bevel::icon_button(ui, p, theme::icon::Icon::Play, "Play")
-                                    .on_hover_text("Play the song from the current position")
+                                    .on_hover_text(crate::strings::APP_TIP_PLAY)
                                     .clicked()
                                 {
                                     actions.push(Action::Play);
                                 }
                                 if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
-                                    .on_hover_text("Stop playback")
+                                    .on_hover_text(crate::strings::APP_TIP_STOP)
                                     .clicked()
                                 {
                                     actions.push(Action::Stop);
@@ -677,11 +634,7 @@ impl DroApp {
                                     theme::icon::Icon::Loop,
                                     "Loop",
                                 )
-                                .on_hover_text(
-                                    "Repeat the marked region. Shift+click the waveform to mark \
-                                 the start and Shift+right-click the end; [ and ] use the \
-                                 selected row.",
-                                )
+                                .on_hover_text(crate::strings::APP_TIP_LOOP)
                                 .clicked()
                                 {
                                     actions.push(Action::ToggleLoopPlayback);
@@ -781,10 +734,7 @@ impl DroApp {
                     } else {
                         ui.visuals_mut().override_text_color = Some(p.data_label);
                         ui.centered_and_justified(|ui| {
-                            ui.label(
-                                "Open a DRO, VGM or VGZ file (File > Open Song..., or drop it \
-                                 here).",
-                            );
+                            ui.label(crate::strings::APP_EMPTY_STATE);
                         });
                     }
                 }
@@ -837,9 +787,9 @@ impl DroApp {
             theme::bevel::groove_h(&divider, x_range, seam - 1.0, p);
         }
 
-        // Keep the modeless dialogs off the menu bar and tab strip: since
-        // egui 0.35 the panels above no longer reserve context space, so an
-        // unconstrained window auto-places at the top of the viewport.
+        // Keep the modeless dialogs off the menu bar and tab strip: egui's top
+        // panels no longer reserve context space, so an unconstrained window
+        // auto-places at the top of the viewport.
         let chrome_bottom = tabs.response.rect.bottom();
         let dialog_area = egui::Rect::from_min_max(
             egui::pos2(ctx.content_rect().left(), chrome_bottom),
@@ -868,7 +818,7 @@ impl DroApp {
                 Ok(file) => self.load_or_confirm(file),
                 Err(message) => self
                     .alerts
-                    .push_back(Alert::new("Failed to open file", message)),
+                    .push_back(Alert::new(crate::strings::APP_ERR_OPEN_FILE_TITLE, message)),
             }
         }
         if let Some(result) = self.files.poll_picked_image() {
@@ -876,7 +826,7 @@ impl DroApp {
                 Ok(file) => self.add_screenshot(file),
                 Err(message) => self
                     .alerts
-                    .push_back(Alert::new("Failed to read image", message)),
+                    .push_back(Alert::new(crate::strings::APP_ERR_READ_IMAGE_TITLE, message)),
             }
         }
         if let Some(result) = self.files.poll_folder() {
@@ -884,7 +834,7 @@ impl DroApp {
                 Ok(folder) => self.open_folder(folder),
                 Err(message) => self
                     .alerts
-                    .push_back(Alert::new("Failed to open folder", message)),
+                    .push_back(Alert::new(crate::strings::APP_ERR_OPEN_FOLDER_TITLE, message)),
             }
         }
         if let Some(result) = self.files.poll_renamed() {
@@ -908,13 +858,14 @@ impl DroApp {
                         self.files.save(SaveRequest::InPlace { path, bytes });
                     } else {
                         self.rescan_pack_folder();
-                        self.status = "Renamed track; pack folder rescanned.".to_owned();
+                        self.status = crate::strings::APP_STATUS_RENAMED_TRACK.to_owned();
                     }
                 }
                 Err(message) if is_pack_op => self.abort_pack_run(message),
                 Err(message) => {
                     self.pending_rewrite = None;
-                    self.alerts.push_back(Alert::new("Rename failed", message));
+                    self.alerts
+                        .push_back(Alert::new(crate::strings::APP_ERR_RENAME_TITLE, message));
                 }
             }
         }
@@ -951,19 +902,16 @@ impl DroApp {
                     // to come, and saying "built" without saying "choose where"
                     // reads as finished (which is what a cancel then contradicts).
                     self.status = if log.is_empty() {
-                        "Built the pack zip -- choose where to save it.".to_owned()
+                        crate::strings::APP_STATUS_PACK_ZIP_BUILT.to_owned()
                     } else {
-                        format!(
-                            "Built the pack zip. {} Choose where to save it.",
-                            log.join(" ")
-                        )
+                        crate::strings::app_pack_zip_built_log(&log.join(" "))
                     };
                 }
                 PackJobOutcome::Failed(message) => {
-                    // Replace the stale "Building pack zip..." status (ux-11).
-                    self.status = "Pack export failed.".to_owned();
+                    // Replace the stale "Building pack zip..." status.
+                    self.status = crate::strings::APP_STATUS_PACK_EXPORT_FAILED.to_owned();
                     self.alerts
-                        .push_back(Alert::new("Pack export failed", message));
+                        .push_back(Alert::new(crate::strings::APP_ERR_PACK_EXPORT_TITLE, message));
                 }
             }
         }
@@ -984,9 +932,9 @@ impl DroApp {
                 match result {
                     Ok(optimized) => self.image_optimized(optimized),
                     Err(message) => {
-                        self.status = "Screenshot optimise failed.".to_owned();
+                        self.status = crate::strings::APP_STATUS_SCREENSHOT_OPT_FAILED.to_owned();
                         self.alerts
-                            .push_back(Alert::new("Optimise failed", message));
+                            .push_back(Alert::new(crate::strings::APP_ERR_OPTIMISE_TITLE, message));
                     }
                 }
             }
@@ -1026,7 +974,7 @@ impl DroApp {
                 });
             }
             Err(message) => {
-                self.status = "The WAV render failed.".to_owned();
+                self.status = crate::strings::APP_STATUS_WAV_RENDER_FAILED.to_owned();
                 self.alerts.push_back(Alert::error(message));
             }
         }
@@ -1048,8 +996,9 @@ impl DroApp {
             && self.config.audio.lock_boost
             && let Err(error) = self.config_store.save(&self.config)
         {
-            self.alerts
-                .push_back(Alert::error(format!("Could not save settings: {error}")));
+            self.alerts.push_back(Alert::error(
+                crate::strings::app_could_not_save_settings(error),
+            ));
         }
     }
 
@@ -1080,8 +1029,9 @@ impl DroApp {
             self.audio.set_boost(boost);
         }
         if let Err(error) = self.config_store.save(&self.config) {
-            self.alerts
-                .push_back(Alert::error(format!("Could not save settings: {error}")));
+            self.alerts.push_back(Alert::error(
+                crate::strings::app_could_not_save_settings(error),
+            ));
         }
     }
 
@@ -1090,13 +1040,13 @@ impl DroApp {
     /// through `poll_services`. Cancels any scan already running (same
     /// [`TaskKind`]), so mashing the button just re-measures.
     fn match_volume(&mut self) {
-        self.submit_volume_scan(VolumeScanPurpose::MatchBoost, "Measuring volume...");
+        self.submit_volume_scan(VolumeScanPurpose::MatchBoost, crate::strings::APP_STATUS_MEASURING_VOLUME);
     }
 
     /// Kicks off a background peak scan for the VGM dialog's "Measure" button; the
     /// finished scan fills the volume-modifier field via [`Self::handle_volume_scan`].
     fn measure_volume_modifier(&mut self) {
-        self.submit_volume_scan(VolumeScanPurpose::FillModifier, "Measuring peak...");
+        self.submit_volume_scan(VolumeScanPurpose::FillModifier, crate::strings::APP_STATUS_MEASURING_PEAK);
     }
 
     /// Submits a volume scan of the current song for `purpose`, or asks for a song
@@ -1125,14 +1075,14 @@ impl DroApp {
         match self.volume_scan_purpose {
             VolumeScanPurpose::MatchBoost => {
                 if peak.max_level == 0 {
-                    self.status = "The song is silent; volume left unchanged.".to_owned();
+                    self.status = crate::strings::APP_STATUS_SONG_SILENT.to_owned();
                     return;
                 }
                 // The modifier-ladder volume that lifts the peak to full scale.
                 let volume = dro_core::matched_volume(peak.max_level);
                 self.set_boost(volume, true);
                 let dbfs = dro_core::peak_dbfs(peak.max_level);
-                self.status = format!("Peak {dbfs:.1} dBFS \u{2192} volume {volume:.2}\u{00d7}");
+                self.status = crate::strings::app_status_matched_volume(dbfs, volume);
             }
             VolumeScanPurpose::FillModifier => {
                 // The dialog may have been closed while the scan ran; if so, the
@@ -1141,8 +1091,7 @@ impl DroApp {
                     dialog.apply_measured_peak(peak);
                     let modifier = dro_core::suggest_volume_modifier(peak.max_level, None);
                     let dbfs = dro_core::peak_dbfs(peak.max_level);
-                    self.status =
-                        format!("Peak {dbfs:.1} dBFS \u{2192} volume modifier {modifier}");
+                    self.status = crate::strings::app_status_measured_modifier(dbfs, modifier);
                 }
             }
         }
@@ -1168,12 +1117,12 @@ impl DroApp {
                     // The song on disk now matches the editor: mark it clean so
                     // the discard-changes prompts stop firing.
                     self.editor.mark_saved();
-                    self.status = format!("File saved to {shown}.");
+                    self.status = crate::strings::app_status_file_saved(&shown);
                 }
                 SavePurpose::PackDoc => {
                     // The description and playlist save back to back; report and
                     // clear the dirty flag once the last of them lands -- but only
-                    // if none of the batch failed, so edits aren't lost (uishell-7).
+                    // if none of the batch failed, so edits aren't lost.
                     let more = self
                         .pending_saves
                         .iter()
@@ -1181,15 +1130,15 @@ impl DroApp {
                     if !more {
                         if self.pack_docs_failed {
                             self.status =
-                                "Some package files could not be saved; changes kept.".to_owned();
+                                crate::strings::APP_STATUS_PACKAGE_SAVE_FAILED.to_owned();
                         } else {
                             if let Some(pack) = self.pack.as_mut() {
                                 pack.dirty = false;
                             }
                             // Extensions only: the stem is the game's full name,
-                            // and printing it twice ran the line off the status
-                            // bar on any pack with a subtitle.
-                            self.status = "Saved the package .txt and .m3u.".to_owned();
+                            // and printing it twice runs the status line off on
+                            // a pack with a subtitle.
+                            self.status = crate::strings::APP_STATUS_PACKAGE_SAVED.to_owned();
                         }
                     }
                 }
@@ -1207,33 +1156,35 @@ impl DroApp {
                 }
                 SavePurpose::ScreenshotAdded => {
                     self.rescan_pack_folder();
-                    self.status = format!("Added {name} to the pack folder.");
+                    self.status = crate::strings::app_status_screenshot_added(&name);
                 }
                 SavePurpose::PackOp => self.advance_pack_run(),
                 SavePurpose::ExportZip => {
                     let shown = path
                         .as_ref()
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
-                    self.status = format!("Exported {shown}.");
+                    self.status = crate::strings::app_status_exported(&shown);
                 }
                 SavePurpose::WavExport => {
                     let shown = path
                         .as_ref()
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
-                    self.status = format!("Rendered {shown}.");
+                    self.status = crate::strings::app_status_rendered(&shown);
                 }
                 SavePurpose::SplitFile => self.split_file_saved(true),
             },
             SaveOutcome::Cancelled => match purpose {
                 SavePurpose::PackDoc => self.pack_docs_failed = true,
-                SavePurpose::PackOp => self.abort_pack_run("The save was cancelled.".to_owned()),
+                SavePurpose::PackOp => {
+                    self.abort_pack_run(crate::strings::APP_MSG_SAVE_CANCELLED.to_owned())
+                }
                 SavePurpose::TrackRewrite | SavePurpose::ImageWritten => {
                     self.pending_pack_undo = None;
                 }
                 // The build's status is still on the bar, reading as a finished
                 // export -- gzipped tracks and all. Say what actually happened.
                 SavePurpose::ExportZip => {
-                    self.status = "Export cancelled; the zip was not saved.".to_owned();
+                    self.status = crate::strings::APP_STATUS_EXPORT_CANCELLED.to_owned();
                 }
                 // Split files save in place, so there is no picker to cancel --
                 // but the tally still has to move on, or the batch never ends.
@@ -1255,7 +1206,7 @@ impl DroApp {
                         self.pending_pack_undo = None;
                     }
                     self.alerts
-                        .push_back(Alert::new("Failed to save file", message));
+                        .push_back(Alert::new(crate::strings::APP_ERR_SAVE_FILE_TITLE, message));
                 }
             },
         }
@@ -1266,10 +1217,10 @@ impl DroApp {
         if dropped.is_empty() {
             return;
         }
-        // Only single-file drops; say so rather than silently
-        // ignoring a multi-drop (ux-17).
+        // Only single-file drops; say so rather than silently ignoring a
+        // multi-drop.
         if dropped.len() > 1 {
-            self.status = "Drop a single file at a time.".to_owned();
+            self.status = crate::strings::APP_STATUS_DROP_SINGLE.to_owned();
             return;
         }
         let file = dropped.into_iter().next().expect("len checked");
@@ -1291,7 +1242,7 @@ impl DroApp {
                     bytes: bytes.to_vec(),
                 });
             } else {
-                self.status = format!("Can't open {name}: unsupported file type.");
+                self.status = crate::strings::app_status_unsupported_type(&name);
             }
         } else if let Some(path) = file.path {
             // Native: a song opens in the editor; anything else (a folder, which
@@ -1301,7 +1252,7 @@ impl DroApp {
             if is_song || path.extension().is_none() {
                 self.files.open_path(path);
             } else {
-                self.status = format!("Can't open {name}: unsupported file type.");
+                self.status = crate::strings::app_status_unsupported_type(&name);
             }
         }
     }
@@ -1321,8 +1272,8 @@ impl DroApp {
                 .any(|alert| alert.confirm.as_deref() == Some(&Action::ConfirmExit));
             if !already_asking {
                 self.alerts.push_back(Alert::confirm(
-                    "Discard unsaved changes?",
-                    "You have unsaved changes. Quit anyway?",
+                    crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                    crate::strings::APP_CONFIRM_QUIT_BODY,
                     Action::ConfirmExit,
                 ));
             }
@@ -1335,8 +1286,8 @@ impl DroApp {
         if self.editor.is_dirty() {
             self.pending_load = Some(file);
             self.alerts.push_back(Alert::confirm(
-                "Discard unsaved changes?",
-                "The current song has unsaved changes. Open a different file anyway?",
+                crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                crate::strings::APP_CONFIRM_DISCARD_LOAD_BODY,
                 Action::ConfirmDiscardAndLoad,
             ));
         } else {
@@ -1536,7 +1487,7 @@ impl DroApp {
         // mid-song -- so its complaint has nowhere to surface but here.
         if let Some(error) = self.audio.last_error() {
             self.alerts
-                .push_back(Alert::error(format!("Playback stopped: {error}")));
+                .push_back(Alert::error(crate::strings::app_playback_stopped(error)));
         }
 
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
@@ -1618,8 +1569,8 @@ impl DroApp {
                 }
                 if self.editor.is_dirty() {
                     self.alerts.push_back(Alert::confirm(
-                        "Discard unsaved changes?",
-                        "The current song has unsaved changes. Close it anyway?",
+                        crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                        crate::strings::APP_CONFIRM_CLOSE_FILE_BODY,
                         Action::ConfirmCloseFile,
                     ));
                 } else {
@@ -1642,7 +1593,7 @@ impl DroApp {
                     return;
                 }
                 if self.split_is_running() {
-                    self.status = "Already splitting channels.".to_owned();
+                    self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
                     return;
                 }
                 // A generic VGM splits to WAV only, per chip channel; an OPL
@@ -1658,7 +1609,7 @@ impl DroApp {
                     return;
                 }
                 if self.split_is_running() {
-                    self.status = "Already splitting.".to_owned();
+                    self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING.to_owned();
                     return;
                 }
                 if let Some(source) = self.split_source() {
@@ -1685,8 +1636,8 @@ impl DroApp {
             Action::Exit => {
                 if self.editor.is_dirty() || self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
-                        "Discard unsaved changes?",
-                        "You have unsaved changes. Quit anyway?",
+                        crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                        crate::strings::APP_CONFIRM_QUIT_BODY,
                         Action::ConfirmExit,
                     ));
                 } else {
@@ -1711,10 +1662,10 @@ impl DroApp {
                 } else if self.require_document() {
                     match self.editor.undo() {
                         Some(description) => {
-                            self.status = format!("Undone: {description}");
+                            self.status = crate::strings::app_status_undone(&description);
                             self.after_edit();
                         }
-                        None => self.status = "Nothing to undo.".to_owned(),
+                        None => self.status = crate::strings::APP_STATUS_NOTHING_TO_UNDO.to_owned(),
                     }
                 }
             }
@@ -1724,10 +1675,10 @@ impl DroApp {
                 } else if self.require_document() {
                     match self.editor.redo() {
                         Some(description) => {
-                            self.status = format!("Redone: {description}");
+                            self.status = crate::strings::app_status_redone(&description);
                             self.after_edit();
                         }
-                        None => self.status = "Nothing to redo.".to_owned(),
+                        None => self.status = crate::strings::APP_STATUS_NOTHING_TO_REDO.to_owned(),
                     }
                 }
             }
@@ -1758,7 +1709,7 @@ impl DroApp {
                 };
                 match doc {
                     Some(doc) => self.dialogs.find_loop = Some(FindLoopDialog::new(doc)),
-                    None => self.status = "Please open a song first.".to_owned(),
+                    None => self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned(),
                 }
             }
             Action::OpenDroInfo => {
@@ -1768,8 +1719,7 @@ impl DroApp {
                     // -- otherwise Ctrl+I opens a dialog the menu says does not
                     // apply. A VGM's header is the VGM Metadata dialog's job.
                     if song.is_vgm() {
-                        self.status =
-                            "DRO Info applies to DRO files; use Edit VGM Metadata.".to_owned();
+                        self.status = crate::strings::APP_STATUS_DRO_INFO_VGM.to_owned();
                         return;
                     }
                     let edit_allowed = self.config.ui.dro_info_edit_enabled;
@@ -1790,7 +1740,7 @@ impl DroApp {
                         let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
                         self.dialogs.gd3_tag = Some(Gd3TagDialog::new(tag));
                     }
-                    _ => self.status = "Only VGMs support tag editing".to_owned(),
+                    _ => self.status = crate::strings::APP_STATUS_ONLY_VGM_TAG.to_owned(),
                 }
             }
             Action::OpenVgmMetadata => {
@@ -1804,7 +1754,7 @@ impl DroApp {
                 };
                 match dialog {
                     Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
-                    None => self.status = "Song is not a VGM".to_owned(),
+                    None => self.status = crate::strings::APP_STATUS_NOT_VGM.to_owned(),
                 }
             }
             Action::ConvertToVgm => {
@@ -1812,12 +1762,12 @@ impl DroApp {
                     return;
                 }
                 if self.editor.song().expect("gated").is_vgm() {
-                    self.status = "File is already in VGM format".to_owned();
+                    self.status = crate::strings::APP_STATUS_ALREADY_VGM.to_owned();
                     return;
                 }
                 match self.editor.convert_to_vgm() {
                     Ok(()) => {
-                        self.status = "Successfully converted to VGM".to_owned();
+                        self.status = crate::strings::APP_STATUS_CONVERTED_VGM.to_owned();
                         self.close_song_dialogs();
                         self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
@@ -1831,7 +1781,7 @@ impl DroApp {
                 }
                 match self.editor.convert_to_dro1() {
                     Ok(()) => {
-                        self.status = "Successfully converted to DRO v1".to_owned();
+                        self.status = crate::strings::APP_STATUS_CONVERTED_DRO1.to_owned();
                         self.close_song_dialogs();
                         self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
@@ -1852,30 +1802,28 @@ impl DroApp {
             Action::ConfirmFixHeader => {
                 let fixed = self.editor.fix_header();
                 self.status = match fixed {
-                    0 => "The header already agrees with the stream.".to_owned(),
-                    1 => "Corrected 1 header field. Remember to save.".to_owned(),
-                    count => format!("Corrected {count} header fields. Remember to save."),
+                    0 => crate::strings::APP_STATUS_HEADER_AGREES.to_owned(),
+                    1 => crate::strings::APP_STATUS_HEADER_FIXED_ONE.to_owned(),
+                    count => crate::strings::app_status_header_fixed(count),
                 };
             }
             Action::OptimizeVgm => {
                 if !self.editor.has_document() {
-                    self.status = "Please open a song first.".to_owned();
+                    self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
                     return;
                 }
                 if self.editor.song().is_some_and(|song| !song.is_vgm()) {
-                    self.status = "Only VGMs can be optimized".to_owned();
+                    self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
                     return;
                 }
                 match self.editor.optimize_vgm() {
                     Some((commands, bytes)) => {
-                        self.status = format!(
-                            "Optimized: removed {commands} command(s), saved {bytes} byte(s)"
-                        );
+                        self.status = crate::strings::app_status_optimized(commands, bytes);
                         self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
                     }
                     None => {
-                        self.status = "Nothing to optimize -- the VGM is already compact".to_owned()
+                        self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned()
                     }
                 }
             }
@@ -1883,8 +1831,8 @@ impl DroApp {
             Action::OpenPackFolder => {
                 if self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
-                        "Discard unsaved package details?",
-                        "This pack has unsaved changes. Open a different folder anyway?",
+                        crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
+                        crate::strings::APP_CONFIRM_PACK_OPEN_BODY,
                         Action::ConfirmOpenPackFolder,
                     ));
                 } else {
@@ -1897,8 +1845,8 @@ impl DroApp {
             Action::ClosePack => {
                 if self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
-                        "Discard unsaved package details?",
-                        "This pack has unsaved changes. Close it anyway?",
+                        crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
+                        crate::strings::APP_CONFIRM_PACK_CLOSE_BODY,
                         Action::ConfirmClosePack,
                     ));
                 } else {
@@ -2016,7 +1964,7 @@ impl DroApp {
             Action::ClearLoopMarkers => {
                 self.editor.markers = RangeMarkers::full(self.editor.len());
                 self.push_loop_config();
-                self.status = "Loop markers reset to the whole song.".to_owned();
+                self.status = crate::strings::APP_STATUS_LOOP_RESET.to_owned();
             }
             Action::ToggleLoopPlayback => {
                 self.loop_enabled = !self.loop_enabled;
@@ -2037,14 +1985,12 @@ impl DroApp {
                         // put there, so they are worth accounting for -- but only
                         // when there were any; a "0" reads as a puzzle.
                         self.status = match restored {
-                            0 => format!("Cropped to {kept} instruction(s)."),
-                            n => format!(
-                                "Cropped to {kept} instruction(s), including {n} that restore the chip state."
-                            ),
+                            0 => crate::strings::app_status_cropped(kept),
+                            n => crate::strings::app_status_cropped_restored(kept, n),
                         };
                         self.after_region_edit();
                     }
-                    None => self.status = NOTHING_MARKED.to_owned(),
+                    None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
                 }
             }
             Action::DeleteMarkedRegion => {
@@ -2054,20 +2000,18 @@ impl DroApp {
                 match self.editor.delete_marked_region() {
                     Some((removed, bridged)) => {
                         self.status = match bridged {
-                            0 => format!("Deleted {removed} instruction(s)."),
-                            n => format!(
-                                "Deleted {removed} instruction(s), leaving {n} write(s) to carry the chip state across the seam."
-                            ),
+                            0 => crate::strings::app_status_deleted(removed),
+                            n => crate::strings::app_status_deleted_bridged(removed, n),
                         };
                         self.after_region_edit();
                     }
-                    None => self.status = NOTHING_MARKED.to_owned(),
+                    None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
                 }
             }
             Action::FindLoopSearch { min_len_commands } => self.start_loop_search(min_len_commands),
             Action::CancelLoopSearch => {
                 self.tasks.cancel(TaskKind::LoopSearch);
-                self.status = "Loop search cancelled.".to_owned();
+                self.status = crate::strings::APP_STATUS_LOOP_SEARCH_CANCELLED.to_owned();
             }
 
             Action::ToggleChannel(channel) => {
@@ -2116,12 +2060,11 @@ impl DroApp {
                 self.push_loop_config();
                 if dropped {
                     self.alerts.push_back(Alert::new(
-                        "Loop point cleared",
-                        "The loop start was past the end of the song (shortened since the \
-                         dialog opened) and has been cleared.",
+                        crate::strings::APP_LOOP_CLEARED_TITLE,
+                        crate::strings::APP_LOOP_CLEARED_BODY,
                     ));
                 } else {
-                    self.status = "Updated VGM metadata.".to_owned();
+                    self.status = crate::strings::APP_STATUS_VGM_METADATA_UPDATED.to_owned();
                 }
             }
             Action::ApplySettings(config) => self.apply_settings(ctx, *config),
@@ -2147,7 +2090,7 @@ impl DroApp {
         let name = file.name.clone();
         match self.editor.load(file) {
             Ok(report) => {
-                self.status = format!("Successfully opened {name}.");
+                self.status = crate::strings::app_status_opened(&name);
                 // A dialog left open across a load would edit the wrong song
                 // -- a stale Save silently corrupting it -- so anything
                 // song-bound closes with the song.
@@ -2207,26 +2150,25 @@ impl DroApp {
                         self.position.set_length_ms(file.stream_total_ms());
                         self.position.set_position_ms(0);
                         // What the status promises has to match what the
-                        // registry can actually build: most VGMs play in full
-                        // now, and "not supported" is only true when *no* chip
-                        // in the file has a core.
+                        // registry can actually build: "not supported" is only
+                        // true when *no* chip in the file has a core.
                         let kinds: Vec<_> =
                             file.header.chips().iter().map(|chip| chip.kind).collect();
                         self.status = match dro_synth::playability(&kinds) {
                             dro_synth::Playability::Full => {
-                                format!("Successfully opened {name} ({chips}).")
+                                crate::strings::app_status_opened_chips(&name, &chips)
                             }
                             dro_synth::Playability::Partial(missing) => {
                                 let missing: Vec<&str> =
                                     missing.iter().map(|kind| kind.name()).collect();
-                                format!(
-                                    "Opened {name} ({chips}); no core yet for {}, which will \
-                                     stay silent.",
-                                    missing.join(", ")
+                                crate::strings::app_status_opened_missing(
+                                    &name,
+                                    &chips,
+                                    &missing.join(", "),
                                 )
                             }
                             dro_synth::Playability::None => {
-                                format!("Opened {name} ({chips}); playback is not supported yet.")
+                                crate::strings::app_status_opened_unsupported(&name, &chips)
                             }
                         };
                     }
@@ -2235,12 +2177,12 @@ impl DroApp {
             // Readable as a container, but its commands will not walk, so there
             // are no rows to show. The dialog says what the file is instead.
             Err(LoadFailure::Unwalkable { file, folder }) => {
-                self.status = format!("{name} could not be read as commands.");
+                self.status = crate::strings::app_status_unreadable_commands(&name);
                 self.dialogs.unwalkable_vgm = Some(UnwalkableVgmDialog::new(&file, folder));
             }
             Err(LoadFailure::Unreadable(message)) => self
                 .alerts
-                .push_back(Alert::new("Failed to load file", message)),
+                .push_back(Alert::new(crate::strings::APP_ERR_LOAD_FILE_TITLE, message)),
         }
     }
 
@@ -2263,13 +2205,15 @@ impl DroApp {
         self.position.set_length_ms(0);
         self.position.set_position_ms(0);
         self.last_first_selected = None;
-        self.status = "Closed the song.".to_owned();
+        self.status = crate::strings::APP_STATUS_SONG_CLOSED.to_owned();
     }
 
     fn push_load_warnings(&mut self, report: LoadReport, file_version: u32) {
         if report.auto_trimmed {
-            self.alerts
-                .push_back(Alert::new(AUTO_TRIM_TITLE, AUTO_TRIM_TEXT));
+            self.alerts.push_back(Alert::new(
+                crate::strings::APP_AUTO_TRIM_TITLE,
+                crate::strings::APP_AUTO_TRIM_TEXT,
+            ));
         }
         if report.delay_mismatch {
             self.alerts
@@ -2389,8 +2333,8 @@ impl DroApp {
                 }
                 self.rescan_pack_folder();
                 self.status = match kind {
-                    PackRunKind::Undo => format!("Undone: {label}."),
-                    PackRunKind::Redo => format!("Redone: {label}."),
+                    PackRunKind::Undo => crate::strings::app_status_pack_undone(&label),
+                    PackRunKind::Redo => crate::strings::app_status_pack_redone(&label),
                     PackRunKind::NewEdit => format!("{label}."),
                 };
             }
@@ -2403,7 +2347,7 @@ impl DroApp {
     fn abort_pack_run(&mut self, message: String) {
         self.pack_run = None;
         self.alerts
-            .push_back(Alert::new("Track operation failed", message));
+            .push_back(Alert::new(crate::strings::APP_ERR_TRACK_OP_TITLE, message));
         self.rescan_pack_folder();
     }
 
@@ -2444,7 +2388,7 @@ impl DroApp {
             return;
         };
         let Some(from) = pack.focused_track else {
-            self.status = "Click a track first, then Alt+Up / Alt+Down to move it.".to_owned();
+            self.status = crate::strings::APP_STATUS_CLICK_TRACK_FIRST.to_owned();
             return;
         };
         let Some(to) = from
@@ -2486,13 +2430,13 @@ impl DroApp {
     /// Undo the most recent pack edit, running its inverse. Ignored while busy.
     fn undo_pack_edit(&mut self) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         if let Some(transaction) = self.pack_undo.pop() {
             self.start_pack_run(transaction, PackRunKind::Undo);
         } else {
-            self.status = "Nothing to undo.".to_owned();
+            self.status = crate::strings::APP_STATUS_NOTHING_TO_UNDO.to_owned();
         }
     }
 
@@ -2500,13 +2444,13 @@ impl DroApp {
     /// while busy.
     fn redo_pack_edit(&mut self) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         if let Some(transaction) = self.pack_redo.pop() {
             self.start_pack_run(transaction, PackRunKind::Redo);
         } else {
-            self.status = "Nothing to redo.".to_owned();
+            self.status = crate::strings::APP_STATUS_NOTHING_TO_REDO.to_owned();
         }
     }
 
@@ -2540,7 +2484,7 @@ impl DroApp {
                 self.audio_revision = None;
             }
             // A rescan can reorder or drop tracks; the quick-edit dialog is bound
-            // to one track, so close it rather than let it act on a stale list (H1).
+            // to one track, so close it rather than let it act on a stale list.
             self.close_pack_dialogs();
             return;
         }
@@ -2558,11 +2502,11 @@ impl DroApp {
         // The editor's audio must not keep playing under the pack view.
         self.audio.unload();
         self.audio_revision = None;
-        self.status = format!("Opened pack project: {name}.");
+        self.status = crate::strings::app_status_pack_opened(&name);
         if let Some(warning) = warning {
             self.alerts.push_back(Alert::new(
-                "Description not parsed",
-                format!("{warning}\n\nSaving the package files will overwrite it."),
+                crate::strings::APP_DESC_NOT_PARSED_TITLE,
+                crate::strings::app_desc_not_parsed_body(&warning),
             ));
         }
     }
@@ -2604,16 +2548,15 @@ impl DroApp {
         self.clear_pack_edits();
         self.pack = None;
         self.active_tab = AppTab::Editor;
-        self.status = "Closed the pack project.".to_owned();
+        self.status = crate::strings::APP_STATUS_PACK_CLOSED.to_owned();
     }
 
     /// Saves `Game Name.txt` and `Game Name.m3u` into the folder.
     fn save_pack_docs(&mut self) {
         if !self.pack.as_ref().is_some_and(PackState::can_save) {
             if self.pack.is_some() {
-                self.alerts.push_back(Alert::error(
-                    "Enter a game name before saving the package files.",
-                ));
+                self.alerts
+                    .push_back(Alert::error(crate::strings::APP_ERR_NEED_GAME_NAME));
             }
             return;
         }
@@ -2671,8 +2614,8 @@ impl DroApp {
                 .collect::<Vec<_>>()
                 .join("\n");
             self.alerts.push_back(Alert::confirm(
-                "Export anyway?",
-                format!("These submission checks did not pass:\n\n{listed}"),
+                crate::strings::APP_CONFIRM_EXPORT_TITLE,
+                crate::strings::app_export_warnings_body(&listed),
                 Action::ConfirmExportZip,
             ));
             return;
@@ -2682,7 +2625,7 @@ impl DroApp {
             self.save_pack_docs();
         }
         self.pack_service.submit(request);
-        self.status = "Building pack zip...".to_owned();
+        self.status = crate::strings::APP_STATUS_BUILDING_ZIP.to_owned();
     }
 
     /// Previews a track through the audio output.
@@ -2821,9 +2764,10 @@ impl DroApp {
                 .iter()
                 .find(|track| track.file_name == original_name)
         }) else {
-            self.alerts.push_back(Alert::error(format!(
-                "\"{original_name}\" is no longer in the folder; the edit was not applied."
-            )));
+            self.alerts
+                .push_back(Alert::error(crate::strings::app_err_edit_gone(
+                    &original_name,
+                )));
             return;
         };
         let old_name = track.file_name.clone();
@@ -2909,7 +2853,7 @@ impl DroApp {
                 self.editor.path = None;
             }
         }
-        self.status = format!("Updated {new_name}.");
+        self.status = crate::strings::app_status_updated(&new_name);
     }
 
     /// Opens the bulk-tag dialog over every readable track, its fields seeded
@@ -2932,7 +2876,7 @@ impl DroApp {
             })
             .collect();
         if tracks.is_empty() {
-            self.status = "No readable tracks to tag.".to_owned();
+            self.status = crate::strings::APP_STATUS_NO_TAGGABLE.to_owned();
             return;
         }
         let overlay = crate::pack::seed_from_meta(&pack.meta);
@@ -2945,7 +2889,7 @@ impl DroApp {
     /// no-op selection writes nothing.
     fn bulk_tag_submitted(&mut self, targets: Vec<String>, overlay: BulkTagOverlay) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         self.stop_preview();
@@ -2967,7 +2911,7 @@ impl DroApp {
             let current = track.tag().cloned().unwrap_or_default();
             let new_tag = overlay.apply_to(&current);
             if new_tag == current {
-                continue; // nothing changed for this track
+                continue;
             }
             let Some(written) = track.retagged(&track.file_name, new_tag) else {
                 continue;
@@ -2991,7 +2935,7 @@ impl DroApp {
             self.alerts.push_back(Alert::error(errors.join("\n")));
         }
         if forward.is_empty() {
-            self.status = "Bulk tag: nothing changed.".to_owned();
+            self.status = crate::strings::APP_STATUS_BULK_TAG_NOOP.to_owned();
             return;
         }
         let count = forward.len();
@@ -3024,7 +2968,7 @@ impl DroApp {
             })
             .collect();
         if tracks.is_empty() {
-            self.status = "No tracks this app can render to scan.".to_owned();
+            self.status = crate::strings::APP_STATUS_NO_RENDERABLE_TRACKS.to_owned();
             return;
         }
         let count = tracks.len();
@@ -3035,7 +2979,7 @@ impl DroApp {
             },
             None,
         );
-        self.status = format!("Scanning {count} track volume(s)...");
+        self.status = crate::strings::app_status_scanning_volumes(count);
     }
 
     /// Routes a streamed loop-search snapshot into the Find Loop dialog, if it is
@@ -3046,7 +2990,7 @@ impl DroApp {
         if let Some(dialog) = self.dialogs.find_loop.as_mut() {
             dialog.set_candidates(candidates);
         }
-        self.status = format!("Found {count} loop candidate(s).");
+        self.status = crate::strings::app_status_loop_candidates(count);
     }
 
     /// Stores a finished pack volume scan's peaks (keyed by file name) for the Peak
@@ -3059,7 +3003,7 @@ impl DroApp {
         for (name, peak) in peaks {
             pack.peaks.insert(name, peak);
         }
-        self.status = format!("Scanned {count} track volume(s).");
+        self.status = crate::strings::app_status_scanned_volumes(count);
     }
 
     /// Sets each scanned track's VGM volume modifier so the pack is levelled, as
@@ -3072,7 +3016,7 @@ impl DroApp {
     /// when the menu item was the one that asked.
     fn apply_pack_modifiers(&mut self, album: bool) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         if let Some(pack) = self.pack.as_mut() {
@@ -3082,7 +3026,7 @@ impl DroApp {
         // discard its result (the rewrite's rescan cancels it) -- confusing both
         // ways, so wait it out.
         if self.tasks.is_busy_kind(TaskKind::PackVolumeScan) {
-            self.status = "Still scanning volumes...".to_owned();
+            self.status = crate::strings::APP_STATUS_STILL_SCANNING.to_owned();
             return;
         }
         self.stop_preview();
@@ -3091,7 +3035,7 @@ impl DroApp {
             .as_ref()
             .and_then(PackState::suggested_modifier_transaction)
         else {
-            self.status = "Volume modifiers: nothing to change (scan volumes first).".to_owned();
+            self.status = crate::strings::APP_STATUS_MODIFIERS_NOOP.to_owned();
             return;
         };
         self.start_pack_run(transaction, PackRunKind::NewEdit);
@@ -3103,7 +3047,7 @@ impl DroApp {
     /// batch, mirroring [`Self::apply_pack_modifiers`].
     fn convert_pack_dates_to_hyphens(&mut self) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         self.stop_preview();
@@ -3118,9 +3062,9 @@ impl DroApp {
         {
             Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
             None if meta_changed => {
-                self.status = "Converted the pack date to hyphens.".to_owned();
+                self.status = crate::strings::APP_STATUS_DATE_CONVERTED.to_owned();
             }
-            None => self.status = "No slash-separated dates to convert.".to_owned(),
+            None => self.status = crate::strings::APP_STATUS_NO_DATES.to_owned(),
         }
     }
 
@@ -3129,7 +3073,7 @@ impl DroApp {
     /// the bulk counterpart of the quick-edit dialog's per-track rename.
     fn rename_pack_tracks_from_tags(&mut self) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         self.stop_preview();
@@ -3139,7 +3083,7 @@ impl DroApp {
             .and_then(PackState::rename_from_tags_transaction)
         {
             Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
-            None => self.status = "Every file name already matches its tag.".to_owned(),
+            None => self.status = crate::strings::APP_STATUS_NAMES_MATCH.to_owned(),
         }
     }
 
@@ -3156,7 +3100,7 @@ impl DroApp {
         let Some(image) = image else {
             return;
         };
-        self.status = format!("Optimising {}...", image.name);
+        self.status = crate::strings::app_status_optimising(&image.name);
         self.pack_service.optimize(image.name, image.bytes.to_vec());
     }
 
@@ -3164,10 +3108,8 @@ impl DroApp {
     /// that the original was already optimal.
     fn image_optimized(&mut self, optimized: OptimizedImage) {
         if optimized.bytes.len() >= optimized.original_len {
-            self.status = format!(
-                "{} is already optimal ({} bytes).",
-                optimized.name, optimized.original_len
-            );
+            self.status =
+                crate::strings::app_status_already_optimal(&optimized.name, optimized.original_len);
             return;
         }
         // The path and the pre-optimise bytes (for the undo transaction's inverse).
@@ -3178,14 +3120,13 @@ impl DroApp {
                 .and_then(|image| image.path.clone().map(|path| (path, image.bytes.to_vec())))
         });
         let Some((path, old_bytes)) = found else {
-            self.status = format!("{}: no file path to save to.", optimized.name);
+            self.status = crate::strings::app_status_no_path(&optimized.name);
             return;
         };
-        self.status = format!(
-            "{}: {} -> {} bytes.",
-            optimized.name,
+        self.status = crate::strings::app_status_optimised_bytes(
+            &optimized.name,
             optimized.original_len,
-            optimized.bytes.len()
+            optimized.bytes.len(),
         );
         self.pending_pack_undo = Some(PackTransaction {
             label: format!("Optimise {}", optimized.name),
@@ -3209,14 +3150,11 @@ impl DroApp {
     /// the Screenshots section picks it up.
     ///
     /// It lands as `<Game Name>.png`, joining the `.txt` and `.m3u` the pack
-    /// already names that way -- a screenshot straight out of DOSBox is called
-    /// something like `dosbox_000.png`, and renaming it by hand is a step this
-    /// tool exists to save. With no game name yet there is nothing to rename it
-    /// to, so it keeps its own.
-    ///
-    /// Either way the name is made unique against the folder (`... (2).png`), so
-    /// a second screenshot never silently overwrites the first; Rename... is
-    /// then how it earns a name of its own ("Cool Game (Japan).png").
+    /// already names that way; a screenshot out of DOSBox is called something
+    /// like `dosbox_000.png`, and renaming it by hand is a step this tool saves.
+    /// With no game name yet it keeps its own. The name is made unique against
+    /// the folder (`... (2).png`) so a second screenshot never overwrites the
+    /// first; Rename... then earns it a name of its own.
     fn add_screenshot(&mut self, file: PickedFile) {
         let Some(pack) = self.pack.as_ref() else {
             return;
@@ -3226,8 +3164,8 @@ impl DroApp {
         if dro_core::pack::PngInfo::parse(&file.bytes).is_none() {
             self.pending_screenshot = None;
             self.alerts.push_back(Alert::new(
-                "Not a PNG",
-                format!("{} is not a readable PNG image.", file.name),
+                crate::strings::APP_NOT_PNG_TITLE,
+                crate::strings::app_not_png_body(&file.name),
             ));
             return;
         }
@@ -3255,7 +3193,7 @@ impl DroApp {
                         bytes: old_bytes,
                     }],
                 });
-                self.status = format!("Replacing {}...", file_label(&path));
+                self.status = crate::strings::app_status_replacing(&file_label(&path));
                 self.pending_saves.push_back(SavePurpose::ImageWritten);
                 self.files.save(SaveRequest::InPlace {
                     path,
@@ -3317,7 +3255,7 @@ impl DroApp {
             bytes,
         };
         if recompress {
-            self.status = format!("Recompressing {file_name}...");
+            self.status = crate::strings::app_status_recompressing(file_name);
             self.pack_service
                 .optimize(file_name.to_owned(), add.bytes.clone());
             self.pending_add = Some(add);
@@ -3328,7 +3266,7 @@ impl DroApp {
 
     /// Writes an added screenshot's bytes into the pack folder.
     fn write_added_screenshot(&mut self, add: PendingAdd) {
-        self.status = format!("Adding {}...", file_label(&add.path));
+        self.status = crate::strings::app_status_adding(&file_label(&add.path));
         self.pending_saves.push_back(SavePurpose::ScreenshotAdded);
         self.files.save(SaveRequest::InPlace {
             path: add.path,
@@ -3363,7 +3301,7 @@ impl DroApp {
     /// old name back.
     fn rename_screenshot(&mut self, original_name: &str, file_name: &str) {
         if self.pack_busy() {
-            self.status = "A track operation is still running.".to_owned();
+            self.status = crate::strings::APP_STATUS_TRACK_OP_RUNNING.to_owned();
             return;
         }
         let transaction = self
@@ -3373,9 +3311,11 @@ impl DroApp {
         match transaction {
             Some(transaction) => self.start_pack_run(transaction, PackRunKind::NewEdit),
             // Rescanned away while the dialog was open.
-            None => self.alerts.push_back(Alert::error(format!(
-                "\"{original_name}\" is no longer in the folder; it was not renamed."
-            ))),
+            None => self
+                .alerts
+                .push_back(Alert::error(crate::strings::app_err_renamed_gone(
+                    original_name,
+                ))),
         }
     }
 
@@ -3395,8 +3335,8 @@ impl DroApp {
             return;
         };
         self.alerts.push_back(Alert::confirm(
-            "Delete screenshot?",
-            format!("{name} will be deleted from the pack folder."),
+            crate::strings::APP_CONFIRM_DELETE_SCREENSHOT_TITLE,
+            crate::strings::app_delete_screenshot_body(&name),
             Action::ConfirmDeleteScreenshot(name),
         ));
     }
@@ -3530,11 +3470,10 @@ impl DroApp {
         }
         let markers = self.editor.markers;
         self.push_loop_config();
-        self.status = format!(
-            "Loop {} - {} ({} instructions).",
+        self.status = crate::strings::app_status_loop_marked(
             markers.start(),
             markers.end(),
-            markers.end() - markers.start()
+            markers.end() - markers.start(),
         );
     }
 
@@ -3547,10 +3486,8 @@ impl DroApp {
         let len = self.editor.len();
         if !self.editor.apply_loop_to_metadata() {
             self.alerts.push_back(Alert::new(
-                "Not a VGM".to_owned(),
-                "Only a VGM file stores loop points. Convert the song to VGM first \
-                 (File > Convert > Convert to VGM)."
-                    .to_owned(),
+                crate::strings::APP_NOT_VGM_TITLE,
+                crate::strings::APP_NOT_VGM_BODY,
             ));
             return;
         }
@@ -3559,13 +3496,9 @@ impl DroApp {
         // says. An end short of the tail is honoured here and survives a save,
         // but say so plainly rather than let it be discovered later.
         self.status = if markers.end() < len {
-            format!(
-                "Loop saved: {} - {}. Other players loop the whole tail until it is trimmed.",
-                markers.start(),
-                markers.end()
-            )
+            crate::strings::app_status_loop_saved_range(markers.start(), markers.end())
         } else {
-            format!("Loop saved: {} - end of song.", markers.start())
+            crate::strings::app_status_loop_saved_end(markers.start())
         };
     }
 
@@ -3581,7 +3514,7 @@ impl DroApp {
                 crate::tasks::LoopSearchSource::Vgm(std::sync::Arc::new(file.clone()))
             }
             (None, None) => {
-                self.status = "Please open a song first.".to_owned();
+                self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
                 return;
             }
         };
@@ -3592,7 +3525,7 @@ impl DroApp {
             },
             None,
         );
-        self.status = "Searching for loops...".to_owned();
+        self.status = crate::strings::APP_STATUS_SEARCHING_LOOPS.to_owned();
     }
 
     fn delay_navigate(&mut self, backwards: bool) {
@@ -3612,7 +3545,7 @@ impl DroApp {
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
             }
-            None => self.status = "No more delays found.".to_owned(),
+            None => self.status = crate::strings::APP_STATUS_NO_MORE_DELAYS.to_owned(),
         }
     }
 
@@ -3622,21 +3555,21 @@ impl DroApp {
         }
         let len = self.editor.len();
         // The Pos. column is hex, so Goto reads hex too (an optional 0x is fine),
-        // and the messages echo the position in hex (parity-2).
+        // and the messages echo the position in hex.
         let trimmed = text.trim();
         let digits = trimmed
             .strip_prefix("0x")
             .or_else(|| trimmed.strip_prefix("0X"))
             .unwrap_or(trimmed);
         match usize::from_str_radix(digits, 16) {
-            Err(_) => self.status = format!("Invalid position for goto: {text}"),
+            Err(_) => self.status = crate::strings::app_status_goto_invalid(text),
             Ok(position) if position >= len => {
-                self.status = format!("Position for goto is out of range: {position:04X}");
+                self.status = crate::strings::app_status_goto_out_of_range(position);
             }
             Ok(position) => {
                 self.editor.selection.select_only(position);
                 self.scroll_to = Some(table::ScrollTo::centered(position));
-                self.status = format!("Gone to position: {position:04X}");
+                self.status = crate::strings::app_status_goto_gone(position);
             }
         }
     }
@@ -3663,16 +3596,16 @@ impl DroApp {
             Some(index) => {
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
-                self.status = format!("Occurrence of {label} found at position {index:04X}.");
+                self.status = crate::strings::app_status_find_found(&label, index);
             }
-            None => self.status = format!("Could not find another occurrence of {label}."),
+            None => self.status = crate::strings::app_status_find_not_found(&label),
         }
     }
 
     fn apply_settings(&mut self, ctx: &egui::Context, mut config: AppConfig) {
         // The Settings dialog snapshots the config at open and doesn't expose the
         // boost, so a boost changed via the transport slider meanwhile would be
-        // reverted on Save. Keep the live value (M4/ux-15).
+        // reverted on Save. Keep the live value.
         config.audio.boost = self.config.audio.boost;
         // Changing where or through what playback goes has to take effect now,
         // not at the next Play: otherwise the old backend keeps playing and
@@ -3686,8 +3619,9 @@ impl DroApp {
         // every offline render) builds the cores just saved.
         dro_synth::registry::set_core_choices(config.audio.cores.clone());
         if let Err(error) = self.config_store.save(&config) {
-            self.alerts
-                .push_back(Alert::error(format!("Could not save settings: {error}")));
+            self.alerts.push_back(Alert::error(
+                crate::strings::app_could_not_save_settings(error),
+            ));
         }
         // Repaint the whole UI in the new scheme before anything else reads it.
         // Compare against what is *on screen*, which a live preview may already
@@ -3706,7 +3640,7 @@ impl DroApp {
         // Don't retune the position panel to the configured rate while a stream
         // is live: it reports frames at the stream's real (still-old) rate, so
         // the readout would mix a new-rate length with old-rate frames. On the
-        // next reload, ensure_audio adopts the new rate from output_rate (ux-16).
+        // next reload, ensure_audio adopts the new rate from output_rate.
         if self.audio.output_rate().is_none() {
             self.position.set_frequency(new_frequency);
         }
@@ -3726,7 +3660,7 @@ impl DroApp {
         if waveform_changed {
             self.submit_waveform(None);
         }
-        self.status = "Settings saved.".to_owned();
+        self.status = crate::strings::APP_STATUS_SETTINGS_SAVED.to_owned();
     }
 
     /// Repaints in a skin without committing it. A colour scheme can only really
@@ -3844,7 +3778,7 @@ impl DroApp {
         }
         if playing && let Err(error) = self.audio.play() {
             self.alerts
-                .push_back(Alert::error(format!("Could not resume playback: {error}")));
+                .push_back(Alert::error(crate::strings::app_could_not_resume(error)));
         }
     }
 
@@ -3857,7 +3791,7 @@ impl DroApp {
             // The features still behind this gate are genuinely OPL-only
             // (Convert, DRO Info); a loaded VGM is not "the wrong file", it
             // just is not an OPL one.
-            self.status = "This needs an OPL song.".to_owned();
+            self.status = crate::strings::APP_STATUS_NEEDS_OPL.to_owned();
             false
         }
     }
@@ -3891,7 +3825,7 @@ impl DroApp {
         if self.editor.capabilities().playable && self.editor.has_document() {
             true
         } else {
-            self.status = "There is nothing here this app can play.".to_owned();
+            self.status = crate::strings::APP_STATUS_NOTHING_TO_PLAY.to_owned();
             false
         }
     }
@@ -3907,14 +3841,11 @@ impl DroApp {
         if self.editor.has_document() {
             true
         } else {
-            self.status = "Please open a file first.".to_owned();
+            self.status = crate::strings::APP_STATUS_OPEN_FILE_FIRST.to_owned();
             false
         }
     }
 
-    /// Everything every edit needs: stale audio paused, the length readout
-    /// refreshed, and the waveform re-rendered (debounced, so holding Delete
-    /// does not thrash the renderer -- a 1 s debounce).
     /// Reports where the loaded VGM's header disagrees with its stream, and
     /// offers to correct it.
     ///
@@ -3924,18 +3855,18 @@ impl DroApp {
     fn audit_header(&mut self) {
         let findings = self.editor.audit_header();
         if findings.is_empty() {
-            self.status = "The header agrees with the stream; nothing to fix.".to_owned();
+            self.status = crate::strings::APP_STATUS_HEADER_AGREES_NOTHING.to_owned();
             return;
         }
-        let mut message = String::from("This file's header disagrees with its own music:\n\n");
+        let mut message = String::from(crate::strings::APP_AUDIT_HEADER_INTRO);
         for finding in &findings {
             message.push_str("  - ");
             message.push_str(&finding.describe());
             message.push('\n');
         }
-        message.push_str("\nCorrect them? The stream is taken as the truth.");
+        message.push_str(crate::strings::APP_AUDIT_HEADER_OUTRO);
         self.alerts.push_back(Alert::confirm(
-            "Fix Header",
+            crate::strings::APP_FIX_HEADER_TITLE,
             message,
             Action::ConfirmFixHeader,
         ));
@@ -3987,7 +3918,7 @@ impl DroApp {
         // One render at a time: a second would finish into the same save queue,
         // and the first's dialog is already in the user's way.
         if self.tasks.is_busy_kind(TaskKind::RenderWav) {
-            self.status = "Already rendering a WAV.".to_owned();
+            self.status = crate::strings::APP_STATUS_ALREADY_RENDERING.to_owned();
             return;
         }
         let mix = RenderMix {
@@ -4013,7 +3944,7 @@ impl DroApp {
             },
             None,
         );
-        self.status = "Rendering to WAV...".to_owned();
+        self.status = crate::strings::APP_STATUS_RENDERING_WAV.to_owned();
     }
 
     /// Whether a split (of either kind) is somewhere between its dialog and its
@@ -4086,7 +4017,7 @@ impl DroApp {
         if self.editor.capabilities().renderable {
             true
         } else {
-            self.status = "There is nothing here to split.".to_owned();
+            self.status = crate::strings::APP_STATUS_NOTHING_TO_SPLIT.to_owned();
             false
         }
     }
@@ -4114,7 +4045,12 @@ impl DroApp {
                     }),
                     (None, None) => None,
                 };
-                source.map(|source| (TaskRequest::Split { source }, "Splitting channels..."))
+                source.map(|source| {
+                    (
+                        TaskRequest::Split { source },
+                        crate::strings::APP_STATUS_SPLITTING_CHANNELS,
+                    )
+                })
             }
             PendingSplit::Songs {
                 threshold_native,
@@ -4128,13 +4064,13 @@ impl DroApp {
                         included,
                         trailing_tail,
                     },
-                    "Splitting songs...",
+                    crate::strings::APP_STATUS_SPLITTING_SONGS,
                 )
             }),
         };
         let (Some(dir), Some((request, status))) = (dir, request) else {
             self.split_flow = None;
-            self.status = "Split cancelled.".to_owned();
+            self.status = crate::strings::APP_STATUS_SPLIT_CANCELLED.to_owned();
             return;
         };
         self.tasks.submit(request, None);
@@ -4153,7 +4089,7 @@ impl DroApp {
             Ok(files) => files,
             Err(message) => {
                 self.split_flow = None;
-                self.status = "The split failed.".to_owned();
+                self.status = crate::strings::APP_STATUS_SPLIT_FAILED.to_owned();
                 self.alerts.push_back(Alert::error(message));
                 return;
             }
@@ -4161,9 +4097,9 @@ impl DroApp {
         if files.is_empty() {
             self.split_flow = None;
             self.status = if songs {
-                "No songs to split.".to_owned()
+                crate::strings::APP_STATUS_NO_SONGS_SPLIT.to_owned()
             } else {
-                "No channels to split.".to_owned()
+                crate::strings::APP_STATUS_NO_CHANNELS_SPLIT.to_owned()
             };
             return;
         }
@@ -4213,7 +4149,7 @@ impl DroApp {
         let (dir, written, failed, songs) = (dir.clone(), *written, *failed, *songs);
         self.split_flow = None;
         if failed {
-            self.status = "Some split files could not be written.".to_owned();
+            self.status = crate::strings::APP_STATUS_SPLIT_WRITE_FAILED.to_owned();
             return;
         }
         self.finish_split(&dir, written, songs);
@@ -4223,17 +4159,14 @@ impl DroApp {
     /// offers to open the folder it filled as a pack project.
     fn finish_split(&mut self, dir: &Path, written: usize, songs: bool) {
         if songs {
-            self.status = format!("Wrote {written} song(s) to {}.", dir.display());
+            self.status = crate::strings::app_status_wrote_songs(written, dir.display());
             self.alerts.push_back(Alert::confirm(
-                "Songs exported",
-                format!(
-                    "Wrote {written} song(s) to {}.\n\nOpen the folder as a pack project?",
-                    dir.display()
-                ),
+                crate::strings::APP_SONGS_EXPORTED_TITLE,
+                crate::strings::app_songs_exported_body(written, dir.display()),
                 Action::OpenPackFolderAt(dir.to_path_buf()),
             ));
         } else {
-            self.status = format!("Wrote {written} file(s) to {}.", dir.display());
+            self.status = crate::strings::app_status_wrote_files(written, dir.display());
         }
     }
 
@@ -4268,8 +4201,6 @@ impl DroApp {
         );
     }
 
-    /// The loaded document as something an engine can play, of either kind.
-    /// `None` with nothing open.
     /// The configured resampling method, decoded from its config slug. An
     /// unknown spelling -- a config written by a newer build -- falls back to
     /// the accurate default rather than failing the whole config.
@@ -4338,8 +4269,8 @@ impl DroApp {
     fn sync_loop_overlay(&mut self) {
         let markers = self.editor.markers;
         let len = self.editor.len();
-        // Any playable document with a waveform can carry a loop overlay now,
-        // not only an OPL one -- the markers and the timeline are both generic.
+        // Any playable document with a waveform can carry a loop overlay, not
+        // only an OPL one -- the markers and the timeline are both generic.
         let worth_showing =
             self.editor.timeline().is_some() && (!markers.is_full(len) || self.loop_enabled);
         self.waveform.loop_overlay = worth_showing
@@ -4465,9 +4396,9 @@ impl DroApp {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
             can_render: self.editor.capabilities().renderable,
-            // Anything that renders can be split per channel now -- an OPL
-            // stream, or a VGM with a core. Shown for an empty editor, like the
-            // rest of the menu.
+            // Anything that renders can be split per channel -- an OPL stream,
+            // or a VGM with a core. Shown for an empty editor, like the rest of
+            // the menu.
             can_split_channels: self.editor.capabilities().renderable
                 || !self.editor.has_document(),
         }
@@ -4483,15 +4414,14 @@ impl DroApp {
             format!("{:.2}", f64::from(ms) / 1000.0)
         };
         let plural = if ms == 1000 { "" } else { "s" };
-        format!("Play last {value} second{plural}")
+        crate::strings::app_play_tail_label(&value, plural)
     }
 
     fn play_seam_label(&self) -> String {
-        format!(
-            "Play the loop join: the last {} of the region, repeating",
+        crate::strings::app_play_seam_label(
             self.play_tail_label()
                 .trim_start_matches("Play last ")
-                .to_owned()
+                .to_owned(),
         )
     }
 }
@@ -4528,15 +4458,13 @@ mod about_tests {
 
     #[test]
     fn the_about_box_credits_every_compiled_core() {
-        // The LGPL and GPL cores this program links require their notice to
-        // reach the user, and the About box is where it does. Driving it from
+        // The About box must credit every linked LGPL/GPL core; driving it from
         // `dro_synth::credits` rather than typed copy is what stops a new core
-        // from shipping uncredited -- this test is that guarantee's teeth.
+        // from shipping uncredited.
         //
         // Installed first so both reads below see the same registry: the GUI
-        // tests install it concurrently, and text rendered from the ambient
-        // fallback compared against credits read after the install would
-        // disagree about cores neither is wrong about.
+        // tests install it concurrently, and comparing text from the ambient
+        // fallback against credits read after the install would disagree.
         crate::widgets::chip_output::install_test_cores();
         let text = about_text();
         for core in dro_synth::credits() {
@@ -4555,9 +4483,8 @@ mod about_tests {
 
     #[test]
     fn the_about_box_states_the_binarys_license_not_a_crates() {
-        // The distributed program is the GPL-licensed combination, whatever the
-        // permissive halves say about themselves. Getting this backwards would
-        // under-state the obligation to whoever redistributes a build.
+        // The distributed binary is the GPL-licensed combination, whatever the
+        // permissive halves say about themselves.
         let text = about_text();
         assert!(text.contains("GNU General Public License"));
         assert!(

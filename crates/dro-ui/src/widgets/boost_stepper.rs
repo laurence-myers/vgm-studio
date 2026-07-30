@@ -1,5 +1,4 @@
-//! The live-playback volume lever, extracted from the transport row to keep
-//! `DroApp::update_impl` lean (uishell-6).
+//! The live-playback volume lever.
 //!
 //! A bidirectional volume control sitting on the VGM volume-modifier factor
 //! ladder: every position is a real modifier value (see [`dro_core::volume`]),
@@ -50,9 +49,7 @@ pub fn boost_stepper(
 ) {
     // Live playback volume, right-aligned in the row. A limiter behind it
     // prevents clipping; the WAV render and the waveform stay at the un-boosted
-    // level. Built right-to-left: the up/down arrows, the editable value, the
-    // "Volume" label, then a full-height groove dividing it from the transport
-    // buttons.
+    // level. Built right-to-left.
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let row_h = ui.spacing().interact_size.y;
@@ -62,20 +59,17 @@ pub fn boost_stepper(
         let mut locked = lock;
         if theme::bevel::icon_toggle(ui, palette, &mut locked, Icon::Lock, "Lock")
             .on_hover_text(if lock {
-                "Volume is kept across songs. Click to let each song start from \
-                 its header modifier instead."
+                crate::strings::BOOST_STEPPER_LOCK_ON
             } else {
-                "Each song starts from its header volume modifier. Click to keep \
-                 this volume across songs."
+                crate::strings::BOOST_STEPPER_LOCK_OFF
             })
             .clicked()
         {
             actions.push(Action::SetLockBoost(locked));
         }
 
-        // The lever sits on the modifier factor ladder: snap the stored factor to
-        // its nearest ladder position, then step and display from there. The
-        // arrows move ~1.0 at unity and above, ~0.1 below it (both snapped).
+        // Snap the stored factor to its nearest ladder position, then step and
+        // display from there. The arrows move ~1.0 at unity and above, ~0.1 below.
         let factor = volume_modifier_factor(nearest_volume_modifier(boost));
         let up_factor = volume_step_up(factor);
         let down_factor = volume_step_down(factor);
@@ -86,14 +80,14 @@ pub fn boost_stepper(
         let can_lower = down_factor != factor;
 
         // Up/down arrows, snug together (rightmost in the row). A nested
-        // `ui.horizontal` inherits the enclosing right-to-left layout, so add down
-        // first and up second and they come out up-on-the-left, down-on-the-right,
-        // like a stepper. (Forcing left-to-right here corrupts the parent.)
+        // `ui.horizontal` inherits the right-to-left layout, so adding down first
+        // and up second lays them out up-on-the-left, down-on-the-right, like a
+        // stepper. (Forcing left-to-right here corrupts the parent.)
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 1.0;
             let arrow = egui::vec2(20.0, row_h);
             if theme::bevel::icon_button_sized(ui, palette, Icon::Dn, "\u{25BC}", arrow)
-                .on_hover_text("Quieter")
+                .on_hover_text(crate::strings::BOOST_STEPPER_QUIETER)
                 .clicked()
                 && can_lower
             {
@@ -104,12 +98,12 @@ pub fn boost_stepper(
             }
             // The up arrow stays interactive so its hover can explain the cap (the
             // bevel button does not grey when disabled), but a click at the
-            // ceiling is ignored. It is blocked only *at* the trigger level: from
-            // any lower value the arrow climbs back up to it.
+            // ceiling is ignored. Blocked only *at* the trigger level: from any
+            // lower value the arrow climbs back up to it.
             let up_hover = if can_raise || ceiling.is_none() {
-                "Louder"
+                crate::strings::BOOST_STEPPER_LOUDER
             } else {
-                "At this song's clipping limit -- lower the volume to go quieter"
+                crate::strings::BOOST_STEPPER_AT_LIMIT
             };
             if theme::bevel::icon_button_sized(ui, palette, Icon::Up, "\u{25B2}", arrow)
                 .on_hover_text(up_hover)
@@ -157,7 +151,7 @@ pub fn boost_stepper(
                                 .ok()
                         }),
                 )
-                .on_hover_text(format!("{factor:.2}\u{00d7} ({db:+.1} dB)"));
+                .on_hover_text(crate::strings::boost_stepper_factor_readout(factor, db));
             // Report whether this field holds keyboard focus, so the app yields
             // the keyboard to it (see `gather_key_input`) -- a number typed here
             // must change the volume, not toggle a channel. Routed as an action
@@ -165,8 +159,7 @@ pub fn boost_stepper(
             // memory lock held during the draw.
             actions.push(Action::VolumeFieldFocused(response.has_focus()));
             // No continuous drag (speed 0), so a change is always a committed edit
-            // -- persist it once, like an arrow click. A typed value is snapped to
-            // the ladder and capped at the clipping ceiling.
+            // -- persist it once, like an arrow click.
             if response.changed() {
                 actions.push(Action::SetBoost {
                     value: snapped_within_ceiling(value as f32, ceiling),
@@ -177,27 +170,23 @@ pub fn boost_stepper(
 
         // The label sits left of the value...
         ui.label("Volume");
-        // ...then the "Match" button (further left in this right-to-left row, so it
-        // reads "Match Volume 1.00x"): it measures the song's peak and sets the
-        // volume to bring it to full scale.
-        // Greyed while its own measurement runs: a second click would cancel the
-        // first scan and start over, which reads as the button doing nothing.
+        // ...then the "Match" button: it measures the song's peak and sets the
+        // volume to bring it to full scale. Greyed while its own measurement runs,
+        // since a second click would cancel the first scan and start over.
         ui.add_enabled_ui(!scanning, |ui| {
             if theme::bevel::icon_button(ui, palette, Icon::Match, "Match")
                 .on_hover_text(if scanning {
-                    "Measuring the song's peak..."
+                    crate::strings::BOOST_STEPPER_MEASURING
                 } else {
-                    "Measure the song's loudest peak and set the volume to bring it to \
-                     full scale without clipping"
+                    crate::strings::BOOST_STEPPER_MATCH
                 })
                 .clicked()
             {
                 actions.push(Action::MatchVolume);
             }
         });
-        // ...and a 2px beveled groove at full row height separates the volume
-        // section from the transport buttons, matching the grooves between the
-        // stacked panels.
+        // ...and a beveled groove at full row height separates the volume section
+        // from the transport buttons.
         theme::separator(ui, palette);
     });
 }

@@ -86,9 +86,8 @@ impl PositionPanel {
     /// `iteration` is how many times playback has jumped back, so the pass being
     /// heard is one more than that.
     pub fn set_loop_progress(&mut self, progress: Option<(u32, LoopCount)>) {
-        self.loop_progress = progress.map(|(iteration, count)| match count {
-            LoopCount::Infinite => format!("Loop {}", iteration + 1),
-            LoopCount::Times(times) => format!("Loop {} / {}", iteration + 1, times.max(1)),
+        self.loop_progress = progress.map(|(iteration, count)| {
+            crate::strings::position_panel_loop_progress(iteration, count)
         });
     }
 

@@ -132,7 +132,9 @@ impl DroInfoDialog {
                 self.save(actions);
             } else {
                 self.edit_mode = true;
-                actions.push(Action::Status("DRO Info edit mode enabled.".to_owned()));
+                actions.push(Action::Status(
+                    crate::strings::DRO_INFO_EDIT_MODE_ENABLED.to_owned(),
+                ));
             }
         }
         open && !close.get()
@@ -146,16 +148,15 @@ impl DroInfoDialog {
                     ms_length,
                 });
                 actions.push(Action::Alert {
-                    title: "DRO Info".to_owned(),
-                    message: "DRO info updated.\nRemember to save the file.".to_owned(),
+                    title: crate::strings::DRO_INFO_ALERT_TITLE.to_owned(),
+                    message: crate::strings::DRO_INFO_UPDATED_MESSAGE.to_owned(),
                 });
                 // The dialog stays open, still in edit mode.
             }
             Err(_) => {
                 actions.push(Action::Alert {
-                    title: "Error".to_owned(),
-                    message: "Error updating DRO info, check that the entered values are correct."
-                        .to_owned(),
+                    title: crate::strings::DRO_INFO_ERROR_TITLE.to_owned(),
+                    message: crate::strings::DRO_INFO_ERROR_MESSAGE.to_owned(),
                 });
             }
         }

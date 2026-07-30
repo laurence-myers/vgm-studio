@@ -182,10 +182,7 @@ impl VgmMetadataDialog {
                         ui.horizontal(|ui| {
                             super::text_field(ui, palette, &mut self.volume_modifier, 70.0);
                             if bevel::button(ui, palette, "Measure")
-                                .on_hover_text(
-                                    "Measure the song's peak and suggest a modifier that brings it \
-                                 to full scale",
-                                )
+                                .on_hover_text(crate::strings::VGM_METADATA_MEASURE_HINT)
                                 .clicked()
                             {
                                 actions.push(Action::MeasureVolumeModifier);
@@ -222,11 +219,8 @@ impl VgmMetadataDialog {
                 Ok(index) if index < self.song_len => Some(index),
                 _ => {
                     actions.push(Action::Alert {
-                        title: "Invalid VGM metadata".to_owned(),
-                        message: format!(
-                            "Loop start must be an instruction index below {}.",
-                            self.song_len
-                        ),
+                        title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
+                        message: crate::strings::vgm_metadata_loop_start_message(self.song_len),
                     });
                     return false;
                 }
@@ -240,19 +234,15 @@ impl VgmMetadataDialog {
             (None, _) => None,
             (Some(_), None) => {
                 actions.push(Action::Alert {
-                    title: "Invalid VGM metadata".to_owned(),
-                    message: format!(
-                        "Loop end must be an instruction index of {} or less, or empty for the \
-                         end of the song.",
-                        self.song_len
-                    ),
+                    title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
+                    message: crate::strings::vgm_metadata_loop_end_message(self.song_len),
                 });
                 return false;
             }
             (Some(start), Some(end)) if end <= start => {
                 actions.push(Action::Alert {
-                    title: "Invalid VGM metadata".to_owned(),
-                    message: "Loop end must come after the loop start.".to_owned(),
+                    title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
+                    message: crate::strings::VGM_METADATA_LOOP_END_AFTER_START.to_owned(),
                 });
                 return false;
             }
@@ -268,9 +258,8 @@ impl VgmMetadataDialog {
         );
         let (Ok(loop_base), Ok(loop_modifier), Ok(volume_modifier)) = parsed else {
             actions.push(Action::Alert {
-                title: "Invalid VGM metadata".to_owned(),
-                message: "Error updating VGM metadata, check that the entered values are correct."
-                    .to_owned(),
+                title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
+                message: crate::strings::VGM_METADATA_UPDATE_ERROR.to_owned(),
             });
             return false;
         };
