@@ -1358,6 +1358,16 @@ chip_specs! {
     // named default selections (Maxim's SN76489, Ootake's HuC6280) predate
     // the scorecard's retirement and stay: they are the cores the reference
     // ran, and nothing has since arbitrated a better default.
+    //
+    // An alternate's `emu_core` must name a core *different* from the one the
+    // default row resolves to. `emu_core: 0` takes the device's first-listed
+    // core (`SndEmu_StartCore` in `emu/SoundEmu.c`), so an alternate that
+    // names that same first core is a dead picker entry -- both rows start the
+    // one emulator. That was the trap that hid six devices' MAME core behind a
+    // row re-selecting the default (EMU2149, EMU2413, SameBoy, NSFPlay,
+    // superctr, Valley Bell were all the first core already). Every alternate
+    // here now names the second core, and
+    // `every_alternate_row_starts_a_distinct_core` pins that they differ.
 
     make_sn76489: "sn76489.libvgm" / "libvgm" => Sn76489,
         ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
@@ -1382,8 +1392,8 @@ chip_specs! {
         ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
     make_gameboydmg: "gameboydmg.libvgm" / "libvgm" => GameBoyDmg,
         ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_gameboydmg_sameboy: "gameboydmg.libvgm-sameboy" / "libvgm (SameBoy core)" => GameBoyDmg,
-        ffi::DEVID_GB_DMG, ffi::FCC_SBOY, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    make_gameboydmg_mame: "gameboydmg.libvgm-mame" / "libvgm (MAME core)" => GameBoyDmg,
+        ffi::DEVID_GB_DMG, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_pokey: "pokey.libvgm" / "libvgm" => Pokey,
         ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_mikey: "mikey.libvgm" / "libvgm" => Mikey,
@@ -1392,22 +1402,22 @@ chip_specs! {
     // Plain files with one upstream quirk each -- the remap is the rule's.
     make_nesapu: "nesapu.libvgm" / "libvgm" => NesApu,
         ffi::DEVID_NES_APU, 0, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
-    make_nesapu_nsfplay: "nesapu.libvgm-nsfplay" / "libvgm (NSFPlay core)" => NesApu,
-        ffi::DEVID_NES_APU, ffi::FCC_NSFP, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
+    make_nesapu_mame: "nesapu.libvgm-mame" / "libvgm (MAME core)" => NesApu,
+        ffi::DEVID_NES_APU, ffi::FCC_MAME, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
     make_okim6295: "okim6295.libvgm" / "libvgm" => Okim6295,
         ffi::DEVID_MSM6295, 0, WriteRule::Okim6295, [0, 0], LEVEL_UNITY, configure_none;
     make_wonderswan: "wonderswan.libvgm" / "libvgm" => WonderSwan,
         ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], LEVEL_UNITY, configure_none;
     make_saa1099: "saa1099.libvgm" / "libvgm" => Saa1099,
         ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_saa1099_vb: "saa1099.libvgm-vb" / "libvgm (alt core)" => Saa1099,
-        ffi::DEVID_SAA1099, ffi::FCC_VBEL, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_saa1099_mame: "saa1099.libvgm-mame" / "libvgm (MAME core)" => Saa1099,
+        ffi::DEVID_SAA1099, ffi::FCC_MAME, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
 
     // The AY8910, with its `0x31` stereo mask on the dedicated function.
     make_ay8910: "ay8910.libvgm" / "libvgm" => Ay8910,
         ffi::DEVID_AY8910, 0, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
-    make_ay8910_emu2149: "ay8910.libvgm-emu2149" / "libvgm (EMU2149 core)" => Ay8910,
-        ffi::DEVID_AY8910, ffi::FCC_EMU_, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
+    make_ay8910_mame: "ay8910.libvgm-mame" / "libvgm (MAME core)" => Ay8910,
+        ffi::DEVID_AY8910, ffi::FCC_MAME, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
 
     // The Yamaha latch pair.
     make_ymz280b: "ymz280b.libvgm" / "libvgm" => Ymz280b,
@@ -1416,8 +1426,8 @@ chip_specs! {
         ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     make_ym2413: "ym2413.libvgm" / "libvgm" => Ym2413,
         ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2413_emu2413: "ym2413.libvgm-emu2413" / "libvgm (EMU2413 core)" => Ym2413,
-        ffi::DEVID_YM2413, ffi::FCC_EMU_, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    make_ym2413_mame: "ym2413.libvgm-mame" / "libvgm (MAME core)" => Ym2413,
+        ffi::DEVID_YM2413, ffi::FCC_MAME, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     make_ym2612: "ym2612.libvgm" / "libvgm" => Ym2612,
         ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     make_ym2612_gens: "ym2612.libvgm-gens" / "libvgm (Gens core)" => Ym2612,
@@ -1466,8 +1476,8 @@ chip_specs! {
         ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_c352;
     make_qsound: "qsound.libvgm" / "libvgm" => QSound,
         ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
-    make_qsound_ctr: "qsound.libvgm-ctr" / "libvgm (superctr core)" => QSound,
-        ffi::DEVID_QSOUND, ffi::FCC_CTR_, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
+    make_qsound_mame: "qsound.libvgm-mame" / "libvgm (MAME core)" => QSound,
+        ffi::DEVID_QSOUND, ffi::FCC_MAME, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
     // `Cmd_YMW_Bank`. `Register` served it until 2026-07-29, which sent the
@@ -2321,6 +2331,46 @@ mod tests {
                 spec.write,
             );
             assert!(chip.native_rate() > 0, "{} has no rate", spec.kind.name());
+        }
+    }
+
+    /// A chip's several rows must each start a *different* libvgm core, or a
+    /// picker entry is dead: choosing it changes the id in `drotrim.ini` but
+    /// not a sample of the sound.
+    ///
+    /// The bug this pins: an alternate row whose `emu_core` names the device's
+    /// first-listed core resolves, via `SndEmu_StartCore`, to the very core
+    /// `emu_core: 0` already takes -- so the default row and the alternate are
+    /// the same emulator. Six rows were that (AY8910, YM2413, Game Boy,
+    /// SAA1099, NES APU, QSound all named their default core), and this reads
+    /// the *started* `DEV_DEF::coreID` back rather than trusting the spec, so
+    /// it measures what libvgm actually chose.
+    #[test]
+    fn every_alternate_row_starts_a_distinct_core() {
+        // (kind, id, the core libvgm actually started), for every row.
+        let mut started: Vec<(ChipKind, &'static str, u32)> = Vec::new();
+        for spec in SPECS {
+            let mut chip = LibVgmChip::new(spec);
+            chip.reset(4_000_000, false);
+            assert!(chip.is_started(), "{} did not start", spec.id);
+            // SAFETY: a live device definition from the successful start above.
+            let core_id = unsafe { (*chip.dev.dev_def).core_id };
+            started.push((spec.kind, spec.id, core_id));
+        }
+
+        for (index, &(kind, id, core)) in started.iter().enumerate() {
+            for &(other_kind, other_id, other_core) in &started[index + 1..] {
+                if kind != other_kind {
+                    continue;
+                }
+                assert_ne!(
+                    core, other_core,
+                    "{kind:?}: rows {id:?} and {other_id:?} both start libvgm \
+                     core {core:#010x} -- one is a dead picker entry (an \
+                     alternate that names the device's first-listed core \
+                     resolves to the same emulator as `emu_core: 0`)"
+                );
+            }
         }
     }
 
