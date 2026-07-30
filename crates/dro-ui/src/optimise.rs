@@ -14,6 +14,25 @@
 //! Both arms take and return whole-file bytes, so the caller does not have to
 //! know which one it got.
 
+/// The About box's stanza for the optimisers.
+///
+/// They are GPL-2.0 programs shipped inside this binary, so crediting them and
+/// pointing at their source is a licence obligation, not a courtesy -- the same
+/// reason the emulator cores have a stanza. Empty on the web, where they are
+/// not shipped at all.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const fn credit() -> &'static str {
+    "\nVGM optimisers (vgm_cmp, vgm_sro, optdac) from the vgmtools\n\
+     project, used under the GPL-2.0 and built into this binary.\n\
+     Source: https://github.com/vgmrips/vgmtools\n"
+}
+
+/// The About box's stanza for the optimisers -- nothing, on the web.
+#[cfg(target_arch = "wasm32")]
+pub(crate) const fn credit() -> &'static str {
+    ""
+}
+
 /// The optimised file, or `None` when there was nothing to gain.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn optimised(bytes: &[u8]) -> Option<Vec<u8>> {

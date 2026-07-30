@@ -1,7 +1,27 @@
 # Any-chip VGM optimization, by binding vgmtools
 
-> **Status: IN PROGRESS.** Approved 2026-07-30, implemented on branch
-> `vgmtools-binding` off `vgm-multichip`. Steps ot-1..ot-8, one commit each.
+> **Status: COMPLETE (2026-07-30).** ot-1..ot-8 shipped on branch
+> `vgmtools-binding` off `vgm-multichip`, one commit each, workspace green
+> (fmt, clippy, tests, wasm).
+>
+> **What the plan got wrong, and the evidence that corrected it:**
+> - **The route.** ot-1 planned in-process linking with a subprocess fallback.
+>   The fallback won, on measured robustness rather than taste -- see ot-1.
+> - **The order.** This plan ran `vgm_sro` *after* `vgm_cmp`, reasoning that
+>   fewer writes meant less ROM to keep. The VGMRips wiki runs it *before*, and
+>   is right: `vgm_sro` reads the sample ROM out of the write history using
+>   chip models that are not `vgm_cmp`'s, so it must see the file's own writes.
+>   The tempting argument was exactly the risk.
+> - **`vgm_sro` is not safe for every chip.** ot-7's render gate caught it:
+>   QSound files came back playing something different. Three chips are now
+>   held back from the trim (QSound measured, K053260 and SegaPCM on upstream's
+>   own warnings), and one from `vgm_cmp` (SAA1099, the missing `break`).
+> - **ot-7 moved earlier**, as ot-7a, because the SAA1099 find showed these
+>   tools carry bugs that only real files reveal.
+>
+> **Next:** `vgm_ptch` can strip chips a rip declares but never writes to --
+> the natural ot-9, and `dro_core::vgm::version` already computes what a file
+> actually requires.
 
 ## Context
 

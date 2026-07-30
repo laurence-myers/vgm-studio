@@ -68,11 +68,13 @@ fn about_text() -> String {
          in the source distribution.\n\
          \n\
          Emulator cores in this build:\n\
+         {}\
          {}\n\
          RetroWave OPL3 output links the serialport crate, used under\n\
          the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
         env!("CARGO_PKG_VERSION"),
         dro_synth::credits_text(),
+        crate::optimise::credit(),
     )
 }
 

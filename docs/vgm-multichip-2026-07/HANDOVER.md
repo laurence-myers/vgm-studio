@@ -793,6 +793,15 @@ needed), a missing 0x66 end marker, and junk between EOD and the tag.
 cleanup), `opt_oki` (OKIM6258 → DAC-stream conversion), `vgm_dbc`
 (data-block bit-packing), `vgm_dso` (DAC-stream reordering for compression).
 
+> **Superseded 2026-07-30 by `OPTIMIZER-PLAN.md`.** `vgm_cmp`, `vgm_sro` and
+> `optdac` are now *bound* rather than ported: `crates/dro-vgmtools` builds them
+> from a pinned GPL submodule and runs them as child processes, so the CLI, the
+> pack export and Edit > Optimize reach every chip `vgm_cmp` has rules for
+> instead of the three `chip_state::latch_rule` covers. `opt_oki` stays out
+> (upstream calls it alpha, "not for public use"), and `vgm_dbc`/`vgm_dso` stay
+> out because packs gzip anyway. `vgm_ptch` -- which can strip chips a rip
+> declares but never writes to -- is the next candidate.
+
 ## 4 · Environment & workflow rules
 
 ### 4.1 PATH prelude (required before ANY cargo/rustc call)

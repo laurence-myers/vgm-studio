@@ -9,7 +9,7 @@
 //! original. A DRO is rejected, and a VGM that is already optimal is written
 //! back byte for byte with a note rather than an error.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use dro_vgmtools::{Options, StageOutcome};
@@ -86,7 +86,7 @@ pub fn run(args: &Args) -> Result<()> {
 /// Per stage rather than one number, because "already optimal" and "that chip
 /// has no rules" and "the tool refused this file" are different answers and a
 /// single byte count cannot tell them apart.
-fn report(args: &Args, output: &std::path::Path, result: &dro_vgmtools::Optimised, written: usize) {
+fn report(args: &Args, output: &Path, result: &dro_vgmtools::Optimised, written: usize) {
     if result.changed() {
         println!(
             "Optimised {} -> {}: {} -> {} bytes, {} saved ({written} bytes written)",
@@ -154,9 +154,9 @@ mod tests {
         std::env::temp_dir().join(format!("drotrim-opt-{}-{name}", std::process::id()))
     }
 
-    fn args(input: &PathBuf, output: Option<PathBuf>) -> Args {
+    fn args(input: &Path, output: Option<PathBuf>) -> Args {
         Args {
-            input: input.clone(),
+            input: input.to_path_buf(),
             output,
             no_rom_trim: false,
             no_dac_clean: false,
