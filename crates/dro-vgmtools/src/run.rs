@@ -14,6 +14,11 @@
 //!    per ROM region. Piping that and not draining it would deadlock on a full
 //!    pipe, so output goes to a file instead -- and the file is what a failure
 //!    quotes.
+//! 4. **`DblClickWait` is not the only `_getch`.** `vgm_ptch`'s `-StripList`
+//!    pauses mid-listing (`vgm_ptch.c:200`) with a bare `_getch()` that no
+//!    environment variable disarms. Nothing here invokes that command, but it
+//!    is why the deadline is not optional: a tool can block for reasons its
+//!    author never meant to be automated.
 
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -38,9 +43,19 @@ pub(crate) enum Ended {
 
 /// Runs `tool` over `input`, asking it to write `output`.
 ///
-/// Whether `output` exists afterwards is the tool's answer: all three write
-/// only when the result is smaller than what they were given.
+/// Whether `output` exists afterwards is the tool's answer: the three
+/// optimisers write only when the result is smaller than what they were given.
 pub(crate) fn run(tool: Tool, input: &Path, output: &Path, log: &Path) -> Result<Ended, String> {
+    run_args(tool, &[input.as_os_str(), output.as_os_str()], log)
+}
+
+/// Runs `tool` with exactly `args`.
+///
+/// The general form, because not every tool takes `<input> <output>`:
+/// `vgm_ptch` patches every file named on its command line **in place**
+/// (`vgm_ptch.c:283`), after a run of `-Command` flags. So its caller copies
+/// the file somewhere private first and reads that back afterwards.
+pub(crate) fn run_args(tool: Tool, args: &[&std::ffi::OsStr], log: &Path) -> Result<Ended, String> {
     let exe = tool
         .path()
         .map_err(|error| format!("could not unpack {}: {error}", tool.name()))?;
@@ -53,8 +68,7 @@ pub(crate) fn run(tool: Tool, input: &Path, output: &Path, log: &Path) -> Result
 
     let mut command = Command::new(exe);
     command
-        .arg(input)
-        .arg(output)
+        .args(args)
         // See the module note: this is upstream's own escape hatch out of
         // `DblClickWait`, and it does not care what `argv[0]` looks like.
         .env("MSYSTEM", "MSYS")

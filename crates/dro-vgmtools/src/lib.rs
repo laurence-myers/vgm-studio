@@ -42,6 +42,7 @@
 mod exe;
 mod pipeline;
 mod run;
+mod strip;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -49,6 +50,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use exe::Tool;
 
 pub use pipeline::{Optimised, Options, Stage, StageOutcome, optimize_vgm, passthrough_chips};
+pub use strip::{strip_unused_chips, unused_chips};
 
 /// What a tool did with the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,14 +197,14 @@ fn suffix(tail: &str) -> String {
     }
 }
 
-fn check_input(vgm: &[u8]) -> Result<(), String> {
+pub(crate) fn check_input(vgm: &[u8]) -> Result<(), String> {
     if vgm.len() >= 2 && vgm[0] == 0x1F && vgm[1] == 0x8B {
         return Err("the bytes are gzip; unpack a .vgz before optimising it".to_owned());
     }
     check_output(vgm).map_err(|reason| format!("the bytes are {reason}"))
 }
 
-fn check_output(vgm: &[u8]) -> Result<(), String> {
+pub(crate) fn check_output(vgm: &[u8]) -> Result<(), String> {
     if vgm.len() < 0x40 {
         return Err(format!("too short to be a VGM ({} bytes)", vgm.len()));
     }
@@ -213,12 +215,12 @@ fn check_output(vgm: &[u8]) -> Result<(), String> {
 }
 
 /// A private directory for one run, removed when the run ends.
-struct Workspace {
-    dir: PathBuf,
+pub(crate) struct Workspace {
+    pub(crate) dir: PathBuf,
 }
 
 impl Workspace {
-    fn new(tool: Tool) -> std::io::Result<Self> {
+    pub(crate) fn new(tool: Tool) -> std::io::Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let serial = NEXT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir().join(format!(

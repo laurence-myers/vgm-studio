@@ -83,6 +83,94 @@ fn total_samples(bytes: &[u8]) -> Option<u64> {
     Some(file.stream()?.total_samples())
 }
 
+/// How often a rip declares a chip its stream never writes to.
+///
+/// `vgm_ptch` can strip those, and the question is whether it is worth binding
+/// a fourth tool for. That depends entirely on how common the case is, so this
+/// counts it before anything is built.
+///
+/// A chip is counted as unwritten only when *no* `Write` targets it. Files
+/// carrying data blocks, DAC streams or PCM RAM writes are tallied separately:
+/// those can feed a chip without a register write appearing against it, so a
+/// bare write count is not the whole story for them and they must not be
+/// stripped on this evidence alone.
+#[test]
+#[ignore = "needs DROTRIM_CORPUS"]
+fn how_many_rips_declare_a_chip_they_never_write_to() {
+    let Some(root) = corpus_root() else {
+        eprintln!("DROTRIM_CORPUS is not set to a directory; nothing to do");
+        return;
+    };
+    let limit: usize = std::env::var("DROTRIM_CORPUS_LIMIT")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(600);
+
+    let mut files_checked = 0usize;
+    let mut simple_with_unused = 0usize;
+    let mut blocky_with_unused = 0usize;
+    let mut by_chip: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+
+    for (_, bytes) in collect(&root, limit) {
+        let Ok(file) = dro_core::vgm::file::read("corpus.vgm", &bytes) else {
+            continue;
+        };
+        let Some(stream) = file.stream() else {
+            continue;
+        };
+        files_checked += 1;
+
+        let mut written: std::collections::BTreeSet<dro_core::ChipKind> = Default::default();
+        let mut has_blocks = false;
+        for index in 0..stream.len() {
+            match stream.get(index) {
+                Some(dro_core::vgm::VgmCommand::Write { target, .. }) => {
+                    written.insert(target.kind);
+                }
+                Some(
+                    dro_core::vgm::VgmCommand::DataBlock { .. }
+                    | dro_core::vgm::VgmCommand::DacStream { .. }
+                    | dro_core::vgm::VgmCommand::PcmRamWrite { .. }
+                    | dro_core::vgm::VgmCommand::DacWrite { .. },
+                ) => has_blocks = true,
+                _ => {}
+            }
+        }
+
+        let unused: Vec<&'static str> = file
+            .header
+            .chips()
+            .iter()
+            .filter(|chip| !written.contains(&chip.kind))
+            .map(|chip| chip.kind.name())
+            .collect();
+        if unused.is_empty() {
+            continue;
+        }
+        if has_blocks {
+            blocky_with_unused += 1;
+        } else {
+            simple_with_unused += 1;
+            for name in unused {
+                *by_chip.entry(name.to_owned()).or_default() += 1;
+            }
+        }
+    }
+
+    println!(
+        "\n{files_checked} files: {simple_with_unused} declare a chip they never write to \
+         (and carry no data blocks, so the count is trustworthy); \
+         {blocky_with_unused} more do but carry blocks, where a chip can be fed without a \
+         register write"
+    );
+    for (chip, count) in &by_chip {
+        println!("  {chip:<12} {count}");
+    }
+    if by_chip.is_empty() {
+        println!("  (none -- there is nothing here for vgm_ptch to strip)");
+    }
+}
+
 #[test]
 #[ignore = "needs DROTRIM_CORPUS"]
 fn the_pass_never_corrupts_a_file_or_moves_its_timing() {

@@ -1,11 +1,12 @@
-/* A stand-in for zlib.h, covering exactly the four gz* calls vgmtools makes.
+/* A stand-in for zlib.h, covering exactly the gz* calls vgmtools makes.
  *
- * The tools read their input through gzopen/gzread/gzseek/gzclose and write
- * their output through plain fopen/fwrite. They use nothing else from zlib --
- * not the deflate API, not gzwrite, not gzprintf -- so linking real zlib to
- * serve four read-only calls would drag a C compression library into a build
- * that has no other use for one. This header plus `zshim.c` serve them from
- * `FILE*` instead.
+ * `vgm_cmp`, `vgm_sro` and `optdac` read their input through
+ * gzopen/gzread/gzseek/gzclose and write their output through plain
+ * fopen/fwrite. `vgm_ptch` also writes through gzwrite, and asks gzdirect
+ * whether it is looking at a compressed stream. That is the whole surface --
+ * no deflate API, no gzprintf -- so linking real zlib to serve seven calls
+ * would drag a C compression library into a build that has no other use for
+ * one. This header plus `zshim.c` serve them from `FILE*` instead.
  *
  * That is sound because of how the binding feeds them: every input is a
  * temporary file this crate wrote itself, from bytes that were already
@@ -31,7 +32,9 @@ typedef void* gzFile;
 
 gzFile gzopen(const char* path, const char* mode);
 int gzread(gzFile file, void* buf, unsigned int len);
+int gzwrite(gzFile file, const void* buf, unsigned int len);
 long gzseek(gzFile file, long offset, int whence);
+int gzdirect(gzFile file);
 int gzclose(gzFile file);
 
 #endif /* DRO_VGMTOOLS_ZLIB_SHIM_H */

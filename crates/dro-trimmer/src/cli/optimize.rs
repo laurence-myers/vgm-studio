@@ -29,6 +29,14 @@ pub struct Args {
     /// identical YM2612 DAC writes.
     #[arg(long)]
     pub no_dac_clean: bool,
+    /// Also remove chips the header declares that the stream never writes to.
+    ///
+    /// Off by default: this changes what the file *declares*, not just how it
+    /// is spelled, so it is asked for rather than assumed. Skipped entirely on
+    /// a file carrying data blocks, where a chip can be fed without a register
+    /// write ever naming it.
+    #[arg(long)]
+    pub strip_unused_chips: bool,
 }
 
 /// Optimises `args.input`, writing to `args.output` (or back over the input).
@@ -61,7 +69,25 @@ pub fn run(args: &Args) -> Result<()> {
         sample_roms: !args.no_rom_trim,
         dac_runs: !args.no_dac_clean,
     };
-    let result = dro_vgmtools::optimize_vgm(&plain, options);
+    let mut result = dro_vgmtools::optimize_vgm(&plain, options);
+
+    // Asked for separately, and applied to what the pass produced: a chip that
+    // is unused is unused whether or not its writes were tidied first.
+    let mut stripped: Vec<&'static str> = Vec::new();
+    if args.strip_unused_chips {
+        stripped = dro_vgmtools::unused_chips(&result.bytes)
+            .into_iter()
+            .map(dro_core::ChipKind::name)
+            .collect();
+        match dro_vgmtools::strip_unused_chips(&result.bytes) {
+            dro_vgmtools::ToolOutcome::Smaller(bytes) => result.bytes = bytes,
+            dro_vgmtools::ToolOutcome::Unchanged => stripped.clear(),
+            dro_vgmtools::ToolOutcome::Failed(reason) => {
+                stripped.clear();
+                println!("  vgm_ptch  FAILED: {reason}");
+            }
+        }
+    }
 
     let output = args.output.clone().unwrap_or_else(|| args.input.clone());
     let bytes = if output
@@ -78,6 +104,13 @@ pub fn run(args: &Args) -> Result<()> {
     std::fs::write(&output, &bytes).with_context(|| format!("writing {}", output.display()))?;
 
     report(args, &output, &result, bytes.len());
+    if !stripped.is_empty() {
+        println!(
+            "  {:<9} removed {} (declared but never written to)",
+            "vgm_ptch",
+            stripped.join(", ")
+        );
+    }
     Ok(())
 }
 
@@ -160,6 +193,7 @@ mod tests {
             output,
             no_rom_trim: false,
             no_dac_clean: false,
+            strip_unused_chips: false,
         }
     }
 

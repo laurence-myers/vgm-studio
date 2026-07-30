@@ -47,6 +47,10 @@ const TOOLS: &[Tool] = &[
         name: "optdac",
         sources: &["optdac.c"],
     },
+    Tool {
+        name: "vgm_ptch",
+        sources: &["vgm_ptch.c", "chip_strp.c"],
+    },
 ];
 
 fn main() {
@@ -123,6 +127,10 @@ fn build_tool(tool: &Tool, upstream: &Path, shim: &Path, out_dir: &Path) {
             .arg(&exe);
         if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
             command.arg("-luser32");
+        } else {
+            // `vgm_ptch` is the one tool that reaches for libm, as upstream's
+            // own CMakeLists notes for the non-MSVC case.
+            command.arg("-lm");
         }
     }
 

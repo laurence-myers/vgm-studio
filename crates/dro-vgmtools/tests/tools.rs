@@ -24,6 +24,7 @@ mod offset {
     pub(crate) const SAA1099_CLOCK: usize = 0xC8;
     /// QSound: a sample-ROM chip the trim is held back from.
     pub(crate) const QSOUND_CLOCK: usize = 0xB4;
+    pub(crate) const YM2151_CLOCK: usize = 0x30;
 }
 
 const HEADER_LEN: usize = 0x100;
@@ -364,6 +365,102 @@ fn the_passthrough_list_names_only_chips_vgm_cmp_has_no_rules_for() {
         "the SAA1099 is processed, not passed through"
     );
     assert!(chips.contains(&dro_core::vgm::ChipKind::K053260));
+}
+
+/// A rip that declares two chips and only ever writes to one.
+fn vgm_declaring_an_unused_chip() -> Vec<u8> {
+    let mut bytes = vec![0u8; HEADER_LEN];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, offset::VERSION, 0x161);
+    put_u32(
+        &mut bytes,
+        offset::DATA_OFFSET,
+        (HEADER_LEN - offset::DATA_OFFSET) as u32,
+    );
+    put_u32(&mut bytes, offset::YM2612_CLOCK, 7_670_454);
+    // Declared, never written to -- the whole point.
+    put_u32(&mut bytes, offset::YM2151_CLOCK, 3_579_545);
+    bytes.extend_from_slice(&[0x52, 0x22, 0x08, 0x62, 0x66]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+    bytes
+}
+
+#[test]
+fn a_declared_chip_that_is_never_written_to_is_spotted() {
+    let bytes = vgm_declaring_an_unused_chip();
+    assert_eq!(
+        dro_vgmtools::unused_chips(&bytes),
+        vec![dro_core::ChipKind::Ym2151]
+    );
+}
+
+#[test]
+fn a_chip_that_is_written_to_is_not_spotted() {
+    // The negative control. Both chips get a write, so neither is unused.
+    let mut bytes = vgm_declaring_an_unused_chip()[..HEADER_LEN].to_vec();
+    bytes.extend_from_slice(&[
+        0x52, 0x22, 0x08, // YM2612
+        0x54, 0x20, 0x01, // YM2151
+        0x62, 0x66,
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+    assert!(dro_vgmtools::unused_chips(&bytes).is_empty());
+}
+
+#[test]
+fn a_file_carrying_data_blocks_is_not_analysed_at_all() {
+    // A sample ROM handed to a chip is a use of it that no register write need
+    // record, so the conservative answer is to say nothing rather than to
+    // guess a chip is idle and strip it.
+    let mut bytes = vgm_declaring_an_unused_chip()[..HEADER_LEN].to_vec();
+    bytes.extend_from_slice(&[
+        0x67, 0x66, 0x00, 0x02, 0x00, 0x00, 0x00, 0xAA, 0xBB, // data block
+        0x52, 0x22, 0x08, //
+        0x62, 0x66,
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+    assert!(
+        dro_vgmtools::unused_chips(&bytes).is_empty(),
+        "a file with data blocks should be left alone"
+    );
+}
+
+#[test]
+fn stripping_removes_the_chip_the_stream_never_writes_to() {
+    let original = vgm_declaring_an_unused_chip();
+    assert_eq!(
+        dro_core::vgm::file::read("x.vgm", &original)
+            .unwrap()
+            .chip_list(),
+        "YM2612, YM2151"
+    );
+
+    let stripped = match dro_vgmtools::strip_unused_chips(&original) {
+        ToolOutcome::Smaller(bytes) => bytes,
+        other => panic!("expected the unused chip to go, got {other:?}"),
+    };
+
+    let reread = dro_core::vgm::file::read("x.vgm", &stripped).unwrap();
+    assert_eq!(reread.chip_list(), "YM2612", "the YM2151 should be gone");
+    assert_eq!(
+        total_samples(&stripped),
+        total_samples(&original),
+        "stripping a chip must not touch the music's timing"
+    );
+}
+
+#[test]
+fn stripping_a_file_with_nothing_unused_leaves_it_alone() {
+    let stream = [0x52, 0x22, 0x08, 0x62, 0x66];
+    assert_eq!(
+        dro_vgmtools::strip_unused_chips(&vgm_with(&stream, 735)),
+        ToolOutcome::Unchanged
+    );
 }
 
 #[test]

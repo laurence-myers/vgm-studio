@@ -19,6 +19,11 @@ pub(crate) enum Tool {
     SampleRom,
     /// `optdac` -- collapses long runs of identical YM2612 DAC writes.
     DacRuns,
+    /// `vgm_ptch` -- edits the header; used here to strip unwritten chips.
+    ///
+    /// The odd one out: it patches its file **in place** rather than taking an
+    /// output path, so its caller works on a copy.
+    Patch,
 }
 
 #[cfg(windows)]
@@ -26,6 +31,7 @@ mod embedded {
     pub(super) const COMPRESS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_cmp.exe"));
     pub(super) const SAMPLE_ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_sro.exe"));
     pub(super) const DAC_RUNS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/optdac.exe"));
+    pub(super) const PATCH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_ptch.exe"));
 }
 
 #[cfg(not(windows))]
@@ -33,6 +39,7 @@ mod embedded {
     pub(super) const COMPRESS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_cmp"));
     pub(super) const SAMPLE_ROM: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_sro"));
     pub(super) const DAC_RUNS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/optdac"));
+    pub(super) const PATCH: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/vgm_ptch"));
 }
 
 impl Tool {
@@ -43,6 +50,7 @@ impl Tool {
             Self::Compress => "vgm_cmp",
             Self::SampleRom => "vgm_sro",
             Self::DacRuns => "optdac",
+            Self::Patch => "vgm_ptch",
         }
     }
 
@@ -69,6 +77,7 @@ impl Tool {
             Self::Compress => embedded::COMPRESS,
             Self::SampleRom => embedded::SAMPLE_ROM,
             Self::DacRuns => embedded::DAC_RUNS,
+            Self::Patch => embedded::PATCH,
         }
     }
 
@@ -92,6 +101,10 @@ impl Tool {
                 &CELL
             }
             Self::DacRuns => {
+                static CELL: OnceLock<io::Result<PathBuf>> = OnceLock::new();
+                &CELL
+            }
+            Self::Patch => {
                 static CELL: OnceLock<io::Result<PathBuf>> = OnceLock::new();
                 &CELL
             }
@@ -161,7 +174,7 @@ mod tests {
 
     #[test]
     fn every_tool_unpacks_to_a_real_executable() {
-        for tool in [Tool::Compress, Tool::SampleRom, Tool::DacRuns] {
+        for tool in [Tool::Compress, Tool::SampleRom, Tool::DacRuns, Tool::Patch] {
             let path = tool.path().expect("unpacks");
             assert!(
                 path.exists(),
@@ -179,14 +192,16 @@ mod tests {
     }
 
     #[test]
-    fn the_three_tools_are_three_different_programs() {
-        // A copy-paste in the embedding would otherwise run one tool three
+    fn every_tool_is_a_different_program() {
+        // A copy-paste in the embedding would otherwise run one tool four
         // times and look like it worked.
-        let compress = fingerprint(Tool::Compress.bytes());
-        let sample_rom = fingerprint(Tool::SampleRom.bytes());
-        let dac_runs = fingerprint(Tool::DacRuns.bytes());
-        assert_ne!(compress, sample_rom);
-        assert_ne!(compress, dac_runs);
-        assert_ne!(sample_rom, dac_runs);
+        let mut seen = std::collections::BTreeSet::new();
+        for tool in [Tool::Compress, Tool::SampleRom, Tool::DacRuns, Tool::Patch] {
+            assert!(
+                seen.insert(fingerprint(tool.bytes())),
+                "{} embeds the same bytes as another tool",
+                tool.name()
+            );
+        }
     }
 }
