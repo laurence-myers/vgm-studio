@@ -159,7 +159,7 @@ impl Score {
 /// A score is a pointer, not a diagnosis. PARITY-PLAN's whole bet is that the
 /// metrics reduce "audition thirteen chips" to "audition the handful the
 /// numbers flagged", and that only works if the flagged pair is *to hand*.
-pub const DUMP_ENV: &str = "DROTRIM_PARITY_DUMP";
+pub const DUMP_ENV: &str = "VGMSTUDIO_PARITY_DUMP";
 
 /// Where flagged pairs should be written, if anywhere.
 #[must_use]

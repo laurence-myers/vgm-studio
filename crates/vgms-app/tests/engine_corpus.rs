@@ -7,10 +7,10 @@
 //! banks -- the shapes rippers actually produced, including ones the spec did
 //! not anticipate.
 //!
-//! Ignored by default and pointed at a corpus with `DROTRIM_CORPUS`:
+//! Ignored by default and pointed at a corpus with `VGMSTUDIO_CORPUS`:
 //!
 //! ```text
-//! DROTRIM_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
+//! VGMSTUDIO_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
 //!     --test engine_corpus -- --ignored --nocapture
 //! ```
 
@@ -81,10 +81,10 @@ fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs DROTRIM_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_CORPUS; run explicitly"]
 fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
-    let Ok(root) = std::env::var("DROTRIM_CORPUS") else {
-        eprintln!("DROTRIM_CORPUS not set; skipping engine corpus validation");
+    let Ok(root) = std::env::var("VGMSTUDIO_CORPUS") else {
+        eprintln!("VGMSTUDIO_CORPUS not set; skipping engine corpus validation");
         return;
     };
     let mut songs = Vec::new();

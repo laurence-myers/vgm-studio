@@ -1,9 +1,9 @@
 //! The pass, over real files.
 //!
-//! Ignored by default and driven by `DROTRIM_CORPUS`:
+//! Ignored by default and driven by `VGMSTUDIO_CORPUS`:
 //!
 //! ```text
-//! DROTRIM_CORPUS=F:\GameMusic\VGM cargo test -p vgms-vgmtools --release \
+//! VGMSTUDIO_CORPUS=F:\GameMusic\VGM cargo test -p vgms-vgmtools --release \
 //!     --test corpus -- --ignored --nocapture
 //! ```
 //!
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use vgms_vgmtools::{Options, StageOutcome, optimize_vgm};
 
 fn corpus_root() -> Option<PathBuf> {
-    let root = PathBuf::from(std::env::var_os("DROTRIM_CORPUS")?);
+    let root = PathBuf::from(std::env::var_os("VGMSTUDIO_CORPUS")?);
     root.is_dir().then_some(root)
 }
 
@@ -92,13 +92,13 @@ fn total_samples(bytes: &[u8]) -> Option<u64> {
 /// those can feed a chip without a register write appearing against it, so they
 /// must not be stripped on this evidence alone.
 #[test]
-#[ignore = "needs DROTRIM_CORPUS"]
+#[ignore = "needs VGMSTUDIO_CORPUS"]
 fn how_many_rips_declare_a_chip_they_never_write_to() {
     let Some(root) = corpus_root() else {
-        eprintln!("DROTRIM_CORPUS is not set to a directory; nothing to do");
+        eprintln!("VGMSTUDIO_CORPUS is not set to a directory; nothing to do");
         return;
     };
-    let limit: usize = std::env::var("DROTRIM_CORPUS_LIMIT")
+    let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(600);
@@ -169,13 +169,13 @@ fn how_many_rips_declare_a_chip_they_never_write_to() {
 }
 
 #[test]
-#[ignore = "needs DROTRIM_CORPUS"]
+#[ignore = "needs VGMSTUDIO_CORPUS"]
 fn the_pass_never_corrupts_a_file_or_moves_its_timing() {
     let Some(root) = corpus_root() else {
-        eprintln!("DROTRIM_CORPUS is not set to a directory; nothing to do");
+        eprintln!("VGMSTUDIO_CORPUS is not set to a directory; nothing to do");
         return;
     };
-    let limit: usize = std::env::var("DROTRIM_CORPUS_LIMIT")
+    let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(400);

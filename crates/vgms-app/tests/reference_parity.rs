@@ -4,9 +4,9 @@
 //! `docs/vgm-multichip-2026-07/PARITY-PLAN.md`, this is the harness.
 //!
 //! ```text
-//! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
-//! DROTRIM_REF_PLAYER=/path/to/vgmplay \
-//! DROTRIM_REF_ARGS="-o" \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+//! VGMSTUDIO_REF_PLAYER=/path/to/vgmplay \
+//! VGMSTUDIO_REF_ARGS="-o" \
 //!     cargo test -p vgms-app --release --test reference_parity -- --ignored --nocapture
 //! ```
 //!
@@ -60,14 +60,14 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
     render_with_at(path, rate, build_core)
 }
 
-/// Builds `kind`'s core, honouring `DROTRIM_PARITY_CORE`.
+/// Builds `kind`'s core, honouring `VGMSTUDIO_PARITY_CORE`.
 ///
 /// A reused core takes a chip's default only once it beats the frozen row it
 /// would replace, so this harness must be able to point at a non-default core.
 /// The variable names a provider suffix, not a full id:
 ///
 /// ```text
-/// DROTRIM_PARITY_CORE=libvgm  cargo test ... --test reference_parity -- --ignored
+/// VGMSTUDIO_PARITY_CORE=libvgm  cargo test ... --test reference_parity -- --ignored
 /// ```
 ///
 /// `resolve_choice` composes it with each chip's slot (`sn76489` + `libvgm` →
@@ -75,22 +75,22 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
 /// does not serve. Unset, this is the registry's default per chip.
 fn build_core(kind: ChipKind) -> Option<Box<dyn vgms_synth::ChipCore>> {
     let registry = vgms_synth::registry::registry();
-    match std::env::var("DROTRIM_PARITY_CORE") {
+    match std::env::var("VGMSTUDIO_PARITY_CORE") {
         Ok(choice) if !choice.is_empty() => registry.resolve_choice(kind, Some(&choice))?.build(),
         _ => registry.build(kind, None),
     }
 }
 
-/// Whether `chip` is in `DROTRIM_PARITY_CHIPS`, which defaults to all of them.
+/// Whether `chip` is in `VGMSTUDIO_PARITY_CHIPS`, which defaults to all of them.
 ///
 /// Judging one core swap means re-measuring one chip; naming slugs turns an hour
 /// into a minute.
 ///
 /// ```text
-/// DROTRIM_PARITY_CHIPS=sn76489,ym2612  cargo test ... -- --ignored
+/// VGMSTUDIO_PARITY_CHIPS=sn76489,ym2612  cargo test ... -- --ignored
 /// ```
 fn chip_wanted(chip: ChipKind) -> bool {
-    let Ok(list) = std::env::var("DROTRIM_PARITY_CHIPS") else {
+    let Ok(list) = std::env::var("VGMSTUDIO_PARITY_CHIPS") else {
         return true;
     };
     if list.trim().is_empty() {
@@ -114,10 +114,10 @@ fn render_with_at(
     file.stream()?;
 
     let mut engine = VgmEngine::with_cores(Arc::new(file), rate, cores);
-    // DROTRIM_PARITY_RESAMPLER=linear renders our side with the same aliased
+    // VGMSTUDIO_PARITY_RESAMPLER=linear renders our side with the same aliased
     // conversion VGMPlay uses, making a 44100 comparison like-for-like. Unset,
     // the accurate default stands.
-    if let Some(mode) = std::env::var("DROTRIM_PARITY_RESAMPLER")
+    if let Some(mode) = std::env::var("VGMSTUDIO_PARITY_RESAMPLER")
         .ok()
         .and_then(|slug| vgms_synth::resample::ResampleMode::from_slug(&slug))
     {
@@ -355,7 +355,7 @@ fn work_dir() -> PathBuf {
 /// cores -- all three pass the audibility suite on the originals). So it is a
 /// test now, not a comment.
 #[test]
-#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn shortening_a_file_does_not_change_what_we_render() {
     let Some(root) = corpus::corpus_root() else {
         eprintln!("{} not set; skipping", corpus::CORPUS_ENV);
@@ -422,7 +422,7 @@ fn shortening_a_file_does_not_change_what_we_render() {
 /// deterministic for FM and a coin toss for PCM would quietly widen the very
 /// thresholds meant to catch our bugs.
 #[test]
-#[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
+#[ignore = "needs VGMSTUDIO_REF_PLAYER; run explicitly"]
 fn the_reference_player_is_deterministic() {
     let Some(reference) = reference() else { return };
     let Some(root) = corpus::corpus_root() else {
@@ -479,7 +479,7 @@ fn the_reference_player_is_deterministic() {
 /// actually true (see [`vibrato_share`]); vibrato-using files are still rendered
 /// and printed, because a difference that is explained still has to stay visible.
 #[test]
-#[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
+#[ignore = "needs VGMSTUDIO_REF_PLAYER; run explicitly"]
 fn the_opl_control_group_calibrates_the_pipeline() {
     let Some(reference) = reference() else { return };
     let Some(root) = corpus::corpus_root() else {
@@ -584,7 +584,7 @@ fn the_opl_control_group_calibrates_the_pipeline() {
 /// new reference is expected to *fail* and be read as a table: the thresholds in
 /// `parity::THRESHOLDS` are provisional until the outliers have been listened to.
 #[test]
-#[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
+#[ignore = "needs VGMSTUDIO_REF_PLAYER; run explicitly"]
 fn every_cored_chip_matches_the_reference_within_its_band() {
     let Some(reference) = reference() else { return };
     let Some(root) = corpus::corpus_root() else {
@@ -624,7 +624,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             // this scorecard attributes to a core. Costly, and unavoidably so:
             // the reference renders at that rate too, and `compare`'s cents search
             // is quadratic in it.
-            let rate = if std::env::var_os("DROTRIM_PARITY_AT_OUTPUT_RATE").is_some() {
+            let rate = if std::env::var_os("VGMSTUDIO_PARITY_AT_OUTPUT_RATE").is_some() {
                 RATE
             } else {
                 native_rate_of(path, chip).unwrap_or(RATE)
@@ -733,7 +733,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
 /// from the reference's; the residual says whether the fit means anything, since
 /// two cores that differ in *content* will not add up however they are scaled.
 #[test]
-#[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
+#[ignore = "needs VGMSTUDIO_REF_PLAYER; run explicitly"]
 fn the_chip_balance_is_measured_rather_than_guessed() {
     let Some(reference) = reference() else { return };
     let Some(root) = corpus::corpus_root() else {
@@ -840,7 +840,7 @@ fn the_chip_balance_is_measured_rather_than_guessed() {
 /// difference -- which is the assumption every other result here rests on, and
 /// the one part of the control-group argument that can be made on any machine.
 #[test]
-#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn the_pipeline_agrees_with_itself() {
     let Some(root) = corpus::corpus_root() else {
         eprintln!("{} not set; skipping", corpus::CORPUS_ENV);

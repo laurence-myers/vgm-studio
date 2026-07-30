@@ -10,7 +10,7 @@
 //! `--ignored`, corpus-gated run:
 //!
 //! ```text
-//! DROTRIM_VGMRIPS_CORPUS=<corpus root> \
+//! VGMSTUDIO_VGMRIPS_CORPUS=<corpus root> \
 //!   cargo test -p vgms-app --release --test oracle_lle -- \
 //!   --nocapture --ignored
 //! ```
@@ -114,7 +114,7 @@ type BenchRow = (ChipKind, u32, fn() -> Box<dyn vgms_synth::ChipCore>, f64);
 #[ignore = "corpus-gated die-speed run; see the module doc for the command"]
 fn the_shipping_cores_match_the_die() {
     let Some(root) = corpus::corpus_root() else {
-        eprintln!("DROTRIM_VGMRIPS_CORPUS not set; skipping");
+        eprintln!("VGMSTUDIO_VGMRIPS_CORPUS not set; skipping");
         return;
     };
     vgms_app::install_cores();

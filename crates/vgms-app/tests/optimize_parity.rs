@@ -14,7 +14,7 @@
 //! Ignored by default:
 //!
 //! ```text
-//! DROTRIM_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
+//! VGMSTUDIO_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
 //!     --test optimize_parity -- --ignored --nocapture
 //! ```
 
@@ -89,21 +89,21 @@ fn plain_bytes(path: &Path) -> Option<(Arc<vgms_core::vgm::VgmFile>, Vec<u8>)> {
 }
 
 #[test]
-#[ignore = "needs DROTRIM_CORPUS"]
+#[ignore = "needs VGMSTUDIO_CORPUS"]
 fn an_optimised_file_renders_to_the_same_samples() {
-    let Some(root) = std::env::var_os("DROTRIM_CORPUS").map(PathBuf::from) else {
-        eprintln!("DROTRIM_CORPUS is not set; nothing to do");
+    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
+        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
         return;
     };
-    let limit: usize = std::env::var("DROTRIM_CORPUS_LIMIT")
+    let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(120);
     // Stage switches, so a failure can be attributed without editing the test:
     // re-run with one stage off and see whether the difference goes with it.
     let options = Options {
-        sample_roms: std::env::var_os("DROTRIM_NO_ROM_TRIM").is_none(),
-        dac_runs: std::env::var_os("DROTRIM_NO_DAC_CLEAN").is_none(),
+        sample_roms: std::env::var_os("VGMSTUDIO_NO_ROM_TRIM").is_none(),
+        dac_runs: std::env::var_os("VGMSTUDIO_NO_DAC_CLEAN").is_none(),
     };
     println!(
         "stages: vgm_cmp always; vgm_sro {}; optdac {}",
@@ -196,13 +196,13 @@ fn an_optimised_file_renders_to_the_same_samples() {
 /// `vgms_vgmtools`' allowlist. (Upstream calls SegaPCM support "not entirely
 /// reliable" and warns YM2610 ADPCM "may need a patch for certain games".)
 #[test]
-#[ignore = "needs DROTRIM_CORPUS"]
+#[ignore = "needs VGMSTUDIO_CORPUS"]
 fn which_chips_the_sample_rom_trim_is_safe_for() {
-    let Some(root) = std::env::var_os("DROTRIM_CORPUS").map(PathBuf::from) else {
-        eprintln!("DROTRIM_CORPUS is not set; nothing to do");
+    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
+        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
         return;
     };
-    let limit: usize = std::env::var("DROTRIM_CORPUS_LIMIT")
+    let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(400);
@@ -260,10 +260,10 @@ fn which_chips_the_sample_rom_trim_is_safe_for() {
 /// would cost, by running `vgm_cmp` on an SAA1099 file directly and rendering
 /// both sides. Run it over a corpus of SAA1099 rips before changing anything.
 #[test]
-#[ignore = "needs DROTRIM_CORPUS pointed at SAA1099 rips"]
+#[ignore = "needs VGMSTUDIO_CORPUS pointed at SAA1099 rips"]
 fn what_holding_the_saa1099_back_is_buying() {
-    let Some(root) = std::env::var_os("DROTRIM_CORPUS").map(PathBuf::from) else {
-        eprintln!("DROTRIM_CORPUS is not set; nothing to do");
+    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
+        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
         return;
     };
     vgms_app::install_cores();

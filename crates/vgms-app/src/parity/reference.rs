@@ -24,21 +24,21 @@
 use std::path::{Path, PathBuf};
 
 /// Where the reference executable is.
-pub const PLAYER_ENV: &str = "DROTRIM_REF_PLAYER";
+pub const PLAYER_ENV: &str = "VGMSTUDIO_REF_PLAYER";
 /// Optional: extra arguments, space-separated, inserted before the input path.
 ///
 /// Different builds of the same player disagree about their flags, so the
 /// invocation is configuration rather than a guess baked into this file.
-pub const ARGS_ENV: &str = "DROTRIM_REF_ARGS";
+pub const ARGS_ENV: &str = "VGMSTUDIO_REF_ARGS";
 /// Optional: where to keep rendered reference WAVs between runs.
-pub const CACHE_ENV: &str = "DROTRIM_PARITY_CACHE";
+pub const CACHE_ENV: &str = "VGMSTUDIO_PARITY_CACHE";
 /// Optional: a settings file staged beside the player before each run.
 ///
 /// For VGMPlay this is its `VGMPlay.ini`, which carries the loop count, the
 /// fade and the per-chip core selection -- everything that decides what the
 /// reference *is*. Pinning it is what makes a comparison reproducible.
 /// See [`Reference::stage`] for why the player is copied rather than pointed at.
-pub const CONFIG_ENV: &str = "DROTRIM_REF_CONFIG";
+pub const CONFIG_ENV: &str = "VGMSTUDIO_REF_CONFIG";
 
 /// An external player, and the record of which one it was.
 #[derive(Debug, Clone)]
@@ -53,7 +53,7 @@ pub struct Reference {
 /// Why a reference render did not happen.
 #[derive(Debug)]
 pub enum ReferenceError {
-    /// No `DROTRIM_REF_PLAYER`, or it does not point at a file. Not a failure:
+    /// No `VGMSTUDIO_REF_PLAYER`, or it does not point at a file. Not a failure:
     /// the harness skips, exactly as the corpus tests skip without a corpus.
     NotConfigured(String),
     /// The player ran and failed, or produced no output.

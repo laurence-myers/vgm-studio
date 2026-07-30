@@ -8,10 +8,10 @@
 //! once, reads each header, and inverts it to chip-to-files. Reading tens of
 //! thousands of headers is slow, so the result is cached and the walk only
 //! happens when the cache is missing. Point it at a corpus with
-//! `DROTRIM_VGMRIPS_CORPUS`.
+//! `VGMSTUDIO_VGMRIPS_CORPUS`.
 //!
 //! ```text
-//! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
 //!     cargo test -p vgms-app --release --test chip_index -- --ignored --nocapture
 //! ```
 //!
@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use vgms_core::vgm::ChipKind;
 
 /// The environment variable naming the corpus root.
-pub const CORPUS_ENV: &str = "DROTRIM_VGMRIPS_CORPUS";
+pub const CORPUS_ENV: &str = "VGMSTUDIO_VGMRIPS_CORPUS";
 
 /// The cache file's format marker. Bump it when the columns change, so a stale
 /// cache is rebuilt rather than misread.

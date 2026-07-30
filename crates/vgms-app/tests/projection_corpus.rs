@@ -6,10 +6,10 @@
 //! projected song must agree row for row, total for total, and byte for byte on
 //! the way out.
 //!
-//! Needs the local corpus via `DROTRIM_CORPUS`:
+//! Needs the local corpus via `VGMSTUDIO_CORPUS`:
 //!
 //! ```powershell
-//! $env:DROTRIM_CORPUS = 'F:\GameMusic\VGM'
+//! $env:VGMSTUDIO_CORPUS = 'F:\GameMusic\VGM'
 //! cargo test -p vgms-app --release --test projection_corpus -- --ignored --nocapture
 //! ```
 //!
@@ -39,10 +39,10 @@ fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs the local corpus via DROTRIM_CORPUS"]
+#[ignore = "needs the local corpus via VGMSTUDIO_CORPUS"]
 fn the_projection_matches_the_opl_reader_across_the_corpus() {
-    let Ok(root) = std::env::var("DROTRIM_CORPUS") else {
-        eprintln!("DROTRIM_CORPUS not set; skipping corpus validation");
+    let Ok(root) = std::env::var("VGMSTUDIO_CORPUS") else {
+        eprintln!("VGMSTUDIO_CORPUS not set; skipping corpus validation");
         return;
     };
     let mut songs = Vec::new();

@@ -7,7 +7,7 @@
 //! Files come from the chip index, spread across systems and rippers.
 //!
 //! ```text
-//! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
 //!     cargo test -p vgms-app --release --test core_audio -- --ignored --nocapture
 //! ```
 
@@ -63,7 +63,7 @@ fn render_head(path: &std::path::Path) -> Option<i64> {
 /// Every chip with a core must make a sound on real files, not just on the
 /// register scripts its own tests write.
 #[test]
-#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn every_cored_chip_is_audible_on_corpus_files() {
     let Some(root) = corpus::corpus_root() else {
         eprintln!(
@@ -124,7 +124,7 @@ fn every_cored_chip_is_audible_on_corpus_files() {
 /// sounds would pass the test above while being exactly the regression worth
 /// catching.
 #[test]
-#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn a_mega_drive_rip_plays_its_fm_as_well_as_its_psg() {
     let Some(root) = corpus::corpus_root() else {
         eprintln!("{} not set; skipping", corpus::CORPUS_ENV);

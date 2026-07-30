@@ -5,7 +5,7 @@
 //! systems and rippers rather than taken from one pack.
 //!
 //! ```text
-//! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
 //!     cargo test -p vgms-app --release --test chip_index -- --ignored --nocapture
 //! ```
 //!
@@ -16,7 +16,7 @@ use vgms_core::vgm::ChipKind;
 use vgms_app::corpus::{self, ChipIndex};
 
 #[test]
-#[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn the_corpus_index_says_which_chips_are_worth_a_core_first() {
     let Some(root) = corpus::corpus_root() else {
         eprintln!(
