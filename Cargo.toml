@@ -42,6 +42,10 @@ dro-cores-nuked = { path = "crates/dro-cores-nuked" }
 dro-cores-gpl = { path = "crates/dro-cores-gpl" }
 dro-cores-ymfm = { path = "crates/dro-cores-ymfm" }
 dro-cores-libvgm = { path = "crates/dro-cores-libvgm" }
+# The vgmtools optimisers. Desktop-only: it spawns child processes, so any
+# crate that also builds for wasm must depend on it behind
+# `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`.
+dro-vgmtools = { path = "crates/dro-vgmtools" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
 # Since 0.34, eframe's default renderer is wgpu -- glow left the default

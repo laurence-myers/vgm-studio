@@ -186,6 +186,11 @@ today.
 `dro-ui` -> `dro-vgmtools` dependency (both GPL). The status line reports the
 stage breakdown; undo is unchanged; a kittest covers the non-OPL path; any UI
 string change regrows the settings snapshots (`UPDATE_SNAPSHOTS=1`).
+**`dro-ui` also builds for wasm** (CI checks `-p dro-core -p dro-synth -p
+dro-ui`), so the dependency must be declared under
+`[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` and the call site
+behind the same `cfg` -- on the web the Optimize action stays on `dro-core`'s
+own optimiser.
 
 **ot-7 -- corpus verification** (`#[ignore]`, `DROTRIM_CORPUS`). Per chip in
 the chip index, sample N files, run the pipeline, and assert: delay totals
