@@ -824,17 +824,19 @@ impl DroApp {
         if let Some(result) = self.files.poll_picked_image() {
             match result {
                 Ok(file) => self.add_screenshot(file),
-                Err(message) => self
-                    .alerts
-                    .push_back(Alert::new(crate::strings::APP_ERR_READ_IMAGE_TITLE, message)),
+                Err(message) => self.alerts.push_back(Alert::new(
+                    crate::strings::APP_ERR_READ_IMAGE_TITLE,
+                    message,
+                )),
             }
         }
         if let Some(result) = self.files.poll_folder() {
             match result {
                 Ok(folder) => self.open_folder(folder),
-                Err(message) => self
-                    .alerts
-                    .push_back(Alert::new(crate::strings::APP_ERR_OPEN_FOLDER_TITLE, message)),
+                Err(message) => self.alerts.push_back(Alert::new(
+                    crate::strings::APP_ERR_OPEN_FOLDER_TITLE,
+                    message,
+                )),
             }
         }
         if let Some(result) = self.files.poll_renamed() {
@@ -910,8 +912,10 @@ impl DroApp {
                 PackJobOutcome::Failed(message) => {
                     // Replace the stale "Building pack zip..." status.
                     self.status = crate::strings::APP_STATUS_PACK_EXPORT_FAILED.to_owned();
-                    self.alerts
-                        .push_back(Alert::new(crate::strings::APP_ERR_PACK_EXPORT_TITLE, message));
+                    self.alerts.push_back(Alert::new(
+                        crate::strings::APP_ERR_PACK_EXPORT_TITLE,
+                        message,
+                    ));
                 }
             }
         }
@@ -996,9 +1000,10 @@ impl DroApp {
             && self.config.audio.lock_boost
             && let Err(error) = self.config_store.save(&self.config)
         {
-            self.alerts.push_back(Alert::error(
-                crate::strings::app_could_not_save_settings(error),
-            ));
+            self.alerts
+                .push_back(Alert::error(crate::strings::app_could_not_save_settings(
+                    error,
+                )));
         }
     }
 
@@ -1029,9 +1034,10 @@ impl DroApp {
             self.audio.set_boost(boost);
         }
         if let Err(error) = self.config_store.save(&self.config) {
-            self.alerts.push_back(Alert::error(
-                crate::strings::app_could_not_save_settings(error),
-            ));
+            self.alerts
+                .push_back(Alert::error(crate::strings::app_could_not_save_settings(
+                    error,
+                )));
         }
     }
 
@@ -1040,13 +1046,19 @@ impl DroApp {
     /// through `poll_services`. Cancels any scan already running (same
     /// [`TaskKind`]), so mashing the button just re-measures.
     fn match_volume(&mut self) {
-        self.submit_volume_scan(VolumeScanPurpose::MatchBoost, crate::strings::APP_STATUS_MEASURING_VOLUME);
+        self.submit_volume_scan(
+            VolumeScanPurpose::MatchBoost,
+            crate::strings::APP_STATUS_MEASURING_VOLUME,
+        );
     }
 
     /// Kicks off a background peak scan for the VGM dialog's "Measure" button; the
     /// finished scan fills the volume-modifier field via [`Self::handle_volume_scan`].
     fn measure_volume_modifier(&mut self) {
-        self.submit_volume_scan(VolumeScanPurpose::FillModifier, crate::strings::APP_STATUS_MEASURING_PEAK);
+        self.submit_volume_scan(
+            VolumeScanPurpose::FillModifier,
+            crate::strings::APP_STATUS_MEASURING_PEAK,
+        );
     }
 
     /// Submits a volume scan of the current song for `purpose`, or asks for a song
@@ -1129,8 +1141,7 @@ impl DroApp {
                         .any(|purpose| *purpose == SavePurpose::PackDoc);
                     if !more {
                         if self.pack_docs_failed {
-                            self.status =
-                                crate::strings::APP_STATUS_PACKAGE_SAVE_FAILED.to_owned();
+                            self.status = crate::strings::APP_STATUS_PACKAGE_SAVE_FAILED.to_owned();
                         } else {
                             if let Some(pack) = self.pack.as_mut() {
                                 pack.dirty = false;
@@ -1822,9 +1833,7 @@ impl DroApp {
                         self.scroll_to = Some(table::ScrollTo::centered(0));
                         self.after_edit();
                     }
-                    None => {
-                        self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned()
-                    }
+                    None => self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned(),
                 }
             }
 
@@ -3619,9 +3628,10 @@ impl DroApp {
         // every offline render) builds the cores just saved.
         dro_synth::registry::set_core_choices(config.audio.cores.clone());
         if let Err(error) = self.config_store.save(&config) {
-            self.alerts.push_back(Alert::error(
-                crate::strings::app_could_not_save_settings(error),
-            ));
+            self.alerts
+                .push_back(Alert::error(crate::strings::app_could_not_save_settings(
+                    error,
+                )));
         }
         // Repaint the whole UI in the new scheme before anything else reads it.
         // Compare against what is *on screen*, which a live preview may already

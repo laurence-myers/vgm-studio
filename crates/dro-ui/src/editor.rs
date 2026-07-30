@@ -482,7 +482,10 @@ impl Editor {
             };
             return bytes.map_err(|e| e.to_string());
         }
-        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
+        let song = self
+            .dro
+            .as_ref()
+            .ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         io::write_song(song).map_err(|e| e.to_string())
     }
 
@@ -804,7 +807,10 @@ impl Editor {
     /// If no song is loaded, it is already a VGM, or the conversion will not
     /// serialise.
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
-        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
+        let song = self
+            .dro
+            .as_ref()
+            .ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
         let bytes = io::write_song(&converted).map_err(|e| e.to_string())?;
         let file = dro_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
@@ -824,7 +830,10 @@ impl Editor {
     /// # Errors
     /// If no song is loaded, or it is not a DRO v2.
     pub fn convert_to_dro1(&mut self) -> Result<(), String> {
-        let song = self.dro.as_ref().ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
+        let song = self
+            .dro
+            .as_ref()
+            .ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         let mut converted = convert::dro2_to_dro1(song).map_err(|e| e.to_string())?;
         converted.name = convert::dro1_default_name(&converted.name);
         // v1 re-encodes the stream (bank switches, escapes), so a marked region

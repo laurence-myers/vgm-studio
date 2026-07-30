@@ -149,9 +149,14 @@ impl GenericChannelPanel {
                         ui.label(if row_start == 0 { "Pan:" } else { "" });
                         for offset in 0..chunk.len() {
                             let label = self.channels[base + offset].name;
-                            response.panning_changed |=
-                                pan_knob::show(ui, palette, &mut self.pans[base + offset], true, label)
-                                    .changed();
+                            response.panning_changed |= pan_knob::show(
+                                ui,
+                                palette,
+                                &mut self.pans[base + offset],
+                                true,
+                                label,
+                            )
+                            .changed();
                         }
                         ui.end_row();
                     }

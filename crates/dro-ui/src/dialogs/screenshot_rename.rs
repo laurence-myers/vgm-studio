@@ -176,15 +176,17 @@ impl ScreenshotRenameDialog {
                             ui.horizontal(|ui| {
                                 ui.checkbox(&mut self.recompress, "");
                                 if ui
-                                .add(
-                                    egui::Label::new("Losslessly, with oxipng")
-                                        .sense(egui::Sense::click()),
-                                )
-                                .on_hover_text(crate::strings::SCREENSHOT_RENAME_RECOMPRESS_HOVER)
-                                .clicked()
-                            {
-                                self.recompress = !self.recompress;
-                            }
+                                    .add(
+                                        egui::Label::new("Losslessly, with oxipng")
+                                            .sense(egui::Sense::click()),
+                                    )
+                                    .on_hover_text(
+                                        crate::strings::SCREENSHOT_RENAME_RECOMPRESS_HOVER,
+                                    )
+                                    .clicked()
+                                {
+                                    self.recompress = !self.recompress;
+                                }
                             });
                             ui.end_row();
                         }

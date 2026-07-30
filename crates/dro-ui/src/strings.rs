@@ -24,11 +24,13 @@ pub(crate) const APP_AUTO_TRIM_TEXT: &str =
 pub(crate) const APP_MISMATCH_TITLE: &str = "DRO timing mismatch";
 pub(crate) const APP_MISMATCH_PREFIX_TRIMMED: &str = "Despite auto-trimming, t";
 pub(crate) const APP_MISMATCH_PREFIX_PLAIN: &str = "T";
-pub(crate) const APP_MISMATCH_ADVICE_V1: &str = "Please re-save the file to use the calculated value.";
+pub(crate) const APP_MISMATCH_ADVICE_V1: &str =
+    "Please re-save the file to use the calculated value.";
 pub(crate) const APP_MISMATCH_ADVICE_V2: &str = "Please enable \"Allow editing in DRO Info\" in the\n\
                                           Settings dialog, then edit the song length on\n\
                                           the DRO Info screen.";
-pub(crate) const APP_NOTHING_MARKED: &str = "Mark a region first -- the loop markers cover the whole song.";
+pub(crate) const APP_NOTHING_MARKED: &str =
+    "Mark a region first -- the loop markers cover the whole song.";
 pub(crate) const APP_TARGET_ANY_DELAY: &str = "a delay";
 
 pub(crate) const APP_TIP_REWIND: &str = "Rewind to the start";
@@ -54,7 +56,8 @@ pub(crate) const APP_ERR_OPTIMISE_TITLE: &str = "Optimise failed";
 pub(crate) const APP_ERR_SAVE_FILE_TITLE: &str = "Failed to save file";
 pub(crate) const APP_ERR_LOAD_FILE_TITLE: &str = "Failed to load file";
 pub(crate) const APP_ERR_TRACK_OP_TITLE: &str = "Track operation failed";
-pub(crate) const APP_ERR_NEED_GAME_NAME: &str = "Enter a game name before saving the package files.";
+pub(crate) const APP_ERR_NEED_GAME_NAME: &str =
+    "Enter a game name before saving the package files.";
 
 pub(crate) const APP_STATUS_RENAMED_TRACK: &str = "Renamed track; pack folder rescanned.";
 pub(crate) const APP_STATUS_PACK_ZIP_BUILT: &str = "Built the pack zip -- choose where to save it.";
@@ -64,7 +67,8 @@ pub(crate) const APP_STATUS_WAV_RENDER_FAILED: &str = "The WAV render failed.";
 pub(crate) const APP_STATUS_MEASURING_VOLUME: &str = "Measuring volume...";
 pub(crate) const APP_STATUS_MEASURING_PEAK: &str = "Measuring peak...";
 pub(crate) const APP_STATUS_SONG_SILENT: &str = "The song is silent; volume left unchanged.";
-pub(crate) const APP_STATUS_PACKAGE_SAVE_FAILED: &str = "Some package files could not be saved; changes kept.";
+pub(crate) const APP_STATUS_PACKAGE_SAVE_FAILED: &str =
+    "Some package files could not be saved; changes kept.";
 pub(crate) const APP_STATUS_PACKAGE_SAVED: &str = "Saved the package .txt and .m3u.";
 pub(crate) const APP_MSG_SAVE_CANCELLED: &str = "The save was cancelled.";
 pub(crate) const APP_STATUS_EXPORT_CANCELLED: &str = "Export cancelled; the zip was not saved.";
@@ -74,7 +78,8 @@ pub(crate) const APP_STATUS_ALREADY_SPLITTING: &str = "Already splitting.";
 pub(crate) const APP_STATUS_NOTHING_TO_UNDO: &str = "Nothing to undo.";
 pub(crate) const APP_STATUS_NOTHING_TO_REDO: &str = "Nothing to redo.";
 pub(crate) const APP_STATUS_OPEN_SONG_FIRST: &str = "Please open a song first.";
-pub(crate) const APP_STATUS_DRO_INFO_VGM: &str = "DRO Info applies to DRO files; use Edit VGM Metadata.";
+pub(crate) const APP_STATUS_DRO_INFO_VGM: &str =
+    "DRO Info applies to DRO files; use Edit VGM Metadata.";
 pub(crate) const APP_STATUS_ONLY_VGM_TAG: &str = "Only VGMs support tag editing";
 pub(crate) const APP_STATUS_NOT_VGM: &str = "Song is not a VGM";
 pub(crate) const APP_STATUS_ALREADY_VGM: &str = "File is already in VGM format";
@@ -83,12 +88,14 @@ pub(crate) const APP_STATUS_CONVERTED_DRO1: &str = "Successfully converted to DR
 pub(crate) const APP_STATUS_HEADER_AGREES: &str = "The header already agrees with the stream.";
 pub(crate) const APP_STATUS_HEADER_FIXED_ONE: &str = "Corrected 1 header field. Remember to save.";
 pub(crate) const APP_STATUS_ONLY_VGM_OPTIMIZE: &str = "Only VGMs can be optimized";
-pub(crate) const APP_STATUS_NOTHING_TO_OPTIMIZE: &str = "Nothing to optimize -- the VGM is already compact";
+pub(crate) const APP_STATUS_NOTHING_TO_OPTIMIZE: &str =
+    "Nothing to optimize -- the VGM is already compact";
 pub(crate) const APP_STATUS_LOOP_RESET: &str = "Loop markers reset to the whole song.";
 pub(crate) const APP_STATUS_LOOP_SEARCH_CANCELLED: &str = "Loop search cancelled.";
 pub(crate) const APP_STATUS_VGM_METADATA_UPDATED: &str = "Updated VGM metadata.";
 pub(crate) const APP_STATUS_SONG_CLOSED: &str = "Closed the song.";
-pub(crate) const APP_STATUS_CLICK_TRACK_FIRST: &str = "Click a track first, then Alt+Up / Alt+Down to move it.";
+pub(crate) const APP_STATUS_CLICK_TRACK_FIRST: &str =
+    "Click a track first, then Alt+Up / Alt+Down to move it.";
 pub(crate) const APP_STATUS_TRACK_OP_RUNNING: &str = "A track operation is still running.";
 pub(crate) const APP_STATUS_PACK_CLOSED: &str = "Closed the pack project.";
 pub(crate) const APP_STATUS_BUILDING_ZIP: &str = "Building pack zip...";
@@ -96,7 +103,8 @@ pub(crate) const APP_STATUS_NO_TAGGABLE: &str = "No readable tracks to tag.";
 pub(crate) const APP_STATUS_BULK_TAG_NOOP: &str = "Bulk tag: nothing changed.";
 pub(crate) const APP_STATUS_NO_RENDERABLE_TRACKS: &str = "No tracks this app can render to scan.";
 pub(crate) const APP_STATUS_STILL_SCANNING: &str = "Still scanning volumes...";
-pub(crate) const APP_STATUS_MODIFIERS_NOOP: &str = "Volume modifiers: nothing to change (scan volumes first).";
+pub(crate) const APP_STATUS_MODIFIERS_NOOP: &str =
+    "Volume modifiers: nothing to change (scan volumes first).";
 pub(crate) const APP_STATUS_DATE_CONVERTED: &str = "Converted the pack date to hyphens.";
 pub(crate) const APP_STATUS_NO_DATES: &str = "No slash-separated dates to convert.";
 pub(crate) const APP_STATUS_NAMES_MATCH: &str = "Every file name already matches its tag.";
@@ -106,7 +114,8 @@ pub(crate) const APP_STATUS_SETTINGS_SAVED: &str = "Settings saved.";
 pub(crate) const APP_STATUS_NEEDS_OPL: &str = "This needs an OPL song.";
 pub(crate) const APP_STATUS_NOTHING_TO_PLAY: &str = "There is nothing here this app can play.";
 pub(crate) const APP_STATUS_OPEN_FILE_FIRST: &str = "Please open a file first.";
-pub(crate) const APP_STATUS_HEADER_AGREES_NOTHING: &str = "The header agrees with the stream; nothing to fix.";
+pub(crate) const APP_STATUS_HEADER_AGREES_NOTHING: &str =
+    "The header agrees with the stream; nothing to fix.";
 pub(crate) const APP_STATUS_ALREADY_RENDERING: &str = "Already rendering a WAV.";
 pub(crate) const APP_STATUS_RENDERING_WAV: &str = "Rendering to WAV...";
 pub(crate) const APP_STATUS_NOTHING_TO_SPLIT: &str = "There is nothing here to split.";
@@ -120,11 +129,15 @@ pub(crate) const APP_STATUS_SPLIT_WRITE_FAILED: &str = "Some split files could n
 
 pub(crate) const APP_CONFIRM_DISCARD_TITLE: &str = "Discard unsaved changes?";
 pub(crate) const APP_CONFIRM_QUIT_BODY: &str = "You have unsaved changes. Quit anyway?";
-pub(crate) const APP_CONFIRM_DISCARD_LOAD_BODY: &str = "The current song has unsaved changes. Open a different file anyway?";
-pub(crate) const APP_CONFIRM_CLOSE_FILE_BODY: &str = "The current song has unsaved changes. Close it anyway?";
+pub(crate) const APP_CONFIRM_DISCARD_LOAD_BODY: &str =
+    "The current song has unsaved changes. Open a different file anyway?";
+pub(crate) const APP_CONFIRM_CLOSE_FILE_BODY: &str =
+    "The current song has unsaved changes. Close it anyway?";
 pub(crate) const APP_CONFIRM_DISCARD_PACK_TITLE: &str = "Discard unsaved package details?";
-pub(crate) const APP_CONFIRM_PACK_OPEN_BODY: &str = "This pack has unsaved changes. Open a different folder anyway?";
-pub(crate) const APP_CONFIRM_PACK_CLOSE_BODY: &str = "This pack has unsaved changes. Close it anyway?";
+pub(crate) const APP_CONFIRM_PACK_OPEN_BODY: &str =
+    "This pack has unsaved changes. Open a different folder anyway?";
+pub(crate) const APP_CONFIRM_PACK_CLOSE_BODY: &str =
+    "This pack has unsaved changes. Close it anyway?";
 pub(crate) const APP_CONFIRM_EXPORT_TITLE: &str = "Export anyway?";
 pub(crate) const APP_CONFIRM_DELETE_SCREENSHOT_TITLE: &str = "Delete screenshot?";
 
@@ -138,7 +151,8 @@ pub(crate) const APP_NOT_VGM_BODY: &str = "Only a VGM file stores loop points. C
                                     (File > Convert > Convert to VGM).";
 pub(crate) const APP_SONGS_EXPORTED_TITLE: &str = "Songs exported";
 pub(crate) const APP_FIX_HEADER_TITLE: &str = "Fix Header";
-pub(crate) const APP_AUDIT_HEADER_INTRO: &str = "This file's header disagrees with its own music:\n\n";
+pub(crate) const APP_AUDIT_HEADER_INTRO: &str =
+    "This file's header disagrees with its own music:\n\n";
 pub(crate) const APP_AUDIT_HEADER_OUTRO: &str = "\nCorrect them? The stream is taken as the truth.";
 
 pub(crate) fn app_about_text(
@@ -266,7 +280,9 @@ pub(crate) fn app_status_deleted_bridged(
     removed: impl std::fmt::Display,
     n: impl std::fmt::Display,
 ) -> String {
-    format!("Deleted {removed} instruction(s), leaving {n} write(s) to carry the chip state across the seam.")
+    format!(
+        "Deleted {removed} instruction(s), leaving {n} write(s) to carry the chip state across the seam."
+    )
 }
 
 pub(crate) fn app_status_opened(name: &str) -> String {
@@ -444,8 +460,7 @@ pub(crate) const PACK_APPLY_TIP_UNSCANNED: &str =
     "Scan volumes first -- there is no peak to level from yet";
 pub(crate) const PACK_ALBUM_TIP: &str =
     "ON: use the loudest track's peak level.\nOFF: use each track's peak level.";
-pub(crate) const PACK_BULK_TAG_TIP: &str =
-    "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
+pub(crate) const PACK_BULK_TAG_TIP: &str = "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
      once";
 pub(crate) const PACK_FIX_DATES_TIP: &str =
     "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01)";
@@ -488,7 +503,8 @@ pub(crate) const PACK_DELETE_SCREENSHOT_TIP: &str =
 pub(crate) const PACK_NO_SCREENSHOT_TITLE: &str = "No screenshot in this folder";
 pub(crate) const PACK_NO_SCREENSHOT_BODY: &str =
     "A submission needs a title-screen .png at the game's native resolution.";
-pub(crate) const PACK_CHECK_GAME_NAME: &str = "Enter a game name (it names every file in the pack).";
+pub(crate) const PACK_CHECK_GAME_NAME: &str =
+    "Enter a game name (it names every file in the pack).";
 pub(crate) const PACK_CHECK_NO_READABLE: &str = "There are no readable songs to export.";
 pub(crate) const PACK_CHECK_UNREADABLE_FILES: &str =
     "Some files could not be read; they ship as-is, without a track-list entry.";
@@ -524,12 +540,10 @@ pub(crate) const SETTINGS_OUTPUT_CORE_HOVER: &str =
     "Rendering, splitting and the waveform always use an emulator.";
 pub(crate) const SETTINGS_DEVICE_HOVER: &str =
     "The board's serial port. Recognised boards are matched by USB ID.";
-pub(crate) const SETTINGS_RESAMPLING_HOVER: &str =
-    "How non-OPL chips are resampled. Band-limited is accurate; linear is \
+pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Band-limited is accurate; linear is \
      aliased but crunchy, like VGMPlay.";
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
-pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str =
-    "Frames per audio callback. Smaller seeks and mutes sooner; larger \
+pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str = "Frames per audio callback. Smaller seeks and mutes sooner; larger \
      avoids dropouts.";
 pub(crate) const SETTINGS_BIT_DEPTH_HOVER: &str = "WAV export only";
 pub(crate) const SETTINGS_TAIL_LENGTH_HOVER: &str =
@@ -595,7 +609,8 @@ pub(crate) fn screenshot_rename_duplicate_message(name: &str) -> String {
 // ============================================================================
 
 pub(crate) const RENDER_WAV_APPLY: &str = "Apply to the render:";
-pub(crate) const RENDER_WAV_TOGGLES_HOVER: &str = "Leave out the channels muted in the channel panel";
+pub(crate) const RENDER_WAV_TOGGLES_HOVER: &str =
+    "Leave out the channels muted in the channel panel";
 pub(crate) const RENDER_WAV_PANNING_HOVER: &str = "Place each channel where its pan knob is set";
 pub(crate) const RENDER_WAV_BOOST_HOVER: &str = "Drive the signal through the peak limiter";
 pub(crate) const RENDER_WAV_FREQ_NOTE: &str = "Frequency and bit depth: see Settings.";
@@ -613,7 +628,8 @@ pub(crate) fn render_wav_boost_message(min: f32, max: f32) -> String {
 // ============================================================================
 
 pub(crate) const TRACK_EDIT_CURRENT_NAME_HINT: &str = "The file's name on disk right now";
-pub(crate) const TRACK_EDIT_NEW_NAME_HINT: &str = "Derived from the track number and Track Name (EN)";
+pub(crate) const TRACK_EDIT_NEW_NAME_HINT: &str =
+    "Derived from the track number and Track Name (EN)";
 pub(crate) const TRACK_EDIT_TRACK_NAME_REQUIRED_TITLE: &str = "Track name required";
 pub(crate) const TRACK_EDIT_TRACK_NAME_REQUIRED_MESSAGE: &str =
     "Enter a Track Name (EN) to derive the file name from (\"?\" and \"!\" are dropped).";
@@ -653,7 +669,8 @@ pub(crate) fn find_loop_quality_help(shape: &str, match_len: usize) -> String {
 pub(crate) const VGM_METADATA_MEASURE_HINT: &str =
     "Measure the song's peak and suggest a modifier that brings it to full scale";
 pub(crate) const VGM_METADATA_INVALID_TITLE: &str = "Invalid VGM metadata";
-pub(crate) const VGM_METADATA_LOOP_END_AFTER_START: &str = "Loop end must come after the loop start.";
+pub(crate) const VGM_METADATA_LOOP_END_AFTER_START: &str =
+    "Loop end must come after the loop start.";
 pub(crate) const VGM_METADATA_UPDATE_ERROR: &str =
     "Error updating VGM metadata, check that the entered values are correct.";
 
@@ -661,7 +678,9 @@ pub(crate) fn vgm_metadata_loop_start_message(song_len: usize) -> String {
     format!("Loop start must be an instruction index below {song_len}.")
 }
 pub(crate) fn vgm_metadata_loop_end_message(song_len: usize) -> String {
-    format!("Loop end must be an instruction index of {song_len} or less, or empty for the end of the song.")
+    format!(
+        "Loop end must be an instruction index of {song_len} or less, or empty for the end of the song."
+    )
 }
 
 // ============================================================================
@@ -679,8 +698,7 @@ pub(crate) const DRO_INFO_ERROR_MESSAGE: &str =
 // dialogs/bulk_tag.rs
 // ============================================================================
 
-pub(crate) const BULK_TAG_INTRO: &str =
-    "Check the fields to write, then choose the tracks. Unchecked fields keep each track's own value.";
+pub(crate) const BULK_TAG_INTRO: &str = "Check the fields to write, then choose the tracks. Unchecked fields keep each track's own value.";
 pub(crate) const BULK_TAG_NOTHING_TITLE: &str = "Nothing to write";
 pub(crate) const BULK_TAG_NOTHING_MESSAGE: &str =
     "Check at least one field to write to the selected tracks.";
@@ -695,8 +713,7 @@ pub(crate) fn bulk_tag_selected_count(selected: usize, total: usize) -> String {
 // dialogs/unwalkable_vgm.rs
 // ============================================================================
 
-pub(crate) const UNWALKABLE_VGM_BODY: &str =
-    "Can't read this file's command stream, so there are no rows. Open the folder as a pack to edit its tags.";
+pub(crate) const UNWALKABLE_VGM_BODY: &str = "Can't read this file's command stream, so there are no rows. Open the folder as a pack to edit its tags.";
 pub(crate) const UNWALKABLE_VGM_OPEN_PACK_HINT: &str = "Pack mode can edit this file's tags";
 
 // ============================================================================
@@ -709,8 +726,7 @@ pub(crate) const GOTO_INPUT_LABEL: &str = "Go to instruction (hex):";
 // dialogs/help.rs
 // ============================================================================
 
-pub(crate) const HELP_ADVICE: &str =
-    "To trim a song: select the instructions to remove and press Del. On a looping capture, look for a run of instructions with no delays between them -- that is usually where the instruments are set up.";
+pub(crate) const HELP_ADVICE: &str = "To trim a song: select the instructions to remove and press Del. On a looping capture, look for a run of instructions with no delays between them -- that is usually where the instruments are set up.";
 pub(crate) const HELP_FULL_INSTRUCTIONS: &str = "Full instructions:";
 
 // ============================================================================
@@ -749,8 +765,7 @@ pub(crate) const CHANNELS_ORIGINAL_DUAL_OPL2: &str = "Original: chip 1 left, chi
 pub(crate) const CHANNELS_ORIGINAL_OPL3: &str = "Original: the song's own panning";
 pub(crate) const CHANNELS_ORIGINAL_MONO: &str = "Original: mono";
 pub(crate) const CHANNELS_SPREAD: &str = "Stereo spread: mono at centre, wide at the extremes";
-pub(crate) const CHANNELS_RESET: &str =
-    "Reset panning to this song type's default (Original mode)";
+pub(crate) const CHANNELS_RESET: &str = "Reset panning to this song type's default (Original mode)";
 pub(crate) const CHANNELS_PERCUSSION_LOW: &str = "Percussion (low bank)";
 pub(crate) const CHANNELS_PERCUSSION_HIGH: &str = "Percussion (high bank)";
 
@@ -789,8 +804,7 @@ pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
 
 pub(crate) const BOOST_STEPPER_LOCK_ON: &str =
     "Volume is kept across songs. Click to start each song from its header modifier.";
-pub(crate) const BOOST_STEPPER_LOCK_OFF: &str =
-    "Each song starts from its header volume modifier. Click to keep \
+pub(crate) const BOOST_STEPPER_LOCK_OFF: &str = "Each song starts from its header volume modifier. Click to keep \
      this volume across songs.";
 pub(crate) const BOOST_STEPPER_QUIETER: &str = "Quieter";
 pub(crate) const BOOST_STEPPER_LOUDER: &str = "Louder";

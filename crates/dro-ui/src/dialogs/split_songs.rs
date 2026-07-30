@@ -227,7 +227,9 @@ impl SplitSongsDialog {
                                     });
                                 }
                                 if !can_preview {
-                                    preview.on_hover_text(crate::strings::SPLIT_SONGS_PREVIEW_UNAVAILABLE);
+                                    preview.on_hover_text(
+                                        crate::strings::SPLIT_SONGS_PREVIEW_UNAVAILABLE,
+                                    );
                                 }
                             });
                             ui.end_row();
