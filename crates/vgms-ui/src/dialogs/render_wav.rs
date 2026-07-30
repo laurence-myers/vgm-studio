@@ -1,4 +1,4 @@
-//! The Render to WAV dialog: what `drotrim render` does, plus the mix the editor
+//! The Render to WAV dialog: what `vgmstudio render` does, plus the mix the editor
 //! is set up with.
 //!
 //! All three options are off by default, which renders exactly what the CLI
@@ -169,7 +169,7 @@ fn format_boost(boost: f32) -> String {
 mod tests {
     use super::*;
 
-    /// The default is the faithful render `drotrim render` produces.
+    /// The default is the faithful render `vgmstudio render` produces.
     #[test]
     fn nothing_is_applied_by_default() {
         let mut dialog = RenderWavDialog::new(3.0);

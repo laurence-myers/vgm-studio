@@ -1,4 +1,4 @@
-//! `drotrim optimize`: make a VGM smaller without changing what it plays.
+//! `vgmstudio optimize`: make a VGM smaller without changing what it plays.
 //!
 //! Runs the vgmtools optimisers -- `optdac`, `vgm_cmp`, `vgm_sro` -- and then
 //! this app's own pass, which finishes with a byte-minimal delay re-encoding.
@@ -184,7 +184,7 @@ mod tests {
     /// A distinct temp path per test, namespaced by the process so parallel runs
     /// of the binary cannot collide.
     fn temp_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("drotrim-opt-{}-{name}", std::process::id()))
+        std::env::temp_dir().join(format!("vgmstudio-opt-{}-{name}", std::process::id()))
     }
 
     fn args(input: &Path, output: Option<PathBuf>) -> Args {

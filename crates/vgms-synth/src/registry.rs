@@ -71,7 +71,7 @@ impl core::fmt::Debug for CoreMaker {
 pub struct CoreInfo {
     /// Stable identifier, `"<chip slug>.<core>"`, e.g. `"opl3.nuked"`.
     ///
-    /// This is what lands in `drotrim.ini`, so it outlives any label change.
+    /// This is what lands in `vgmstudio.ini`, so it outlives any label change.
     pub id: &'static str,
     /// The chip this row serves.
     pub chip: ChipKind,
@@ -394,7 +394,7 @@ impl CoreRegistry {
     /// The core for `chip` given what the config stores: the short name, not
     /// the full id.
     ///
-    /// `drotrim.ini` says `core.opl3=cqm`, because repeating the slot in the
+    /// `vgmstudio.ini` says `core.opl3=cqm`, because repeating the slot in the
     /// value (`opl3.cqm`) is noise in a file a person edits. The id keeps the
     /// prefix, because ids are unique across the whole registry and the About
     /// box lists them side by side. This is the one place that knows both.
@@ -505,7 +505,7 @@ pub fn slot_slug(chip: ChipKind) -> &'static str {
 static INSTALLED: std::sync::OnceLock<CoreRegistry> = std::sync::OnceLock::new();
 
 /// The user's per-slot core choices, `slot slug -> short name` -- the map
-/// `drotrim.ini`'s `core.<slug>=<name>` lines populate.
+/// `vgmstudio.ini`'s `core.<slug>=<name>` lines populate.
 ///
 /// Lives beside the registry rather than being threaded through every engine
 /// constructor, because the choice is process-wide state exactly as the

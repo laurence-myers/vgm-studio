@@ -1,4 +1,4 @@
-//! `drotrim retrowave-probe`: find RetroWave hardware and prove it makes sound.
+//! `vgmstudio retrowave-probe`: find RetroWave hardware and prove it makes sound.
 //!
 //! The first thing to run when hardware output misbehaves. Listing needs no
 //! device; the chord needs one, and tells you whether the fault is in the

@@ -1,4 +1,4 @@
-//! `drotrim split`: split a song into one file per channel.
+//! `vgmstudio split`: split a song into one file per channel.
 //!
 //! The splitting logic is [`vgms_synth::split`], tested there; this parses
 //! arguments, loads the config, and writes the outputs next to the input.

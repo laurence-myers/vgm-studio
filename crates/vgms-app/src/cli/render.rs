@@ -1,4 +1,4 @@
-//! `drotrim render`: render a DRO or VGM song to a WAV file.
+//! `vgmstudio render`: render a DRO or VGM song to a WAV file.
 //!
 //! A tight offline loop with a once-a-second progress line.
 
@@ -43,7 +43,7 @@ pub fn run(args: &Args) -> Result<()> {
     let total_ms = song.total_ms();
 
     // A render is faithful to the source unless an explicit --boost is given;
-    // the drotrim.ini / GUI boost never affects it, so default to 1.0 here
+    // the vgmstudio.ini / GUI boost never affects it, so default to 1.0 here
     // rather than reading `config.audio.boost`.
     let boost = args.boost.unwrap_or(1.0);
     let freq = config.audio.frequency;

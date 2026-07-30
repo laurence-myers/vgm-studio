@@ -12,7 +12,7 @@ use vgms_synth::OplChip;
 
 use crate::ffi::CqmChip;
 
-/// The registry id. `<slot>.<name>`, so `drotrim.ini` stores `core.opl3=cqm`.
+/// The registry id. `<slot>.<name>`, so `vgmstudio.ini` stores `core.opl3=cqm`.
 pub(crate) const CORE_ID: &str = "opl3.cqm";
 
 /// The rate the chip itself runs at: the 14.318 MHz master clock divided by

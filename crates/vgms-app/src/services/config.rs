@@ -1,4 +1,4 @@
-//! The native `ConfigStore`: `drotrim.ini` on disk.
+//! The native `ConfigStore`: `vgmstudio.ini` on disk.
 //!
 //! Loading follows the lookup order (working directory, then the
 //! executable's directory, the latter overriding). Saving targets the
@@ -23,7 +23,7 @@ impl IniConfigStore {
     fn exe_ini() -> Option<PathBuf> {
         std::env::current_exe()
             .ok()
-            .and_then(|exe| exe.parent().map(|dir| dir.join("drotrim.ini")))
+            .and_then(|exe| exe.parent().map(|dir| dir.join("vgmstudio.ini")))
     }
 }
 
@@ -43,11 +43,11 @@ impl ConfigStore for IniConfigStore {
         // The exe directory is not writable. The working-directory copy only
         // takes effect if no exe-dir ini exists to shadow it.
         if exe_ini.as_deref().is_none_or(|path| !path.exists()) {
-            return fs::write("drotrim.ini", &text)
-                .map_err(|error| Error::config(format!("Could not write drotrim.ini: {error}")));
+            return fs::write("vgmstudio.ini", &text)
+                .map_err(|error| Error::config(format!("Could not write vgmstudio.ini: {error}")));
         }
         Err(Error::config(
-            "Could not write drotrim.ini next to the executable.",
+            "Could not write vgmstudio.ini next to the executable.",
         ))
     }
 }
@@ -58,7 +58,7 @@ mod tests {
 
     #[test]
     fn load_falls_back_to_defaults() {
-        // The test working directory has no drotrim.ini; the exe dir (target/)
+        // The test working directory has no vgmstudio.ini; the exe dir (target/)
         // does not either. Either way this must not fail.
         let config = IniConfigStore::new().load();
         assert!(config.validate().is_ok());

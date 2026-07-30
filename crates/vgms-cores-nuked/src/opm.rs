@@ -13,7 +13,7 @@ use vgms_synth::ChipCore;
 use crate::ffi::OpmChip;
 use vgms_synth::WriteQueue;
 
-/// The registry id. `<slot>.<name>`, so `drotrim.ini` stores `core.ym2151=nuked`.
+/// The registry id. `<slot>.<name>`, so `vgmstudio.ini` stores `core.ym2151=nuked`.
 pub(crate) const CORE_ID: &str = "ym2151.nuked";
 
 /// Internal cycles per output sample: the chip rotates through 32 slots.

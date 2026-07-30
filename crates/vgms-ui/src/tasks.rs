@@ -334,7 +334,7 @@ pub fn run_task(
             bit_depth,
             resampling,
         } => {
-            // `song.dro` becomes `song.dro.wav`, the name `drotrim render`
+            // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render`
             // writes -- so the same song exported both ways lands in one place.
             let name = format!("{}.wav", source.name());
             let rendered = match source {

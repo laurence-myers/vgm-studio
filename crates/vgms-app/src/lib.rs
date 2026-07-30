@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! Everything behind the `drotrim` executable: its `play`, `render`, `split` and
+//! Everything behind the `vgmstudio` executable: its `play`, `render`, `split` and
 //! `optimize` subcommands, and the platform services the GUI runs on.
 
 use std::path::Path;
@@ -205,7 +205,7 @@ mod loaded_song_tests {
     /// A distinct temp path per test, namespaced by the process so parallel
     /// runs of the binary cannot collide.
     fn temp_path(name: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!("drotrim-load-{}-{name}", std::process::id()))
+        std::env::temp_dir().join(format!("vgmstudio-load-{}-{name}", std::process::id()))
     }
 
     fn put(bytes: &mut [u8], offset: usize, value: u32) {

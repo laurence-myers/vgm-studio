@@ -27,7 +27,7 @@ use crate::vgm_engine::VgmEngine;
 /// How a render is mixed: which voices are audible, where they sit in the stereo
 /// image, and how hard the signal is driven.
 ///
-/// [`Default`] is the faithful render every `drotrim render` produces -- nothing
+/// [`Default`] is the faithful render every `vgmstudio render` produces -- nothing
 /// muted, the song's own stereo image, and no boost. The GUI's Render to WAV
 /// dialog turns each of the three on individually.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -151,7 +151,7 @@ pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
 /// [`render_wav`].
 ///
 /// This is the one render path deliberately *not* faithful to the un-boosted
-/// signal; it is opt-in through `dro_player --render --boost`. The `drotrim.ini`
+/// signal; it is opt-in through `dro_player --render --boost`. The `vgmstudio.ini`
 /// / GUI boost never reaches a render -- only an explicit CLI value does.
 ///
 /// # Errors

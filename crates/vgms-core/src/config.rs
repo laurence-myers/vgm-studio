@@ -1,7 +1,7 @@
 //! Application settings.
 //!
 //! Parsing lives here, wasm-clean and file-free. *Finding* the settings is the
-//! platform's job: the native shell reads `drotrim.ini` from the working
+//! platform's job: the native shell reads `vgmstudio.ini` from the working
 //! directory and then the executable's directory; the web shell reads
 //! `localStorage`. Both hand the text to [`AppConfig::from_ini_sources`].
 
@@ -45,7 +45,7 @@ impl core::str::FromStr for OutputBackend {
     }
 }
 
-/// Audio settings. `[audio]` in `drotrim.ini`.
+/// Audio settings. `[audio]` in `vgmstudio.ini`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AudioConfig {
     pub bit_depth: u16,
@@ -63,7 +63,7 @@ pub struct AudioConfig {
     pub boost: f32,
     /// Whether to keep [`Self::boost`] across songs. Off by default: each song's
     /// volume starts from its own header modifier and manual changes are
-    /// transient. On: the boost is remembered and written to `drotrim.ini`.
+    /// transient. On: the boost is remembered and written to `vgmstudio.ini`.
     pub lock_boost: bool,
     pub buffer_size: u32,
     /// Sample rate of both the emulated chip and the audio output. 49716 is the
@@ -361,7 +361,7 @@ impl core::str::FromStr for SurfaceChoice {
     }
 }
 
-/// Interface settings. `[ui]` in `drotrim.ini`.
+/// Interface settings. `[ui]` in `vgmstudio.ini`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct UiConfig {
     /// Whether the DRO Info dialog allows editing the header.
@@ -409,7 +409,7 @@ impl AppConfig {
     pub fn from_ini_sources(sources: &[&str]) -> Self {
         Self::try_from_ini_sources(sources).unwrap_or_else(|error| {
             log::warn!(
-                "Could not read config from drotrim.ini, using default values. (Error: {error})"
+                "Could not read config from vgmstudio.ini, using default values. (Error: {error})"
             );
             Self::default()
         })
@@ -423,7 +423,7 @@ impl AppConfig {
     /// not pass [`Self::validate`].
     pub fn try_from_ini_sources(sources: &[&str]) -> Result<Self> {
         if sources.is_empty() {
-            return Err(Error::config("Could not read drotrim.ini."));
+            return Err(Error::config("Could not read vgmstudio.ini."));
         }
         let mut config = Self::default();
         for source in sources {
@@ -488,7 +488,7 @@ impl AppConfig {
             self.audio.frequency = parse(value, "audio.frequency")?;
         }
         // `output_backend` is the OPL row's core choice under a legacy name.
-        // Read it so an existing drotrim.ini keeps its hardware setting; it is
+        // Read it so an existing vgmstudio.ini keeps its hardware setting; it is
         // not written back, so the file converges on the new spelling. Applied
         // *before* the `core.*` keys so an explicit new-style choice wins.
         if let Some(value) = lookup(&ini, "audio", "resampling") {
@@ -547,7 +547,7 @@ impl AppConfig {
         Ok(())
     }
 
-    /// Renders the config as `drotrim.ini`, comments and all.
+    /// Renders the config as `vgmstudio.ini`, comments and all.
     ///
     /// Round-trips through [`Self::apply_ini`].
     #[must_use]
@@ -681,9 +681,9 @@ fn parse_bool(value: &str, key: &str) -> Result<bool> {
 mod tests {
     use super::*;
 
-    /// The `drotrim.ini` that ships beside the executable. Compiled in, so this
+    /// The `vgmstudio.ini` that ships beside the executable. Compiled in, so this
     /// suite fails loudly if the shipped file ever stops parsing.
-    const SHIPPED_INI: &str = include_str!("../../../src/drotrim.ini");
+    const SHIPPED_INI: &str = include_str!("../../../src/vgmstudio.ini");
 
     #[test]
     fn defaults_are_correct() {
@@ -736,7 +736,7 @@ mod tests {
 
     #[test]
     fn no_sources_yields_defaults() {
-        // With no readable `drotrim.ini`, the result is all defaults.
+        // With no readable `vgmstudio.ini`, the result is all defaults.
         assert_eq!(AppConfig::from_ini_sources(&[]), AppConfig::default());
         assert!(AppConfig::try_from_ini_sources(&[]).is_err());
     }
@@ -829,7 +829,7 @@ mod tests {
         assert!(error.to_string().contains("audio.output_backend"));
     }
 
-    /// An existing `drotrim.ini` says `output_backend=`; the app now writes
+    /// An existing `vgmstudio.ini` says `output_backend=`; the app now writes
     /// `core.opl3=`. Reading the old spelling must keep a user's board
     /// selected, or upgrading silently moves their playback back to the
     /// emulator.

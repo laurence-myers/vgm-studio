@@ -25,7 +25,7 @@ use crate::theme::Palette;
 /// One core a row can be set to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreChoice {
-    /// What `drotrim.ini` stores: the core id without its slot prefix.
+    /// What `vgmstudio.ini` stores: the core id without its slot prefix.
     pub name: String,
     /// What the dropdown shows.
     pub label: String,
@@ -528,7 +528,7 @@ mod tests {
         );
     }
 
-    /// A `drotrim.ini` naming a core this build lacks -- the native app's
+    /// A `vgmstudio.ini` naming a core this build lacks -- the native app's
     /// `retrowave` read by the web build -- must show what will really play,
     /// not echo a setting that is not in force.
     #[test]

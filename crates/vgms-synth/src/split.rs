@@ -1,7 +1,7 @@
 //! Splitting a song into one file per channel.
 //!
 //! Pure: [`split`] returns named outputs (WAV bytes, or a captured song); the
-//! caller writes them -- `drotrim split` to disk, the GUI to a chosen folder.
+//! caller writes them -- `vgmstudio split` to disk, the GUI to a chosen folder.
 //! Each channel is rendered (or captured) with all other channels muted, using
 //! the register-usage analysis to skip channels the song never touches.
 

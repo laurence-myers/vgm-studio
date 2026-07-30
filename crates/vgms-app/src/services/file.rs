@@ -44,7 +44,7 @@ impl NativeFileService {
     }
 
     /// Reads `path`. A directory is scanned as a pack project folder instead --
-    /// this is what makes dropping a folder (or `drotrim <folder>`) open pack
+    /// this is what makes dropping a folder (or `vgmstudio <folder>`) open pack
     /// mode, without `vgms-ui` ever touching the filesystem.
     fn read(&mut self, path: PathBuf) {
         if path.is_dir() {
@@ -347,7 +347,7 @@ mod tests {
     /// A unique temp directory under the OS temp root, created fresh.
     fn temp_dir(tag: &str) -> PathBuf {
         let mut dir = std::env::temp_dir();
-        dir.push(format!("drotrim-file-test-{tag}"));
+        dir.push(format!("vgmstudio-file-test-{tag}"));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir

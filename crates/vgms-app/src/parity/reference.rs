@@ -424,7 +424,7 @@ mod tests {
         let error = missing
             .render(
                 Path::new("in.vgm"),
-                &std::env::temp_dir().join("drotrim-parity-test"),
+                &std::env::temp_dir().join("vgmstudio-parity-test"),
             )
             .expect_err("it cannot have run");
         assert!(

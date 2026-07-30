@@ -24,7 +24,7 @@ use vgms_synth::ChipCore;
 use crate::ffi::Opn2Chip;
 use vgms_synth::WriteQueue;
 
-/// The registry ids. `<slot>.<name>`, so `drotrim.ini` stores `core.ym2612=nuked`.
+/// The registry ids. `<slot>.<name>`, so `vgmstudio.ini` stores `core.ym2612=nuked`.
 pub(crate) const YM2612_CORE_ID: &str = "ym2612.nuked";
 
 /// Master clocks per internal clock, per upstream's own documentation.

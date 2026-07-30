@@ -724,7 +724,7 @@ mod tests {
 
     #[test]
     fn a_rate_outside_the_offered_set_survives_a_save() {
-        // The dropdown offers three rates, but a hand-edited drotrim.ini may
+        // The dropdown offers three rates, but a hand-edited vgmstudio.ini may
         // hold another. Opening Settings and saving something else must not
         // silently retune the output.
         let mut config = AppConfig::default();

@@ -292,7 +292,7 @@ pub(crate) struct ChipSpec {
     /// The registry id, `"<chip slug>.libvgm"` (or `"...-<core>"` for an
     /// alternative core). Written out rather than composed at runtime because
     /// [`CoreInfo::id`](vgms_synth::CoreInfo::id) is a `&'static str` that lands
-    /// in `drotrim.ini`.
+    /// in `vgmstudio.ini`.
     pub(crate) id: &'static str,
     /// What the Settings picker calls this row. Default rows share one name; an
     /// alternative core names the emulator it selects, or the dropdown would
@@ -2237,7 +2237,7 @@ mod tests {
     }
 
     /// A chip's several rows must each start a *different* libvgm core, or a
-    /// picker entry is dead: choosing it changes the id in `drotrim.ini` but not
+    /// picker entry is dead: choosing it changes the id in `vgmstudio.ini` but not
     /// a sample of the sound.
     ///
     /// The bug this pins: an alternate whose `emu_core` names the device's

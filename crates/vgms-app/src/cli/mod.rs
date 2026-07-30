@@ -1,9 +1,9 @@
-//! `drotrim`'s command line and its subcommands. (DRO v2 -> v1 conversion lives
+//! `vgmstudio`'s command line and its subcommands. (DRO v2 -> v1 conversion lives
 //! in the GUI: Edit > Convert to DRO v1.)
 //!
 //! One executable does everything. With no subcommand (and at most a file to
-//! open) `drotrim` starts the GUI, so the parser's [`Cli::command`] is optional
-//! and the bare `drotrim song.dro` of old still works. `drotrim help` lists the
+//! open) `vgmstudio` starts the GUI, so the parser's [`Cli::command`] is optional
+//! and the bare `vgmstudio song.dro` of old still works. `vgmstudio help` lists the
 //! rest, courtesy of clap.
 
 use std::path::PathBuf;
@@ -27,11 +27,11 @@ pub use console::attach_parent_console;
 #[command(
     // Without this, clap names the command after the *package* (`vgms-app`),
     // which is not what the user typed.
-    name = "drotrim",
+    name = "vgmstudio",
     version,
     about = "Edit, play, render, split and optimise DRO and VGM songs.",
     after_help = "Run with no arguments (or with just a file) to open the GUI.",
-    // `drotrim song.dro render` is a mistake, not a request to render; reject
+    // `vgmstudio song.dro render` is a mistake, not a request to render; reject
     // it rather than half-parse it.
     args_conflicts_with_subcommands = true
 )]
@@ -85,14 +85,14 @@ mod tests {
 
     #[test]
     fn no_arguments_means_the_gui() {
-        let cli = Cli::try_parse_from(["drotrim"]).unwrap();
+        let cli = Cli::try_parse_from(["vgmstudio"]).unwrap();
         assert!(cli.command.is_none());
         assert!(cli.file.is_none());
     }
 
     #[test]
     fn a_lone_path_is_the_gui_file() {
-        let cli = Cli::try_parse_from(["drotrim", "song.dro"]).unwrap();
+        let cli = Cli::try_parse_from(["vgmstudio", "song.dro"]).unwrap();
         assert!(cli.command.is_none());
         assert_eq!(cli.file, Some(PathBuf::from("song.dro")));
     }
@@ -100,32 +100,32 @@ mod tests {
     #[test]
     fn each_subcommand_parses() {
         assert!(matches!(
-            Cli::try_parse_from(["drotrim", "play", "a.dro"])
+            Cli::try_parse_from(["vgmstudio", "play", "a.dro"])
                 .unwrap()
                 .command,
             Some(Command::Play(_))
         ));
         assert!(matches!(
-            Cli::try_parse_from(["drotrim", "render", "a.dro"])
+            Cli::try_parse_from(["vgmstudio", "render", "a.dro"])
                 .unwrap()
                 .command,
             Some(Command::Render(_))
         ));
         assert!(matches!(
-            Cli::try_parse_from(["drotrim", "split", "a.dro"])
+            Cli::try_parse_from(["vgmstudio", "split", "a.dro"])
                 .unwrap()
                 .command,
             Some(Command::Split(_))
         ));
         assert!(matches!(
-            Cli::try_parse_from(["drotrim", "optimize", "a.vgm"])
+            Cli::try_parse_from(["vgmstudio", "optimize", "a.vgm"])
                 .unwrap()
                 .command,
             Some(Command::Optimize(_))
         ));
         // The optional output path parses too.
         let Some(Command::Optimize(args)) =
-            Cli::try_parse_from(["drotrim", "optimize", "a.vgm", "b.vgz"])
+            Cli::try_parse_from(["vgmstudio", "optimize", "a.vgm", "b.vgz"])
                 .unwrap()
                 .command
         else {
@@ -133,7 +133,7 @@ mod tests {
         };
         assert_eq!(args.output, Some(PathBuf::from("b.vgz")));
         assert!(matches!(
-            Cli::try_parse_from(["drotrim", "retrowave-probe"])
+            Cli::try_parse_from(["vgmstudio", "retrowave-probe"])
                 .unwrap()
                 .command,
             Some(Command::RetrowaveProbe(_))
@@ -143,7 +143,7 @@ mod tests {
     #[test]
     fn the_probe_takes_a_port_and_a_list_only_flag() {
         let Some(Command::RetrowaveProbe(args)) =
-            Cli::try_parse_from(["drotrim", "retrowave-probe", "--port", "COM3", "--list"])
+            Cli::try_parse_from(["vgmstudio", "retrowave-probe", "--port", "COM3", "--list"])
                 .unwrap()
                 .command
         else {
@@ -157,8 +157,8 @@ mod tests {
     #[test]
     fn the_old_dro_flag_still_selects_song_output() {
         for argv in [
-            ["drotrim", "split", "-d", "a.dro"],
-            ["drotrim", "split", "--dro", "a.dro"],
+            ["vgmstudio", "split", "-d", "a.dro"],
+            ["vgmstudio", "split", "--dro", "a.dro"],
         ] {
             let Some(Command::Split(args)) = Cli::try_parse_from(argv).unwrap().command else {
                 panic!("expected a split command from {argv:?}")
@@ -169,6 +169,6 @@ mod tests {
 
     #[test]
     fn a_file_and_a_subcommand_together_are_rejected() {
-        assert!(Cli::try_parse_from(["drotrim", "a.dro", "render"]).is_err());
+        assert!(Cli::try_parse_from(["vgmstudio", "a.dro", "render"]).is_err());
     }
 }

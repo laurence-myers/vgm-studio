@@ -824,7 +824,7 @@ impl Editor {
     /// Replaces the DRO v2 song with its v1 conversion. Not undoable: the
     /// history is wiped, as [`Self::convert_to_vgm`] does.
     ///
-    /// The song is renamed `<stem>_1.<ext>`, matching `drotrim convert`'s output
+    /// The song is renamed `<stem>_1.<ext>`, matching `vgmstudio convert`'s output
     /// name -- so a following Save As cannot silently overwrite the v2 original.
     ///
     /// # Errors
@@ -1385,7 +1385,7 @@ mod tests {
 
         let song = editor.song().unwrap();
         assert_eq!(song.file_version, vgms_core::song::DRO_FILE_V1);
-        // The name `drotrim convert` would have written, so Save As cannot
+        // The name `vgmstudio convert` would have written, so Save As cannot
         // silently overwrite the v2 the conversion came from.
         assert_eq!(song.name, "test_1.dro");
         assert_eq!(song.total_delay_ms(), before, "timing is preserved");

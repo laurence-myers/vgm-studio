@@ -1,6 +1,6 @@
 [package]
 name = "vgms-app"
-description = "The drotrim executable: the GUI, plus its play, render and split subcommands."
+description = "The vgmstudio executable: the GUI, plus its play, render and split subcommands."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -36,7 +36,7 @@ rfd.workspace = true
 zip.workspace = true
 
 # Windows-only: lets a GUI-subsystem release build borrow the parent console, so
-# the subcommands' output is visible when drotrim is run from a terminal.
+# the subcommands' output is visible when vgmstudio is run from a terminal.
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
 

@@ -1095,7 +1095,7 @@ fn rename_batch_mutations(
     folder: &std::path::Path,
     pairs: &[(String, String)],
 ) -> Vec<PackMutation> {
-    let temp = |i: usize| format!(".drotrim-reorder-{i}");
+    let temp = |i: usize| format!(".vgmstudio-reorder-{i}");
     let mut muts = Vec::with_capacity(pairs.len() * 2);
     for (i, (src, _)) in pairs.iter().enumerate() {
         muts.push(PackMutation::Rename {
@@ -3613,7 +3613,7 @@ mod tests {
             .forward
             .iter()
             .filter_map(|mutation| match mutation {
-                PackMutation::Rename { to, .. } if !to.starts_with(".drotrim") => Some(to),
+                PackMutation::Rename { to, .. } if !to.starts_with(".vgmstudio") => Some(to),
                 _ => None,
             })
             .collect();
@@ -3647,7 +3647,7 @@ mod tests {
         let finals = |muts: &[PackMutation]| -> Vec<String> {
             muts.iter()
                 .filter_map(|m| match m {
-                    PackMutation::Rename { to, .. } if !to.starts_with(".drotrim") => {
+                    PackMutation::Rename { to, .. } if !to.starts_with(".vgmstudio") => {
                         Some(to.clone())
                     }
                     _ => None,

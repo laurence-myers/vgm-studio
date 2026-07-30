@@ -344,7 +344,7 @@ fn reference() -> Option<Reference> {
 }
 
 fn work_dir() -> PathBuf {
-    std::env::temp_dir().join("drotrim-parity")
+    std::env::temp_dir().join("vgmstudio-parity")
 }
 
 /// Shortening a file must not change what we render from it.

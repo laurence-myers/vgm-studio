@@ -39,7 +39,7 @@ fn load_icon() -> Option<eframe::egui::IconData> {
 fn main() -> ExitCode {
     // A release build is GUI-subsystem, so borrow the parent's console before
     // anything prints -- including clap's own `--help` and usage errors. Only
-    // worth doing when there are arguments: a bare `drotrim` opens the GUI and
+    // worth doing when there are arguments: a bare `vgmstudio` opens the GUI and
     // should stay silent.
     #[cfg(all(windows, not(debug_assertions)))]
     if std::env::args_os().len() > 1 {
@@ -95,7 +95,7 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
     };
 
     eframe::run_native(
-        "drotrim",
+        "vgmstudio",
         options,
         Box::new(move |cc| {
             // The DOS-tracker look: fonts, palette and square bevelled chrome.

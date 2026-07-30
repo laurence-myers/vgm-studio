@@ -51,7 +51,7 @@ fn about_text() -> String {
 }
 
 /// The DRO timing mismatch box; the v2 advice points at the Settings dialog
-/// rather than a hand edit of drotrim.ini.
+/// rather than a hand edit of vgmstudio.ini.
 /// What a click on the waveform means, given the button and whether Shift was
 /// held. `None` for a gesture that does nothing.
 ///
@@ -985,7 +985,7 @@ impl VgmStudioApp {
     }
 
     /// Changes the live playback volume, updating the config, the audio engine and
-    /// (when `persist`) `drotrim.ini`. The shared path behind the volume lever and
+    /// (when `persist`) `vgmstudio.ini`. The shared path behind the volume lever and
     /// the "Match Volume" scan.
     fn set_boost(&mut self, value: f32, persist: bool) {
         self.config.audio.boost = value;
@@ -993,7 +993,7 @@ impl VgmStudioApp {
         // one picks it up from `config.audio` on the next load, so this
         // deliberately does not force an audio reload.
         self.audio.set_boost(value);
-        // Only write to drotrim.ini when the volume is locked: an unlocked boost
+        // Only write to vgmstudio.ini when the volume is locked: an unlocked boost
         // is per-song (re-derived from the modifier on the next open), so
         // persisting it would resurrect a stale value on the next launch.
         if persist
@@ -3915,7 +3915,7 @@ impl VgmStudioApp {
     /// dialog through `poll_services`.
     ///
     /// Each option is opt-in, so with none of them this is exactly what
-    /// `drotrim render` writes.
+    /// `vgmstudio render` writes.
     fn render_to_wav(&mut self, use_toggles: bool, use_panning: bool, boost: f32) {
         let source = match (self.editor.snapshot(), self.editor.vgm()) {
             (Some(song), _) => crate::tasks::WavSource::Opl(song),
@@ -4117,7 +4117,7 @@ impl VgmStudioApp {
             self.pending_saves.push_back(SavePurpose::SplitFile);
             // In place, not a dialog: the user already chose the folder, and
             // there may be eighteen of these. Existing files are overwritten,
-            // as `drotrim split` does.
+            // as `vgmstudio split` does.
             self.files.save(SaveRequest::InPlace {
                 path: dir.join(name),
                 bytes,

@@ -1,4 +1,4 @@
-//! End-to-end smoke tests for the `drotrim` subcommands.
+//! End-to-end smoke tests for the `vgmstudio` subcommands.
 //!
 //! These run the real executable, so they cover the parts a unit test cannot:
 //! that the subcommands are wired to the parser at all, that `help` lists them,
@@ -14,12 +14,12 @@ use vgms_core::io::write_song;
 use vgms_core::{DroDataV1, OplType, Song};
 
 /// The executable under test, built by cargo before the test runs.
-const DROTRIM: &str = env!("CARGO_BIN_EXE_drotrim");
+const VGMSTUDIO: &str = env!("CARGO_BIN_EXE_vgmstudio");
 
 /// A unique temp directory, created fresh (the `services::file` tests' pattern).
 fn temp_dir(tag: &str) -> PathBuf {
     let mut dir = std::env::temp_dir();
-    dir.push(format!("drotrim-cli-test-{tag}"));
+    dir.push(format!("vgmstudio-cli-test-{tag}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -44,10 +44,10 @@ fn small_song_bytes() -> Vec<u8> {
 }
 
 fn run(args: &[&str]) -> Output {
-    Command::new(DROTRIM)
+    Command::new(VGMSTUDIO)
         .args(args)
         .output()
-        .expect("running drotrim")
+        .expect("running vgmstudio")
 }
 
 fn stdout_of(output: &Output) -> String {
@@ -66,7 +66,7 @@ fn file_names(dir: &Path) -> Vec<String> {
 #[test]
 fn help_lists_every_subcommand() {
     let output = run(&["help"]);
-    assert!(output.status.success(), "`drotrim help` failed");
+    assert!(output.status.success(), "`vgmstudio help` failed");
     let text = stdout_of(&output);
     for subcommand in ["play", "render", "split"] {
         assert!(
@@ -179,7 +179,7 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
 
 #[test]
 fn a_file_argument_is_not_mistaken_for_a_subcommand() {
-    // `drotrim <file> <subcommand>` is a mistake, and must be reported as one
+    // `vgmstudio <file> <subcommand>` is a mistake, and must be reported as one
     // rather than half-parsed.
     let output = run(&["small.dro", "render"]);
     assert!(!output.status.success());

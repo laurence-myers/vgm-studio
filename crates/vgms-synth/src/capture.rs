@@ -1,6 +1,6 @@
 //! Capture: re-record a (muted) playthrough as a new song file.
 //!
-//! This is what `drotrim split --song` uses to split a song into one file per
+//! This is what `vgmstudio split --song` uses to split a song into one file per
 //! channel. It renders no audio: it walks the instruction stream, applies the
 //! same [`Muting`] gate the player does, and re-emits the surviving register
 //! writes and delays. A DRO becomes a DRO v2, its delays re-encoded into v2

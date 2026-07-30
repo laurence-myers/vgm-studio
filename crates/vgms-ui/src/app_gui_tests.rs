@@ -94,7 +94,7 @@ fn build_sized(
     };
 
     let app_builder = move |cc: &mut eframe::CreationContext<'_>| {
-        // Match drotrim.rs startup: the embedded DOS font and feathering-off are
+        // Match vgmstudio.rs startup: the embedded DOS font and feathering-off are
         // what make layout and snapshots deterministic.
         crate::theme::install(&cc.egui_ctx, ThemeChoice::default());
         VgmStudioApp::new(
@@ -726,7 +726,7 @@ fn boost_up_arrow_steps_up_the_live_volume_without_persisting_when_unlocked() {
         "and the lever reflects it"
     );
     // Unlocked (the default), a volume change is per-song and is not written to
-    // drotrim.ini -- so opening another song can start it from its own modifier.
+    // vgmstudio.ini -- so opening another song can start it from its own modifier.
     assert!(
         handles.saved_configs.borrow().is_empty(),
         "an unlocked volume change does not persist"
@@ -746,7 +746,7 @@ fn a_locked_volume_change_is_persisted() {
     let saved = handles.saved_configs.borrow();
     assert!(
         saved.len() > before,
-        "a locked volume change is written to drotrim.ini"
+        "a locked volume change is written to vgmstudio.ini"
     );
     let last = saved.last().expect("a save");
     assert_eq!(last.audio.boost, vgms_core::volume_step_up(1.0));
@@ -965,7 +965,7 @@ fn match_volume_measures_the_peak_and_sets_the_volume() {
         harness.state().status
     );
     // Match Volume is a per-song action: unlocked, it sets the live volume but
-    // does not write to drotrim.ini.
+    // does not write to vgmstudio.ini.
     assert!(
         handles.saved_configs.borrow().is_empty(),
         "an unlocked Match does not persist"
@@ -3677,7 +3677,7 @@ fn reordering_renumbers_files_and_is_undoable_and_redoable() {
             .rename_requests
             .iter()
             .map(|(_, to)| to)
-            .filter(|to| !to.starts_with(".drotrim"))
+            .filter(|to| !to.starts_with(".vgmstudio"))
             .collect();
         assert!(finals.iter().any(|to| *to == "01 Boss.vgm"));
         assert!(finals.iter().any(|to| *to == "02 Intro.vgz"));
@@ -3767,7 +3767,7 @@ fn dragging_a_track_by_its_grip_moves_it_to_where_it_is_dropped() {
             .rename_requests
             .iter()
             .map(|(_, to)| to)
-            .filter(|to| !to.starts_with(".drotrim"))
+            .filter(|to| !to.starts_with(".vgmstudio"))
             .collect();
         assert!(
             finals.iter().any(|to| *to == "01 Boss.vgm"),
@@ -5528,7 +5528,7 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
             .rename_requests
             .iter()
             .map(|(_, to)| to)
-            .filter(|to| !to.starts_with(".drotrim"))
+            .filter(|to| !to.starts_with(".vgmstudio"))
             .collect();
         assert_eq!(
             finals,

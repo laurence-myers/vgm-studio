@@ -30,7 +30,7 @@ pub const CORPUS_ENV: &str = "DROTRIM_VGMRIPS_CORPUS";
 
 /// The cache file's format marker. Bump it when the columns change, so a stale
 /// cache is rebuilt rather than misread.
-const CACHE_HEADER: &str = "# drotrim chip index v1";
+const CACHE_HEADER: &str = "# vgmstudio chip index v1";
 
 /// Which corpus files name which chips.
 #[derive(Debug, Default, Clone)]
@@ -217,7 +217,7 @@ pub fn corpus_root() -> Option<PathBuf> {
 /// `target/`.
 #[must_use]
 pub fn cache_path(root: &Path) -> PathBuf {
-    root.join("drotrim-chip-index.tsv")
+    root.join("vgmstudio-chip-index.tsv")
 }
 
 fn collect(root: &Path, out: &mut Vec<PathBuf>) {
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn a_cache_round_trips_and_a_foreign_one_is_rejected() {
-        let dir = std::env::temp_dir().join("drotrim-chip-index-test");
+        let dir = std::env::temp_dir().join("vgmstudio-chip-index-test");
         let cache = dir.join("index.tsv");
         let index = index_of(&[
             (ChipKind::Sn76489, "Arcade/x.vgz"),

@@ -116,7 +116,7 @@ pub fn volume_modifier_factor(modifier: u8) -> f32 {
 /// The modifier byte whose playback factor is closest (in log space, so the
 /// perceptual distance is even) to `factor`, saturating past the ladder's ends.
 ///
-/// Snaps a free-form boost -- a hand-edited `drotrim.ini` value, or the exact
+/// Snaps a free-form boost -- a hand-edited `vgmstudio.ini` value, or the exact
 /// `boost_for_peak` a "Match Volume" produces -- onto a real modifier value, so
 /// the stepper always sits on a ladder position and the number it shows is one a
 /// player could reproduce.

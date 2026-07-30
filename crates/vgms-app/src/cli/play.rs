@@ -1,4 +1,4 @@
-//! `drotrim play`: play a DRO or VGM song through the speakers.
+//! `vgmstudio play`: play a DRO or VGM song through the speakers.
 //!
 //! Interactive channel soloing (number keys during playback) is not offered
 //! here -- it needs raw-terminal handling and cannot be exercised without
@@ -21,7 +21,7 @@ pub struct Args {
     /// The DRO or VGM file to play.
     pub input: PathBuf,
     /// Volume boost multiplier, applied through a limiter that prevents
-    /// clipping. Overrides drotrim.ini. Emulated output only.
+    /// clipping. Overrides vgmstudio.ini. Emulated output only.
     #[arg(short = 'b', long = "boost")]
     pub boost: Option<f32>,
     /// Play through RetroWave OPL3 hardware instead of the emulator. Give a
@@ -103,7 +103,7 @@ fn play(song: LoadedSong, audio: &AudioConfig, total_ms: u32) -> Result<()> {
 fn play_on_hardware(song: vgms_core::Song, port: &str, total_ms: u32) -> Result<()> {
     let port = if port.is_empty() {
         let found = vgms_retrowave::default_port()
-            .context("finding a RetroWave device (try `drotrim retrowave-probe --list`)")?;
+            .context("finding a RetroWave device (try `vgmstudio retrowave-probe --list`)")?;
         println!("Using {}.", found.label);
         found.port_name
     } else {

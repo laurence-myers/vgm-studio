@@ -1,7 +1,7 @@
 //! Borrowing the parent process's console on Windows.
 //!
-//! `drotrim.exe` is linked as a GUI-subsystem executable in release builds (see
-//! the crate attribute in `bin/drotrim.rs`) so double-clicking it does not flash
+//! `vgmstudio.exe` is linked as a GUI-subsystem executable in release builds (see
+//! the crate attribute in `bin/vgmstudio.rs`) so double-clicking it does not flash
 //! a console window. The cost is that a release build started *from* a console
 //! has no stdio attached, and every `println!` from a subcommand would vanish.
 //!
@@ -34,7 +34,7 @@ const STD_HANDLES: [STD_HANDLE; 3] = [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_E
 /// or already has one -- in both cases `AttachConsole` fails and the standard
 /// handles are left exactly as they were, so this is safe to call unconditionally.
 ///
-/// Handles the parent redirected (`drotrim convert a.dro > out.txt`) are saved
+/// Handles the parent redirected (`vgmstudio convert a.dro > out.txt`) are saved
 /// first and put back afterwards: attaching a console overwrites the standard
 /// handle slots with the console's own, which would otherwise send output to the
 /// terminal that the user had asked to go to a file.

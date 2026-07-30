@@ -1,5 +1,5 @@
 //! The Split Channels dialog: one file per channel the song actually uses, as
-//! `drotrim split` writes them.
+//! `vgmstudio split` writes them.
 
 use vgms_synth::SplitFormat;
 
@@ -118,7 +118,7 @@ impl SplitDialog {
 mod tests {
     use super::*;
 
-    /// A WAV split of the whole percussion channel: what `drotrim split` does
+    /// A WAV split of the whole percussion channel: what `vgmstudio split` does
     /// with no flags.
     #[test]
     fn the_defaults_match_the_bare_cli_command() {
