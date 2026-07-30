@@ -353,6 +353,7 @@ pub const THRESHOLDS: &[Threshold] = &[
     shared(ChipKind::Ymf262),
     shared(ChipKind::Ym3812),
     shared(ChipKind::Ym2151),
+    shared(ChipKind::Ay8910),
     // Shared-core, below the ideal: the gap is a driver question, tracked in
     // SCORECARD.md, with the floor under the observed score.
     Threshold {

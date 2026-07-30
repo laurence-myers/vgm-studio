@@ -167,11 +167,18 @@ pub(crate) enum WriteRule {
     /// `0xD6` would take a two-width sibling of this rule, but libvgm ships
     /// only a stub declaration for that device -- see the spec table.)
     Data16,
-    /// The AY8910: its register file on port 0, its `0x31` stereo mask on
-    /// [`STEREO_PORT`] -- which goes to a dedicated per-core function
-    /// (`Cmd_AY_Stereo` fetches it by the `'ST'` user code), never to the
-    /// register file. Decoding it as a register write is exactly the bug the
-    /// 2026-07-29 audit fixed in our own core.
+    /// The AY8910: an address/data latch pair on offsets 0/1, its `0x31`
+    /// stereo mask on [`STEREO_PORT`] -- which goes to a dedicated per-core
+    /// function (`Cmd_AY_Stereo` fetches it by the `'ST'` user code), never to
+    /// the register file. Upstream's `Cmd_DReg8_Data8` reaches
+    /// `SendYMCommand(cDev, 0, reg, data)`, because what both AY cores file
+    /// under `DEVRW_A8D8` is their *IO-port* interface (`EPSG_writeIO`, MAME's
+    /// `ay8910_write`): an even offset latches the register address, an odd
+    /// one writes the data. A single direct `write8(reg, data)` under those
+    /// semantics lands every write in the wrong register -- odd register
+    /// numbers dump the data wherever the latch happens to point, even ones
+    /// re-latch the address to the *data* byte -- which renders as digital
+    /// noise. That was this rule's shipped bug, caught by ear on the corpus.
     RegisterWithStereo,
     /// The OPN family (YM2203/2608/2610): the Yamaha latch pair on its ports,
     /// plus the YM2203's SSG stereo mask on [`STEREO_PORT`], which lands on
@@ -275,7 +282,8 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
             if port == STEREO_PORT {
                 Bus::StereoMask(data as u8 & 0x3F)
             } else {
-                Bus::Reg8(addr as u8, data as u8)
+                // The IO-port latch: address to offset 0, data to offset 1.
+                Bus::Reg8Pair((0x00, addr as u8), (0x01, data as u8))
             }
         }
         WriteRule::OpnFamily => {
@@ -2195,14 +2203,17 @@ mod tests {
         );
 
         // `Cmd_AY_Stereo`: the mask goes to the dedicated function, never the
-        // register file -- and plain register writes are unaffected.
+        // register file -- and a register write is the IO-port latch pair
+        // (`Cmd_DReg8_Data8` -> `SendYMCommand` on port 0), because the AY
+        // cores' `A8D8` writer is `EPSG_writeIO`: even offset latches the
+        // address, odd offset carries the data.
         assert_eq!(
             fold(WriteRule::RegisterWithStereo, STEREO_PORT, 0, 0x2D),
             Bus::StereoMask(0x2D)
         );
         assert_eq!(
             fold(WriteRule::RegisterWithStereo, 0, 0x01, 0x0F),
-            Bus::Reg8(0x01, 0x0F)
+            Bus::Reg8Pair((0x00, 0x01), (0x01, 0x0F))
         );
 
         // The OPN family: the latch pair on its ports, the YM2203's stereo
@@ -2214,6 +2225,43 @@ mod tests {
         assert_eq!(
             fold(WriteRule::OpnFamily, STEREO_PORT, 0, 0x15),
             Bus::StereoMask(0x15)
+        );
+    }
+
+    /// A bare AY8910's register writes go through the IO-port latch, and only
+    /// sound proves it: under the direct-write bug this test's volume write
+    /// re-latched the address instead of landing in R8, so the chip stayed
+    /// silent (and real songs came out as register-scrambled noise). The
+    /// clock, type and flags are an Atari ST YM2149's, from the file that
+    /// caught it.
+    #[test]
+    fn a_bare_ay8910_actually_sounds() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Ay8910));
+        chip.reset(2_005_311, false);
+        let settings = ChipSettings {
+            ay8910_type: 0x10,  // YM2149
+            ay8910_flags: 0x02, // single output
+            ..ChipSettings::default()
+        };
+        chip.configure(&settings);
+        assert!(chip.is_started(), "the AY8910 starts");
+
+        let mut quiet = vec![0i32; 4096];
+        chip.render(&mut quiet);
+        let at_rest = energy(&quiet);
+
+        // Channel A: a mid period, tone A alone in the mixer, full volume.
+        chip.write(0, 0x00, 0x50); // fine period
+        chip.write(0, 0x07, 0x3E); // mixer: tone A on, the rest off
+        chip.write(0, 0x08, 0x0F); // channel A volume
+
+        let mut loud = vec![0i32; 4096];
+        chip.render(&mut loud);
+        assert!(
+            energy(&loud) > at_rest * 4 + 1000,
+            "the AY8910 must sound once a channel is keyed \
+             (rest {at_rest}, playing {})",
+            energy(&loud)
         );
     }
 
