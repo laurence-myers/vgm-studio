@@ -1,27 +1,22 @@
 //! Nuked-OPN2 as a [`ChipCore`]: the YM2612 of the Mega Drive, and the YM3438
 //! it became.
 //!
-//! Not an [`OplChip`](dro_synth::OplChip) like Nuked-CQM -- this chip plays
-//! through `VgmEngine`, which is the generic path with no register policy. The
-//! trait is smaller for it: writes in, frames out, at whatever rate the core
-//! declares.
+//! A [`ChipCore`], not an [`OplChip`](dro_synth::OplChip) like Nuked-CQM: it
+//! plays through `VgmEngine`, the generic path with no register policy.
 //!
-//! **Two upstream properties shape this file**, and both are handled here
-//! rather than wished away:
+//! Two upstream properties shape this file:
 //!
-//! 1. **Clocking is per internal cycle, not per sample.** `OPN2_Clock` advances
-//!    six master clocks and reports the MOL/MOR *pin* states -- the chip's
-//!    time-multiplexed DAC output, one channel at a time. One output sample is
-//!    24 of those summed, which is what the real chip's analogue side does with
-//!    the multiplexed pins.
-//! 2. **A write is latched, then applied a whole rotation later.**
-//!    `OPN2_Write` raises a pending flag the next clock consumes -- but the
-//!    register itself only lands when the chip's rotation reaches *that
-//!    register's slot* (`ym3438.c`: `if (op_offset[slot] == (chip->address &
-//!    0x107))`), and the pending data is discarded as soon as the next address
-//!    arrives. So a register needs the address, the data, and then up to 24
-//!    cycles undisturbed. Upstream has no write buffer of its own (Nuked-CQM
-//!    does), so one lives here -- see [`Ym2612::queue`].
+//! 1. Clocking is per internal cycle, not per sample. `OPN2_Clock` advances six
+//!    master clocks and reports the MOL/MOR *pin* states -- the time-multiplexed
+//!    DAC output, one channel at a time. One output sample is 24 of those
+//!    summed, as the real chip's analogue side does with the pins.
+//! 2. A write is latched, then applied a whole rotation later. `OPN2_Write`
+//!    raises a pending flag the next clock consumes, but the register lands only
+//!    when the rotation reaches *that register's slot* (`ym3438.c`: `if
+//!    (op_offset[slot] == (chip->address & 0x107))`), and the pending data is
+//!    discarded as soon as the next address arrives. So a register needs the
+//!    address, the data, then up to 24 cycles undisturbed. Upstream has no write
+//!    buffer of its own, so one lives here.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
@@ -49,24 +44,13 @@ const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 const ADDRESS_SETTLE: u32 = 0;
 const VALUE_SETTLE: u32 = CLOCKS_PER_SAMPLE - 3;
 
-/// The output scale, **measured against VGMPlay rather than guessed**.
+/// The output scale, measured against VGMPlay rather than guessed.
 ///
-/// Two independent measurements agree. The reference-parity scorecard's
-/// single-chip level column read 0.227 (n=12, both sides at the chip's native
-/// rate): our render at 4.4x quiet. And pt-6's in-mix least-squares fit over
-/// seven Mega Drive rips put the coefficient on our FM-solo render at 3.2-4.3,
-/// median a shade over 4.0, residuals 0.24-0.70. (The same fit's PSG
-/// coefficients came back negative and are worthless -- at the YM2612's native
-/// rate the reference's PSG passes through its own linear resampler and
-/// aliases, and a decorrelated component's coefficient collapses; the PSG's
-/// real answer is its own single-chip level, 0.984, already matched.)
-///
-/// So: 5 x 4.2 = 21. A synthetic all-channels-at-maximum patch now sums past
-/// the mixer's clamp -- deliberately. The reference's own renders of real
-/// music peak near full scale without clipping, which is the proof that
-/// musical content fits; the old "a chip flat out cannot clip the mixer"
-/// margin bought its safety by sitting the FM 4x under the PSG in every Mega
-/// Drive mix.
+/// The natural render sits about 4x quiet against the reference (single-chip
+/// level 0.227; an in-mix least-squares fit over seven Mega Drive rips agreed at
+/// ~4.0). So 5 x 4.2 = 21. A synthetic all-channels-maximum patch sums past the
+/// mixer's clamp at this gain, deliberately: the reference's own renders of real
+/// music peak near full scale without clipping, so musical content fits.
 const OUTPUT_GAIN: i32 = 21;
 
 /// The YM2612 (and YM3438), Nuke.YKT's emulation of it.
@@ -77,17 +61,11 @@ pub struct Ym2612 {
     rate: u32,
     /// Registers waiting for their turn on the chip.
     ///
-    /// A VGM writes a run of registers at one timestamp; this chip can accept
-    /// **one register per output sample**, because a write lands only when the
-    /// 24-cycle rotation reaches its slot and the next address wipes whatever
-    /// is still pending. Pushing a run straight through therefore keeps
-    /// whichever writes happened to align and drops the rest -- which sounds
-    /// like a note that never starts, not like a glitch.
-    ///
-    /// That rate is the real chip's too: a YM2612 raises its busy flag for
-    /// about a rotation after each write, and a rip made on hardware is spaced
-    /// accordingly. A 30-register patch dump takes 30 samples to land, about
-    /// half a millisecond.
+    /// This chip accepts one register per output sample: a write lands only when
+    /// the 24-cycle rotation reaches its slot, and the next address wipes
+    /// whatever is still pending, so pushing a run straight through drops most of
+    /// it (a note that never starts, not a glitch). The rate is the real chip's
+    /// too -- a YM2612 raises its busy flag for about a rotation after each write.
     writes: WriteQueue,
 }
 
@@ -160,11 +138,11 @@ impl ChipCore for Ym2612 {
     }
 }
 
-/// The chips this core serves, and how each is labelled.
+/// The chips this core serves.
 ///
-/// One core, two entries: the VGM header distinguishes them by a flag bit on
-/// one clock field, but `ChipKind` has a single `Ym2612` for both, so the
-/// registry entry is one and [`ChipCore::reset`]'s `variant` picks the part.
+/// The VGM header distinguishes YM2612 and YM3438 by a flag bit, but `ChipKind`
+/// has a single `Ym2612` for both, so there is one entry and
+/// [`ChipCore::reset`]'s `variant` picks the part.
 pub(crate) const CHIPS: [ChipKind; 1] = [ChipKind::Ym2612];
 
 #[cfg(test)]
@@ -415,18 +393,12 @@ mod tests {
         assert_eq!(energy(&after), 0, "a reset CMOS part is bit-silent");
     }
 
-    /// **Evidence for the optimiser's YM2612 rules**, which were written
-    /// cautiously because a wrong answer there is silent: a dropped write that
-    /// mattered makes a file smaller and plays it wrong.
-    ///
-    /// `chip_state::latch_rule` refuses to drop repeat writes to `0x28` (key
-    /// on/off) and `0x2A` (the DAC port). Now that there is an accurate core,
-    /// "cautious" can become "measured": render a stream with the redundant
-    /// write and one without, and compare sample for sample.
-    ///
-    /// What this finds is reported rather than acted on here -- lifting an
-    /// exclusion changes `dro-core`'s output and belongs behind a corpus
-    /// parity run, not behind one unit test.
+    /// Evidence for the optimiser's YM2612 rules: `chip_state::latch_rule`
+    /// refuses to drop repeat writes to `0x28` (key on/off) and `0x2A` (the DAC
+    /// port), and this measures whether each is really audible by rendering a
+    /// stream with the redundant write and one without. What it finds is reported
+    /// rather than acted on -- lifting an exclusion belongs behind a corpus
+    /// parity run, not one unit test.
     #[test]
     fn a_repeated_key_write_is_inaudible_but_a_repeated_dac_write_is_not() {
         /// Renders a key-on, then optionally repeats `reg`/`value` before
@@ -463,11 +435,9 @@ mod tests {
         assert_eq!(repeated_dac.len(), no_repeat.len());
     }
 
-    /// The gain sets the FM-to-PSG balance, so it is pinned rather than left to
-    /// drift. Measured on *one* channel at full level, because that is cheap to
-    /// set up; the chip has six, so the number here times six is what a dense
-    /// track approaches. What the right balance *is* remains a listening
-    /// question -- see the constant's own note.
+    /// The gain sets the FM-to-PSG balance, pinned rather than left to drift.
+    /// Measured on one channel at full level; the chip has six, so this times
+    /// six is what a dense track approaches.
     #[test]
     fn a_loud_patch_uses_the_range_without_clipping_it() {
         let mut chip = Ym2612::new();
@@ -478,10 +448,9 @@ mod tests {
 
         let one_channel = peak(&out);
         let full_chip = one_channel * 6;
-        // The bounds moved with the measured gain: at x21 a synthetic
-        // all-channels-maximum patch exceeds the mixer's clamp by design (see
-        // OUTPUT_GAIN), so the ceiling here only catches an order-of-magnitude
-        // slip, and the floor is what pins the measured balance.
+        // At x21 a synthetic all-channels-maximum patch exceeds the mixer's
+        // clamp by design (see OUTPUT_GAIN), so the ceiling only catches an
+        // order-of-magnitude slip and the floor pins the measured balance.
         assert!(
             full_chip > i32::from(i16::MAX) * 2,
             "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- the FM would sit far under the measured balance"

@@ -13,11 +13,9 @@
 //! [i16]) -> usize` -- so the native audio thread, the WAV renderer and the
 //! waveform renderer drive either without knowing which they have.
 //!
-//! Until mc-8 registers a core, [`core_for`] returns `None` for everything and
-//! this engine renders silence. That is not a placeholder: routing, banks and
-//! timing are all testable against [`RecordingChip`](crate::chip::RecordingChip)
-//! without an emulator in sight, and a core that arrives later inherits a engine
-//! already proven to feed it correctly.
+//! Routing, banks and timing are all testable against
+//! [`RecordingChip`](crate::chip::RecordingChip) without an emulator in sight,
+//! so a chip with no registered core renders silence rather than failing.
 
 use std::sync::Arc;
 
@@ -43,11 +41,10 @@ struct Voice {
     output_rate: u32,
     /// Band-limited rate conversion from the chip's rate to the engine's.
     ///
-    /// This used to be a linear interpolation between the two source frames
-    /// straddling each output frame, which is a fair approximation at a ratio
-    /// near 1:1 and nothing of the kind at 5:1 -- the SN76489 renders at
-    /// 223721 Hz, and everything it puts above 22 kHz was folding straight back
-    /// into the audible band. See [`crate::resample`].
+    /// Band-limited because linear interpolation is a fair approximation near
+    /// 1:1 and nothing of the kind at 5:1 -- the SN76489 renders at 223721 Hz,
+    /// and everything it puts above 22 kHz would fold straight back into the
+    /// audible band. See [`crate::resample`].
     resampler: Resampler,
 }
 
@@ -1215,9 +1212,9 @@ mod tests {
     /// downstream from one that did not.
     /// The whole path, through the ambient registry: a real file, a core the
     /// registry built, and audio out the other end. The core is the test
-    /// stub -- this crate ships none of its own since the cull -- so what this
-    /// proves is the engine's routing and mixing; the same walk with real
-    /// cores lives downstream where the providers are linked.
+    /// stub -- this crate ships none of its own -- so what this proves is the
+    /// engine's routing and mixing; the same walk with real cores lives
+    /// downstream where the providers are linked.
     #[test]
     fn a_sound_chip_this_app_has_a_core_for_actually_makes_a_sound() {
         crate::testing::install_registry_with_stub();

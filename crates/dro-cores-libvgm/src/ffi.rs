@@ -2,25 +2,22 @@
 //! The raw libvgm C surface, transcribed from `emu/EmuStructs.h` and
 //! `emu/SoundEmu.h`.
 //!
-//! Nothing here is safe and nothing here is opinionated: this module is the
-//! declarations, and `chip` (lv-2) is where they turn into a `ChipCore`.
-//! Keeping the two apart means a header drift at a pin bump shows up as a
-//! compile error in one file rather than as behaviour changing in several.
+//! Nothing here is safe or opinionated: this module is the declarations, and
+//! `chip` is where they turn into a `ChipCore`. Keeping the two apart means a
+//! header drift at a pin bump shows up as a compile error in one file.
 //!
-//! **Layout is load-bearing.** Every struct below is `#[repr(C)]` and must
-//! match the pinned header field for field; a mismatch is not a compile error
-//! but a wrong pointer read at runtime. The `layout` module asserts the sizes
-//! *and the offsets* against what the C compiler reports, so a drift fails a
-//! test instead of corrupting a chip.
+//! **Layout is load-bearing.** Every struct below is `#[repr(C)]` and must match
+//! the pinned header field for field; a mismatch is not a compile error but a
+//! wrong pointer read at runtime. The `layout` module asserts the sizes *and the
+//! offsets* against what the C compiler reports, so a drift fails a test instead
+//! of corrupting a chip.
 
 #![allow(non_camel_case_types)]
-// A transcribed C header is declared *complete*, not as-needed, and that is
-// deliberate rather than lazy. `DEV_DEF`'s every field has to be declared or
-// the struct's layout is wrong and the fields we do call sit at the wrong
-// offsets -- so `set_option_bits` and `link_device` exist to be correct, not to
-// be called. The same goes for the `DEVRW_` widths: the set is the vocabulary
-// lv-3's per-chip write table draws from, and a width no chip has asked for yet
-// is not dead, it is unclaimed.
+// A transcribed C header is declared *complete*, not as-needed: `DEV_DEF`'s
+// every field must be declared or the fields we do call sit at the wrong
+// offsets, so `set_option_bits` and `link_device` exist to be correct, not to
+// be called. Likewise the `DEVRW_` widths are the vocabulary the per-chip write
+// table draws from; a width no chip has asked for yet is unclaimed, not dead.
 #![allow(dead_code)]
 
 use std::ffi::{c_char, c_void};
@@ -35,9 +32,8 @@ pub(crate) const EERR_OK: u8 = 0x00;
 
 /// Render at the chip's own natural rate and let the caller resample.
 ///
-/// The only mode this crate uses: `dro_synth::resample` is what every other
-/// core in the workspace goes through, so libvgm's `Resampler.c` is not even
-/// compiled (see `build.rs`).
+/// The only mode this crate uses: `dro_synth::resample` does the conversion, so
+/// libvgm's `Resampler.c` is not even compiled (see `build.rs`).
 pub(crate) const DEVRI_SRMODE_NATIVE: u8 = 0x00;
 
 // --- Read/write function selectors (`RWF_*` / `DEVRW_*`) ------------------
@@ -117,10 +113,9 @@ pub(crate) const DEVID_C219: u8 = 0x80;
 //
 // The four-character code in `DEV_GEN_CFG::emuCore` picks *which* emulator
 // serves a device, and `0` takes whichever the device lists first. Naming one
-// is not a refinement: it is what makes a parity measurement mean anything.
-// The pinned reference config (`docs/vgm-multichip-2026-07/parity/VGMPlay.ini`)
-// names a core per chip for exactly this reason, and a row here that does not
-// match it measures two different emulators and blames the difference on us.
+// is what makes a parity measurement mean anything: the pinned reference config
+// names a core per chip, and a row that does not match it measures two
+// different emulators.
 
 /// MAME's cores. libvgm's default for several devices, including the SN76496.
 pub(crate) const FCC_MAME: u32 = 0x4D414D45;
@@ -138,10 +133,8 @@ pub(crate) const FCC_GENS: u32 = 0x47454E53;
 
 // NSFPlay (`FCC_NSFP`), SameBoy (`FCC_SBOY`), superctr (`FCC_CTR_`) and Valley
 // Bell (`FCC_VBEL`) are each a device's *first-listed* core, so `emu_core: 0`
-// already reaches them and no row names them explicitly -- an alternate that
-// did would just re-select the default (see the SPECS header). A constant here
-// exists iff a row selects that core; add one back from `EmuCores.h` if that
-// ever changes.
+// already reaches them and no row names them explicitly. A constant here exists
+// iff a row selects that core; add one back from `EmuCores.h` if that changes.
 
 // --- Function-pointer types (`EmuStructs.h`) ------------------------------
 
@@ -174,8 +167,8 @@ pub(crate) type DevFuncSetLogCb = Option<
 /// A register writer: `DEVFUNC_WRITE_A8D8` and friends.
 ///
 /// These are what [`SndEmu_GetDeviceFunc`] hands back, one per address/data
-/// width. The per-chip table at lv-3 records which width each chip wants and
-/// how our `(port, addr, data)` folds into it.
+/// width. The per-chip table records which width each chip wants and how our
+/// `(port, addr, data)` folds into it.
 pub(crate) type DevFuncWriteA8D8 = unsafe extern "C" fn(info: *mut c_void, addr: u8, data: u8);
 pub(crate) type DevFuncWriteA8D16 = unsafe extern "C" fn(info: *mut c_void, addr: u8, data: u16);
 pub(crate) type DevFuncWriteA16D8 = unsafe extern "C" fn(info: *mut c_void, addr: u16, data: u8);
@@ -190,8 +183,8 @@ pub(crate) type DevFuncWriteBlock =
 ///
 /// Chips with extra settings define a struct whose **first member is one of
 /// these** (`SN76496_CFG` below is the pattern), and `SndEmu_Start` is handed a
-/// pointer to the extended struct cast to this type. That is why the field
-/// order here is not negotiable.
+/// pointer to the extended struct cast to this type -- so the field order here
+/// is not negotiable.
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub(crate) struct DevGenCfg {
@@ -208,11 +201,9 @@ pub(crate) struct DevGenCfg {
 
 /// `SN76496_CFG` from `cores/sn764intf.h`.
 ///
-/// The PoC's chip, and the reason it is the PoC's chip: these seven fields are
-/// the difference between an SN76489 and a SEGA PSG, and the frozen scorecard
-/// records what happens when a core has the wrong ones -- the noise channel
-/// emits a completely different pseudo-random sequence and no amount of level
-/// matching brings it back.
+/// These seven fields are the difference between an SN76489 and a SEGA PSG; the
+/// wrong ones give the noise channel a completely different pseudo-random
+/// sequence that no level matching can bring back.
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub(crate) struct Sn76496Cfg {

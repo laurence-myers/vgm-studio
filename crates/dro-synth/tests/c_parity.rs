@@ -1,10 +1,7 @@
-//! Is the pure-Rust `nuked-opl3` really bit-identical to the Nuked-OPL3 **C** sources?
+//! Is the pure-Rust `nuked-opl3` bit-identical to the Nuked-OPL3 **C** sources?
+//! `opl3-rs` compiles Nuke.YKT's original C, so we run both and compare.
 //!
-//! `nuked-opl3` is a young, single-maintainer, hand-optimised port; the whole web
-//! build rests on it being exact. `opl3-rs` compiles Nuke.YKT's original C, so we
-//! can just run both and compare.
-//!
-//! Native only, and off by default -- it needs a C compiler and libclang:
+//! Off by default -- it needs a C compiler and libclang:
 //!
 //! ```text
 //! cargo test -p dro-synth --features c-parity
@@ -109,12 +106,10 @@ fn random_register_traffic_renders_identically() {
         let random = next();
         let reg = (random & 0x1FF) as u16; // both banks
         let mut value = ((random >> 16) & 0xFF) as u8;
-        // `nuked-opl3` is built with `stereo-ext`, but the C oracle (opl3-rs) is
-        // not compiled with OPL_ENABLE_STEREOEXT, so a random write that sets the
-        // stereo-ext enable (0x105 bit 1) would engage the Rust panpots while the C
-        // side ignores it, and the two diverge by construction. Clear that one bit
-        // here; the newm bit (0x105 bit 0) and every other register still vary. The
-        // engaged panpot path is covered by dro-synth's own tests/panning.rs.
+        // `nuked-opl3` has `stereo-ext` but the C oracle (opl3-rs) does not, so a
+        // write enabling stereo-ext (0x105 bit 1) would engage the Rust panpots
+        // while C ignores it, diverging by construction. Clear that bit; the panpot
+        // path is covered by tests/panning.rs.
         if reg == 0x105 {
             value &= !0x02;
         }

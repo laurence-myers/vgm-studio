@@ -1,15 +1,8 @@
-//! End-to-end checks: the real `PlayerEngine` driving the real `NukedOpl3` over
-//! the real DRO fixture.
-//!
-//! The unit tests in `engine.rs` prove the stepping, muting and seek logic against
-//! a mock chip; `golden_opl.rs` pins the chip against a hash. This ties the two
-//! together: the pull engine, rendering the fixture through the actual emulator,
-//! must produce exactly what a straightforward reference render loop does -- so
-//! its delay accounting and mid-buffer pausing are provably correct on real data.
-// Every test here drives an OPL core and asserts what it sounds like, so the
-// whole file needs one. A `--no-default-features` build of this crate has no
-// OPL core by design (the only one available is LGPL) -- see
-// `licenses/README.md`.
+//! End-to-end: the real `PlayerEngine` driving the real `NukedOpl3` over the real
+//! DRO fixture, checked to render exactly what a straightforward reference loop
+//! does -- so its delay accounting and mid-buffer pausing are correct on real data.
+// This file drives an OPL core; a `--no-default-features` build has none by
+// design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
 mod common;

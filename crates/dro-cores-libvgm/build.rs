@@ -1,15 +1,13 @@
 //! Compiles the pinned libvgm submodule -- the framework, plus whichever sound
 //! devices [`ENABLED`] names.
 //!
-//! libvgm has no CMake-free build of its own, so the device-to-source mapping
-//! in `emu/CMakeLists.txt` is transcribed here as data ([`DEVICES`]). That table
-//! is complete: every device libvgm ships has a row, whether we compile it or
-//! not. Turning a chip on is therefore a one-line edit to [`ENABLED`] rather
-//! than a build-script change, which is what makes the lv-4 roll-out cheap.
+//! libvgm has no CMake-free build of its own, so the device-to-source mapping in
+//! `emu/CMakeLists.txt` is transcribed here as data ([`DEVICES`], complete
+//! whether or not we compile a given chip). Turning a chip on is a one-line edit
+//! to [`ENABLED`].
 //!
-//! The submodule is never edited (the policy in `crates/dro-synth/PROVENANCE.md`
-//! that every provider crate here follows): upgrading is `git -C
-//! vendor/upstream/libvgm pull`, a pin bump and a corpus re-run.
+//! The submodule is never edited (the `crates/dro-synth/PROVENANCE.md` policy):
+//! upgrading is a pull, a pin bump and a corpus re-run.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -19,14 +17,11 @@ const UPSTREAM: &str = "../../vendor/upstream";
 
 /// The framework: what every device needs, and nothing more.
 ///
-/// `Resampler.c` is deliberately absent -- we start devices in
-/// `DEVRI_SRMODE_NATIVE` and resample with our own `dro_synth::resample`, as
-/// every other core in this workspace does. `dac_control.c` is a VGM-player
-/// feature (the `0x90`-`0x95` DAC stream commands), and our engine already
-/// implements those itself in `dro_synth::dac_stream`.
+/// `Resampler.c` is absent -- we start devices in `DEVRI_SRMODE_NATIVE` and
+/// resample with `dro_synth::resample`. `dac_control.c` is a VGM-player feature
+/// (the `0x90`-`0x95` DAC stream commands) our engine implements itself.
 /// Paths here and in [`DEVICES`] are relative to `emu/`, exactly as upstream's
-/// `emu/CMakeLists.txt` writes them, so the two can be diffed line for line at
-/// a pin bump.
+/// `emu/CMakeLists.txt` writes them, so the two diff line for line at a pin bump.
 const FRAMEWORK: [&str; 3] = ["SoundEmu.c", "logging.c", "panning.c"];
 
 /// One of libvgm's sound devices: its `SNDDEV_` switch, the sources that are
@@ -45,12 +40,12 @@ struct Device {
 
 /// Every device libvgm ships, transcribed from `emu/CMakeLists.txt`.
 ///
-/// Sources repeat across rows on purpose -- `fmopn.c` serves four devices,
-/// `oplintf.c` three -- and [`main`] collects them into a set, so a file
-/// compiles once however many enabled devices claim it.
+/// Sources repeat across rows on purpose (`fmopn.c` serves four devices) and
+/// [`main`] collects them into a set, so a file compiles once however many
+/// enabled devices claim it.
 ///
-/// `YM2414` (OPZ) is the one row missing: it is libvgm's only C++ core, and
-/// this build is C-only.
+/// `YM2414` (OPZ) is the one row missing: libvgm's only C++ core, and this
+/// build is C-only.
 const DEVICES: &[Device] = &[
     Device {
         key: "SN76496",
@@ -189,8 +184,7 @@ const DEVICES: &[Device] = &[
                 "EC_NES_NSFPLAY",
                 &["cores/np_nes_apu.c", "cores/np_nes_dmc.c"],
             ),
-            // Upstream's note: the FDS core cannot work without an APU core,
-            // but it pairs with either of them.
+            // Upstream: the FDS core needs an APU core, but pairs with either.
             ("EC_NES_NSFP_FDS", &["cores/np_nes_fds.c"]),
         ],
     },
@@ -280,8 +274,8 @@ const DEVICES: &[Device] = &[
         shared: &["cores/saaintf.c"],
         cores: &[
             ("EC_SAA1099_MAME", &["cores/saa1099_mame.c"]),
-            // `EC_SAA1099_NRS` exists as a define upstream but its source is
-            // commented out of the CMake list, so there is nothing to compile.
+            // `EC_SAA1099_NRS` is a define upstream but its source is commented
+            // out of the CMake list, so there is nothing to compile.
             ("EC_SAA1099_VB", &["cores/saa1099_vb.c"]),
         ],
     },
@@ -350,29 +344,23 @@ const DEVICES: &[Device] = &[
 /// The devices this build compiles.
 ///
 /// **This list and `chip.rs`'s `chip_specs!` must agree**: a spec whose device
-/// is missing here starts nothing and is silently silent, which is why
-/// `every_spec_can_actually_start` asserts every row of one against the other.
+/// is missing here starts nothing and is silently silent, which
+/// `every_spec_can_actually_start` asserts against.
 ///
-/// Since the 2026-07-29 redirect this is **every device our corpus can name**,
-/// libvgm being the default core for all of them. The special-case handlers
-/// (NES's FDS remap, OKIM6295's pin-7 strip, WonderSwan's `0x80` offset,
-/// SAA1099's reversed pair, the PWM's 12-bit writer, the ES5506's two widths)
-/// each have their own `WriteRule`; the OPN family's linked SSG and the
-/// OPL4's linked FM go through `start_links`.
+/// This is every device our corpus can name, libvgm being the default core for
+/// all of them.
 ///
 /// Still absent, deliberately:
 ///
 /// - **The OPL family as chips of their own** (`YM3812`, `YM3526`, `Y8950`) --
-///   out of scope by the owner's decision, permanently: OPL plays through
-///   `PlayerEngine`. `YMF262` *is* compiled, but only as the OPL4's linked FM
-///   half; no OPL chip is ever registered from this crate.
+///   out of scope by the owner's decision: OPL plays through `PlayerEngine`.
+///   `YMF262` is compiled only as the OPL4's linked FM half; no OPL chip is
+///   registered from this crate.
 /// - **C219** rides the `C140` spec: the header's type byte picks the device
 ///   at start.
-/// - **ES5505/ES5506**: upstream's `es5506.c` is a 32-line stub -- a
-///   `DEV_DECL` whose core list is `{ NULL }` -- so enabling it buys a device
-///   that `SndEmu_Start` cannot start. It returns when upstream writes the
-///   emulator.
-/// - The devices no VGM commands reach in our decoder yet: K007232, K005289,
+/// - **ES5505/ES5506**: upstream's `es5506.c` is a stub (a `DEV_DECL` whose
+///   core list is `{ NULL }`) that `SndEmu_Start` cannot start.
+/// - Devices no VGM command reaches in our decoder yet: K007232, K005289,
 ///   MSM5205, MSM5232, BSMT2000, ICS2115 (and the C++-only YM2414).
 const ENABLED: &[&str] = &[
     "SN76496", "SEGAPCM", "RF5C68", "YMZ280B", "YMW258", "UPD7759", "MSM6258", "K051649",
@@ -384,23 +372,13 @@ const ENABLED: &[&str] = &[
 
 /// Cores we deliberately do not compile, and why.
 ///
-/// **The lv-1 collision policy, settled here rather than at link time**, which
-/// is what LIBVGM-PLAN §4 asked for. The plan feared duplicate symbols, because
-/// libvgm bundles Nuked-OPN2/OPM/OPLL/OPL3 and `dro-cores-nuked` and
-/// `dro-cores-gpl` already link Nuke.YKT's own releases of all four. **That
-/// fear turns out to be unfounded**: libvgm renames every entry point with an
-/// `N` prefix (`NOPN2_Reset`, `NOPM_Write`, `NOPLL_Clock`, `NOPL3_Generate`)
-/// and marks the rest `static`, so the two sets cannot collide. Verified
-/// against the pinned tree, not assumed.
-///
-/// They stay off regardless, for two reasons that survive the finding: shipping
-/// the same emulator twice costs binary size for nothing, and a second
-/// provenance row for a core we already credit would make the About box lie
-/// about how many distinct emulators are in the build. Our submodules are the
-/// Nuked tier; libvgm supplies what they do not.
-///
-/// Nothing here is load-bearing while [`ENABLED`] is small -- it becomes so at
-/// lv-4, when YM2612 and YM2151 arrive.
+/// libvgm bundles Nuked-OPN2/OPM/OPLL/OPL3, which `dro-cores-nuked` and
+/// `dro-cores-gpl` already link from Nuke.YKT's own releases. There is no symbol
+/// collision -- libvgm renames every entry point with an `N` prefix
+/// (`NOPN2_Reset`, ...) and marks the rest `static` -- but shipping the same
+/// emulator twice costs binary size, and a duplicate provenance row would make
+/// the About box overcount distinct emulators. Our submodules are the Nuked
+/// tier; libvgm supplies what they do not.
 const CORES_SERVED_ELSEWHERE: &[&str] = &[
     "EC_YM2612_NUKED",
     "EC_YM2151_NUKED",
@@ -423,12 +401,12 @@ fn main() {
     build
         .include(&libvgm)
         .include(&emu)
-        // Selective device compilation. Without this libvgm's `SoundEmu.c`
-        // helpfully defines every `SNDDEV_` itself and then fails to link
-        // against the ~170 core sources we did not compile.
+        // Selective device compilation. Without this, `SoundEmu.c` defines
+        // every `SNDDEV_` itself and fails to link against the ~170 core
+        // sources we did not compile.
         .define("SNDDEV_SELECT", None)
-        // `stdtype.h` falls back to hand-rolled typedefs without this; clang
-        // has had `<stdint.h>` on every target we build for since forever.
+        // `stdtype.h` falls back to hand-rolled typedefs without this; clang has
+        // `<stdint.h>` on every target we build for.
         .define("HAVE_STDINT_H", None)
         .define("VGM_LITTLE_ENDIAN", None)
         .warnings(false);
@@ -440,10 +418,8 @@ fn main() {
     }
 
     // `wasm32-unknown-unknown` has no libc and no sysroot: `-ffreestanding`
-    // says so, `shim/wasm-libc` declares the slice of libc the cores include
-    // (stdlib/string/math/stdio/assert), and the symbols come from
-    // `src/wasm_libc.rs` plus the printf stubs below -- the dro-cores-nuked
-    // precedent, with an allocator and a math family on top.
+    // says so, `shim/wasm-libc` declares the slice of libc the cores include,
+    // and the symbols come from `src/wasm_libc.rs` plus the printf stubs below.
     let wasm = std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32");
     if wasm {
         build.flag("-ffreestanding");
@@ -451,9 +427,9 @@ fn main() {
         build.file("shim/wasm_stubs.c");
     }
 
-    // Every emulator here is a hot per-sample loop, as the Nuked and LLE
-    // builds already are. The arithmetic is deterministic integer work, so
-    // optimising changes how long a test waits and not what it produces.
+    // Every emulator here is a hot per-sample loop. The arithmetic is
+    // deterministic integer work, so optimising changes only how long a test
+    // waits, not what it produces.
     build.opt_level(2);
 
     let mut sources: BTreeSet<String> = FRAMEWORK.iter().map(|&s| s.to_owned()).collect();
@@ -492,7 +468,7 @@ fn main() {
 
     // Ours: reports what libvgm's public structs measure, so `src/layout.rs`
     // can assert the Rust twins in `src/ffi.rs` still agree with the pinned
-    // headers. Compiled last so it sees the same include paths and defines.
+    // headers. Compiled last so it sees the same includes and defines.
     build.file("shim/layout.c");
 
     build.compile("libvgm_cores");

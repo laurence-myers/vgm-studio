@@ -14,7 +14,7 @@ use crate::{
 /// devices are still listed, because a board revision we have not seen must
 /// remain selectable by hand.
 const KNOWN_USB_IDS: &[(u16, u16)] = &[
-    // Original RetroWave OPL3 (verified against real hardware, 2026-07-23).
+    // Original RetroWave OPL3 (verified against real hardware).
     (0x04D8, 0xE966),
 ];
 
@@ -192,8 +192,7 @@ impl Device {
             })?;
 
         // Not every CDC stack gates writes on DTR, but some do, and asserting it
-        // is harmless on the ones that do not. The reference implementation does
-        // not bother; this is belt and braces.
+        // is harmless on the ones that do not.
         let mut port = port;
         let _ = port.write_data_terminal_ready(true);
 

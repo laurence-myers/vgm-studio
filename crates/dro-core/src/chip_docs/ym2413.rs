@@ -1,15 +1,12 @@
 //! YM2413 (OPLL) register documentation.
 //!
-//! Sources: the Yamaha YM2413 application manual, as long circulated in the
-//! community (the smspower.org transcription of the "YM2413 Application
-//! Manual", and the MSX Assembly Page's MSX-Music documentation). Bit
-//! assignments are datasheet facts.
+//! Sources: the Yamaha YM2413 application manual (the smspower.org
+//! transcription and the MSX Assembly Page's MSX-Music documentation).
 //!
 //! Addressing: a single register bank, so only port 0. Registers 0x00-0x07
 //! edit the one user patch (its modulator and carrier operators); everything
 //! from 0x10 up repeats per channel (nine channels, `addr & 0x0F` selecting
-//! one), and those docs name the role, not the channel, exactly as the OPL
-//! tables do.
+//! one), and those docs name the role, not the channel.
 
 use super::{RegisterDoc, bf};
 

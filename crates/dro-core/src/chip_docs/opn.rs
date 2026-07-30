@@ -1,9 +1,8 @@
 //! OPN family (YM2203, YM2608, YM2610) register documentation.
 //!
-//! Sources: the Yamaha YM2608 (OPNA) application manual (long-public), the
-//! NeoGeo Development Wiki / VGMRips wiki YM2610 register map, and the GI
-//! AY-3-8910 datasheet for the SSG section, whose layout all three chips
-//! inherit. Bit assignments are datasheet facts.
+//! Sources: the Yamaha YM2608 (OPNA) application manual, the NeoGeo
+//! Development Wiki / VGMRips wiki YM2610 register map, and the GI AY-3-8910
+//! datasheet for the SSG section, whose layout all three chips inherit.
 //!
 //! Addressing: the YM2203 has a single port; the YM2608 and YM2610 add port
 //! 1, carrying FM channels 4-6 beside the YM2608's ADPCM-B and the YM2610's

@@ -59,7 +59,7 @@ pub struct ChipPanels {
 impl Default for ChipPanels {
     fn default() -> Self {
         Self {
-            // An empty editor still shows the OPL panel, as it always has.
+            // An empty editor still shows the OPL panel.
             entries: vec![ChipEntry {
                 label: opl_label(OplType::Opl3).to_owned(),
                 controls: ChipControls::Opl,
@@ -200,7 +200,7 @@ impl ChipPanels {
     pub fn toggle_selected_channel(&mut self, index: usize) {
         match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
             Some(ChipControls::Generic(panel)) => panel.toggle_channel(index),
-            // The OPL panel, or an empty deck: the OPL toggles, as before.
+            // The OPL panel, or an empty deck: the OPL toggles.
             _ => self.opl.toggle_channel(index),
         }
     }

@@ -87,8 +87,7 @@ impl Gd3TagDialog {
 /// which prepends its own File-name row before calling this.
 ///
 /// Every field fills the rest of the dialog and wraps at its edge, growing
-/// downwards as it does: a long game name or credit line is not something to
-/// hide behind the right-hand side of a box.
+/// downwards, so a long game name or credit line is not hidden off the edge.
 pub(crate) fn gd3_fields(
     ui: &mut egui::Ui,
     palette: &Palette,

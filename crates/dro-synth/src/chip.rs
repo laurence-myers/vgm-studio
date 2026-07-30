@@ -7,10 +7,9 @@
 //! receives writes, ROM and RAM, and renders frames at whatever rate it likes;
 //! everything else -- routing, banks, timing, mixing -- is the engine's.
 //!
-//! This crate registers no generic core of its own (the clean-room tier was
-//! culled 2026-07-29): provider crates -- `dro-cores-libvgm` first among them
-//! -- fill the registry, and [`RecordingChip`] is what proves the engine
-//! right without any of them.
+//! This crate registers no generic core of its own: provider crates --
+//! `dro-cores-libvgm` first among them -- fill the registry, and
+//! [`RecordingChip`] is what proves the engine right without any of them.
 
 use dro_core::vgm::ChipKind;
 
@@ -38,10 +37,7 @@ pub trait ChipCore: Send {
     /// what the silicon *is*, not merely how loud it is -- the SN76489's noise
     /// feedback mask and shift-register width being the sharpest example, since
     /// a core using the wrong ones emits a completely different pseudo-random
-    /// sequence and no amount of tuning brings it back. The parity harness
-    /// found exactly that: every SN76489 file sampled from the corpus declares
-    /// the 15-bit, `0x0003`-feedback TI part, while the core had the 16-bit
-    /// Sega variant compiled in.
+    /// sequence and no amount of tuning brings it back.
     ///
     /// `ChipSettings` also carries the AY8910's type and flags, the SSG flags
     /// of the OPN family, and the OKIM6258's -- none of which reach a core yet.
@@ -89,10 +85,9 @@ pub trait ChipCore: Send {
     /// [`dro_core::vgm::channels_of`] -- bit `i` is entry `i`. Zero unmutes
     /// everything.
     ///
-    /// The default ignores it: a core that cannot mute plays everything,
-    /// which is what it did before this method existed. **A mask does not
-    /// survive [`reset`](Self::reset)** -- the engine reapplies it, and a
-    /// provider whose device restarts on reset must too.
+    /// The default ignores it: a core that cannot mute plays everything.
+    /// **A mask does not survive [`reset`](Self::reset)** -- the engine
+    /// reapplies it, and a provider whose device restarts on reset must too.
     fn set_channel_mutes(&mut self, _muted: u32) {}
 
     /// Places each channel in the stereo image: entry `i` is channel `i`'s
@@ -302,9 +297,9 @@ mod tests {
 
     #[test]
     fn playability_is_per_chip_and_says_what_is_missing() {
-        // The stub registry: this crate ships no generic cores of its own
-        // since the cull, so the buildable half of the question is a test
-        // double and the logic under test is unchanged.
+        // The stub registry: this crate ships no generic cores of its own, so
+        // the buildable half of the question is a test double and the logic
+        // under test is unchanged.
         crate::testing::install_registry_with_stub();
         assert!(core_for(ChipKind::Sn76489).is_some());
         assert!(core_for(ChipKind::Ym2612).is_none());

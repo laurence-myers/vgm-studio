@@ -1,12 +1,9 @@
 //! Compiles the pinned ymfm submodule and our C shim.
 //!
-//! The same arrangement as the other provider crates, with one difference
-//! that shapes everything: ymfm is **C++**, so this is the workspace's first
-//! `cc::Build::cpp(true)`. That is also why the crate is native-only for now
-//! -- `wasm32-unknown-unknown` has no C++ standard library, and ymfm uses
-//! `std::vector` and friends. The registry simply will not list these cores
-//! on web (CORES-PLAN §4: no stubs), which is the job the clean-room cores
-//! in `dro-synth` keep.
+//! ymfm is C++, so this uses `cc::Build::cpp(true)`, and that makes the crate
+//! native-only: `wasm32-unknown-unknown` has no C++ standard library and ymfm
+//! uses `std::vector` and friends, so the registry does not list these cores on
+//! web.
 
 use std::path::{Path, PathBuf};
 
@@ -39,10 +36,9 @@ fn main() {
         .include(&src)
         // ymfm states C++14 as its requirement.
         .std("c++14")
-        // The FM engines are hot loops over operator slots; an unoptimised
-        // build makes even a unit test crawl, exactly as the LLE cores do.
-        // The arithmetic is deterministic integer work, so the level changes
-        // only the wait, not the output.
+        // The FM engines are hot loops over operator slots; an unoptimised build
+        // makes even a unit test crawl. The arithmetic is deterministic, so opt
+        // level changes only speed, not output.
         .opt_level(2)
         .warnings(false);
 

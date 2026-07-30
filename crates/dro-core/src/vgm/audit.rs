@@ -1,24 +1,14 @@
-//! Where a VGM's header disagrees with its own command stream.
+//! Where a VGM's header disagrees with its own command stream, and how that
+//! disagreement is shown and (when the user asks) corrected.
 //!
-//! A header states things the stream also states: how long the song is, where
-//! the loop restarts and how long it runs. They can drift -- a tool that edited
-//! the stream without repatching, a hand-built file, a truncated download --
-//! and the app has to decide whose word to take.
-//!
-//! It takes neither, silently. The reader trusts the header (as `vgm_stat`
-//! does, so durations match what every other tool reports), warns when the two
-//! disagree, and leaves the file exactly as it found it. This module is how the
-//! disagreement is *shown* and, when the user asks, corrected.
-//!
-//! Modelled on `vgm_ptch -Check`, which is the reference for what a VGM header
-//! can be wrong about.
+//! The reader trusts the header, warns when the two disagree, and leaves the
+//! file exactly as it found it. Modelled on `vgm_ptch -Check`.
 //!
 //! # Never automatic
 //!
-//! Nothing here runs on save. A file that is only retagged keeps its header
-//! byte for byte, disagreements included -- because "correcting" a file the
-//! user did not ask to correct is how a pack of carefully-made rips quietly
-//! becomes a pack of subtly different ones.
+//! Nothing here runs on save: a file that is only retagged keeps its header
+//! byte for byte, so a file the user did not ask to correct is never quietly
+//! altered.
 
 use crate::vgm::VgmFile;
 use crate::vgm::stream::END_OF_DATA;
@@ -38,12 +28,9 @@ pub enum HeaderFinding {
     TrailingBytes { count: usize },
     /// The file uses something its declared version does not define.
     ///
-    /// Only this direction is reported. Declaring *more* than is needed is
-    /// harmless and near-universal -- 109 of 16466 corpus files could be stamped
-    /// lower, and reporting that would make this dialog a nag; declaring less is
-    /// a fault, because a player that trusts the version may not look for what
-    /// the file actually contains. Twenty corpus files do, and every one of them
-    /// uses a command from a version after the one it claims.
+    /// Only this direction is reported: declaring more than is needed is
+    /// harmless and near-universal, but declaring less is a fault, because a
+    /// player that trusts the version may not look for what the file contains.
     VersionUnderclaimed { declared: u32, needed: u32 },
 }
 

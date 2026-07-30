@@ -1,34 +1,22 @@
 //! What a chip has been told, at a point in a VGM stream.
 //!
-//! Cutting a VGM anywhere but the start raises one question: the music from
-//! that point on was written against a chip that had already been configured,
-//! and those configuration writes are in the part being thrown away. The answer
-//! is to fold the discarded span into a *state*, and re-emit that state as
-//! writes at the new beginning. `vgm_trim` does exactly this; so does this
-//! module, for every chip at once.
+//! Cutting a VGM anywhere but the start means the music from that point was
+//! written against a chip already configured by writes in the discarded span.
+//! The fix: fold the discarded span into a *state* and re-emit it as writes at
+//! the new beginning -- for every chip at once, as `vgm_trim` does.
 //!
-//! # The bytes are the source's own
+//! A restore never synthesises a write; it re-emits the **original command
+//! bytes** of the last write to each cell, so every encoding stays exact
+//! (dual-chip opcodes, 16-bit addressing) without this module knowing how to
+//! spell a write for forty-two chips.
 //!
-//! A restore never synthesises a write. It re-emits the **original command
-//! bytes** of the last write to each cell, copied out of the stream they came
-//! from. Encodings therefore stay exact -- a dual-chip write comes back as the
-//! dual-chip opcode it was, a 16-bit-addressed write keeps its addressing --
-//! without this module having to know how to spell a write for forty-two chips.
+//! Restores are emitted in the order the writes occurred, not address order,
+//! because some registers' meaning depends on a mode set earlier (OPL's `NEW`
+//! bit, banking, envelope modes); replaying causal order keeps those intact.
 //!
-//! # In the order it happened
-//!
-//! Restores are emitted in the order the writes actually occurred, not in
-//! address order. Chips have registers whose meaning depends on a mode set
-//! earlier (OPL's `NEW` bit, banking registers, envelope modes), and replaying
-//! the causal order is what keeps those relationships intact without a table of
-//! per-chip ordering rules.
-//!
-//! # What else has to come back
-//!
-//! Registers are not the whole of a chip's state. Data blocks loaded before the
-//! cut are still referenced by what follows -- the banks are cumulative, so a
-//! later DAC seek indexes the concatenation of every block that was loaded --
-//! so those come back too, verbatim and in order, before anything else.
+//! Data blocks loaded before the cut come back too, verbatim and in order,
+//! before anything else: banks are cumulative, so a later DAC seek indexes the
+//! concatenation of every block loaded.
 
 use std::collections::BTreeMap;
 
@@ -233,26 +221,19 @@ fn latch_rule(chip: crate::vgm::ChipKind) -> Option<fn(u16) -> bool> {
     use crate::vgm::ChipKind as K;
     match chip {
         // The OPL family latches everything, key-on included: `0xB0`'s key bit
-        // is level-sensitive, so re-writing it does not re-attack. This is the
-        // rule the OPL optimiser has always used, validated over the corpus.
+        // is level-sensitive, so re-writing it does not re-attack.
         K::Ym3812 | K::Ymf262 | K::Ym3526 | K::Y8950 => Some(|_| true),
         // The YM2612 latches too, with two exceptions.
         //
-        // `0x2A` is the DAC's sample port. It stays excluded on the reference's
-        // authority -- vgmtools' `chip_cmp` bypasses it entirely -- and for a
-        // structural reason of our own: on real files those writes arrive as
-        // `0x8n` opcodes that carry their own wait, so the write cannot be
-        // dropped without dropping time with it.
+        // `0x2A` is the DAC's sample port, excluded both on the reference's
+        // authority (vgmtools' `chip_cmp` bypasses it) and because on real files
+        // those writes arrive as `0x8n` opcodes carrying their own wait, so the
+        // write cannot be dropped without dropping time with it.
         //
-        // `0x28` is the key register, and this one is now *measured* rather
-        // than assumed: driving Nuked-OPN2 with a value-identical repeat of
-        // `0x28` produces samples identical to omitting it, so the key does not
-        // re-attack and the write is droppable
-        // (`dro-cores-nuked`'s `a_repeated_key_write_is_inaudible_...`).
-        // It is kept regardless, because lifting an exclusion only ever buys
-        // compression while a wrong answer here is silent -- so it belongs
-        // behind a corpus parity run against un-optimised renders, not behind
-        // one register script. cr-11's oracles are where that becomes cheap.
+        // `0x28` is the key register. A value-identical repeat is measurably
+        // inaudible (Nuked-OPN2 produces identical samples), so it could be
+        // dropped -- but it is kept excluded regardless, because lifting an
+        // exclusion only buys compression while a wrong answer here is silent.
         K::Ym2612 => Some(|addr| !matches!(addr, 0x2A | 0x28)),
         // The YM2413's `0x20`-`0x28` carry the key-on bits.
         K::Ym2413 => Some(|addr| !(0x20..=0x28).contains(&addr)),
@@ -561,7 +542,7 @@ mod tests {
         assert_eq!(after.changes_from(&before), [1, 2]);
     }
 
-    // -- redundancy (uv-4) ---------------------------------------------------
+    // -- redundancy ----------------------------------------------------------
 
     #[test]
     fn a_repeated_write_to_a_latch_is_redundant() {

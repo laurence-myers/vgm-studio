@@ -1,7 +1,7 @@
 //! The platform-service traits the application is parameterized by.
 //!
 //! Every difference between the native shell (`dro-trimmer`) and the web shell
-//! (`dro-web`, Step 8) lives behind these traits. Anything asynchronous is
+//! (`dro-web`) lives behind these traits. Anything asynchronous is
 //! *polled*, never awaited, from the egui update loop: a native implementation
 //! may block inside the call and deliver on the very next poll; a web
 //! implementation delivers whenever its future resolves.
@@ -162,7 +162,7 @@ pub trait FileService {
 /// Owns the platform's audio output and the `PlayerEngine` behind it.
 ///
 /// The native implementation wraps `dro-audio-native`'s cpal stream; the web
-/// implementation (Step 9) talks to an `AudioWorklet`. Errors are strings
+/// implementation talks to an `AudioWorklet`. Errors are strings
 /// because the GUI can only show them.
 pub trait AudioService {
     /// Prepares `source` for playback, replacing any current song, stopped and

@@ -1,12 +1,11 @@
 //! The real-core end-to-end: a synthetic file, the app's own registry, and
 //! audio out the other end.
 //!
-//! `dro-synth`'s engine tests run against a stub since the cull, because that
-//! crate no longer ships a core of its own. This is the other half of that
-//! bargain: here the providers are linked and registered exactly as the app
-//! registers them, so a silent default -- a device missing from the libvgm
+//! `dro-synth`'s engine tests run against a stub (that crate ships no core of
+//! its own), so this is the other half: providers linked and registered exactly
+//! as the app does, so a silent default -- a device missing from the libvgm
 //! build table, a write rule fetching no writer, a registration order slip --
-//! fails a plain `cargo test` instead of waiting for a corpus run.
+//! fails a plain `cargo test` rather than waiting for a corpus run.
 
 use std::sync::Arc;
 
@@ -68,8 +67,8 @@ fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
     dro_trimmer::install_cores();
     let registry = dro_synth::registry();
 
-    // The owner's exceptions (2026-07-29): Nuked keeps these three defaults,
-    // with libvgm demoted to the picker.
+    // The owner's exceptions: Nuked keeps these three defaults, libvgm demoted
+    // to the picker.
     let nuked_led = [
         (dro_core::ChipKind::Ym2612, "ym2612.nuked"),
         (dro_core::ChipKind::Ym2151, "ym2151.nuked"),

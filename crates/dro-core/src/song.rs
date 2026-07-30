@@ -866,8 +866,7 @@ mod tests {
         );
         assert_eq!(register_description(0x05, Some(Bank::Low)), "(unknown)");
         assert_eq!(register_description(0x05, None), "(unknown)");
-        // 0x04 resolves in the low table first, even from the high bank --
-        // exactly what `get_instruction_description` did.
+        // 0x04 resolves in the low table first, even from the high bank.
         assert_eq!(
             register_description(0x04, Some(Bank::High)),
             "1: Timer Control Flags (IRQ Reset / Mask / Start)   2: Four-Operator Enable"

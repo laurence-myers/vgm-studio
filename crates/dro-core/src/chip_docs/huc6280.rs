@@ -1,14 +1,13 @@
 //! HuC6280 PSG register documentation.
 //!
-//! Sources: the long-public PC Engine hardware notes and Hudson devkit
-//! documentation, as mirrored on the Archaic Pixels wiki and in the
-//! MagicEngine developer docs. Bit assignments are datasheet facts.
+//! Sources: PC Engine hardware notes and Hudson devkit documentation, as
+//! mirrored on the Archaic Pixels wiki and the MagicEngine developer docs.
 //!
 //! Addressing: ten registers, 0x00-0x09. Register 0x00 selects one of the
 //! six channels; 0x02-0x07 then act on the selected channel, so their docs
-//! name the role, not the channel, exactly as the OPL tables do. Noise
-//! (0x07) exists on channels 5-6 only; the LFO pair (0x08-0x09) feeds
-//! channel 2's waveform into channel 1's frequency.
+//! name the role, not the channel. Noise (0x07) exists on channels 5-6 only;
+//! the LFO pair (0x08-0x09) feeds channel 2's waveform into channel 1's
+//! frequency.
 
 use super::{RegisterDoc, bf};
 

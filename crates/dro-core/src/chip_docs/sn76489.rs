@@ -1,7 +1,7 @@
 //! SN76489 (and T6W28) write decoding.
 //!
-//! Sources: Texas Instruments SN76489AN datasheet; the long-public SMS Power!
-//! "SN76489" hardware notes (<https://www.smspower.org/Development/SN76489>).
+//! Sources: Texas Instruments SN76489AN datasheet; the SMS Power! "SN76489"
+//! hardware notes (<https://www.smspower.org/Development/SN76489>).
 //!
 //! The PSG has no address bus worth the name: a write with bit 7 set latches
 //! one of eight registers (two per channel: frequency/control and

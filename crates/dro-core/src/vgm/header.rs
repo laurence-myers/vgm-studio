@@ -18,13 +18,8 @@
 //! bytes as clocks. The **version** is enforced for the same reason: a clock
 //! field the declared version predates is not a chip, it is whatever happens to
 //! sit at that offset. A 1.70 file's header runs to 0x100 whether or not the
-//! spec had assigned 0xC0 yet.
-//!
-//! This reader used to take such a field anyway, on the grounds that the bytes
-//! were inside the header and unambiguous. They are not: twenty PC-98 rips in
-//! the local corpus came back declaring a WonderSwan, an SAA1099 and an ES5503
-//! that their streams never write to. Inventing a chip is the same size of
-//! mistake as losing one, and it is the one that actually happens.
+//! spec had assigned 0xC0 yet, so a non-zero byte there is padding, not a chip;
+//! trusting it invents chips a file's stream never writes to.
 
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
@@ -542,19 +537,11 @@ impl VgmHeader {
         self.total_samples = samples;
     }
 
-    /// Sets the loop, as an absolute byte offset into the file and a length in
-    /// samples, or clears it with `None`.
-    ///
-    /// The spec wants both fields zero when a file does not loop, which is what
-    /// clearing writes.
     /// Restamps the version, in the parsed value and the raw bytes both.
     ///
     /// Only the field: the header keeps its size, and readers find the data
     /// through the data-offset field rather than by assuming a size for the
-    /// version. Shrinking a header to its version's bucket would mean moving
-    /// every offset in it, which is a separate operation and a separate risk.
-    ///
-    /// Returns whether the value changed.
+    /// version. Returns whether the value changed.
     pub fn set_version(&mut self, version: u32) -> bool {
         if self.version == version {
             return false;
@@ -566,6 +553,9 @@ impl VgmHeader {
         true
     }
 
+    /// Sets the loop, as an absolute byte offset and a length in samples, or
+    /// clears it with `None` -- both fields zero, as the spec wants for a file
+    /// that does not loop.
     pub fn set_loop(&mut self, absolute: Option<usize>, samples: u32) {
         let (relative, samples) = match absolute {
             Some(absolute) => ((absolute - offset::LOOP_OFFSET) as u32, samples),
@@ -749,14 +739,11 @@ fn read_chips(header: &[u8], version: u32) -> Vec<ChipUse> {
         if clock == 0 {
             continue;
         }
-        // A clock field the file's own version does not define is not a chip.
-        // The bytes are inside the header span -- a 1.70 file's header runs to
-        // 0x100 whether or not the spec had assigned 0xC0 yet -- so something
-        // non-zero there is padding, or a later field's ghost, and reading it
-        // invents chips: a PC-98 YM2203 rip was coming back declaring a
-        // WonderSwan, an SAA1099 and an ES5503 that its stream never writes to.
-        // Trust the version; a file that genuinely under-declares is the rarer
-        // fault, and losing a chip is the same size of mistake as inventing one.
+        // A clock field the file's own version does not define is not a chip:
+        // a 1.70 file's header runs to 0x100 whether or not the spec had
+        // assigned 0xC0 yet, so a non-zero byte there is padding, and treating
+        // it as a clock invents chips the stream never writes to. Trusting the
+        // version can lose a genuinely under-declared chip, but that is rarer.
         if version < spec.since {
             log::debug!(
                 "VGM has bytes at the {} clock, which arrived in v{}, but calls itself v{}; \
@@ -1041,9 +1028,8 @@ mod tests {
 
     #[test]
     fn a_field_past_the_data_start_does_not_exist() {
-        // The rule the current reader gets wrong: a minimal header stopping at
-        // 0x60 has no YM3812 field at 0x50... and no AY8910 field at 0x74 to
-        // misread as a clock either.
+        // A minimal header stopping at 0x60 has no YM3812 field at 0x50... and
+        // no AY8910 field at 0x74 to misread as a clock either.
         let mut bytes = header(0x151, 0x60);
         put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
         let mut bytes = file(bytes);
@@ -1161,14 +1147,9 @@ mod tests {
         assert!(!parsed.is_opl_only(), "a file this crowded is not OPL-only");
     }
 
-    /// A clock field the file's version does not define is padding, not a chip.
-    ///
-    /// This reader used to take it anyway, on the grounds that the byte was
-    /// inside the header and unambiguous. The corpus said otherwise: twenty
-    /// PC-98 rips came back declaring a WonderSwan, an SAA1099 and an ES5503
-    /// their streams never write to, because a 1.70 file's header runs to 0x100
-    /// whether or not the spec had assigned 0xC0 yet, and whatever sits there is
-    /// not a clock.
+    /// A clock field the file's version does not define is padding, not a chip:
+    /// a 1.70 file's header runs to 0x100 whether or not the spec had assigned
+    /// 0xC0 yet, and whatever sits there is not a clock.
     #[test]
     fn a_clock_field_the_version_predates_is_not_a_chip() {
         let mut bytes = header(0x151, 0x100);

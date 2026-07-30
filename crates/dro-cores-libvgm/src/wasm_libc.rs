@@ -1,31 +1,28 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! The libc surface libvgm's C expects, provided on `wasm32-unknown-unknown`.
 //!
-//! The target has no libc at all, so the shim headers in `shim/wasm-libc/`
-//! declare what the cores include and this module supplies the symbols:
+//! The target has no libc, so the shim headers in `shim/wasm-libc/` declare what
+//! the cores include and this module supplies the symbols:
 //!
 //! - **The allocator family** forwards to Rust's own allocator. C's `free`
 //!   arrives without a size and Rust's `dealloc` demands one, so every
-//!   allocation is prefixed with a 16-byte header holding its layout -- the
-//!   classic bridge, 16 bytes rather than 8 so the pointer handed to C keeps
-//!   the 16-byte alignment `malloc` guarantees.
+//!   allocation is prefixed with a 16-byte header holding its layout -- 16 bytes
+//!   rather than 8 so the pointer handed to C keeps the 16-byte alignment
+//!   `malloc` guarantees.
 //! - **The `str*` family** is implemented directly; the `mem*` family needs
 //!   nothing here because `compiler_builtins` carries it on every target.
-//! - **The math family** forwards to the pure-Rust `libm` crate. The cores
-//!   use doubles to build tables (volume curves, pan laws), not per sample,
-//!   so a software implementation costs nothing that matters -- and identical
-//!   IEEE results across targets is exactly what `ChipCore` promises anyway.
-//! - The printf family lives in `shim/wasm_stubs.c` -- variadics cannot be
-//!   provided from Rust -- and truncates to nothing, because no log callback
-//!   is ever registered on this target.
+//! - **The math family** forwards to the pure-Rust `libm` crate. The cores use
+//!   doubles to build tables, not per sample, and identical IEEE results across
+//!   targets is what `ChipCore` promises anyway.
+//! - The printf family lives in `shim/wasm_stubs.c` (variadics cannot come from
+//!   Rust) and truncates to nothing: no log callback is registered on this target.
 //!
 //! Everything is `#[unsafe(no_mangle)]` C ABI, resolved when the final wasm
 //! module links. Nothing else on the target defines these names: Rust's own
 //! wasm allocator keeps its dlmalloc internal and exports no C symbols.
 
-// `pub` is for the linker, not for Rust callers: `#[unsafe(no_mangle)]`
-// preserves the symbols whatever the visibility, but `pub` documents that
-// these are an exported ABI surface -- which `unreachable_pub` cannot see.
+// `pub` documents that these are an exported ABI surface, which
+// `unreachable_pub` cannot see.
 #![allow(unreachable_pub)]
 
 use std::alloc::{Layout, alloc, alloc_zeroed, dealloc};
@@ -240,8 +237,7 @@ pub extern "C" fn abs(value: c_int) -> c_int {
 ///
 /// adlibemu uses `rand` to dither its noise generator; a fixed seed keeps the
 /// output deterministic across runs and targets, which is [`ChipCore`]'s
-/// standing promise (`dro_synth::chip::ChipCore`) and more useful to an
-/// emulator than entropy would be.
+/// standing promise (`dro_synth::chip::ChipCore`).
 static RAND_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x5DEECE66D);
 
 #[unsafe(no_mangle)]

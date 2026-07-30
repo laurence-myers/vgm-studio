@@ -23,33 +23,30 @@ pub use pack_zip::{PackZipOutput, build_pack_zip};
 ///
 /// **Call this first, before anything reads a core.** The registry answers "can
 /// this file be played", "what does Settings list" and "who is credited in the
-/// About box"; a path that runs before installation silently gets the built-in
-/// cores only, which on this target means no RetroWave board and a Settings
-/// dialog missing a row. Both the GUI and the subcommands go through here.
+/// About box"; before installation only the built-in cores exist. Both the GUI
+/// and the subcommands go through here.
 ///
 /// Registration order is priority order, so the built-ins come first and the
-/// emulator stays OPL's default -- a first run must not go hunting for a serial
-/// port. `dro-retrowave` is native-only, which is precisely why this lives in
-/// the app rather than in `dro-synth`: the web build never calls it, so its
-/// Settings dialog stops offering hardware it could never reach.
+/// emulator stays OPL's default (a first run must not go hunting for a serial
+/// port). `dro-retrowave` is native-only, which is why this lives in the app
+/// rather than `dro-synth`: the web build never calls it.
 pub fn install_cores() {
     let mut registry = dro_synth::CoreRegistry::with_builtins();
-    // libvgm first, per the 2026-07-29 owner decision: it is the source of
-    // truth and the default for every chip it serves. It carries no OPL rows,
-    // so the built-ins' Nuked-OPL3 keeps that family's default untouched.
+    // libvgm first: the source of truth and the default for every chip it
+    // serves. It carries no OPL rows, so the built-ins' Nuked-OPL3 keeps that
+    // family's default untouched.
     dro_cores_libvgm::register(&mut registry);
     // Behind it, the Nuked integrations stay as picker options: CQM is
-    // Creative's clone of a YMF262 beside the faithful one, and OPN2/OPM are
-    // flavours behind libvgm's rows once those exist.
+    // Creative's clone of a YMF262 beside the faithful one, OPN2/OPM flavours
+    // behind libvgm's rows.
     dro_cores_nuked::register(&mut registry);
-    // The LLE dies and Nuked-OPLL/PSG: options, per the same decision.
+    // The LLE die and Nuked-OPLL/PSG stay as options.
     dro_cores_gpl::register(&mut registry);
     dro_retrowave::register(&mut registry);
-    // The owner's three named exceptions (2026-07-29): Nuked keeps the
-    // defaults it held before the redirect for exactly these chips, with
-    // libvgm the picker alternative. Promotion rather than registration
-    // order because the OPLL shares a crate with Nuked-PSG and the LLE
-    // dies, which must stay behind libvgm.
+    // Three exceptions: Nuked stays the default for these chips, libvgm the
+    // picker alternative. Promotion rather than registration order because the
+    // OPLL shares a crate with Nuked-PSG and the LLE, which must stay behind
+    // libvgm.
     registry.promote(ChipKind::Ym2612, "ym2612.nuked");
     registry.promote(ChipKind::Ym2151, "ym2151.nuked");
     registry.promote(ChipKind::Ym2413, "ym2413.nuked");
@@ -319,8 +316,8 @@ mod core_registry_tests {
         );
     }
 
-    /// **The sweep test the plan asks for**: the registry as the whole app sees
-    /// it, checked for the things that are invisible one core at a time.
+    /// The registry as the whole app sees it, checked for the things that are
+    /// invisible one core at a time.
     ///
     /// Ids must be unique across the registry, because config stores one per
     /// slot and the About box lists them side by side; each must be prefixed by

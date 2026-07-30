@@ -24,8 +24,7 @@ pub struct Args {
     /// The DRO or VGM file to split.
     pub input: PathBuf,
     /// Split to song files -- DRO or VGM, matching the input -- instead of WAV.
-    // `-d`/`--dro` was this flag's earlier name, and the output was always a
-    // DRO. Kept working, but out of the help.
+    // `-d`/`--dro` is this flag's earlier name, kept working as a hidden alias.
     #[arg(short = 's', long = "song", visible_alias = "dro", short_alias = 'd')]
     pub song: bool,
     /// Render each drum on the percussion channel to its own file.

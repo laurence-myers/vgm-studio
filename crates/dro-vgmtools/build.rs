@@ -1,21 +1,17 @@
-//! Builds each vgmtools optimiser as its own executable, the way upstream's
-//! CMake does, and hands the bytes to `lib.rs` to embed.
+//! Builds each vgmtools optimiser as its own executable and hands the bytes to
+//! `lib.rs` to embed.
 //!
-//! Executables rather than a linked-in library, and that is the whole design:
-//! ot-1 in `docs/vgm-multichip-2026-07/OPTIMIZER-PLAN.md` records why. The
-//! short version is that these are standalone programs that assume they own
-//! the process -- `chip_srom.c` frees none of the ~50 sample-ROM buffers it
-//! reallocs, and a ROM size read straight out of a data block can spin a
-//! `UINT32` mask forever -- so the process boundary is what turns a leak into
-//! nothing and an unkillable hang into a timeout. It also means no symbol
-//! renaming, no `llvm-objcopy`, and each tool compiled exactly as shipped.
+//! Executables rather than a linked-in library is the whole design: these are
+//! standalone programs that assume they own the process -- `chip_srom.c` frees
+//! none of the ~50 sample-ROM buffers it reallocs, and a ROM size read straight
+//! out of a data block can spin a `UINT32` mask forever -- so the process
+//! boundary turns a leak into nothing and an unkillable hang into a timeout.
+//! Each tool is compiled exactly as shipped, with no symbol renaming.
 //!
 //! `cc` builds static libraries, not executables, so this drives the detected
-//! compiler itself while still borrowing `cc`'s target and environment
-//! discovery.
+//! compiler itself while borrowing `cc`'s target and environment discovery.
 //!
-//! The submodule is never edited -- the policy every provider crate here
-//! follows. Upgrading is `git -C vendor/upstream/vgmtools pull`, a pin bump,
+//! The submodule is never edited: upgrading is a submodule pull, a pin bump,
 //! and a re-run of the golden tests.
 
 use std::path::{Path, PathBuf};
@@ -27,8 +23,8 @@ const UPSTREAM: &str = "../../vendor/upstream/vgmtools";
 /// One tool: the executable name, and its sources relative to the submodule.
 ///
 /// Transcribed from upstream's `CMakeLists.txt` so the two can be diffed at a
-/// pin bump. `optdac` is `EXCLUDE_FROM_ALL` there -- it is a lesser tool, but
-/// building it costs one more compile.
+/// pin bump. `optdac` is `EXCLUDE_FROM_ALL` there but costs only one more
+/// compile.
 struct Tool {
     name: &'static str,
     sources: &'static [&'static str],
@@ -128,8 +124,8 @@ fn build_tool(tool: &Tool, upstream: &Path, shim: &Path, out_dir: &Path) {
         if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
             command.arg("-luser32");
         } else {
-            // `vgm_ptch` is the one tool that reaches for libm, as upstream's
-            // own CMakeLists notes for the non-MSVC case.
+            // `vgm_ptch` is the one tool that needs libm (upstream's
+            // CMakeLists notes this for non-MSVC).
             command.arg("-lm");
         }
     }

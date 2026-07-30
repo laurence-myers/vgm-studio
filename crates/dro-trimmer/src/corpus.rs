@@ -2,29 +2,22 @@
 //! An index of the VGMRips corpus by chip, so a core can be tested against the
 //! files that actually exercise it.
 //!
-//! The corpus is organised **by system** -- Arcade, MegaDrive, NeoGeo -- which
-//! is the wrong axis for this work entirely. A YM2612 core wants YM2612 files,
-//! and those are spread across MegaDrive and a good part of Arcade; an AY8910
-//! core wants files from folders whose names never mention it. So this walks
-//! the tree once, reads each header, and inverts it: chip to files.
-//!
-//! Building it means reading tens of thousands of headers, so the result is
-//! cached and the walk only happens when the cache is missing. Point it at a
-//! corpus with `DROTRIM_VGMRIPS_CORPUS`.
+//! The corpus is organised by system (Arcade, MegaDrive, NeoGeo), the wrong axis
+//! here: a YM2612 core wants YM2612 files, which are spread across systems and
+//! live in folders whose names never mention the chip. So this walks the tree
+//! once, reads each header, and inverts it to chip-to-files. Reading tens of
+//! thousands of headers is slow, so the result is cached and the walk only
+//! happens when the cache is missing. Point it at a corpus with
+//! `DROTRIM_VGMRIPS_CORPUS`.
 //!
 //! ```text
 //! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
 //!     cargo test -p dro-trimmer --release --test chip_index -- --ignored --nocapture
 //! ```
 //!
-//! **Only the header is read**, never the stream: the question is "which files
-//! name this chip", and a header answers it in a few hundred bytes. That is
-//! also why a file whose *stream* will not walk still earns an index entry --
-//! whether it plays is the core test's finding, not the index's.
-//!
-//! The cache is tab-separated rather than the JSON the plan called for. The
-//! workspace has no JSON dependency and this needs two columns; adding serde to
-//! the app crate to store `chip<TAB>path` would be the larger deviation.
+//! Only the header is read, never the stream: the question is "which files name
+//! this chip", so a file whose stream will not walk still earns an index entry.
+//! The cache is tab-separated (the workspace has no JSON dependency).
 
 use std::collections::BTreeMap;
 use std::io::Write as _;
@@ -174,11 +167,10 @@ impl ChipIndex {
     /// Up to `want` files naming `chip`, as absolute paths, spread across the
     /// whole list rather than taken from its head.
     ///
-    /// The corpus is sorted by path, so the first N files for a chip are the
-    /// first N of one system's first pack -- one game, one ripper, one set of
-    /// habits. A stride samples across systems and rippers instead, which is
-    /// the variety a core test is actually after. Deterministic, so a failure
-    /// names a file that can be re-run.
+    /// The corpus is sorted by path, so a head sample would be one system's
+    /// first pack -- one game, one ripper. A stride samples across systems for
+    /// the variety a core test wants. Deterministic, so a failure names a file
+    /// that can be re-run.
     #[must_use]
     pub fn sample(&self, chip: ChipKind, want: usize) -> Vec<PathBuf> {
         let files = self.files(chip);

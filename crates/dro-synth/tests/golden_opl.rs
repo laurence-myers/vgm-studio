@@ -1,25 +1,14 @@
-//! Stage 1 of the OPL3 spike, graduated into permanent CI.
-//!
-//! Drives the emulator with a register script decoded from the real DRO fixture,
-//! hashes the resulting PCM, and compares it against a golden constant. Three
-//! things are pinned by this:
-//!
-//! 1. **The emulator.** Nuked-OPL3 is integer fixed-point, so the hash is stable
-//!    across targets. This exact hash was reproduced by a `wasm32-unknown-unknown`
-//!    build running under Node, which is what makes native/web audio parity a
-//!    tested property rather than a hope.
-//! 2. **`dro-core`'s v2 decoder.** The script is decoded through `DroDataV2`, so a
-//!    regression in codemap handling, bank extraction or delay arithmetic moves
-//!    the hash.
-//! 3. **Chunk invariance.** An `AudioWorklet` pulls 128 frames per quantum; an
-//!    offline render pulls thousands. They must agree.
+//! Renders a register script decoded from the real DRO fixture, hashes the PCM,
+//! and compares against a golden constant. This pins three things: the emulator
+//! (Nuked-OPL3 is integer fixed-point, so the hash is stable across targets, and
+//! was reproduced by a wasm32 build under Node); `dro-core`'s v2 decoder (the
+//! script decodes through `DroDataV2`); and chunk invariance (128-frame quanta
+//! versus a thousands-frame offline render must agree).
 //!
 //! If the hash changes, find out *why* before updating it. `tests/c_parity.rs`
 //! (`--features c-parity`) answers "is the emulator itself still right?".
-// Every test here drives an OPL core and asserts what it sounds like, so the
-// whole file needs one. A `--no-default-features` build of this crate has no
-// OPL core by design (the only one available is LGPL) -- see
-// `licenses/README.md`.
+// This file drives an OPL core; a `--no-default-features` build has none by
+// design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
 mod common;

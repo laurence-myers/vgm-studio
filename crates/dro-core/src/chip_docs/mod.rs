@@ -3,20 +3,16 @@
 //!
 //! The multichip counterpart of [`regdata`](crate::regdata) +
 //! [`RegisterAnalyzer`](crate::analysis::RegisterAnalyzer): a static table of
-//! register names and bit-fields per [`ChipKind`], written from the chips'
-//! own datasheets and long-public programming documentation (each submodule
-//! cites its sources), and a replay cursor that reports which fields a write
-//! actually changed.
-//!
-//! Coverage is deliberately partial: the corpus's common chips first, the
-//! rest returning `None` so callers fall back to the generic one-liner
-//! ([`VgmStream::describe`]). Adding a chip is adding a submodule and a match
-//! arm -- nothing else consults an emulator, and nothing here may: the GPL
+//! register names and bit-fields per [`ChipKind`] (each submodule cites its
+//! datasheet sources), and a replay cursor that reports which fields a write
+//! changed. Coverage is deliberately partial: undocumented chips return
+//! `None` so callers fall back to the generic one-liner
+//! ([`VgmStream::describe`]). Nothing here may consult an emulator -- the GPL
 //! cores' source comments are off-limits to this crate.
 //!
 //! The OPL family's entries mirror [`regdata`](crate::regdata) rather than
-//! replacing it -- the OPL editor keeps its own tables -- and a test pins the
-//! two against each other so they cannot drift.
+//! replacing it, and a test pins the two against each other so they cannot
+//! drift.
 
 mod ay8910;
 mod gb_dmg;

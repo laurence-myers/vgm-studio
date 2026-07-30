@@ -1,9 +1,8 @@
 //! The C ABI of the pinned upstream cores, and the only `unsafe` in this crate.
 //!
-//! Declared by hand rather than bindgen, and with **no struct mirrored**: the
-//! state is allocated by a size the C reports, so an upstream that adds a field
-//! changes a number rather than silently outgrowing a Rust twin of itself. The
-//! same reasoning as `dro-cores-nuked`'s, and the same shape.
+//! Declared by hand rather than bindgen, with no struct mirrored: the state is
+//! allocated by a size the C reports, so an upstream that adds a field changes
+//! a number rather than silently outgrowing a Rust twin of itself.
 
 use std::ffi::c_void;
 
@@ -80,8 +79,7 @@ const OPLL_TYPE_DS1001: u32 = 0x01;
 /// Zeroed bytes sized for the upstream chip struct.
 ///
 /// `u64`-backed for eight-byte alignment; the constructor asserts rather than
-/// assumes, because a silently under-aligned struct is undefined behaviour that
-/// usually looks like it works.
+/// assumes, because a silently under-aligned struct is undefined behaviour.
 struct OpaqueChip {
     storage: Box<[u64]>,
 }
@@ -112,8 +110,8 @@ impl std::fmt::Debug for OpaqueChip {
 }
 
 // SAFETY: plain zeroed memory owned solely by this value, and the upstream
-// keeps no global mutable state reachable through it -- `chip_type` is a field
-// of the struct here, not a `static` as Nuked-OPN2's is.
+// keeps no global mutable state reachable through it (`chip_type` is a field
+// of the struct, not a `static`).
 unsafe impl Send for OpaqueChip {}
 
 /// A Nuked-OPLL chip.

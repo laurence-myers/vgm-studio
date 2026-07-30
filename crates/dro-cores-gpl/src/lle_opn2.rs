@@ -1,20 +1,14 @@
 //! The YM2612 die as a [`ChipCore`], clocked pin by pin.
 //!
-//! The second chip on the LLE bench, and the one with an open question
-//! waiting for it: the shipping Nuked-OPN2 core scores 0.904 against the
-//! reference player -- a driver-level difference nobody has isolated -- and
-//! a die on the bench turns that question mechanical. `fmopna_2612` is one
-//! of three chips the YM2608-LLE decap builds (the OPNA implementation
-//! compiled under a per-chip macro); this wrapper drives the 2612 die only.
+//! `fmopna_2612` is one of three chips the YM2608-LLE decap builds (per-chip
+//! macro); this wrapper drives the 2612 die only.
 //!
-//! Easier to listen to than the OPM die, as it happens: no serial DAC. The
-//! 2612's nine-bit ladder DAC time-multiplexes the six channels on two
-//! parallel pins, and the die computes the ladder's asymmetry itself -- an
-//! unpanned channel slot emits the famous `+-1` sign residue, which is the
-//! ladder distortion every Mega Drive recording carries. Summing the pin
-//! over a sample period is exactly the mixdown the real console's analog
-//! path performs, and exactly what Nuked-OPN2's wrapper does with its
-//! per-cycle outputs -- so the two cores are compared on the same terms.
+//! No serial DAC here: the 2612's nine-bit ladder DAC time-multiplexes the six
+//! channels on two parallel pins, and the die computes the ladder's asymmetry
+//! itself -- an unpanned channel slot emits the famous `+-1` sign residue, the
+//! ladder distortion every Mega Drive recording carries. Summing the pin over a
+//! sample period is the mixdown the console's analog path performs, matching
+//! what Nuked-OPN2's wrapper does with its per-cycle outputs.
 //!
 //! `realtime: false`, like every die: render and oracle only.
 
@@ -39,10 +33,8 @@ const WRITE_HOLD: u32 = 8;
 const ADDRESS_RECOVER: u32 = 4;
 
 /// Master clocks of bus silence after a value byte. Address + value + both
-/// recoveries is one sample period, which is Nuked-OPN2's pacing (its
-/// `VALUE_SETTLE` is the rest of the chip's 24-cycle turn); matching it
-/// keeps write bursts landing on the same samples in both cores -- the
-/// lesson the OPM bench paid 0.2-0.4 of correlation to learn.
+/// recoveries is one sample period, matching Nuked-OPN2's pacing so write
+/// bursts land on the same samples in both cores.
 const VALUE_RECOVER: u32 = CLOCKS_PER_SAMPLE - (2 * WRITE_HOLD) - ADDRESS_RECOVER;
 
 /// Master clocks with `IC` held low at reset.
@@ -138,8 +130,8 @@ impl Default for Ym2612Lle {
 
 impl ChipCore for Ym2612Lle {
     /// `variant` distinguishes the YM3438; this die is the YM2612 decap and
-    /// renders both the same -- a stated approximation, as the shipping
-    /// core's CMOS/ladder switch is exactly what the variant changes there.
+    /// renders both the same -- an approximation, as the shipping core's
+    /// CMOS/ladder switch is what the variant changes there.
     fn reset(&mut self, clock: u32, _variant: bool) {
         self.writes.clear();
         self.bus = Bus::Idle;
@@ -188,12 +180,9 @@ impl ChipCore for Ym2612Lle {
                 left += l;
                 right += r;
             }
-            // The multiplexed pins change every *two* master clocks --
-            // measured against Nuked-OPN2's per-cycle sum via the oracle's
-            // level column (dividing by six read exactly 3.00x quiet), not
-            // derived from the die -- so dividing by two makes the sum
-            // Nuked-equivalent, and the shipping core's calibrated
-            // OUTPUT_GAIN then applies unchanged.
+            // The multiplexed pins change every *two* master clocks, so
+            // dividing the sum by two makes it Nuked-equivalent and the shipping
+            // core's calibrated OUTPUT_GAIN applies unchanged.
             frame[0] = (left / 2) * 21;
             frame[1] = (right / 2) * 21;
         }

@@ -6,9 +6,9 @@
 //! frames, in `f32` internally, and is bit-transparent at unity boost.
 //!
 //! It lives here in `dro-synth` -- the wasm-clean, no-I/O DSP crate -- rather
-//! than in `dro-audio-native`, so the future web `AudioWorkletProcessor` (Step
-//! 9) can reuse it. The WAV render and the waveform display deliberately do
-//! *not* run through it: those must stay faithful to the un-boosted signal.
+//! than in `dro-audio-native`, so the future web `AudioWorkletProcessor` can
+//! reuse it. The WAV render and the waveform display deliberately do *not* run
+//! through it: those must stay faithful to the un-boosted signal.
 
 /// Full scale. Deliberately 32_767, not 32_768: at unity boost the limiter is
 /// idle and the samples pass through untouched, and a limited peak lands at

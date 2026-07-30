@@ -1,13 +1,11 @@
 //! AY-3-8910 (PSG) register documentation.
 //!
-//! Sources: the General Instrument AY-3-8910/8912 Programmable Sound
-//! Generator data manual, as long circulated in the community, and the MSX
-//! Assembly Page's PSG documentation. Bit assignments are datasheet facts.
+//! Sources: the General Instrument AY-3-8910/8912 data manual and the MSX
+//! Assembly Page's PSG documentation.
 //!
 //! Addressing: sixteen registers R0-R15, one bank, so only port 0. The R7
-//! mixer bits are active low -- writing 0 enables the source -- which the
-//! Description column leaves to the register name rather than negating every
-//! field.
+//! mixer bits are active low (writing 0 enables the source), left to the
+//! register name rather than negating every field.
 
 use super::{RegisterDoc, bf};
 

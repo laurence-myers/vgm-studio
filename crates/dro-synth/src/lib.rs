@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! OPL emulation and (from Step 4) the pull-based playback engine.
+//! OPL emulation and the pull-based playback engine.
 //!
 //! Like [`dro_core`], this crate has no threads, no audio device and no I/O, so
 //! it compiles unchanged for `wasm32-unknown-unknown` and can be driven from a

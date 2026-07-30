@@ -1,8 +1,5 @@
-//! Loading `drotrim.ini` for the native tools.
-//!
-//! The web build reads `localStorage` instead (Step 8); both hand text to
-//! [`AppConfig::from_ini_sources`]. A proper `ConfigStore` implementation arrives
-//! with the GUI in Step 6 -- the CLI tools only need to read.
+//! Loading `drotrim.ini` for the native tools, which only need to read; text is
+//! handed to [`AppConfig::from_ini_sources`].
 
 use std::fs;
 

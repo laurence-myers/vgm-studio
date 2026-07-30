@@ -247,7 +247,7 @@ fn delete_key_removes_the_selected_row_and_ctrl_z_restores_it() {
 
 #[test]
 fn goto_reads_hex_positions() {
-    // parity-2: the Pos. column is hex, so Goto parses hex (and an optional 0x).
+    // The Pos. column is hex, so Goto parses hex (and an optional 0x).
     let (mut harness, _handles) = harness_with_song(&tone_song());
     assert!(
         harness.state().editor.len() > 10,
@@ -361,7 +361,7 @@ fn number_key_toggles_channel_muting() {
 
 #[test]
 fn a_held_modifier_suppresses_plain_editor_keys() {
-    // ux-14: a plain editor key must not fire with Command/Alt held.
+    // A plain editor key must not fire with Command/Alt held.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.key_press_modifiers(Modifiers::COMMAND, Key::Space);
     harness.run_steps(3);
@@ -380,9 +380,9 @@ fn a_held_modifier_suppresses_plain_editor_keys() {
 
 #[test]
 fn shift_number_keys_toggle_the_high_channel_bank() {
-    // ux-14: Shift+1..9 reach channels 9..17. Muting channel 0 (plain 1) then
-    // Shift+1 must NOT restore all-audible -- if Shift+1 hit channel 0 again it
-    // would. So two distinct channels end up muted.
+    // Shift+1..9 reach channels 9..17. Muting channel 0 (plain 1) then Shift+1
+    // must NOT restore all-audible -- if Shift+1 hit channel 0 again it would.
+    // So two distinct channels end up muted.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.key_press(Key::Num1);
     harness.run();
@@ -397,7 +397,6 @@ fn shift_number_keys_toggle_the_high_channel_bank() {
 
 #[test]
 fn enter_dismisses_an_info_alert() {
-    // ux-12: Enter is OK.
     let (mut harness, _handles) = empty_harness();
     harness
         .state_mut()
@@ -416,7 +415,6 @@ fn enter_dismisses_an_info_alert() {
 
 #[test]
 fn enter_confirms_a_confirm_alert_and_runs_its_action() {
-    // ux-12: Enter accepts a confirm box and runs its carried action.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     harness
         .state_mut()
@@ -506,7 +504,7 @@ fn pan_knob_drag_up_pans_left_like_dragging_left() {
     harness.run();
 
     // Dragging a knob straight up pans it hard left, exactly as dragging left
-    // does: the vertical axis feeds the same relative mapping (wd-2).
+    // does: the vertical axis feeds the same relative mapping.
     let center = harness.get_by_label("Pan 1 (low bank)").rect().center();
     harness.drag_at(center);
     harness.run();
@@ -574,7 +572,7 @@ fn spread_knob_spreads_the_pans_and_engages_custom() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
     // Drag the Spread knob to the right: a positive spread leans even channels
-    // left, odd channels right, and engages Custom so the knobs go live (wd-4).
+    // left, odd channels right, and engages Custom so the knobs go live.
     let center = harness.get_by_label("Spread").rect().center();
     harness.drag_at(center);
     harness.run();
@@ -624,7 +622,7 @@ fn all_button_unmutes_but_leaves_panning() {
         Some(&dro_synth::Muting::all()),
         "All unmutes everything"
     );
-    // The custom pan image is left untouched -- All is a muting control now (wd-5).
+    // The custom pan image is left untouched -- All is a muting control.
     assert_eq!(
         harness.state().channels.panning(),
         dro_synth::Panning::Custom([0x10; 18]),
@@ -907,8 +905,7 @@ fn the_volume_ceiling_ratchets_down_to_the_lowest_clipping_level() {
     );
 
     // Dropping to 9x still clips, so the backend reports the lower minimum and the
-    // cap follows it down -- unlike the old sticky boolean, which kept 10x and let
-    // the user climb back to it.
+    // cap follows it down to the lowest level that clips.
     handles.audio.borrow_mut().min_engaged_boost = Some(9.0);
     harness.run();
     assert_eq!(
@@ -1039,9 +1036,9 @@ fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
 
 #[test]
 fn settings_save_preserves_a_live_changed_boost() {
-    // M4/ux-15: the Settings dialog snapshots the config at open and doesn't
-    // expose the boost, so a boost changed via the transport meanwhile must not
-    // be reverted on Save.
+    // The Settings dialog snapshots the config at open and doesn't expose the
+    // boost, so a boost changed via the transport meanwhile must not be reverted
+    // on Save.
     let (mut harness, handles) = harness_with_song(&tone_song());
     let config = harness.state().config.clone();
     harness.state_mut().dialogs.settings =
@@ -1156,9 +1153,9 @@ fn saving_settings_keeps_the_previewed_theme() {
 
 #[test]
 fn settings_do_not_retune_the_position_panel_while_a_stream_is_live() {
-    // ux-16: a frequency change must not retune the panel while a stream plays
-    // at the old rate (the readout would mix a new-rate length with old-rate
-    // frames). The panel keeps the live rate until the stream reloads.
+    // A frequency change must not retune the panel while a stream plays at the
+    // old rate (the readout would mix a new-rate length with old-rate frames).
+    // The panel keeps the live rate until the stream reloads.
     let (mut harness, handles) = harness_with_song(&tone_song());
     // A live stream reports 48 kHz; playing adopts it into the panel.
     handles.audio.borrow_mut().output_rate = Some(48_000);
@@ -1808,13 +1805,12 @@ fn settled_snapshot(harness: &mut Harness<'static, DroApp>, name: &str) {
 }
 
 /// The Settings dialog's output section: one row per chip this app can play,
-/// and a count of the ones it cannot. The old single "Output" row could not say
-/// either thing.
+/// and a count of the ones it cannot.
 #[test]
 fn snapshot_settings_output_per_chip() {
     // The rows come from the core registry, and dro-ui alone knows only
-    // dro-synth's built-ins -- so without this the snapshot would stop
-    // documenting the hardware picker, which is the row worth guarding.
+    // dro-synth's built-ins, so install the test cores to guard the hardware
+    // picker row.
     crate::widgets::chip_output::install_test_cores();
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     let config = harness.state().config.clone();
@@ -1857,8 +1853,7 @@ fn snapshot_dro_info_dialog() {
 #[test]
 fn snapshot_gd3_tag_dialog() {
     // The Game Name is longer than the field is wide: it must wrap at the
-    // dialog's edge and push the box taller, not scroll out of sight the way
-    // the single-line edit used to hide it.
+    // dialog's edge and push the box taller, not scroll out of sight.
     let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
     let mut fields: [String; dro_core::vgm::data::GD3_FIELD_COUNT] =
         core::array::from_fn(|_| String::new());
@@ -1876,10 +1871,8 @@ fn snapshot_gd3_tag_dialog() {
 /// the OPL table cannot size, so the editor is certain to decline it as a song.
 ///
 /// **Its chips must have no core**, because the tests built on it assert the
-/// not-playable and not-renderable paths. That was an AY8910 as well until the
-/// AY gained a core in cr-7 and quietly made four of those tests wrong; the
-/// assertion below now makes a future core break *this* fixture by name rather
-/// than four tests that never mention it.
+/// not-playable and not-renderable paths. The assertion below makes a future
+/// core break *this* fixture by name rather than the tests that never mention it.
 ///
 /// `total` and `loop_samples` go in the header verbatim; a real file's agree
 /// with its stream, and so do the ones passed here.
@@ -2011,9 +2004,8 @@ fn a_number_key_mutes_the_selected_chip_on_a_non_opl_vgm() {
     );
 }
 
-/// Delay navigation and Find Register are no longer OPL-only: on a Mega
-/// Drive-era rip, ArrowRight steps through the delays and the dialog finds a
-/// write to a named chip register.
+/// Delay navigation and Find Register on a non-OPL VGM: ArrowRight steps through
+/// the delays and the dialog finds a write to a named chip register.
 #[test]
 fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
     use crate::action::FindQuery;
@@ -2063,10 +2055,8 @@ fn snapshot_find_register_vgm_dialog() {
     settled_snapshot(&mut harness, "find_register_vgm_dialog");
 }
 
-/// The hard requirement, end to end: a VGM for chips this app has no core for
-/// can be cropped to a marked region, and undone. Through the menu actions, not
-/// by reaching into the editor -- editing a document is not an OPL idea, and the
-/// gates in front of these actions have to agree.
+/// A VGM for chips this app has no core for can be cropped to a marked region
+/// and undone. Driven through the menu actions, so their gates are exercised too.
 #[test]
 fn a_non_opl_document_can_be_cropped_and_undone() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
@@ -2129,10 +2119,8 @@ fn a_non_opl_document_can_have_a_region_deleted() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
-/// Selecting rows, deleting them and saving the result: the everyday path, and
-/// none of it is an OPL idea. It used to stop at the gate -- every one of these
-/// actions asked for a `Song`, so a document held as a VGM opened in the editor
-/// and then declined to be edited or saved at all.
+/// Selecting rows, deleting them and saving the result on a document held as a
+/// VGM: none of it is an OPL idea, so it works without a `Song`.
 #[test]
 fn a_non_opl_document_can_be_edited_and_saved() {
     let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
@@ -2296,14 +2284,11 @@ fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
     assert_eq!(harness.state().editor.markers.start(), 2);
 }
 
-/// An OPL VGM is a VGM, held as one: opening it and saving it back returns the
-/// file, not a re-spelling of it.
-///
-/// This is what holding every VGM as its own bytes buys. The OPL reader
-/// materialised a song and the writer rebuilt a header from it, so a file whose
-/// header said something unusual -- a longer header, a stale sample total, a
-/// clock this app would not have chosen -- came back changed by the round trip.
-/// Correcting a header is now something the user asks for, by name.
+/// An OPL VGM is held as its own bytes, so opening it and saving it back
+/// returns the file, not a re-spelling of it -- a file whose header says
+/// something unusual (a longer header, a stale sample total, an unusual clock)
+/// survives the round trip unchanged. Correcting a header is a deliberate,
+/// by-name action.
 #[test]
 fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     // A real OPL VGM, with its declared length falsified so a canonicalising
@@ -2464,9 +2449,8 @@ fn a_vgm_this_app_can_play_gets_its_transport_back() {
     assert!(audio.playing);
 }
 
-/// The waveform is no longer an OPL-only panel: a VGM this app can play maps a
-/// click to its own timeline -- selecting the row, moving the readout -- with
-/// no OPL projection in sight.
+/// A VGM this app can play maps a waveform click to its own timeline --
+/// selecting the row, moving the readout -- with no OPL projection in sight.
 #[test]
 fn a_non_opl_vgm_waveform_click_seeks() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
@@ -2609,8 +2593,7 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
     assert!(app.status.contains("Corrected 1"), "{}", app.status);
 }
 
-/// Optimise is no longer OPL-only: a Mega Drive rip with a repeated write
-/// shrinks, undoably.
+/// A Mega Drive rip with a repeated write shrinks, undoably.
 #[test]
 fn a_non_opl_document_can_be_optimised() {
     use dro_core::ChipKind;
@@ -2649,12 +2632,12 @@ fn a_non_opl_document_can_be_optimised() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
-/// The payoff of binding vgmtools: a chip `dro_core` has no rules for, which
-/// the editor can now optimise anyway.
+/// A chip `dro_core` has no optimise rules for, which the editor optimises
+/// anyway via `vgm_cmp`.
 ///
-/// The YMZ280B is the case that used to come back byte for byte -- `latch_rule`
-/// covers the OPL family, the YM2612 and the YM2413, and nothing else. `vgm_cmp`
-/// has a table for about thirty chips, and this is the action reaching it.
+/// The built-in `latch_rule` covers the OPL family, the YM2612 and the YM2413,
+/// and nothing else; the YMZ280B here needs `vgm_cmp`, whose table covers about
+/// thirty chips. This is the action reaching it.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_chip_the_built_in_pass_cannot_touch_is_optimised_in_the_editor() {
@@ -2911,7 +2894,7 @@ fn snapshot_pan_strip_custom() {
 
 #[test]
 fn opening_a_file_over_unsaved_changes_prompts_first() {
-    // H2: opening a file while the editor has unsaved edits holds it behind a
+    // Opening a file while the editor has unsaved edits holds it behind a
     // discard-changes confirm instead of clobbering the song.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.state_mut().editor.selection.select_only(0);
@@ -2942,7 +2925,7 @@ fn opening_a_file_over_unsaved_changes_prompts_first() {
 
 #[test]
 fn opening_a_file_with_no_unsaved_changes_loads_immediately() {
-    // H2: the guard must not prompt when there is nothing to lose.
+    // The guard must not prompt when there is nothing to lose.
     let (mut harness, handles) = harness_with_song(&tone_song());
     assert!(!harness.state().editor.is_dirty());
     let other_name = dual_tone_song().name.clone();
@@ -2961,7 +2944,7 @@ fn opening_a_file_with_no_unsaved_changes_loads_immediately() {
 
 #[test]
 fn exiting_with_unsaved_changes_prompts_then_sets_quitting_on_confirm() {
-    // H2: File > Exit raises the discard-changes confirm rather than quitting;
+    // File > Exit raises the discard-changes confirm rather than quitting;
     // confirming sets the quitting flag (and sends a Close to the viewport).
     let (mut harness, _handles) = harness_with_song(&tone_song());
     harness.state_mut().editor.selection.select_only(0);
@@ -2990,9 +2973,9 @@ fn exiting_with_unsaved_changes_prompts_then_sets_quitting_on_confirm() {
 
 #[test]
 fn a_stray_tab_does_not_disable_the_keyboard() {
-    // Regression (M3): Tab must not move focus onto a chrome button (where the
-    // old egui_wants_keyboard_input gate would swallow every shortcut and Space
-    // would "click" the focused button). Tab is consumed; Space still plays.
+    // Tab must not move focus onto a chrome button, where a keyboard-input gate
+    // would swallow every shortcut and Space would "click" the focused button.
+    // Tab is consumed; Space still plays.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     let len = harness.state().editor.len();
@@ -3231,8 +3214,8 @@ fn editing_a_field_marks_the_pack_dirty() {
 
 #[test]
 fn a_scanned_track_caches_its_table_entry() {
-    // uiwidget-3: the table entry is computed once at scan, not per row per
-    // frame, and matches a fresh computation.
+    // The table entry is computed once at scan, not per row per frame, and
+    // matches a fresh computation.
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
     let state = harness.state();
@@ -3279,8 +3262,8 @@ fn save_package_files_writes_the_txt_and_m3u() {
 
 #[test]
 fn a_failed_package_doc_save_keeps_the_pack_dirty() {
-    // uishell-7: if a package-doc save fails, the dirty flag must be kept, not
-    // cleared when the batch's last doc lands, so the edits aren't lost.
+    // If a package-doc save fails, the dirty flag must be kept, not cleared when
+    // the batch's last doc lands, so the edits aren't lost.
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
     harness.state_mut().pack.as_mut().unwrap().dirty = true;
@@ -3360,8 +3343,8 @@ fn single_track_folder() -> PickedFolder {
 
 #[test]
 fn switching_to_the_pack_tab_stops_editor_playback() {
-    // Regression (M2): the editor's audio must not keep playing under the pack
-    // view. Leaving the editor tab unloads it.
+    // The editor's audio must not keep playing under the pack view. Leaving the
+    // editor tab unloads it.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     open_folder(&mut harness, &handles, cool_game_folder());
@@ -3380,9 +3363,9 @@ fn switching_to_the_pack_tab_stops_editor_playback() {
 
 #[test]
 fn entering_the_pack_tab_closes_song_bound_dialogs() {
-    // Regression (ux-13): Goto and the song-bound modeless dialogs are
-    // editor-only (the menu disables them on the pack tab), so entering the pack
-    // tab must close any that are open.
+    // Goto and the song-bound modeless dialogs are editor-only (the menu
+    // disables them on the pack tab), so entering the pack tab must close any
+    // that are open.
     use crate::dialogs::{FindRegDialog, GotoDialog};
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
@@ -3472,10 +3455,10 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
 
 #[test]
 fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
-    // Regression (H3): a failed preview `load` still tears down the editor's
-    // stream, so the editor's audio revision must be invalidated up front --
-    // otherwise `ensure_audio` short-circuits on the next editor Play and calls
-    // `play()` on an empty output (the "No song is loaded" wedge).
+    // A failed preview `load` still tears down the editor's stream, so the
+    // editor's audio revision must be invalidated up front -- otherwise
+    // `ensure_audio` short-circuits on the next editor Play and calls `play()`
+    // on an empty output (the "No song is loaded" wedge).
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     let editor_name = harness.state().editor.song().unwrap().name.clone();
@@ -3510,10 +3493,10 @@ fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
 
 #[test]
 fn a_failed_preview_play_reloads_the_editor_song_not_the_pack_track() {
-    // Regression (H3): when preview `load` succeeds but `play` fails, the
-    // half-started preview must be unloaded and the revision reset, so the next
-    // editor Play reloads the *editor's* song rather than resuming the pack track
-    // the service still had loaded.
+    // When preview `load` succeeds but `play` fails, the half-started preview
+    // must be unloaded and the revision reset, so the next editor Play reloads
+    // the *editor's* song rather than resuming the pack track the service still
+    // had loaded.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     let editor_name = harness.state().editor.song().unwrap().name.clone();
@@ -3545,9 +3528,9 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_pack_track() {
 
 #[test]
 fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
-    // Regression (M7): File>Open (or a drop) while the pack tab is active must
-    // surface the editor tab and stop any preview, not load invisibly behind
-    // the pack view with a stranded play button.
+    // File>Open (or a drop) while the pack tab is active must surface the editor
+    // tab and stop any preview, not load invisibly behind the pack view with a
+    // stranded play button.
     let (mut harness, handles) = empty_harness();
     open_folder(&mut harness, &handles, single_track_folder());
     assert_eq!(harness.state().active_tab, AppTab::Pack);
@@ -3573,9 +3556,9 @@ fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
 
 #[test]
 fn an_in_place_refresh_keeps_a_playing_preview_by_name() {
-    // Regression (ux-18): a same-folder rescan (e.g. after a screenshot optimise
-    // redelivers the folder) must not cut a running preview -- it re-matches the
-    // preview by file name, even when the rescan reorders the track list.
+    // A same-folder rescan (e.g. after a screenshot optimise redelivers the
+    // folder) must not cut a running preview -- it re-matches the preview by
+    // file name, even when the rescan reorders the track list.
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
@@ -3644,7 +3627,7 @@ fn open_button_loads_the_track_into_the_editor() {
     assert_eq!(harness.state().active_tab, AppTab::Pack);
 
     // The row menu is the discoverable path to the same handler the
-    // double-click drives (wd-9).
+    // double-click drives.
     pack_section(&mut harness, PackSection::Tracks);
     harness.get_by_label("Track menu").click();
     harness.run();
@@ -3972,9 +3955,9 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
 
 #[test]
 fn quick_edit_after_a_reorder_targets_the_track_by_name() {
-    // Regression (H1): a rescan can reorder the name-sorted list while the
-    // quick-edit dialog is open, so the submit re-resolves the track by its
-    // original file name -- never a since-stale index.
+    // A rescan can reorder the name-sorted list while the quick-edit dialog is
+    // open, so the submit re-resolves the track by its original file name --
+    // never a since-stale index.
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
 
@@ -4020,8 +4003,8 @@ fn quick_edit_after_a_reorder_targets_the_track_by_name() {
 
 #[test]
 fn a_rescan_closes_the_open_quick_edit_dialog() {
-    // Regression (H1, defensive): the quick-edit dialog is bound to one track,
-    // so a rescan that can reorder or drop tracks must close it.
+    // The quick-edit dialog is bound to one track, so a rescan that can reorder
+    // or drop tracks must close it.
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, cool_game_folder());
     harness.state_mut().open_track_quick_edit(0);
@@ -4042,9 +4025,9 @@ fn a_rescan_closes_the_open_quick_edit_dialog() {
 
 #[test]
 fn quick_edit_rename_rewrites_only_after_the_rename_lands() {
-    // M1/ux-9: a name change must rename first, then rewrite the target-format
-    // bytes to the NEW path -- so a failed rename can't leave the old file
-    // holding bytes its extension no longer matches.
+    // A name change must rename first, then rewrite the target-format bytes to
+    // the NEW path -- so a failed rename can't leave the old file holding bytes
+    // its extension no longer matches.
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, single_track_folder());
 
@@ -4344,8 +4327,7 @@ fn the_screenshot_inspector_reports_what_the_png_header_says() {
     open_folder(&mut harness, &handles, complete_folder());
     pack_section(&mut harness, PackSection::Screenshots);
 
-    // Dimensions are the fact most likely to be wrong on a submission, and the
-    // app never used to show them at all.
+    // Dimensions are the fact most likely to be wrong on a submission.
     let _ = harness.get_by_label_contains("320");
     let _ = harness.get_by_label_contains("VGA mode 13h");
     let _ = harness.get_by_label_contains("8-bit palette");
@@ -5083,7 +5065,7 @@ fn snapshot_pack_meta_long_value() {
 #[test]
 fn snapshot_pack_view_scrolled() {
     // A short viewport, so the section overflows and the outer scrollbar appears --
-    // framed with the sunken well bevel, flush to the panel edge (wd-13).
+    // framed with the sunken well bevel, flush to the panel edge.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 460.0));
     open_folder(&mut harness, &handles, complete_folder());
     harness.run();
@@ -5153,9 +5135,9 @@ fn snapshot_export_warning_dialog() {
 #[test]
 fn snapshot_pack_checklist_narrow() {
     // The app's own default window width. The checklist's longest messages run
-    // past 90 characters, and an extending line used to overflow the panel and
-    // be drawn straight over the scrollbar, burying the handle -- so this guards
-    // that they wrap.
+    // past 90 characters; an extending line that does not wrap overflows the
+    // panel and is drawn over the scrollbar, burying the handle. This guards the
+    // wrap.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(800.0, 600.0));
     open_folder(&mut harness, &handles, dirty_folder());
     pack_section(&mut harness, PackSection::Checklist);
@@ -5767,7 +5749,7 @@ fn snapshot_bulk_tag_dialog() {
     settled_snapshot(&mut harness, "bulk_tag_dialog");
 }
 
-// -- loop points (lp-4) ------------------------------------------------------
+// -- loop points -------------------------------------------------------------
 
 /// Drives one action through the app the way the frame loop would.
 fn act(harness: &mut Harness<'static, DroApp>, action: Action) {
@@ -6219,8 +6201,8 @@ fn snapshot_loop_overlay() {
 
 #[test]
 fn an_applied_loop_is_guarded_by_the_discard_prompt() {
-    // The metadata half of H2: a loop region is deliberate work, and before this
-    // an Open would have thrown it away without a word.
+    // The metadata half of the discard guard: a loop region is deliberate work,
+    // so an Open over it must prompt rather than throw it away.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.state_mut().editor.convert_to_vgm().unwrap();
     act(&mut harness, Action::SetLoopStart(1));
@@ -6265,7 +6247,7 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
     assert_eq!(waveform_action(7, 500, true, false), None);
 }
 
-// -- find loop (lf-3) --------------------------------------------------------
+// -- find loop ---------------------------------------------------------------
 
 #[test]
 fn find_loop_is_offered_for_both_dro_and_vgm() {
@@ -6489,7 +6471,7 @@ fn with_no_song_no_format_specific_items_show() {
     assert!(convert_menu_items(&mut harness).is_empty());
 }
 
-// -- Optimize VGM (cmp-3) ----------------------------------------------------
+// -- Optimize VGM ------------------------------------------------------------
 
 #[test]
 fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
@@ -6659,9 +6641,8 @@ fn dro_info_offers_editing_when_the_setting_is_on() {
 
 #[test]
 fn clicking_a_settings_caption_toggles_its_checkbox() {
-    // The caption used to be inert text, so clicking the words did nothing and
-    // only the small box itself worked -- which reads as a setting that does
-    // not work at all.
+    // Clicking the caption words, not just the small box, must toggle the
+    // setting -- an inert caption reads as a setting that does not work.
     let (mut harness, handles) = harness_with_song(&tone_song());
     assert!(!harness.state().config.ui.dro_info_edit_enabled);
 

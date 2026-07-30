@@ -263,9 +263,9 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
     // pins it to the band's top-left, the same way the app's track-edit
     // snapshot places its dialog.
     //
-    // Goto, not Settings: every other dialog is a modal now, and a modal would
+    // Goto, not Settings: every other dialog is a modal, and a modal would
     // lay its dimming backdrop over the entire showcase. Its frame is the same
-    // window fill this covers, and the widgets the Settings grid used to bring
+    // window fill this covers, and the widgets a Settings grid would bring
     // (dropdowns, text edits, checkboxes) each have their own section above.
     let area = egui::Rect::from_min_max(
         egui::pos2(24.0, dialog_top),

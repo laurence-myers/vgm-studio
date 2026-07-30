@@ -270,16 +270,14 @@ pub fn command_size(bytes: &[u8], version: u32) -> Result<usize> {
     };
     let size = match opcode {
         // A zero byte is not a command; the spec assigns `0x00` no length at
-        // all. It is what padding looks like, and real rips carry it: five
-        // files in the local corpus stop dead on one -- twelve zeros before the
-        // first command of a Mega Drive rip, and a single stray zero before the
-        // end marker of four Ys II Special rips.
+        // all. It is what padding looks like, and real rips carry it (a run of
+        // zeros before the first command, or a stray zero before the end
+        // marker).
         //
-        // Skipping it is safe *because* the walk is self-checking: if this were
-        // a desynchronised stream rather than padding, the bytes after it would
-        // not walk cleanly to an end marker, and the file would be rejected on
-        // the next undefined opcode instead. Every other undefined byte still
-        // stops the walk.
+        // Skipping it is safe *because* the walk is self-checking: a
+        // desynchronised stream would not walk cleanly to an end marker and
+        // would be rejected on the next undefined opcode. Every other undefined
+        // byte still stops the walk.
         PADDING => 1,
         0x30..=0x3F => 2,
         // Reserved, and Mikey at 0x40 from v1.72. One operand before v1.60,
@@ -376,11 +374,7 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
         // six bits go to a dedicated mask function, bit 6 retargets the whole
         // command at a YM2203's SSG section, and bit 7 is the second chip. It
         // rides on [`STEREO_PORT`] so a core that models none of it (both of
-        // ours are mono) can ignore the port instead of eating a register
-        // write. Until 2026-07-29 this decoded as "AY register 1" -- channel
-        // A's coarse period -- which detuned a real voice on every one of the
-        // corpus's 100 masks, and sent the YM2203-flagged and second-chip
-        // halves (30 and 50 of the 100) to a chip the command does not name.
+        // ours are mono) can ignore the port instead of eating a register write.
         0x31 => {
             let kind = if byte(1) & 0x40 == 0 {
                 ChipKind::Ay8910
@@ -413,16 +407,6 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
         // first operand -- and the value is twelve bits, its high nibble in
         // bits 3-0 and its low byte in the second operand (big-endian). Bit 7
         // is the second chip, as the rest of the range has it.
-        //
-        // Reading it as `aa dd` -- which this did until 2026-07-29 -- scrambles
-        // both fields at once: register 2 with a value high-nibble of 1
-        // (`ad` = 0x21) decodes as "register 0x21", which a core masking to
-        // the nibble reads as the *cycle* register, and every value loses its
-        // top four bits. That is not an edge case, it is the whole stream:
-        // 229.0M of the corpus's 229.3M PWM writes carry a non-zero value
-        // nibble, and 54.6M of them landed on the cycle register --
-        // `cores::Pwm` has documented this exact layout at its `write` since
-        // the day it was written, and the decoder never delivered it.
         0xB2 => write(
             second_if(ChipTarget::first(ChipKind::Pwm), byte(1)),
             u16::from((byte(1) >> 4) & 0x07),
@@ -449,45 +433,16 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
         // the 16-bit-address range that addresses nothing at all -- so it is
         // decoded here rather than below, where every field would be a lie.
         //
-        // **`cc` is a bank mask, not a channel.** The spec calls it "channel
-        // cc" and the corpus says otherwise: across all 72,481 files `0xC3`
-        // appears 296 times in 175 files, and `cc` is only ever `0x01`, `0x02`
-        // or `0x03` -- one bit per 512 KiB bank, exactly as upstream reads it
-        // (`Cmd_YMW_Bank` takes `fData[0x01] & 0x03`). A 28-voice chip whose
-        // channel number never exceeds three is not a channel number. `bbaa`
-        // is a little-endian bank offset in 64 KiB units; `aa` is zero in every
-        // one of those 296 commands, which is why upstream can ignore it and
-        // say so ("we don't support YMW258 ROMs > 16 MB"). It is kept whole
-        // here anyway: dropping a byte the command carries is the decoder's
-        // business to avoid, and a write rule is free to narrow it later.
-        //
-        // **Why a port rather than an address.** The mask and the offset are
-        // two operands and `Write` has two, but neither is an address, so
-        // packing them into `addr` (as this did until 2026-07-29 -- `addr` was
-        // `(bb << 8) | cc` and `data` was `aa`) leaves a command that is
-        // information-preserving and means nothing: the channel byte sat in the
-        // low bits of an "address" and the offset was split across both fields.
-        // The port already carries "which space of this chip" for the
-        // register-versus-memory pairs ([`MEMORY_PORT`]), so the bank file
-        // takes [`BANK_PORT`] and the two operands go back to meaning what the
-        // command says -- `addr` the mask, `data` the offset. A dedicated
-        // variant was the alternative and buys nothing: every consumer of
-        // `Write` (the state fold, the engine, the row labels) wants exactly
-        // what a write wants, and `ChipCore::write` is the only path into a
-        // core, so a variant would be lowered back to (port, addr, data) one
-        // layer down and the encoding question would just be asked twice.
-        //
-        // What the old layout cost, on both cores: the clean-room one read
-        // `addr << 16` as the offset and so banked to `0x1003_0000` where the
-        // file said `0x10_0000`, throwing every banked sample past the end of
-        // the ROM -- and this core kills a voice whose fetch misses. The
-        // libvgm binding had no bank rule at all, so `write8(cc, aa)` landed on
-        // its *register* file, where `cc` of 1 and 2 are the slot and register
-        // selects: 96 of the 296 commands silently retargeted the next write.
+        // `cc` is a bank mask, not a channel (one bit per 512 KiB bank, as
+        // upstream's `Cmd_YMW_Bank` reads it: `fData[0x01] & 0x03`), and `bbaa`
+        // is a little-endian bank offset in 64 KiB units. Neither operand is an
+        // address, so rather than pack them into `addr`, the bank file takes its
+        // own [`BANK_PORT`] (as the register/memory pairs use [`MEMORY_PORT`])
+        // and the two operands mean what the command says: `addr` the mask,
+        // `data` the offset.
         0xC3 => {
             // Upstream reads the second instance from bit 7 of this byte, not
-            // from bit 15 of an address -- there is no address. Inert on this
-            // corpus (bit 7 is never set) and correct regardless.
+            // from bit 15 of an address -- there is no address.
             let target = second_if(ChipTarget::port(ChipKind::MultiPcm, BANK_PORT), byte(1));
             write(target, u16::from(byte(1) & 0x03), word(2))
         }
@@ -496,25 +451,15 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             // the bank select and the QSound having taken their own arms above.
             // The spec switches byte order mid-range: `0xC0`-`0xC2` write their
             // address as `bbaa` (little-endian), `0xC5`-`0xC8` as `mmll`
-            // (big-endian) -- the X1-010's corpus streams arbitrated, exactly as
-            // the C352's did for `0xE1`.
+            // (big-endian).
             //
-            // Nothing here marks its second instance in bit 7 of the *first
-            // byte*, the way the rest of the write range does: this range marks
-            // it in bit 15 of the *assembled address*, which is the byte the
-            // `0x7FFF` mask below clears. So which byte carries the flag
-            // follows the byte order -- byte 2 for the little-endian half, byte
-            // 1 for the big-endian one. Upstream states this twice, once per
-            // convention (`Cmd_SegaPCM_Mem` tests `fData[0x02]`,
-            // `Cmd_Ofs16_Data8` tests `fData[0x01]`); assembling the address
-            // first says it once, and cannot drift from the mask.
-            //
-            // Reading it from byte 2 across the whole range -- which this did
-            // until 2026-07-29 -- silently retargets any big-endian write whose
-            // *low* address byte happens to have bit 7 set. That is not an edge
-            // case: 43.7% of the corpus's X1-010 writes and 25.2% of its
-            // WonderSwan RAM writes land there, and the engine drops a write to
-            // an instance the header never declared.
+            // The second instance is marked in bit 15 of the *assembled
+            // address* (the byte the `0x7FFF` mask below clears), not in bit 7
+            // of the first operand as the rest of the write range does -- so
+            // which byte carries the flag follows the byte order. Assembling the
+            // address first means the flag cannot drift from the mask. Upstream
+            // states it per convention: `Cmd_SegaPCM_Mem` tests `fData[0x02]`,
+            // `Cmd_Ofs16_Data8` tests `fData[0x01]`.
             let address = if opcode >= 0xC5 {
                 (u16::from(byte(1)) << 8) | u16::from(byte(2))
             } else {
@@ -526,16 +471,11 @@ pub fn decode(bytes: &[u8]) -> VgmCommand {
             }
             let addr = address & 0x7FFF;
             // `0xC1`/`0xC2` are the RF chips' direct *memory* pokes, where
-            // `0xB0`/`0xB1` carry their register writes -- and the two
-            // address spaces overlap from a core's point of view. The port
-            // is this library's own convention, so it carries the
-            // distinction: registers on port 0, memory on [`MEMORY_PORT`].
-            // So is `0xC6`, the WonderSwan's wave RAM against `0xBC`'s
-            // registers, which this left on port 0 until 2026-07-29:
-            // `cores::WonderSwan` has always documented port 1 as its memory
-            // path, so every wave-RAM poke in the corpus's 266 rips was being
-            // read as a register write and the wave RAM never filled -- four
-            // channels reading a constant.
+            // `0xB0`/`0xB1` carry their register writes -- and the two address
+            // spaces overlap from a core's point of view. The port carries the
+            // distinction (this library's own convention): registers on port 0,
+            // memory on [`MEMORY_PORT`]. `0xC6`, the WonderSwan's wave RAM
+            // against `0xBC`'s registers, is the same shape.
             if matches!(opcode, 0xC1 | 0xC2 | 0xC6) {
                 target.port = MEMORY_PORT;
             }
@@ -1218,10 +1158,7 @@ mod tests {
 
     /// The flag is bit 15 of the *assembled* address, so it moves between bytes
     /// with the byte order: byte 2 for `0xC0`'s little-endian address, byte 1
-    /// for `0xC5`-`0xC8`'s big-endian one. Reading byte 2 across the whole
-    /// range instead sent every big-endian write with a high low-byte to a
-    /// second instance that mostly does not exist -- 43.7% of the corpus's
-    /// X1-010 writes, which the engine then dropped.
+    /// for `0xC5`-`0xC8`'s big-endian one.
     #[test]
     fn a_high_low_address_byte_is_an_address_not_a_second_chip() {
         // Little-endian: the low byte comes first, and its top bit is address.
@@ -1260,10 +1197,7 @@ mod tests {
 
     /// `0xB2 ad dd` is upstream's `Cmd_Ofs4_Data12`: a nibble register in bits
     /// 6-4 and a twelve-bit value split across the low nibble and the second
-    /// byte, big-endian. The layout `cores::Pwm::write` has always documented
-    /// -- reading it as the range's usual `aa dd` sent register 2 writes with
-    /// a non-zero value nibble to "register 0x21", which the core's nibble
-    /// mask reads as the *cycle*, and threw away the value's top four bits.
+    /// byte, big-endian -- not the range's usual `aa dd`.
     #[test]
     fn the_pwm_write_is_a_nibble_register_and_a_12_bit_value() {
         // "left duty <- 0x2FF" is `B2 22 FF`.
@@ -1284,8 +1218,6 @@ mod tests {
 
     /// `0x31 dd` is `Cmd_AY_Stereo`: a six-bit mask on its own port, with bit
     /// 6 choosing a YM2203's SSG over the AY8910 and bit 7 the second chip.
-    /// Decoding it as "AY register 1" -- which this did until 2026-07-29 --
-    /// detuned channel A's coarse period with every mask.
     #[test]
     fn the_ay_stereo_mask_is_a_player_instruction_not_a_register_write() {
         let VgmCommand::Write { target, addr, data } = decode(&[0x31, 0x25]) else {
@@ -1313,10 +1245,7 @@ mod tests {
     /// `0xC3 cc bbaa` is a bank select, not an addressed write: `cc` is a mask
     /// naming which of the MultiPCM's two 512 KiB banks to move (upstream's
     /// `Cmd_YMW_Bank` takes `fData[0x01] & 0x03`) and `bbaa` is a little-endian
-    /// offset in 64 KiB units. Assembling them the way the rest of the range
-    /// does -- an address word from bytes 1-2, data from byte 3 -- puts the
-    /// mask in the low bits of an "address" and splits the offset across both
-    /// fields, which is information-preserving and means nothing.
+    /// offset in 64 KiB units.
     #[test]
     fn the_multipcm_bank_select_keeps_its_mask_and_its_offset_apart() {
         // Daytona USA's, and 125 of the corpus's 296 bank commands: both banks
@@ -1601,7 +1530,7 @@ mod tests {
     #[test]
     fn the_opl_stream_decodes_the_same_way_the_editor_reads_it() {
         // The OPL reader's own opcodes, through the generic table: same chips,
-        // same waits. This is the projection mc-5 leans on.
+        // same waits. This is the projection the OPL editor leans on.
         let stream = VgmStream::parse(
             vec![
                 0x5A,

@@ -1,18 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! GPL-licensed emulator cores, compiled from pinned upstream submodules.
 //!
-//! **The third tier of the licence split**, and the reason it exists: some of
-//! the most faithful emulation of these chips is GPL-2, the application is
-//! GPL-2.0-or-later precisely so it can link that, and neither `dro-synth`
-//! (`MIT OR Apache-2.0`) nor `dro-cores-nuked` (LGPL-2.1-or-later) may carry it
-//! without becoming something else. So it lives here, in a leaf crate only the
-//! application depends on.
-//!
-//! Everything else is as `dro-cores-nuked`: submodules under
-//! `vendor/upstream/` pinned to a commit and compiled **unmodified**, glue in
-//! `shim/`, and no upstream struct mirrored on the Rust side. See
-//! `crates/dro-synth/PROVENANCE.md` for the per-core record and
-//! `licenses/README.md` for the split.
+//! The third tier of the licence split: the most faithful emulation of these
+//! chips is GPL-2, so it lives in a leaf crate only the application depends on,
+//! kept out of `dro-synth` (`MIT OR Apache-2.0`) and `dro-cores-nuked`
+//! (LGPL-2.1-or-later). Submodules under `vendor/upstream/` are pinned and
+//! compiled unmodified, with glue in `shim/` and no upstream struct mirrored.
+//! See `crates/dro-synth/PROVENANCE.md` and `licenses/README.md`.
 
 mod ffi;
 mod lle_opm;
@@ -29,11 +23,9 @@ pub use psg::Sn76489Nuked;
 
 /// Adds every core here to the registry.
 ///
-/// The provider convention: this crate depends on `dro-synth` for the traits
-/// and the registry, and `dro-synth` names no provider. Registration order is
-/// priority order, so a core that should be a picker *alternative* rather
-/// than the default -- Nuked-PSG, behind the clean-room SN76489 -- relies on
-/// the builtins registering first.
+/// Registration order is priority order, so a core that should be a picker
+/// *alternative* rather than the default (Nuked-PSG, behind the clean-room
+/// SN76489) relies on the builtins registering first.
 pub fn register(registry: &mut dro_synth::CoreRegistry) {
     for chip in opll::CHIPS {
         registry.register(dro_synth::CoreInfo {
@@ -128,11 +120,10 @@ mod tests {
         assert!(registry.can_build(ChipKind::Ym2413));
     }
 
-    /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers
-    /// first (the 2026-07-29 redirect) and takes the SN76489's default; the
-    /// die trace is of one specific part -- the Sega VDP's -- and stays a
-    /// flavour beside it. This crate can only assert its own half of that:
-    /// the row is on the list.
+    /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers first
+    /// and takes the SN76489's default; the die trace is of one specific part
+    /// (the Sega VDP's) and stays a flavour beside it. This crate asserts only
+    /// its own half of that: the row is on the list.
     #[test]
     fn nuked_psg_is_offered() {
         let mut registry = dro_synth::CoreRegistry::with_builtins();

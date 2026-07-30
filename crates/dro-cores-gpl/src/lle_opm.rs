@@ -1,33 +1,24 @@
 //! YM2151-LLE as a [`ChipCore`]: the die itself, clocked pin by pin.
 //!
-//! **The LLE tier.** Nuke.YKT's very-low-level emulators simulate the chip
-//! from its decapped die shot -- not an emulation of the chip's behaviour but
-//! of its silicon, gate by gate. What that buys is an *oracle*: an output to
-//! measure the fast cores against that is right by construction rather than
-//! by testing. What it costs is speed -- this runs the master clock two
-//! edges at a time through a die-sized function, far too slow to promise
-//! real-time everywhere -- so the registry entry says `realtime: false` and
-//! the core exists for offline render and the oracle diff, not the default
-//! playback path.
+//! Nuke.YKT's very-low-level emulators simulate the chip from its decapped die
+//! shot, gate by gate, which buys an oracle to measure the fast cores against.
+//! It costs speed -- the master clock runs two edges at a time through a
+//! die-sized function -- so the registry entry is `realtime: false` and the
+//! core is for offline render and the oracle diff, not playback.
 //!
 //! # Driving a die instead of an API
 //!
-//! There is no `write()` in the upstream; there is a bus. A register write
-//! asserts chip-select and write-strobe (both active low) with the byte on
-//! the data pins, holds them across a few master clocks, releases them, and
-//! then leaves the chip alone long enough to latch it internally -- the same
-//! contract a Z80 on an arcade board honours, enforced here by a pin-level
-//! state machine rather than a queue of abstractions.
+//! There is no `write()` upstream; there is a bus. A register write asserts
+//! chip-select and write-strobe (both active low) with the byte on the data
+//! pins, holds them across a few master clocks, releases them, then leaves the
+//! chip alone long enough to latch it -- enforced here by a pin-level state
+//! machine.
 //!
-//! Audio leaves the package the way it left the real one: as a serial bit
-//! stream on the `SO` pin, framed by the two sample-and-hold strobes, in the
-//! YM3012 DAC's floating-point format -- a ten-bit two's-complement mantissa
-//! (LSB first on the wire) and a three-bit exponent. The decode to linear
-//! PCM here is the wrapper's, from the YM3012 datasheet; if it is wrong, the
-//! oracle diff against Nuked-OPM (0.9991 against the reference player)
-//! will not politely disagree, it will collapse -- which makes the shipping
-//! core the validation of the oracle harness before the harness is trusted
-//! anywhere it is needed.
+//! Audio leaves as a serial bit stream on the `SO` pin, framed by the two
+//! sample-and-hold strobes, in the YM3012 DAC's floating-point format: a
+//! ten-bit two's-complement mantissa (LSB first on the wire) and a three-bit
+//! exponent. The decode to linear PCM here is the wrapper's, from the YM3012
+//! datasheet.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
@@ -46,14 +37,9 @@ const WRITE_HOLD: u32 = 8;
 
 /// Master clocks of silence on the bus after a write before the next.
 ///
-/// Hold + recover is 64 master clocks a byte -- 128 a register pair --
-/// which is deliberately **Nuked-OPM's pacing**, not a hardware-measured
-/// BUSY window. The oracle diff subtracts the two cores from each other, so
-/// what matters is that both hear a write burst spread over the *same*
-/// samples; a generous 168-clock bus here put every note-on twenty-odd
-/// samples late relative to the fast core, skewing with write density --
-/// unabsorbable by any global lag, and worth 0.2-0.4 of correlation on
-/// burst-heavy files before it was matched.
+/// Hold + recover is 64 master clocks a byte (128 a register pair): deliberately
+/// Nuked-OPM's pacing, not a hardware BUSY window, so both cores spread a write
+/// burst over the same samples and the oracle diff lines up.
 const WRITE_RECOVER: u32 = 56;
 
 /// Master clocks with `IC` held low at reset -- the datasheet asks for at
@@ -91,15 +77,11 @@ pub struct Ym2151Lle {
 
 /// Taps the serial stream and cuts words at a strobe's falling edges.
 ///
-/// The strobe window is *shorter than the word*: the serial clock is half
-/// the master clock, so thirteen serial bits span 26 master clocks against
-/// the strobe's 16 -- the word runs into its window from behind, and the
-/// only edge that means anything is the falling one, which marks the word's
-/// end. So the tap just remembers the recent stream and decodes backwards
-/// from each falling edge. (Found with a probe on the pins, not read in a
-/// datasheet: the doubled bits in the captured stream are what said the
-/// serial clock was master/2, and the idle word decoding to exactly zero is
-/// what pinned the alignment.)
+/// The strobe window is *shorter than the word*: the serial clock is half the
+/// master clock, so thirteen serial bits span 26 master clocks against the
+/// strobe's 16 -- the word runs into its window from behind, and only the
+/// falling edge means anything, marking the word's end. So the tap remembers
+/// the recent stream and decodes backwards from each falling edge.
 #[derive(Debug, Default, Clone, Copy)]
 struct DacCapture {
     strobe_was_high: bool,
@@ -120,20 +102,13 @@ impl DacCapture {
 
 /// The last serial word before a strobe's falling edge, to linear PCM.
 ///
-/// Each serial bit occupies two master clocks, and the edge trails the word
-/// by one master bit -- so serial bit `i` back from the edge sits at stream
-/// bit `2i + 1`. The wire order is mantissa first, LSB first, then the
-/// exponent: reading *backwards* from the edge gives E2 E1 E0, then D9 down
-/// to D0. The mantissa is offset binary -- 512 is zero, which is exactly
-/// what the idle chip transmits (mantissa 512, exponent 1) -- and linear is
-/// `(mantissa - 512) << (exponent - 1)`, full scale `+-511 << 6`.
-///
-/// The exponent direction was settled empirically, twice. The idle word
-/// cannot arbitrate it (a zero mantissa is zero under either reading), so
-/// both were run against the corpus: amplifying with the exponent gave
-/// envelope agreement 1.00 with the shipping core; attenuating with it gave
-/// envelope 0.5, pitch drift, and half the correlation. The die transmits
-/// louder samples with larger exponents.
+/// Each serial bit occupies two master clocks, and the edge trails the word by
+/// one master bit -- so serial bit `i` back from the edge sits at stream bit
+/// `2i + 1`. The wire order is mantissa first, LSB first, then the exponent:
+/// reading *backwards* from the edge gives E2 E1 E0, then D9 down to D0. The
+/// mantissa is offset binary (512 is zero, what the idle chip transmits) and
+/// linear is `(mantissa - 512) << (exponent - 1)`, full scale `+-511 << 6`.
+/// The die transmits louder samples with larger exponents.
 fn decode_ym3012(stream: u32) -> i32 {
     let bit = |i: u32| ((stream >> (2 * i + 1)) & 1) as i32;
     let exponent = (bit(0) << 2) | (bit(1) << 1) | bit(2);
@@ -259,9 +234,8 @@ impl ChipCore for Ym2151Lle {
                 self.master_clock(LlePins::default());
             }
             // SH1 frames the right channel's word, SH2 the left's, as the
-            // YM3012 datasheet wires them. The doubling matches Nuked-OPM's
-            // calibrated OUTPUT_GAIN = 2, so the oracle diff reads level 1.0
-            // between the two rather than a distracting 2.0.
+            // YM3012 datasheet wires them. Doubling matches Nuked-OPM's
+            // OUTPUT_GAIN = 2 so the oracle diff reads level 1.0.
             frame[0] = self.held[1] * 2;
             frame[1] = self.held[0] * 2;
         }

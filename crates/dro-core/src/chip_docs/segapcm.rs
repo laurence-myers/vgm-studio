@@ -9,7 +9,7 @@
 //! selects the channel, `addr & 0x07` the byte within the slot -- with bit 7
 //! flipping to the control mirror that carries the playback address and the
 //! bank/loop/key byte. Docs are therefore keyed on `addr & 0x87` and name
-//! the role, never the channel, exactly as the OPL tables do.
+//! the role, never the channel.
 
 use super::{RegisterDoc, bf};
 

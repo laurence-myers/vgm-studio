@@ -1,13 +1,12 @@
 //! OPL family (YM3526, YM3812, Y8950, YMF262) register documentation for the
 //! *multichip* table.
 //!
-//! An OPL-only VGM never reaches this module -- it opens through the OPL
-//! projection and uses [`regdata`](crate::regdata) as it always has. What
-//! does reach it is the mixed file: an OPL beside a PCM chip, or an OPL VGM
-//! carrying data blocks the projection refuses. For those rows this module
-//! restates `regdata`'s tables in [`RegisterDoc`] shape (same sources:
-//! shipbrook.com, shikadi.net) -- and a test pins every entry against
-//! `regdata`, so the two cannot drift apart.
+//! An OPL-only VGM never reaches this module -- it uses
+//! [`regdata`](crate::regdata) through the OPL projection. What reaches here
+//! is the mixed file: an OPL beside a PCM chip, or an OPL VGM carrying data
+//! blocks the projection refuses. This module restates `regdata`'s tables in
+//! [`RegisterDoc`] shape (same sources: shipbrook.com, shikadi.net), and a
+//! test pins every entry against `regdata` so the two cannot drift.
 //!
 //! Addressing: `port` is the OPL3's register bank (the projection's "high
 //! bank" is port 1 here); the Y8950's ADPCM registers (0x07-0x15) are its

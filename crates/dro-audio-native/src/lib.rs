@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! Native audio output: a cpal stream driven by the pull-based [`PlayerEngine`].
 //!
-//! Replaces PyAudio. The engine lives *inside* the cpal callback -- OPL emulation
-//! is far faster than real time, so there is no separate render thread and no
-//! ring buffer of PCM to underrun. Control (seek, mute, rewind) reaches the
-//! callback through a lock-free SPSC queue drained at the top of each callback,
-//! and the playback position flows back through atomics. Nothing locks in the
-//! audio path.
+//! The engine lives *inside* the cpal callback -- OPL emulation is far faster
+//! than real time, so there is no separate render thread and no ring buffer of
+//! PCM to underrun. Control (seek, mute, rewind) reaches the callback through a
+//! lock-free SPSC queue drained at the top of each callback, and the playback
+//! position flows back through atomics. Nothing locks in the audio path.
 //!
 //! Native only: `cpal` cannot target `wasm32-unknown-unknown`. The web build
-//! plays through an `AudioWorkletProcessor` instead (Step 9), calling the same
+//! plays through an `AudioWorkletProcessor` instead, calling the same
 //! `PlayerEngine::render`.
 
 use std::fmt;
@@ -40,10 +39,10 @@ pub enum AudioError {
 
 /// A control message posted from the UI thread into the audio callback.
 ///
-/// Not `Copy`: the chip mute/pan variants own a small `Vec` (one entry per chip
-/// instance). Toggling a channel is a rare, user-driven event, so the move --
-/// and the drop of the value it replaces in the engine -- is off the per-buffer
-/// hot path; the OPL `Muting`/`Panning` variants stay allocation-free as before.
+/// Not `Copy`: the chip mute/pan variants own a small `Vec` (one per chip
+/// instance). Toggling a channel is rare and user-driven, so that move is off
+/// the per-buffer hot path; the OPL `Muting`/`Panning` variants stay
+/// allocation-free.
 #[derive(Debug, Clone)]
 enum Command {
     SeekMs(u32),
@@ -167,11 +166,10 @@ impl NativeAudio {
         let engine = match source {
             AudioSource::Opl(song) => {
                 // The chosen core, or the registry's default if this build
-                // does not have it -- a config naming `retrowave` reaches here
-                // whenever the board could not be opened, and falling back
-                // beats refusing to play. The registry-side choice is asked
-                // first: it tracks the config everywhere and runs ahead of it
-                // while the Settings picker is auditioning a core.
+                // lacks it (a config naming `retrowave` reaches here when the
+                // board could not be opened; falling back beats refusing to
+                // play). The registry-side choice is asked first, since it runs
+                // ahead of the config while the Settings picker auditions a core.
                 let registry_choice =
                     dro_synth::registry::core_choice(dro_core::vgm::ChipKind::Ymf262);
                 let chip = dro_synth::registry::registry()
@@ -391,10 +389,9 @@ impl fmt::Debug for NativeAudio {
 /// rather than an error: a mute command arriving for a Mega Drive rip means the
 /// UI has not caught up, not that anything is wrong.
 enum Engine {
-    /// Boxed `dyn OplChip` rather than a concrete core: which OPL emulator
-    /// plays is the user's choice now, made in Settings and resolved from the
-    /// registry at `load()`. That is also the whole contract -- a core swap
-    /// applies to the next load, never to a stream already running.
+    /// Boxed `dyn OplChip` rather than a concrete core: which OPL emulator plays
+    /// is the user's choice, made in Settings and resolved from the registry at
+    /// `load()`. A core swap applies to the next load, never to a running stream.
     Opl(Box<PlayerEngine<Arc<Song>, Box<dyn OplChip>>>),
     Vgm(Box<VgmEngine>),
 }

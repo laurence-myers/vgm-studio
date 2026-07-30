@@ -1,16 +1,12 @@
 //! Nuked-CQM as an [`OplChip`]: the OPL3 clone Creative shipped in the SB16
 //! Vibra and the AWE64.
 //!
-//! Not a more accurate YMF262 -- Nuked-OPL3 is that. The CQM is a *different
-//! chip* that answers to the same registers, and it does not sound identical:
-//! it is what a large number of people who owned a Sound Blaster in the
-//! nineties actually heard. That makes it an authenticity option beside the
-//! reference core, which is why it registers second.
-//!
-//! **The interface is the same shape as Nuked-OPL3's**, deliberately so on
-//! upstream's part: reset takes an output rate, writes come in immediate and
-//! buffered flavours, and a stream call fills interleaved stereo. That includes
-//! the buffered path, which matters more than it looks -- see below.
+//! Not a more accurate YMF262 (Nuked-OPL3 is that) but a *different chip* that
+//! answers to the same registers and does not sound identical -- what many
+//! Sound Blaster owners actually heard -- so it registers second as an
+//! authenticity option. The interface is the same shape as Nuked-OPL3's: reset
+//! takes an output rate, writes come immediate and buffered, and a stream call
+//! fills interleaved stereo.
 
 use dro_synth::OplChip;
 
@@ -30,8 +26,7 @@ const NATIVE_RATE: u32 = 49_716;
 #[derive(Debug)]
 pub struct CqmOpl3 {
     chip: CqmChip,
-    /// The output rate it was last reset at. Kept for the `Debug` line, which
-    /// is what a log says when playback comes out at the wrong pitch.
+    /// The output rate it was last reset at, kept for the `Debug` line.
     rate: u32,
 }
 
@@ -58,17 +53,14 @@ impl OplChip for CqmOpl3 {
         self.chip.write_reg(reg, value);
     }
 
-    /// **This core has the same write-buffer semantics as Nuked-OPL3**, which
-    /// is what makes it safe to drop into `PlayerEngine` unchanged.
+    /// Same write-buffer semantics as Nuked-OPL3, so it drops into
+    /// `PlayerEngine` unchanged.
     ///
-    /// The engine spaces queued writes a couple of samples apart during
-    /// generation, because Nuked resolves key-on/off edges at sample-generation
-    /// time -- two writes with no samples between them collapse to their net
-    /// state and a fast retrigger is silently dropped. That is a property of
-    /// the *design* both cores share, not of Nuked's implementation: upstream
-    /// CQM has its own `writebuf` ring with the same two-sample delay
-    /// (`CQM_WRITEBUF_DELAY`). So the engine's spacing is right for this core
-    /// too, and the retrigger test covers it here as it does there.
+    /// Both cores resolve key-on/off edges at sample-generation time, so two
+    /// writes with no samples between them collapse and a fast retrigger is
+    /// dropped; the engine spaces queued writes a couple of samples apart to
+    /// avoid it. Upstream CQM has its own `writebuf` ring with the same
+    /// two-sample delay (`CQM_WRITEBUF_DELAY`), so that spacing is right here too.
     fn write_reg_buffered(&mut self, reg: u16, value: u8) {
         self.chip.write_reg_buffered(reg, value);
     }
@@ -127,23 +119,16 @@ mod tests {
         );
     }
 
-    /// **The property `PlayerEngine`'s buffered path depends on**, checked here
-    /// because the engine's write spacing was written for Nuked-OPL3 and this
-    /// is a different chip behind the same registers.
+    /// The property `PlayerEngine`'s buffered path depends on, checked because
+    /// the engine's write spacing was written for Nuked-OPL3 and this is a
+    /// different chip behind the same registers.
     ///
     /// Both cores resolve key-on/off edges when they generate samples, so a
-    /// key-off and key-on with nothing rendered between them collapse to their
-    /// net state ("still on") and the note is not restruck. The buffered path
-    /// spreads queued writes a couple of samples apart so the envelope sees the
-    /// 0->1 edge. Upstream CQM has its own `writebuf` ring with the same
-    /// two-sample delay, and this says so in behaviour rather than by reading
-    /// the header: the engine needs no CQM-specific handling.
-    ///
-    /// Deliberately the same shape as `dro-synth`'s Nuked-OPL3 test, down to
-    /// the percussive envelope: the note must decay to near-silence *before*
-    /// the retrigger, or a re-attack and a note still sounding at full level
-    /// carry the same energy and the test proves nothing. (It was written the
-    /// other way first, and duly passed for both paths at 0.04% apart.)
+    /// key-off then key-on with nothing rendered between them collapse to "still
+    /// on" and the note is not restruck; the buffered path spreads the writes
+    /// apart so the envelope sees the 0->1 edge. The note must decay to
+    /// near-silence *before* the retrigger, or a re-attack and a still-sounding
+    /// note carry the same energy and the test proves nothing.
     #[test]
     fn buffered_writes_retrigger_where_immediate_ones_collapse() {
         /// A percussive voice: fast attack, medium decay, no sustain.

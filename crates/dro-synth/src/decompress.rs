@@ -16,9 +16,9 @@
 //! data. A file may send several; the last one wins, which is what lets a bank
 //! change schemes mid-file.
 //!
-//! Route B: written from the spec, not ported. The correctness net is
-//! round-tripping against a packer written here (a compressed block that
-//! decompresses to what was packed) plus the shapes real files use.
+//! Written from the spec, not ported. The correctness net is round-tripping
+//! against a packer written here (a compressed block that decompresses to what
+//! was packed) plus the shapes real files use.
 
 use dro_core::error::{Error, Result};
 

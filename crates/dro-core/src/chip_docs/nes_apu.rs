@@ -3,9 +3,7 @@
 //!
 //! Sources: the NESdev wiki "APU registers" page
 //! (<https://www.nesdev.org/wiki/APU_registers>) and "FDS audio"
-//! (<https://www.nesdev.org/wiki/FDS_audio>), the long-public community
-//! hardware references. Bit assignments are hardware facts as those pages
-//! state them.
+//! (<https://www.nesdev.org/wiki/FDS_audio>).
 //!
 //! Addressing: one bank, so only port 0. For 0x00-0x1F the VGM command
 //! carries the low byte of the CPU address ($4000 + addr). The FDS

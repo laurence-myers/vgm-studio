@@ -2,42 +2,37 @@
 //!
 //! # Why this crate exists
 //!
-//! `dro_core` optimises three chips. Its rule is written into
-//! `chip_state::latch_rule`: a chip earns a redundancy rule by being checked,
+//! `dro_core` optimises three chips; each redundancy rule has to be checked,
 //! because a register that *triggers* on write rather than latching makes the
-//! generic "same value, drop it" rule audibly wrong, and the failure is silent
-//! -- the file gets smaller and plays wrong.
-//!
-//! vgmtools has spent two decades accumulating that table for some thirty
-//! chips, along with `vgm_sro`'s sample-ROM decoders. Re-spelling it in Rust
-//! would mean re-deriving every one of those judgements. So this crate runs the
-//! original instead, and equivalence stops being something to test.
+//! generic "same value, drop it" rule silently, audibly wrong. vgmtools has
+//! spent two decades accumulating that table for some thirty chips, along with
+//! `vgm_sro`'s sample-ROM decoders. So this crate runs the original instead,
+//! and equivalence stops being something to test.
 //!
 //! # Licence
 //!
-//! vgmtools is GPL-2.0 and says so in its own `LICENSE`. This crate is
-//! therefore GPL-2.0-or-later and only the copyleft half of the workspace links
-//! it: `dro-ui` and `dro-trimmer`. `dro-core` and `dro-synth` stay
-//! MIT OR Apache-2.0 and never depend on it, which is also what keeps the wasm
-//! build clear of it -- this crate spawns processes and has no place there.
+//! vgmtools is GPL-2.0. This crate is therefore GPL-2.0-or-later and only the
+//! copyleft half of the workspace links it: `dro-ui` and `dro-trimmer`.
+//! `dro-core` and `dro-synth` stay MIT OR Apache-2.0 and never depend on it,
+//! which also keeps the wasm build clear of it -- this crate spawns processes
+//! and has no place there.
 //!
 //! # Shape
 //!
 //! Each call writes the bytes to a temporary file, runs the tool as a **child
 //! process**, and reads back what it produced. The process boundary is the
-//! design, not an implementation detail: these are programs that assume they
-//! own the process and exit when done. `chip_srom.c` reallocs some fifty
-//! sample-ROM buffers and frees none of them; a ROM size taken straight from a
-//! data block can spin a `UINT32` mask forever. As children those cost a
-//! reclaimed page table and a timeout. Linked in, they would be an unbounded
-//! leak in a long-lived GUI and a freeze with no way out. `ot-1` in
-//! `docs/vgm-multichip-2026-07/OPTIMIZER-PLAN.md` records the measurements.
+//! design: these are programs that assume they own the process and exit when
+//! done. `chip_srom.c` reallocs some fifty sample-ROM buffers and frees none;
+//! a ROM size taken straight from a data block can spin a `UINT32` mask
+//! forever. As children those cost a reclaimed page table and a timeout; linked
+//! in, they would be an unbounded leak in a long-lived GUI and a freeze with no
+//! way out.
 //!
 //! # Input
 //!
-//! Uncompressed VGM bytes only. `.vgz` is unpacked and repacked by flate2 in
-//! Rust, well above this layer, so gzip arriving here means a caller skipped
-//! that -- and is refused rather than misread.
+//! Uncompressed VGM bytes only. `.vgz` is unpacked and repacked above this
+//! layer, so gzip arriving here means a caller skipped that, and is refused
+//! rather than misread.
 
 mod exe;
 mod pipeline;

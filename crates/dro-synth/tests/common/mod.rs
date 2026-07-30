@@ -36,8 +36,7 @@ pub(crate) enum Op {
 
 /// Parses just enough of the DRO v2 container to reach the instruction stream.
 ///
-/// Step 2 replaces the header parsing with `dro_core`'s real reader; decoding the
-/// stream itself already goes through [`DroDataV2`], so a regression in codemap
+/// Decoding the stream goes through [`DroDataV2`], so a regression in codemap
 /// handling, bank extraction or delay arithmetic shows up here.
 pub(crate) fn decode_fixture() -> Vec<Op> {
     assert_eq!(&FIXTURE[..8], b"DBRAWOPL");

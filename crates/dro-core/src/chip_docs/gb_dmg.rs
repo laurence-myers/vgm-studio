@@ -1,15 +1,13 @@
 //! Game Boy (DMG) APU register documentation.
 //!
 //! Sources: the gbdev Pan Docs "Audio Registers" chapter
-//! (<https://gbdev.io/pandocs/Audio_Registers.html>), the long-public
-//! community reference for the DMG's hardware registers. Bit assignments are
-//! hardware facts as Pan Docs states them.
+//! (<https://gbdev.io/pandocs/Audio_Registers.html>).
 //!
 //! Addressing: one bank, so only port 0. The VGM command carries the offset
 //! from 0xFF10, so NR10 is 0x00, NR52 is 0x16, and wave RAM (0xFF30-0xFF3F)
-//! is 0x20-0x2F. Registers the two pulse channels share (and the envelope
-//! register the noise channel shares too) use one role-named doc; the
-//! address column tells the channels apart.
+//! is 0x20-0x2F. Registers the two pulse channels share (and the noise
+//! channel's envelope) use one role-named doc; the address column tells the
+//! channels apart.
 
 use super::{RegisterDoc, bf};
 

@@ -13,8 +13,8 @@ use crate::vgm::io as vgm;
 
 /// Reads a song, choosing the format from `name`'s extension.
 ///
-/// The port of `file_io.read_song_from_file`. A `.vgz` is detected from its gzip
-/// magic rather than its name, so a compressed file with a `.vgm` extension opens.
+/// A `.vgz` is detected from its gzip magic rather than its name, so a compressed
+/// file with a `.vgm` extension opens.
 ///
 /// # Errors
 /// If the extension is not one we support, or the bytes do not parse as that format.

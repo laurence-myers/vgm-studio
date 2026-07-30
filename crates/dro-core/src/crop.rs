@@ -22,8 +22,7 @@
 //! insert: the patch is new instructions in the middle of surviving ones, and the
 //! loop markers have to be remapped across it, which the incremental slide rule
 //! behind [`slide_index_past_deletion`](crate::slide_index_past_deletion) cannot
-//! express. [`ReplaceStream`](crate::undo::ReplaceStream) makes that undoable,
-//! the same command the optimiser's rebuild goes through.
+//! express. [`ReplaceStream`](crate::undo::ReplaceStream) makes that undoable.
 
 use crate::song::{DroDataV1, DroDataV2, Song, SongData, StreamSnapshot};
 use crate::state_patch::{StateFold, append_patch};

@@ -1,10 +1,9 @@
 //! The built tools, carried inside this binary and unpacked on first use.
 //!
-//! `build.rs` produces three executables; embedding them keeps the app a
-//! single file to ship, which is what it has always been. They are unpacked to
-//! a cache directory named after a hash of their own bytes, so a rebuilt app
-//! never runs a stale tool left behind by an older one, and two versions can
-//! coexist on the same machine.
+//! Embedding the executables keeps the app a single file to ship. They are
+//! unpacked to a cache directory named after a hash of their own bytes, so a
+//! rebuilt app never runs a stale tool and two versions can coexist on one
+//! machine.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -58,16 +57,12 @@ impl Tool {
     /// me", as opposed to "I broke".
     ///
     /// Every tool uses 0 for a normal run and 1 for a file it could not open.
-    /// `vgm_sro` adds two refusals, and both leave the file untouched and
-    /// perfectly valid, so neither is an error worth alarming a caller with:
+    /// `vgm_sro` adds two refusals that leave the file untouched and valid:
     ///
     /// - `2` -- the header declares no chip that has a sample ROM
     ///   (vgm_sro.c:157), which is most files.
     /// - `9` -- the stream uses RF5C memory writes or `0x68` PCM RAM writes,
     ///   which it says outright it does not support (vgm_sro.c:512, 551, 557).
-    ///
-    /// The reason it printed is logged; the caller just needs to know its
-    /// bytes are unchanged.
     pub(crate) const fn declines_with(self, code: i32) -> bool {
         matches!(self, Self::SampleRom) && matches!(code, 2 | 9)
     }

@@ -14,10 +14,10 @@ const MAX_WAIT_SAMPLES: u64 = 0xFFFF;
 
 /// Milliseconds to samples, rounding the *running total* half up.
 ///
-/// Recovered from `tests/lsl3_score_up.vgm`, which `dro2vgm` produced from the DRO
-/// fixture: two identical 16 ms delays in it become 706 and 705 samples, which no
-/// per-delay rounding can produce. Seeding the carry at half a millisecond makes
-/// each emitted count `round(cumulative_ms * 44.1)` minus its predecessor.
+/// Two identical 16 ms delays in the `dro2vgm` reference become 706 and 705
+/// samples, which no per-delay rounding can produce. Seeding the carry at half a
+/// millisecond makes each emitted count `round(cumulative_ms * 44.1)` minus its
+/// predecessor.
 #[derive(Debug)]
 struct SampleClock {
     carry: u64,
@@ -309,9 +309,8 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
 
 /// The name a converted DRO v1 takes: `song.dro` becomes `song_1.dro`.
 ///
-/// The editor's Convert to DRO v1 renames the converted song this way (the `_1`
-/// suffix the old `dro2to1` gave its output too) -- so a Save As after converting
-/// suggests the new name rather than offering to overwrite the v2 source.
+/// So a Save As after converting suggests the new name rather than offering to
+/// overwrite the v2 source.
 #[must_use]
 pub fn dro1_default_name(name: &str) -> String {
     match name.rfind('.') {

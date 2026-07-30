@@ -1,34 +1,21 @@
 //! Render-parity for the VGM optimiser (`dro_core::optimize`).
 //!
-//! Stripping a redundant OPL write and merging the delays left behind must not
-//! change a single rendered sample. The chip (`nuked-opl3`) is bit-exact integer
-//! emulation and the frame clock carries its remainder exactly, so a byte-for-byte
-//! match is a true proof that the optimisation is inaudible -- the strongest check
-//! the strip rules can have, and the reason an independent (Route B) implementation
-//! is safe without matching `vgm_cmp`'s bytes.
+//! Stripping a redundant OPL write and merging the delays must not change a
+//! rendered sample. The chip is bit-exact integer emulation and the frame clock
+//! carries its remainder exactly, so a byte-for-byte match proves the
+//! optimisation inaudible.
 //!
 //! # Immediate writes, not the buffered playback path
 //!
-//! These renders apply every register write *immediately*, rather than through
-//! nuked's write buffer (which `render_wav` and live playback use). The buffer
-//! spaces queued writes a couple of samples apart during generation, and that
-//! spacing depends on how many writes are in a burst -- so removing a redundant
-//! write shifts the following writes by ~2 samples (~40 us). That is inaudible but
-//! byte-visible, and it is a property of the emulator's scheduler, not of the
-//! optimisation. Applying writes immediately isolates the latched-state audio the
-//! optimiser preserves, giving a byte-exact oracle for *any* stream. (The residual
-//! buffered-path difference is a purely local ~2-sample phase shift around the
-//! moved writes -- its instantaneous amplitude can be large next to a steep
-//! waveform edge, but a 40 us shift of a few register writes is inaudible, and the
-//! corpus harness confirms the byte-exact immediate parity across thousands of
-//! real files.)
-//!
-//! Rendering is at the OPL3 native rate, so the chip's own output is compared with
-//! no resampler in the path.
-// Every test here drives an OPL core and asserts what it sounds like, so the
-// whole file needs one. A `--no-default-features` build of this crate has no
-// OPL core by design (the only one available is LGPL) -- see
-// `licenses/README.md`.
+//! These renders apply every register write *immediately*, not through nuked's
+//! write buffer (which `render_wav` and live playback use). The buffer spaces
+//! queued writes a couple of samples apart, so removing a redundant write shifts
+//! the following writes ~2 samples (~40 us) -- inaudible but byte-visible, and a
+//! property of the emulator's scheduler, not the optimisation. Immediate writes
+//! isolate the latched-state audio the optimiser preserves, giving a byte-exact
+//! oracle. Rendering is at the OPL3 native rate, so no resampler is in the path.
+// This file drives an OPL core; a `--no-default-features` build has none by
+// design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
 use dro_core::io::read_song;

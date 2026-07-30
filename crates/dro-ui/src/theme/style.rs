@@ -108,14 +108,11 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
         // with the sunken bevel by `frame_scrollbar` wherever it shows.
         bar_inner_margin: 6.0,
         bar_outer_margin: 0.0,
-        // Ink the handle with `fg_stroke` rather than the face `bg_fill` that a
-        // solid bar defaults to. Every case's face sits close to its own trough
-        // -- barely 1.6:1 on petrol -- so the handle read as part of the channel
-        // and the bar looked like it had none. `label` is the case's silkscreen
-        // ink, dark on the light cases and light on the dark ones, so it lands
-        // opposite the trough whichever way round the case is. The cost is that
-        // the handle no longer tints on hover; being visible at rest matters
-        // more.
+        // Ink the handle with `fg_stroke` (the case's `label` silkscreen ink)
+        // rather than the face `bg_fill` a solid bar defaults to: every case's
+        // face sits close to its own trough (barely 1.6:1 on petrol), so a
+        // face-coloured handle vanishes into the channel. The trade-off is the
+        // handle no longer tints on hover; being visible at rest matters more.
         foreground_color: true,
         ..ScrollStyle::solid()
     };

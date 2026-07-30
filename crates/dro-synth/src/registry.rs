@@ -1,11 +1,10 @@
 //! Which core plays which chip -- as data, not as a `match`.
 //!
-//! `core_for` used to be a hard-coded arm per chip, which answers "is this chip
-//! playable" and nothing else. It cannot say *how many* cores a chip has, what
-//! they are called, what they cost in license terms, or which one the user
-//! asked for. Every one of those is a question the Settings core picker and the
-//! About credits need answered, so the mapping becomes a registry of
-//! [`CoreInfo`] rows.
+//! A registry of [`CoreInfo`] rows rather than a hard-coded arm per chip. A
+//! `match` answers "is this chip playable" and nothing else -- not *how many*
+//! cores a chip has, what they are called, what they cost in license terms, or
+//! which one the user asked for, every one of which the Settings core picker
+//! and the About credits need answered.
 //!
 //! **Dependency direction is the point.** A provider crate depends on this
 //! crate for the [`ChipCore`] trait and exports a plain
@@ -87,12 +86,9 @@ pub struct CoreInfo {
     pub upstream: &'static str,
     /// Whether it can keep up with playback. `false` marks the LLE tier:
     /// offline render and oracle use only, never the transport.
-    ///
-    /// Every core registered today is `true`, so nothing reads this yet.
-    /// cr-11 brings the first `false` one and with it the split the plan
-    /// describes: [`playability`](crate::chip::playability) filters on it (the
-    /// transport must not offer a core that cannot keep up), while the WAV
-    /// render does not (it has all the time in the world).
+    /// [`playability`](crate::chip::playability) filters on it (the transport
+    /// must not offer a core that cannot keep up), while the WAV render does
+    /// not (it has all the time in the world).
     pub realtime: bool,
     /// Whether this core can place individual channels in the stereo image --
     /// [`ChipCore::set_channel_pans`](crate::ChipCore::set_channel_pans) for a
@@ -103,26 +99,17 @@ pub struct CoreInfo {
     /// This core's output calibration, in 8.8 fixed point
     /// ([`LEVEL_UNITY`] = 1.0). Applied to every sample it renders.
     ///
-    /// **Two cores for one chip need not agree on how loud that chip is**, and
-    /// until now there was nowhere to say so. Our clean-room cores were each
-    /// scaled to the reference by hand *inside the core* -- `cores/k053260.rs`
-    /// carries a literal `* 11 >> 3`, a x5.5 fitted from one scorecard reading
-    /// -- which works exactly as long as a chip has one core. It stopped
-    /// working the moment a second arrived: a reused core has none of those
-    /// constants and reads low by whatever factor its own upstream chose.
-    ///
-    /// So the calibration belongs to the *core*, not to the chip, and this is
-    /// where it goes. 8.8 fixed point rather than a float because the
-    /// reference expresses its own chip volumes that way (VGMPlay's
-    /// `MulFixed8x8`), which is what a proper fix would transcribe, and because
-    /// [`ChipCore`] forbids output that could differ across targets.
+    /// The calibration belongs to the *core*, not the chip: **two cores for
+    /// one chip need not agree on how loud that chip is.** 8.8 fixed point
+    /// rather than a float because the reference expresses its own chip volumes
+    /// that way (VGMPlay's `MulFixed8x8`), and because [`ChipCore`] forbids
+    /// output that could differ across targets.
     ///
     /// **A number here is a measurement, not a preference.** It is the
     /// least-squares gain the parity harness reports against the pinned
-    /// reference, and it is only meaningful for a core whose correlation is
-    /// high enough that a single scalar describes the difference. Leave it at
-    /// [`LEVEL_UNITY`] until measured; an unmeasured guess is worse than no
-    /// correction, because it looks like one.
+    /// reference, meaningful only for a core whose correlation is high enough
+    /// that a single scalar describes the difference. Leave it at
+    /// [`LEVEL_UNITY`] until measured; an unmeasured guess is worse than none.
     pub level: u16,
     /// How to build it, or why it is not built here.
     pub make: CoreMaker,
@@ -275,8 +262,8 @@ impl CoreRegistry {
     /// registers it and a wasm build simply lacks the entry.
     #[must_use]
     pub fn with_builtins() -> Self {
-        // `mut` is idle without the OPL feature: since the 2026-07-29 cull the
-        // OPL row is the only registration left in here.
+        // `mut` is idle without the OPL feature: the OPL row is the only
+        // registration left in here.
         #[cfg_attr(not(feature = "nuked-opl"), allow(unused_mut))]
         let mut registry = Self::new();
         // Absent from a `--no-default-features` build, because Nuked-OPL3 is
@@ -301,9 +288,7 @@ impl CoreRegistry {
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
         }
-        // The clean-room tier that used to fill the rest of this function was
-        // culled on 2026-07-29 (CORES-REUSE-PLAN ru-0, as amended): every
-        // non-OPL chip is now served by provider crates -- dro-cores-libvgm
+        // Every non-OPL chip is served by provider crates -- dro-cores-libvgm
         // first and foremost -- registered by the application. A build that
         // registers no provider simply has no generic cores, and the UI
         // reports exactly that.
@@ -587,8 +572,8 @@ mod tests {
             registry.has_core(ChipKind::Ymf262),
             "OPL is listed, not built"
         );
-        // Since the 2026-07-29 cull, every generic core comes from a provider
-        // crate; the builtins carry only the OPL entry the app routes.
+        // Every generic core comes from a provider crate; the builtins carry
+        // only the OPL entry the app routes.
         assert!(!registry.has_core(ChipKind::Sn76489), "providers only");
         assert!(!registry.has_core(ChipKind::Ym2612), "providers only");
         assert!(registry.build(ChipKind::Ymf262, None).is_none());

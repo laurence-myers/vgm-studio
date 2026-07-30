@@ -1,14 +1,14 @@
 //! YM2612 (OPN2) register documentation.
 //!
-//! Sources: Yamaha YM2612 application notes as circulated in the long-public
-//! Sega Genesis Software Manual excerpts, and the community's canonical
-//! register map (<https://www.smspower.org/maxim/Documents/YM2612> and the
-//! Sega Retro "YM2612" hardware page). Bit assignments are datasheet facts.
+//! Sources: Yamaha YM2612 application notes from the Sega Genesis Software
+//! Manual excerpts, and the community's canonical register map
+//! (<https://www.smspower.org/maxim/Documents/YM2612> and the Sega Retro
+//! "YM2612" hardware page).
 //!
 //! Addressing: port 0 carries channels 1-3 and the global registers, port 1
 //! carries channels 4-6. Operator registers repeat per channel (`addr & 3`
 //! selects the channel, `addr & 0x0C` the operator); their docs name the
-//! role, not the channel, exactly as the OPL tables do.
+//! role, not the channel.
 
 use super::{RegisterDoc, bf};
 

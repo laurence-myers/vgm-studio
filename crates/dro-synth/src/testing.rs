@@ -1,7 +1,7 @@
 //! Test support: a registry with a sounding stub, for tests of the paths that
 //! read the ambient registry.
 //!
-//! Since the 2026-07-29 cull this crate ships no generic cores of its own --
+//! This crate ships no generic cores of its own --
 //! they all come from provider crates the app links -- so an in-crate test of
 //! `render_vgm_wav`, the waveform renderer or `playability` has nothing real
 //! to build. What those tests assert is *engine* behaviour (lengths, routing,

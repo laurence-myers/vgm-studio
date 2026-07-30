@@ -146,8 +146,6 @@ pub fn split_cancellable(
 
 /// Isolates each used drum of the percussion channel on `bank` to its own file.
 ///
-/// This isolates drums per bank correctly.
-///
 /// `Ok(None)` if `keep_going` asked it to stop part-way.
 #[allow(clippy::too_many_arguments)]
 fn split_percussion(

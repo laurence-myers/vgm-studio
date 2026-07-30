@@ -208,9 +208,9 @@ impl Reference {
 
     /// Renders one file twice and requires the results to match.
     ///
-    /// **pt-1's acceptance.** Everything downstream assumes the reference is a
-    /// fixed point; a player that dithers would make every threshold noise, and
-    /// the symptom would look like flaky cores rather than a flaky reference.
+    /// Everything downstream assumes the reference is a fixed point; a player
+    /// that dithers would make every threshold noise, and the symptom would look
+    /// like flaky cores rather than a flaky reference.
     ///
     /// # Errors
     /// [`ReferenceError::NotDeterministic`] if the two renders differ, or

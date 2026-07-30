@@ -3,10 +3,7 @@
 //! `wasm32-unknown-unknown`, not merely that it compiles.
 //!
 //! Built as a `cdylib` so the final link resolves every symbol the C objects
-//! reference -- an rlib check would happily skip that -- and exercised from
-//! node with `scratchpad`-style loader JS (see the spike notes in
-//! `docs/vgm-multichip-2026-07/LIBVGM-PLAN.md` §6). Two exports, chosen for
-//! what they prove:
+//! reference (an rlib check would skip that), exercised from node. Two exports:
 //!
 //! - [`smoke_sn76489`]: construction, register writes, render -- the shim's
 //!   allocator and the write path end to end.
@@ -14,8 +11,8 @@
 //!   allocator family (`calloc` for the link table, a second device start)
 //!   and the per-link resampler, audible through the mix.
 //!
-//! Each returns the rendered peak amplitude: > 1000 means the chip genuinely
-//! sounded, 0 means silence, negative values are wiring failures.
+//! Each returns the rendered peak amplitude: > 1000 means the chip sounded,
+//! 0 means silence, negative values are wiring failures.
 
 use dro_core::vgm::ChipKind;
 
@@ -60,6 +57,6 @@ pub extern "C" fn smoke_ym2203_ssg() -> i32 {
     )
 }
 
-// No `main`: the `crate-type = ["cdylib"]` in Cargo.toml makes this a
-// library target, and the exports above are its whole surface. The native
-// equivalents of these numbers live in `src/chip.rs`'s own sound tests.
+// No `main`: `crate-type = ["cdylib"]` makes this a library target, and the
+// exports above are its whole surface. The native equivalents of these numbers
+// live in `src/chip.rs`'s own sound tests.

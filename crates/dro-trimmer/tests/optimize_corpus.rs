@@ -1,31 +1,25 @@
-//! Corpus validation for the VGM optimiser (cmp-5), run on demand.
+//! Corpus validation for the VGM optimiser, run on demand.
 //!
-//! Ignored by default: it needs the local OPL VGM corpus, whose root is passed via
-//! the `DROTRIM_CORPUS` environment variable. Run it with:
+//! Needs the local OPL VGM corpus via `DROTRIM_CORPUS`:
 //!
 //! ```powershell
 //! $env:DROTRIM_CORPUS = 'F:\GameMusic\VGM'
 //! cargo test -p dro-trimmer --release --test optimize_corpus -- --ignored --nocapture
 //! ```
 //!
-//! It optimises every readable track -- asserting the delay total is conserved and
-//! a second pass is a no-op -- renders a sampled subset through nuked-opl3 to prove
-//! byte-for-byte parity, and prints the aggregate size reduction.
+//! It optimises every readable track -- asserting the delay total is conserved
+//! and a second pass is a no-op -- renders a sampled subset through nuked-opl3
+//! for byte-for-byte parity, and prints the aggregate size reduction.
 //!
 //! # Why the render uses *immediate* writes
 //!
 //! Nuked's buffered write path (what `render_wav` and live playback use) spreads
-//! queued writes a couple of samples apart during generation, and that spacing
-//! depends on how many writes sit in a burst. Removing a redundant write therefore
-//! shifts the following writes by ~2 samples (~40 us) -- inaudible, but enough to
-//! change bytes. That is a property of the emulator's write scheduler, not of the
-//! optimisation, so byte-exact parity through the buffered path is not a valid
-//! invariant. Applying each write immediately isolates the latched-state audio the
-//! optimiser actually preserves, giving a byte-exact oracle. The harness also
-//! reports the peak buffered-path difference: it can be large in *instantaneous*
-//! amplitude (a steep waveform sampled ~2 samples out of phase), but that is a
-//! 40 us local phase shift of a few writes, not a state change -- the byte-exact
-//! immediate parity is the proof that no latched value ever differs.
+//! queued writes a couple of samples apart, so removing a redundant write shifts
+//! the following writes ~2 samples (~40 us) -- inaudible but byte-visible, and a
+//! property of the emulator's scheduler, not the optimisation. Immediate writes
+//! isolate the latched-state audio the optimiser preserves, giving a byte-exact
+//! oracle. The harness also reports the peak buffered-path difference to confirm
+//! it stays a local phase shift, not a state change.
 
 use std::path::{Path, PathBuf};
 

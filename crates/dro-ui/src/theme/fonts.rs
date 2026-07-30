@@ -6,12 +6,12 @@
 //! and monospace families; egui's built-in fonts stay behind it as a fallback
 //! for glyphs outside CP437.
 //!
-//! Neither Px437 nor egui's built-ins carry a single CJK glyph, which is why a
-//! GD3 tag's original-language fields used to render as tofu squares. A native
-//! build therefore appends the first CJK-capable font it finds on the system
-//! (never embedded: a Japanese face is megabytes, and every desktop ships one)
-//! as the *last* fallback, so it serves exactly the glyphs nothing above it
-//! has and Latin text stays pixel-DOS.
+//! Neither Px437 nor egui's built-ins carry a single CJK glyph, so a GD3 tag's
+//! (overwhelmingly Japanese) original-language fields would render as tofu
+//! squares. A native build therefore appends the first CJK-capable font it finds
+//! on the system (never embedded: a Japanese face is megabytes, and every desktop
+//! ships one) as the *last* fallback, so it serves exactly the glyphs nothing
+//! above it has and Latin text stays pixel-DOS.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -58,8 +58,7 @@ pub(crate) fn font_definitions() -> FontDefinitions {
 }
 
 /// The first CJK-capable font the system offers, or `None` (wasm, or a very
-/// bare install) -- those glyphs then fall through to the replacement box,
-/// which is where they always landed before.
+/// bare install) -- those glyphs then fall through to the replacement box.
 ///
 /// The candidates are each platform's stock Japanese faces first (GD3's
 /// original-language fields are overwhelmingly Japanese), then the pan-CJK
@@ -149,10 +148,9 @@ pub(crate) fn text_styles() -> BTreeMap<TextStyle, FontId> {
 mod tests {
     use super::*;
 
-    /// The reason the fallback exists: a GD3 tag's original-language fields
-    /// are Japanese, and with only Px437 and egui's built-ins every one of
-    /// those glyphs was a tofu box. Skipped (trivially passing) on a machine
-    /// with no system CJK font at all, since then there is nothing to test.
+    /// A GD3 tag's Japanese original-language fields must resolve through the
+    /// fallback rather than showing as tofu boxes. Skipped (trivially passing) on
+    /// a machine with no system CJK font at all.
     #[test]
     fn japanese_glyphs_resolve_when_the_system_has_a_cjk_font() {
         let defs = font_definitions();
@@ -166,7 +164,7 @@ mod tests {
             fonts.has_glyphs(&font_id, "\u{6c34}\u{3072}\u{30ab}"),
             "kanji, hiragana and katakana must all resolve"
         );
-        // And the DOS face still serves what it always served.
+        // And the DOS face still serves Latin text.
         assert!(fonts.has_glyphs(&font_id, "DRO Trimmer 0123"));
     }
 }

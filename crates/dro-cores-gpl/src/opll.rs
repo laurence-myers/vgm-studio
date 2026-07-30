@@ -1,25 +1,19 @@
 //! Nuked-OPLL as a [`ChipCore`]: the YM2413, the cheap FM chip that put a
 //! synthesiser in a Master System, an MSX-MUSIC cartridge and a fruit machine.
 //!
-//! 1,284 files in the VGMRips corpus. Small by weight, and the first **GPL**
-//! core here -- which is the other reason it earns its step: it is what stands
-//! up `dro-cores-gpl` and proves the three-tier licence split works in practice
-//! rather than only on paper.
-//!
 //! # What makes it odd
 //!
-//! Nine channels of two-operator FM, but **only one of them is programmable**.
-//! The other eight play from a ROM of fifteen fixed instruments, which is why
-//! YM2413 music has a recognisable palette: everyone had the same violin. In
-//! rhythm mode the last three channels become five percussion voices instead.
+//! Nine channels of two-operator FM, but only one is programmable. The other
+//! eight play from a ROM of fifteen fixed instruments, which is why YM2413
+//! music has a recognisable palette: everyone had the same violin. In rhythm
+//! mode the last three channels become five percussion voices instead.
 //!
 //! The chip also has two DACs -- melody and rhythm -- multiplexed across its
 //! 18-cycle rotation, so one output sample is that whole rotation of both
 //! summed. Same shape as the OPN2's pins.
 //!
-//! Konami's VRC VII (`ds1001`) is a variant with its own instrument ROM, and a
-//! VGM signals it with bit 31 of the clock. Upstream models it, so this passes
-//! the flag through.
+//! Konami's VRC VII (`ds1001`) is a variant with its own instrument ROM, which
+//! a VGM signals with bit 31 of the clock; this passes the flag through.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::{ChipCore, WriteQueue};
@@ -35,25 +29,22 @@ const CLOCKS_PER_SAMPLE: u32 = 18;
 const MASTER_PER_CLOCK: u32 = 4;
 const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 
-/// The write pacing, found the way `PROVENANCE.md` describes: a whole rotation
-/// on each side of the address/value pair.
+/// The write pacing: a whole rotation on each side of the address/value pair.
 const SETTLE: u32 = CLOCKS_PER_SAMPLE;
 
 /// Scales the summed DAC outputs towards `i16` range.
 ///
-/// Nine channels through a nine-bit DAC, so the raw sum is well below full
-/// scale. This is the balance against the other cores, and a balance is a
-/// listening question -- `a_loud_chord_uses_the_range_without_clipping_it` pins
-/// the arithmetic so a change is deliberate.
+/// Nine channels through a nine-bit DAC leave the raw sum well below full
+/// scale; this balances against the other cores, pinned by
+/// `a_loud_chord_uses_the_range_without_clipping_it`.
 const OUTPUT_GAIN: i32 = 12;
 
 /// Fixed-point fraction bits for the DC blocker, and its pole (`0.9975`).
 ///
-/// The chip's two DACs do not idle at zero, so summing a rotation of them
-/// leaves a standing offset that a listener hears as a click when the next note
-/// starts -- and that swamps any measurement of whether a note is sounding at
-/// all. Integer arithmetic throughout, because [`ChipCore`] forbids output that
-/// could differ across targets.
+/// The chip's two DACs do not idle at zero, so summing a rotation leaves a
+/// standing offset heard as a click at each note-on. Integer arithmetic
+/// throughout, because [`ChipCore`] forbids output that could differ across
+/// targets.
 const DC_SHIFT: u32 = 16;
 const DC_POLE: i64 = 65_372;
 
@@ -88,10 +79,9 @@ impl Ym2413 {
 
     /// Removes the standing offset the summed DACs carry.
     ///
-    /// Division, *not* an arithmetic shift: `>>` rounds toward negative
-    /// infinity, which gives the filter a fixed point on the negative half and
-    /// leaves exactly the offset it exists to remove. (The NES core learned
-    /// that one the hard way.)
+    /// Division, *not* an arithmetic shift: `>>` rounds toward negative infinity,
+    /// which gives the filter a fixed point on the negative half and leaves
+    /// exactly the offset it exists to remove.
     fn block_dc(&mut self, sample: i32) -> i32 {
         let input = i64::from(sample);
         let output = input - self.dc_prev_in + (self.dc_prev_out * DC_POLE) / (1 << DC_SHIFT);

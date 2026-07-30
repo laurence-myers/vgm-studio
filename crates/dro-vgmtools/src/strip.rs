@@ -1,27 +1,16 @@
 //! Removing chips a rip declares but never writes to -- vgmtools' `vgm_ptch`.
 //!
-//! # Is this worth having?
+//! Opt-in, never part of the default pass: removing a chip changes what the
+//! file *declares* rather than only how it is spelled, and that is the user's
+//! call. (Across 1500 published VGMRips files not one declares an unwritten
+//! chip, but those have already been through submission review; the case
+//! belongs to *fresh* rips, which the corpus cannot contain.)
 //!
-//! Measured before it was built, and the corpus says no: across 1500 published
-//! VGMRips files, **not one** declares a chip its stream never writes to
-//! (`how_many_rips_declare_a_chip_they_never_write_to`, in this crate's corpus
-//! test). That is the right answer from the wrong population, though -- those
-//! files have already been through submission review. The case belongs to
-//! *fresh* rips, which is exactly when someone reaches for these tools and
-//! exactly what the corpus cannot contain.
-//!
-//! So it is here, and it is opt-in: never part of the default pass, because
-//! removing a chip changes what the file *declares* rather than only how it is
-//! spelled, and that is the user's call to make.
-//!
-//! # Why the detection is ours and the removal is theirs
-//!
-//! Deciding which chips are unwritten is a question about the command stream,
-//! which `dro_core` already models better than a shell-out could. Actually
-//! removing one is not just clearing a clock: there are chip config bytes, the
-//! v1.70 extra header's per-chip clock and volume entries, and a header whose
-//! size and version can often come down afterwards. `vgm_ptch` knows all of
-//! that, so it does that half.
+//! Detection is ours, removal is theirs: deciding which chips are unwritten is
+//! a question about the command stream that `dro_core` already models, while
+//! actually removing one -- chip config bytes, the v1.70 extra header's
+//! per-chip clock and volume entries, a header whose size and version can come
+//! down afterwards -- is what `vgm_ptch` knows.
 
 use std::collections::BTreeSet;
 
@@ -35,11 +24,10 @@ use crate::{ToolOutcome, Workspace, check_input, run};
 /// Transcribed from its own parser (`vgm_ptch.c:665`-`865`), not from its
 /// `-StripList` help text -- the two disagree, and the parser is what runs.
 ///
-/// The chips missing from this table are missing from `vgm_ptch`: the SCSP,
-/// WonderSwan, VSU, SAA1099, ES5503, ES5505, X1-010, C352, GA20 and Mikey have
-/// no name it accepts, which is what its own note means by *"Stripping does not
-/// (yet) work with all chips."* A file whose only unused chip is one of those
-/// comes back unchanged.
+/// The chips missing here are missing from `vgm_ptch`: the SCSP, WonderSwan,
+/// VSU, SAA1099, ES5503, ES5505, X1-010, C352, GA20 and Mikey have no name it
+/// accepts (*"Stripping does not (yet) work with all chips."*). A file whose
+/// only unused chip is one of those comes back unchanged.
 const STRIP_NAMES: &[(ChipKind, &str)] = &[
     (ChipKind::Sn76489, "SN76496"),
     (ChipKind::Ym2413, "YM2413"),

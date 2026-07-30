@@ -737,7 +737,6 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
 
     /// Clears the chip to silence and re-primes the DRO v1 waveform-select hack.
     ///
-    /// A fresh chip state.
     /// DRO v1 (OPL2) captures assume `0x01 = 0x20` (waveform select enable) is set
     /// before playback.
     fn reset_chip(&mut self) {
@@ -1037,12 +1036,12 @@ mod tests {
         assert!(engine.chip.writes.contains(&(0xBD, 0xE0)));
     }
 
-    /// The Princess Maker 2 bug: mute channels *first*, then seek into the song
-    /// (exactly what play-from-a-selection does on the hardware backend, where
-    /// mutes are never deferred). The replay used to arm the muted channels'
-    /// key-ons -- which playback could then never silence, since a muted
-    /// channel's key-off writes are gated too. On a real chip they rang, drifting
-    /// off-key as the still-passing 0xA0 writes moved fnum under a frozen block.
+    /// Mute channels *first*, then seek into the song (exactly what
+    /// play-from-a-selection does on the hardware backend, where mutes are never
+    /// deferred). A replay must not arm a muted channel's key-on -- which
+    /// playback could never silence, since a muted channel's key-off writes are
+    /// gated too, so on a real chip it rings on, drifting off-key as the
+    /// still-passing 0xA0 writes move fnum under a frozen block.
     #[test]
     fn a_seek_replay_never_arms_a_muted_channels_key() {
         let song = Song::dro_v1(
@@ -1121,7 +1120,7 @@ mod tests {
 
     #[test]
     fn muting_a_channel_wins_the_race_with_a_pending_key_on() {
-        // Callback-boundary race (M8): a playback burst left a buffered key-on for
+        // Callback-boundary race: a playback burst left a buffered key-on for
         // this channel still pending. Muting must key it off AFTER that key-on
         // drains -- by routing the key-off through the same write buffer -- not
         // before, or the queued key-on wins and the note sticks.
@@ -1364,7 +1363,7 @@ mod tests {
         assert!(out.iter().all(|&s| s == 0), "the tail must be zeroed");
     }
 
-    // -- looping (lp-2) ------------------------------------------------------
+    // -- looping -------------------------------------------------------------
     //
     // `small_song` is 8 ms: a register write, a 5 ms delay, a register write, a
     // 3 ms delay. At 48 kHz that is 240 frames then 144, so instruction 2 sits at

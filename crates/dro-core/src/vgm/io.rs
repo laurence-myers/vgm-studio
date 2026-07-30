@@ -51,15 +51,12 @@ const MINIMUM_HEADER_SIZE: usize = 0x80;
 /// declare an OPL chip at all, and so the least this writer can patch.
 const OPL_CLOCKS_END: usize = offset::YMF262_CLOCK + 4;
 
-/// The header a converted song gets: exactly the v1.51 header size, which is what
-/// `dro2vgm` emits, and what `tests/lsl3_score_up.vgm` has.
+/// The header a converted song gets: exactly the v1.51 header size, which is
+/// what `dro2vgm` emits and what `tests/lsl3_score_up.vgm` has.
 ///
-/// Reserving 0x100 bytes here would leave room for the fields later VGM versions
-/// add -- the v1.70 extra-header offset at 0xBC, and whatever follows. Nothing
-/// writes those yet, and that padding is what stops such a header from
-/// round-tripping, so a converted song gets the tight header for now. See
-/// `TODO.md`: emitting a higher-version header is worth restoring once there is
-/// something to put in it.
+/// A wider header would carry zero-padded fields for later VGM versions that
+/// nothing writes yet, and that padding is what stops it round-tripping -- so a
+/// converted song gets the tight header for now.
 const SYNTHESISED_HEADER_SIZE: usize = MINIMUM_HEADER_SIZE;
 /// `dro2vgm` writes this in the `rate` field.
 const SYNTHESISED_RATE: u32 = 1000;
@@ -106,7 +103,7 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
     // The fixed-offset field writes below would panic on a header too short to
     // hold them. Unreachable with a header that passed the reader's own check --
     // an OPL clock at 0x5C implies at least this much -- but guard it so a
-    // malformed one errors rather than panics (vgmrip-5).
+    // malformed one errors rather than panics.
     if out.len() < OPL_CLOCKS_END {
         return Err(Error::file(format!(
             "VGM header is {} bytes; the writer needs at least {OPL_CLOCKS_END:#X}",
@@ -198,10 +195,9 @@ pub fn synthesise_header() -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
-    // The header model does the field reading, including the rule this reader
-    // used to get wrong: the header ends at the data, so a minimal rip putting
-    // its data at 0x60 has its OPL clock inside a 0x60-byte header and is
-    // perfectly readable. Rejecting anything under 0x80 turned those away.
+    // The header model does the field reading: the header ends at the data, so
+    // a minimal rip putting its data at 0x60 has its OPL clock inside a 0x60-byte
+    // header and is perfectly readable.
     let parsed = VgmHeader::parse(bytes)?;
     if parsed.version() < MINIMUM_SUPPORTED_VERSION {
         return Err(Error::file(
@@ -600,8 +596,8 @@ mod tests {
 
     #[test]
     fn writing_a_short_header_errors_rather_than_panicking() {
-        // vgmrip-5: a header below the v1.51 minimum must be rejected, not panic
-        // on the fixed-offset field writes.
+        // A header below the v1.51 minimum must be rejected, not panic on the
+        // fixed-offset field writes.
         let mut song = read("t.vgm", &looping_vgm(6, 20_735)).unwrap();
         song.vgm_meta_mut().unwrap().header.truncate(0x10);
         assert!(write(&song).is_err());
@@ -763,7 +759,7 @@ mod tests {
         assert_eq!(header_u32(&written, offset::LOOP_NUM_SAMPLES), 0);
     }
 
-    // -- explicit loop ends (lp-1) ------------------------------------------
+    // -- explicit loop ends -------------------------------------------------
     //
     // The fixture's sample prefix is [0, 0, 10000, 10000, 30000, 30000, 30735],
     // so a loop at index 2 starts at 10000 and runs 20735 samples to the end.
@@ -1081,9 +1077,7 @@ mod tests {
     // -- rejections --------------------------------------------------------
 
     /// A rip that declares only the fields it uses puts its data at 0x60, right
-    /// after the YMF262 clock. The reader used to turn those away on the ground
-    /// that a v1.51 header "must" run to 0x80; they are exactly as valid, and
-    /// one of the two reader gaps `TODO.md` recorded.
+    /// after the YMF262 clock -- exactly as valid as a full-length header.
     #[test]
     fn a_minimal_header_with_its_data_at_0x60_opens_and_round_trips() {
         let mut header = vec![0u8; 0x60];

@@ -1,8 +1,7 @@
 //! Our render against a reference player's, chip by chip.
 //!
-//! The mechanical half of `CORES-PLAN` §6.2's acceptance bar. The reasoning,
-//! the two regimes and the step list are in
-//! `docs/vgm-multichip-2026-07/PARITY-PLAN.md`; this is the harness.
+//! The mechanical half of the acceptance bar; the reasoning and step list are in
+//! `docs/vgm-multichip-2026-07/PARITY-PLAN.md`, this is the harness.
 //!
 //! ```text
 //! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
@@ -11,11 +10,9 @@
 //!     cargo test -p dro-trimmer --release --test reference_parity -- --ignored --nocapture
 //! ```
 //!
-//! **Without a reference player every test here skips**, saying so, exactly as
-//! the corpus tests skip without a corpus. The pipeline's own correctness does
-//! not depend on having one: `parity::metrics` is self-tested against signals
-//! whose answers are known by construction, and
-//! `the_pipeline_agrees_with_itself` below closes the loop end to end with no
+//! **Without a reference player every test here skips**, saying so. The
+//! pipeline's own correctness does not depend on one: `parity::metrics` is
+//! self-tested, and `the_pipeline_agrees_with_itself` closes the loop with no
 //! external binary at all.
 
 use std::path::{Path, PathBuf};
@@ -36,13 +33,9 @@ const SAMPLE: usize = 12;
 
 /// Renders `path` the way the app would.
 ///
-/// **Which engine matters.** An OPL file plays through `PlayerEngine`, which
-/// carries the OPL register policy; `VgmEngine` has no OPL core at all and
-/// would render it as silence -- the same listed-versus-buildable distinction
-/// the registry draws. Routing every file through the generic engine made the
-/// OPL control group compare silence with silence and score zero, which is
-/// exactly the failure the control group exists to expose, arriving one layer
-/// earlier than expected.
+/// Which engine matters: an OPL file plays through `PlayerEngine` (which carries
+/// the OPL register policy); `VgmEngine` has no OPL core and would render it as
+/// silence.
 fn render_ours(path: &Path) -> Option<Render> {
     render_ours_at(path, RATE)
 }
@@ -69,21 +62,17 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
 
 /// Builds `kind`'s core, honouring `DROTRIM_PARITY_CORE`.
 ///
-/// **The mechanism a core swap is judged by.** `CORES-REUSE-PLAN` §7 says a
-/// reused core takes a chip's default only once it has beaten the frozen
-/// clean-room row it would replace — so there has to be a way to point this
-/// harness at a core that is *not* the default yet. The variable names a
-/// provider suffix, not a full id:
+/// A reused core takes a chip's default only once it beats the frozen row it
+/// would replace, so this harness must be able to point at a non-default core.
+/// The variable names a provider suffix, not a full id:
 ///
 /// ```text
 /// DROTRIM_PARITY_CORE=libvgm  cargo test ... --test reference_parity -- --ignored
 /// ```
 ///
-/// `resolve_choice` composes it with each chip's own slot (`sn76489` +
-/// `libvgm` → `sn76489.libvgm`) and falls back to the default for any chip
-/// that provider does not serve — so one run measures the new provider
-/// everywhere it exists and changes nothing elsewhere. Unset, this is exactly
-/// what it always was: the registry's default per chip.
+/// `resolve_choice` composes it with each chip's slot (`sn76489` + `libvgm` →
+/// `sn76489.libvgm`) and falls back to the default for any chip that provider
+/// does not serve. Unset, this is the registry's default per chip.
 fn build_core(kind: ChipKind) -> Option<Box<dyn dro_synth::ChipCore>> {
     let registry = dro_synth::registry::registry();
     match std::env::var("DROTRIM_PARITY_CORE") {
@@ -94,9 +83,7 @@ fn build_core(kind: ChipKind) -> Option<Box<dyn dro_synth::ChipCore>> {
 
 /// Whether `chip` is in `DROTRIM_PARITY_CHIPS`, which defaults to all of them.
 ///
-/// The companion to [`build_core`]: judging one core swap means re-measuring
-/// *one* chip against its frozen row, and the scorecard walks thirty-nine of
-/// them at a dozen files and twenty seconds each. Naming slugs turns an hour
+/// Judging one core swap means re-measuring one chip; naming slugs turns an hour
 /// into a minute.
 ///
 /// ```text
@@ -128,10 +115,8 @@ fn render_with_at(
 
     let mut engine = VgmEngine::with_cores(Arc::new(file), rate, cores);
     // DROTRIM_PARITY_RESAMPLER=linear renders our side with the same aliased
-    // conversion VGMPlay uses, making a 44100 comparison like-for-like: both
-    // sides then carry the same class of artefact, which partially
-    // rehabilitates the output-rate scorecard rs-3 had to abandon. Unset, the
-    // accurate default stands.
+    // conversion VGMPlay uses, making a 44100 comparison like-for-like. Unset,
+    // the accurate default stands.
     if let Some(mode) = std::env::var("DROTRIM_PARITY_RESAMPLER")
         .ok()
         .and_then(|slug| dro_synth::resample::ResampleMode::from_slug(&slug))
@@ -153,14 +138,12 @@ fn render_with_at(
 
 /// Files declaring exactly `chip` and nothing else.
 ///
-/// A single-chip file is what makes a global gain fit legitimate: with two
-/// chips in the mix, one scalar cannot describe both and the number would be an
-/// average of two different answers.
+/// A single-chip file is what makes a global gain fit legitimate: with two chips
+/// in the mix, one scalar cannot describe both.
 fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize) -> Vec<PathBuf> {
     let all = index.files(chip);
-    // Strided rather than taken from the head, because the index is in
-    // directory order: the first dozen entries are one game's soundtrack, and a
-    // dozen tracks by one composer on one driver is a sample of that driver,
+    // Strided rather than from the head: the index is in directory order, so the
+    // first dozen entries are one game's soundtrack -- a sample of one driver,
     // not of the chip. `ChipIndex::sample` strides for the same reason.
     let stride = (all.len() / want.max(1)).max(1);
     // Every offset in turn, so the spread is preferred but nothing is
@@ -184,19 +167,9 @@ fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize
         if file.header.chips().len() != 1 {
             continue;
         }
-        // The reference applies the header volume modifier and the extra
-        // header's per-chip volumes; our engine applies neither. Until that
-        // gap closes, a file that uses them would show a gain difference that
-        // is real but is not the chip's -- so they are filtered out rather
-        // than explained away in every result.
-        //
-        // **Both of them**, which this used to say and only half do: the
-        // modifier was checked and the extra header's per-chip volumes were
-        // not, so a file carrying one could still enter the sample and put a
-        // gain difference into the result that no core was responsible for.
-        // That matters more now than it did, because a reused core's level is
-        // the one number lv-4 has to fit, and it cannot be fitted against a
-        // sample with an unaccounted multiplier in it.
+        // The reference applies the header volume modifier and the extra header's
+        // per-chip volumes; our engine applies neither, so a file using them would
+        // show a gain difference that is real but not the chip's. Filter them out.
         if file.header.volume_modifier() != 0 {
             continue;
         }
@@ -213,19 +186,13 @@ fn single_chip_files(index: &ChipIndex, root: &Path, chip: ChipKind, want: usize
 }
 
 /// A copy of `path` cut to just past the compared window, or `path` itself if
-/// it is already short enough or will not walk.
+/// already short enough or it will not walk.
 ///
-/// **The reference renders whole tracks; we compare twenty seconds of them.**
-/// A three-minute rip at a chip's native rate is nine times the work for the
-/// same answer, and across thirteen chips and a dozen files each that was the
-/// difference between a scorecard that runs in an hour and one that runs in
-/// five. Cutting the input instead of the output is what makes the saving
-/// real -- there is no "render only the first N seconds" switch to ask for.
-///
-/// Both sides are given the *same* cut file, so this cannot bias a comparison:
-/// it is the identical input either way. A couple of seconds past the window
-/// are kept so nothing near the boundary is measured against a decay that one
-/// side was cut off from.
+/// The reference renders whole tracks; we compare twenty seconds. Cutting the
+/// input is what makes the saving real -- there is no "render only the first N
+/// seconds" switch. Both sides get the *same* cut file, so it cannot bias a
+/// comparison; a couple of seconds past the window are kept so nothing near the
+/// boundary is measured against a decay one side was cut off from.
 fn shortened(path: &Path, work_dir: &Path) -> PathBuf {
     use dro_core::vgm::stream::VgmCommand;
 
@@ -282,24 +249,19 @@ fn shortened(path: &Path, work_dir: &Path) -> PathBuf {
 
 /// The rate `chip` runs at in `path`, straight from the core.
 ///
-/// **Not a constant, because it is not one.** A core's native rate is derived
-/// from the clock in the file's header -- a YM2151 at 3.58 MHz renders at
-/// 55930 Hz and the same chip at 4 MHz does not -- so the rate to compare at
-/// has to be asked per file. Comparing at anything else puts two resamplers
-/// between the cores and measures those instead, which cost the OPL control
-/// group fifteen points of correlation before it was fixed.
+/// Not a constant: a core's native rate derives from the header clock (a YM2151
+/// at 3.58 MHz renders at 55930 Hz, at 4 MHz it does not), so it must be asked
+/// per file. Comparing at anything else puts two resamplers between the cores and
+/// measures those instead.
 fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
     let bytes = std::fs::read(path).ok()?;
     let name = path.file_name()?.to_string_lossy().to_string();
     let file = dro_core::vgm::file::read(&name, &bytes).ok()?;
     let clocked = file.header.chips().iter().find(|c| c.kind == chip)?;
-    // **The core under test, not the default.** Two cores for one chip need
-    // not agree on a native rate, and asking the default for it while
-    // rendering through a challenger puts our resampler back in the middle of
-    // exactly the measurement the native rate exists to keep it out of. It is
-    // not hypothetical: measuring libvgm's SN76489 at the clean-room core's
-    // rate showed -3.5 cents of pitch error that is the resampler's, not the
-    // core's.
+    // The core under test, not the default: two cores for one chip need not
+    // agree on a native rate, and asking the default while rendering through a
+    // challenger puts our resampler back into the measurement (measuring libvgm's
+    // SN76489 at the clean-room rate showed -3.5 cents of resampler pitch error).
     let mut core = build_core(chip)?;
     core.reset(clocked.clock, clocked.variant);
     Some(core.native_rate())
@@ -307,32 +269,14 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
 
 /// What fraction of an OPL file's operator writes switch vibrato on.
 ///
-/// **This is the control group's explanation of itself.** Our OPL core and the
-/// reference's are the same Nuked source, and with both rendering at the
-/// chip's native rate they agree to three or four decimal places on level,
-/// envelope, average pitch, DC and alignment -- except on files that use
-/// vibrato:
-///
-/// ```text
-///   vibrato share of operator writes     correlation
-///          0%                              0.998, 0.999
-///          6%                              0.978, 0.984
-///         16%                              0.935, 0.972
-///         46%                              0.590
-/// ```
-///
-/// Zero vibrato is the only reliable predictor -- a 12% file scored 0.998 while
-/// a 16% one scored 0.935, because what matters is how much of the *audible*
-/// energy is modulated, not how many writes set the bit. That is why this is
-/// used as a filter for the assertion and not as a correction to it.
-///
-/// The spectrum says why. Both renders put the same energy in the same
-/// partials, but each partial's *instantaneous* frequency wobbles on a
-/// different schedule -- the chip's vibrato LFO free-runs from reset, and the
-/// two sides start it at different points relative to the music. The average
-/// pitch is identical (0.0 cents), so nothing is out of tune; the waveforms
-/// simply are not the same waveform. It is not a resampler, a gain, or a
-/// missing voice, and no amount of pipeline work will close it.
+/// Our OPL core and the reference's are the same Nuked source and agree to three
+/// or four decimals at native rate -- except on files that use vibrato, where
+/// correlation falls off (roughly: 0% -> 0.998, 16% -> 0.94, 46% -> 0.59). The
+/// chip's vibrato LFO free-runs from reset and the two sides start it at
+/// different points, so each partial's instantaneous frequency wobbles on a
+/// different schedule; the average pitch is identical (0.0 cents), so nothing is
+/// out of tune, the waveforms simply are not the same. No pipeline work closes
+/// it, so vibrato is used as a filter for the assertion, not a correction.
 fn vibrato_share(path: &Path) -> Option<f64> {
     modulation_share(path, ChipKind::Ymf262)
 }
@@ -405,15 +349,11 @@ fn work_dir() -> PathBuf {
 
 /// Shortening a file must not change what we render from it.
 ///
-/// `shortened` was introduced with the claim that handing both sides the same
-/// cut file "cannot bias a comparison", and that claim was checked on OPL
-/// only, where it held to four decimal places. It does not hold everywhere:
-/// the first full scorecard had OKIM6258, OKIM6295 and HuC6280 rendering
-/// *nothing* from their cut copies while the reference played them, which is a
-/// property of the cut and not of those cores -- all three pass the corpus
-/// audibility suite on the originals.
-///
-/// So the claim is now a test rather than a comment.
+/// The claim that the same cut file "cannot bias a comparison" holds on OPL but
+/// not everywhere: OKIM6258, OKIM6295 and HuC6280 rendered *nothing* from their
+/// cut copies while the reference played them (a property of the cut, not the
+/// cores -- all three pass the audibility suite on the originals). So it is a
+/// test now, not a comment.
 #[test]
 #[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
 fn shortening_a_file_does_not_change_what_we_render() {
@@ -473,17 +413,14 @@ fn shortening_a_file_does_not_change_what_we_render() {
     );
 }
 
-/// **pt-1's acceptance.** The reference must be a fixed point, or every
-/// threshold downstream is noise -- and the symptom would look like flaky cores
-/// rather than a flaky reference.
+/// The reference must be a fixed point, or every threshold downstream is noise
+/// -- and the symptom would look like flaky cores rather than a flaky reference.
 ///
-/// Checked **per chip**, on the same single-chip files the scorecard compares,
-/// because determinism turns out not to be a property of the player: the first
-/// run of this test drew a YMF262+YMZ280B rip and the reference disagreed with
-/// itself on 0.9% of samples, at full scale -- the signature of a PCM chip
-/// reading sample memory it never wrote. A player that is a fixed point for FM
-/// and a coin toss for PCM would have quietly widened exactly the thresholds
-/// that are supposed to be catching our bugs.
+/// Checked per chip, because determinism is not a property of the player: a
+/// YMF262+YMZ280B rip had the reference disagree with itself on 0.9% of samples
+/// at full scale -- a PCM chip reading sample memory it never wrote. A player
+/// deterministic for FM and a coin toss for PCM would quietly widen the very
+/// thresholds meant to catch our bugs.
 #[test]
 #[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
 fn the_reference_player_is_deterministic() {
@@ -533,17 +470,14 @@ fn the_reference_player_is_deterministic() {
     );
 }
 
-/// **pt-3: the control group.** Our OPL core is proven bit-identical to the C
-/// the reference runs (`dro-synth`'s `c-parity` suite), so anything less than a
-/// near-perfect score here is the *harness* -- resampling, alignment, gain
-/// fitting -- and not a chip. Nothing else in this file means anything until
-/// this passes.
+/// The control group. Our OPL core is bit-identical to the C the reference runs
+/// (`c-parity`), so anything less than a near-perfect score here is the *harness*
+/// -- resampling, alignment, gain fitting -- not a chip. Nothing else in this
+/// file means anything until this passes.
 ///
-/// It is asserted on **vibrato-free files**, which is where "the same core
-/// driven the same way" is actually true. See [`vibrato_share`] for the
-/// evidence that vibrato is a chip-state difference rather than a pipeline one;
-/// the vibrato-using files are still rendered, scored and printed, because a
-/// difference that is explained still has to stay visible.
+/// Asserted on vibrato-free files, where "the same core driven the same way" is
+/// actually true (see [`vibrato_share`]); vibrato-using files are still rendered
+/// and printed, because a difference that is explained still has to stay visible.
 #[test]
 #[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
 fn the_opl_control_group_calibrates_the_pipeline() {
@@ -558,11 +492,9 @@ fn the_opl_control_group_calibrates_the_pipeline() {
     let files = single_chip_files(&index, &root, ChipKind::Ymf262, SAMPLE);
     assert!(!files.is_empty(), "no single-chip OPL file in the corpus");
 
-    // **Both sides at the chip's own rate.** At 44100 this comparison scored
-    // 0.84 on a core that is bit-identical to the reference's, and the
-    // alignment slid several frames between the start of a file and its end --
-    // two resamplers disagreeing, which is exactly the pipeline artefact the
-    // control group exists to find. At 49716 neither side converts anything.
+    // Both sides at the chip's own rate. At 44100 this scored 0.84 on a
+    // bit-identical core, with alignment sliding several frames across the file
+    // -- two resamplers disagreeing. At 49716 neither side converts anything.
     let native = dro_synth::NATIVE_SAMPLE_RATE;
     let reference = reference.at_rate(native);
 
@@ -639,40 +571,18 @@ fn the_opl_control_group_calibrates_the_pipeline() {
     println!("the pipeline is sound: {judged} vibrato-free files, worst {worst:.4}");
 }
 
-/// Why there is no test here comparing our 44100 render against the
-/// reference's.
+/// There is no test here comparing our 44100 render against the reference's, on
+/// purpose. VGMPlay runs a chip well above 44100 and *linearly interpolates*
+/// down -- the exact aliasing this branch removed from our engine -- so at 44100
+/// the reference is the one aliasing, and agreeing with it would be the bug. A
+/// filter-both-sides variant is also unsound: filtering strips the band where
+/// two cores agree and correlation falls legitimately. The sound approach is the
+/// synthetic-probe tier `PARITY-PLAN` §2 specifies; until then the filter's
+/// evidence is `dro_synth::resample`'s own tests.
 ///
-/// Two were written and both were unsound, which is worth recording so a third
-/// is not attempted on the same footing.
-///
-/// The first asserted that our 44100 score should approach the 0.9958 the
-/// SN76489 reaches at its native rate. It cannot: VGMPlay's `ResamplingMode`
-/// offers linear interpolation, nearest-neighbour, or a mix of the two, and
-/// with `ChipSmplMode = 3` it runs an SN76489 at 223721 Hz and *linearly
-/// interpolates* down to 44100. That is the exact fault this branch removed
-/// from our own engine, so at 44100 the reference is the one with the aliasing
-/// and agreeing with it would now be the bug.
-///
-/// The second took the reference's native render, put it through our filter,
-/// and required our 44100 render to agree with it as well as the two agree at
-/// native rate. That premise is also wrong: a filter removes content from both
-/// sides, so where two cores agree above 19.8 kHz and differ below it,
-/// filtering strips the agreeing part and correlation *falls* -- legitimately.
-/// Measured losses ran from -0.007 to +0.345 across six files, and none of that
-/// spread is attributable to the filter being wrong.
-///
-/// What would work is the synthetic-probe tier `PARITY-PLAN` §2 specifies and
-/// nobody has built: a written-by-us VGM playing one high tone, where a
-/// band-limited render has energy at exactly one frequency and an aliased one
-/// has energy at a second, computable frequency. Until then the filter's
-/// evidence is `dro_synth::resample`'s own tests, which measure it directly
-/// against signals whose answers are known by construction.
-/// **pt-4 and pt-5**: the scorecard, against the frozen per-chip bar.
-///
-/// The first run against a new reference is expected to *fail* and be read as a
-/// table: the thresholds in `parity::THRESHOLDS` are provisional until the
-/// outliers have been listened to and the observed band written down. That
-/// calibration is a deliberate step, not a slip.
+/// **The scorecard, against the frozen per-chip bar.** The first run against a
+/// new reference is expected to *fail* and be read as a table: the thresholds in
+/// `parity::THRESHOLDS` are provisional until the outliers have been listened to.
 #[test]
 #[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
 fn every_cored_chip_matches_the_reference_within_its_band() {
@@ -706,26 +616,14 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         for original in &files {
             // Both sides render the same cut file, so the saving costs nothing.
             let path = &shortened(original, &work_dir());
-            // **Native rate only where the core is genuinely shared.** There it
-            // is the same core at the same rate on both sides and neither
-            // resamples. For a clean-room chip "native" is *our* core's rate
-            // and means nothing to the reference, which would simply upsample
-            // its own core into it -- reintroducing the resampler this is
-            // meant to remove, and at up to five times the cost, since some of
-            // these cores run above 200 kHz.
-            // **Every chip at its own rate, not just the shared-core ones.**
-            // Comparing at 44100 measures our resampler, and for a chip whose
-            // native rate is several times that, our resampler is the loudest
-            // thing in the measurement: the SN76489 scores 0.5848 at 44100 and
-            // 0.9958 at its own 223721, the YM2612 0.9538 against 0.9949. The
-            // engine interpolates linearly between point-sampled source frames
-            // with no decimation filter, so five-to-one downsampling folds
-            // everything above 22 kHz back into the band. That is a real fault
-            // in the engine (see SCORECARD.md); it is not the fault this
-            // scorecard is trying to attribute to a core.
-            //
-            // Costly, and unavoidably so: the reference has to render at that
-            // rate too, and `compare`'s cents search is quadratic in it.
+            // Every chip at its own rate. Comparing at 44100 measures our
+            // resampler, which for a chip running several times that is the
+            // loudest thing in the measurement: the SN76489 scores 0.5848 at
+            // 44100 and 0.9958 at its own 223721, the YM2612 0.9538 against
+            // 0.9949. That is a real engine fault (see SCORECARD.md), not the one
+            // this scorecard attributes to a core. Costly, and unavoidably so:
+            // the reference renders at that rate too, and `compare`'s cents search
+            // is quadratic in it.
             let rate = if std::env::var_os("DROTRIM_PARITY_AT_OUTPUT_RATE").is_some() {
                 RATE
             } else {
@@ -779,11 +677,8 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         let steady = (!unmodulated.is_empty()).then(|| median(&mut unmodulated));
         let detune = (!cents.is_empty()).then(|| median(&mut cents));
 
-        // The sample size travels with the number. Three times this programme
-        // has quoted a small-sample median as a chip's score -- a two-file
-        // 0.9958 for a chip whose twelve-file median is 0.5855 was the worst
-        // -- and each time the figure was written down without its n. A median
-        // that arrives labelled cannot be misread that way.
+        // The sample size travels with the number: a small-sample median read as
+        // a chip's score has misled this programme more than once.
         println!(
             "{:<14} {:?}  corr {correlation:.4} (n={})  lvl {level:.3}  gain {gain:.3}  drop {dropout:.3}  cents {}{}",
             chip.name(),
@@ -830,14 +725,13 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 
-/// **pt-6: the balance fit.** Every `OUTPUT_GAIN` in the cores is currently
-/// arithmetic that sounds plausible. This measures it instead.
+/// The balance fit. Every `OUTPUT_GAIN` in the cores is currently plausible-
+/// sounding arithmetic; this measures it instead.
 ///
 /// For a two-chip file, render ours twice with one core withheld each time and
 /// solve `a·A + b·B ≈ reference`. The ratio `a / b` is how far our balance sits
-/// from the reference's; the residual says whether the fit means anything at
-/// all, since two cores that differ in *content* will not add up to the
-/// reference's mix however they are scaled.
+/// from the reference's; the residual says whether the fit means anything, since
+/// two cores that differ in *content* will not add up however they are scaled.
 #[test]
 #[ignore = "needs DROTRIM_REF_PLAYER; run explicitly"]
 fn the_chip_balance_is_measured_rather_than_guessed() {

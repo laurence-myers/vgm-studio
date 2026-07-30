@@ -268,7 +268,7 @@ fn a_file_naming_an_saa1099_is_held_back_from_vgm_cmp() {
     // vgm_cmp.c:537 is missing a `break`, so SAA1099 writes are judged by the
     // YM2413's rules -- which dedupe every register, including the SAA1099's
     // envelope registers, where a repeated write is a retrigger rather than a
-    // latch. Until ot-7 measures it, the file goes through untouched.
+    // latch. So the file goes through untouched.
     let mut bytes = vgm_with(&[0x66], 0)[..HEADER_LEN].to_vec();
     put_u32(&mut bytes, offset::SAA1099_CLOCK, 8_000_000);
     put_u32(&mut bytes, offset::VERSION, 0x171);

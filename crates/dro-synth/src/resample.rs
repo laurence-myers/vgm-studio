@@ -9,31 +9,13 @@
 //! the output is 44100 or 48000. Something has to bridge that, and for the
 //! faster chips it is bridging *downwards* by a factor of five.
 //!
-//! [`VgmEngine`](crate::vgm_engine::VgmEngine) used to bridge it by pulling one
-//! source frame at a time and interpolating linearly between the two straddling
-//! each output frame. That is a resampler in the sense that it produces the
-//! right number of samples, and it is correct at a ratio near 1:1. At 5:1 it is
-//! not a resampler at all: linear interpolation attenuates high frequencies
+//! Linear interpolation between the two source frames straddling each output
+//! frame is correct near 1:1 but not at 5:1: it attenuates high frequencies
 //! only gently, so a square wave's harmonics above the output Nyquist survive
-//! the trip and reappear as inharmonic tones somewhere else entirely.
-//!
-//! The evidence for that is measured *here*, against signals whose answers are
-//! known by construction: the old path's worst folded tone was **-32.7 dB**,
-//! this one's is below **-114 dB**, and the passband, DC, alignment and pitch
-//! are pinned by the same suite.
-//!
-//! It has to be measured here, because two attempts to prove it through the
-//! reference-parity harness failed, each on numbers that looked decisive and
-//! were not. Two-file medians made the old resampler look like the whole of the
-//! SN76489's parity gap (0.5848 at 44100 against "0.9958 at native"); the
-//! twelve-file table read **0.5855 at native** -- the gap belongs to the cores,
-//! and those two files were simply the well-matching ones. And VGMPlay cannot
-//! arbitrate the question in either direction: its own resampling is linear or
-//! nearest-neighbour, so at 44100 *it* aliases, and the old engine's scores
-//! against it were partly two players sharing the same artefacts. The whole
-//! chronicle is in `docs/vgm-multichip-2026-07/RESAMPLER-PLAN.md` and
-//! `parity/SCORECARD.md`; this module's tests are the part that stands on its
-//! own.
+//! and reappear as inharmonic tones elsewhere. The tests here measure that
+//! against signals whose answers are known by construction; the parity harness
+//! cannot arbitrate it, since VGMPlay's own resampling is linear or
+//! nearest-neighbour and aliases at 44100 too.
 //!
 //! # What "accurate" is taken to mean
 //!
@@ -63,9 +45,9 @@
 //!    normalisation is right on average and wrong at every individual phase, and
 //!    the error moves at the beat frequency between the two rates -- an
 //!    amplitude wobble that would be blamed on a core.
-//! 2. **The phase accumulator is 32-bit fractional.** The old engine used 16,
-//!    which is a step error of up to 1.5e-5 -- invisible across two taps and
-//!    not across a thousand.
+//! 2. **The phase accumulator is 32-bit fractional.** A 16-bit one gives a
+//!    step error of up to 1.5e-5 -- invisible across two taps and not across a
+//!    thousand.
 //! 3. **Source frames are pulled one at a time**, exactly as before, so the
 //!    output cannot depend on the caller's chunk size. That property is
 //!    structural here rather than tested into place.
@@ -336,11 +318,8 @@ impl Resampler {
         // is a power of two, so the wrap is a mask rather than a modulo; and
         // the kernel is read inline rather than through `tap`'s bounds check.
         //
-        // This is not premature. The first version cost 7 ns a tap, which at
-        // the NES APU's 1445 taps is **1.1x realtime** -- one voice eating a
-        // whole core, and stuttering the moment anything else wanted one. The
-        // guard test caught it; the estimate in the plan (a few percent of a
-        // core) was simply wrong.
+        // This is not premature: the naive form cost 7 ns a tap, which at a
+        // 1445-tap ratio is 1.1x realtime -- one voice eating a whole core.
         let table = kernel();
         let mask = self.history.len() - 1;
         let step_per_tap = self.lobes_per_frame * SAMPLES_PER_LOBE as f64;
@@ -416,10 +395,6 @@ impl Resampler {
 /// **Rounding, not truncation.** `as i32` truncates toward zero, which biases
 /// every sample by up to one LSB *towards* zero -- a half-LSB DC offset on
 /// average and a slight loss of level, present on every frame of every chip.
-/// It showed up here as a constant 1000 coming back as 999: the taps summed to
-/// one correctly and the arithmetic landed on 999.9999. This project has
-/// already been bitten twice by rounding that goes the wrong way at a fixed
-/// point, so it is stated explicitly rather than left to a cast.
 fn clamp(value: f64) -> i32 {
     value
         .round()

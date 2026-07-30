@@ -185,21 +185,16 @@ fn an_optimised_file_renders_to_the_same_samples() {
 
 /// Which chips the sample-ROM trim can be trusted with.
 ///
-/// `vgm_sro` works by replaying a file's register writes through cut-down
-/// decoders -- about twenty-six of them -- and keeping only the ROM bytes some
-/// decoder says are reachable. A decoder that misreads a chip's addressing
-/// throws away samples that do get played, and the file still parses, still
-/// keeps its timing, and still sounds wrong. Only a render can catch it.
+/// `vgm_sro` replays a file's register writes through cut-down decoders and keeps
+/// only the ROM bytes some decoder says are reachable. A decoder that misreads a
+/// chip's addressing throws away samples that do get played, and the file still
+/// parses, keeps its timing, and sounds wrong -- only a render catches it.
 ///
-/// So the trim is allowed per chip, and this is the instrument that decides
-/// which. It runs `vgm_sro` **alone** (the pipeline's other stages would muddy
-/// the attribution), renders both sides, and prints a table of chip against
-/// identical/differing. A chip with files in the "differing" column has no
-/// business being in `dro_vgmtools`' allowlist.
-///
-/// Upstream says as much itself, for chips this corpus may not cover: its
-/// ReadMe calls SegaPCM support "not entirely reliable" and warns that YM2610
-/// ADPCM "may need a patch for certain games".
+/// So the trim is allowed per chip, and this decides which: it runs `vgm_sro`
+/// **alone**, renders both sides, and prints a table of chip against
+/// identical/differing. A chip in the "differing" column has no business in
+/// `dro_vgmtools`' allowlist. (Upstream calls SegaPCM support "not entirely
+/// reliable" and warns YM2610 ADPCM "may need a patch for certain games".)
 #[test]
 #[ignore = "needs DROTRIM_CORPUS"]
 fn which_chips_the_sample_rom_trim_is_safe_for() {
@@ -256,18 +251,14 @@ fn which_chips_the_sample_rom_trim_is_safe_for() {
     // `dro_vgmtools::pipeline` is what this run is for.
 }
 
-/// The SAA1099 verdict this plan deferred.
+/// The deferred SAA1099 verdict.
 ///
 /// `vgm_cmp.c:537` is missing a `break`, so `case 0xBD` falls through into
-/// `case 0x51` and SAA1099 writes are judged by the YM2413's rules. Because
-/// that is a fallthrough rather than a considered rule, `dro_vgmtools` holds
-/// those files back. Lifting the hold-back is an audio question, so it belongs
-/// here rather than in a byte comparison.
-///
-/// This test does not lift it. It measures what lifting it would cost, by
-/// running `vgm_cmp` on an SAA1099 file directly -- bypassing the pipeline's
-/// hold-back -- and rendering both sides. Run it over a corpus of SAA1099 rips
-/// (Sam Coupe, and the SAA-based PC rips) before changing anything.
+/// `case 0x51` and SAA1099 writes are judged by the YM2413's rules. Because that
+/// is a fallthrough rather than a considered rule, `dro_vgmtools` holds those
+/// files back. This does not lift the hold-back; it measures what lifting it
+/// would cost, by running `vgm_cmp` on an SAA1099 file directly and rendering
+/// both sides. Run it over a corpus of SAA1099 rips before changing anything.
 #[test]
 #[ignore = "needs DROTRIM_CORPUS pointed at SAA1099 rips"]
 fn what_holding_the_saa1099_back_is_buying() {

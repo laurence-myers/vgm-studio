@@ -74,8 +74,7 @@ fn help_lists_every_subcommand() {
             "`help` omits {subcommand}:\n{text}"
         );
     }
-    // Convert moved to the GUI (Edit > Convert to DRO v1); it is no longer a
-    // subcommand.
+    // Convert is a GUI action now (Edit > Convert to DRO v1), not a subcommand.
     assert!(
         !text.contains("convert"),
         "`convert` should be gone:\n{text}"
@@ -91,8 +90,8 @@ fn version_is_reported() {
 
 #[test]
 fn an_unknown_subcommand_is_rejected() {
-    // Convert used to be a subcommand; make sure it (and any typo) now errors
-    // rather than silently doing nothing.
+    // An unknown subcommand (a typo, or the old `convert`) must error, not
+    // silently do nothing.
     let output = run(&["convert", "song.dro"]);
     assert!(
         !output.status.success(),

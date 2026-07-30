@@ -350,10 +350,9 @@ const HANDLE_ASPECT: f32 = 0.55;
 /// A horizontal slider in the case's chrome: a sunken trough with a keycap
 /// handle riding in it, and the value in a field of its own beside it.
 ///
-/// egui's own slider paints its rail from the shared widget fill, which on
-/// these cases is the panel colour -- so the rail vanished and left a handle
-/// floating in space. The trough is painted here instead, and egui's rail is
-/// flattened to nothing behind it.
+/// The trough is painted here and egui's own rail flattened to nothing behind it,
+/// because egui paints the rail from the shared widget fill (the panel colour on
+/// these cases), which would leave the handle floating in space.
 ///
 /// Returns the response of whichever half the user touched, so `.changed()`
 /// covers dragging the handle *and* typing in the field.
@@ -391,9 +390,8 @@ pub fn slider(
         })
         .inner;
     ui.add_space(6.0);
-    // The number, in a field that can be typed into -- the same box egui's
-    // slider shows, kept because reading an exact value off a handle is a
-    // guess and this pair of settings is measured in hundredths.
+    // The number, in a field that can be typed into: reading an exact value off a
+    // handle is a guess, and these settings are measured in hundredths.
     let typed = ui.add(
         egui::DragValue::new(value)
             .range(range)

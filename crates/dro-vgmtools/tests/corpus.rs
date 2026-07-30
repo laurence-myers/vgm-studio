@@ -7,19 +7,18 @@
 //!     --test corpus -- --ignored --nocapture
 //! ```
 //!
-//! What it asserts of every file, whatever the tools decide to do with it:
+//! What it asserts of every file:
 //!
 //! - **the result is still a VGM `dro_core` can walk** -- a tool that exits 0
 //!   having written something unreadable must not reach a caller;
 //! - **the delay total is unchanged** -- dropping a write that changes nothing
-//!   must not change *when* anything happens, and this is the one property
-//!   every stage here shares;
+//!   must not change *when* anything happens;
 //! - **it terminates** -- `chip_srom.c` can spin a `UINT32` mask forever, so a
 //!   file that hits the timeout is reported rather than waited on.
 //!
-//! This is not the whole of ot-7: render parity through `VgmEngine` lives in
-//! `dro-trimmer`, which is where the engine is available. What is here is the
-//! cheap half, and it is the half that catches a tool corrupting a file.
+//! Render parity through `VgmEngine` lives in `dro-trimmer`, where the engine
+//! is available; this is the cheap half, and the half that catches a tool
+//! corrupting a file.
 
 use std::path::{Path, PathBuf};
 
@@ -85,15 +84,13 @@ fn total_samples(bytes: &[u8]) -> Option<u64> {
 
 /// How often a rip declares a chip its stream never writes to.
 ///
-/// `vgm_ptch` can strip those, and the question is whether it is worth binding
-/// a fourth tool for. That depends entirely on how common the case is, so this
-/// counts it before anything is built.
+/// `vgm_ptch` can strip those, and whether it is worth binding a fourth tool
+/// depends on how common the case is, so this counts it.
 ///
 /// A chip is counted as unwritten only when *no* `Write` targets it. Files
 /// carrying data blocks, DAC streams or PCM RAM writes are tallied separately:
-/// those can feed a chip without a register write appearing against it, so a
-/// bare write count is not the whole story for them and they must not be
-/// stripped on this evidence alone.
+/// those can feed a chip without a register write appearing against it, so they
+/// must not be stripped on this evidence alone.
 #[test]
 #[ignore = "needs DROTRIM_CORPUS"]
 fn how_many_rips_declare_a_chip_they_never_write_to() {

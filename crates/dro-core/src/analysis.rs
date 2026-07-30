@@ -1,20 +1,15 @@
 //! On-demand detailed register analysis.
 //!
-//! Of the `(bank, description, ms_offset)` fields an instruction needs, two do
-//! not need an analyser at all: the ms offset is [`Song::ms_offset_at`] (the
-//! delay prefix sum, built at load), and the bank falls out of tracking bank
-//! switches. What is left is the *changed-bits* description for the instruction
-//! table -- which fields of a register a write actually altered.
+//! Produces the *changed-bits* description for the instruction table -- which
+//! fields of a register a write actually altered. (The bank and ms offset an
+//! instruction needs come from elsewhere: [`Song::ms_offset_at`] and bank-switch
+//! tracking.)
 //!
 //! This is a lazy replay **cursor**, not the eager list. It holds the chip's
 //! register state and replays forward one instruction at a time, so a table
-//! painting visible rows top-to-bottom pays `O(1)` amortised per row. Jumping to
-//! an earlier row resets and replays from the start. Nothing here is scheduled on
-//! a background thread: it is pure and wasm-clean, and a caller queries it
-//! directly while painting. (Periodic keyframes remain a possible later
-//! optimisation if the reset-and-replay of a backward jump ever measures too
-//! slow; the access pattern that matters -- scrolling a virtual table -- does not
-//! need them.)
+//! painting visible rows top-to-bottom pays `O(1)` amortised per row; jumping to
+//! an earlier row resets and replays from the start. It is pure and wasm-clean,
+//! queried directly while painting.
 
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
@@ -551,8 +546,8 @@ mod tests {
         assert_eq!(first, again);
     }
 
-    /// A Step-3 acceptance marker: the delay sums the analyser's rows describe
-    /// agree with the header length the prefix sum reports.
+    /// The delay sums the analyser's rows describe agree with the header length
+    /// the prefix sum reports.
     #[test]
     fn delay_sums_match_the_fixture_header() {
         let song = io::read_song("lsl3_score_up_dro2.dro", DRO_V2_FIXTURE).unwrap();

@@ -581,11 +581,10 @@ impl VgmFile {
     /// comes back byte-identical.
     ///
     /// Returns how many commands went, or `None` if the stream did not shrink.
-    /// A file that gains nothing is left **exactly** as it was, byte for byte.
-    /// That is why the work happens on a copy: re-spelling a run of delays at
-    /// the same length is not an improvement, and rewriting a file to no
-    /// purpose is how a pack of already-optimal rips starts showing up as
-    /// modified.
+    /// A file that gains nothing is left **exactly** as it was, byte for byte
+    /// (the work happens on a copy) -- re-spelling delays at the same length is
+    /// not an improvement, and rewriting a file to no purpose would make an
+    /// already-optimal rip show up as modified.
     pub fn optimize(&mut self) -> Option<usize> {
         let before_rows = self.len();
         let before_bytes = self.body.raw().len();
@@ -1157,8 +1156,8 @@ mod tests {
 
     #[test]
     fn a_minimal_header_with_data_at_0x60_opens() {
-        // The shape the OPL reader rejects outright, and one of the two reader
-        // TODOs this step closes for files this app has no core for.
+        // The shape the OPL reader rejects outright, for a file this app has no
+        // core for.
         let mut header = vec![0u8; 0x60];
         header[..4].copy_from_slice(crate::vgm::io::MAGIC);
         put_u32(&mut header, offset::VERSION, 0x151);
@@ -1360,7 +1359,7 @@ mod tests {
         assert_eq!(write(&file).unwrap(), original);
     }
 
-    // -- crop and delete-region (uv-3) --------------------------------------
+    // -- crop and delete-region ---------------------------------------------
 
     /// A Mega Drive stream with configuration up front and music after, so a
     /// crop has real state to carry across.
@@ -1676,14 +1675,13 @@ mod tests {
 
     // -- optimising ----------------------------------------------------------
 
-    /// The invariant the corpus caught a violation of: a file with nothing to
-    /// gain is left alone *byte for byte*. Re-spelling a run of delays at the
-    /// same length is not an improvement, and rewriting a file to no purpose is
-    /// how a pack of already-optimal rips starts showing up as modified.
+    /// A file with nothing to gain is left alone *byte for byte*. Re-spelling a
+    /// run of delays at the same length is not an improvement, and rewriting a
+    /// file to no purpose would make an already-optimal rip show up as modified.
     #[test]
     fn an_already_optimal_file_is_untouched() {
         // Two short waits whose merged encoding is the same two bytes in the
-        // other order -- the exact shape that used to be rewritten for nothing.
+        // other order.
         let mut bytes = vec![0u8; 0x100];
         bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
         put_u32(&mut bytes, offset::VERSION, 0x161);

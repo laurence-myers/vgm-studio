@@ -2,14 +2,11 @@
 //! Proof that [`ffi`](crate::ffi)'s `#[repr(C)]` twins still match the pinned
 //! headers.
 //!
-//! A struct that has drifted upstream does not fail to compile and does not
-//! fail to link. It reads the wrong field, and what comes out is a chip that
-//! renders at a nonsense rate or a function pointer that is really an integer.
-//! The sizes and offsets below come from the compiler that built libvgm, so a
-//! pin bump that moves a field fails a test rather than corrupting playback.
-//!
-//! This is the same reasoning as `dro-cores-nuked`'s `shim/layout.c`, applied
-//! to a crate that mirrors structs instead of treating them as opaque.
+//! A struct that has drifted upstream neither fails to compile nor to link: it
+//! reads the wrong field, yielding a chip at a nonsense rate or a function
+//! pointer that is really an integer. The sizes and offsets below come from the
+//! compiler that built libvgm, so a pin bump that moves a field fails a test
+//! rather than corrupting playback.
 
 use std::ffi::c_void;
 

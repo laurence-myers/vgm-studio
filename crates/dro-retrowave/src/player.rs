@@ -344,9 +344,8 @@ fn pump_loop(
         let now = Instant::now();
         if let Some(remaining) = deadline.checked_duration_since(now) {
             // Absolute deadlines, so a slow pass is made up by the next one
-            // rather than accumulating into drift. Since Rust 1.75 this is
-            // sub-millisecond accurate on Windows, which is finer than the
-            // quantum -- no spin-waiting needed.
+            // rather than accumulating into drift. sleep is sub-millisecond
+            // accurate on Windows, finer than the quantum -- no spin-waiting.
             thread::sleep(remaining);
         } else if now.duration_since(deadline) > MAX_LAG {
             deadline = now;
@@ -543,12 +542,9 @@ mod tests {
         drop(audio);
     }
 
-    /// The Princess Maker 2 bug, end to end: mute everything, seek into the
-    /// song, play. The seek's replay used to arm the key-ons it walked over, and
-    /// with the engine already muted nothing keyed them off again — materialize
-    /// then wrote them to the real chip, which rang (and drifted off-key, since
-    /// the muted channels' pitch-low writes kept passing while their key-off
-    /// writes were gated).
+    /// Mute everything, seek into the song, then play: no key-on may reach the
+    /// real chip while every channel is muted. A muted seek replays key-ons that
+    /// nothing keys off, so materialize could otherwise ring them on the hardware.
     #[test]
     fn playing_a_selection_with_everything_muted_stays_silent() {
         let (tx, rx) = channel();

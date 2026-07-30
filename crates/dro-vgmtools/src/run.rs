@@ -1,6 +1,6 @@
 //! Running one tool over one file, and surviving whatever it does.
 //!
-//! Three upstream behaviours shape this module, all of them found in ot-1:
+//! Four upstream behaviours shape this module:
 //!
 //! 1. **A tool can hang for good.** `chip_srom.c` doubles a `UINT32` mask until
 //!    it exceeds a ROM size read verbatim out of a data block; above
@@ -17,8 +17,7 @@
 //! 4. **`DblClickWait` is not the only `_getch`.** `vgm_ptch`'s `-StripList`
 //!    pauses mid-listing (`vgm_ptch.c:200`) with a bare `_getch()` that no
 //!    environment variable disarms. Nothing here invokes that command, but it
-//!    is why the deadline is not optional: a tool can block for reasons its
-//!    author never meant to be automated.
+//!    is why the deadline is not optional.
 
 use std::path::Path;
 use std::process::{Command, Stdio};

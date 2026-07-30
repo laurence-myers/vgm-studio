@@ -56,8 +56,7 @@ impl OplState {
     /// The file a bank maps to: the low file (`0`) or the high file (`1`).
     ///
     /// A `None` bank -- only DRO v1, which tracks the bank separately and is
-    /// never fed to this model -- maps to the low file, matching how the
-    /// optimiser has always treated it.
+    /// never fed to this model -- maps to the low file.
     fn file(bank: Option<Bank>) -> usize {
         bank.map_or(0, |bank| usize::from(bank.index()))
     }

@@ -123,11 +123,10 @@ fn process_entry(
 /// never fails the export -- the same never-fatal posture as the PNG path. The
 /// result is plain bytes, so the gzip step can still compress it.
 ///
-/// Every chip, through the vgmtools optimisers plus this app's own pass. What
-/// each stage did goes in the log: a stage that shrank the file, a stage held
-/// back, and a stage that failed are three different things, and one byte count
-/// cannot tell them apart. A Neo Geo rip that comes back byte for byte should
-/// say which chips were left alone rather than look unreadable.
+/// Runs every chip through the vgmtools optimisers plus this app's own pass. Each
+/// stage's outcome (shrank, held back, or failed) goes in the log, since one byte
+/// count cannot tell them apart, and chips left untouched are named so a rip that
+/// comes back byte for byte does not look unreadable.
 fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
     let Ok(file) = dro_core::vgm::file::read(name, bytes) else {
         // A DRO, or something unreadable. Either way it passes through.
@@ -311,8 +310,8 @@ mod tests {
         bytes
     }
 
-    /// The optimiser is no longer OPL-only: a Mega Drive rip with a repeated
-    /// register write comes out smaller, through the chip-agnostic pass.
+    /// A Mega Drive rip with a repeated register write comes out smaller,
+    /// through the chip-agnostic pass.
     #[test]
     fn a_ym2612_vgm_is_optimised_like_any_other() {
         let original = non_opl_vgm(
@@ -340,9 +339,8 @@ mod tests {
         assert_eq!(reread.chip_list(), "YM2612");
     }
 
-    /// The YMZ280B used to be the example of a chip with no rules. It is not
-    /// any more -- `vgm_cmp` has a table for it, and that widening from three
-    /// chips to about thirty is the whole point of binding the tools.
+    /// `vgm_cmp` has a table for the YMZ280B: a chip the app's own built-in pass
+    /// cannot touch is still optimised through the bound tools.
     #[test]
     fn a_chip_the_built_in_pass_cannot_touch_is_optimised_by_the_tools() {
         let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);

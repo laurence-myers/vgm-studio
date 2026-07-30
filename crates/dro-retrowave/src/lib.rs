@@ -9,13 +9,11 @@
 //! (every DRO, and VGM files whose chip data is OPL2, dual-OPL2, or OPL3); a
 //! single YMF262 cannot voice anything else.
 //!
-//! Implemented from the interface facts in `docs/retrowave-2026-07/PLAN.md` §1.
-//! The reference implementation is AGPL-3.0, which this project excludes from
-//! every shipped binary along with all other GPL-3-only code, so that document
-//! — not the reference sources — is the specification this code follows. See
-//! §2 there, and `licenses/README.md` for why the exclusion outlived the move
-//! from LGPL-2.1 to GPL-2.0-or-later: a v3-only obligation would lock out the
-//! GPL-2 emulator cores the app exists to link.
+//! Implemented from the interface facts in `docs/retrowave-2026-07/PLAN.md` §1,
+//! not from the AGPL-3.0 reference implementation: this project excludes
+//! GPL-3-only code from every shipped binary, so that document — not the
+//! reference sources — is the specification this code follows. See §2 there and
+//! `licenses/README.md`.
 
 pub mod chip;
 pub mod commands;
@@ -29,19 +27,13 @@ pub use player::RetroWaveAudio;
 
 /// Adds this board to the core registry, so Settings offers it for OPL.
 ///
-/// The provider convention: a crate holding cores depends on `dro-synth` for
-/// the registry and exports one of these; `dro-synth` names no provider. Here
-/// that direction earns something concrete -- this crate needs serial ports,
-/// so the web build never calls this and its Settings dialog stops offering a
-/// board it could never reach.
-///
 /// [`CoreMaker::Routed`], not a constructor: choosing hardware swaps the whole
-/// audio *service* (`SwitchingAudioService`), because a board that mixes its
-/// own sound is not a chip the engine can pull samples from. The app routes on
-/// the id; this entry exists to be listed and chosen.
+/// audio *service* (`SwitchingAudioService`), because a board that mixes its own
+/// sound is not a chip the engine can pull samples from.
 ///
-/// Registered after the built-ins on purpose, so the emulator stays the
-/// default and a first run does not go looking for a serial port.
+/// Registered after the built-ins so the emulator stays the default, and only
+/// from this crate, so the web build (no serial ports) never offers a board it
+/// could not reach.
 pub fn register(registry: &mut dro_synth::CoreRegistry) {
     for chip in dro_synth::registry::OPL_CHIPS {
         registry.register(dro_synth::CoreInfo {

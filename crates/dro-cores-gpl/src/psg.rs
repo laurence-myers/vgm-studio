@@ -1,22 +1,20 @@
 //! Nuked-PSG as a [`ChipCore`]: the SN76489 as Sega's VDPs integrate it.
 //!
 //! The picker's alternative to `dro-synth`'s clean-room SN76489, not its
-//! replacement. What it buys is the **SMS/Mega Drive flavour specifically** --
-//! Nuke.YKT's die-traced model of the PSG inside the Sega VDPs, with that
-//! part's own noise tap arrangement and its DAC's measured (not idealised)
-//! volume ladder. What it costs is generality: the header's
-//! feedback/shift-width fields, which let the clean-room core play a BBC
-//! Micro's or a Tandy's variant, mean nothing to a die trace of one chip, so
-//! [`configure`](ChipCore::configure) here is deliberately the no-op default.
-//! A rip for a non-Sega system through this core plays with Sega noise.
+//! replacement: Nuke.YKT's die-traced model of the PSG inside the Sega VDPs,
+//! with that part's own noise tap and measured volume ladder. It gives up
+//! generality -- the header's feedback/shift-width fields that let the
+//! clean-room core play a BBC Micro's or Tandy's variant mean nothing to a die
+//! trace of one chip -- so [`configure`](ChipCore::configure) is the no-op
+//! default, and a non-Sega rip plays with Sega noise.
 //!
 //! # Determinism at the DAC
 //!
-//! Upstream sums its DAC in `float`. That is fine by [`ChipCore`]'s
+//! Upstream sums its DAC in `float`, which is fine by [`ChipCore`]'s
 //! identical-everywhere rule only because the build forbids floating-point
-//! contraction (`build.rs`), leaving plain IEEE single-precision adds and
-//! multiplies, which agree bit-for-bit across x86-64 and wasm32. The scale to
-//! integer happens once per sample, here, not in C.
+//! contraction (`build.rs`), leaving plain IEEE adds and multiplies that agree
+//! bit-for-bit across x86-64 and wasm32. The scale to integer happens once per
+//! sample, here, not in C.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
@@ -42,10 +40,9 @@ const SETTLE: u32 = CLOCKS_PER_SAMPLE;
 /// Scales the unipolar float DAC sum (one channel at full volume is `1.0`)
 /// to the mixer's range.
 ///
-/// 4096 puts one full-volume channel at 4096 -- within 2.5% of the
-/// clean-room core's calibrated `PEAK = 4000`, which the scorecard measured
-/// at level 0.984 against the reference. Swapping cores in the picker should
-/// change the noise texture, not the volume.
+/// 4096 puts one full-volume channel near the clean-room core's calibrated
+/// `PEAK = 4000`, so swapping cores in the picker changes the noise texture,
+/// not the volume.
 const OUTPUT_SCALE: f32 = 4096.0;
 
 /// The SN76489 (Sega VDP flavour), Nuke.YKT's die-traced emulation of it.

@@ -1,11 +1,9 @@
 //! Compiles the pinned upstream C cores, unmodified.
 //!
-//! The sourcing policy in `crates/dro-synth/PROVENANCE.md`: an actively
-//! maintained C upstream is a git submodule pinned to a commit, compiled as it
-//! stands. Pulling a fix upstream is then `git -C vendor/upstream/<x> pull`, a
-//! pin bump and a corpus re-run -- not a re-port, and not a merge against local
-//! edits, because there are none. Everything this build needs that the upstream
-//! does not provide lives in `shim/`.
+//! Sourcing policy in `crates/dro-synth/PROVENANCE.md`: each C upstream is a git
+//! submodule pinned to a commit and compiled as it stands, so pulling a fix is a
+//! pin bump, not a re-port. Anything the build needs beyond the upstream lives
+//! in `shim/`.
 
 use std::path::{Path, PathBuf};
 
@@ -54,18 +52,15 @@ fn main() {
     build.compile("nuked_cores");
 }
 
-/// Rebuild when an upstream source changes -- which here means when a submodule
-/// pin moves, since nothing else ever edits them.
+/// Rebuild when an upstream source changes (i.e. when a submodule pin moves).
 fn watch(dir: &Path, files: &[&str]) {
     for file in files {
         println!("cargo::rerun-if-changed={}", dir.join(file).display());
     }
 }
 
-/// Fails with an instruction rather than a missing-file error.
-///
-/// A fresh clone has empty submodule directories, and `cc` would report a
-/// missing source file -- true, and useless. This says what to run.
+/// Fails with an instruction rather than the bare missing-file error a fresh
+/// clone's empty submodule directories would otherwise produce.
 fn require_submodule(path: &Path, name: &str, marker: &str) {
     if path.join(marker).exists() {
         return;

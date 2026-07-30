@@ -1,21 +1,15 @@
 //! An [`OplChip`] that writes to real silicon instead of emulating it.
 //!
-//! The engine drives this exactly as it drives the emulator, which is the point:
-//! seeking, muting, panning and the loop seam all keep their tested behaviour.
-//! What differs is that a real YMF262 sounds continuously and has no undo, so
-//! this chip does not simply forward writes.
-//!
-//! It keeps two register files:
+//! A real YMF262 sounds continuously and has no undo, so this chip does not
+//! simply forward writes. It keeps two register files:
 //!
 //! * `shadow` — where the song *wants* the chip to be. Every write records here.
 //! * `hw` — what the hardware actually holds, as far as we know.
 //!
 //! Playback writes go to both, and to the wire. A seek's replay goes only to the
-//! shadow, and [`SerialOpl3Chip::materialize`] then emits the difference. That is
-//! what makes seeking bearable: the engine's seek replays *every* register write
-//! from the start of the song, which forwarded verbatim would stream hundreds of
-//! thousands of writes and make the chip audibly race through the song's history.
-//! Diffing collapses that to at most one write per register.
+//! shadow, and [`SerialOpl3Chip::materialize`] emits the difference — collapsing
+//! the seek's hundreds of thousands of replayed writes to at most one per
+//! register, so the chip does not audibly race through the song's history.
 
 use dro_core::OplType;
 use dro_synth::opl::OplChip;

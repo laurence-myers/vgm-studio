@@ -47,7 +47,7 @@ pub fn run(args: &Args) -> Result<()> {
     // rather than reading `config.audio.boost`.
     let boost = args.boost.unwrap_or(1.0);
     let freq = config.audio.frequency;
-    // A live progress line for a long render, refreshed once a second (parity-5).
+    // A live progress line for a long render, refreshed once a second.
     let mut last_sec: Option<u32> = None;
     let mut on_progress = |frames: u64| {
         let ms = dro_synth::Position::ms_from_frames(frames, freq);

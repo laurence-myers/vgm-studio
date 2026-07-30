@@ -2,10 +2,8 @@
 //! assert the `stereo-ext` panpots really steer the output, and that a
 //! `Custom` -> `Original` round-trip returns to bit-identical disengaged audio
 //! (the same guarantee the `golden_opl` hash pins at the chip level).
-// Every test here drives an OPL core and asserts what it sounds like, so the
-// whole file needs one. A `--no-default-features` build of this crate has no
-// OPL core by design (the only one available is LGPL) -- see
-// `licenses/README.md`.
+// This file drives an OPL core; a `--no-default-features` build has none by
+// design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
 use dro_core::{DroDataV1, OplType, Song};
@@ -140,9 +138,8 @@ fn center_pan_feeds_both_channels() {
 #[test]
 fn center_custom_pan_matches_the_disengaged_level() {
     // With the balance pan law, a centred Custom pan holds both speakers at unity,
-    // so engaging it must not change the level of any channel -- the render is
-    // bit-identical to the disengaged output. (Regression guard: the upstream
-    // constant-power law dropped the centre ~3 dB.)
+    // so engaging it must not change any channel's level -- bit-identical to the
+    // disengaged output. (The upstream constant-power law dropped centre ~3 dB.)
     let song = sustained_tone();
     let mut original = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
     let expected = render(&mut original, 8192);
@@ -159,10 +156,9 @@ fn center_custom_pan_matches_the_disengaged_level() {
 
 #[test]
 fn seek_keeps_custom_panning_engaged() {
-    // Repro for the "click the waveform pans hard left" bug: an OPL3 song whose
-    // own C0 is hard left, played with Custom centre. Both channels sound before
-    // the seek; after a seek they still must, i.e. the seek's replay must keep
-    // stereo-ext engaged rather than fall back to the song's left-only C0 image.
+    // An OPL3 song whose own C0 is hard left, played with Custom centre: after a
+    // seek the right channel must still sound, i.e. the replay must keep stereo-ext
+    // engaged rather than fall back to the song's left-only C0 image.
     let song = opl3_left_tone();
     let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x80; 18])); // centre overrides the C0 image
@@ -183,10 +179,9 @@ fn seek_keeps_custom_panning_engaged() {
 
 #[test]
 fn a_songs_own_pan_register_writes_do_not_override_custom() {
-    // Regression for the Monkey Island 2 "hard left on play" bug: the song writes
-    // 0xD0 = 0x00 itself (the stereo-ext chip reads that as hard left), but with
-    // Custom centre engaged the engine must drop that write so both channels stay
-    // audible.
+    // The song writes 0xD0 = 0x00 itself (the stereo-ext chip reads that as hard
+    // left), but with Custom centre engaged the engine must drop that write so
+    // both channels stay audible.
     let song = song_writing_a_pan_register();
     let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x80; 18])); // centre
@@ -200,10 +195,10 @@ fn a_songs_own_pan_register_writes_do_not_override_custom() {
 
 #[test]
 fn first_play_after_enabling_custom_keeps_the_pan() {
-    // Reproduce "open song, click Custom, click Play". NativeAudioService::play()
-    // sends the seek BEFORE the panning, so the engine seeks while still Original
-    // (the song's 0x105 disables stereo-ext during the replay); the following
-    // SetPanning(Custom) must re-engage it, so playback is centred, not hard left.
+    // "Open song, click Custom, click Play": play() sends the seek BEFORE the
+    // panning, so the engine seeks while still Original (the song's 0x105 disables
+    // stereo-ext); the following SetPanning(Custom) must re-engage it, so playback
+    // is centred, not hard left.
     let song = opl3_left_tone();
     let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.seek_to_pos(14); // play()'s seek: engine.panning still Original here

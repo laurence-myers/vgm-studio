@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The FFI boundary, and the [`ChipCore`] implementation over it.
 //!
-//! Every `unsafe` in this crate lives here, as in the other providers. The
-//! shim (`shim/ymfm_c.cpp`) owns the C++ side; this owns the handle's
-//! lifetime and the translation between our engine's conventions and
-//! ymfm's.
+//! Every `unsafe` in this crate lives here. The shim (`shim/ymfm_c.cpp`) owns
+//! the C++ side; this owns the handle's lifetime and the translation between our
+//! engine's conventions and ymfm's.
 
 use std::ffi::c_void;
 
@@ -177,10 +176,8 @@ mod tests {
         out.iter().map(|&s| i64::from(s.abs())).sum()
     }
 
-    /// **The ru-1 gate.** ymfm compiles into this workspace through
-    /// `clang++`, links, builds a chip, takes writes and makes a sound. If
-    /// this fails the re-scope needs re-planning, exactly as cr-3 gated the
-    /// C submodules.
+    /// ymfm compiles into this workspace through `clang++`, links, builds a
+    /// chip, takes writes and makes a sound.
     #[test]
     fn ymfm_links_and_the_opn_family_sounds() {
         for kind in [

@@ -1,14 +1,12 @@
 //! YM2151 (OPM) register documentation.
 //!
-//! Sources: the Yamaha YM2151 application manual (long-public, widely
-//! mirrored in arcade programming references) and the community's canonical
-//! OPM register map as summarised on the VGMRips wiki. Bit assignments are
-//! datasheet facts.
+//! Sources: the Yamaha YM2151 application manual and the community's
+//! canonical OPM register map on the VGMRips wiki.
 //!
 //! Addressing: a single port of 256 registers. Channel registers repeat per
 //! channel (`addr & 7` selects the channel), operator registers per operator
 //! and channel (`addr & 0x18` the operator, `addr & 7` the channel); their
-//! docs name the role, not the channel, exactly as the OPL tables do.
+//! docs name the role, not the channel.
 
 use super::{RegisterDoc, bf};
 

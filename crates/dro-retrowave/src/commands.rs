@@ -1,7 +1,7 @@
 //! The fixed command sequences: expander init, chip reset, and the mute sweep.
 //!
 //! All pure builders over a [`CmdBuffer`], so the device layer is thin and every
-//! byte is testable without hardware. From `docs/retrowave-2026-07/PLAN.md` §1.3.
+//! byte is testable without hardware.
 
 use crate::protocol::{BOARD_OPL3, Bank, CmdBuffer, REG_GPIOA};
 

@@ -1,22 +1,20 @@
-//! Corpus validation for the OPL projection (uv-1), run on demand.
+//! Corpus validation for the OPL projection, run on demand.
 //!
-//! The net under the whole unification. Every OPL feature is being moved off
-//! the old closed-table reader and onto the one VGM model, and the promise is
-//! that nothing about an OPL song changes. This checks that promise against
-//! real files rather than synthetic ones: for every VGM in the local corpus
-//! that the OPL reader accepts, the projected song must agree row for row,
-//! total for total, and byte for byte on the way out.
+//! Every OPL feature is being moved off the old closed-table reader onto the one
+//! VGM model, and the promise is that nothing about an OPL song changes. This
+//! checks that against real files: for every VGM the OPL reader accepts, the
+//! projected song must agree row for row, total for total, and byte for byte on
+//! the way out.
 //!
-//! Ignored by default: it needs the local corpus, whose root is passed via the
-//! `DROTRIM_CORPUS` environment variable. Run it with:
+//! Needs the local corpus via `DROTRIM_CORPUS`:
 //!
 //! ```powershell
 //! $env:DROTRIM_CORPUS = 'F:\GameMusic\VGM'
 //! cargo test -p dro-trimmer --release --test projection_corpus -- --ignored --nocapture
 //! ```
 //!
-//! It also reports the files the *old* reader rejected but the VGM model opens
-//! -- the packs this whole feature exists for -- broken down by why.
+//! It also reports the files the old reader rejected but the VGM model opens,
+//! broken down by why.
 
 use std::path::{Path, PathBuf};
 

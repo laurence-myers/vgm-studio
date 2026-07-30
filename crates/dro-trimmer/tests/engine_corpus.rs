@@ -1,14 +1,11 @@
 //! The multi-chip engine, driven over every VGM on this machine.
 //!
-//! The engine has no cores yet, so this cannot check what anything *sounds*
-//! like. What it can check is everything around that, against real files rather
-//! than fixtures: that a stream this app agreed to open always walks to its end,
-//! that it renders for exactly as long as its own waits say, and that no real
-//! file's data blocks, DAC streams or compressed banks make it panic.
-//!
-//! That last one is the point. The fixtures in `dro-synth` exercise the shapes
-//! the spec describes; a corpus exercises the shapes rippers actually produced,
-//! including the ones the spec did not anticipate.
+//! With no cores here, this cannot check what anything *sounds* like, but it
+//! checks everything around that against real files: that a stream this app
+//! agreed to open always walks to its end, renders for exactly as long as its
+//! waits say, and never panics on real data blocks, DAC streams or compressed
+//! banks -- the shapes rippers actually produced, including ones the spec did
+//! not anticipate.
 //!
 //! Ignored by default and pointed at a corpus with `DROTRIM_CORPUS`:
 //!

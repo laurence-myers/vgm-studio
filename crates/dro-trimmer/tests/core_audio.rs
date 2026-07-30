@@ -1,14 +1,10 @@
-//! Do the cores make sound on *real files*, rather than on hand-written
-//! register scripts?
+//! Do the cores make sound on *real files*, not just on hand-written register
+//! scripts? Each core's own tests drive it directly; this proves the other half
+//! -- that the engine's routing, the file's commands and the core agree well
+//! enough for a corpus rip to come out audible (a core can be perfect and still
+//! be handed writes on the wrong port).
 //!
-//! Each core's own tests drive it directly, which proves the binding and the
-//! documented behaviour. This proves the other half: that the engine's routing,
-//! the file's own commands and the core agree well enough for a rip from the
-//! corpus to come out audible. The two fail in different ways -- a core can be
-//! perfect and still be handed writes on the wrong port.
-//!
-//! Files come from the chip index, so they are spread across systems and
-//! rippers rather than taken from one pack.
+//! Files come from the chip index, spread across systems and rippers.
 //!
 //! ```text
 //! DROTRIM_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
@@ -124,9 +120,9 @@ fn every_cored_chip_is_audible_on_corpus_files() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A Mega Drive rip has both a PSG and an FM chip, and the point of cr-4 is
-/// that it now has *both* rather than half. A file where only the PSG sounds
-/// would pass the test above while being exactly the regression worth catching.
+/// A Mega Drive rip has both a PSG and an FM chip. A file where only the PSG
+/// sounds would pass the test above while being exactly the regression worth
+/// catching.
 #[test]
 #[ignore = "needs DROTRIM_VGMRIPS_CORPUS; run explicitly"]
 fn a_mega_drive_rip_plays_its_fm_as_well_as_its_psg() {

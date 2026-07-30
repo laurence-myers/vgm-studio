@@ -215,7 +215,7 @@ fn scan_folder(path: &Path) -> Result<PickedFolder, String> {
             }),
             // One unreadable file must not abort the whole folder open -- skip it
             // with a warning, the way a song that fails to parse becomes an
-            // "unreadable" row rather than an error (ux-19).
+            // "unreadable" row rather than an error.
             Err(error) => log::warn!("skipping unreadable {}: {error}", file_path.display()),
         }
     }
@@ -286,7 +286,7 @@ fn save_filters(suggested_name: &str) -> &'static [(&'static str, &'static [&'st
         Some("m3u") => &[("Playlist (*.m3u)", &["m3u"])],
         Some("wav") => &[("WAV audio (*.wav)", &["wav"])],
         // A song is offered only its own format, so Save As cannot pick an
-        // extension the already-serialised bytes don't match (M5/ux-2).
+        // extension the already-serialised bytes don't match.
         Some("dro") => &[("DRO files (*.dro)", &["dro"])],
         Some("vgm" | "vgz") => &[("VGM files (*.vgm;*.vgz)", &["vgm", "vgz"])],
         _ => &FILTERS,
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn a_case_only_rename_updates_the_on_disk_case() {
-        // M1/ux-9: "01 intro" -> "01 Intro" must succeed, not fail as a clobber.
+        // "01 intro" -> "01 Intro" must succeed, not fail as a clobber.
         let dir = temp_dir("rename-case");
         let from = write_file(&dir, "01 intro.vgz", b"song");
         let mut service = NativeFileService::new();
@@ -474,7 +474,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn an_unreadable_file_is_skipped_not_fatal() {
-        // ux-19: one unreadable file must not abort the whole folder scan.
+        // One unreadable file must not abort the whole folder scan.
         use std::os::windows::fs::OpenOptionsExt as _;
         let dir = temp_dir("scan-unreadable");
         write_file(&dir, "01 Good.vgz", b"good");

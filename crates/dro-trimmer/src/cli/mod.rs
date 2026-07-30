@@ -1,5 +1,5 @@
-//! `drotrim`'s command line and its subcommands. (DRO v2 -> v1 conversion
-//! lives only in the GUI now -- Edit > Convert to DRO v1.)
+//! `drotrim`'s command line and its subcommands. (DRO v2 -> v1 conversion lives
+//! in the GUI: Edit > Convert to DRO v1.)
 //!
 //! One executable does everything. With no subcommand (and at most a file to
 //! open) `drotrim` starts the GUI, so the parser's [`Cli::command`] is optional

@@ -1,28 +1,21 @@
 //! The YM2608 die as a [`ChipCore`], clocked pin by pin -- memory included.
 //!
-//! The third chip on the LLE bench, and the one that carries the family's
-//! oldest asterisk: the clean-room YM2608 scores 0.6009 against the
-//! reference player with its rhythm section silent, because the drums live
-//! in the chip's internal mask ROM and a VGM does not carry it. **The decap
-//! does.** `fmopna_rom.h` in this submodule is that ROM, read off the die,
-//! so this core plays the drums the clean-room core cannot -- the first
-//! time this project can render a YM2608 rip complete.
+//! The drums live in the chip's internal mask ROM, which a VGM does not carry,
+//! so the clean-room YM2608 plays them silent. The decap does carry it:
+//! `fmopna_rom.h` in this submodule is that ROM read off the die, so this core
+//! renders a YM2608 rip complete. (The 2610 die was the original target but its
+//! configuration of the upstream does not compile -- unguarded 2608-only GPIO
+//! writes -- so the 2608 die is the family's OPNA witness until that heals.)
 //!
-//! (The 2610 die was the original target -- our weakest OPN core -- but its
-//! configuration of the upstream does not compile: unguarded 2608-only GPIO
-//! writes at the pinned commit, a different error one commit earlier,
-//! checked 2026-07-28. The 2608 die is the family's OPNA witness until
-//! upstream's 2610 build heals.)
-//!
-//! The harness serves the package's external memory: the Delta-T sample
-//! store is DRAM on a RAS/CAS-multiplexed nine-bit bus, addresses out and
-//! data either direction -- the die writes it through register `$08` and
-//! reads it back at playback, so the wrapper is a memory chip, holding
-//! whatever the VGM's `0x81` data blocks preloaded and whatever the die
-//! stores. FM, rhythm and ADPCM leave on the serial DAC as one 16-bit
-//! linear word per side per sample -- the YM3016's offset-binary format,
-//! LSB first, *not* the OPM's floating point; see [`decode_serial`] -- and
-//! the SSG leaves on the analog pin, scaled into the mix.
+//! The harness serves the package's external memory: the Delta-T sample store
+//! is DRAM on a RAS/CAS-multiplexed nine-bit bus, addresses out and data either
+//! direction -- the die writes it through register `$08` and reads it back at
+//! playback, so the wrapper is a memory chip, holding whatever the VGM's `0x81`
+//! data blocks preloaded and whatever the die stores. FM, rhythm and ADPCM
+//! leave on the serial DAC as one 16-bit linear word per side per sample -- the
+//! YM3016's offset-binary format, LSB first, *not* the OPM's floating point;
+//! see [`decode_serial`] -- and the SSG leaves on the analog pin, scaled into
+//! the mix.
 //!
 //! `realtime: false`, like every die: render and oracle only.
 
@@ -46,7 +39,7 @@ const WRITE_HOLD: u32 = 8;
 const ADDRESS_RECOVER: u32 = 4;
 
 /// Master clocks of bus silence after a value byte: pair time equals the
-/// shipping core's sample-period pacing, the lesson the OPM bench paid for.
+/// shipping core's sample-period pacing.
 const VALUE_RECOVER: u32 = CLOCKS_PER_SAMPLE - (2 * WRITE_HOLD) - ADDRESS_RECOVER;
 
 /// Master clocks with `IC` held low at reset.
@@ -109,13 +102,10 @@ impl DramPort {
 
 /// Taps the serial stream and cuts words at a strobe's falling edge.
 ///
-/// **This package has a bit-clock pin, and it is not decorative.** The OPM
-/// die's serial line ran at a steady half-master rate, so its tap could
-/// sample every clock; this one gates its bit clock (`o_s`), and sampling
-/// at master rate smears the word across a shifting alignment -- the
-/// symptom was FM a hundred times too quiet while the framing looked
-/// plausible. The tap shifts only on the bit clock's rising edges, which
-/// is what the real YM3016 on the board does.
+/// This package gates its bit clock (`o_s`): unlike the OPM die's steady
+/// half-master serial line, sampling at master rate here smears the word across
+/// a shifting alignment. The tap shifts only on the bit clock's rising edges,
+/// as the real YM3016 on the board does.
 #[derive(Debug, Default, Clone, Copy)]
 struct DacCapture {
     strobe_was_high: bool,
@@ -137,20 +127,19 @@ impl DacCapture {
 
 /// The serial word before a falling edge, to linear PCM.
 ///
-/// **Not the OPM's float format.** The die loads its 18-bit accumulator
-/// (FM + rhythm + Delta-T, already summed per side) into the shifter as a
-/// *16-bit linear* word -- low 15 bits of the sum, the sign inverted into
-/// bit 15, saturated by the shifter's clip gates -- and shifts it out **LSB
-/// first** (`fmopna_impl.c`: `ac_shifter[0] = ac_shifter[1] >> 1`). That is
-/// the YM3016's offset-binary input, where the OPM's YM3012 took a
+/// Not the OPM's float format. The die loads its 18-bit accumulator (FM +
+/// rhythm + Delta-T, already summed per side) into the shifter as a *16-bit
+/// linear* word -- low 15 bits of the sum, the sign inverted into bit 15,
+/// saturated by the shifter's clip gates -- and shifts it out LSB first
+/// (`fmopna_impl.c`: `ac_shifter[0] = ac_shifter[1] >> 1`). That is the
+/// YM3016's offset-binary input, where the OPM's YM3012 took a
 /// three-bit-exponent float.
 ///
-/// Framing, pinned by probe: 24 bit clocks per half-frame; the word rides
-/// bits 7..22, the strobe rises at bit 16 and falls at bit 24, so at the
-/// falling edge the stream holds one trailing bit and then the word,
-/// bit-reversed. The idle die shifts exactly one set bit -- positive zero's
-/// inverted sign -- two clocks before the fall, which is what nailed the
-/// alignment; a keyed tone then hand-decodes to a slowly evolving sine.
+/// Framing, pinned by probe: 24 bit clocks per half-frame; the word rides bits
+/// 7..22, the strobe rises at bit 16 and falls at bit 24, so at the falling
+/// edge the stream holds one trailing bit and then the word, bit-reversed. The
+/// idle die shifts exactly one set bit (positive zero's inverted sign) two
+/// clocks before the fall, which pins the alignment.
 fn decode_serial(stream: u32) -> i32 {
     let mut value: u32 = 0;
     for i in 0..16 {
@@ -163,12 +152,9 @@ fn decode_serial(stream: u32) -> i32 {
 
 /// Scales the analog (SSG) pin's average into the serial DAC's range.
 ///
-/// One SSG channel flat out is `1.0` on the pin (the die's own `volume_lut`
-/// tops there); the shipping core's AY plays the same channel at 8000. The
-/// FM word needs no factor of its own -- a full-scale channel is 4096 in
-/// the decoded word against 3840 in the shipping frame (256 over three
-/// enabled cycles of four, times its FM gain of 5) -- so matching the SSG
-/// alone lines the two mixes up.
+/// One SSG channel flat out is `1.0` on the pin (the die's `volume_lut` tops
+/// there); the shipping core's AY plays the same channel at 8000. The FM word
+/// needs no factor of its own, so matching the SSG alone lines the two mixes up.
 const SSG_SCALE: f32 = 8000.0;
 
 /// The YM2608, as its own die computes it -- mask ROM and all.
@@ -272,8 +258,8 @@ impl ChipCore for Ym2608Lle {
         self.capture = [DacCapture::default(); 2];
         self.held = [0; 2];
         self.rate = (clock / CLOCKS_PER_SAMPLE).max(1);
-        // The DRAM survives the reset the engine performs at load, exactly
-        // as the clean-room cores keep their ROMs: the blocks arrive first.
+        // The DRAM survives reset: the `0x81` blocks arrive before it, as the
+        // clean-room cores keep their ROMs.
         self.chip.power_cycle();
         self.chip.set_pins(Opn2Pins {
             ic: false,
@@ -327,13 +313,12 @@ impl ChipCore for Ym2608Lle {
             }
             // The serial DAC carries FM, rhythm and Delta-T; the analog pin
             // carries the SSG, averaged over the sample and scaled into the
-            // same range -- calibrated against the shipping core through
-            // the oracle's level column, like every balance.
+            // same range.
             let ssg = (analog_sum / CLOCKS_PER_SAMPLE as f32 * SSG_SCALE) as i32;
             // SH1 frames the LEFT word: accumulator 1 collects the pan bits
-            // the register map calls left (`$B4` bit 7, rhythm bit 7), and
-            // in Delta-T DA mode the die gates `o_sh1` with `ad_reg_l` --
-            // the left enable. The opposite of what the OPM wiring suggested.
+            // the register map calls left (`$B4` bit 7, rhythm bit 7), and in
+            // Delta-T DA mode the die gates `o_sh1` with `ad_reg_l`, the left
+            // enable.
             frame[0] = self.held[0] + ssg;
             frame[1] = self.held[1] + ssg;
         }
@@ -363,9 +348,8 @@ mod tests {
             .sum()
     }
 
-    /// A loud FM note on channel 1, algorithm 7 -- all four operators
-    /// configured, the same patch the shipping core's tests play. The die
-    /// needs the full patch where a single-op one whispers: unkeyed
+    /// A loud FM note on channel 1, algorithm 7, all four operators configured.
+    /// The die needs the full patch where a single-op one whispers: unkeyed
     /// operators' power-on envelope state is not the clean silence an
     /// abstraction resets to.
     fn key_on_fm(chip: &mut Ym2608Lle) {
@@ -417,10 +401,9 @@ mod tests {
         );
     }
 
-    /// **The drums the clean-room core cannot play.** The rhythm section
-    /// reads the chip's internal mask ROM -- on this core that ROM is the
-    /// decap's, so a bass-drum key-on must sound with no sample block
-    /// loaded at all. This is the test the whole 2608 die exists for.
+    /// The drums the clean-room core cannot play. The rhythm section reads the
+    /// chip's internal mask ROM -- here that ROM is the decap's, so a bass-drum
+    /// key-on must sound with no sample block loaded at all.
     #[test]
     fn the_rhythm_section_plays_from_the_mask_rom() {
         let mut chip = Ym2608Lle::new();

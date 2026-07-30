@@ -1,26 +1,19 @@
 //! Chip state allocated by a size the C side reports, never mirrored in Rust.
 //!
-//! The obvious way to hold an upstream's `struct` is to declare a `#[repr(C)]`
-//! twin of it. That works right up until the upstream adds a field: the twin is
-//! now smaller than what the C writes through the pointer, which is memory
-//! corruption rather than a compile error. A submodule that is *meant* to be
-//! pulled from upstream makes that a question of when, not whether.
-//!
-//! So nothing is mirrored. The C reports `sizeof` and `alignof`, this allocates
-//! that many bytes, and Rust never looks inside. An upstream field addition
-//! then changes only a number, and it changes it in the right direction
-//! automatically.
-//!
-//! The cost is that the state cannot be `Clone`d field-wise or printed
-//! usefully -- neither of which any core here wants.
+//! A `#[repr(C)]` twin of an upstream `struct` becomes memory corruption the
+//! moment the upstream adds a field, which a pulled submodule makes a question
+//! of when, not whether. So nothing is mirrored: the C reports `sizeof` and
+//! `alignof`, this allocates that many bytes, and Rust never looks inside. The
+//! cost is that the state cannot be `Clone`d field-wise or printed usefully,
+//! neither of which any core here wants.
 
 use std::ffi::c_void;
 
 /// The alignment this can guarantee, being backed by `u64`.
 ///
 /// Every upstream here is plain C with no over-aligned members, so 8 is ample;
-/// the constructor asserts rather than assumes, because a silently
-/// under-aligned struct is undefined behaviour that usually looks like it works.
+/// the constructor asserts rather than assumes, because a silently under-aligned
+/// struct is undefined behaviour.
 const GUARANTEED_ALIGN: usize = align_of::<u64>();
 
 /// A block of zeroed bytes sized for one upstream chip struct.
@@ -58,8 +51,7 @@ impl OpaqueChip {
 }
 
 impl std::fmt::Debug for OpaqueChip {
-    /// The bytes are the upstream's business, so the size is all there is to
-    /// say. Printing 50 KiB of emulator state would serve nobody.
+    /// The bytes are the upstream's business, so the size is all there is to say.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpaqueChip")
             .field("bytes", &(self.storage.len() * size_of::<u64>()))
@@ -69,10 +61,9 @@ impl std::fmt::Debug for OpaqueChip {
 
 // SAFETY: the block is plain zeroed memory owned solely by this value, and the
 // upstream cores keep no global mutable state reachable through it -- each
-// chip's state lives entirely inside its own struct. (Nuked-OPN2's
-// `OPN2_SetChipType` *is* a global, which is why `opn2.rs` re-asserts it before
-// every call rather than relying on it having been set; that is a correctness
-// hazard handled there, not an aliasing one.)
+// chip's state lives inside its own struct. (Nuked-OPN2's `OPN2_SetChipType`
+// is a global, but `opn2.rs` handles that as a correctness hazard, not an
+// aliasing one.)
 unsafe impl Send for OpaqueChip {}
 
 #[cfg(test)]

@@ -1,28 +1,20 @@
 //! Byte-exact regression tests for every way the app renders audio.
 //!
-//! The renders here are compared against WAV files committed under
-//! `tests/render/`. That is a legitimate oracle because the whole path is
-//! deterministic: `nuked-opl3` is integer emulation, bit-identical to Nuke.YKT's
-//! C reference (see the `c-parity` feature), and the boost limiter is plain IEEE
-//! `f32`. So a byte for byte match means every stage -- the instruction decoder,
-//! the frame clock, the chip, the muting gate, the panpots, the limiter and the
-//! WAV writer -- produced exactly what it produced when the fixture was blessed.
+//! Renders are compared against WAV files committed under `tests/render/`. The
+//! whole path is deterministic (`nuked-opl3` is integer emulation, bit-identical
+//! to the C reference; the limiter is plain `f32`), so a byte-for-byte match
+//! means every stage -- decoder, frame clock, chip, muting, panpots, limiter, WAV
+//! writer -- produced exactly what it did when the fixture was blessed.
 //!
-//! These are what make it safe to refactor the render loop: a change that alters
-//! a single sample of any scenario fails here.
-//!
-//! Re-bless them after an intentional change, and check the diff is what you
-//! meant:
+//! Re-bless after an intentional change, and check the diff is what you meant:
 //!
 //! ```PowerShell
 //! $env:UPDATE_RENDER_FIXTURES='1'
 //! cargo test -p dro-synth --test render_regression
 //! Remove-Item Env:\UPDATE_RENDER_FIXTURES
 //! ```
-// Every test here drives an OPL core and asserts what it sounds like, so the
-// whole file needs one. A `--no-default-features` build of this crate has no
-// OPL core by design (the only one available is LGPL) -- see
-// `licenses/README.md`.
+// This file drives an OPL core; a `--no-default-features` build has none by
+// design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
 use std::path::PathBuf;

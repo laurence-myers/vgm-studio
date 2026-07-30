@@ -124,12 +124,11 @@ pub fn ram_header(kind: u8, payload: &[u8]) -> Result<(RamBlock, &[u8])> {
 
 /// The chip a ROM or RAM block type belongs to, from the spec's table.
 ///
-/// This is what lets a multi-chip file's sample images reach the right
-/// core: without it a block can only be delivered when exactly one chip is
-/// clocked, which was the standing limitation until the tail-chip cores
-/// arrived to need the real table. `None` means the spec assigns the type
-/// to a chip this table has no entry for yet -- the caller falls back to
-/// its single-chip heuristic rather than guessing.
+/// This is what lets a multi-chip file's sample images reach the right core:
+/// without it a block can only be delivered when exactly one chip is clocked.
+/// `None` means the spec assigns the type to a chip this table has no entry
+/// for yet -- the caller falls back to its single-chip heuristic rather than
+/// guessing.
 #[must_use]
 pub const fn block_owner(kind: u8) -> Option<ChipKind> {
     Some(match kind {

@@ -487,12 +487,10 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "audio", "frequency") {
             self.audio.frequency = parse(value, "audio.frequency")?;
         }
-        // Migration: `output_backend` was the OPL row's key under another name,
-        // written before every chip had a core choice. Read it as one, so an
-        // existing drotrim.ini keeps its hardware setting; it is not written
-        // back, so the file converges on the new spelling after one save.
-        // Applied *before* the `core.*` keys so an explicit new-style choice in
-        // the same file wins.
+        // `output_backend` is the OPL row's core choice under a legacy name.
+        // Read it so an existing drotrim.ini keeps its hardware setting; it is
+        // not written back, so the file converges on the new spelling. Applied
+        // *before* the `core.*` keys so an explicit new-style choice wins.
         if let Some(value) = lookup(&ini, "audio", "resampling") {
             // Normalised but not validated, matching the core names: an empty
             // value restores the default, anything else is kept verbatim for
@@ -989,10 +987,9 @@ mod tests {
 
     #[test]
     fn a_retired_key_is_ignored_rather_than_rejected() {
-        // `chip_write_delay` was dropped once the OPL core's own write buffer
-        // took over spacing register writes. Every ini written before that still
-        // carries the key, and must still load rather than fall back to the
-        // defaults wholesale.
+        // `chip_write_delay` is a retired key; an ini written before it was
+        // dropped still carries it, and must still load rather than fall back to
+        // the defaults wholesale.
         let source = "[audio]\nchip_write_delay=26.6\nbuffer_size=2048\n";
         let config = AppConfig::try_from_ini_sources(&[source]).expect("still parses");
         assert_eq!(config.audio.buffer_size, 2048, "the rest is still read");

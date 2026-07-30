@@ -85,7 +85,6 @@ impl fmt::Debug for NukedOpl3 {
 #[cfg(feature = "nuked-opl")]
 impl OplChip for NukedOpl3 {
     fn reset(&mut self, sample_rate: u32) {
-        // A fresh chip state.
         self.chip.reset(sample_rate);
     }
 

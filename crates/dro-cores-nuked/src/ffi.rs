@@ -1,14 +1,12 @@
 //! The C ABI of the pinned upstream cores, and the only `unsafe` in this crate.
 //!
-//! Declared by hand rather than bindgen: the surface is a dozen functions and
-//! two opaque structs, bindgen would add libclang to every build, and a
-//! generated binding is a thing that can silently drift from the header it was
-//! generated against. These declarations are checked against the headers at the
-//! pinned commits named in `PROVENANCE.md`.
+//! Declared by hand rather than bindgen: the surface is small, bindgen would add
+//! libclang to every build, and a generated binding can drift from its header.
+//! Checked against the headers at the pinned commits named in `PROVENANCE.md`.
 //!
-//! **No struct is mirrored.** The state is allocated by size reported from C
-//! (see [`crate::opaque`]), so an upstream that adds a field changes a number
-//! rather than silently outgrowing a Rust twin of itself.
+//! No struct is mirrored -- the state is allocated by size reported from C (see
+//! [`crate::opaque`]), so an upstream that adds a field changes a number rather
+//! than silently outgrowing a Rust twin of itself.
 
 use std::ffi::c_void;
 
@@ -120,15 +118,13 @@ pub(crate) struct Opn2Chip {
 ///
 /// `OPN2_SetChipType` writes a `static` in `ym3438.c`, not a field of the chip,
 /// so two instances of different variants share one setting. Only `OPN2_Clock`
-/// reads it -- for the YM2612's discrete DAC ladder, which the CMOS YM3438
-/// lacks -- and `OPN2_Read`, which nothing here calls. So the setting has to
-/// hold across a *clocking run*, and this is what makes that true even with two
-/// engines rendering on different threads.
+/// reads it (for the YM2612's discrete DAC ladder, which the CMOS YM3438
+/// lacks), so the setting must hold across a clocking run even with two engines
+/// rendering on different threads.
 ///
-/// One acquisition per `render` call, not per clock: a render is hundreds of
-/// samples, the lock is uncontended unless two OPN2 chips are being driven at
-/// once, and every holder does nothing but arithmetic. Locking per internal
-/// clock would be 1.3 million acquisitions a second per chip.
+/// Locked once per `render`, not per clock: the lock is uncontended unless two
+/// OPN2 chips are driven at once, and per-clock would be 1.3 million
+/// acquisitions a second per chip.
 static CHIP_TYPE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// A clocking run with this chip's variant in force.

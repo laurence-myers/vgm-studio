@@ -2,60 +2,42 @@
 //! Sound cores from [libvgm](https://github.com/ValleyBell/libvgm), Valley
 //! Bell's modular rewrite of VGMPlay's emulation half.
 //!
-//! This is the primary accuracy tier of the reuse re-scope
-//! (`docs/vgm-multichip-2026-07/LIBVGM-PLAN.md`). What makes libvgm different
-//! in kind from the other providers is that **one API covers every chip**:
-//! `SndEmu_Start(DEV_ID, const DEV_GEN_CFG*, DEV_INFO*)` hands back a `DEV_DEF`
-//! of function pointers, so the same wrapper drives a QSound and a SAA1099.
-//! There is no per-chip C++ class to instantiate as ymfm needs, and no device
-//! framework to satisfy as MAME needs. Adding a chip is a build-table row and a
-//! write-table row.
+//! What makes libvgm different in kind from the other providers is that **one
+//! API covers every chip**: `SndEmu_Start(DEV_ID, const DEV_GEN_CFG*,
+//! DEV_INFO*)` hands back a `DEV_DEF` of function pointers, so the same wrapper
+//! drives a QSound and a SAA1099. No per-chip C++ class as ymfm needs, no device
+//! framework as MAME needs; adding a chip is a build-table row and a write-table
+//! row.
 //!
-//! # The licence position, stated plainly
+//! # The licence position
 //!
-//! **libvgm ships no licence grant.** As of the pinned commit there is no
-//! `LICENSE` and no `COPYING` at its root, GitHub's licence API reports none,
-//! and the framework headers this crate compiles against -- `EmuStructs.h`,
-//! `SoundEmu.h`, `EmuHelper.h`, `snddef.h` -- carry no per-file tag. Some
-//! vendored cores do carry the tags they arrived with (the MAME-derived ones
-//! are `BSD-3-Clause`, the Nuked ones `LGPL-2.1+`), but the framework that
-//! binds them does not.
-//!
-//! Code published without a grant is all rights reserved by default. A git
-//! submodule is unaffected by that -- we redistribute nothing and the user
-//! fetches from upstream -- but **a released binary containing this object code
+//! **libvgm ships no licence grant** -- no `LICENSE`/`COPYING`, no per-file tag
+//! on the framework headers this crate compiles against. Some vendored cores
+//! carry the tags they arrived with (MAME-derived `BSD-3-Clause`, Nuked
+//! `LGPL-2.1+`), but the framework that binds them does not. Code published
+//! without a grant is all rights reserved by default: the git submodule
+//! redistributes nothing, but **a released binary containing this object code
 //! is redistribution of a derivative work**, and that is the unresolved
-//! question. It is not a copyleft-compatibility problem that the GPL tier
-//! solves; there is no grant to be compatible with.
-//!
-//! This is a factual finding, not legal advice, and the project owner makes the
-//! risk call. `LIBVGM-PLAN.md` lv-0 tracks it, and `CORES-REUSE-PLAN.md` §5
-//! lists the options -- the cheapest being to ask upstream for a `LICENSE`.
-//! The crate's `license` key is set to the app's copyleft tier because that is
-//! the most conservative home for a dependency whose terms are unresolved.
+//! question the project owner must call. The crate's `license` key is set to the
+//! app's copyleft tier as the most conservative home for unresolved terms.
 //!
 //! # What is not here
 //!
-//! **OPL, by the owner's decision.** libvgm has YM3812, YM3526, Y8950 and
-//! YMF262 cores and this crate does not compile them. OPL2/OPL3 keeps exactly
-//! three options -- Nuked-OPL3 (the default, a vendored Rust port), Nuked-CQM
-//! and RetroWave -- because `PlayerEngine` carries the buffered-write spacing,
-//! muting and panning the DRO *editor* depends on, which makes it the editing
-//! engine rather than a swappable playback core.
+//! **OPL, by the owner's decision.** libvgm's YM3812/YM3526/Y8950/YMF262 cores
+//! are not compiled: OPL plays through `PlayerEngine`, which carries the
+//! buffered-write spacing, muting and panning the DRO editor depends on.
 //!
-//! **libvgm's own Nuked cores**, which our submodules already serve. See
-//! `build.rs`'s `CORES_SERVED_ELSEWHERE` -- and note that the symbol collision
-//! LIBVGM-PLAN §4 feared does not exist, because upstream renamed every entry
-//! point with an `N` prefix.
+//! **libvgm's own Nuked cores**, which our submodules already serve -- see
+//! `build.rs`'s `CORES_SERVED_ELSEWHERE`.
 //!
 //! **libvgm's resampler and DAC-stream controller.** We start chips at their
-//! native rate and resample with `dro_synth::resample`, and our engine already
+//! native rate and resample with `dro_synth::resample`, and our engine
 //! implements the VGM `0x90`-`0x95` DAC stream commands itself.
 
 mod chip;
 mod ffi;
 /// Test-only: nothing in the shipped library reads a struct offset, so the
-/// guard and its `extern` declarations exist purely to fail a test.
+/// layout guard exists purely to fail a test.
 #[cfg(test)]
 mod layout;
 #[cfg(target_arch = "wasm32")]
@@ -65,21 +47,17 @@ pub use chip::LibVgmChip;
 
 /// The id every libvgm core is registered under, per chip slot.
 ///
-/// One suffix for the whole provider rather than one per chip, because the id
-/// is `"<slot>.<core>"` and the slot already names the chip. A user who has
-/// chosen `core.sn76489=libvgm` has chosen this provider.
+/// One suffix for the whole provider rather than one per chip: the id is
+/// `"<slot>.<core>"` and the slot already names the chip.
 pub const CORE_SUFFIX: &str = "libvgm";
 
 /// Adds every chip this build can serve to the registry.
 ///
 /// **Registered ahead of the other providers, so libvgm is the default for
-/// every chip it serves** -- the 2026-07-29 owner decision: libvgm is the
-/// source of truth, no parity gating. The app's `install_cores` calls this
-/// first; the Nuked and LLE integrations register behind it as picker
-/// options, and OPL is untouched because this crate compiles no OPL device.
-/// Three named exceptions, also the owner's: the app *promotes* Nuked back
-/// over these rows for the YM2612, YM2151 and YM2413, leaving libvgm on
-/// their pickers.
+/// every chip it serves.** The app's `install_cores` calls this first; Nuked and
+/// LLE register behind it as picker options. Three exceptions: the app promotes
+/// Nuked back over the YM2612, YM2151 and YM2413 rows, leaving libvgm on their
+/// pickers.
 pub fn register(registry: &mut dro_synth::CoreRegistry) {
     for spec in chip::SPECS {
         registry.register(dro_synth::CoreInfo {
@@ -104,8 +82,7 @@ mod tests {
     use crate::ffi::{self, DevGenCfg, DevInfo, EERR_OK, RWF_REGISTER, RWF_WRITE, Sn76496Cfg};
 
     /// The SN76489 as the corpus declares it: 15-bit shift register, `0x0003`
-    /// feedback, output negated, clock divided by 8. These exact numbers are
-    /// what the frozen scorecard caught our own core getting wrong.
+    /// feedback, output negated, clock divided by 8.
     fn sn76489_config(clock: u32) -> Sn76496Cfg {
         Sn76496Cfg {
             gen_cfg: DevGenCfg {
@@ -128,16 +105,12 @@ mod tests {
         }
     }
 
-    /// **The lv-1 PoC gate.** libvgm compiles into this workspace, links,
-    /// starts a device, takes register writes and makes a sound.
+    /// libvgm compiles into this workspace, links, starts a device, takes
+    /// register writes and makes a sound.
     ///
-    /// Deliberately the same standard as ru-1's ymfm gate rather than the
-    /// weaker "`SndEmu_Start` returns 0" the plan wrote down: a core that
-    /// starts and stays silent is the classic mis-paced-write symptom, and
-    /// catching it here is the whole point of having a gate before the
-    /// generic binding is built on top.
-    ///
-    /// The sequence mirrors upstream's own `emutest.c`.
+    /// Asserts sound, not just a clean start: a core that starts and stays
+    /// silent is the classic mis-paced-write symptom. The sequence mirrors
+    /// upstream's own `emutest.c`.
     #[test]
     fn libvgm_links_and_the_psg_sounds() {
         let cfg = sn76489_config(3_579_545);
@@ -166,7 +139,7 @@ mod tests {
         let dev_def = unsafe { &*dev.dev_def };
 
         // The core identifies itself; proves we are reading the vtable at the
-        // right offsets rather than merely reading *something*.
+        // right offsets rather than merely reading something.
         // SAFETY: libvgm's core names are static nul-terminated literals.
         let name = unsafe { CStr::from_ptr(dev_def.name) }.to_string_lossy();
         assert!(!name.is_empty(), "the core should name itself");
@@ -246,17 +219,15 @@ mod tests {
         assert!(dev.data_ptr.is_null());
     }
 
-    /// A device we did not compile is refused the same way -- which is what
-    /// makes `build.rs`'s `ENABLED` list the single source of truth for what
-    /// this build offers, rather than something the registry has to be kept in
-    /// step with by hand.
+    /// A device we did not compile is refused the same way -- which makes
+    /// `build.rs`'s `ENABLED` the single source of truth for what this build
+    /// offers, rather than something the registry must be kept in step with.
     #[test]
     fn a_device_left_out_of_the_build_is_refused() {
         let cfg = sn76489_config(3_579_545);
         let mut dev = DevInfo::empty();
-        // `DEVID_MSM5232` (0x2D) is a real device this build does not compile.
-        // It becomes available the moment `ENABLED` names it -- as QSound,
-        // which stood here until lv-3 enabled it, duly did.
+        // `DEVID_MSM5232` (0x2D) is a real device this build does not compile;
+        // it becomes available the moment `ENABLED` names it.
         // SAFETY: as above; an uncompiled device ID is simply unknown.
         let started =
             unsafe { ffi::SndEmu_Start(0x2D, (&raw const cfg).cast::<DevGenCfg>(), &raw mut dev) };
@@ -266,10 +237,9 @@ mod tests {
         );
     }
 
-    /// The device names itself from its configuration -- the mechanism the
-    /// Settings picker will read at lv-6, and a second witness that
-    /// `DEV_GEN_CFG` is laid out right, since the long name is chosen by
-    /// reading through the extended config.
+    /// The device names itself from its configuration -- a second witness that
+    /// `DEV_GEN_CFG` is laid out right, since the long name is chosen by reading
+    /// through the extended config.
     #[test]
     fn the_device_names_the_variant_its_config_describes() {
         let cfg = sn76489_config(3_579_545);
@@ -291,9 +261,8 @@ mod tests {
         );
     }
 
-    /// `device_func` reports absence rather than handing back a null pointer
-    /// to transmute -- the difference between a `None` and a crash at lv-3,
-    /// where every chip asks for the writer width it wants.
+    /// `device_func` reports absence rather than handing back a null pointer to
+    /// transmute -- the difference between a `None` and a crash.
     #[test]
     fn asking_for_a_width_the_core_lacks_is_a_none() {
         let cfg = sn76489_config(3_579_545);

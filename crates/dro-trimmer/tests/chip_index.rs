@@ -1,12 +1,6 @@
 //! Builds the corpus chip index, and reports what the corpus actually holds.
 //!
-//! The plan's step order (cr-4 YM2612, cr-5 YM2413, cr-6 AY8910/YM2151, ...)
-//! was set from an estimate of which chips dominate the VGMRips corpus. This
-//! is where that estimate gets checked against the files, because a programme
-//! ordered by a guess is a programme that spends its first weeks on the wrong
-//! chip.
-//!
-//! It is also the index every later core test draws its files from:
+//! It is the index every later core test draws its files from:
 //! `ChipIndex::sample(chip, n)` gives N files naming that chip, spread across
 //! systems and rippers rather than taken from one pack.
 //!
@@ -15,8 +9,8 @@
 //!     cargo test -p dro-trimmer --release --test chip_index -- --ignored --nocapture
 //! ```
 //!
-//! The first run reads every header in the corpus and takes minutes; it writes
-//! a cache beside the corpus, so later runs are immediate.
+//! The first run reads every header in the corpus (minutes) and caches beside
+//! the corpus, so later runs are immediate.
 
 use dro_core::vgm::ChipKind;
 use dro_trimmer::corpus::{self, ChipIndex};
@@ -55,8 +49,7 @@ fn the_corpus_index_says_which_chips_are_worth_a_core_first() {
     }
 
     // The chips with no core yet, in the order the corpus argues for. Printed,
-    // not asserted: this is evidence for the step order, and the step order is
-    // the user's call.
+    // not asserted: evidence for the step order, which is the user's call.
     let registry = dro_synth::registry::registry();
     let uncored: Vec<_> = counts
         .iter()

@@ -1,16 +1,13 @@
 //! The LLE oracle diff: the shipping core measured against the die itself.
 //!
-//! CORES-PLAN §6's third acceptance gate, and the capability the GPL move
-//! bought: for the chips with a die-level simulation, the acceptance bar is
-//! mechanical -- render the same VGM through the fast core and through the
-//! LLE core and correlate, no reference *player* (and none of its resampler
-//! or driver) anywhere in the loop. Both renders happen at the chip's native
-//! rate through the same engine, so the diff isolates exactly one variable:
-//! the emulation.
+//! For the chips with a die-level simulation, the acceptance bar is mechanical
+//! -- render the same VGM through the fast core and through the LLE core and
+//! correlate, with no reference *player* (or its resampler) in the loop. Both
+//! renders happen at the chip's native rate through the same engine, so the diff
+//! isolates exactly one variable: the emulation.
 //!
-//! Not CI. An LLE core runs the master clock two edges at a time through a
-//! die-sized function -- minutes per corpus file -- so this is a documented,
-//! `--ignored`, corpus-gated run, like the reference scorecard:
+//! Not CI: an LLE core runs minutes per corpus file, so it is a documented,
+//! `--ignored`, corpus-gated run:
 //!
 //! ```text
 //! DROTRIM_VGMRIPS_CORPUS=<corpus root> \
@@ -18,11 +15,10 @@
 //!   --nocapture --ignored
 //! ```
 //!
-//! The first chip on the bench is deliberately the *strongest* one: the
-//! YM2151 already scores 0.9991 against the reference player, so a high
-//! correlation here validates the whole LLE harness -- the pin-level bus
-//! driver, the serial DAC decode -- before it is pointed at the chips where
-//! the answer is not already known (the OPN family, at 0.60-0.77 clean-room).
+//! The first chip on the bench is deliberately the strongest: the YM2151 already
+//! scores 0.9991 against the reference player, so a high correlation here
+//! validates the whole LLE harness before it is pointed at the chips where the
+//! answer is not already known.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -132,30 +128,24 @@ fn the_shipping_cores_match_the_die() {
             || Box::new(dro_cores_gpl::Ym2151Lle::new()),
             0.90,
         ),
-        // 0.9848 observed (n=4) on the first run, cents 0.0, no dropouts
-        // -- the shipping core is die-accurate. That is the second witness
-        // the open 0.904-versus-the-reference question needed: with the die
-        // agreeing with Nuked-OPN2 at 0.98, the remaining gap to VGMPlay
-        // lives in the reference player's driver, not in our emulation.
+        // 0.9848 observed (n=4), cents 0.0, no dropouts -- die-accurate. With the
+        // die agreeing with Nuked-OPN2 at 0.98, the gap to VGMPlay lives in the
+        // reference player's driver, not our emulation.
         (
             ChipKind::Ym2612,
             144,
             || Box::new(dro_cores_gpl::Ym2612Lle::new()),
             0.90,
         ),
-        // The 2608 row is different in kind: the die HAS the rhythm mask
-        // ROM the clean-room core cannot ship, so a low correlation here
-        // is not a bug in either side. **0.5829 observed (n=4)**, levels
-        // 0.79-1.05 -- the "die reads 2-11x quiet" defect is gone, and it
-        // was the harness all along: this package does not use the OPM's
-        // floating-point DAC word at all but the YM3016's 16-bit linear
-        // one, LSB first, and its SH1 frames the *left* word rather than
-        // the right. Both pinned by probe against the die's own shifter.
-        // What remains is believed to be the genuine article -- the drums
-        // our core cannot play -- but the per-file spread (0.31 to 0.72,
-        // envelope 0.08 to 0.40) is wider than a fixed missing section
-        // should give, so it is not yet proven that no harness gap is
-        // left. The bar stays a tripwire under the observed median.
+        // The 2608 row differs in kind: the die HAS the rhythm mask ROM the
+        // clean-room core cannot ship, so a low correlation is not a bug. 0.5829
+        // observed (n=4). This package decodes not the OPM's floating-point DAC
+        // word but the YM3016's 16-bit linear one, LSB first, with SH1 framing the
+        // *left* word -- both pinned by probe against the die's shifter. What
+        // remains is believed to be the drums our core cannot play, but the
+        // per-file spread is wider than a fixed missing section should give, so a
+        // harness gap is not yet ruled out. The bar stays a tripwire under the
+        // observed median.
         (
             ChipKind::Ym2608,
             144,
@@ -199,13 +189,11 @@ fn the_shipping_cores_match_the_die() {
             continue;
         };
         println!("{chip:?}  median corr {median:.4} (n={})", scores.len());
-        // The YM2151 bar, and why it is not 0.99: in lockstep -- same
-        // writes, no stream between them -- Nuked-OPM and the die correlate
-        // 1.0000 on tones and vibrato, so the mechanics agree exactly. What
-        // remains in a real stream is the noise LFSR's phase (0.95 measured
-        // in lockstep) and +-1-sample write-burst jitter between the two
-        // write paths; 0.9742 observed (n=4), env 1.00, cents 0.0. A real
-        // emulation gap looks like the OPN family's 0.6, not like this.
+        // The YM2151 bar, and why it is not 0.99: in lockstep Nuked-OPM and the
+        // die correlate 1.0000, so the mechanics agree exactly. What remains in a
+        // real stream is the noise LFSR's phase and +-1-sample write-burst jitter;
+        // 0.9742 observed (n=4). A real emulation gap looks like the OPN family's
+        // 0.6, not this.
         if median < bar {
             failures.push(format!("{chip:?}: median {median:.4} against the die"));
         }

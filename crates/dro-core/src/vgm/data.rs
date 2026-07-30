@@ -75,11 +75,10 @@ impl VgmData {
         Ok(offsets)
     }
 
-    /// Reads a raw file stream up to its `0x66` end marker, indexing it in the same
-    /// pass. This is the file read path: [`io::read`](crate::vgm::io) hands over the
-    /// bytes from the data offset onward and gets back the stored stream (the end
-    /// marker dropped) already indexed -- one walk, where copying the commands and
-    /// then re-deriving their offsets used to be two.
+    /// Reads a raw file stream up to its `0x66` end marker, indexing it in the
+    /// same pass. This is the file read path: [`io::read`](crate::vgm::io) hands
+    /// over the bytes from the data offset onward and gets back the stored stream
+    /// (the end marker dropped) already indexed, in one walk.
     ///
     /// # Errors
     /// If a command is unrecognised or its operands run past the end of the stream.

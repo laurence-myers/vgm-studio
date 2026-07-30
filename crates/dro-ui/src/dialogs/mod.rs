@@ -71,15 +71,11 @@ pub(crate) fn dialog_window(
 ///
 /// `id` must be unique per dialog.
 ///
-/// The body scrolls when it is taller than the window can hold: a modal cannot
-/// be dragged out of the way, so a dialog that overflows a short window would
-/// otherwise have its ends simply unreachable. The heading stays put above the
-/// scrolled part and `footer` -- the dialog's button row -- stays put below it,
-/// so Save and Close are reachable however short the window gets. Dialogs whose
-/// content grows with the song still cap their own tables (Find Loop, Split
-/// Songs) and Bulk Tag still scrolls its list between a pinned heading and
-/// footer; this is the backstop under all of them, for when the *window* is the
-/// thing that is too small.
+/// The body scrolls when it is taller than the window can hold, with the heading
+/// and `footer` (the button row) pinned above and below so Save and Close stay
+/// reachable however short the window gets. This is the backstop for when the
+/// *window* is too small; dialogs whose content grows with the song still cap
+/// their own tables (Find Loop, Split Songs) and Bulk Tag scrolls its own list.
 pub(crate) fn dialog_modal(
     ctx: &egui::Context,
     id: &str,
@@ -273,10 +269,10 @@ impl Dialogs {
 
     /// Draws every open dialog, dropping the ones that closed.
     ///
-    /// `area`: where the two modeless windows may live. Since egui 0.35, panels
-    /// drawn into the app's `Ui` no longer reserve space, so a window would
-    /// otherwise auto-place at the top of the viewport, over the menu bar. The
-    /// modals are centred on the viewport and ignore it, like the alerts.
+    /// `area`: where the two modeless windows may live. Panels drawn into the
+    /// app's `Ui` no longer reserve space, so a window would otherwise auto-place
+    /// at the top of the viewport, over the menu bar. The modals are centred on
+    /// the viewport and ignore it, like the alerts.
     pub fn show_all(
         &mut self,
         ctx: &egui::Context,

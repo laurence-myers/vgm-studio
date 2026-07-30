@@ -1,9 +1,7 @@
 //! Compiles the pinned upstream C cores, unmodified.
 //!
-//! The same arrangement as `dro-cores-nuked`, kept separate only because the
-//! licence differs: these upstreams are GPL and that one's are LGPL, and the
-//! whole point of two crates is that the distinction survives into the metadata
-//! rather than living in a comment.
+//! Separate from `dro-cores-nuked` only because these upstreams are GPL and
+//! that crate's are LGPL, so the distinction survives into the metadata.
 
 use std::path::{Path, PathBuf};
 
@@ -33,10 +31,8 @@ fn main() {
     }
 
     // The OPN-family dies: one implementation compiled per chip macro. The
-    // 2612 and 2608 dies are wrapped. The 2610 configuration does not
-    // compile upstream (unguarded 2608-only GPIO writes at the pin; a
-    // different error one commit back -- checked 2026-07-28), so it waits
-    // for upstream rather than for us.
+    // 2612 and 2608 dies are wrapped; the 2610 configuration does not compile
+    // upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
     let opna_lle = PathBuf::from(UPSTREAM).join("ym2608-lle");
     require_submodule(&opna_lle, "ym2608-lle", "fmopna_2612.c");
     for file in [
@@ -69,17 +65,13 @@ fn main() {
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")
-        // Nuked-PSG's DAC is summed in `float`. Contraction would let a
-        // compiler fuse those into FMAs on one target and not another, and
-        // `ChipCore` promises identical output everywhere -- so forbid it
-        // where the compiler understands the flag (MSVC does not contract
-        // under its default /fp:precise).
+        // Nuked-PSG sums its DAC in `float`; contraction would fuse those into
+        // FMAs on one target but not another, breaking `ChipCore`'s promise of
+        // identical output everywhere. MSVC does not contract under /fp:precise.
         .flag_if_supported("-ffp-contract=off")
-        // The LLE core simulates the die pin by pin -- millions of calls per
-        // emulated second -- and an unoptimised build of it makes even the
-        // tests crawl. The C is deterministic integer logic (plus the
-        // contraction-pinned floats above), so optimisation level does not
-        // change output, only how long a debug test run takes.
+        // The LLE cores simulate the die pin by pin (millions of calls per
+        // emulated second); an unoptimised build makes even the tests crawl.
+        // The C is deterministic, so opt level changes speed, not output.
         .opt_level(2)
         .warnings(false);
 

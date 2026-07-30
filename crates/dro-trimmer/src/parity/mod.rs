@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! Comparing our render of a file against a reference player's.
 //!
-//! `CORES-PLAN` §6.2 has always said a core is unverified until someone listens
-//! to it against VGMPlay. This is what makes most of that mechanical. Every
-//! real bug the cores programme shipped was *measurable* -- flat pitch, a
-//! silent half, a missing voice, a standing offset, a wrong balance -- so ears
-//! are needed for the residual, not for everything.
+//! A core is unverified until someone listens to it against VGMPlay; this makes
+//! most of that mechanical. Every real bug the cores programme shipped was
+//! *measurable* -- flat pitch, a silent half, a missing voice, a standing
+//! offset, a wrong balance -- so ears are needed for the residual, not for
+//! everything.
 //!
-//! The full reasoning, the two regimes and the step list are in
+//! The full reasoning and the two regimes are in
 //! `docs/vgm-multichip-2026-07/PARITY-PLAN.md`. In short:
 //!
 //! - **Shared-core chips** (YM2612, YM2151, YM2413, OPL) run the same Nuked
@@ -318,15 +318,11 @@ pub enum Regime {
 
 /// What a chip has to score to pass.
 ///
-/// **Frozen 2026-07-28 as regression floors, not certificates.** pt-5's
-/// calibration ran, the outliers were investigated (every one of the first
-/// scorecard's disasters turned out to be a real, fixable bug -- see
-/// `parity/SCORECARD.md` for the chronicle), and each bar now sits just below
-/// its chip's observed n=12 median. A bar below the ideal is an *open
-/// investigation with a tripwire under it*: the reason is on the entry, the
-/// investigation is in SCORECARD.md, and a regression from the observed level
-/// fails loudly. Raising a bar when its chip improves is expected; lowering
-/// one requires the same standard of evidence that set it.
+/// The bars are regression floors, not certificates: each sits just below its
+/// chip's observed n=12 median, so a regression fails loudly. A bar below the
+/// ideal is an open investigation with a tripwire under it -- the reason is on
+/// the entry (`known_gap`) and in `parity/SCORECARD.md`. Raising a bar when its
+/// chip improves is expected; lowering one needs the same evidence that set it.
 #[derive(Debug)]
 pub struct Threshold {
     pub chip: ChipKind,
@@ -378,12 +374,9 @@ pub const THRESHOLDS: &[Threshold] = &[
             "0.977 observed (n=12) against a shared core; short of the 0.99              ideal, unexplained by the LFO or the resampler",
         ),
     },
-    // The clean-room tier this table once measured was culled on 2026-07-29
-    // and the scorecard retired with it (see parity/SCORECARD.md's preamble).
-    // What remains are the shared-lineage rows above: reference and core run
-    // the same upstream, so a low score means the binding or the driver is
-    // wrong, never that "implementations differ" -- which is the only question
-    // this harness still answers.
+    // Only shared-lineage rows remain: reference and core run the same upstream,
+    // so a low score means the binding or the driver is wrong, never that
+    // "implementations differ" -- the only question this harness answers.
 ];
 
 /// A shared-core chip's bar: near-identity, because a gap is a driver fault.

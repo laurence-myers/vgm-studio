@@ -18,7 +18,7 @@ use dro_trimmer::services::{
 use dro_ui::DroApp;
 use dro_ui::platform::FileService;
 
-/// Decodes the embedded `dt.ico` into the window/taskbar icon (parity-3).
+/// Decodes the embedded `dt.ico` into the window/taskbar icon.
 /// Returns `None` -- no icon, not a failure -- if it can't be decoded, so a bad
 /// icon never blocks startup.
 fn load_icon() -> Option<eframe::egui::IconData> {
@@ -56,8 +56,7 @@ fn main() -> ExitCode {
         Some(command) => match dro_trimmer::cli::run(command) {
             Ok(()) => ExitCode::SUCCESS,
             Err(err) => {
-                // `{:?}` on an anyhow error prints the whole cause chain, which
-                // is what returning it from `main` used to do.
+                // `{:?}` on an anyhow error prints the whole cause chain.
                 eprintln!("Error: {err:?}");
                 ExitCode::FAILURE
             }

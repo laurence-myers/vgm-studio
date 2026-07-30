@@ -1,15 +1,11 @@
 //! Nuked-OPM as a [`ChipCore`]: the YM2151 behind most of eighties arcade FM,
 //! and the YM2164 it was rebadged as.
 //!
-//! Third by weight in the VGMRips corpus -- 10,069 files, 13.9% -- and the
-//! chip Sega, Capcom and Konami built their arcade sound on.
-//!
-//! Shaped like [`opn2`](crate::opn2) because it is the same designer's work:
-//! **cycle-level clocking** (32 cycles to a sample, two master clocks each, so
-//! the familiar `clock / 64`) and **latched writes** that land only when the
-//! rotation reaches their slot. So the same write queue applies, for the same
-//! reason. What it does *not* share is OPN2's global chip-type: the YM2164
-//! variant is a flag on this chip's own reset, so no lock is needed.
+//! Shaped like [`opn2`](crate::opn2), the same designer's work: cycle-level
+//! clocking (32 cycles to a sample, two master clocks each, so `clock / 64`)
+//! and latched writes that land only when the rotation reaches their slot, so
+//! the same write queue applies. Unlike OPN2 it has no global chip-type -- the
+//! YM2164 variant is a flag on this chip's own reset -- so no lock is needed.
 
 use dro_core::vgm::ChipKind;
 use dro_synth::ChipCore;
@@ -29,30 +25,20 @@ const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 
 /// Cycles of clear air the address and the value each need to themselves.
 ///
-/// The chip takes the address into one latch and the value into another, and
-/// each is picked up when the rotation comes round to it -- so a register is
-/// address, a whole rotation, value, a whole rotation, and only then may the
-/// next address disturb anything. About one register per two output samples,
-/// which is some 27,000 a second: far more than any file asks for.
-///
-/// This was measured rather than assumed, and the measurement is the interesting
-/// part: spacing writes 1, 2, 3 or 6 cycles apart produces total *silence*,
-/// while 4 gives full amplitude, 8 a quarter and 16 a half. The sequence is not
-/// monotonic because those values are **phases**, not durations -- each lands
-/// some registers on their slot and misses others. A spacing that happens to
-/// work for one patch is therefore no evidence at all; only a full rotation
-/// each way is. The failure mode is a note that sounds wrong or not at all,
-/// which reads as a bad patch rather than a bad driver.
+/// The chip takes the address into one latch and the value into another, each
+/// picked up when the rotation comes round to it -- so a register is address, a
+/// whole rotation, value, a whole rotation, before the next address may disturb
+/// anything. About one register per two output samples, far more than any file
+/// asks for. A shorter spacing is no shortcut: cycle counts act as phases, not
+/// durations, so one that lands a patch's registers on their slots misses
+/// another's; only a full rotation each way is reliable.
 const SETTLE_CYCLES: u32 = CLOCKS_PER_SAMPLE;
 
 /// Scales the DAC output towards `i16` range.
 ///
-/// The output scale, **measured against VGMPlay**: the parity scorecard's
-/// single-chip level read 0.500 (n=12, both sides at the chip's native rate),
-/// so the natural output sits at exactly half the reference's and one doubling
-/// closes it. `a_loud_patch_uses_the_range_without_clipping_it` pins the
-/// result; the engine clamps the frame sum, and the reference's own renders
-/// prove real content fits at this level.
+/// Measured against VGMPlay: the natural output sits at half the reference's
+/// level, so one doubling closes it, pinned by
+/// `a_loud_patch_uses_the_range_without_clipping_it`.
 const OUTPUT_GAIN: i32 = 2;
 
 /// The YM2151 (and YM2164), Nuke.YKT's emulation of it.
@@ -106,7 +92,6 @@ impl ChipCore for Ym2151 {
     /// One register port, addressed by writing the register number then the
     /// value -- so each call queues two.
     fn write(&mut self, _port: u8, addr: u16, data: u16) {
-        // One register port: the address goes to 0 and its value to 1.
         self.writes
             .push(0, (addr & 0xFF) as u8, (data & 0xFF) as u8);
     }

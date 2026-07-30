@@ -1,28 +1,25 @@
 //! The three tools and the built-in optimiser, run as one pass.
 //!
-//! Order matters, and it is upstream's, not ours -- the VGMRips wiki's
-//! "Optimizing VGMs" page runs the sample-ROM trim *before* the write dedup:
+//! Order is upstream's, from the VGMRips wiki's "Optimizing VGMs" page, which
+//! runs the sample-ROM trim *before* the write dedup:
 //!
-//! 1. **`optdac`** first, because collapsing a run of identical DAC writes
-//!    leaves fewer commands for everything after it to walk.
+//! 1. **`optdac`** first, so collapsing a run of identical DAC writes leaves
+//!    fewer commands for everything after it to walk.
 //! 2. **`vgm_sro`**, while every write is still present. It decides which
 //!    sample-ROM bytes are reachable by replaying the register writes through
-//!    its own chip models -- which are *not* `vgm_cmp`'s. Running it second
-//!    would mean asking it to find the ROM from a write history another tool
-//!    had already pruned, on rules it does not share. The tempting argument
-//!    for the other order (fewer writes, less ROM to keep) is exactly the risk.
-//! 3. **`vgm_cmp`**, the main event: the per-chip redundancy table this whole
-//!    crate exists to borrow.
+//!    its own chip models -- not `vgm_cmp`'s. Running it second would mean
+//!    asking it to find the ROM from a write history another tool had already
+//!    pruned, on rules it does not share.
+//! 3. **`vgm_cmp`**: the per-chip redundancy table this whole crate exists to
+//!    borrow.
 //! 4. **`dro_core`'s own optimiser** to finish. Its redundancy pass is
-//!    subsumed by `vgm_cmp` and finds nothing, but its delay re-encoder is
-//!    provably byte-minimal where `vgm_cmp`'s writer is not, so it reliably
-//!    shaves a little more.
+//!    subsumed by `vgm_cmp`, but its delay re-encoder is provably byte-minimal
+//!    where `vgm_cmp`'s writer is not, so it reliably shaves a little more.
 //!
-//! **A wholly-OPL file skips the tools entirely.** `dro_core` has covered the
-//! OPL family since before any of this, its output is pinned byte-for-byte
-//! against 3933 corpus files, and nothing here would improve on that -- so the
-//! bypass keeps those pins meaningful rather than quietly re-spelling every
-//! OPL file through a second implementation.
+//! **A wholly-OPL file skips the tools entirely.** `dro_core` covers the OPL
+//! family and its output is pinned byte-for-byte against the corpus; the
+//! bypass keeps those pins meaningful rather than re-spelling every OPL file
+//! through a second implementation.
 
 use dro_core::vgm::ChipKind;
 
@@ -41,40 +38,30 @@ use crate::{ToolOutcome, clean_dac_runs, optimize_writes, trim_sample_roms};
 ///
 /// So SAA1099 register writes are judged by the YM2413's rules, which dedupe
 /// every register with no exceptions. The SAA1099 has some: writing `0x18` or
-/// `0x19` *reloads* an envelope rather than latching a value, so a repeat of
-/// the same byte is a retrigger and dropping it is audible.
-///
-/// This is a fallthrough, not a considered rule -- nobody decided the SAA1099
-/// should be read as a YM2413 -- so it does not get the benefit of the doubt
-/// that the rest of the table has earned. Held back until ot-7's corpus
-/// render-parity run says otherwise, which is cheap: SAA1099 rips are rare, and
-/// the alternative is a smaller file that plays wrong.
+/// `0x19` *reloads* an envelope rather than latching, so dropping a repeat of
+/// the same byte is audible. A fallthrough, not a considered rule, so it does
+/// not get the benefit of the doubt the rest of the table has earned.
 const SAA1099_HELD_BACK: &str =
     "names an SAA1099, whose writes vgm_cmp judges with the YM2413's rules (a missing `break`)";
 
 /// Chips whose sample ROMs `vgm_sro` must not be let near.
 ///
-/// The trim keeps only the ROM bytes its own chip models say some register
-/// write can reach. A model that misreads a chip throws away samples that do
-/// get played -- and the file still parses, still keeps its timing, and still
-/// sounds wrong, which is why only a render catches it.
+/// The trim keeps only the ROM bytes its own chip models say a register write
+/// can reach. A model that misreads a chip throws away samples that do get
+/// played -- and the file still parses and keeps its timing, so only a render
+/// catches it.
 ///
-/// - **QSound** -- measured here. Running `vgm_sro` alone over the corpus and
+/// - **QSound** -- measured here: running `vgm_sro` alone over the corpus and
 ///   rendering both sides, 12 of the 23 QSound files it changed came back
-///   playing something different. It was the *only* chip the trim fired on at
-///   all, the rest of the corpus being packs that have already been through it.
-///   (What that failure blames is still open -- see the note in
-///   `dro-trimmer/tests/optimize_parity.rs`. Held back either way: if the fault
-///   is ours it must not ship, and if it is upstream's it must not run.)
+///   playing something different. (Whether the fault is ours or upstream's is
+///   open -- see `dro-trimmer/tests/optimize_parity.rs`. Held back either way.)
 /// - **K053260** -- upstream's own wiki: *"It will still incorrectly strip
 ///   K053260 PCM roms."*
 /// - **SegaPCM** -- upstream again: *"SegaPCM support isn't 100% safe. That
 ///   means there may be samples stripped off despite them being used."*
 ///
 /// Everything else is unmeasured rather than cleared: the trim never fired on
-/// another chip in this corpus, so there is no evidence either way.
-/// `which_chips_the_sample_rom_trim_is_safe_for` is the instrument that would
-/// produce some.
+/// another chip in this corpus.
 const ROM_TRIM_DENIED: &[(ChipKind, &str)] = &[
     (
         ChipKind::QSound,
@@ -321,18 +308,13 @@ impl Facts {
 
 /// The chips `vgm_cmp` copies through untouched.
 ///
-/// Read off the handler list at the top of `vgm_cmp.c`: every chip with a
-/// `*_write` prototype there has rules, and these are what is left over. The
-/// MultiPCM and K053260 handlers exist but are commented out (`vgm_cmp.c:715`,
-/// `:763`) with a `TODO: K053260, K054539 (for mega size reduction)` at
-/// `chip_cmp.c:10`; the PWM, GA20, ES5505 and Mikey commands have no case at
-/// all and fall to the switch's default, which copies them.
+/// Read off the handler list at the top of `vgm_cmp.c`: the MultiPCM and
+/// K053260 handlers exist but are commented out (`vgm_cmp.c:715`, `:763`); the
+/// PWM, GA20, ES5505 and Mikey commands have no case at all and fall to the
+/// switch's default, which copies them.
 ///
-/// A file made only of these comes back unchanged however redundant it looks.
-/// Worth saying out loud in an export log, for the same reason
-/// `dro_core::VgmFile::unoptimised_chips` exists: "the K053260 is not
-/// optimised" is a better answer than silence, and a much better one than a
-/// smaller file that plays wrong.
+/// A file made only of these comes back unchanged however redundant it looks;
+/// worth saying out loud in an export log.
 ///
 /// The SAA1099 is deliberately *not* here: it is not passed through, it is
 /// deduped by the wrong chip's rules -- see [`SAA1099_HELD_BACK`].

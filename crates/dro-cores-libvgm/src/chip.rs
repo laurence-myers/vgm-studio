@@ -1,25 +1,23 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 //! One wrapper, every chip: [`LibVgmChip`] over libvgm's uniform device API.
 //!
-//! This is what makes libvgm different in kind from the other providers. A
-//! `DEV_DEF` is a vtable of `Start`/`Stop`/`Reset`/`Update` plus a table of
-//! width-typed register writers, so the twenty lines below drive a QSound and
-//! a SAA1099 alike. What varies per chip is *data* -- a [`ChipSpec`] row saying
-//! which device ID, which writer width, and how our engine's
-//! `(port, addr, data)` folds into that writer's arguments.
+//! A `DEV_DEF` is a vtable of `Start`/`Stop`/`Reset`/`Update` plus a table of
+//! width-typed register writers, so one wrapper drives a QSound and a SAA1099
+//! alike. What varies per chip is *data* -- a [`ChipSpec`] row saying which
+//! device ID, which writer width, and how our engine's `(port, addr, data)`
+//! folds into that writer's arguments.
 //!
 //! # The two conventions that have to be reconciled
 //!
 //! **libvgm takes the clock at construction.** `DEV_GEN_CFG::clock` is read by
-//! `Start`, and the sample rate falls out of it. Our [`ChipCore::reset`] hands
-//! a clock to a chip that already exists. So `reset` here *restarts*: stop the
-//! old device, start a new one. Same shape as `dro-cores-ymfm`, for the same
-//! reason.
+//! `Start` and the sample rate falls out of it, but our [`ChipCore::reset`]
+//! hands a clock to a chip that already exists -- so `reset` here *restarts*:
+//! stop the old device, start a new one.
 //!
 //! **libvgm renders planar, our engine wants interleaved.** `Update` writes
 //! `outputs[0]` and `outputs[1]` as two separate `INT32` runs and *overwrites*
-//! rather than accumulating (upstream's own silent-path `memset` proves it), so
-//! [`render`](ChipCore::render) keeps two scratch planes and weaves them.
+//! rather than accumulating, so [`render`](ChipCore::render) keeps two scratch
+//! planes and weaves them.
 
 use std::ffi::c_void;
 
@@ -36,163 +34,130 @@ use crate::ffi::{
 
 /// The rate asked for in `DEV_GEN_CFG::smplRate`.
 ///
-/// Nominally unused: we start every chip in `DEVRI_SRMODE_NATIVE` so it renders
-/// at its own rate and `dro_synth::resample` does the conversion. But upstream
-/// warns that *some cores ignore `srMode` and always use `smplRate`*, and
-/// Maxim's SN76489 is one of them -- so for those chips this is not a fallback,
-/// it is the rate they will run at.
-///
-/// 44100 because that is what the pinned parity reference renders at, so a
-/// rate-fixed core measures against it with no resampler on either side. The
-/// engine is unaffected either way: it resamples from whatever
-/// [`native_rate`](ChipCore::native_rate) reports, and that is read back from
-/// libvgm rather than assumed.
+/// Nominally unused: we start every chip in `DEVRI_SRMODE_NATIVE`. But upstream
+/// warns that *some cores ignore `srMode` and always use `smplRate`* (Maxim's
+/// SN76489 is one), so for those chips this is the rate they run at. 44100
+/// matches the pinned parity reference, so a rate-fixed core measures against it
+/// with no resampler either side. The engine resamples from whatever
+/// [`native_rate`](ChipCore::native_rate) reports, read back from libvgm.
 const REQUESTED_RATE: u32 = 44_100;
 
 /// How a chip's `(port, addr, data)` reaches libvgm's register writer.
 ///
 /// **Every variant is transcribed from a handler in libvgm's
-/// `player/vgmplayer_cmdhandler.cpp`**, named in its doc comment, and the
-/// mapping from our `(port, addr, data)` is the inverse of what
-/// `dro_core::vgm::stream` did on the way in.
-///
-/// That inversion is the whole difficulty of this step. Our decoder
-/// *normalises*: it folds the QSound's `0xC4` so the register and the 16-bit
-/// value stop trading places, reads the C352's `0xE1` big-endian, splits the
-/// `0xD3`/`0xD4` address across `port` and `addr`, and routes the RF chips'
-/// memory pokes to port 1 so they cannot collide with their registers. libvgm's
-/// cores expect the raw conventions those fixes were written to hide, so each
-/// rule here puts one of them back.
+/// `player/vgmplayer_cmdhandler.cpp`**, named in its doc comment. The mapping is
+/// the inverse of what `dro_core::vgm::stream` did on the way in: our decoder
+/// normalises (folding the QSound's `0xC4`, reading the C352's `0xE1`
+/// big-endian, splitting the `0xD3`/`0xD4` address, routing RF memory pokes to
+/// port 1), and libvgm's cores expect the raw conventions those fixes hid, so
+/// each rule puts one back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WriteRule {
     /// `write8(addr, data)`. Upstream's `Cmd_SN76489`, `Cmd_GGStereo`,
     /// `Cmd_Ofs8_Data8` and `Cmd_Port_Ofs8_Data8`.
     ///
-    /// The SN76489's two commands are why `addr` is passed through rather than
-    /// forced to zero: our decoder gives `0x50` an address of 0 and `0x4F`
-    /// (Game Gear stereo) an address of 1, which is exactly libvgm's
-    /// `SN76496_W_REG` and `SN76496_W_GGST`.
+    /// `addr` is passed through rather than forced to zero: the SN76489's `0x50`
+    /// arrives as address 0 and `0x4F` (Game Gear stereo) as address 1, exactly
+    /// libvgm's `SN76496_W_REG` and `SN76496_W_GGST`.
     Register,
     /// The Yamaha address/data latch pair, on `port`: `write8((port<<1)|0, reg)`
-    /// then `write8((port<<1)|1, data)`. Upstream's `SendYMCommand`, reached
-    /// from `Cmd_Reg8_Data8`, `Cmd_CPort_Reg8_Data8`, `Cmd_DReg8_Data8` and
-    /// `Cmd_Port_Reg8_Data8`.
+    /// then `write8((port<<1)|1, data)`. Upstream's `SendYMCommand`.
     ///
-    /// **Two writes, not one**, and getting that wrong is the classic silent
-    /// core: the chip latches a register number and never receives a value.
+    /// **Two writes, not one**: getting that wrong is the classic silent core --
+    /// the chip latches a register number and never receives a value.
     RegisterLatch,
     /// `writeM8(addr, data)` -- the *memory* space, not the register file.
     /// Upstream's `Cmd_RF5C_Mem` and `Cmd_Ofs16_Data8` for the chips whose
-    /// address arrives whole (`0xC5`-`0xC8`: SCSP, WonderSwan RAM, VSU,
-    /// X1-010).
+    /// address arrives whole (`0xC5`-`0xC8`: SCSP, WonderSwan RAM, VSU, X1-010).
     ///
-    /// This is where our port-1 convention is undone. `dro_core` routes
-    /// `0xC1`/`0xC2` to port 1 precisely so a RAM poke cannot be mistaken for a
-    /// register write; here the two are different *functions*, so the port has
-    /// done its job and is dropped.
+    /// Undoes our port-1 convention: `dro_core` routes `0xC1`/`0xC2` to port 1
+    /// so a RAM poke cannot be mistaken for a register write, but here the two
+    /// are different *functions*, so the port has done its job and is dropped.
     Memory,
     /// `writeM8((port << 8) | addr, data)`. Upstream's `Cmd_Ofs16_Data8` for
-    /// `0xD3`/`0xD4` (K054539, C140), where the 16-bit offset arrives split:
-    /// our decoder put the high seven bits in `port` and the low eight in
-    /// `addr`, so they are recombined here.
+    /// `0xD3`/`0xD4` (K054539, C140): the 16-bit offset arrives split (high seven
+    /// bits in `port`, low eight in `addr`) and is recombined here.
     MemoryPortHigh,
     /// `writeM16(addr, data)` -- fetched with `RWF_REGISTER`, despite upstream's
-    /// field name. `Cmd_Ofs16_Data16`, which is the C352's `0xE1` alone.
+    /// field name. `Cmd_Ofs16_Data16`, the C352's `0xE1` alone.
     ///
-    /// Our decoder already reads both operands big-endian (the corpus
-    /// arbitrated it: register addresses only land on the voice-times-eight
-    /// grid under that reading), which is what libvgm's `ReadBE16` does, so
-    /// both values pass straight through.
+    /// Our decoder already reads both operands big-endian (as libvgm's
+    /// `ReadBE16` does), so both values pass straight through.
     RegisterAddr16Data16,
     /// The QSound's three writes: data MSB to `0x00`, data LSB to `0x01`, then
     /// the register to `0x02`. Upstream's `Cmd_QSound_Reg`.
     ///
-    /// The sharpest inversion in the table. Our decoder normalised `0xC4` so
-    /// that `addr` is the register and `data` the 16-bit value -- the opposite
-    /// of every other command in its range -- and this splits them back apart
-    /// in the order the chip's own bus expects. **The register goes last**: it
-    /// is the write that commits the pair.
+    /// Our decoder normalised `0xC4` so `addr` is the register and `data` the
+    /// 16-bit value; this splits them back apart in bus order. **The register
+    /// goes last**: it is the write that commits the pair.
     QSound,
     /// Port 0 is a register write, port 1 a memory poke: `write8(addr, data)`
     /// or `writeM8(addr, data)`. Upstream's `Cmd_RF5C_Reg` (`0xB0`/`0xB1`) and
-    /// `Cmd_RF5C_Mem` (`0xC1`/`0xC2`), which are two commands into one chip.
+    /// `Cmd_RF5C_Mem` (`0xC1`/`0xC2`).
     ///
-    /// **The one rule that reads `port` as meaning rather than as address.**
-    /// The RF5C68's register file and its 4 KiB RAM window overlap as far as a
-    /// core is concerned, so `dro_core` puts registers on port 0 and memory on
-    /// port 1 to keep them apart -- a convention of ours, not the format's.
-    /// Here the two are different libvgm functions, so the port chooses which.
+    /// **The one rule that reads `port` as meaning rather than as address.** The
+    /// RF5C68's register file and 4 KiB RAM window overlap to a core, so
+    /// `dro_core` puts registers on port 0 and memory on port 1; here they are
+    /// different libvgm functions, so the port chooses which.
     RegisterOrMemoryByPort,
     /// The MultiPCM: its register file on port 0, its `0xC3` bank select on
     /// [`BANK_PORT`]. Upstream's `Cmd_Ofs8_Data8` (`0xB5`) and `Cmd_YMW_Bank`
-    /// (`0xC3`), which are two commands into one chip.
+    /// (`0xC3`).
     ///
-    /// **The bank is not a register write and does not arrive as one.** The
-    /// YMW258 has no bank register on its bus; libvgm's core invents three
-    /// (`0x10` for Sega Model 1's 1 MB window, `0x11`/`0x12` for Multi 32's two
-    /// 512 KiB banks) and `Cmd_YMW_Bank` translates the command into them. This
-    /// rule is that translation, and it has to be here rather than in the
-    /// decoder because the register numbers are libvgm's invention -- our
-    /// clean-room core models the same banks with no registers at all.
+    /// **The bank is not a register write.** The YMW258 has no bank register on
+    /// its bus; libvgm's core invents three (`0x10` for Sega Model 1's 1 MB
+    /// window, `0x11`/`0x12` for Multi 32's two 512 KiB banks) and `Cmd_YMW_Bank`
+    /// translates the command into them. This has to be here, not in the decoder,
+    /// because the register numbers are libvgm's invention.
     ///
-    /// Both halves come from the command: `addr` is its bank mask and `data`
-    /// its offset in 64 KiB units. The offset's *high* byte is dropped, exactly
-    /// as upstream drops `fData[0x03]`, because these registers hold a byte and
-    /// cannot express a ROM larger than 16 MB. The corpus never sets it.
+    /// `addr` is the bank mask, `data` the offset in 64 KiB units. The offset's
+    /// high byte is dropped (as upstream drops `fData[0x03]`): these registers
+    /// hold a byte and cannot express a ROM over 16 MB.
     MultiPcmBank,
     /// The NES APU with upstream's FDS remap: `Cmd_NES_Reg`. `0x3F` becomes
     /// `0x23` (FDS I/O enable) and `0x20`-`0x3E` become `0x80 | (a & 0x1F)`
     /// (the FDS registers), everything else passes through.
     ///
     /// The remap is the *player's*, not the chip's: VGM stores FDS writes in a
-    /// compressed range the NSFPlay core does not use, so a binding that skips
-    /// it sends every FDS register at the wrong file.
+    /// compressed range the NSFPlay core does not use.
     NesApu,
-    /// The OKIM6295 with upstream's pin-7 strip: `Cmd_OKIM6295_Reg`. A write
-    /// to `0x0B` (the clock select) drops bit 7 -- "a bug in some MAME VGM
-    /// logs", per upstream's own comment -- and everything else passes.
+    /// The OKIM6295 with upstream's pin-7 strip: `Cmd_OKIM6295_Reg`. A write to
+    /// `0x0B` (the clock select) drops bit 7 -- "a bug in some MAME VGM logs",
+    /// per upstream -- and everything else passes.
     Okim6295,
-    /// The WonderSwan: registers offset by `0x80` on port 0 (`Cmd_WSwan_Reg`
-    /// writes `0x80 + (a & 0x7F)` because the chip's ports really do live
-    /// there), wave RAM through the memory writer on [`MEMORY_PORT`]
-    /// (`Cmd_Ofs16_Data8`, our `0xC6` convention).
+    /// The WonderSwan: registers offset by `0x80` on port 0 (`Cmd_WSwan_Reg`, as
+    /// the chip's ports really live there), wave RAM through the memory writer on
+    /// [`MEMORY_PORT`] (`Cmd_Ofs16_Data8`, our `0xC6` convention).
     WonderSwan,
     /// The SAA1099's two-write pair in the *reverse* order to the Yamaha one:
     /// `Cmd_SAA_Reg` puts the register at offset 1 and the data at offset 0,
-    /// because that is where the chip's own bus has them.
+    /// where the chip's own bus has them.
     ReversedLatch,
     /// One 16-bit-data register write: `writeD16(addr, data)`. Upstream's
-    /// `Cmd_Ofs4_Data12` -- the 32X PWM, whose nibble register and 12-bit
-    /// value our decoder already delivers as `addr`/`data`. (The ES5506's
-    /// `0xD6` would take a two-width sibling of this rule, but libvgm ships
-    /// only a stub declaration for that device -- see the spec table.)
+    /// `Cmd_Ofs4_Data12` -- the 32X PWM, whose nibble register and 12-bit value
+    /// our decoder delivers as `addr`/`data`. (The ES5506's `0xD6` would take a
+    /// two-width sibling, but libvgm ships only a stub for that device.)
     Data16,
-    /// The AY8910: an address/data latch pair on offsets 0/1, its `0x31`
-    /// stereo mask on [`STEREO_PORT`] -- which goes to a dedicated per-core
-    /// function (`Cmd_AY_Stereo` fetches it by the `'ST'` user code), never to
-    /// the register file. Upstream's `Cmd_DReg8_Data8` reaches
-    /// `SendYMCommand(cDev, 0, reg, data)`, because what both AY cores file
-    /// under `DEVRW_A8D8` is their *IO-port* interface (`EPSG_writeIO`, MAME's
-    /// `ay8910_write`): an even offset latches the register address, an odd
-    /// one writes the data. A single direct `write8(reg, data)` under those
-    /// semantics lands every write in the wrong register -- odd register
-    /// numbers dump the data wherever the latch happens to point, even ones
-    /// re-latch the address to the *data* byte -- which renders as digital
-    /// noise. That was this rule's shipped bug, caught by ear on the corpus.
+    /// The AY8910: an address/data latch pair on offsets 0/1, its `0x31` stereo
+    /// mask on [`STEREO_PORT`] going to a dedicated function (`Cmd_AY_Stereo`
+    /// fetches it by the `'ST'` user code), never the register file.
+    ///
+    /// What both AY cores file under `DEVRW_A8D8` is their *IO-port* interface
+    /// (`EPSG_writeIO`, MAME's `ay8910_write`): an even offset latches the
+    /// address, an odd one writes the data. A single direct `write8(reg, data)`
+    /// lands every write in the wrong register and renders as digital noise.
     RegisterWithStereo,
     /// The OPN family (YM2203/2608/2610): the Yamaha latch pair on its ports,
-    /// plus the YM2203's SSG stereo mask on [`STEREO_PORT`], which lands on
-    /// the *linked* AY8910's mask function.
+    /// plus the YM2203's SSG stereo mask on [`STEREO_PORT`], which lands on the
+    /// *linked* AY8910's mask function.
     OpnFamily,
 }
 
 /// Exactly what a [`WriteRule`] decided to put on libvgm's bus.
 ///
-/// The point of naming this rather than calling straight through: **a fold is
-/// testable and an FFI call is not.** `LIBVGM-PLAN` lv-3 asks for "a unit test
-/// per entry asserting the bytes that reach libvgm", and with the decision
-/// separated from the call, that is an ordinary `assert_eq!` on a value instead
-/// of an attempt to intercept a C function pointer.
+/// Named rather than called straight through so **the fold is testable**: with
+/// the decision separated from the FFI call, a per-entry test is an ordinary
+/// `assert_eq!` on a value instead of intercepting a C function pointer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Bus {
     /// One `write8(addr, data)`.
@@ -210,16 +175,16 @@ enum Bus {
     /// The chip's dedicated stereo-mask function, with the six mask bits.
     StereoMask(u8),
     /// Nothing at all. Only [`WriteRule::MultiPcmBank`] produces it, for a bank
-    /// select whose mask names no bank -- upstream's `Cmd_YMW_Bank` reaches the
-    /// same conclusion by taking neither of its two `if`s.
+    /// select whose mask names no bank -- upstream's `Cmd_YMW_Bank` takes neither
+    /// of its two `if`s.
     Nothing,
 }
 
 /// Turns our engine's `(port, addr, data)` into the bytes libvgm expects.
 ///
-/// Pure, total and `const`: no chip, no pointers, nothing to mock. Every arm is
-/// the inverse of a normalisation `dro_core::vgm::stream` applied on the way
-/// in, and each is pinned by a test naming the upstream handler it mirrors.
+/// Pure, total and `const`. Every arm is the inverse of a normalisation
+/// `dro_core::vgm::stream` applied on the way in, each pinned by a test naming
+/// the upstream handler it mirrors.
 const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
     match rule {
         WriteRule::Register => Bus::Reg8(addr as u8, data as u8),
@@ -297,18 +262,15 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
             if port != BANK_PORT {
                 return Bus::Reg8(addr as u8, data as u8);
             }
-            // `Cmd_YMW_Bank`, register for register. The offset's low byte is
-            // the whole bank as far as these registers go, and each divides it
-            // down to what its own shift expects: the core does `data << 20`
-            // for `0x10` and `data << 19` for `0x11`/`0x12`, so both land on
-            // `(offset & 0xFF) << 16` bytes -- the 64 KiB units the command
-            // counts in.
+            // `Cmd_YMW_Bank`, register for register. Each register divides the
+            // offset's low byte down to its own shift (`data << 20` for `0x10`,
+            // `data << 19` for `0x11`/`0x12`), both landing on
+            // `(offset & 0xFF) << 16` bytes -- the 64 KiB units the command counts.
             let bank = (data & 0xFF) as u8;
             match addr & 0x03 {
-                // 1 MB banking (Sega Model 1): both halves of one window, and
-                // only when the offset is a whole megabyte. An offset with bit
-                // 3 set is half a megabyte in, which one window cannot express,
-                // so upstream falls through to the pair below.
+                // 1 MB banking (Sega Model 1): one window, only for a whole
+                // megabyte. Bit 3 set is half a megabyte in, which one window
+                // cannot express, so fall through to the pair below.
                 0x03 if bank & 0x08 == 0 => Bus::Reg8(0x10, bank / 0x10),
                 // 512 KB banking (Sega Multi 32): mask bit 1 is the low bank,
                 // bit 0 the high one, and both may be set.
@@ -323,60 +285,53 @@ const fn fold(rule: WriteRule, port: u8, addr: u16, data: u16) -> Bus {
 
 /// One chip: which libvgm device it is, and how to talk to it.
 ///
-/// A `&'static` table row rather than a trait object, because everything here
-/// is data and the alternative is a virtual call per register write.
+/// A `&'static` table row rather than a trait object: everything here is data,
+/// and the alternative is a virtual call per register write.
 #[derive(Debug)]
 pub(crate) struct ChipSpec {
-    /// The registry id, `"<chip slug>.libvgm"` -- or, for an alternative
-    /// core, `"<chip slug>.libvgm-<core>"`. Written out rather than composed
-    /// at runtime because [`CoreInfo::id`](dro_synth::CoreInfo::id) is a
-    /// `&'static str` that lands in `drotrim.ini`.
+    /// The registry id, `"<chip slug>.libvgm"` (or `"...-<core>"` for an
+    /// alternative core). Written out rather than composed at runtime because
+    /// [`CoreInfo::id`](dro_synth::CoreInfo::id) is a `&'static str` that lands
+    /// in `drotrim.ini`.
     pub(crate) id: &'static str,
-    /// What the Settings picker calls this row. The default rows share one
-    /// name; an alternative core names the emulator it selects, or the
-    /// dropdown would offer identical entries.
+    /// What the Settings picker calls this row. Default rows share one name; an
+    /// alternative core names the emulator it selects, or the dropdown would
+    /// offer identical entries.
     pub(crate) label: &'static str,
     /// Our engine's name for the chip -- what the registry keys on.
     pub(crate) kind: ChipKind,
     /// libvgm's `DEVID_` constant.
     pub(crate) device: u8,
     /// A four-character code from `EmuCores.h`, or 0 for the device's default
-    /// core. lv-6 publishes the alternatives as picker entries; until then
-    /// every row takes the default.
+    /// core.
     pub(crate) emu_core: u32,
     /// How writes fold.
     pub(crate) write: WriteRule,
     /// This core's measured output calibration, 8.8 fixed point, as
     /// [`CoreInfo::level`](dro_synth::CoreInfo::level).
     ///
-    /// **Measured or unity, never guessed.** Our clean-room cores carry
-    /// hand-fitted scale factors *inside* them (`cores/k053260.rs`'s `* 11 >> 3`
-    /// is a x5.5); libvgm's carry whatever its own upstream chose, and the two
-    /// need not agree. The number here is the least-squares gain the parity
-    /// harness reports against the pinned reference, and it is only meaningful
-    /// because these rows correlate at 1.0000 -- where a single scalar really
-    /// does describe the whole difference. A row that has not been measured
-    /// stays at unity and is honest about being uncalibrated.
+    /// **Measured or unity, never guessed.** The number is the least-squares
+    /// gain the parity harness reports against the pinned reference, meaningful
+    /// only because these rows correlate at 1.0000 (a single scalar describes
+    /// the whole difference). An unmeasured row stays at unity.
     pub(crate) level: u16,
     /// The `user` selector for each of the chip's two sample-memory spaces.
     ///
-    /// libvgm files a chip's ROM writers by `user`, and the value is per chip:
-    /// `0` for most, `'A'`/`'B'` for the YM2610's two ADPCM spaces, `"RO"`/`"RA"`
-    /// for the YMF278B's ROM and RAM. Taken from the `SndEmu_GetDeviceFunc`
-    /// calls in `player/vgmplayer.cpp`'s device-setup switch; a chip with one
-    /// space repeats it, and a chip with none never reaches these.
+    /// libvgm files a chip's ROM writers by `user`, per chip: `0` for most,
+    /// `'A'`/`'B'` for the YM2610's two ADPCM spaces, `"RO"`/`"RA"` for the
+    /// YMF278B's ROM and RAM. Taken from the `SndEmu_GetDeviceFunc` calls in
+    /// `player/vgmplayer.cpp`; a chip with one space repeats it.
     pub(crate) rom_spaces: [u16; 2],
-    /// Fills in the chip-specific half of the configuration from the VGM
-    /// header, if it has one.
+    /// Fills in the chip-specific half of the configuration from the VGM header.
     ///
     /// Called with the config already carrying clock, sample-rate mode and the
     /// variant flag, so an implementation only sets what is its own.
     pub(crate) configure: fn(&mut DevConfig, &ChipSettings),
     /// Builds this chip, boxed, for the registry.
     ///
-    /// The registry takes a bare `fn` pointer, which cannot capture a spec --
-    /// so [`chip_specs!`] emits one of these per row, each naming its own
-    /// [`ChipKind`]. That is the whole reason the macro exists.
+    /// The registry takes a bare `fn` pointer, which cannot capture a spec, so
+    /// [`chip_specs!`] emits one of these per row, each naming its own
+    /// [`ChipKind`] -- the whole reason the macro exists.
     pub(crate) make: fn() -> Box<dyn ChipCore>,
 }
 
@@ -398,9 +353,8 @@ impl ChipSpec {
 ///
 /// libvgm's chips with settings define a struct whose first member is a
 /// `DEV_GEN_CFG` and pass a pointer to it cast down. Modelling that as an enum
-/// rather than a byte buffer keeps the field access type-checked; the cast at
-/// [`as_ptr`](Self::as_ptr) is the same one upstream's own `emutest.c` makes,
-/// and `layout.rs` pins the prefix property it relies on.
+/// keeps field access type-checked; the cast at [`as_ptr`](Self::as_ptr) is
+/// upstream's own, and `layout.rs` pins the prefix property it relies on.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum DevConfig {
     /// A chip whose configuration is only the generic fields.
@@ -442,17 +396,15 @@ impl DevConfig {
 
 /// Every entry point a chip might use, fetched once at start.
 ///
-/// libvgm files its writers by `(funcType, rwType, user)` and the *combination*
+/// libvgm files its writers by `(funcType, rwType, user)`, and the combination
 /// is the signature contract -- a pointer filed under `DEVRW_A8D8` takes
-/// `(void*, UINT8, UINT8)` and nothing else. Fetching the whole set here rather
-/// than only the one a rule needs costs a handful of table scans per chip
-/// construction and means [`WriteRule`] can stay a pure description of a fold.
+/// `(void*, UINT8, UINT8)` and nothing else. Fetching the whole set keeps
+/// [`WriteRule`] a pure description of a fold.
 ///
-/// The names mirror `player/vgmplayer.cpp`'s `CHIP_DEVICE` fields so the two
-/// can be read side by side. **Note `reg16` in particular**: upstream calls it
-/// `writeM16` and fetches it with `RWF_REGISTER`, not `RWF_MEMORY`. Copying the
-/// name without reading the fetch would have put the C352's writes into the
-/// wrong space.
+/// The names mirror `player/vgmplayer.cpp`'s `CHIP_DEVICE` fields. **Note
+/// `reg16`**: upstream calls it `writeM16` but fetches it with `RWF_REGISTER`,
+/// not `RWF_MEMORY` -- copying the name without reading the fetch would put the
+/// C352's writes into the wrong space.
 #[derive(Debug, Clone, Copy, Default)]
 struct Writers {
     /// `write8`: `RWF_REGISTER | DEVRW_A8D8`.
@@ -495,15 +447,11 @@ impl Writers {
                     .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteA16D16>(p)),
                 stereo: reg(ffi::DEVRW_ALL, ffi::USER_STEREO_MASK)
                     .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteOptMask>(p)),
-                // **Memory first, then register** -- the space a chip files
-                // its 16-bit-address writer under is per chip, not per width.
-                // Upstream's player fetches this same field with `RWF_MEMORY`
-                // for the RF5C pair and with `RWF_REGISTER` for others, and
-                // SegaPCM is the case that proves it: it exposes only
-                // `RWF_REGISTER | DEVRW_A16D8`, so asking the memory space
-                // alone finds nothing and every one of its writes is dropped.
-                // A chip exposes the width in exactly one space, so trying
-                // both cannot pick the wrong one.
+                // **Memory first, then register** -- the space a chip files its
+                // 16-bit-address writer under is per chip, not per width. SegaPCM
+                // exposes only `RWF_REGISTER | DEVRW_A16D8`, so the memory space
+                // alone finds nothing and drops every write. A chip exposes the
+                // width in exactly one space, so trying both cannot pick wrong.
                 mem8: mem(ffi::DEVRW_A16D8, 0)
                     .or_else(|| reg(ffi::DEVRW_A16D8, 0))
                     .map(|p| std::mem::transmute::<*mut c_void, DevFuncWriteA16D8>(p)),
@@ -521,9 +469,8 @@ impl Writers {
 
     /// Whether the entry point `rule` needs was actually found.
     ///
-    /// A missing one is not fatal -- writes are dropped and the chip is silent
-    /// -- but it is the single most likely symptom of a wrong table row, so it
-    /// is worth saying out loud at start rather than leaving as "no sound".
+    /// A missing one is not fatal (writes are dropped, the chip is silent) but is
+    /// the likeliest symptom of a wrong table row, so it is logged at start.
     const fn serves(&self, rule: WriteRule) -> bool {
         match rule {
             WriteRule::Register
@@ -549,10 +496,9 @@ impl Writers {
 
 /// Which of a chip's two sample-memory spaces a VGM data-block type names.
 ///
-/// Transcribed from upstream's `_VGM_ROM_CHIPS` table, whose second column is
-/// exactly this. Only three block types name the second space, and every one of
-/// them is a chip with two genuinely different memories -- so the default is
-/// the first space and the exceptions are listed rather than computed.
+/// Transcribed from upstream's `_VGM_ROM_CHIPS` table. Only three block types
+/// name the second space, so the default is the first and the exceptions are
+/// listed.
 const fn rom_space(block_type: u8) -> u8 {
     match block_type {
         // The YM2608's Delta-T, the second space beside its (internal)
@@ -568,20 +514,20 @@ const fn rom_space(block_type: u8) -> u8 {
 
 /// One of a chip's linked child devices -- an OPN's SSG, the OPL4's FM half.
 ///
-/// libvgm links devices for *register* traffic (the parent forwards SSG
-/// register I/O through hooks `LinkDevice` installs), but each device renders
-/// its own audio stream at its own rate -- upstream gives every link its own
-/// resampler and volume. So a child here carries a small linear resampler
-/// into the parent's rate and a gain, mirroring `GetChipVolume`'s link column.
+/// libvgm links devices for *register* traffic (the parent forwards SSG register
+/// I/O through hooks `LinkDevice` installs), but each device renders its own
+/// audio stream at its own rate. So a child here carries a small linear
+/// resampler into the parent's rate and a gain, mirroring `GetChipVolume`'s
+/// link column.
 struct LinkedDev {
     dev: DevInfo,
-    /// libvgm's `DEVID_` for this child, so a mute mask can be routed to it --
-    /// the OPN family's SSG channels live on the linked `DEVID_AY8910`, not on
-    /// the parent's own mute mask.
+    /// libvgm's `DEVID_` for this child, so a mute mask can be routed to it: the
+    /// OPN family's SSG channels live on the linked `DEVID_AY8910`, not on the
+    /// parent's own mute mask.
     dev_id: u8,
     /// The child's level relative to the parent, 8.8 fixed point --
-    /// upstream's `GetChipVolume(..., isLinked=1)` over `isLinked=0`: half
-    /// for the YM2203's SSG, unity otherwise.
+    /// upstream's `GetChipVolume(..., isLinked=1)`: half for the YM2203's SSG,
+    /// unity otherwise.
     gain: u16,
     /// Child frames per parent frame, 32.32 fixed point.
     step: u64,
@@ -664,13 +610,12 @@ pub struct LibVgmChip {
     clock: u32,
     variant: bool,
     settings: ChipSettings,
-    /// Which channels are muted, in [`dro_core::vgm::channels_of`] order.
-    /// Kept here because a device restart (every `reset`, and `configure`)
-    /// clears the core's own mask, so it is reapplied after each `start`.
+    /// Which channels are muted, in [`dro_core::vgm::channels_of`] order. Kept
+    /// here because a device restart clears the core's own mask, so it is
+    /// reapplied after each `start`.
     mute_mask: u32,
     /// Where each channel sits in the stereo image, libvgm's `-0x100..=0x100`.
-    /// Empty means the chip's own image; reapplied after each `start` like the
-    /// mute mask.
+    /// Empty means the chip's own image; reapplied after each `start`.
     pans: Vec<i16>,
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
@@ -689,21 +634,18 @@ impl std::fmt::Debug for LibVgmChip {
     }
 }
 
-// SAFETY: the device is exclusively owned -- the handle is never cloned or
-// handed out -- and the cores this crate compiles hold no mutable file-scope
-// state, so all of a chip's mutation is behind `data_ptr`. That was checked
-// against the pinned tree rather than assumed, and it is a **per-core**
-// property: a core added to `build.rs`'s ENABLED list must be checked for
-// mutable globals before it is trusted here. Not `Sync`: two threads must not
-// write one chip at once.
+// SAFETY: the device is exclusively owned (the handle is never cloned or handed
+// out) and the cores this crate compiles hold no mutable file-scope state, so
+// all mutation is behind `data_ptr`. This is a **per-core** property: a core
+// added to `build.rs`'s ENABLED list must be checked for mutable globals before
+// it is trusted here. Not `Sync`: two threads must not write one chip at once.
 unsafe impl Send for LibVgmChip {}
 
 impl LibVgmChip {
     /// A chip built to `spec`, not yet started.
     ///
-    /// Starting waits for [`reset`](ChipCore::reset), which is what supplies
-    /// the clock -- and the clock is a construction parameter to libvgm, so
-    /// there is nothing to build before it arrives.
+    /// Starting waits for [`reset`](ChipCore::reset), which supplies the clock --
+    /// a construction parameter to libvgm, so there is nothing to build first.
     #[must_use]
     pub(crate) fn new(spec: &'static ChipSpec) -> Self {
         Self {
@@ -756,9 +698,7 @@ impl LibVgmChip {
     ///
     /// A failure leaves the chip stopped rather than half-built, so
     /// [`render`](ChipCore::render) renders silence and nothing reads a dangling
-    /// pointer. That is the honest outcome for "this build has no such device":
-    /// the registry is what should have prevented it, and a silent chip is
-    /// visible in a way a crash is not useful.
+    /// pointer -- the honest outcome for "this build has no such device".
     fn start(&mut self) {
         self.stop();
         if self.clock == 0 {
@@ -919,12 +859,12 @@ impl LibVgmChip {
             if declaration.cfg.is_null() {
                 continue;
             }
-            // The child's core and header bytes, exactly as upstream's link
-            // callback sets them: EMU2149 for an OPN's SSG (with the header's
-            // per-chip SSG flags), adlibemu for the OPL4's FM half.
+            // The child's core and header bytes, as upstream's link callback
+            // sets them: EMU2149 for an OPN's SSG (with the header's per-chip SSG
+            // flags), adlibemu for the OPL4's FM half.
             //
             // SAFETY: `cfg` points at a config the parent allocated for us to
-            // adjust -- that is its documented purpose.
+            // adjust -- its documented purpose.
             unsafe {
                 match declaration.dev_id {
                     ffi::DEVID_AY8910 => {
@@ -966,9 +906,9 @@ impl LibVgmChip {
 
             // The stereo mask function lives on the SSG child for the OPN
             // family -- `Cmd_AY_Stereo` fetches it from the linked device.
-            // Upstream then invokes it with the *parent's* data pointer,
-            // which reads as a bug; the child's own pointer is what the
-            // function's core expects, and is what we use.
+            // Upstream invokes it with the *parent's* data pointer, which reads
+            // as a bug; the child's own pointer is what the core expects, so we
+            // use that.
             if declaration.dev_id == ffi::DEVID_AY8910 && self.writers.stereo.is_none() {
                 // SAFETY: a live child device definition.
                 self.writers.stereo = unsafe {
@@ -998,9 +938,8 @@ impl LibVgmChip {
     }
 }
 
-/// The option bits VGMPlay applies to a chip before playing anything --
-/// transcribed from its `InitDevOptions` defaults, so the cores run in the
-/// same mode the reference runs them.
+/// The option bits VGMPlay applies to a chip before playing anything, from its
+/// `InitDevOptions` defaults, so the cores run in the reference's mode.
 const fn default_option_bits(kind: ChipKind) -> u32 {
     match kind {
         // NSFPlay's recommended APU/DMC options.
@@ -1015,11 +954,10 @@ const fn default_option_bits(kind: ChipKind) -> u32 {
 /// for the OPN family, what its linked SSG child mutes.
 ///
 /// [`dro_core::vgm::channels_of`] puts the SSG channels last; libvgm's OPN
-/// parent mutes only its FM (and, on the 2608/2610, the rhythm/ADPCM that
-/// share its device), while the SSG is a separate `DEVID_AY8910` with its own
-/// three-bit mask. Every other chip is identity: the whole mask to the parent,
-/// nothing to a child. The bit positions here are pinned by the parent cores'
-/// own `set_mute_mask` (`fmopn.c`) and the canonical channel table.
+/// parent mutes only its FM (and, on the 2608/2610, the rhythm/ADPCM that share
+/// its device), while the SSG is a separate `DEVID_AY8910` with its own three-bit
+/// mask. Every other chip is identity. The bit positions are pinned by the
+/// parent cores' `set_mute_mask` (`fmopn.c`) and the canonical channel table.
 const fn split_mute(kind: ChipKind, mask: u32) -> (u32, Option<u32>) {
     match kind {
         // FM 1-3 (bits 0-2), then SSG A-C (bits 3-5).
@@ -1033,9 +971,8 @@ const fn split_mute(kind: ChipKind, mask: u32) -> (u32, Option<u32>) {
 
 /// A linked child's level relative to its parent, 8.8 fixed point.
 ///
-/// Upstream's `GetChipVolume(..., isLinked=1)`: the YM2203's SSG plays at
-/// half the FM's volume; every other link (the 2608/2610 SSG, the OPL4's FM)
-/// at parity.
+/// Upstream's `GetChipVolume(..., isLinked=1)`: the YM2203's SSG plays at half
+/// the FM's volume; every other link at parity.
 const fn link_gain(kind: ChipKind) -> u16 {
     match kind {
         ChipKind::Ym2203 => 0x80,
@@ -1056,8 +993,8 @@ impl ChipCore for LibVgmChip {
         self.clock = clock;
         self.variant = variant;
         // A reset discards the header settings too: `configure` always follows
-        // it (see `VgmEngine::voice`), and carrying the previous file's noise
-        // taps into the gap between the two would be a silent bug.
+        // it, and carrying the previous file's noise taps into the gap would be
+        // a silent bug.
         self.settings = ChipSettings::default();
         self.start();
     }
@@ -1065,9 +1002,8 @@ impl ChipCore for LibVgmChip {
     /// Restarts again, now that the header's chip settings are known.
     ///
     /// libvgm wants them at construction and our engine delivers them after
-    /// reset, so the second start is how the two orders are reconciled. It
-    /// costs one allocation per chip per file load, and it happens before any
-    /// register write, so nothing is lost.
+    /// reset, so the second start reconciles the two orders. It happens before
+    /// any register write, so nothing is lost.
     fn configure(&mut self, settings: &ChipSettings) {
         self.settings = *settings;
         self.start();
@@ -1167,11 +1103,10 @@ impl ChipCore for LibVgmChip {
     /// A RAM block: through the chip's block writer where it has one, or its
     /// memory writer byte by byte.
     ///
-    /// The split is upstream's. The RF5C pair take RAM through `writeM8`
-    /// (each byte lands through a bank register, so there is no block form),
-    /// while the SCSP's half-megabyte sample RAM arrives through the same
-    /// `DEVRW_BLOCK` writer its ROMs would -- its addresses do not even fit
-    /// the 16-bit memory writer.
+    /// The split is upstream's. The RF5C pair take RAM through `writeM8` (each
+    /// byte lands through a bank register, so there is no block form), while the
+    /// SCSP's half-megabyte sample RAM arrives through the same `DEVRW_BLOCK`
+    /// writer its ROMs would -- its addresses do not fit the 16-bit memory writer.
     fn write_ram(&mut self, offset: u32, data: &[u8]) {
         if !self.is_started() {
             return;
@@ -1225,11 +1160,10 @@ impl ChipCore for LibVgmChip {
             update(self.dev.data_ptr, frames as u32, planes.as_mut_ptr());
         }
 
-        // The linked children -- an OPN's SSG, the OPL4's FM -- render their
-        // own streams at their own rates and are mixed in here, each through
-        // its resampler and link gain, as upstream mixes each `linkDev`
-        // through its own `Resmpl` chain. Taken out of `self` for the loop so
-        // the planes can be borrowed alongside them.
+        // The linked children -- an OPN's SSG, the OPL4's FM -- render their own
+        // streams at their own rates and are mixed in here, each through its
+        // resampler and link gain. Taken out of `self` for the loop so the planes
+        // can be borrowed alongside them.
         let mut links = std::mem::take(&mut self.links);
         for link in &mut links {
             if link.dev.data_ptr.is_null() {
@@ -1275,11 +1209,10 @@ impl ChipCore for LibVgmChip {
 /// stereo image -- what the registry's `channel_pan` flag reports, so the UI
 /// hides pan controls for the rest.
 ///
-/// Four of libvgm's default cores carry a `SetPanning` function: the SN76489's
-/// Maxim core (our default -- the `-mame` alternative does not pan), the
-/// AY8910's EMU2149, the NES APU's NSFPlay, and the YM2413's EMU2413.
+/// Four default cores carry a `SetPanning` function: the SN76489's Maxim core,
+/// the AY8910's EMU2149, the NES APU's NSFPlay, and the YM2413's EMU2413.
 /// `LibVgmChip::supports_pan` reads the started device's own field, so a wrong
-/// answer here is a hidden-or-shown control, never a dead knob.
+/// answer here is only a hidden-or-shown control, never a dead knob.
 pub(crate) const fn default_core_pans(kind: ChipKind) -> bool {
     matches!(
         kind,
@@ -1290,24 +1223,21 @@ pub(crate) const fn default_core_pans(kind: ChipKind) -> bool {
 /// Whether `kind` takes its RAM blocks through the block writer rather than
 /// the byte-wide memory writer -- see [`LibVgmChip::write_ram`].
 ///
-/// Read off each core's `rwFuncs` table, not guessed: the SCSP, ES5503 and
-/// NES APU file their sample RAM *only* under `RWF_MEMORY | DEVRW_BLOCK`
-/// (`scsp_write_ram`, `es5503_write_ram`, `nes_write_ram`), so a byte loop
-/// finds no writer and silently drops every wavetable -- the ES5503 came
-/// back 0-of-12 audible on the corpus before this listed it. The RF5C pair
-/// stays on the byte writer: their `A16D8` memory function *is* the banked
-/// window our port-1 convention feeds, and it measured exact.
+/// Read off each core's `rwFuncs` table: the SCSP, ES5503 and NES APU file their
+/// sample RAM *only* under `RWF_MEMORY | DEVRW_BLOCK`, so a byte loop finds no
+/// writer and silently drops every wavetable. The RF5C pair stays on the byte
+/// writer: their `A16D8` memory function *is* the banked window our port-1
+/// convention feeds.
 const fn ram_via_block(kind: ChipKind) -> bool {
     matches!(kind, ChipKind::Scsp | ChipKind::Es5503 | ChipKind::NesApu)
 }
 
 /// Declares the chip table and, per row, the bare `fn` the registry needs.
 ///
-/// A registry entry is `(id, ChipKind, fn() -> Box<dyn ChipCore>)` and that
-/// last one cannot be a closure over a spec, so each chip needs a function
-/// that names its own kind. Writing them by hand would be two lines of
-/// boilerplate per chip and one opportunity per chip to pair the wrong id with
-/// the wrong device; this way a chip is one line and the three cannot drift.
+/// A registry entry is `(id, ChipKind, fn() -> Box<dyn ChipCore>)` and that last
+/// one cannot be a closure over a spec, so each chip needs a function that names
+/// its own kind. This way a chip is one line and cannot pair the wrong id with
+/// the wrong device.
 macro_rules! chip_specs {
     ($(
         $make:ident : $id:literal / $label:literal => $kind:ident,
@@ -1318,11 +1248,10 @@ macro_rules! chip_specs {
         /// them -- so a chip's default row must precede its alternative-core
         /// rows.
         ///
-        /// A row here must also have its device named in `build.rs`'s
-        /// `ENABLED`, or the start fails and the chip is silent. A `static`
-        /// rather than a `const` on purpose: the makers below take `&'static`
-        /// references into it, which a `const` -- being a fresh value at each
-        /// use -- could not give them.
+        /// A row must also have its device named in `build.rs`'s `ENABLED`, or
+        /// the start fails and the chip is silent. A `static` not a `const`: the
+        /// makers below take `&'static` references into it, which a `const`
+        /// could not give them.
         pub(crate) static SPECS: &[ChipSpec] = &[$(
             ChipSpec {
                 id: $id,
@@ -1340,8 +1269,8 @@ macro_rules! chip_specs {
 
         $(
             fn $make() -> Box<dyn ChipCore> {
-                // By id, not by kind: a chip with alternative cores has
-                // several rows of one kind, and each maker must find its own.
+                // By id, not by kind: a chip with alternative cores has several
+                // rows of one kind, and each maker must find its own.
                 Box::new(LibVgmChip::new(spec_by_id($id)))
             }
         )*
@@ -1351,23 +1280,16 @@ macro_rules! chip_specs {
 chip_specs! {
     // --- `emu_core` and the alternative rows ------------------------------
     //
-    // A chip's first row is its default and carries the plain label; the
-    // `libvgm-<core>` rows behind it publish the device's other emulators as
-    // picker entries, each labelled by what it selects. For a single-core
-    // device `0` is unambiguous and there is nothing to publish. The two
-    // named default selections (Maxim's SN76489, Ootake's HuC6280) predate
-    // the scorecard's retirement and stay: they are the cores the reference
-    // ran, and nothing has since arbitrated a better default.
+    // A chip's first row is its default with the plain label; the `libvgm-<core>`
+    // rows behind it publish the device's other emulators as picker entries. The
+    // two named default selections (Maxim's SN76489, Ootake's HuC6280) are the
+    // cores the reference ran.
     //
-    // An alternate's `emu_core` must name a core *different* from the one the
-    // default row resolves to. `emu_core: 0` takes the device's first-listed
-    // core (`SndEmu_StartCore` in `emu/SoundEmu.c`), so an alternate that
-    // names that same first core is a dead picker entry -- both rows start the
-    // one emulator. That was the trap that hid six devices' MAME core behind a
-    // row re-selecting the default (EMU2149, EMU2413, SameBoy, NSFPlay,
-    // superctr, Valley Bell were all the first core already). Every alternate
-    // here now names the second core, and
-    // `every_alternate_row_starts_a_distinct_core` pins that they differ.
+    // An alternate's `emu_core` must name a core *different* from the default's.
+    // `emu_core: 0` takes the device's first-listed core (`SndEmu_StartCore`), so
+    // an alternate naming that same first core is a dead picker entry -- both
+    // rows start the one emulator. `every_alternate_row_starts_a_distinct_core`
+    // pins that they differ.
 
     make_sn76489: "sn76489.libvgm" / "libvgm" => Sn76489,
         ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
@@ -1439,8 +1361,8 @@ chip_specs! {
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
     // Not an OPL row -- the OPL family's own chips stay on `PlayerEngine`.
     // Known gap: rips that lean on the YRW801 wave ROM without embedding it
-    // (some MSX MoonSound rips) play only their FM half -- VGMPlay
-    // side-loads `yrw801.rom` from disk, and that ROM is not ours to ship.
+    // (some MSX MoonSound rips) play only their FM half -- VGMPlay side-loads
+    // `yrw801.rom` from disk, and that ROM is not ours to ship.
     make_ymf278b: "ymf278b.libvgm" / "libvgm" => Ymf278b,
         ffi::DEVID_YMF278B, 0, WriteRule::RegisterLatch, [0x524F, 0x5241], LEVEL_UNITY, configure_none;
 
@@ -1480,16 +1402,14 @@ chip_specs! {
         ffi::DEVID_QSOUND, ffi::FCC_MAME, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
-    // `Cmd_YMW_Bank`. `Register` served it until 2026-07-29, which sent the
-    // bank select at the register file and dropped the bank entirely.
+    // `Cmd_YMW_Bank`.
     make_multipcm: "multipcm.libvgm" / "libvgm" => MultiPcm,
         ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_multipcm;
     make_pwm: "pwm.libvgm" / "libvgm" => Pwm,
         ffi::DEVID_32X_PWM, 0, WriteRule::Data16, [0, 0], LEVEL_UNITY, configure_none;
-    // No ES5505/ES5506 row: libvgm's `es5506.c` is a 32-line stub -- a
-    // `DEV_DECL` whose core list is `{ NULL }` -- so `SndEmu_Start` has
-    // nothing to start. The chip stays unplayable until upstream grows the
-    // emulator; the decoder's `0xBE`/`0xD6` conventions are ready for it.
+    // No ES5505/ES5506 row: libvgm's `es5506.c` is a stub (a `DEV_DECL` whose
+    // core list is `{ NULL }`), so `SndEmu_Start` has nothing to start. The
+    // decoder's `0xBE`/`0xD6` conventions are ready for when upstream grows it.
 
     make_rf5c68: "rf5c68.libvgm" / "libvgm" => Rf5c68,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
@@ -1502,10 +1422,8 @@ chip_specs! {
         ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
-/// A chip whose configuration is only the generic fields.
-///
-/// Most of them: the clock, the rate mode and the variant flag are set before
-/// this is called, and there is nothing else the header carries.
+/// A chip whose configuration is only the generic fields (clock, rate mode,
+/// variant flag), all set before this is called.
 fn configure_none(_config: &mut DevConfig, _settings: &ChipSettings) {}
 
 /// The AY8910's type and flags bytes, from the header's `0x78`/`0x79`.
@@ -1651,19 +1569,13 @@ fn spec_by_id(id: &str) -> &'static ChipSpec {
 
 /// The SN76489's identity, from the VGM header.
 ///
-/// Every field here changes what the part *is* rather than how it sounds, and
-/// the frozen scorecard records what a wrong one costs: the noise channel
-/// emits a different pseudo-random sequence entirely.
+/// Every field changes what the part *is* rather than how it sounds; a wrong one
+/// gives the noise channel a different pseudo-random sequence entirely.
 ///
-/// **Transcribed from libvgm's own `player/vgmplayer.cpp`**, not derived from
-/// the VGM specification, and that is the rule this function exists to
-/// establish for lv-3. A first attempt here read the spec and got six of the
-/// seven fields wrong -- inverted sense on `stereo`, hard-coded `negate` and
-/// `clkDiv`, `segaPSG` and `ncrPSG` missed entirely, and both defaults set to
-/// the TI part when libvgm's are the SEGA PSG's. Every one of those is a
-/// silent wrongness: the chip still starts, still sounds, and is simply a
-/// different part. The player is the authority because it is the code the
-/// reference measurement runs.
+/// **Transcribed from libvgm's own `player/vgmplayer.cpp`**, not the VGM
+/// specification -- the player is the authority because it is the code the
+/// reference measurement runs. Getting a field wrong is silent: the chip still
+/// starts and sounds, as a different part.
 ///
 /// The flag bits, for reading alongside `vgmplayer.cpp`:
 /// `0x01` frequency 0 is 0x400 (so *clear* means the SEGA behaviour),
@@ -1704,7 +1616,7 @@ mod tests {
     }
 
     /// Construction, native rate, writes and render, end to end through the
-    /// `ChipCore` trait rather than through the raw FFI -- the lv-2 gate.
+    /// `ChipCore` trait rather than the raw FFI.
     #[test]
     fn the_generic_binding_drives_a_chip_end_to_end() {
         let mut chip = LibVgmChip::new(spec(ChipKind::Sn76489));
@@ -1910,13 +1822,10 @@ mod tests {
     /// `native_rate` reports what the core will *actually* render at, which is
     /// not always derived from the clock.
     ///
-    /// Upstream warns that some cores ignore `srMode` and always use
-    /// `smplRate`, and Maxim's SN76489 is one: asked for native mode it still
-    /// answers [`REQUESTED_RATE`]. That is not a defect and not something to
-    /// work around -- the engine resamples from whatever `native_rate` says --
-    /// but it *is* worth pinning, because the obvious assumption (a libvgm
-    /// chip's rate follows its clock, as ymfm's does) is false, and code
-    /// written on it would look right and drift pitch.
+    /// Some cores ignore `srMode` and always use `smplRate`, and Maxim's SN76489
+    /// is one: asked for native mode it still answers [`REQUESTED_RATE`]. Worth
+    /// pinning because the obvious assumption (rate follows clock, as ymfm's
+    /// does) is false, and code written on it would drift pitch.
     #[test]
     fn the_rate_is_whatever_the_core_will_really_render_at() {
         let mut chip = LibVgmChip::new(spec(ChipKind::Sn76489));
@@ -1957,8 +1866,7 @@ mod tests {
 
     /// The header's noise taps and shift width reach libvgm, and changing them
     /// changes the sound. Without this, `configure` could be a no-op and every
-    /// test above would still pass -- which is exactly the bug the frozen
-    /// scorecard caught in our own core.
+    /// test above would still pass.
     #[test]
     fn the_headers_noise_settings_reach_the_chip() {
         let noise_with = |feedback: u16, width: u8| -> Vec<i32> {
@@ -1991,10 +1899,9 @@ mod tests {
 
     /// The header-to-config mapping is libvgm's player's, field for field.
     ///
-    /// Pinned because getting it wrong is *silent*: every field here selects a
-    /// different real part, and the chip starts and sounds either way. The
-    /// expected values are read straight off `player/vgmplayer.cpp`'s
-    /// `DEVID_SN76496` arm at the pinned commit.
+    /// Pinned because getting it wrong is *silent*: every field selects a
+    /// different real part, and the chip starts and sounds either way. Expected
+    /// values are read off `player/vgmplayer.cpp`'s `DEVID_SN76496` arm.
     #[test]
     fn the_header_maps_to_libvgms_own_config_fields() {
         let built = |settings: ChipSettings| -> Sn76496Cfg {
@@ -2040,12 +1947,12 @@ mod tests {
         assert_eq!(all.ncr_psg, 1);
     }
 
-    /// **lv-3's per-entry gate: the exact bytes each rule puts on the bus.**
+    /// The exact bytes each rule puts on the bus.
     ///
     /// Every case is checked against the handler in
-    /// `player/vgmplayer_cmdhandler.cpp` that it mirrors, because these are
-    /// inversions of our own decoder's normalisations and a wrong one is
-    /// silent -- the chip takes the write and plays something else.
+    /// `player/vgmplayer_cmdhandler.cpp` it mirrors: these are inversions of our
+    /// decoder's normalisations, and a wrong one is silent -- the chip takes the
+    /// write and plays something else.
     #[test]
     fn each_write_rule_puts_the_documented_bytes_on_the_bus() {
         // `Cmd_SN76489` / `Cmd_GGStereo` / `Cmd_Ofs8_Data8`: straight through,
@@ -2121,9 +2028,8 @@ mod tests {
             "port 0 is still the ordinary `0xB5` register file"
         );
         // A whole-megabyte offset with both banks named: Model 1's single 1 MB
-        // window, register 0x10, and the value divided down to what the core's
-        // `data << 20` expects. `0x10` counts 64 KiB units, so this is
-        // `0x10_0000` bytes -- Daytona's, and 125 of the corpus's 296.
+        // window, register 0x10, the value divided down to what the core's
+        // `data << 20` expects (`0x10` counts 64 KiB units).
         assert_eq!(
             fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0010),
             Bus::Reg8(0x10, 0x01)
@@ -2135,9 +2041,9 @@ mod tests {
             fold(WriteRule::MultiPcmBank, BANK_PORT, 0x03, 0x0018),
             Bus::Reg8Pair((0x11, 0x03), (0x12, 0x03))
         );
-        // One bank at a time: **mask bit 1 is the low bank and bit 0 the
-        // high one**, which is the way round `Cmd_YMW_Bank` has it and the
-        // opposite of how the bits read. 96 of the corpus's commands are these.
+        // One bank at a time: **mask bit 1 is the low bank and bit 0 the high
+        // one**, the way round `Cmd_YMW_Bank` has it and the opposite of how the
+        // bits read.
         assert_eq!(
             fold(WriteRule::MultiPcmBank, BANK_PORT, 0x02, 0x0020),
             Bus::Reg8(0x11, 0x04)
@@ -2239,11 +2145,9 @@ mod tests {
     }
 
     /// A bare AY8910's register writes go through the IO-port latch, and only
-    /// sound proves it: under the direct-write bug this test's volume write
-    /// re-latched the address instead of landing in R8, so the chip stayed
-    /// silent (and real songs came out as register-scrambled noise). The
-    /// clock, type and flags are an Atari ST YM2149's, from the file that
-    /// caught it.
+    /// sound proves it: a direct write would re-latch the address instead of
+    /// landing in R8, leaving the chip silent. The clock, type and flags are an
+    /// Atari ST YM2149's.
     #[test]
     fn a_bare_ay8910_actually_sounds() {
         let mut chip = LibVgmChip::new(spec(ChipKind::Ay8910));
@@ -2308,10 +2212,8 @@ mod tests {
     /// Every spec's device is actually compiled in, so no row is silently
     /// silent.
     ///
-    /// `build.rs`'s `ENABLED` and this table are two lists that have to agree
-    /// and cannot see each other. A spec whose device was left out starts
-    /// nothing, and the only symptom is a chip that plays silence -- which is
-    /// indistinguishable from a chip that plays badly until someone checks.
+    /// `build.rs`'s `ENABLED` and this table have to agree and cannot see each
+    /// other; a spec whose device was left out starts nothing and plays silence.
     #[test]
     fn every_spec_can_actually_start() {
         for spec in SPECS {
@@ -2335,16 +2237,13 @@ mod tests {
     }
 
     /// A chip's several rows must each start a *different* libvgm core, or a
-    /// picker entry is dead: choosing it changes the id in `drotrim.ini` but
-    /// not a sample of the sound.
+    /// picker entry is dead: choosing it changes the id in `drotrim.ini` but not
+    /// a sample of the sound.
     ///
-    /// The bug this pins: an alternate row whose `emu_core` names the device's
+    /// The bug this pins: an alternate whose `emu_core` names the device's
     /// first-listed core resolves, via `SndEmu_StartCore`, to the very core
-    /// `emu_core: 0` already takes -- so the default row and the alternate are
-    /// the same emulator. Six rows were that (AY8910, YM2413, Game Boy,
-    /// SAA1099, NES APU, QSound all named their default core), and this reads
-    /// the *started* `DEV_DEF::coreID` back rather than trusting the spec, so
-    /// it measures what libvgm actually chose.
+    /// `emu_core: 0` already takes. This reads the *started* `DEV_DEF::coreID`
+    /// back rather than trusting the spec, so it measures what libvgm chose.
     #[test]
     fn every_alternate_row_starts_a_distinct_core() {
         // (kind, id, the core libvgm actually started), for every row.
@@ -2403,11 +2302,10 @@ mod tests {
     }
 
     /// A ROM block reaches the space its type names, and the size is declared
-    /// before the data -- both are what upstream's `WriteChipROM` does.
+    /// before the data -- both as upstream's `WriteChipROM` does.
     ///
-    /// There is nothing observable to assert against a real core here, so this
-    /// checks the routing decision (which is ours) and that delivery is
-    /// survivable (which is libvgm's).
+    /// Nothing observable to assert against a real core, so this checks the
+    /// routing decision (ours) and that delivery is survivable (libvgm's).
     #[test]
     fn rom_blocks_route_to_the_space_their_type_names() {
         assert_eq!(rom_space(0x82), 0, "YM2610 ADPCM-A is the first space");
@@ -2425,15 +2323,12 @@ mod tests {
         chip.render(&mut out);
     }
 
-    /// Every chip in the table starts, takes its own rule's writes, and
-    /// renders -- the lv-3 equivalent of lv-1's sound gate, across the batch.
+    /// Every chip in the table starts, takes its own rule's writes, and renders.
     ///
-    /// Not an audibility assertion: most of these need a sample ROM and a
-    /// driver's worth of setup before they make a sound, and inventing one per
-    /// chip would be inventing the very conventions the corpus is there to
-    /// arbitrate. What it does catch is a rule whose writer is missing, a
-    /// device that refuses its own registers, and a render that reads a
-    /// dangling pointer.
+    /// Not an audibility assertion: most of these need a sample ROM and driver
+    /// setup before they sound. What it catches is a rule whose writer is
+    /// missing, a device that refuses its own registers, and a render that reads
+    /// a dangling pointer.
     #[test]
     fn every_chip_takes_writes_and_renders() {
         for spec in SPECS {
@@ -2451,12 +2346,9 @@ mod tests {
 
     /// Every chip that takes RAM blocks has the writer its RAM path needs.
     ///
-    /// `ram_via_block` is a transcription of each core's `rwFuncs` table, and
-    /// the two can drift silently: a chip listed for the block path whose
-    /// core has no block writer -- or the reverse -- drops every wavetable
-    /// and plays silence. The ES5503 shipped exactly that way once: its only
-    /// RAM writer is `DEVRW_BLOCK`, the byte loop found nothing, and the
-    /// corpus came back 0-of-12 audible.
+    /// `ram_via_block` is a transcription of each core's `rwFuncs` table, and the
+    /// two can drift silently: a chip listed for the block path whose core has no
+    /// block writer (or the reverse) drops every wavetable and plays silence.
     #[test]
     fn every_ram_taking_chip_has_the_writer_its_path_needs() {
         for kind in [
@@ -2485,10 +2377,9 @@ mod tests {
         }
     }
 
-    /// Dropping a started chip stops its device. Nothing observable proves a
-    /// free happened, so this is a leak-check under a loop rather than an
-    /// assertion: it exists so a missing `Stop` shows up under a sanitiser or
-    /// as unbounded growth rather than never.
+    /// Dropping a started chip stops its device. Nothing observable proves the
+    /// free, so this is a leak-check under a loop: a missing `Stop` shows up
+    /// under a sanitiser or as unbounded growth.
     #[test]
     fn chips_can_be_built_and_dropped_repeatedly() {
         for _ in 0..64 {
