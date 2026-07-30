@@ -25,3 +25,6 @@
 [submodule "vendor/upstream/libvgm"]
 	path = vendor/upstream/libvgm
 	url = https://github.com/ValleyBell/libvgm.git
+[submodule "vendor/upstream/vgmtools"]
+	path = vendor/upstream/vgmtools
+	url = https://github.com/vgmrips/vgmtools.git

@@ -72,18 +72,18 @@ the wasm-clean path (`dro-web` and `dro-synth-worklet` never see this crate).
 ## Architecture
 
 - **Submodule** `vendor/upstream/vgmtools`, pinned. Never edited -- house rule.
-- **New crate `crates/dro-vgmtools`**, shaped like `dro-cores-libvgm`: a
-  `build.rs` compiling the needed C with `cc` + clang. Per-tool wrapper `.c`
-  files (`#define main vgm_cmp_main` then `#include "vgm_cmp.c"`) so upstream
-  stays pristine. The tools are standalone programs, not a library: each
-  defines its own `VGMHead`, `OpenVGMFile`, and friends, so symbol collision
-  between them is the spike's problem to solve -- preferred route is one
-  object per tool with `llvm-objcopy --prefix-symbols=`, fallback is one
-  staticlib per tool, last resort is subprocess invocation of built exes.
-- **I/O model:** in-process `<tool>_main(argc, argv)` over temp files (the
-  tools are file-path driven). `stdin` is EOF under the GUI, so `getchar()`
-  prompt paths return immediately; the spike audits whether `exit()` is
-  reachable on malformed input and shims it if so.
+- **New crate `crates/dro-vgmtools`**: a `build.rs` that builds each tool as
+  its own **executable**, exactly as upstream's CMake does (`vgm_cmp` =
+  `vgm_cmp.c` + `chip_cmp.c`, `vgm_sro` = `vgm_sro.c` + `chip_srom.c`,
+  `optdac` = `optdac.c`). No wrappers, no renaming: the tools are standalone
+  programs and this treats them as such.
+- **I/O model:** each call spawns the tool as a child process over temp files,
+  **with a timeout**, and reads the result back. The process boundary is the
+  feature -- see ot-1 for the four upstream hazards it contains. The child
+  gets `MSYSTEM=MSYS` so `DblClickWait` returns instead of waiting on a key.
+- **Distribution:** the built exes are embedded in the binary with
+  `include_bytes!` and unpacked to a cache directory on first use, so the app
+  still ships as one file.
 - **zlib** via `libz-sys` (static): the tools gz-read/write. We always hand
   them uncompressed temp files; `.vgz` stays ours.
 - **Safe API** (`dro-vgmtools/src/lib.rs`): `optimize_writes(&[u8])`,
@@ -109,18 +109,60 @@ the wasm-clean path (`dro-web` and `dro-synth-worklet` never see this crate).
 
 ## Steps (one commit each)
 
-**ot-1 -- the spike (GATE).** Like cr-3's CQM proof-of-concept. Add the
-submodule; compile `vgm_cmp`+`chip_cmp`, `vgm_sro`+`chip_srom`, `optdac`
-through wrappers; solve symbol isolation; run each in-process on a fixture and
-byte-compare against the upstream exe on the same input. Audit `exit()` and
-prompt paths. Record the chosen route in the crate's `lib.rs` header note.
-**GO/NO-GO:** if in-process proves unreasonable, the crate wraps subprocesses
-of exes built by `build.rs` -- the API is unchanged and the rest of the plan
-is unaffected.
+**ot-1 -- the spike (GATE). DONE: the answer is SUBPROCESS.** The in-process
+route was built end to end and then rejected on evidence. What it cost and
+what it found is worth keeping, because all of it is upstream behaviour that
+the subprocess route now contains rather than solves:
 
-**ot-2 -- the crate.** `dro-vgmtools` with the safe API above, temp staging,
-and captured (not leaked) stdout. Golden tests: fixture in, pinned bytes out,
-goldens generated once from the upstream exes and committed.
+- **In-process is buildable.** Each tool gathers into one TU with no name
+  conflicts; `llvm-objcopy --redefine-syms` (`--keep-global-symbol` is *not*
+  supported for COFF) isolates 68/50/17 symbols per tool, and all three link
+  and run. So the rejection is not "it did not work".
+- **It is also correct, for well-formed files.** Calling a tool once per
+  process and calling it 60 times in one process gave byte-identical results:
+  `vgm_cmp` 0 divergences over 60 files, `vgm_sro` 0 over 80. The re-entrancy
+  worry did not materialise.
+- **What decided it was robustness, not correctness.** `chip_srom.c` has 50
+  `realloc` sites and exactly one `free` (line 650), which releases only the
+  array holding the pointers -- and `InitAllChips` *zeroes* those pointers
+  (line 596) rather than freeing them. Every `vgm_sro` run orphans its whole
+  sample-ROM set. That is correct-because-we-exit code, and a pack export over
+  a hundred arcade tracks is exactly the shape that would turn it into
+  hundreds of unreclaimable megabytes inside a long-lived GUI.
+- **And a file can hang the process for good.**
+  `for (rom_mask = 1; rom_mask < ROMSize; rom_mask *= 2);` (chip_srom.c:3268)
+  runs on a `UINT32`: a ROM size above `0x80000000`, read verbatim out of a
+  data block, wraps the mask to 0 and spins forever. In-process that is an
+  unkillable GUI freeze; as a child it is a timeout and a log line. The same
+  goes for the unchecked `malloc` of a header-controlled `lngEOFOffset`
+  (vgm_cmp.c:249) and the unchecked `fopen` in `WriteVGMFile` -- an
+  access violation that would take the user's unsaved work with it.
+
+A process boundary answers all four at once, and it *removes* work rather than
+adding it: no symbol renaming, no `llvm-objcopy` (so no new toolchain
+requirement -- the build stays MSVC-only), no one-TU trick, and each tool
+compiled exactly the way upstream builds it. Equivalence with `vgm_cmp` stops
+being a test result and becomes an identity: we run the program.
+
+Two upstream behaviours the runner must still handle, both found here:
+- **`DblClickWait` blocks on `_getch()`** whenever `argv[0][1] == ':'`
+  (common.h:118), which is every absolute path -- it hung the reference exe
+  for two minutes during the spike. The runner sets **`MSYSTEM=MSYS`** in the
+  child environment, using upstream's own early return (common.h:121-128),
+  which is robust however the path arrives.
+- **A truncated file is nondeterministic.** The tools `malloc` what the header
+  claims and ignore `gzread`'s return, so the tail is uninitialised heap; the
+  same truncated input gave different results in different processes. The
+  binding only ever writes complete files it serialised itself, and
+  `VgmFile::write` recomputes the EOF offset, so this stays out of reach --
+  but it is why the re-entrancy measurement above insisted on well-formed
+  inputs.
+
+**ot-2 -- the crate.** `dro-vgmtools` with the safe API above: temp staging,
+captured (not leaked) stdout, `MSYSTEM=MSYS`, a per-call timeout, and the
+embedded-exe unpacking. Golden tests pin fixture-in/bytes-out so a submodule
+pin bump that changes behaviour shows up as a failing test rather than as
+quietly different output.
 
 **ot-3 -- the composed pipeline, and honesty.** `optimize_vgm` with the
 wholly-OPL bypass. Tests assert delay totals conserved (`VgmStream`'s wait
@@ -161,8 +203,8 @@ dialog credits; update `HANDOVER.md`'s "adjacent tools" note; update the
 
 ## Verification
 
-- ot-1's golden byte-comparison against the upstream exes -- the binding *is*
-  the exe, so this is the equivalence proof.
+- Equivalence with `vgm_cmp` needs no test: the binding runs the program,
+  built from the pinned source the way upstream builds it.
 - ot-7's corpus render-parity through `VgmEngine`; no external reference
   needed, the engine is deterministic.
 - Existing suites stay green: `projection_corpus`'s `compare_optimised`
@@ -173,17 +215,22 @@ dialog credits; update `HANDOVER.md`'s "adjacent tools" note; update the
 
 ## Risks and notes
 
-- **`exit()` and prompts in tool error paths.** The spike audits them; the
-  subprocess fallback is ready. Inputs are files we serialized ourselves, so
-  the malformed-input paths are cold.
+- **A tool that hangs, leaks or faults** takes only its own child process with
+  it. Each of those is a real upstream behaviour (ot-1), not a hypothetical,
+  and the timeout is what turns the unkillable one into a failed file.
 - **`vgm_cmp` re-spells delays** on non-OPL files through its own writer; our
   final `dro-core` pass re-minimizes them, and the shrink gates leave
   no-net-win files untouched.
 - **Bytes after the end marker** are dropped by our `VgmFile::optimize` and by
   the C tools alike. Pre-existing and consistent; ot-3 pins it as behaviour
   rather than calling it a fix.
-- **MSVC vs clang:** `cc` must pick clang, as `dro-cores-libvgm` does -- the
-  same PATH-prelude trap recorded in the toolchain memory.
+- **zlib is shimmed away.** The tools use exactly four zlib calls
+  (`gzopen`/`gzread`/`gzseek`/`gzclose`), all read-only; output goes through
+  plain `fopen`/`fwrite`. `shim/zlib.h` + `shim/zshim.c` serve those from
+  `FILE*`, so no C compression library enters the build. The shim *refuses*
+  gzip input rather than reading it, which is correct here: `.vgz` is
+  unpacked and repacked by flate2 in Rust, and gzip reaching this layer would
+  mean a caller skipped that.
 - **`vgm_sro` splits one ROM block into several smaller `0x67` blocks**, with
   the declared total size preserved. Our `banks.rs` ROM path and the libvgm
   cores already handle multi-part ROM loads (each block carries its start
