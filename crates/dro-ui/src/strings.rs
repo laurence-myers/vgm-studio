@@ -19,9 +19,8 @@ use dro_synth::LoopCount;
 // ============================================================================
 
 pub(crate) const APP_AUTO_TRIM_TITLE: &str = "DRO auto-trimmed";
-pub(crate) const APP_AUTO_TRIM_TEXT: &str = "The DRO was found to contain a bogus delay as\n\
-                                      its first instruction. It has been automatically\n\
-                                      removed. (Don't forget to save!)";
+pub(crate) const APP_AUTO_TRIM_TEXT: &str =
+    "Removed a bogus delay at the start of the DRO. Remember to save.";
 pub(crate) const APP_MISMATCH_TITLE: &str = "DRO timing mismatch";
 pub(crate) const APP_MISMATCH_PREFIX_TRIMMED: &str = "Despite auto-trimming, t";
 pub(crate) const APP_MISMATCH_PREFIX_PLAIN: &str = "T";
@@ -36,9 +35,8 @@ pub(crate) const APP_TIP_REWIND: &str = "Rewind to the start";
 pub(crate) const APP_TIP_DELETE: &str = "Delete the selected instruction(s)";
 pub(crate) const APP_TIP_PLAY: &str = "Play the song from the current position";
 pub(crate) const APP_TIP_STOP: &str = "Stop playback";
-pub(crate) const APP_TIP_LOOP: &str = "Repeat the marked region. Shift+click the waveform to mark \
-                                the start and Shift+right-click the end; [ and ] use the \
-                                selected row.";
+pub(crate) const APP_TIP_LOOP: &str = "Repeat the marked region. Shift+click / Shift+right-click \
+                                the waveform to mark start and end; [ and ] use the selected row.";
 
 pub(crate) const APP_BUSY_WORKING: &str = "Working...";
 pub(crate) const APP_BUSY_RENDER_WAV: &str = "Rendering WAV...";
@@ -131,8 +129,8 @@ pub(crate) const APP_CONFIRM_EXPORT_TITLE: &str = "Export anyway?";
 pub(crate) const APP_CONFIRM_DELETE_SCREENSHOT_TITLE: &str = "Delete screenshot?";
 
 pub(crate) const APP_LOOP_CLEARED_TITLE: &str = "Loop point cleared";
-pub(crate) const APP_LOOP_CLEARED_BODY: &str = "The loop start was past the end of the song (shortened since the \
-                                         dialog opened) and has been cleared.";
+pub(crate) const APP_LOOP_CLEARED_BODY: &str =
+    "The loop start was past the end of the song and has been cleared.";
 pub(crate) const APP_DESC_NOT_PARSED_TITLE: &str = "Description not parsed";
 pub(crate) const APP_NOT_PNG_TITLE: &str = "Not a PNG";
 pub(crate) const APP_NOT_VGM_TITLE: &str = "Not a VGM";
@@ -450,11 +448,9 @@ pub(crate) const PACK_BULK_TAG_TIP: &str =
     "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
      once";
 pub(crate) const PACK_FIX_DATES_TIP: &str =
-    "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01) in the \
-     pack and every track, as one undoable step";
+    "Rewrite slash-separated dates (1994/03/01 \u{2192} 1994-03-01)";
 pub(crate) const PACK_FIX_FILE_NAMES_TIP: &str =
-    "Rename each file to \"NN Track Name.ext\" from its GD3 tag, using \
-     vgm_ren's character rules, as one undoable step";
+    "Rename each file to \"NN Track Name.ext\" from its GD3 tag";
 pub(crate) const PACK_HARDWARE_TIP_HIDE: &str = "Hide the system, OS and music hardware fields";
 pub(crate) const PACK_HARDWARE_TIP_EDIT: &str = "Edit the system, OS and music hardware fields";
 pub(crate) const PACK_READINESS_TIP_NONE: &str = "Every submission check passes";
@@ -472,7 +468,7 @@ pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export -- the V
 pub(crate) const PACK_CHECKLIST_LINK_TIP: &str = "Click to jump to the fix";
 pub(crate) const PACK_TRACK_READY_TIP: &str = "Ready for submission";
 pub(crate) const PACK_TRACK_UNREADABLE_TIP: &str = "This file could not be read.";
-pub(crate) const PACK_TRACKS_HEADING: &str = "Tracks (double-click to open in the editor)";
+pub(crate) const PACK_TRACKS_HEADING: &str = "Tracks (double-click to edit)";
 pub(crate) const PACK_PEAK_TIP_CLIPPED: &str = "Peak reaches full scale (clipping)";
 pub(crate) const PACK_PEAK_TIP: &str = "Loudest peak, in dBFS";
 pub(crate) const PACK_DRAG_TIP: &str = "Drag to reorder";
@@ -523,35 +519,24 @@ pub(crate) fn pack_add_screenshot_named(name: &str) -> String {
 // dialogs/settings.rs
 // ============================================================================
 
-pub(crate) const SETTINGS_OUTPUT_CORE_APPLIES: &str =
-    "Picking a core applies as you pick it; Close puts the saved one back.";
+pub(crate) const SETTINGS_OUTPUT_CORE_APPLIES: &str = "The core used for live playback.";
 pub(crate) const SETTINGS_OUTPUT_CORE_HOVER: &str =
-    "Rendering, splitting and the waveform always use an emulator, whatever \
-     plays here.";
+    "Rendering, splitting and the waveform always use an emulator.";
 pub(crate) const SETTINGS_DEVICE_HOVER: &str =
-    "The board's serial port. On Windows these usually report a generic \
-     name, so a recognised board is matched by its USB ID instead.";
+    "The board's serial port. Recognised boards are matched by USB ID.";
 pub(crate) const SETTINGS_RESAMPLING_HOVER: &str =
-    "How non-OPL chips are brought to the output rate. Band-limited is the \
-     accurate capture of the chip; linear folds high frequencies back into \
-     the audible band, which is inaccurate but crunchy -- the way VGMPlay and \
-     most classic players sound. Applies to playback, WAV export and the \
-     waveform alike.";
+    "How non-OPL chips are resampled. Band-limited is accurate; linear is \
+     aliased but crunchy, like VGMPlay.";
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
 pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str =
-    "Frames per audio callback. Smaller responds to seeking and muting \
-     sooner; larger is safer against dropouts.";
+    "Frames per audio callback. Smaller seeks and mutes sooner; larger \
+     avoids dropouts.";
 pub(crate) const SETTINGS_BIT_DEPTH_HOVER: &str = "WAV export only";
 pub(crate) const SETTINGS_TAIL_LENGTH_HOVER: &str =
     "How much the \"play last X seconds\" button plays";
-pub(crate) const SETTINGS_THEME_HOVER: &str =
-    "The case colour. Applies as you pick it; Close puts the old one back.";
-pub(crate) const SETTINGS_PAD_STYLE_HOVER: &str =
-    "The keycap colour: follow the theme, or force light, dark or \
-     plate-tinted keys on any theme.";
-pub(crate) const SETTINGS_DECK_STYLE_HOVER: &str =
-    "The control panel the pads sit on: follow the theme, or force a light, \
-     dark or plate-tinted deck.";
+pub(crate) const SETTINGS_THEME_HOVER: &str = "The case colour.";
+pub(crate) const SETTINGS_PAD_STYLE_HOVER: &str = "The keycap colour.";
+pub(crate) const SETTINGS_DECK_STYLE_HOVER: &str = "The panel the pads sit on.";
 pub(crate) const SETTINGS_INVALID_TITLE: &str = "Invalid settings";
 pub(crate) const SETTINGS_INVALID_NUMBERS: &str = "Check that the entered values are numbers.";
 
@@ -566,15 +551,14 @@ pub(crate) const SPLIT_SONG_HOVER: &str = "Re-record each channel in the song's 
 pub(crate) const SPLIT_ISOLATE_PERCUSSION_HOVER: &str =
     "Splits the percussion channel per drum, not as one";
 pub(crate) const SPLIT_SKIPPED_NOTE: &str =
-    "Channels the song never sounds are skipped.\nFiles already in the chosen folder are overwritten.";
+    "Silent channels are skipped; existing files are overwritten.";
 
 // ============================================================================
 // dialogs/split_songs.rs
 // ============================================================================
 
 pub(crate) const SPLIT_SONGS_PREVIEW_UNAVAILABLE: &str =
-    "There is no core for this file's chips yet, so a piece cannot be auditioned. \
-     Exporting still works.";
+    "No core for this file's chips yet -- can't audition, but export still works.";
 pub(crate) const SPLIT_SONGS_GAP_EXPLAIN: &str =
     "Songs are split where the capture goes silent for at least this long.";
 pub(crate) const SPLIT_SONGS_TAIL_HOVER: &str =
@@ -595,11 +579,8 @@ pub(crate) fn split_songs_to_export(count: usize) -> String {
 // ============================================================================
 
 pub(crate) const SCREENSHOT_RENAME_NAME_HOVER: &str =
-    "Prefilled from the game name. Add a suffix -- \"(Japan)\", \"(EGA)\" -- \
-     to keep more than one screenshot in the pack.";
-pub(crate) const SCREENSHOT_RENAME_RECOMPRESS_HOVER: &str =
-    "Shrink the file without touching a pixel. The same pass the \
-     Recompress pad runs, done on the way in.";
+    "Prefilled from the game name. Add a suffix like \"(Japan)\" to keep several.";
+pub(crate) const SCREENSHOT_RENAME_RECOMPRESS_HOVER: &str = "Lossless shrink, applied on import.";
 pub(crate) const SCREENSHOT_RENAME_NAME_REQUIRED_TITLE: &str = "Name required";
 pub(crate) const SCREENSHOT_RENAME_NAME_REQUIRED_MESSAGE: &str =
     "Enter a name for the screenshot file.";
@@ -635,7 +616,7 @@ pub(crate) const TRACK_EDIT_CURRENT_NAME_HINT: &str = "The file's name on disk r
 pub(crate) const TRACK_EDIT_NEW_NAME_HINT: &str = "Derived from the track number and Track Name (EN)";
 pub(crate) const TRACK_EDIT_TRACK_NAME_REQUIRED_TITLE: &str = "Track name required";
 pub(crate) const TRACK_EDIT_TRACK_NAME_REQUIRED_MESSAGE: &str =
-    "Enter a Track Name (EN) the file name can be derived from (\"?\" and \"!\" are dropped from file names).";
+    "Enter a Track Name (EN) to derive the file name from (\"?\" and \"!\" are dropped).";
 pub(crate) const TRACK_EDIT_DUPLICATE_TITLE: &str = "Duplicate file name";
 
 pub(crate) fn track_edit_duplicate_message(name: &str) -> String {
@@ -715,7 +696,7 @@ pub(crate) fn bulk_tag_selected_count(selected: usize, total: usize) -> String {
 // ============================================================================
 
 pub(crate) const UNWALKABLE_VGM_BODY: &str =
-    "This app cannot read this file's command stream, so there are no rows to show for it. Open the folder as a pack to edit its tags.";
+    "Can't read this file's command stream, so there are no rows. Open the folder as a pack to edit its tags.";
 pub(crate) const UNWALKABLE_VGM_OPEN_PACK_HINT: &str = "Pack mode can edit this file's tags";
 
 // ============================================================================
@@ -807,8 +788,7 @@ pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
 // ============================================================================
 
 pub(crate) const BOOST_STEPPER_LOCK_ON: &str =
-    "Volume is kept across songs. Click to let each song start from \
-     its header modifier instead.";
+    "Volume is kept across songs. Click to start each song from its header modifier.";
 pub(crate) const BOOST_STEPPER_LOCK_OFF: &str =
     "Each song starts from its header volume modifier. Click to keep \
      this volume across songs.";
@@ -818,8 +798,7 @@ pub(crate) const BOOST_STEPPER_AT_LIMIT: &str =
     "At this song's clipping limit -- lower the volume to go quieter";
 pub(crate) const BOOST_STEPPER_MEASURING: &str = "Measuring the song's peak...";
 pub(crate) const BOOST_STEPPER_MATCH: &str =
-    "Measure the song's loudest peak and set the volume to bring it to \
-     full scale without clipping";
+    "Set the volume to bring the song's peak to full scale.";
 
 pub(crate) fn boost_stepper_factor_readout(factor: f32, db: f32) -> String {
     format!("{factor:.2}\u{00d7} ({db:+.1} dB)")
