@@ -1,0 +1,32 @@
+[package]
+name = "vgms-cores-nuked"
+description = "Nuke.YKT's emulator cores, compiled from pinned upstream submodules and registered into vgms-synth."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The cores this crate compiles are Nuke.YKT's, under LGPL-2.1-or-later, so this
+# crate is too. It is a leaf: only the *application* depends on it, which is what
+# keeps `vgms-synth` permissive. See `licenses/README.md`.
+license = "LGPL-2.1-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+log.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints.rust]
+# The workspace denies unsafe. This crate is a set of FFI bindings to C cores,
+# so it cannot -- but it is the *only* place unsafe lives, and every block is
+# confined to `ffi.rs` with the invariant it upholds written above it.
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

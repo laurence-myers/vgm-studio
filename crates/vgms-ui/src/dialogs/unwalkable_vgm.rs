@@ -1,0 +1,122 @@
+//! What to say when a perfectly good VGM has no rows to show. Modal.
+//!
+//! Reached when a VGM's command stream will not walk -- a command with no
+//! defined length, or one running off the end -- so there is no table to put
+//! it in. That is a limitation, not a fault the user can act on, and a bare
+//! "Failed to load" alert says the opposite. This reports what the file *is*,
+//! and points at pack mode, where its tags are editable regardless.
+
+use std::path::PathBuf;
+
+use vgms_core::VgmFile;
+
+use crate::action::Action;
+use crate::theme::{Palette, bevel};
+
+#[derive(Debug)]
+pub struct UnwalkableVgmDialog {
+    file_name: String,
+    facts: Vec<(&'static str, String)>,
+    /// The file's folder, if it has one: the pack this file belongs to.
+    folder: Option<PathBuf>,
+}
+
+impl UnwalkableVgmDialog {
+    #[must_use]
+    pub fn new(file: &VgmFile, folder: Option<PathBuf>) -> Self {
+        let mut facts = vec![
+            ("Chips", file.chip_list()),
+            ("VGM version", file.header.version_string()),
+            ("Length", vgms_core::util::ms_to_timestr(file.total_ms())),
+        ];
+        if let Some(samples) = file.loop_samples() {
+            facts.push((
+                "Loop",
+                vgms_core::util::ms_to_timestr(vgms_core::util::smp_to_ms(
+                    samples,
+                    vgms_core::vgm::VGM_SAMPLE_RATE,
+                )),
+            ));
+        }
+        if let Some(title) = file
+            .tag
+            .as_ref()
+            .map(|tag| tag.track_name_en.trim())
+            .filter(|title| !title.is_empty())
+        {
+            facts.push(("Title", title.to_owned()));
+        }
+        Self {
+            file_name: file.name.clone(),
+            facts,
+            folder,
+        }
+    }
+
+    /// Draws the modal. Returns `false` once closed.
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        palette: &Palette,
+        actions: &mut Vec<Action>,
+    ) -> bool {
+        let mut keep_open = true;
+        let open = super::dialog_modal(
+            ctx,
+            "unwalkable-vgm-modal",
+            "Cannot read the commands",
+            palette,
+            |ui| {
+                ui.label(
+                    egui::RichText::new(&self.file_name)
+                        .monospace()
+                        .color(palette.data_text)
+                        .strong(),
+                );
+                ui.add_space(8.0);
+
+                egui::Grid::new("unwalkable-vgm-grid")
+                    .num_columns(2)
+                    .spacing([16.0, 6.0])
+                    .show(ui, |ui| {
+                        for (key, value) in &self.facts {
+                            ui.colored_label(palette.data_label, *key);
+                            ui.label(
+                                egui::RichText::new(value)
+                                    .monospace()
+                                    .color(palette.data_text),
+                            );
+                            ui.end_row();
+                        }
+                    });
+
+                ui.add_space(10.0);
+                ui.label(crate::strings::UNWALKABLE_VGM_BODY);
+            },
+            |ui| {
+                super::dialog_footer(ui, |ui| {
+                    if bevel::button(ui, palette, "Close").clicked() {
+                        keep_open = false;
+                    }
+                    // Straight to this file's own folder when it has one;
+                    // otherwise the picker, which is all the web build can do.
+                    let (label, action) = match &self.folder {
+                        Some(folder) => (
+                            "Open This Folder as a Pack",
+                            Action::OpenPackFolderAt(folder.clone()),
+                        ),
+                        None => ("Open a Pack\u{2026}", Action::OpenPackFolder),
+                    };
+                    if bevel::button(ui, palette, label)
+                        .on_hover_text(crate::strings::UNWALKABLE_VGM_OPEN_PACK_HINT)
+                        .clicked()
+                    {
+                        actions.push(action);
+                        keep_open = false;
+                    }
+                });
+            },
+        );
+        open && keep_open
+    }
+}

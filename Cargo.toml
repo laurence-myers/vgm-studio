@@ -6,7 +6,7 @@ members = ["crates/*"]
 exclude = ["vendor/nuked-opl3"]
 
 # Serve `nuked-opl3` from a locally patched copy (two upstream-PR-material fixes to
-# the `stereo-ext` path; see vendor/nuked-opl3/README.dro-trimmer.md). The version
+# the `stereo-ext` path; see vendor/nuked-opl3/README.vgms-app.md). The version
 # and API are identical to 0.1.0, so `nuked-opl3 = "0.1"` above still resolves and
 # the `[profile.dev.package.nuked-opl3]` tuning below still matches by name. Remove
 # this and the vendor/ dir once a release carrying the fixes reaches crates.io.
@@ -20,7 +20,7 @@ rust-version = "1.97"
 # NOTE: there is deliberately no workspace `license` key. The workspace is
 # split in two and each crate states its own -- see `licenses/README.md`:
 #
-#   dro-core, dro-synth ............ MIT OR Apache-2.0  (the reusable pair)
+#   vgms-core, vgms-synth ............ MIT OR Apache-2.0  (the reusable pair)
 #   everything else ................ GPL-2.0-or-later   (the app)
 #
 # The app links whatever core sounds most like the real chip, and the best of
@@ -28,24 +28,24 @@ rust-version = "1.97"
 # the app is copyleft and the *distributed binary* -- native and .wasm alike --
 # is GPL-2.0-or-later. The file model and the engine stay permissive so they
 # are reusable on their own; copyleft cores live in provider crates only the
-# app depends on, never in dro-synth.
+# app depends on, never in vgms-synth.
 authors = ["Laurence Dougal Myers"]
-repository = "https://github.com/laurence-myers/dro-trimmer"
+repository = "https://github.com/laurence-myers/vgms-app"
 
 [workspace.dependencies]
-dro-core = { path = "crates/dro-core" }
-dro-synth = { path = "crates/dro-synth" }
-dro-audio-native = { path = "crates/dro-audio-native" }
-dro-retrowave = { path = "crates/dro-retrowave" }
-dro-ui = { path = "crates/dro-ui" }
-dro-cores-nuked = { path = "crates/dro-cores-nuked" }
-dro-cores-gpl = { path = "crates/dro-cores-gpl" }
-dro-cores-ymfm = { path = "crates/dro-cores-ymfm" }
-dro-cores-libvgm = { path = "crates/dro-cores-libvgm" }
+vgms-core = { path = "crates/vgms-core" }
+vgms-synth = { path = "crates/vgms-synth" }
+vgms-audio-native = { path = "crates/vgms-audio-native" }
+vgms-retrowave = { path = "crates/vgms-retrowave" }
+vgms-ui = { path = "crates/vgms-ui" }
+vgms-cores-nuked = { path = "crates/vgms-cores-nuked" }
+vgms-cores-gpl = { path = "crates/vgms-cores-gpl" }
+vgms-cores-ymfm = { path = "crates/vgms-cores-ymfm" }
+vgms-cores-libvgm = { path = "crates/vgms-cores-libvgm" }
 # The vgmtools optimisers. Desktop-only: it spawns child processes, so any
 # crate that also builds for wasm must depend on it behind
 # `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`.
-dro-vgmtools = { path = "crates/dro-vgmtools" }
+vgms-vgmtools = { path = "crates/vgms-vgmtools" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
 # Since 0.34, eframe's default renderer is wgpu -- glow left the default
@@ -58,7 +58,7 @@ egui_extras = { version = "0.35", features = ["image"] }
 # PNG decoding for the screenshot previews. egui_extras declares `image` with no
 # default features; enabling just `png` here keeps it pure Rust.
 image = { version = "0.25", default-features = false, features = ["png"] }
-# Headless GUI test harness (dev-only, consumed by dro-ui's dev-dependencies).
+# Headless GUI test harness (dev-only, consumed by vgms-ui's dev-dependencies).
 # Moves in lock-step with egui/eframe above -- same line, same MSRV. The
 # `eframe` feature drives DroApp through `Harness`; `snapshot` + `wgpu` add
 # PNG visual-regression rendering (via the DX12 WARP adapter on headless Windows).
@@ -79,7 +79,7 @@ log = "0.4"
 # the GUI's channel panning drives; it is served by the patched vendor copy below.
 nuked-opl3 = { version = "0.1", features = ["stereo-ext"] }
 # Bindings to the original Nuked-OPL3 *C* sources. Used only as a parity oracle
-# behind dro-synth's off-by-default `c-parity` feature: it needs a C compiler and
+# behind vgms-synth's off-by-default `c-parity` feature: it needs a C compiler and
 # libclang, and it cannot target wasm32-unknown-unknown (no sysroot).
 opl3-rs = "0.2"
 # Package `rust-ini`, library `ini`. Default features are empty, which matches
@@ -88,23 +88,23 @@ opl3-rs = "0.2"
 rust-ini = { version = "0.21", default-features = false }
 thiserror = "2"
 
-# Native audio output. Only `dro-audio-native` (never wasm) depends on these: a
+# Native audio output. Only `vgms-audio-native` (never wasm) depends on these: a
 # cpal stream driven by the pull engine, with an rtrb SPSC queue carrying control
 # commands into the audio callback lock-free.
 cpal = "0.18"
 rtrb = "0.3"
 
-# Serial port access for `dro-retrowave` (native only): the RetroWave OPL3 boards
+# Serial port access for `vgms-retrowave` (native only): the RetroWave OPL3 boards
 # are USB CDC devices. MPL-2.0, so the About dialog carries its notice alongside
 # the LGPL one. On Linux the default `libudev` feature needs libudev-dev; the
 # workspace test job is Windows-only, and the Linux CI jobs are per-crate and
 # exclude this crate.
 serialport = "4.9"
 
-# Compiles the pinned upstream C cores in `vendor/upstream/` (dro-cores-nuked).
+# Compiles the pinned upstream C cores in `vendor/upstream/` (vgms-cores-nuked).
 # A build-dependency only; it is clang that does the work, and clang can target
 # wasm32-unknown-unknown directly, which is what keeps those cores in the web
-# build. See `crates/dro-cores-nuked/build.rs`.
+# build. See `crates/vgms-cores-nuked/build.rs`.
 cc = "1"
 
 # CLI tooling for the `drotrim` binary (native only).
@@ -119,10 +119,10 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Console",
 ] }
 
-# Pack-mode packaging (native only; never dro-core/dro-ui/wasm).
+# Pack-mode packaging (native only; never vgms-core/vgms-ui/wasm).
 # `deflate-flate2` only, never the defaults: zip 8's default set enables
 # `deflate-flate2-zlib-rs`, which would flip flate2 to its zlib-rs backend
-# workspace-wide and *silently* break dro-core's native-vs-wasm VGZ byte parity
+# workspace-wide and *silently* break vgms-core's native-vs-wasm VGZ byte parity
 # (zlib-rs compiles fine on wasm; only the bytes drift). It also pulls zopfli.
 # `deflate-flate2` is backend-neutral, so the backend comes solely from the
 # flate2 `rust_backend` pin above.
@@ -158,7 +158,7 @@ wasm-bindgen-test = "0.3"
 # 20 of which a real DRO capture can legitimately contain (0x26, 0x27, 0x2E, ...).
 #
 # Disable overflow checks for that one dependency until upstream takes a fix
-# (`.then(|| ...)` instead of `.then_some(...)`). `dro-synth`'s
+# (`.then(|| ...)` instead of `.then_some(...)`). `vgms-synth`'s
 # `writing_a_gap_register_does_not_panic` test fails the moment this is removed.
 [profile.dev.package.nuked-opl3]
 overflow-checks = false
@@ -168,21 +168,21 @@ overflow-checks = false
 opt-level = 3
 
 # The same reasoning for the VGM path: the provider crates carry the C cores
-# (cc compiles them at the package's own opt-level) and dro-synth carries the
+# (cc compiles them at the package's own opt-level) and vgms-synth carries the
 # sinc resampler and the mixing loop. Unoptimised, a YM2612+SN76489 rip
 # renders at ~2.4x realtime -- underrun territory once the UI competes for the
 # machine -- and optimised it is ~10x.
-[profile.dev.package.dro-cores-libvgm]
+[profile.dev.package.vgms-cores-libvgm]
 opt-level = 3
-[profile.dev.package.dro-cores-nuked]
+[profile.dev.package.vgms-cores-nuked]
 opt-level = 3
-[profile.dev.package.dro-cores-gpl]
+[profile.dev.package.vgms-cores-gpl]
 opt-level = 3
-[profile.dev.package.dro-synth]
+[profile.dev.package.vgms-synth]
 opt-level = 3
 
 [workspace.lints.rust]
-# "deny", not "forbid": `dro-synth-worklet` must override this for its
+# "deny", not "forbid": `vgms-synth-worklet` must override this for its
 # `#[unsafe(no_mangle)]` exports.
 unsafe_code = "deny"
 missing_debug_implementations = "warn"

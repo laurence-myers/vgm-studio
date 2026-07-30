@@ -1,0 +1,22 @@
+[package]
+name = "vgms-audio-native"
+description = "Native audio output: a cpal stream fed from the pull-based PlayerEngine. Native only."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The app half: links whatever core is most accurate, including GPL-2/LGPL
+# ones. See `licenses/README.md`.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+cpal.workspace = true
+rtrb.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

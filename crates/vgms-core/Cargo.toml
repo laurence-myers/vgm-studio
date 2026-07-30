@@ -1,0 +1,28 @@
+[package]
+name = "vgms-core"
+description = "File formats, data model, analysis and undo for DRO Trimmer. No audio, GUI or I/O dependencies."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The reusable half: permissive so anyone can take the VGM/DRO file model and
+# the engine without inheriting copyleft. See `licenses/README.md`.
+license = "MIT OR Apache-2.0"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+flate2.workspace = true
+log.workspace = true
+rust-ini.workspace = true
+thiserror.workspace = true
+
+# `proptest` shells out to spawn processes for its `fork` feature and, even with
+# that off, is not worth compiling for the wasm test target.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+proptest.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
+
+[lints]
+workspace = true

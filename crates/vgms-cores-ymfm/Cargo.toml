@@ -1,0 +1,30 @@
+[package]
+name = "vgms-cores-ymfm"
+description = "Yamaha FM/PCM cores from the pinned ymfm submodule, wrapped for vgms-synth."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# ymfm is BSD-3-Clause, which is permissive -- so unlike `vgms-cores-nuked`
+# and `vgms-cores-gpl`, this provider imposes nothing on its consumers and
+# carries the workspace's permissive expression. The BSD attribution travels
+# in `PROVENANCE.md` and the About dialog, as the licence requires.
+license = "MIT OR Apache-2.0"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints.rust]
+# As in the other provider crates: FFI needs unsafe, confined to `ffi.rs`.
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

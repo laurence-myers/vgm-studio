@@ -1,4 +1,4 @@
-# Lets `cargo test --target wasm32-unknown-unknown -p dro-core` run under Node.
+# Lets `cargo test --target wasm32-unknown-unknown -p vgms-core` run under Node.
 #
 #     cargo install wasm-bindgen-cli --locked
 #

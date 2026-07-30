@@ -1,0 +1,43 @@
+[package]
+name = "vgms-vgmtools"
+description = "The vgmtools optimisers (vgm_cmp, vgm_sro, optdac) from the pinned submodule, callable as a library."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# vgmtools is GPL-2.0 and ships a LICENSE file saying so, so unlike
+# `vgms-cores-libvgm` this line is a real upstream grant rather than our most
+# conservative guess. It keeps the tools in the copyleft half of the workspace:
+# `vgms-ui` and `vgms-app` are already GPL-2.0-or-later and may link this,
+# while `vgms-core` and `vgms-synth` stay MIT OR Apache-2.0 and never see it.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# The chip list a caller needs to decide whether a file is worth handing over,
+# and the header parse behind `passthrough_chips`.
+vgms-core.workspace = true
+# A tool that declines a file, or fails one, says so through the log rather
+# than through stdout -- which this crate swallows.
+log.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[dev-dependencies]
+# The golden tests read fixtures the same way the crate's callers will.
+vgms-core.workspace = true
+# Plenty of files named `.vgm` are gzip inside, so the corpus test unpacks
+# them exactly as the app does before handing bytes to a tool.
+flate2.workspace = true
+
+[lints.rust]
+# The tool entry points are `extern "C"`, and the temp-file plumbing around
+# them is safe Rust. Confined to `ffi.rs`, as in the provider crates.
+unsafe_code = "allow"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

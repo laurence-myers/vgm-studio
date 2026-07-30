@@ -1176,156 +1176,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
-name = "dro-audio-native"
-version = "5.1.0"
-dependencies = [
- "cpal",
- "dro-core",
- "dro-synth",
- "log",
- "rtrb",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "dro-core"
-version = "5.1.0"
-dependencies = [
- "flate2",
- "log",
- "proptest",
- "rust-ini",
- "thiserror 2.0.18",
- "wasm-bindgen-test",
-]
-
-[[package]]
-name = "dro-cores-gpl"
-version = "5.1.0"
-dependencies = [
- "cc",
- "dro-core",
- "dro-synth",
- "log",
-]
-
-[[package]]
-name = "dro-cores-libvgm"
-version = "5.1.0"
-dependencies = [
- "cc",
- "dro-core",
- "dro-synth",
- "libm",
- "log",
-]
-
-[[package]]
-name = "dro-cores-nuked"
-version = "5.1.0"
-dependencies = [
- "cc",
- "dro-core",
- "dro-synth",
- "log",
-]
-
-[[package]]
-name = "dro-cores-ymfm"
-version = "5.1.0"
-dependencies = [
- "cc",
- "dro-core",
- "dro-synth",
-]
-
-[[package]]
-name = "dro-retrowave"
-version = "5.1.0"
-dependencies = [
- "dro-core",
- "dro-synth",
- "log",
- "rtrb",
- "serialport",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "dro-synth"
-version = "5.1.0"
-dependencies = [
- "dro-core",
- "hound",
- "log",
- "nuked-opl3",
- "opl3-rs",
- "sha2",
-]
-
-[[package]]
-name = "dro-synth-worklet"
-version = "5.1.0"
-
-[[package]]
-name = "dro-trimmer"
-version = "5.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "dro-audio-native",
- "dro-core",
- "dro-cores-gpl",
- "dro-cores-libvgm",
- "dro-cores-nuked",
- "dro-retrowave",
- "dro-synth",
- "dro-ui",
- "dro-vgmtools",
- "eframe",
- "env_logger",
- "flate2",
- "hound",
- "image",
- "log",
- "oxipng",
- "rfd",
- "windows-sys 0.61.2",
- "winresource",
- "zip",
-]
-
-[[package]]
-name = "dro-ui"
-version = "5.1.0"
-dependencies = [
- "dro-core",
- "dro-synth",
- "dro-vgmtools",
- "eframe",
- "egui",
- "egui_extras",
- "egui_kittest",
- "image",
- "log",
-]
-
-[[package]]
-name = "dro-vgmtools"
-version = "5.1.0"
-dependencies = [
- "cc",
- "dro-core",
- "flate2",
- "log",
-]
-
-[[package]]
-name = "dro-web"
-version = "5.1.0"
-
-[[package]]
 name = "ecolor"
 version = "0.35.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4650,6 +4500,156 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vgms-app"
+version = "5.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "eframe",
+ "env_logger",
+ "flate2",
+ "hound",
+ "image",
+ "log",
+ "oxipng",
+ "rfd",
+ "vgms-audio-native",
+ "vgms-core",
+ "vgms-cores-gpl",
+ "vgms-cores-libvgm",
+ "vgms-cores-nuked",
+ "vgms-retrowave",
+ "vgms-synth",
+ "vgms-ui",
+ "vgms-vgmtools",
+ "windows-sys 0.61.2",
+ "winresource",
+ "zip",
+]
+
+[[package]]
+name = "vgms-audio-native"
+version = "5.1.0"
+dependencies = [
+ "cpal",
+ "log",
+ "rtrb",
+ "thiserror 2.0.18",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-core"
+version = "5.1.0"
+dependencies = [
+ "flate2",
+ "log",
+ "proptest",
+ "rust-ini",
+ "thiserror 2.0.18",
+ "wasm-bindgen-test",
+]
+
+[[package]]
+name = "vgms-cores-gpl"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "log",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-cores-libvgm"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "libm",
+ "log",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-cores-nuked"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "log",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-cores-ymfm"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-retrowave"
+version = "5.1.0"
+dependencies = [
+ "log",
+ "rtrb",
+ "serialport",
+ "thiserror 2.0.18",
+ "vgms-core",
+ "vgms-synth",
+]
+
+[[package]]
+name = "vgms-synth"
+version = "5.1.0"
+dependencies = [
+ "hound",
+ "log",
+ "nuked-opl3",
+ "opl3-rs",
+ "sha2",
+ "vgms-core",
+]
+
+[[package]]
+name = "vgms-synth-worklet"
+version = "5.1.0"
+
+[[package]]
+name = "vgms-ui"
+version = "5.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui_extras",
+ "egui_kittest",
+ "image",
+ "log",
+ "vgms-core",
+ "vgms-synth",
+ "vgms-vgmtools",
+]
+
+[[package]]
+name = "vgms-vgmtools"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "flate2",
+ "log",
+ "vgms-core",
+]
+
+[[package]]
+name = "vgms-web"
+version = "5.1.0"
 
 [[package]]
 name = "walkdir"

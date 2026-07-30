@@ -1,0 +1,44 @@
+[package]
+name = "vgms-synth"
+description = "OPL emulation and the pull-based playback engine. No threads, no audio device, no I/O."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The reusable half: permissive so anyone can take the VGM/DRO file model and
+# the engine without inheriting copyleft. See `licenses/README.md`.
+license = "MIT OR Apache-2.0"
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["nuked-opl"]
+# The Nuked-OPL3 core. On by default -- the app wants it, and every release
+# build has it -- but optional, because it is LGPL-2.1-or-later while this
+# crate's own source is `MIT OR Apache-2.0`. A consumer who needs a genuinely
+# permissive build takes `--no-default-features`, and OPL documents then load,
+# edit, seek and split exactly as before while rendering silence
+# (`opl::SilentOpl`). An optional dependency conveys nothing until enabled, so
+# this crate's license expression stays honest either way.
+# See `licenses/README.md` and `PROVENANCE.md`.
+nuked-opl = ["dep:nuked-opl3"]
+# Builds the original Nuked-OPL3 C sources and exposes them as a second `OplChip`,
+# so `tests/c_parity.rs` can assert the pure-Rust core is bit-identical to them.
+#
+# Off by default: it needs a C compiler and libclang, and `opl3-rs` cannot target
+# wasm32-unknown-unknown. Never enable it for a wasm build.
+#
+#     cargo test -p vgms-synth --features c-parity
+c-parity = ["dep:opl3-rs"]
+
+[dependencies]
+vgms-core.workspace = true
+hound.workspace = true
+log.workspace = true
+nuked-opl3 = { workspace = true, optional = true }
+opl3-rs = { workspace = true, optional = true }
+
+[dev-dependencies]
+sha2.workspace = true
+
+[lints]
+workspace = true

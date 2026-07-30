@@ -49,7 +49,7 @@ jobs:
       # Catches an accidental `std::fs`, `std::time::Instant` or native-only
       # dependency at the moment it is introduced, rather than at Step 8.
       - name: Check wasm-clean crates
-        run: cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth -p dro-ui
+        run: cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui
 
       # The CLI's version must match the `wasm-bindgen` version Cargo.lock
       # resolves, or the generated glue will not load. Bump both together.
@@ -60,7 +60,7 @@ jobs:
       # build is a tested property, not an assumption. `.cargo/config.toml` points
       # the wasm32 target at `wasm-bindgen-test-runner`, which runs these in Node.
       - name: File-format round trips, as wasm
-        run: cargo test -p dro-core --target wasm32-unknown-unknown
+        run: cargo test -p vgms-core --target wasm32-unknown-unknown
 
   c-parity:
     name: pure-Rust OPL core == C reference
@@ -81,9 +81,9 @@ jobs:
       # rests on it being bit-exact. This runs the same register streams through
       # it and through Nuke.YKT's C and compares sample by sample.
       - name: Differential test against the C sources
-        run: cargo test -p dro-synth --features c-parity --test c_parity
+        run: cargo test -p vgms-synth --features c-parity --test c_parity
 
-  # TODO (Step 9): once `dro-synth-worklet` exists as a cdylib, add a job that
+  # TODO (Step 9): once `vgms-synth-worklet` exists as a cdylib, add a job that
   # builds it for wasm32 and asserts its import section is empty --
   # `AudioWorkletGlobalScope` has no libc to offer it. The `nuked-opl3` core is
   # pure Rust, so this holds today; the job is what notices if it stops holding.

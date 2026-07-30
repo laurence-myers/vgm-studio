@@ -1,0 +1,35 @@
+[package]
+name = "vgms-ui"
+description = "The egui application as a library, parameterized by platform-service traits. Native and wasm."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# The app half: links whatever core is most accurate, including GPL-2/LGPL
+# ones. See `licenses/README.md`.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_extras.workspace = true
+# Feature-unifies png decoding into egui_extras' image loader (see workspace).
+image.workspace = true
+log.workspace = true
+
+# The vgmtools optimisers, for the Edit > Optimize action. They run as child
+# processes, so they exist on the desktop only -- `optimise.rs` falls back to
+# `vgms_core`'s own pass on the web, and this crate still builds for wasm.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+vgms-vgmtools.workspace = true
+
+[dev-dependencies]
+# Headless GUI tests (interaction + snapshot). See the workspace manifest for
+# why this is pinned to the 0.32 line.
+egui_kittest.workspace = true
+
+[lints]
+workspace = true
