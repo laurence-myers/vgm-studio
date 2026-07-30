@@ -1310,6 +1310,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "dro-vgmtools"
+version = "5.1.0"
+dependencies = [
+ "cc",
+ "dro-core",
+ "flate2",
+ "log",
+]
+
+[[package]]
 name = "dro-web"
 version = "5.1.0"
 
