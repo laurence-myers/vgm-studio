@@ -17,10 +17,10 @@
 #define DROTRIM_ALIGNOF(type)                                                  \
 	(offsetof(struct { char c; type member; }, member))
 
-size_t drotrim_opll_sizeof(void) { return sizeof(opll_t); }
-size_t drotrim_opll_alignof(void) { return DROTRIM_ALIGNOF(opll_t); }
+size_t vgms_opll_sizeof(void) { return sizeof(opll_t); }
+size_t vgms_opll_alignof(void) { return DROTRIM_ALIGNOF(opll_t); }
 
 #include "ympsg.h"
 
-size_t drotrim_ympsg_sizeof(void) { return sizeof(ympsg_t); }
-size_t drotrim_ympsg_alignof(void) { return DROTRIM_ALIGNOF(ympsg_t); }
+size_t vgms_ympsg_sizeof(void) { return sizeof(ympsg_t); }
+size_t vgms_ympsg_alignof(void) { return DROTRIM_ALIGNOF(ympsg_t); }

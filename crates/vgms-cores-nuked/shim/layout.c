@@ -22,11 +22,11 @@
 #define DROTRIM_ALIGNOF(type)                                                  \
 	(offsetof(struct { char c; type member; }, member))
 
-size_t drotrim_cqm_sizeof(void) { return sizeof(cqm_t); }
-size_t drotrim_cqm_alignof(void) { return DROTRIM_ALIGNOF(cqm_t); }
+size_t vgms_cqm_sizeof(void) { return sizeof(cqm_t); }
+size_t vgms_cqm_alignof(void) { return DROTRIM_ALIGNOF(cqm_t); }
 
-size_t drotrim_ym3438_sizeof(void) { return sizeof(ym3438_t); }
-size_t drotrim_ym3438_alignof(void) { return DROTRIM_ALIGNOF(ym3438_t); }
+size_t vgms_ym3438_sizeof(void) { return sizeof(ym3438_t); }
+size_t vgms_ym3438_alignof(void) { return DROTRIM_ALIGNOF(ym3438_t); }
 
-size_t drotrim_opm_sizeof(void) { return sizeof(opm_t); }
-size_t drotrim_opm_alignof(void) { return DROTRIM_ALIGNOF(opm_t); }
+size_t vgms_opm_sizeof(void) { return sizeof(opm_t); }
+size_t vgms_opm_alignof(void) { return DROTRIM_ALIGNOF(opm_t); }

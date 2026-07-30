@@ -14,12 +14,12 @@ use crate::opaque::OpaqueChip;
 
 unsafe extern "C" {
     // --- ours (shim/layout.c), so the sizes come from the compiler ---
-    fn drotrim_cqm_sizeof() -> usize;
-    fn drotrim_cqm_alignof() -> usize;
-    fn drotrim_ym3438_sizeof() -> usize;
-    fn drotrim_ym3438_alignof() -> usize;
-    fn drotrim_opm_sizeof() -> usize;
-    fn drotrim_opm_alignof() -> usize;
+    fn vgms_cqm_sizeof() -> usize;
+    fn vgms_cqm_alignof() -> usize;
+    fn vgms_ym3438_sizeof() -> usize;
+    fn vgms_ym3438_alignof() -> usize;
+    fn vgms_opm_sizeof() -> usize;
+    fn vgms_opm_alignof() -> usize;
 
     // --- Nuked-CQM ---
     fn CQM_Reset(chip: *mut c_void, samplerate: u32, genrate: u32);
@@ -57,7 +57,7 @@ pub(crate) struct CqmChip {
 impl CqmChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_cqm_sizeof(), drotrim_cqm_alignof()) };
+        let (size, align) = unsafe { (vgms_cqm_sizeof(), vgms_cqm_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -140,7 +140,7 @@ pub(crate) struct Opn2Clocking<'a> {
 impl Opn2Chip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_ym3438_sizeof(), drotrim_ym3438_alignof()) };
+        let (size, align) = unsafe { (vgms_ym3438_sizeof(), vgms_ym3438_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
             mode: OPN2_MODE_READMODE,
@@ -216,7 +216,7 @@ pub(crate) struct OpmChip {
 impl OpmChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_opm_sizeof(), drotrim_opm_alignof()) };
+        let (size, align) = unsafe { (vgms_opm_sizeof(), vgms_opm_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -273,16 +273,16 @@ mod tests {
         // SAFETY: all four return compile-time constants.
         let (cqm, cqm_align, opn2, opn2_align) = unsafe {
             (
-                drotrim_cqm_sizeof(),
-                drotrim_cqm_alignof(),
-                drotrim_ym3438_sizeof(),
-                drotrim_ym3438_alignof(),
+                vgms_cqm_sizeof(),
+                vgms_cqm_alignof(),
+                vgms_ym3438_sizeof(),
+                vgms_ym3438_alignof(),
             )
         };
         assert!(cqm > 1024, "cqm_t came back as {cqm} bytes");
         assert!(opn2 > 1024, "ym3438_t came back as {opn2} bytes");
         // SAFETY: compile-time constants, as above.
-        let (opm, opm_align) = unsafe { (drotrim_opm_sizeof(), drotrim_opm_alignof()) };
+        let (opm, opm_align) = unsafe { (vgms_opm_sizeof(), vgms_opm_alignof()) };
         assert!(opm > 1024, "opm_t came back as {opm} bytes");
         assert!(opm_align <= align_of::<u64>(), "{opm_align}");
         assert!(cqm_align <= align_of::<u64>(), "{cqm_align}");

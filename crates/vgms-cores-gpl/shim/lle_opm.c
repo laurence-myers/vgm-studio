@@ -14,14 +14,14 @@
 
 #include "fmopm.h"
 
-size_t drotrim_fmopm_sizeof(void) { return sizeof(fmopm_t); }
-size_t drotrim_fmopm_alignof(void) {
+size_t vgms_fmopm_sizeof(void) { return sizeof(fmopm_t); }
+size_t vgms_fmopm_alignof(void) {
 	return offsetof(struct { char c; fmopm_t member; }, member);
 }
 
 /* The bus and control pins, all at once. Levels are the electrical ones:
  * ic/cs/wr/rd are active-low, so 1 means deasserted. */
-void drotrim_fmopm_set_pins(fmopm_t *chip, int ym2164, int ic, int cs, int wr,
+void vgms_fmopm_set_pins(fmopm_t *chip, int ym2164, int ic, int cs, int wr,
                             int a0, int data) {
 	chip->input.ym2164 = ym2164;
 	chip->input.ic = ic;
@@ -34,6 +34,6 @@ void drotrim_fmopm_set_pins(fmopm_t *chip, int ym2164, int ic, int cs, int wr,
 
 /* The serial DAC pins: sample-and-hold strobes for the two channels, and the
  * bit stream they frame. */
-int drotrim_fmopm_out_sh1(const fmopm_t *chip) { return chip->o_sh1; }
-int drotrim_fmopm_out_sh2(const fmopm_t *chip) { return chip->o_sh2; }
-int drotrim_fmopm_out_so(const fmopm_t *chip) { return chip->o_so; }
+int vgms_fmopm_out_sh1(const fmopm_t *chip) { return chip->o_sh1; }
+int vgms_fmopm_out_sh2(const fmopm_t *chip) { return chip->o_sh2; }
+int vgms_fmopm_out_so(const fmopm_t *chip) { return chip->o_so; }

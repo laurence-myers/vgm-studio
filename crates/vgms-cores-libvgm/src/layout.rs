@@ -16,46 +16,46 @@ use crate::ffi::{
 };
 
 unsafe extern "C" {
-    fn drotrim_libvgm_gencfg_sizeof() -> usize;
-    fn drotrim_libvgm_gencfg_alignof() -> usize;
-    fn drotrim_libvgm_devinfo_sizeof() -> usize;
-    fn drotrim_libvgm_devinfo_alignof() -> usize;
-    fn drotrim_libvgm_devdef_sizeof() -> usize;
-    fn drotrim_libvgm_devdef_alignof() -> usize;
-    fn drotrim_libvgm_rwfunc_sizeof() -> usize;
-    fn drotrim_libvgm_rwfunc_alignof() -> usize;
-    fn drotrim_libvgm_sn76496cfg_sizeof() -> usize;
-    fn drotrim_libvgm_sn76496cfg_alignof() -> usize;
-    fn drotrim_libvgm_ay8910cfg_sizeof() -> usize;
-    fn drotrim_libvgm_ay8910cfg_alignof() -> usize;
-    fn drotrim_libvgm_ay8910cfg_off_chiptype() -> usize;
-    fn drotrim_libvgm_msm6258cfg_sizeof() -> usize;
-    fn drotrim_libvgm_msm6258cfg_alignof() -> usize;
-    fn drotrim_libvgm_msm6258cfg_off_divider() -> usize;
-    fn drotrim_libvgm_segapcmcfg_sizeof() -> usize;
-    fn drotrim_libvgm_segapcmcfg_alignof() -> usize;
-    fn drotrim_libvgm_segapcmcfg_off_bnkshift() -> usize;
-    fn drotrim_libvgm_devlink_sizeof() -> usize;
-    fn drotrim_libvgm_devlink_alignof() -> usize;
-    fn drotrim_libvgm_devlink_off_linkid() -> usize;
-    fn drotrim_libvgm_devlink_off_cfg() -> usize;
+    fn vgms_libvgm_gencfg_sizeof() -> usize;
+    fn vgms_libvgm_gencfg_alignof() -> usize;
+    fn vgms_libvgm_devinfo_sizeof() -> usize;
+    fn vgms_libvgm_devinfo_alignof() -> usize;
+    fn vgms_libvgm_devdef_sizeof() -> usize;
+    fn vgms_libvgm_devdef_alignof() -> usize;
+    fn vgms_libvgm_rwfunc_sizeof() -> usize;
+    fn vgms_libvgm_rwfunc_alignof() -> usize;
+    fn vgms_libvgm_sn76496cfg_sizeof() -> usize;
+    fn vgms_libvgm_sn76496cfg_alignof() -> usize;
+    fn vgms_libvgm_ay8910cfg_sizeof() -> usize;
+    fn vgms_libvgm_ay8910cfg_alignof() -> usize;
+    fn vgms_libvgm_ay8910cfg_off_chiptype() -> usize;
+    fn vgms_libvgm_msm6258cfg_sizeof() -> usize;
+    fn vgms_libvgm_msm6258cfg_alignof() -> usize;
+    fn vgms_libvgm_msm6258cfg_off_divider() -> usize;
+    fn vgms_libvgm_segapcmcfg_sizeof() -> usize;
+    fn vgms_libvgm_segapcmcfg_alignof() -> usize;
+    fn vgms_libvgm_segapcmcfg_off_bnkshift() -> usize;
+    fn vgms_libvgm_devlink_sizeof() -> usize;
+    fn vgms_libvgm_devlink_alignof() -> usize;
+    fn vgms_libvgm_devlink_off_linkid() -> usize;
+    fn vgms_libvgm_devlink_off_cfg() -> usize;
 
-    fn drotrim_libvgm_devinfo_off_dataptr() -> usize;
-    fn drotrim_libvgm_devinfo_off_samplerate() -> usize;
-    fn drotrim_libvgm_devinfo_off_devdef() -> usize;
-    fn drotrim_libvgm_devinfo_off_linkdevcount() -> usize;
-    fn drotrim_libvgm_devinfo_off_linkdevs() -> usize;
+    fn vgms_libvgm_devinfo_off_dataptr() -> usize;
+    fn vgms_libvgm_devinfo_off_samplerate() -> usize;
+    fn vgms_libvgm_devinfo_off_devdef() -> usize;
+    fn vgms_libvgm_devinfo_off_linkdevcount() -> usize;
+    fn vgms_libvgm_devinfo_off_linkdevs() -> usize;
 
-    fn drotrim_libvgm_devdef_off_start() -> usize;
-    fn drotrim_libvgm_devdef_off_stop() -> usize;
-    fn drotrim_libvgm_devdef_off_reset() -> usize;
-    fn drotrim_libvgm_devdef_off_update() -> usize;
-    fn drotrim_libvgm_devdef_off_rwfuncs() -> usize;
+    fn vgms_libvgm_devdef_off_start() -> usize;
+    fn vgms_libvgm_devdef_off_stop() -> usize;
+    fn vgms_libvgm_devdef_off_reset() -> usize;
+    fn vgms_libvgm_devdef_off_update() -> usize;
+    fn vgms_libvgm_devdef_off_rwfuncs() -> usize;
 
-    fn drotrim_libvgm_gencfg_off_srmode() -> usize;
-    fn drotrim_libvgm_gencfg_off_flags() -> usize;
-    fn drotrim_libvgm_gencfg_off_clock() -> usize;
-    fn drotrim_libvgm_gencfg_off_smplrate() -> usize;
+    fn vgms_libvgm_gencfg_off_srmode() -> usize;
+    fn vgms_libvgm_gencfg_off_flags() -> usize;
+    fn vgms_libvgm_gencfg_off_clock() -> usize;
+    fn vgms_libvgm_gencfg_off_smplrate() -> usize;
 }
 
 /// Rust's `offset_of!` for a field, as a `usize`.
@@ -79,98 +79,98 @@ mod tests {
             assert_eq!(
                 (size_of::<DevGenCfg>(), align_of::<DevGenCfg>()),
                 (
-                    drotrim_libvgm_gencfg_sizeof(),
-                    drotrim_libvgm_gencfg_alignof()
+                    vgms_libvgm_gencfg_sizeof(),
+                    vgms_libvgm_gencfg_alignof()
                 ),
                 "DEV_GEN_CFG"
             );
             assert_eq!(
                 (size_of::<DevInfo>(), align_of::<DevInfo>()),
                 (
-                    drotrim_libvgm_devinfo_sizeof(),
-                    drotrim_libvgm_devinfo_alignof()
+                    vgms_libvgm_devinfo_sizeof(),
+                    vgms_libvgm_devinfo_alignof()
                 ),
                 "DEV_INFO"
             );
             assert_eq!(
                 (size_of::<DevDef>(), align_of::<DevDef>()),
                 (
-                    drotrim_libvgm_devdef_sizeof(),
-                    drotrim_libvgm_devdef_alignof()
+                    vgms_libvgm_devdef_sizeof(),
+                    vgms_libvgm_devdef_alignof()
                 ),
                 "DEV_DEF"
             );
             assert_eq!(
                 (size_of::<DevDefRwFunc>(), align_of::<DevDefRwFunc>()),
                 (
-                    drotrim_libvgm_rwfunc_sizeof(),
-                    drotrim_libvgm_rwfunc_alignof()
+                    vgms_libvgm_rwfunc_sizeof(),
+                    vgms_libvgm_rwfunc_alignof()
                 ),
                 "DEVDEF_RWFUNC"
             );
             assert_eq!(
                 (size_of::<Sn76496Cfg>(), align_of::<Sn76496Cfg>()),
                 (
-                    drotrim_libvgm_sn76496cfg_sizeof(),
-                    drotrim_libvgm_sn76496cfg_alignof()
+                    vgms_libvgm_sn76496cfg_sizeof(),
+                    vgms_libvgm_sn76496cfg_alignof()
                 ),
                 "SN76496_CFG"
             );
             assert_eq!(
                 (size_of::<Ay8910Cfg>(), align_of::<Ay8910Cfg>()),
                 (
-                    drotrim_libvgm_ay8910cfg_sizeof(),
-                    drotrim_libvgm_ay8910cfg_alignof()
+                    vgms_libvgm_ay8910cfg_sizeof(),
+                    vgms_libvgm_ay8910cfg_alignof()
                 ),
                 "AY8910_CFG"
             );
             assert_eq!(
                 (size_of::<Msm6258Cfg>(), align_of::<Msm6258Cfg>()),
                 (
-                    drotrim_libvgm_msm6258cfg_sizeof(),
-                    drotrim_libvgm_msm6258cfg_alignof()
+                    vgms_libvgm_msm6258cfg_sizeof(),
+                    vgms_libvgm_msm6258cfg_alignof()
                 ),
                 "MSM6258_CFG"
             );
             assert_eq!(
                 (size_of::<SegaPcmCfg>(), align_of::<SegaPcmCfg>()),
                 (
-                    drotrim_libvgm_segapcmcfg_sizeof(),
-                    drotrim_libvgm_segapcmcfg_alignof()
+                    vgms_libvgm_segapcmcfg_sizeof(),
+                    vgms_libvgm_segapcmcfg_alignof()
                 ),
                 "SEGAPCM_CFG"
             );
             assert_eq!(
                 (size_of::<DevLinkInfo>(), align_of::<DevLinkInfo>()),
                 (
-                    drotrim_libvgm_devlink_sizeof(),
-                    drotrim_libvgm_devlink_alignof()
+                    vgms_libvgm_devlink_sizeof(),
+                    vgms_libvgm_devlink_alignof()
                 ),
                 "DEVLINK_INFO"
             );
             assert_eq!(
                 offset!(Ay8910Cfg, chip_type),
-                drotrim_libvgm_ay8910cfg_off_chiptype(),
+                vgms_libvgm_ay8910cfg_off_chiptype(),
                 "AY8910_CFG::chipType"
             );
             assert_eq!(
                 offset!(Msm6258Cfg, divider),
-                drotrim_libvgm_msm6258cfg_off_divider(),
+                vgms_libvgm_msm6258cfg_off_divider(),
                 "MSM6258_CFG::divider"
             );
             assert_eq!(
                 offset!(SegaPcmCfg, bnkshift),
-                drotrim_libvgm_segapcmcfg_off_bnkshift(),
+                vgms_libvgm_segapcmcfg_off_bnkshift(),
                 "SEGAPCM_CFG::bnkshift"
             );
             assert_eq!(
                 offset!(DevLinkInfo, link_id),
-                drotrim_libvgm_devlink_off_linkid(),
+                vgms_libvgm_devlink_off_linkid(),
                 "DEVLINK_INFO::linkID"
             );
             assert_eq!(
                 offset!(DevLinkInfo, cfg),
-                drotrim_libvgm_devlink_off_cfg(),
+                vgms_libvgm_devlink_off_cfg(),
                 "DEVLINK_INFO::cfg"
             );
         }
@@ -187,74 +187,74 @@ mod tests {
         unsafe {
             assert_eq!(
                 offset!(DevInfo, data_ptr),
-                drotrim_libvgm_devinfo_off_dataptr(),
+                vgms_libvgm_devinfo_off_dataptr(),
                 "DEV_INFO::dataPtr"
             );
             assert_eq!(
                 offset!(DevInfo, sample_rate),
-                drotrim_libvgm_devinfo_off_samplerate(),
+                vgms_libvgm_devinfo_off_samplerate(),
                 "DEV_INFO::sampleRate"
             );
             assert_eq!(
                 offset!(DevInfo, dev_def),
-                drotrim_libvgm_devinfo_off_devdef(),
+                vgms_libvgm_devinfo_off_devdef(),
                 "DEV_INFO::devDef"
             );
             assert_eq!(
                 offset!(DevInfo, link_dev_count),
-                drotrim_libvgm_devinfo_off_linkdevcount(),
+                vgms_libvgm_devinfo_off_linkdevcount(),
                 "DEV_INFO::linkDevCount"
             );
             assert_eq!(
                 offset!(DevInfo, link_devs),
-                drotrim_libvgm_devinfo_off_linkdevs(),
+                vgms_libvgm_devinfo_off_linkdevs(),
                 "DEV_INFO::linkDevs"
             );
 
             assert_eq!(
                 offset!(DevDef, start),
-                drotrim_libvgm_devdef_off_start(),
+                vgms_libvgm_devdef_off_start(),
                 "DEV_DEF::Start"
             );
             assert_eq!(
                 offset!(DevDef, stop),
-                drotrim_libvgm_devdef_off_stop(),
+                vgms_libvgm_devdef_off_stop(),
                 "DEV_DEF::Stop"
             );
             assert_eq!(
                 offset!(DevDef, reset),
-                drotrim_libvgm_devdef_off_reset(),
+                vgms_libvgm_devdef_off_reset(),
                 "DEV_DEF::Reset"
             );
             assert_eq!(
                 offset!(DevDef, update),
-                drotrim_libvgm_devdef_off_update(),
+                vgms_libvgm_devdef_off_update(),
                 "DEV_DEF::Update"
             );
             assert_eq!(
                 offset!(DevDef, rw_funcs),
-                drotrim_libvgm_devdef_off_rwfuncs(),
+                vgms_libvgm_devdef_off_rwfuncs(),
                 "DEV_DEF::rwFuncs"
             );
 
             assert_eq!(
                 offset!(DevGenCfg, sr_mode),
-                drotrim_libvgm_gencfg_off_srmode(),
+                vgms_libvgm_gencfg_off_srmode(),
                 "DEV_GEN_CFG::srMode"
             );
             assert_eq!(
                 offset!(DevGenCfg, flags),
-                drotrim_libvgm_gencfg_off_flags(),
+                vgms_libvgm_gencfg_off_flags(),
                 "DEV_GEN_CFG::flags"
             );
             assert_eq!(
                 offset!(DevGenCfg, clock),
-                drotrim_libvgm_gencfg_off_clock(),
+                vgms_libvgm_gencfg_off_clock(),
                 "DEV_GEN_CFG::clock"
             );
             assert_eq!(
                 offset!(DevGenCfg, smpl_rate),
-                drotrim_libvgm_gencfg_off_smplrate(),
+                vgms_libvgm_gencfg_off_smplrate(),
                 "DEV_GEN_CFG::smplRate"
             );
         }

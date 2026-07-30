@@ -8,10 +8,10 @@ use std::ffi::c_void;
 
 unsafe extern "C" {
     // Ours (shim/layout.c), so the size comes from the compiler.
-    fn drotrim_opll_sizeof() -> usize;
-    fn drotrim_opll_alignof() -> usize;
-    fn drotrim_ympsg_sizeof() -> usize;
-    fn drotrim_ympsg_alignof() -> usize;
+    fn vgms_opll_sizeof() -> usize;
+    fn vgms_opll_alignof() -> usize;
+    fn vgms_ympsg_sizeof() -> usize;
+    fn vgms_ympsg_alignof() -> usize;
 
     fn OPLL_Reset(chip: *mut c_void, chip_type: u32);
     fn OPLL_Clock(chip: *mut c_void, buffer: *mut i32);
@@ -22,9 +22,9 @@ unsafe extern "C" {
     fn YMPSG_Clock(chip: *mut c_void);
     fn YMPSG_GetOutput(chip: *mut c_void) -> f32;
 
-    fn drotrim_fmopm_sizeof() -> usize;
-    fn drotrim_fmopm_alignof() -> usize;
-    fn drotrim_fmopm_set_pins(
+    fn vgms_fmopm_sizeof() -> usize;
+    fn vgms_fmopm_alignof() -> usize;
+    fn vgms_fmopm_set_pins(
         chip: *mut c_void,
         ym2164: i32,
         ic: i32,
@@ -33,14 +33,14 @@ unsafe extern "C" {
         a0: i32,
         data: i32,
     );
-    fn drotrim_fmopm_out_sh1(chip: *const c_void) -> i32;
-    fn drotrim_fmopm_out_sh2(chip: *const c_void) -> i32;
-    fn drotrim_fmopm_out_so(chip: *const c_void) -> i32;
+    fn vgms_fmopm_out_sh1(chip: *const c_void) -> i32;
+    fn vgms_fmopm_out_sh2(chip: *const c_void) -> i32;
+    fn vgms_fmopm_out_so(chip: *const c_void) -> i32;
     fn FMOPM_Clock(chip: *mut c_void, clk: i32);
 
-    fn drotrim_fmopna2612_sizeof() -> usize;
-    fn drotrim_fmopna2612_alignof() -> usize;
-    fn drotrim_fmopna2612_set_pins(
+    fn vgms_fmopna2612_sizeof() -> usize;
+    fn vgms_fmopna2612_alignof() -> usize;
+    fn vgms_fmopna2612_set_pins(
         chip: *mut c_void,
         ic: i32,
         cs: i32,
@@ -49,13 +49,13 @@ unsafe extern "C" {
         a1: i32,
         data: i32,
     );
-    fn drotrim_fmopna2612_out_mol(chip: *const c_void) -> i32;
-    fn drotrim_fmopna2612_out_mor(chip: *const c_void) -> i32;
+    fn vgms_fmopna2612_out_mol(chip: *const c_void) -> i32;
+    fn vgms_fmopna2612_out_mor(chip: *const c_void) -> i32;
     fn FMOPNA_2612_Clock(chip: *mut c_void, clk: i32);
 
-    fn drotrim_fmopna2608_sizeof() -> usize;
-    fn drotrim_fmopna2608_alignof() -> usize;
-    fn drotrim_fmopna2608_set_pins(
+    fn vgms_fmopna2608_sizeof() -> usize;
+    fn vgms_fmopna2608_alignof() -> usize;
+    fn vgms_fmopna2608_set_pins(
         chip: *mut c_void,
         ic: i32,
         cs: i32,
@@ -64,9 +64,9 @@ unsafe extern "C" {
         a1: i32,
         data: i32,
     );
-    fn drotrim_fmopna2608_serve_dm(chip: *mut c_void, dm: i32);
-    fn drotrim_fmopna2608_dram_pins(chip: *const c_void, dm: *mut i32, a8: *mut i32) -> i32;
-    fn drotrim_fmopna2608_dac_pins(chip: *const c_void, analog: *mut f32) -> i32;
+    fn vgms_fmopna2608_serve_dm(chip: *mut c_void, dm: i32);
+    fn vgms_fmopna2608_dram_pins(chip: *const c_void, dm: *mut i32, a8: *mut i32) -> i32;
+    fn vgms_fmopna2608_dac_pins(chip: *const c_void, analog: *mut f32) -> i32;
     fn FMOPNA_Clock(chip: *mut c_void, clk: i32);
 }
 
@@ -123,7 +123,7 @@ pub(crate) struct OpllChip {
 impl OpllChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_opll_sizeof(), drotrim_opll_alignof()) };
+        let (size, align) = unsafe { (vgms_opll_sizeof(), vgms_opll_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -169,7 +169,7 @@ pub(crate) struct PsgChip {
 impl PsgChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_ympsg_sizeof(), drotrim_ympsg_alignof()) };
+        let (size, align) = unsafe { (vgms_ympsg_sizeof(), vgms_ympsg_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -249,7 +249,7 @@ impl Default for LlePins {
 impl OpmLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_fmopm_sizeof(), drotrim_fmopm_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopm_sizeof(), vgms_fmopm_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
             pins: LlePins::default(),
@@ -268,7 +268,7 @@ impl OpmLleChip {
         self.pins = pins;
         // SAFETY: the shim writes only the input fields of the sized block.
         unsafe {
-            drotrim_fmopm_set_pins(
+            vgms_fmopm_set_pins(
                 self.state.as_ptr(),
                 i32::from(pins.ym2164),
                 i32::from(pins.ic),
@@ -292,9 +292,9 @@ impl OpmLleChip {
         // SAFETY: the shim reads three fields of the sized block.
         unsafe {
             (
-                drotrim_fmopm_out_sh1(chip) != 0,
-                drotrim_fmopm_out_sh2(chip) != 0,
-                drotrim_fmopm_out_so(chip) != 0,
+                vgms_fmopm_out_sh1(chip) != 0,
+                vgms_fmopm_out_sh2(chip) != 0,
+                vgms_fmopm_out_so(chip) != 0,
             )
         }
     }
@@ -344,7 +344,7 @@ impl Default for Opn2Pins {
 impl Opn2LleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_fmopna2612_sizeof(), drotrim_fmopna2612_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopna2612_sizeof(), vgms_fmopna2612_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -359,7 +359,7 @@ impl Opn2LleChip {
     pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
         // SAFETY: the shim writes only the input fields of the sized block.
         unsafe {
-            drotrim_fmopna2612_set_pins(
+            vgms_fmopna2612_set_pins(
                 self.state.as_ptr(),
                 i32::from(pins.ic),
                 i32::from(pins.cs),
@@ -383,8 +383,8 @@ impl Opn2LleChip {
         // SAFETY: the shim reads two fields of the sized block.
         unsafe {
             (
-                drotrim_fmopna2612_out_mol(chip),
-                drotrim_fmopna2612_out_mor(chip),
+                vgms_fmopna2612_out_mol(chip),
+                vgms_fmopna2612_out_mor(chip),
             )
         }
     }
@@ -422,7 +422,7 @@ pub(crate) struct DramBus {
 impl OpnaLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
-        let (size, align) = unsafe { (drotrim_fmopna2608_sizeof(), drotrim_fmopna2608_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopna2608_sizeof(), vgms_fmopna2608_alignof()) };
         Self {
             state: OpaqueChip::new(size, align),
         }
@@ -436,7 +436,7 @@ impl OpnaLleChip {
     pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
         // SAFETY: the shim writes only the input fields of the sized block.
         unsafe {
-            drotrim_fmopna2608_set_pins(
+            vgms_fmopna2608_set_pins(
                 self.state.as_ptr(),
                 i32::from(pins.ic),
                 i32::from(pins.cs),
@@ -451,7 +451,7 @@ impl OpnaLleChip {
     /// Puts the served memory byte on the DRAM data-in lines.
     pub(crate) fn serve_dm(&mut self, dm: u8) {
         // SAFETY: the shim writes one input field of the sized block.
-        unsafe { drotrim_fmopna2608_serve_dm(self.state.as_ptr(), i32::from(dm)) }
+        unsafe { vgms_fmopna2608_serve_dm(self.state.as_ptr(), i32::from(dm)) }
     }
 
     /// One half of the master clock.
@@ -466,7 +466,7 @@ impl OpnaLleChip {
         let (mut dm, mut a8) = (0, 0);
         // SAFETY: the shim reads fields of the sized block into our locals.
         let strobes =
-            unsafe { drotrim_fmopna2608_dram_pins(self.state.as_ptr(), &mut dm, &mut a8) };
+            unsafe { vgms_fmopna2608_dram_pins(self.state.as_ptr(), &mut dm, &mut a8) };
         DramBus {
             dm,
             a8: a8 != 0,
@@ -482,7 +482,7 @@ impl OpnaLleChip {
     pub(crate) fn dac_pins(&mut self) -> (bool, bool, bool, f32) {
         let mut analog = 0.0f32;
         // SAFETY: as above.
-        let packed = unsafe { drotrim_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
+        let packed = unsafe { vgms_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
         (packed & 1 != 0, packed & 2 != 0, packed & 4 != 0, analog)
     }
 
@@ -490,7 +490,7 @@ impl OpnaLleChip {
     pub(crate) fn s_pin(&mut self) -> bool {
         let mut analog = 0.0f32;
         // SAFETY: as above.
-        let packed = unsafe { drotrim_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
+        let packed = unsafe { vgms_fmopna2608_dac_pins(self.state.as_ptr(), &mut analog) };
         packed & 8 != 0
     }
 }
@@ -504,27 +504,27 @@ mod tests {
     #[test]
     fn the_shim_reports_a_real_size() {
         // SAFETY: both return compile-time constants.
-        let (size, align) = unsafe { (drotrim_opll_sizeof(), drotrim_opll_alignof()) };
+        let (size, align) = unsafe { (vgms_opll_sizeof(), vgms_opll_alignof()) };
         assert!(size > 128, "opll_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
 
         // SAFETY: as above.
-        let (size, align) = unsafe { (drotrim_ympsg_sizeof(), drotrim_ympsg_alignof()) };
+        let (size, align) = unsafe { (vgms_ympsg_sizeof(), vgms_ympsg_alignof()) };
         assert!(size > 64, "ympsg_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
 
         // SAFETY: as above.
-        let (size, align) = unsafe { (drotrim_fmopm_sizeof(), drotrim_fmopm_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopm_sizeof(), vgms_fmopm_alignof()) };
         assert!(size > 1024, "fmopm_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
 
         // SAFETY: as above.
-        let (size, align) = unsafe { (drotrim_fmopna2612_sizeof(), drotrim_fmopna2612_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopna2612_sizeof(), vgms_fmopna2612_alignof()) };
         assert!(size > 1024, "fmopna_2612_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
 
         // SAFETY: as above.
-        let (size, align) = unsafe { (drotrim_fmopna2608_sizeof(), drotrim_fmopna2608_alignof()) };
+        let (size, align) = unsafe { (vgms_fmopna2608_sizeof(), vgms_fmopna2608_alignof()) };
         assert!(size > 1024, "fmopna_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }

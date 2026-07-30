@@ -19,8 +19,8 @@
 
 #include "fmopna_2608.h"
 
-size_t drotrim_fmopna2608_sizeof(void) { return sizeof(fmopna_t); }
-size_t drotrim_fmopna2608_alignof(void) {
+size_t vgms_fmopna2608_sizeof(void) { return sizeof(fmopna_t); }
+size_t vgms_fmopna2608_alignof(void) {
 	return offsetof(struct { char c; fmopna_t member; }, member);
 }
 
@@ -28,7 +28,7 @@ size_t drotrim_fmopna2608_alignof(void) {
  * analog loop (ad/da), serial test (dt0) and GPIO inputs idle at 0. The
  * DRAM data-in pin is set separately so serving memory does not disturb a
  * write in flight. */
-void drotrim_fmopna2608_set_pins(fmopna_t *chip, int ic, int cs, int wr,
+void vgms_fmopna2608_set_pins(fmopna_t *chip, int ic, int cs, int wr,
                                  int a0, int a1, int data) {
 	chip->input.ic = ic;
 	chip->input.cs = cs;
@@ -46,7 +46,7 @@ void drotrim_fmopna2608_set_pins(fmopna_t *chip, int ic, int cs, int wr,
 }
 
 /* The served Delta-T memory byte, on the DRAM data-in lines. */
-void drotrim_fmopna2608_serve_dm(fmopna_t *chip, int dm) {
+void vgms_fmopna2608_serve_dm(fmopna_t *chip, int dm) {
 	chip->input.dm = dm;
 }
 
@@ -54,7 +54,7 @@ void drotrim_fmopna2608_serve_dm(fmopna_t *chip, int dm) {
  * and their extra ninth bit, with the strobes packed in the return --
  * bit 0 = ras, bit 1 = cas, bit 2 = we (all active low), bit 3 = the
  * direction latch (1 when the die expects data in). */
-int drotrim_fmopna2608_dram_pins(const fmopna_t *chip, int *dm, int *a8) {
+int vgms_fmopna2608_dram_pins(const fmopna_t *chip, int *dm, int *a8) {
 	*dm = chip->o_dm;
 	*a8 = chip->o_a8;
 	return (chip->o_ras & 1) | ((chip->o_cas & 1) << 1) |
@@ -62,7 +62,7 @@ int drotrim_fmopna2608_dram_pins(const fmopna_t *chip, int *dm, int *a8) {
 }
 
 /* The serial DAC strobes and data, and the analog (SSG) pin. */
-int drotrim_fmopna2608_dac_pins(const fmopna_t *chip, float *analog) {
+int vgms_fmopna2608_dac_pins(const fmopna_t *chip, float *analog) {
 	*analog = chip->o_analog;
 	/* Packed: bit 0 = sh1, bit 1 = sh2, bit 2 = opo (serial data),
 	 * bit 3 = s (the serial bit clock). */
