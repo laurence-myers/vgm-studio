@@ -8,18 +8,18 @@ what may be copied into it:
 
 | Crates | License |
 |---|---|
-| `dro-core`, `dro-synth` — the reusable file model and playback engine | `MIT OR Apache-2.0` |
+| `vgms-core`, `vgms-synth` — the reusable file model and playback engine | `MIT OR Apache-2.0` |
 | everything else — the application | `GPL-2.0-or-later` |
 
 The **distributed program is GPL-2.0-or-later**: the app links whatever chip
 core sounds most like the real hardware, and the best of those are GPL-2 or
-LGPL-2.1. `dro-core` and `dro-synth` stay permissive so they are reusable on
+LGPL-2.1. `vgms-core` and `vgms-synth` stay permissive so they are reusable on
 their own, which means **nothing copyleft may be added to them** — their cores
 are clean-room or ported from MIT/BSD/ISC/zlib sources. Copyleft cores go in
 provider crates the app depends on.
 
 `licenses/README.md` has the full split and the four license texts;
-`crates/dro-synth/PROVENANCE.md` records where every core came from and under
+`crates/vgms-synth/PROVENANCE.md` records where every core came from and under
 what terms, and a new core adds its row in the same commit.
 
 Install the toolchain (Windows; MSVC build tools are already a pre-requisite below):
@@ -33,7 +33,7 @@ target, so the first `cargo` command installs whatever is missing.
 
 Some emulator cores are upstream C, consumed as **git submodules pinned to a
 commit** and compiled as they stand (`vendor/upstream/`, built by
-`crates/dro-cores-nuked`). A fresh clone needs them:
+`crates/vgms-cores-nuked`). A fresh clone needs them:
 
 ```PowerShell
 git submodule update --init --recursive
@@ -45,13 +45,13 @@ is why these cores reach the web build. Never edit anything under
 `vendor/upstream/`: upgrading is `git -C vendor/upstream/<x> pull` plus a pin
 bump, and that only stays true while there is nothing local to merge against.
 Whatever the build needs and an upstream does not provide goes in that crate's
-`shim/`. See `crates/dro-synth/PROVENANCE.md`.
+`shim/`. See `crates/vgms-synth/PROVENANCE.md`.
 
 ```PowerShell
 cargo test --workspace                                       # unit + integration tests
 cargo fmt --all                                              # format
 cargo clippy --workspace --all-targets -- -D warnings        # lint
-cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth   # wasm stays clean
+cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth   # wasm stays clean
 ```
 
 ### The `vgmstudio` command line
@@ -89,27 +89,27 @@ match the `wasm-bindgen` version in `Cargo.lock`:
 
 ```PowerShell
 cargo install wasm-bindgen-cli --version 0.2.126 --locked
-cargo test -p dro-core --target wasm32-unknown-unknown
+cargo test -p vgms-core --target wasm32-unknown-unknown
 ```
 
-`dro-ui` has headless GUI tests (`egui_kittest`). The interaction tests run on
+`vgms-ui` has headless GUI tests (`egui_kittest`). The interaction tests run on
 CPU; the visual-regression tests compare against PNG baselines under
-`crates/dro-ui/tests/snapshots/` rendered via wgpu, so they are machine- and
+`crates/vgms-ui/tests/snapshots/` rendered via wgpu, so they are machine- and
 GPU-specific. Regenerate them after an intentional UI change:
 
 ```PowerShell
-$env:UPDATE_SNAPSHOTS='1'; cargo test -p dro-ui; Remove-Item Env:\UPDATE_SNAPSHOTS
+$env:UPDATE_SNAPSHOTS='1'; cargo test -p vgms-ui; Remove-Item Env:\UPDATE_SNAPSHOTS
 ```
 
 Pack mode's zip export pulls native-only crates: `zip`, `oxipng` (which builds
 the C `libdeflate` via `cc`) and `chrono`. The MSVC build tools below already
-satisfy the C toolchain; `dro-core`/`dro-synth` stay free of them and wasm-clean.
+satisfy the C toolchain; `vgms-core`/`vgms-synth` stay free of them and wasm-clean.
 
 Optional: prove the pure-Rust OPL core is still bit-identical to Nuked-OPL3's C
 sources. Needs a C compiler and libclang (`scoop install main/llvm`):
 
 ```PowerShell
-cargo test -p dro-synth --features c-parity
+cargo test -p vgms-synth --features c-parity
 ```
 
 ## Pre-requisites

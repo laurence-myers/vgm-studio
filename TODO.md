@@ -24,7 +24,7 @@
   (undoable), the "Optimize VGMs on export" pack checkbox (default on, runs before
   the gzip step), and `vgmstudio optimize <in> [out]`. Route B (independent
   implementation from chip facts, not a port of vgmtools), which is what lets it
-  live in the permissive `dro-core`; the correctness net is render parity
+  live in the permissive `vgms-core`; the correctness net is render parity
   through nuked-opl3 with
   *immediate* writes (the buffered playback path spaces writes a couple of samples
   apart, an inaudible shift that byte-parity would spuriously flag). Corpus run
@@ -48,11 +48,11 @@
   fix (a meta form field focuses; a per-track item opens that track's quick-edit),
   the track table gains a per-track status glyph, and a one-click "Convert dates
   to hyphens" fix-assist rewrites every slash date (pack + tracks) as one undoable
-  batch. Pure rules live in `dro_core::pack::readiness`.
+  batch. Pure rules live in `vgms_core::pack::readiness`.
   Possible follow-ups:
   - Recursive / multi-region screenshots, and per-region game titles.
   - Preserve hand-aligned multi-line author blocks verbatim (currently reflowed
-    to a greedy wrap on save; see the note in `dro-core/src/pack.rs`).
+    to a greedy wrap on save; see the note in `vgms-core/src/pack.rs`).
   - Extend the VGM *editor's* reader so more real PC-AT packs open for editing
     (0x67 data blocks, the "data starts at 0x60" minimal header). Pack mode
     already lists and tags them -- see the any-chip work below, whose Phase A
@@ -69,7 +69,7 @@
   state the capture had reached at its start -- each touched register's last
   write, reused byte for byte from the source so the encoding is exact whatever
   the format (for DRO v1 the current bank is tracked through the bank-switch
-  opcodes; for a VGM it is `dro_core::chip_state`, so it works for chips this
+  opcodes; for a VGM it is `vgms_core::chip_state`, so it works for chips this
   app has no core for) -- so a song taken from the middle opens on the chip
   state it would have had mid-play rather than on silence. Detection is one
   function over "how long does command N wait, and is waiting all it does",
@@ -78,7 +78,7 @@
   copies its GD3 with the track title blanked. Preview is the one thing gated:
   auditioning a piece plays it. Route B (gap detection is one accumulator; state
   capture is a register-file fold), which is what lets it live in the permissive
-  `dro-core`; the net is a
+  `vgms-core`; the net is a
   corpus-sanity test that tripling the real OPL2 rip with gaps splits back into
   three pieces each opening on the folded register state, DRO v1/v2 round-trip
   tests, and a corpus diff against the OPL splitter over all 3933 OPL files
@@ -100,7 +100,7 @@
     finds, best-first, with vgmlpfnd's `e`/`f`/`!` quality flags. Clicking a
     candidate drops the editor's loop markers on it; Audition plays the seam;
     Apply writes it into the VGM metadata (VGM only, like Apply Loop). The search
-    (`dro_core::find_loops`) strips delays before matching, so a body and its
+    (`vgms_core::find_loops`) strips delays before matching, so a body and its
     repeat match through timing jitter, buckets window starts by a rolling hash
     for near-linear candidate finding, and runs in a background task
     (`TaskKind::LoopSearch`) so the UI never blocks. On the YM3812/YMF262 corpus
@@ -118,10 +118,10 @@
     peak limiter has a clipping guard: the volume cannot rise past the lowest
     boost that has driven the limiter into clipping this song (it ratchets down as
     quieter boosts still clip), reset per song. "Match Volume" measures the song's
-    peak (`dro_synth::measure_peak`, an internal render) and sets the lever to
+    peak (`vgms_synth::measure_peak`, an internal render) and sets the lever to
     bring it to full scale. The VGM Metadata dialog's "Measure" button fills the
     header `volume_modifier` with the vgm_vol suggestion
-    (`dro_core::volume::suggest_volume_modifier`) plus a decoded "= N.NNx"
+    (`vgms_core::volume::suggest_volume_modifier`) plus a decoded "= N.NNx"
     readout. Pack mode adds "Scan Volumes" (one background task over the whole
     pack) filling a Peak column, and "Apply Modifiers" writing every track's
     `volume_modifier` to level the pack -- album mode by default (one factor from
@@ -132,14 +132,14 @@
 - Any-chip VGM support -- **one VGM model, and every chip-agnostic tool with
   it, done.** OPL is no longer a kind of VGM but a capability of one. The editor
   holds the file's own bytes whatever its chips, and
-  `dro_core::vgm::projection` presents that same command stream as OPL
+  `vgms_core::vgm::projection` presents that same command stream as OPL
   instructions when the file's chips (and every one of its commands) are OPL --
   a `Song` rebuilt whenever the stream changes, which the register analyser,
   find-register, the waveform and the synth read exactly as before. A DRO stays
   a decoded OPL stream; there is no container to keep.
 
   Everything that is not an OPL question works on any VGM: **crop and
-  delete-marked-region** (via `dro_core::chip_state`, which folds a discarded
+  delete-marked-region** (via `vgms_core::chip_state`, which folds a discarded
   span into the chips' state and re-emits it as the source's own bytes, in the
   order it happened -- data blocks included, since the banks are cumulative),
   the **`vgm_cmp` optimiser** (per-chip redundancy rules, dropping nothing from
@@ -177,7 +177,7 @@
 
   Remaining: playback for other chips, and the minimum-version writer (mc-10).
   See `docs/vgm-multichip-2026-07/HANDOVER.md`.
-- Any-chip playback -- **the engine is built, the chips are not.** `dro-synth`
+- Any-chip playback -- **the engine is built, the chips are not.** `vgms-synth`
   can walk a VGM's command stream, route each write to whichever chip owns it
   (dual-chip instances and per-chip ports included), keep and unpack its data
   banks (the `0x40`-`0x7E` compressed ones too), run the `0x90`-`0x95` DAC
@@ -262,10 +262,10 @@
   opens a folder containing *any* VGM, for any of the 42 chips the spec covers,
   versions 1.00-1.72: each track gets its title, length and loop from its
   header, and takes part in quick edit, bulk tag, Fix Names, Fix Dates, volume
-  modifiers and export like any other. `dro_core::vgm::header` models every chip
+  modifiers and export like any other. `vgms_core::vgm::header` models every chip
   clock (version-gated, and bounded by the "header ends at the data start" rule
   that a minimal 0x60-header rip depends on), plus the v1.70 extra header;
-  `dro_core::vgm::file::VgmFile` carries the command stream as an opaque span so
+  `vgms_core::vgm::file::VgmFile` carries the command stream as an opaque span so
   a retag is byte-exact outside the GD3 block. The editor cannot open such a
   file -- it decodes commands into OPL register writes -- so it says what the
   file is and points at pack mode rather than reporting a load failure. What is

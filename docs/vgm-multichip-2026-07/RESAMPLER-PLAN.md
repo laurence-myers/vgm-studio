@@ -1,7 +1,7 @@
 # RESAMPLER-PLAN — a decimation filter for `VgmEngine`, measured into place
 
 > Written 2026-07-27, the day the parity scorecard attributed most of its red
-> to one function. `Voice::next_frame` in `dro-synth/src/vgm_engine.rs`
+> to one function. `Voice::next_frame` in `vgms-synth/src/vgm_engine.rs`
 > interpolates linearly between point-sampled source frames — no anti-alias
 > filter — so a chip rendering at 223721 Hz reaches a 44100 Hz output with
 > everything above 22 kHz folded back into the audible band. Measured cost:
@@ -99,7 +99,7 @@ because nothing now needs them.
 ### What it replaces, and where state lives
 
 `Voice { step, position, prev, next }` becomes `Voice { resampler }` with the
-ring, phase and ratio inside a new `dro-synth/src/resample.rs`. The reset
+ring, phase and ratio inside a new `vgms-synth/src/resample.rs`. The reset
 points are exactly today's: construction, `rewind`, and `seek_to_row` — the
 same places `core.reset` + `core.configure` already run, so a rewound engine
 is the same machine it was. When `native == output` the resampler is an exact

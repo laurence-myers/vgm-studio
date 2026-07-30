@@ -30,13 +30,13 @@ over license convenience, so the program as distributed is GPL-2.0-or-later.
 Two of its components are deliberately *not* copyleft, so they can be reused
 on their own:
 
-  dro-core   -- the VGM/DRO file model      MIT OR Apache-2.0
-  dro-synth  -- the playback engine and its
+  vgms-core   -- the VGM/DRO file model      MIT OR Apache-2.0
+  vgms-synth  -- the playback engine and its
                 permissively-sourced cores  MIT OR Apache-2.0
 
 Copyleft cores are kept out of those two crates and live in provider crates
 that only the application depends on. See licenses/README.md in the source
-distribution for the full split, and crates/dro-synth/PROVENANCE.md for the
+distribution for the full split, and crates/vgms-synth/PROVENANCE.md for the
 per-core record of where each emulator came from and under what terms.
 
 This build embeds the Nuked-OPL3 OPL2/OPL3 emulator (a Rust port of Nuke.YKT's

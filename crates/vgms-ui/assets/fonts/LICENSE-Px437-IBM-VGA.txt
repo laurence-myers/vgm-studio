@@ -15,8 +15,8 @@ CC-BY-SA-4.0.txt in this directory, and online at:
     https://creativecommons.org/licenses/by-sa/4.0/
 
 This license applies to the bundled font file only. It does NOT apply to
-the DRO Trimmer source code, which is licensed under the
+the VGM Studio source code, which is licensed under the
 LGPL-2.1-or-later (see the repository's licensing).
 
-The font file is embedded verbatim (via include_bytes!) in the dro-ui
+The font file is embedded verbatim (via include_bytes!) in the vgms-ui
 crate; it has not been modified.

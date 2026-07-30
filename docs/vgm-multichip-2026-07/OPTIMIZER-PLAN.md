@@ -29,7 +29,7 @@
 ## Context
 
 Optimization today covers three chips. `chip_state::latch_rule`
-(`crates/dro-core/src/chip_state.rs:232`) knows the OPL family, the YM2612 and
+(`crates/vgms-core/src/chip_state.rs:232`) knows the OPL family, the YM2612 and
 the YM2413; every other chip is deliberately untouched, on the rule written
 into its doc comment -- *chips earn a rule by being checked, not by being
 present*. That was the right call for a clean-room table maintained by hand:
@@ -85,17 +85,17 @@ was coverage: ~30 chips against 3.
 
 ## Licensing fit (verified)
 
-vgmtools is GPL-2.0. The binding lives in a new leaf crate `dro-vgmtools`
-(GPL-2.0-or-later). Both call sites are already GPL-2.0-or-later -- `dro-ui`
-(Edit menu) and `dro-trimmer` (CLI, pack export) -- so both may link it
-directly and no crate changes licence. `dro-core` and `dro-synth` stay
+vgmtools is GPL-2.0. The binding lives in a new leaf crate `vgms-vgmtools`
+(GPL-2.0-or-later). Both call sites are already GPL-2.0-or-later -- `vgms-ui`
+(Edit menu) and `vgms-app` (CLI, pack export) -- so both may link it
+directly and no crate changes licence. `vgms-core` and `vgms-synth` stay
 MIT OR Apache-2.0 and keep the existing pure-Rust optimizer, which remains
-the wasm-clean path (`dro-web` and `dro-synth-worklet` never see this crate).
+the wasm-clean path (`vgms-web` and `vgms-synth-worklet` never see this crate).
 
 ## Architecture
 
 - **Submodule** `vendor/upstream/vgmtools`, pinned. Never edited -- house rule.
-- **New crate `crates/dro-vgmtools`**: a `build.rs` that builds each tool as
+- **New crate `crates/vgms-vgmtools`**: a `build.rs` that builds each tool as
   its own **executable**, exactly as upstream's CMake does (`vgm_cmp` =
   `vgm_cmp.c` + `chip_cmp.c`, `vgm_sro` = `vgm_sro.c` + `chip_srom.c`,
   `optdac` = `optdac.c`). No wrappers, no renaming: the tools are standalone
@@ -109,7 +109,7 @@ the wasm-clean path (`dro-web` and `dro-synth-worklet` never see this crate).
   still ships as one file.
 - **zlib** via `libz-sys` (static): the tools gz-read/write. We always hand
   them uncompressed temp files; `.vgz` stays ours.
-- **Safe API** (`dro-vgmtools/src/lib.rs`): `optimize_writes(&[u8])`,
+- **Safe API** (`vgms-vgmtools/src/lib.rs`): `optimize_writes(&[u8])`,
   `trim_sample_roms`, `clean_dac_runs`, each returning
   `ToolOutcome = Smaller(Vec<u8>) | Unchanged | Failed(String)` -- mirroring
   each tool's own "only write if smaller" gate. Plus `passthrough_chips()`,
@@ -120,7 +120,7 @@ the wasm-clean path (`dro-web` and `dro-synth-worklet` never see this crate).
   2. `optimize_writes` (`vgm_cmp`),
   3. `trim_sample_roms` (`vgm_sro`),
   4. finish with the existing `VgmFile::optimize`
-     (`crates/dro-core/src/vgm/file.rs:589`) -- its redundancy pass is
+     (`crates/vgms-core/src/vgm/file.rs:589`) -- its redundancy pass is
      subsumed but harmless, and its byte-minimal delay re-encoder out-spells
      `vgm_cmp`'s delay writer.
   **A wholly-OPL file bypasses the C entirely** and keeps the current
@@ -181,7 +181,7 @@ Two upstream behaviours the runner must still handle, both found here:
   but it is why the re-entrancy measurement above insisted on well-formed
   inputs.
 
-**ot-2 -- the crate.** `dro-vgmtools` with the safe API above: temp staging,
+**ot-2 -- the crate.** `vgms-vgmtools` with the safe API above: temp staging,
 captured (not leaked) stdout, `MSYSTEM=MSYS`, a per-call timeout, and the
 embedded-exe unpacking. Golden tests pin fixture-in/bytes-out so a submodule
 pin bump that changes behaviour shows up as a failing test rather than as
@@ -193,32 +193,32 @@ prefix, before and after) and idempotence (a second run returns `Unchanged`).
 `unoptimised_chips` reporting switches to `vgm_cmp`'s passthrough list when
 the pipeline is in use.
 
-**ot-4 -- the CLI.** `drotrim optimize`
-(`crates/dro-trimmer/src/cli/optimize.rs`) runs the pipeline, reports
+**ot-4 -- the CLI.** `vgmstudio optimize`
+(`crates/vgms-app/src/cli/optimize.rs`) runs the pipeline, reports
 per-stage savings, and gains `--no-rom-trim` / `--no-dac-clean` (write dedup
 is always on). `.vgz` output re-gzips as today.
 
 **ot-5 -- pack export.** `optimize_song` / `process_entry`
-(`crates/dro-trimmer/src/pack_zip.rs:132`) route through the pipeline under
+(`crates/vgms-app/src/pack_zip.rs:132`) route through the pipeline under
 the one existing "Optimize VGMs on export" toggle, with per-stage log lines.
 Never fatal: a `Failed` stage passes the file through verbatim and logs, as
 today.
 
-**ot-6 -- the Edit menu.** `Action::OptimizeVgm` (`dro-ui/src/app.rs:1858` ->
+**ot-6 -- the Edit menu.** `Action::OptimizeVgm` (`vgms-ui/src/app.rs:1858` ->
 `editor.rs`'s `optimize_vgm_document`) uses the pipeline through a direct
-`dro-ui` -> `dro-vgmtools` dependency (both GPL). The status line reports the
+`vgms-ui` -> `vgms-vgmtools` dependency (both GPL). The status line reports the
 stage breakdown; undo is unchanged; a kittest covers the non-OPL path; any UI
 string change regrows the settings snapshots (`UPDATE_SNAPSHOTS=1`).
-**`dro-ui` also builds for wasm** (CI checks `-p dro-core -p dro-synth -p
-dro-ui`), so the dependency must be declared under
+**`vgms-ui` also builds for wasm** (CI checks `-p vgms-core -p vgms-synth -p
+vgms-ui`), so the dependency must be declared under
 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` and the call site
-behind the same `cfg` -- on the web the Optimize action stays on `dro-core`'s
+behind the same `cfg` -- on the web the Optimize action stays on `vgms-core`'s
 own optimiser.
 
 **ot-7a -- the cheap half of ot-7, brought forward. DONE.** The SAA1099
 fallthrough found while writing ot-3 is the reason: these tools can carry bugs
 that only real files reveal, so a corpus check belongs *before* anything
-user-facing rather than after it. `dro-vgmtools/tests/corpus.rs` asserts, per
+user-facing rather than after it. `vgms-vgmtools/tests/corpus.rs` asserts, per
 file, that the result still reads as a VGM, that the delay total is untouched,
 and that the run terminates. Measured over 300 arcade rips and again over 900
 files spanning every system: **no corruption, no timing drift, no failures, no
@@ -227,7 +227,7 @@ because published VGMRips packs have mostly been through these tools already,
 which is the expected shape and not the number that matters. The number that
 matters is the zero in the failure column.
 
-**ot-7 -- corpus verification** (`#[ignore]`, `DROTRIM_CORPUS`). Per chip in
+**ot-7 -- corpus verification** (`#[ignore]`, `VGMSTUDIO_CORPUS`). Per chip in
 the chip index, sample N files, run the pipeline, and assert: delay totals
 conserved, idempotence, and **`VgmEngine` render byte-parity** -- render the
 original and the optimized file through the deterministic engine and require
@@ -245,7 +245,7 @@ than a considered rule, `pipeline.rs` holds SAA1099 files back from `vgm_cmp`
 (`SAA1099_HELD_BACK`). Render parity over SAA1099 rips is what can lift it,
 and nothing else should.
 
-**ot-8 -- docs, credits, memory.** A PROVENANCE-style note in `dro-vgmtools`
+**ot-8 -- docs, credits, memory.** A PROVENANCE-style note in `vgms-vgmtools`
 (GPL binding, upstream commit pin, why there is no clean-room version); About
 dialog credits; update `HANDOVER.md`'s "adjacent tools" note; update the
 `vgmrips-pack-gaps` memory.
@@ -258,8 +258,8 @@ dialog credits; update `HANDOVER.md`'s "adjacent tools" note; update the
   needed, the engine is deterministic.
 - Existing suites stay green: `projection_corpus`'s `compare_optimised`
   byte-pins (proving the OPL bypass), `optimize_parity.rs`, the `pack_zip`
-  tests, and workspace fmt/clippy including the wasm target -- `dro-vgmtools`
-  is desktop-only and no dependency of `dro-web` or `dro-synth-worklet`, so
+  tests, and workspace fmt/clippy including the wasm target -- `vgms-vgmtools`
+  is desktop-only and no dependency of `vgms-web` or `vgms-synth-worklet`, so
   `cargo check --target wasm32-unknown-unknown` is unaffected.
 
 ## Risks and notes
@@ -268,7 +268,7 @@ dialog credits; update `HANDOVER.md`'s "adjacent tools" note; update the
   it. Each of those is a real upstream behaviour (ot-1), not a hypothetical,
   and the timeout is what turns the unkillable one into a failed file.
 - **`vgm_cmp` re-spells delays** on non-OPL files through its own writer; our
-  final `dro-core` pass re-minimizes them, and the shrink gates leave
+  final `vgms-core` pass re-minimizes them, and the shrink gates leave
   no-net-win files untouched.
 - **Bytes after the end marker** are dropped by our `VgmFile::optimize` and by
   the C tools alike. Pre-existing and consistent; ot-3 pins it as behaviour

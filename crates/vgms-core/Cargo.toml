@@ -1,6 +1,6 @@
 [package]
 name = "vgms-core"
-description = "File formats, data model, analysis and undo for DRO Trimmer. No audio, GUI or I/O dependencies."
+description = "File formats, data model, analysis and undo for VGM Studio. No audio, GUI or I/O dependencies."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

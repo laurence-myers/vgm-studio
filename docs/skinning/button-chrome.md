@@ -98,7 +98,7 @@ strategy are useful under any resolution.
 ## Implementation notes (from code reading this session)
 
 - The single seam: every button goes through `theme::bevel::{button,
-  button_sized, toggle, toggle_sized}` (`crates/dro-ui/src/theme/bevel.rs`);
+  button_sized, toggle, toggle_sized}` (`crates/vgms-ui/src/theme/bevel.rs`);
   button-palette roles are consumed only there plus `pan_knob.rs` (knob
   cap). Changing the painter touches zero call sites.
 - Corner radius is hardcoded `CornerRadius::ZERO` in `button_impl` /
@@ -109,7 +109,7 @@ strategy are useful under any resolution.
   fill, 1px border, inset lines, lit cap (2–3 concentric fills stand in
   for the radial gradient at 26px — or flat, which reads fine). P3's
   legend bloom, if ever wanted, is the icon painted twice.
-- Estimated ~250–350 lines if done in the current theme system: dro-core
+- Estimated ~250–350 lines if done in the current theme system: vgms-core
   `ThemeChoice` variant (+FromStr/Display/ALL + config round-trip tests),
   third `Palette` + chrome params, pad branch in bevel.rs (~60–80 lines),
   settings-dialog entry (`dialogs/settings.rs` theme picker), showcase

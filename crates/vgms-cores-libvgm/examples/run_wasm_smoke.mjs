@@ -1,4 +1,4 @@
-// Runs the dro-cores-libvgm wasm smoke: instantiates the module and calls
+// Runs the vgms-cores-libvgm wasm smoke: instantiates the module and calls
 // both exports. Exit code 0 only if both chips genuinely sounded.
 import { readFileSync } from 'fs';
 

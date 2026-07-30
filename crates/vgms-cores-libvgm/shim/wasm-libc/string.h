@@ -1,7 +1,7 @@
 /* A freestanding stand-in for libc's <string.h>, for wasm32-unknown-unknown.
  *
  * The mem* family needs declarations only -- Rust's compiler_builtins carries
- * the symbols on every target, wasm included (the dro-cores-nuked precedent).
+ * the symbols on every target, wasm included (the vgms-cores-nuked precedent).
  * The str* family is implemented in `src/wasm_libc.rs`.
  */
 

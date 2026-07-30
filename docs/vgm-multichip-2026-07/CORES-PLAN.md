@@ -17,14 +17,14 @@
 
 ## 0 · Decisions locked by the user (2026-07-27, this session)
 
-1. **dro-trimmer (the app) goes GPL-2.0-or-later.** Accuracy wins: the app may
+1. **vgm-studio (the app) goes GPL-2.0-or-later.** Accuracy wins: the app may
    link GPL-2 and LGPL cores. The 2026-07-20 "GPL approved" decision is hereby
    spent.
-2. **dro-synth becomes permissive** (MIT OR Apache-2.0) — a reusable,
+2. **vgms-synth becomes permissive** (MIT OR Apache-2.0) — a reusable,
    clearly-licensed alternative to libvgm whose consumers owe no source. Its
    own cores are permissive-sourced only (clean-room, or ported from
    MIT/BSD/ISC/zlib code with notices retained). Copyleft cores live in
-   separate provider crates the *app* links, never in dro-synth.
+   separate provider crates the *app* links, never in vgms-synth.
 3. **The user picks the core per chip, at runtime, in Settings** — the mc-7
    per-chip output widget grows into a core picker. Cores are data (a
    registry), not compile-time facts.
@@ -55,10 +55,10 @@ split:
 
 | Crates | New license | Why |
 |---|---|---|
-| `dro-core`, `dro-synth` | **MIT OR Apache-2.0** | The reusable pair — the VGM/DRO file model and the engine + permissive cores. All own clean-room code today (the vgmtools equivalents were Route-B precisely to keep options open; this is the payoff). dro-synth's public API exposes dro-core types, so the permissive goal forces both. |
-| `dro-trimmer`, `dro-ui`, `dro-audio-native`, `dro-retrowave`, `dro-web`, `dro-synth-worklet` | **GPL-2.0-or-later** | The app and its glue. Links whatever gives the best sound. |
-| `vendor/nuked-opl3` | LGPL-2.1-or-later (unchanged — upstream's terms) | Becomes an **optional, default-on** dependency of dro-synth (`nuked-opl` feature). A permissive consumer builds `--no-default-features`; the crate's own license expression stays clean because optional deps convey nothing until enabled. |
-| New provider crates (§2) | Per contents: `dro-cores-nuked` LGPL-2.1-or-later, `dro-cores-gpl` GPL-2.0-or-later | Leaf crates; only the app depends on them. |
+| `vgms-core`, `vgms-synth` | **MIT OR Apache-2.0** | The reusable pair — the VGM/DRO file model and the engine + permissive cores. All own clean-room code today (the vgmtools equivalents were Route-B precisely to keep options open; this is the payoff). vgms-synth's public API exposes vgms-core types, so the permissive goal forces both. |
+| `vgms-app`, `vgms-ui`, `vgms-audio-native`, `vgms-retrowave`, `vgms-web`, `vgms-synth-worklet` | **GPL-2.0-or-later** | The app and its glue. Links whatever gives the best sound. |
+| `vendor/nuked-opl3` | LGPL-2.1-or-later (unchanged — upstream's terms) | Becomes an **optional, default-on** dependency of vgms-synth (`nuked-opl` feature). A permissive consumer builds `--no-default-features`; the crate's own license expression stays clean because optional deps convey nothing until enabled. |
+| New provider crates (§2) | Per contents: `vgms-cores-nuked` LGPL-2.1-or-later, `vgms-cores-gpl` GPL-2.0-or-later | Leaf crates; only the app depends on them. |
 
 Mechanics, all in cr-1:
 
@@ -71,7 +71,7 @@ Mechanics, all in cr-1:
   every registered core reports name, upstream URL, authors, license. This is
   the runtime face of the provenance policy and grows automatically (same
   pattern as the mc-7 widget rows).
-- `PROVENANCE.md` in dro-synth: one row per core/port — read-source, upstream
+- `PROVENANCE.md` in vgms-synth: one row per core/port — read-source, upstream
   commit, license, local deltas. The document libvgm is missing.
 - SPDX header comments on each crate's `lib.rs`/`main.rs` (not every file —
   the Cargo `license` field is authoritative; ported files carry their
@@ -96,11 +96,11 @@ CoreInfo {
 }
 ```
 
-- dro-synth owns `CoreRegistry` and registers its **built-in permissive
+- vgms-synth owns `CoreRegistry` and registers its **built-in permissive
   cores** in `CoreRegistry::with_builtins()`. Provider crates export a plain
   `register(&mut CoreRegistry)` function the app calls at startup — explicit
   and deterministic, no link-time magic, wasm-safe. Dependency direction:
-  providers depend on dro-synth's trait; dro-synth names no provider.
+  providers depend on vgms-synth's trait; vgms-synth names no provider.
 - Priority = registration order per chip; first registered is the default.
   The app registers accuracy-tier providers *before* built-ins so Nuked-class
   cores win by default where present.
@@ -121,7 +121,7 @@ CoreInfo {
   OPL VGMs *and* DROs (CQM does — it is an OPL3) plugs in at `OplChip`, so
   every OPL consumer (player, render, worklet, split) gets it for free.
 - Also in cr-2: the **corpus chip index**. A small tool walks
-  `DROTRIM_VGMRIPS_CORPUS` (new env var, set to the F: path) with the
+  `VGMSTUDIO_VGMRIPS_CORPUS` (new env var, set to the F: path) with the
   existing header reader and caches `chip -> [files]` (JSON, target/ or
   alongside the corpus). Per-core tests draw N files per chip from it; the
   system folders stop mattering.
@@ -148,7 +148,7 @@ Three tiers, replacing the old vendor-everything assumption:
 2. **crates.io dependency** — where a maintained Rust crate of the right
    license exists (candidates to evaluate at the relevant step: `emu2413`,
    Ayumi ports). Same non-vendored property, cargo-native.
-3. **Rust port with provenance header** (last resort, lives in dro-synth) —
+3. **Rust port with provenance header** (last resort, lives in vgms-synth) —
    for upstreams that cannot be consumed directly: **C++ sources** (MAME
    devices, ymfm, SAASound — no C++ toolchain in this workspace, and C++ to
    wasm32-unknown-unknown needs a runtime we don't ship), and **libvgm's
@@ -171,7 +171,7 @@ core, documented as such.
   wasm32-unknown-unknown directly (the toolchain is already in the PATH
   prelude; rust-synth-emulation proved the route with Nuked-OPN2). **cr-3 is
   the proof-of-concept gate**: if Nuked-CQM won't compile/link/play in
-  dro-web, the fallback per §3 is a Rust hand-port (accepting vendoring for
+  vgms-web, the fallback per §3 is a Rust hand-port (accepting vendoring for
   that core) — decided then, not silently.
 - `realtime: false` cores (LLE tier) are expected to miss wasm real-time
   budgets even when they compile; they are render/oracle cores everywhere,
@@ -180,16 +180,16 @@ core, documented as such.
 ## 5 · Which core, per chip (the target state)
 
 Accuracy default first; picker alternatives after. P = permissive enough for
-dro-synth; N = dro-cores-nuked (LGPL); G = dro-cores-gpl (GPL-2).
+vgms-synth; N = vgms-cores-nuked (LGPL); G = vgms-cores-gpl (GPL-2).
 
 | Chip | Default core (source, tier) | Alternatives in the picker |
 |---|---|---|
 | OPL2/OPL3 (+ dual OPL2) | Nuked-OPL3 — vendored Rust port, shipped | **Nuked-CQM (N, submodule)** · RetroWave hardware · later ESFMu (N), YMF262-LLE / YM3812-LLE (G, render-only) |
-| YM2413 | Nuked-OPLL (G, submodule) | emu2413 (P — crate or port; the dro-synth-only build's default) |
+| YM2413 | Nuked-OPLL (G, submodule) | emu2413 (P — crate or port; the vgms-synth-only build's default) |
 | SN76489 | our clean-room core (P, shipped) | Nuked-PSG (G, submodule; SMS/MD VDP flavour) |
 | YM2612 / YM3438 | Nuked-OPN2 (N, submodule) | YM2608-LLE / YMF276-LLE (G, render-only) |
 | YM2151 | Nuked-OPM (N, submodule) | YM2151-LLE (G, render-only) |
-| YM2203 / 2608 / 2610(B) | MAME fmopn logic → Rust port (G) — the pragmatic accuracy route now the app is GPL | ymfm-informed permissive rewrite (P, later, for dro-synth); YM2608-LLE / YM2203-LLE (G, oracles); Nuked-OPNB when it leaves WIP (N) |
+| YM2203 / 2608 / 2610(B) | MAME fmopn logic → Rust port (G) — the pragmatic accuracy route now the app is GPL | ymfm-informed permissive rewrite (P, later, for vgms-synth); YM2608-LLE / YM2203-LLE (G, oracles); Nuked-OPNB when it leaves WIP (N) |
 | AY8910 / YM2149 | Ayumi (P — MIT, crate/port per §3) | MAME ay8910 port (P) |
 | Game Boy DMG | SameBoy APU (P — MIT; submodule if its C carves out, else port) | gb_mame port (P) |
 | NES APU | clean-room from NESdev docs (P) | oracles: Mesen2, NSFPlay (never linked) |
@@ -214,7 +214,7 @@ exclusions once a render oracle exists.
 1. **Corpus walk** — every indexed file for the chip loads, seeks, renders
    its full bounded window without panic; non-silence asserted where the
    stream writes key-ons. Extends `engine_corpus.rs`, driven by the chip
-   index, `DROTRIM_VGMRIPS_CORPUS` gated like the existing corpus.
+   index, `VGMSTUDIO_VGMRIPS_CORPUS` gated like the existing corpus.
 2. **A/B listening vs VGMPlay** — unchanged: a person does it; a core is
    unverified until someone has listened.
 3. **LLE oracle diff** where one exists (OPL3, OPL2, OPN family, OPM, PSG):
@@ -230,13 +230,13 @@ workspace green including the wasm check build.
 | Step | Contents |
 |---|---|
 | cr-1 | The license split (§1): per-crate licenses, `licenses/`, README/About/`docs/LICENSE.txt`, About core-credits panel, `PROVENANCE.md`, authorship check. No behaviour change. |
-| cr-2 | Registry + config migration + Settings core picker (§2); corpus chip index tool; `nuked-opl` feature-gating in dro-synth. Registry entries: existing SN76489 + OPL path. |
-| cr-3 | **Submodule infrastructure + Nuked-CQM** (§3, §4): `vendor/upstream/`, `dro-cores-nuked` crate, `build.rs` + clang-to-wasm proof, CQM as an `OplChip`, OPL row entry beside Nuked/RetroWave. Check the PlayerEngine's Nuked-specific buffered-write spacing against CQM's semantics. The PoC gate for the whole submodule approach. |
+| cr-2 | Registry + config migration + Settings core picker (§2); corpus chip index tool; `nuked-opl` feature-gating in vgms-synth. Registry entries: existing SN76489 + OPL path. |
+| cr-3 | **Submodule infrastructure + Nuked-CQM** (§3, §4): `vendor/upstream/`, `vgms-cores-nuked` crate, `build.rs` + clang-to-wasm proof, CQM as an `OplChip`, OPL row entry beside Nuked/RetroWave. Check the PlayerEngine's Nuked-specific buffered-write spacing against CQM's semantics. The PoC gate for the whole submodule approach. |
 | cr-4 | YM2612/YM3438 via Nuked-OPN2 submodule. MegaDrive folder becomes fully audible (PSG + FM). Optimiser: revisit the 0x2A/0x28 exclusions against an LLE render. |
 | cr-5 | YM2151 via Nuked-OPM (N, submodule). |
 | cr-6 | NES APU (clean-room from NESdev docs) + Game Boy DMG (SameBoy APU). NES + GameBoy folders audible. |
 | cr-7 | **AY8910 / YM2149** (P, clean-room) + HuC6280. The AY is *also the SSG section of every OPN chip*, so it is cr-8's foundation as well as a chip in its own right. |
-| cr-8 | OPN family (YM2203/2608/2610): fmopn-logic port (G) reusing cr-7's SSG. NeoGeo folder audible. The biggest single step, and the one that **stands up `dro-cores-gpl`**; LLE oracles first. |
+| cr-8 | OPN family (YM2203/2608/2610): fmopn-logic port (G) reusing cr-7's SSG. NeoGeo folder audible. The biggest single step, and the one that **stands up `vgms-cores-gpl`**; LLE oracles first. |
 | cr-9 | YM2413: Nuked-OPLL (G) + emu2413 (P). OKIM6295 + OKIM6258 alongside — the two biggest of the PCM chips, and both arcade. |
 | cr-10 | PCM long tail, batched (P), plus WonderSwan, VSU and SAA1099. Arcade folder converges. |
 | cr-11 | LLE tier as render-only cores + the oracle `xtask` (§6.3); Nuked-PSG; ESFMu if wanted. **DONE 2026-07-28** (ESFMu skipped): Nuked-PSG as the SN76489's picker alternative; YM2151-LLE and the 2612 die of YM2608-LLE as `realtime: false` cores; the oracle is `tests/oracle_lle.rs` (corpus-gated, `--ignored`). First verdicts: Nuked-OPM 0.9742 and Nuked-OPN2 **0.9848** against their own dies — the 2612 number is the second witness that put the open 0.904-vs-VGMPlay row on the reference driver's side of the ledger. The 2608/2610 dies (external ROM/RAM pin-serving) are follow-on work; note `fmopna_rom.h` in that submodule is the 2608's decapped rhythm mask ROM, which gives the "unshippable" rhythm gap a shippable GPL-tier route. |
@@ -248,7 +248,7 @@ workspace green including the wasm check build.
 > twice, so it does not compile; there is no reset function, no output function
 > at all — `OPNB_Clock` takes no buffer — and no SSG or ADPCM. 649 lines against
 > Nuked-OPM's 2,200. So the OPN family really does need the port route, and if
-> Nuked-OPNB ever lands it is LGPL, which puts it in `dro-cores-nuked` rather
+> Nuked-OPNB ever lands it is LGPL, which puts it in `vgms-cores-nuked` rather
 > than the GPL crate.
 >
 > That is why **cr-7 and cr-8 swapped**: the AY8910 is the SSG section of every
@@ -260,7 +260,7 @@ workspace green including the wasm check build.
 > at cr-6 and NES APU at cr-7; measured, YM2413 is 1.8% of the corpus while
 > YM2151 is 13.9% and NES APU 9.9%, so each early step now buys as much audible
 > corpus as it can. The steps are independent, so this cost nothing but the
-> numbering. One consequence worth noting: the first `dro-cores-gpl` content
+> numbering. One consequence worth noting: the first `vgms-cores-gpl` content
 > moves from cr-5 (Nuked-OPLL) to cr-7 (the fmopn port), so the GPL provider
 > crate is stood up by the OPN family rather than ahead of it.
 
@@ -313,8 +313,8 @@ Y8950 268 · WonderSwan 266 · YM3526 247 · uPD7759 240 · X1-010 229 · MultiP
 11th and 12th, but filed in the cr-10 "PCM long tail" batch.
 
 Nothing has been reordered — the step order is the user's call. Re-run
-`cargo test -p dro-trimmer --release --test chip_index -- --ignored --nocapture`
-with `DROTRIM_VGMRIPS_CORPUS` set to regenerate this table.
+`cargo test -p vgms-app --release --test chip_index -- --ignored --nocapture`
+with `VGMSTUDIO_VGMRIPS_CORPUS` set to regenerate this table.
 
 ## 7.2 · What actually shipped (branch `vgm-cores`)
 
@@ -328,7 +328,7 @@ with `DROTRIM_VGMRIPS_CORPUS` set to regenerate this table.
 | cr-6 | `a425a64` | NES APU + Game Boy DMG, clean-room |
 | cr-7 | `e85c330`, `c0fedf5` | AY-3-8910 + HuC6280, clean-room |
 | cr-8 | `f829818` | YM2203 / YM2608 / YM2610, assembled from OPN2's FM and the AY's SSG |
-| cr-9 | `aa2142e` | YM2413 (Nuked-OPLL) — **stands up `dro-cores-gpl`** |
+| cr-9 | `aa2142e` | YM2413 (Nuked-OPLL) — **stands up `vgms-cores-gpl`** |
 | cr-10 | `83d3cbe` | OKIM6295 + OKIM6258, clean-room; Settings output list made scrollable |
 
 **Thirteen chips play**, covering the great majority of the corpus by weight.

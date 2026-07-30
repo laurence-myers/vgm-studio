@@ -68,7 +68,7 @@ verified on 2026-07-28, by fetching the actual files:
 is, by default, all rights reserved. A git submodule is fine on its own — we
 redistribute nothing, the user fetches from upstream. But **shipping a compiled
 binary containing that object code is redistribution of a derivative work**, and
-that is what dro-trimmer releases do. This is not a copyleft-compatibility
+that is what vgm-studio releases do. This is not a copyleft-compatibility
 question that the GPL crate solves; there is no grant to be compatible with.
 
 CORES-PLAN §3 already said as much ("libvgm's BSD-tagged C files `#include`
@@ -85,11 +85,11 @@ Unchanged in shape from CORES-PLAN §1 — what changes is *who populates them*.
 
 | Crate | Licence | Populated by | Job |
 |---|---|---|---|
-| `dro-synth` | MIT OR Apache-2.0 | **only the two clean-room cores that cleared 0.90: K053260 and C140** (§6) | Permissive fallback. No longer a complete wasm tier — see §6's cost note. |
-| `dro-cores-ymfm` | MIT OR Apache-2.0 (wrapping BSD-3 ymfm) | ymfm submodule | Yamaha accuracy tier — **conditional on the ru-2 parity gate**; removed entirely if it does not clear. |
-| `dro-cores-pcm` *(only if libvgm's licence gate fails)* | MIT OR Apache-2.0 (wrapping zlib/MIT upstreams) | vgsound_emu | Contingency PCM tier. |
-| `dro-cores-nuked` | LGPL-2.1 | Nuked submodules | Cycle-accurate OPL/OPN2/OPM/PSG. Unchanged. |
-| `dro-cores-gpl` | GPL-2.0-or-later | Nuked-OPLL, the LLE dies | Extreme accuracy + the decapped ROMs. Unchanged. |
+| `vgms-synth` | MIT OR Apache-2.0 | **only the two clean-room cores that cleared 0.90: K053260 and C140** (§6) | Permissive fallback. No longer a complete wasm tier — see §6's cost note. |
+| `vgms-cores-ymfm` | MIT OR Apache-2.0 (wrapping BSD-3 ymfm) | ymfm submodule | Yamaha accuracy tier — **conditional on the ru-2 parity gate**; removed entirely if it does not clear. |
+| `vgms-cores-pcm` *(only if libvgm's licence gate fails)* | MIT OR Apache-2.0 (wrapping zlib/MIT upstreams) | vgsound_emu | Contingency PCM tier. |
+| `vgms-cores-nuked` | LGPL-2.1 | Nuked submodules | Cycle-accurate OPL/OPN2/OPM/PSG. Unchanged. |
+| `vgms-cores-gpl` | GPL-2.0-or-later | Nuked-OPLL, the LLE dies | Extreme accuracy + the decapped ROMs. Unchanged. |
 
 Note what this does to the user's brief: because **ymfm is BSD-3, the accuracy
 tier for every Yamaha chip lands in a *permissive* crate**, not the GPL one.
@@ -116,7 +116,7 @@ Accuracy default first. **P** = permissive, **N** = LGPL, **G** = GPL,
 | YM2203 | **ymfm** (P) | CR 0.640 | — |
 | **Y8950** | **ymfm** (P) | **unregistered** | Unblocks the parked core without the OPL-routing audit |
 | **YMF278B** | **ymfm** (P) | CR 0.075 | We model the wave side only; ymfm has the whole chip |
-| YM2413 | ymfm (P) — alt to Nuked-OPLL | Nuked-OPLL (G) | Gives dro-synth-only builds a real OPLL |
+| YM2413 | ymfm (P) — alt to Nuked-OPLL | Nuked-OPLL (G) | Gives vgms-synth-only builds a real OPLL |
 | YM2151 | ymfm (P) — alt | Nuked-OPM (N) 0.999 | Nuked stays default; ymfm is a permissive-build option |
 | YM2612 / 3438 | ymfm (P) — alt | Nuked-OPN2 (N) 0.985 | as above |
 | **OPL2 / OPL3 (YM3812, YMF262, YM3526)** | **no change — out of scope for reuse** | Nuked-OPL3 (default), Nuked-CQM, RetroWave | Owner's decision: these three options stay and nothing is added. `PlayerEngine` is the DRO *editing* engine, not merely a playback core |
@@ -138,12 +138,12 @@ The first and largest piece, and the one with no licensing question.
 
 **Layout.** `vendor/upstream/ymfm` as a git submodule pinned to a commit
 (policy unchanged from CORES-PLAN decision 5: never edit the submodule; upgrade
-is `git pull` + pin bump + corpus re-run). `crates/dro-cores-ymfm/` holds
+is `git pull` + pin bump + corpus re-run). `crates/vgms-cores-ymfm/` holds
 `build.rs`, `shim/ymfm_c.cpp`, and the Rust wrappers.
 
 **The C++ problem, and why a shim.** ymfm is C++14 and Rust cannot call C++
 directly, so `shim/ymfm_c.cpp` exposes an `extern "C"` surface over an opaque
-handle. This is the same shape as the LLE shims already in `dro-cores-gpl`, so
+handle. This is the same shape as the LLE shims already in `vgms-cores-gpl`, so
 the pattern is known. `cc::Build::new().cpp(true).std("c++14")`; `clang++` is
 already in the PATH prelude.
 
@@ -174,9 +174,9 @@ from `banks::block_owner`. The mapping is direct.
 rhythm samples; it asks for them through `ymfm_external_read(ACCESS_ADPCM_A)`.
 So ymfm alone does not fix the drums — it fixes everything *around* them. The
 decapped ROM we already have lives in a GPL submodule, so feeding it to ymfm
-produces a GPL-licensed combination: therefore **`dro-cores-gpl` gains an
+produces a GPL-licensed combination: therefore **`vgms-cores-gpl` gains an
 optional "ymfm + rhythm ROM" registration**, and the permissive
-`dro-cores-ymfm` registers a 2608 whose drums are silent, stated. This is the
+`vgms-cores-ymfm` registers a 2608 whose drums are silent, stated. This is the
 existing tier discipline applied to a new case, not a new rule.
 
 **Write pacing.** Trap 1 from `PROVENANCE.md` — nukeykt cores latch writes to
@@ -208,7 +208,7 @@ on §1. The options, for the owner's decision:
    carrying an explicit `license:BSD-3-Clause` tag, and replace the untagged
    framework (`EmuStructs.h`, `SoundEmu.h`, `EmuHelper.h`) with headers we write
    ourselves from the interface those files require. We have done exactly this
-   before — `dro-cores-nuked/shim/string.h` — and it is legally clean because
+   before — `vgms-cores-nuked/shim/string.h` — and it is legally clean because
    we redistribute only tagged code plus our own. Cost: a per-file audit and our
    own framework, so the "one integration" saving is partly lost, but it is
    still far cheaper than reimplementing each chip.
@@ -300,8 +300,8 @@ default. Per core:
 | Step | Work |
 |---|---|
 | **ru-0** | **The cull (§6), first.** Delete the 28 sub-0.90 clean-room modules, their registry entries, their `ChipKind` core mappings and their parity threshold rows; regrow the settings snapshot; re-measure coverage. Keep K053260 and C140. **Method: subtract from the green tree, never reconstruct one** — every VGM decode fix (`0xC1`-`0xC3`/`0xC6` port routing, `0xE1` and `0xC5`-`0xC8` big-endian, `0xC0`-`0xC8`'s second-chip flag in bit 15 of the address, `0xC4` QSound, `banks::block_owner`) lives *inside* a clean-room core commit, so it survives only by not being touched. `rust` must not take this state; it stays at the `vgm-multichip` foundation until coverage is restored. |
-| **ru-1** | *(DONE, `c0fb1ea`)* ymfm submodule + `dro-cores-ymfm` + the PoC gate: all six OPN-family chips build, link, take writes and sound. |
-| **ru-2** | **The ymfm parity gate.** Per the owner: ymfm survives *only* where it is already integrated **and** scores well. Complete the shim surface and write pacing, register the OPN family, and measure. Chips that score below the bar are dropped from the registry; if none clear it, `dro-cores-ymfm` is removed entirely and libvgm carries the Yamaha family alone. **No further ymfm investment (Y8950, YMF278B, the rhythm-ROM variant) until this gate reports.** |
+| **ru-1** | *(DONE, `c0fb1ea`)* ymfm submodule + `vgms-cores-ymfm` + the PoC gate: all six OPN-family chips build, link, take writes and sound. |
+| **ru-2** | **The ymfm parity gate.** Per the owner: ymfm survives *only* where it is already integrated **and** scores well. Complete the shim surface and write pacing, register the OPN family, and measure. Chips that score below the bar are dropped from the registry; if none clear it, `vgms-cores-ymfm` is removed entirely and libvgm carries the Yamaha family alone. **No further ymfm investment (Y8950, YMF278B, the rhythm-ROM variant) until this gate reports.** |
 | **ru-3** | libvgm, per [LIBVGM-PLAN.md](LIBVGM-PLAN.md) lv-0..lv-8. This is where coverage comes back. |
 | **ru-4** | vgsound_emu (C++11, zlib, from GitLab) — **only if libvgm's lv-0 licence gate fails**, or for chips libvgm serves worse. Its V2 list: AY-3-8910, SN76489, ES5504/5505/5506, GA20, HuC6280, K005289, K007232, K053260, MMC5, MSM5205/6585, MSM6295, Namco 163, C140/C219, NDS, NES APU, SCC, SM8521, VRC VI, X1-010. |
 | **ru-5** | Merge to `rust` **only once playable-chip coverage meets or beats the pre-cull 99.07%**. |

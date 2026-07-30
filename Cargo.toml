@@ -60,7 +60,7 @@ egui_extras = { version = "0.35", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Headless GUI test harness (dev-only, consumed by vgms-ui's dev-dependencies).
 # Moves in lock-step with egui/eframe above -- same line, same MSRV. The
-# `eframe` feature drives DroApp through `Harness`; `snapshot` + `wgpu` add
+# `eframe` feature drives VgmStudioApp through `Harness`; `snapshot` + `wgpu` add
 # PNG visual-regression rendering (via the DX12 WARP adapter on headless Windows).
 egui_kittest = { version = "0.35", features = ["eframe", "snapshot", "wgpu"] }
 # Native file dialogs (Step 6). The web build uses its own picker (Step 8).

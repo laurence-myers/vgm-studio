@@ -10,7 +10,7 @@
  *
  * That is sound because of how the binding feeds them: every input is a
  * temporary file this crate wrote itself, from bytes that were already
- * decompressed by `dro_core`. Gzip never reaches this layer. A `.vgz` on disk
+ * decompressed by `vgms_core`. Gzip never reaches this layer. A `.vgz` on disk
  * is unpacked before it becomes a `VgmFile` and repacked after, and both halves
  * of that are flate2's job in Rust.
  *

@@ -67,14 +67,14 @@ the same thing.
 Environment, following the corpus-test convention:
 
 ```text
-DROTRIM_VGMRIPS_CORPUS  — exists already; the file source
-DROTRIM_REF_PLAYER      — path to the reference executable
-DROTRIM_REF_CONFIG      — the pinned settings file, staged beside a private
+VGMSTUDIO_VGMRIPS_CORPUS  — exists already; the file source
+VGMSTUDIO_REF_PLAYER      — path to the reference executable
+VGMSTUDIO_REF_CONFIG      — the pinned settings file, staged beside a private
                           copy of the player; parity/VGMPlay.ini
-DROTRIM_REF_ARGS        — optional; extra arguments before the input path
-DROTRIM_PARITY_CACHE    — optional; reference WAVs are deterministic per
+VGMSTUDIO_REF_ARGS        — optional; extra arguments before the input path
+VGMSTUDIO_PARITY_CACHE    — optional; reference WAVs are deterministic per
                           (file, rate, ref version, config), so cache them
-DROTRIM_PARITY_DUMP     — optional; writes both sides of any flagged pair as
+VGMSTUDIO_PARITY_DUMP     — optional; writes both sides of any flagged pair as
                           WAVs, which is what makes "listen to the outliers"
                           an instruction someone can actually follow
 ```
@@ -97,7 +97,7 @@ Three tiers, each answering a different question:
 
 ## 3 · The comparison pipeline
 
-All in a new `crates/dro-trimmer/src/parity.rs` (pure functions, hand-rolled,
+All in a new `crates/vgms-app/src/parity.rs` (pure functions, hand-rolled,
 unit-tested against synthetic signals — the house discipline of deriving every
 number in a test applies to the metrics themselves). `hound` reads the WAVs;
 no new runtime dependency, and autocorrelation covers pitch so no FFT crate is
@@ -191,7 +191,7 @@ balances are the first two customers.
 
 ## 6 · Harness form and workflow
 
-`crates/dro-trimmer/tests/reference_parity.rs`, shaped exactly like
+`crates/vgms-app/tests/reference_parity.rs`, shaped exactly like
 `core_audio.rs`: `#[ignore]`, env-gated, prints a per-chip table, asserts the
 frozen thresholds. Not CI — the documented run the plan's §6.3 always
 intended, executed:

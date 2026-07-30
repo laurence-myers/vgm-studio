@@ -28,7 +28,7 @@ version and public API are identical to upstream 0.1.0.
    unconditionally so enabling the feature does not alter timing.
 
 Together these two fixes make a `stereo-ext` build with stereoext disengaged at
-runtime byte-for-byte identical to a stock (feature-off) build. `dro-synth`'s
+runtime byte-for-byte identical to a stock (feature-off) build. `vgms-synth`'s
 `golden_opl` hash and `c_parity` suites are the regression gate for that property.
 Both are upstream-PR material.
 
@@ -45,4 +45,4 @@ stereoext is disengaged, so the byte-identity property above is unaffected).
 
 Drop this vendor directory and the `[patch.crates-io]` entry once a release
 carrying the two fixes is on crates.io, and reapply the pan-law change (or move it
-into `dro-synth`) if it is still wanted then.
+into `vgms-synth`) if it is still wanted then.

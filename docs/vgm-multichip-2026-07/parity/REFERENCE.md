@@ -18,17 +18,17 @@ failing it.
 | Config | `VGMPlay.ini` in this directory, SHA-256 `39852341…1a1345bf` |
 
 The binary itself is **not** in the tree — it is the user's own copy, named by
-`DROTRIM_REF_PLAYER`. Only the config is checked in, and the hashes above are
+`VGMSTUDIO_REF_PLAYER`. Only the config is checked in, and the hashes above are
 what identify the build that produced the numbers in the harness.
 
 Set up:
 
 ```bash
-DROTRIM_REF_PLAYER=/path/to/VGMPlay64.exe
-DROTRIM_REF_CONFIG=docs/vgm-multichip-2026-07/parity/VGMPlay.ini
-DROTRIM_VGMRIPS_CORPUS=/path/to/vgmrips
-DROTRIM_PARITY_CACHE=/some/scratch   # optional; renders are deterministic
-DROTRIM_PARITY_DUMP=/some/scratch    # optional; writes both sides of a flagged pair
+VGMSTUDIO_REF_PLAYER=/path/to/VGMPlay64.exe
+VGMSTUDIO_REF_CONFIG=docs/vgm-multichip-2026-07/parity/VGMPlay.ini
+VGMSTUDIO_VGMRIPS_CORPUS=/path/to/vgmrips
+VGMSTUDIO_PARITY_CACHE=/some/scratch   # optional; renders are deterministic
+VGMSTUDIO_PARITY_DUMP=/some/scratch    # optional; writes both sides of a flagged pair
 ```
 
 ## The four discoveries

@@ -25,13 +25,13 @@ const WRITEBUF_SIZE: usize = 1024;
 const WRITEBUF_DELAY: u64 = 2;
 const RSM_FRAC: u32 = 10;
 const NATIVE_RATE: u32 = 49_716;
-// dro-trimmer local patch (vendored): upstream 0.1.0 turns the 4-channel
+// vgm-studio local patch (vendored): upstream 0.1.0 turns the 4-channel
 // sample-delay quirk OFF whenever `stereo-ext` is compiled
 // (`!cfg!(feature = "stereo-ext")`), which silently changes `generate_4ch`'s
 // slot/mix interleaving for EVERY song -- pan or no pan -- and moves the golden
 // hash. We enable `stereo-ext` only for its per-channel panpots, so pin the
 // quirk on unconditionally, matching feature-off behaviour bit for bit.
-// See vendor/nuked-opl3/README.dro-trimmer.md. Upstream-PR material.
+// See vendor/nuked-opl3/README.vgm-studio.md. Upstream-PR material.
 const CHANNEL_SAMPLE_DELAY: bool = true;
 
 const CH_2OP: u8 = 0;
@@ -1407,19 +1407,19 @@ fn masked_accm(accm: i16, mask: u16) -> i16 {
 }
 
 fn pan_from_channel_mask(mask: u16) -> i32 {
-    // dro-trimmer local patch (vendored): upstream 0.1.0 computes
+    // vgm-studio local patch (vendored): upstream 0.1.0 computes
     // `((mask as u32) << 16) as i32`, which for an enabled gate (mask 0xFFFF) is
     // -65536, not +0x10000. With `stereo-ext` compiled the front mix is always
     // `(accm * pan) >> 16` (see `mix`), so after any 0xC0 write every channel is
     // polarity-inverted -- even with stereoext disengaged at runtime -- and mixed
     // polarity across channels cancels on unison. Return the intended unity pan so
     // the disengaged path is `accm * 0x10000 >> 16 == accm`, bit-identical to the
-    // masked path. See vendor/nuked-opl3/README.dro-trimmer.md. Upstream-PR material.
+    // masked path. See vendor/nuked-opl3/README.vgm-studio.md. Upstream-PR material.
     if mask != 0 { 0x10000 } else { 0 }
 }
 
 fn panpot(value: u8) -> i32 {
-    // dro-trimmer local change (vendored): upstream uses a constant-power law
+    // vgm-studio local change (vendored): upstream uses a constant-power law
     // (sin(v*PI/512)*65536), which places a centre pan ~3 dB down per side. Because
     // an OPL2/disengaged channel plays both speakers at unity, toggling Custom
     // panning on then audibly drops the level of every centred channel. Use a
@@ -1428,7 +1428,7 @@ fn panpot(value: u8) -> i32 {
     // matches the song's original level. leftpan = panpot(v ^ 0xff),
     // rightpan = panpot(v): both reach unity at the centre (v = 0x80 -> 127/128,
     // which /127 clamps to unity). Deliberate deviation from upstream, not a bug
-    // fix -- see vendor/nuked-opl3/README.dro-trimmer.md.
+    // fix -- see vendor/nuked-opl3/README.vgm-studio.md.
     ((value as i32 * 0x10000) / 127).min(0x10000)
 }
 

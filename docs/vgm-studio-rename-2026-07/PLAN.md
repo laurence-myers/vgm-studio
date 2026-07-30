@@ -1,4 +1,4 @@
-# Rename: DRO Trimmer → VGM Studio
+# Rename: VGM Studio → VGM Studio
 
 > **Status: PLANNED (2026-07-30).** Name chosen by the user: **VGM Studio**
 > (crate prefix `vgms-`, binary `vgmstudio`, display string "VGM Studio").
@@ -8,26 +8,26 @@
 
 ## Context
 
-The project is called "DRO Trimmer" — a fossil from when it only trimmed DOSBox
+The project is called "VGM Studio" — a fossil from when it only trimmed DOSBox
 Raw OPL captures. On `vgm-multichip` it became a multi-chip VGM editor/player,
 where **DRO is one projection of the `VgmFile` model, not a kind** (see
 [the any-chip plan](../vgm-multichip-2026-07/OPL-UNGATING-PLAN.md)). The name,
-the `dro-*` crates, the `drotrim` binary and the `Dro*` identifiers no longer
+the `dro-*` crates, the `vgmstudio` binary and the `Dro*` identifiers no longer
 describe the thing.
 
 The subtlety is that `dro` means two different things in the tree, and only one
 of them is stale:
 
-- **The brand / heritage** — `dro-*` crates, `drotrim` binary, `DroApp`,
-  `DroInstruction`, `drotrim.ini`, "DRO Trimmer" strings. **Rename.**
+- **The brand / heritage** — `dro-*` crates, `vgmstudio` binary, `VgmStudioApp`,
+  `Instruction`, `vgmstudio.ini`, "VGM Studio" strings. **Rename.**
 - **The DRO *file format*** — `DroDataV1`/`DroDataV2`, `io/dro.rs`,
   `song/dro_data.rs`, `DroInfoDialog` (`dialogs/dro_info.rs`), `DroCapture`
-  (`dro-synth/src/capture.rs:38`, builds a DRO v2 stream), the `.dro` extension,
+  (`vgms-synth/src/capture.rs:38`, builds a DRO v2 stream), the `.dro` extension,
   the `--dro` split flag, DRO-format docs. **Keep — DRO is a real format we
   still read and write.**
 
-The tell is `DroInstruction`, whose own doc says *"One decoded instruction, from
-a DRO **or a VGM** stream"* (`dro-core/src/song/instruction.rs:91`): despite the
+The tell is `Instruction`, whose own doc says *"One decoded instruction, from
+a DRO **or a VGM** stream"* (`vgms-core/src/song/instruction.rs:91`): despite the
 prefix it is the shared instruction type threaded through the whole VGM path, so
 it is **brand**, not format → `Instruction`. It is also the single largest churn
 item (25 files, ~200 sites).
@@ -42,13 +42,13 @@ item (25 files, ~200 sites).
 **Open decisions (confirm at execution):**
 - **Scope: core vs full.** *Core* = crates, identifiers, binary, display
   strings, config back-compat. *Full* = also the 22 historical `docs/*` snapshots
-  and the `DROTRIM_*` env vars.
-- **`drotrim.ini` back-compat.** Recommended: write `vgmstudio.ini`, but keep
-  *reading* `drotrim.ini` as a fallback for one release so existing user configs
-  survive (`dro-trimmer/src/config.rs:17`, `services/config.rs:26`).
+  and the `VGMSTUDIO_*` env vars.
+- **`vgmstudio.ini` back-compat.** Recommended: write `vgmstudio.ini`, but keep
+  *reading* `vgmstudio.ini` as a fallback for one release so existing user configs
+  survive (`vgm-studio/src/config.rs:17`, `services/config.rs:26`).
 - **Out-of-band (user actions), not part of any commit:** rename the GitHub repo
-  (`laurence-myers/dro-trimmer`, auto-redirects) and optionally the checkout
-  folder (still `…\Python\dro-trimmer` — a fossil from the original Python
+  (`laurence-myers/vgm-studio`, auto-redirects) and optionally the checkout
+  folder (still `…\Python\vgm-studio` — a fossil from the original Python
   codebase).
 
 ## Rename map
@@ -58,28 +58,28 @@ keys + every `dep.workspace = true`):
 
 | Now | → | Now | → |
 |---|---|---|---|
-| `dro-core` | `vgms-core` | `dro-cores-nuked` | `vgms-cores-nuked` |
-| `dro-synth` | `vgms-synth` | `dro-cores-gpl` | `vgms-cores-gpl` |
-| `dro-synth-worklet` | `vgms-synth-worklet` | `dro-cores-ymfm` | `vgms-cores-ymfm` |
-| `dro-audio-native` | `vgms-audio-native` | `dro-cores-libvgm` | `vgms-cores-libvgm` |
-| `dro-retrowave` | `vgms-retrowave` | `dro-web` | `vgms-web` |
-| `dro-ui` | `vgms-ui` | `dro-trimmer` | `vgms-app` |
+| `vgms-core` | `vgms-core` | `vgms-cores-nuked` | `vgms-cores-nuked` |
+| `vgms-synth` | `vgms-synth` | `vgms-cores-gpl` | `vgms-cores-gpl` |
+| `vgms-synth-worklet` | `vgms-synth-worklet` | `vgms-cores-ymfm` | `vgms-cores-ymfm` |
+| `vgms-audio-native` | `vgms-audio-native` | `vgms-cores-libvgm` | `vgms-cores-libvgm` |
+| `vgms-retrowave` | `vgms-retrowave` | `vgms-web` | `vgms-web` |
+| `vgms-ui` | `vgms-ui` | `vgms-app` | `vgms-app` |
 
 **Identifiers, binary, files, metadata:**
 
 | Now | → | Where |
 |---|---|---|
-| `drotrim` (binary) + `src/bin/drotrim.rs` | `vgmstudio` / `vgmstudio.rs` | clap `name` `cli/mod.rs:30`, ~15 test invocations |
-| `DroApp` | `VgmStudioApp` | 5 files (`dro-ui/src/{app,lib}.rs`, `bin/drotrim.rs`, tests) |
-| `DroInstruction` | `Instruction` | 25 files, ~200 sites — must **not** touch `DroData*` |
-| `"DRO Trimmer"` | `"VGM Studio"` | window title `bin/drotrim.rs:86`, About `app.rs:55`, **VGM `creator:` tag `vgm/io.rs:998`**, `lib.rs:2` doc-comments, font test `theme/fonts.rs:170` |
-| `drotrim.ini` | `vgmstudio.ini` (+ old-name read fallback) | `dro-core/src/config.rs` (`SHIPPED_INI` :688), `dro-trimmer/src/{config.rs,services/config.rs}`, ~30 doc-comment mentions |
-| `DROTRIM_*` env vars | `VGMSTUDIO_*` | parity/corpus harness (`tests/reference_parity.rs`, `corpus.rs:36`, `projection_corpus.rs`); update the parity-harness memory note |
-| `drotrim-*` temp prefixes, `# drotrim chip index` header | `vgmstudio-*` | `corpus.rs:40,228`, `services/file.rs:350`, `reference_parity.rs:403` |
-| `dt.ico` | `vgmstudio.ico` | `src/`, `build.rs:15-17`, `bin/drotrim.rs::load_icon` |
-| `.idea/dro-trimmer.iml`, `repository` URL, `README.dro-trimmer.md` | `vgms.*` / new repo | `Cargo.toml:33`, `vendor/nuked-opl3/` + its `[patch]` comment |
+| `vgmstudio` (binary) + `src/bin/vgmstudio.rs` | `vgmstudio` / `vgmstudio.rs` | clap `name` `cli/mod.rs:30`, ~15 test invocations |
+| `VgmStudioApp` | `VgmStudioApp` | 5 files (`vgms-ui/src/{app,lib}.rs`, `bin/vgmstudio.rs`, tests) |
+| `Instruction` | `Instruction` | 25 files, ~200 sites — must **not** touch `DroData*` |
+| `"VGM Studio"` | `"VGM Studio"` | window title `bin/vgmstudio.rs:86`, About `app.rs:55`, **VGM `creator:` tag `vgm/io.rs:998`**, `lib.rs:2` doc-comments, font test `theme/fonts.rs:170` |
+| `vgmstudio.ini` | `vgmstudio.ini` (+ old-name read fallback) | `vgms-core/src/config.rs` (`SHIPPED_INI` :688), `vgm-studio/src/{config.rs,services/config.rs}`, ~30 doc-comment mentions |
+| `VGMSTUDIO_*` env vars | `VGMSTUDIO_*` | parity/corpus harness (`tests/reference_parity.rs`, `corpus.rs:36`, `projection_corpus.rs`); update the parity-harness memory note |
+| `vgmstudio-*` temp prefixes, `# vgmstudio chip index` header | `vgmstudio-*` | `corpus.rs:40,228`, `services/file.rs:350`, `reference_parity.rs:403` |
+| `dt.ico` | `vgmstudio.ico` | `src/`, `build.rs:15-17`, `bin/vgmstudio.rs::load_icon` |
+| `.idea/vgm-studio.iml`, `repository` URL, `README.vgm-studio.md` | `vgms.*` / new repo | `Cargo.toml:33`, `vendor/nuked-opl3/` + its `[patch]` comment |
 
-**Untouched (DRO format):** `DroDataV1`/`V2`, `DroInstruction`'s DRO variants,
+**Untouched (DRO format):** `DroDataV1`/`V2`, `Instruction`'s DRO variants,
 `io/dro.rs`, `song/dro_data.rs`, `dialogs/dro_info.rs`, `DroCapture`, `.dro`,
 `--dro`, DRO-format docs.
 
@@ -88,19 +88,19 @@ keys + every `dep.workspace = true`):
 1. **Crates.** Rename 12 dirs; `package.name`; `[workspace.dependencies]` keys +
    every `dep.workspace = true`; `[profile.dev.package.*]` names in the root
    `Cargo.toml`. `Cargo.lock` regenerates. Build green before touching code.
-2. **`DroInstruction` → `Instruction`.** The big mechanical one; word-boundary
+2. **`Instruction` → `Instruction`.** The big mechanical one; word-boundary
    replace that leaves `DroData*`/`DroInfo*`/`DroCapture` alone. Verify with a
    grep that the only surviving `Dro` identifiers are the format keepers.
-3. **`DroApp` → `VgmStudioApp`** + any other brand identifiers.
-4. **Binary + CLI.** `bin/drotrim.rs` → `bin/vgmstudio.rs`, clap `name`, the
-   `Cli::try_parse_from(["drotrim", …])` test invocations, `lib.rs`/`build.rs`
+3. **`VgmStudioApp` → `VgmStudioApp`** + any other brand identifiers.
+4. **Binary + CLI.** `bin/vgmstudio.rs` → `bin/vgmstudio.rs`, clap `name`, the
+   `Cli::try_parse_from(["vgmstudio", …])` test invocations, `lib.rs`/`build.rs`
    doc-comments.
 5. **Display strings + assets.** Window title, About text, the VGM `creator:`
    output tag (`vgm/io.rs:998`), the `theme/fonts.rs` glyph test, `dt.ico` →
    `vgmstudio.ico` (+ `build.rs`, `load_icon`).
-6. **`drotrim.ini` → `vgmstudio.ini`** with a one-release fallback read of the
+6. **`vgmstudio.ini` → `vgmstudio.ini`** with a one-release fallback read of the
    old name (guard the *write* path to the new name only).
-7. **`DROTRIM_*` env vars** → `VGMSTUDIO_*` (+ temp prefixes, cache header).
+7. **`VGMSTUDIO_*` env vars** → `VGMSTUDIO_*` (+ temp prefixes, cache header).
    *Full scope only.*
 8. **Metadata + docs.** `repository` URL, `.idea` module, `DEVELOPMENT.md`,
    `docs_src/` + regenerated `docs/readme.html`, vendored README pointer. Historical
@@ -124,5 +124,5 @@ keep/rename boundary (step 2) and re-baselining snapshots (step 9), not the edit
 - Snapshots re-baselined after 5 (title/About/font strings change) via
   `UPDATE_SNAPSHOTS=1`; diffs eyeballed. See the snapshot-baselines memory note.
 - `.dro` load/save + `--dro` split regression stays green (format untouched).
-- Grep sweep: no `drotrim`, `dro-`, `DRO Trimmer`, `DroApp`, `DroInstruction`
+- Grep sweep: no `vgmstudio`, `dro-`, `VGM Studio`, `VgmStudioApp`, `Instruction`
   outside `vendor/` and the DRO-format keepers.

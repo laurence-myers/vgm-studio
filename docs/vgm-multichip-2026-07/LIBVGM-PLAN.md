@@ -62,18 +62,18 @@ the picker's whole reason for existing populated almost for free.
 
 ## 2 · Where it sits, and what happens to what we have
 
-Under the assumption, libvgm is GPL, so it cannot live in `dro-synth` and
+Under the assumption, libvgm is GPL, so it cannot live in `vgms-synth` and
 cannot be a dependency of anything permissive.
 
 | Tier | Crate | Source | Job |
 |---|---|---|---|
-| **Accuracy (primary)** | **`dro-cores-libvgm`** *(new, GPL-2.0-or-later)* | libvgm submodule | The default core for nearly every chip in the GPL app build. |
-| Extreme accuracy | `dro-cores-gpl` | Nuked-OPLL, LLE dies | Unchanged. The dies stay the oracle tier. |
-| LGPL | `dro-cores-nuked` | Nuked submodules | Unchanged; still the OPL3 path. |
-| **Permissive** | `dro-cores-ymfm` | ymfm | **Conditional.** Kept only if the CORES-REUSE-PLAN ru-2 parity gate says it is already integrated *and* scoring well; otherwise removed and libvgm carries the Yamaha family alone. |
-| **Fallback** | `dro-synth` | **K053260 and C140 only** | The two clean-room cores that cleared 0.90. The other 28 are deleted at ru-0, *before* libvgm — so between the cull and lv-4 these chips have no core, and the web build has no non-OPL chips until §6's spike reports. |
+| **Accuracy (primary)** | **`vgms-cores-libvgm`** *(new, GPL-2.0-or-later)* | libvgm submodule | The default core for nearly every chip in the GPL app build. |
+| Extreme accuracy | `vgms-cores-gpl` | Nuked-OPLL, LLE dies | Unchanged. The dies stay the oracle tier. |
+| LGPL | `vgms-cores-nuked` | Nuked submodules | Unchanged; still the OPL3 path. |
+| **Permissive** | `vgms-cores-ymfm` | ymfm | **Conditional.** Kept only if the CORES-REUSE-PLAN ru-2 parity gate says it is already integrated *and* scoring well; otherwise removed and libvgm carries the Yamaha family alone. |
+| **Fallback** | `vgms-synth` | **K053260 and C140 only** | The two clean-room cores that cleared 0.90. The other 28 are deleted at ru-0, *before* libvgm — so between the cull and lv-4 these chips have no core, and the web build has no non-OPL chips until §6's spike reports. |
 
-A **new crate** rather than folding into `dro-cores-gpl`: libvgm is a large C
+A **new crate** rather than folding into `vgms-cores-gpl`: libvgm is a large C
 build with its own failure modes, and keeping it separate means a broken pin
 cannot take the LLE dies down with it. Both are GPL-2.0-or-later, so the app
 links both.
@@ -124,7 +124,7 @@ the cases to check at lv-3.
 
 **Symbol collision with our own Nuked submodules.** libvgm *bundles* Nuked
 cores (`FCC_NUKE` in `EmuCores.h`), and we already link Nuked-OPN2, OPM, OPLL
-and PSG through `dro-cores-nuked` and `dro-cores-gpl`. Linking both into one
+and PSG through `vgms-cores-nuked` and `vgms-cores-gpl`. Linking both into one
 binary risks duplicate definitions of `OPN2_Reset` and friends. libvgm gates its
 cores behind per-core defines (`2612intf.c` shows `#ifdef EC_YM2612_GPGX`), so
 the fix is to compile libvgm with the duplicated cores disabled and let our
@@ -164,7 +164,7 @@ deliberately is the same discipline the Nuked submodules already use.
 |---|---|
 | **ru-0** | *(prerequisite, in CORES-REUSE-PLAN)* **The cull happens first**, by the owner's decision: the 28 sub-0.90 clean-room cores are deleted before any libvgm work begins, so this plan is written against a tree that no longer has them. |
 | **lv-0** | **The licence gate.** Obtain the explicit repository-wide grant described at the top. Nothing below starts without it. |
-| **lv-1** | Submodule + `dro-cores-libvgm` crate + `build.rs` compiling `SoundEmu.c`, `logging.c`, `panning.c` and **one** core, with the Nuked-collision policy decided and encoded. A test that `SndEmu_Start` returns a working device. **The PoC gate.** |
+| **lv-1** | Submodule + `vgms-cores-libvgm` crate + `build.rs` compiling `SoundEmu.c`, `logging.c`, `panning.c` and **one** core, with the Nuked-collision policy decided and encoded. A test that `SndEmu_Start` returns a working device. **The PoC gate.** |
 | **lv-2** | The generic `LibVgmChip: ChipCore` — construction, native rate, planar-to-interleaved render, `Stop` on drop. One chip end to end, with a parity row. Expect a very high score (§4); a low one means the binding is wrong. |
 | **lv-3** | The per-chip write table, including the inversions of our own normalisation (QSound, C352, the RF5C68 port-1 convention). A unit test per entry asserting the bytes that reach libvgm. ROM/RAM delivery through `block_owner`. Linked devices. |
 | **lv-4** | Roll out across the chips we already play. Each takes the default only if it beats the frozen clean-room row — the CORES-REUSE-PLAN §7 gate, unchanged. |
@@ -183,7 +183,7 @@ it with an empty import object and both smoke chips genuinely sound
 (SN76489 peak 4096; the YM2203's *linked SSG* — the allocator-heaviest path —
 peak 4080).
 
-What it took, all in `dro-cores-libvgm` (the submodule untouched, per policy):
+What it took, all in `vgms-cores-libvgm` (the submodule untouched, per policy):
 
 - **`shim/wasm-libc/`** — freestanding stand-ins for the five headers the
   compiled sources include (`stdlib.h`, `string.h`, `math.h`, `stdio.h`,
@@ -203,15 +203,15 @@ What it took, all in `dro-cores-libvgm` (the submodule untouched, per policy):
 To reproduce:
 
 ```text
-cargo build -p dro-cores-libvgm --example wasm_smoke \
+cargo build -p vgms-cores-libvgm --example wasm_smoke \
     --target wasm32-unknown-unknown --release
-node crates/dro-cores-libvgm/examples/run_wasm_smoke.mjs \
+node crates/vgms-cores-libvgm/examples/run_wasm_smoke.mjs \
     target/wasm32-unknown-unknown/release/examples/wasm_smoke.wasm
 ```
 
 What remains is **wiring, not proof**, and waits for the web app itself
-(`dro-web`/`dro-synth-worklet` are placeholders for Step 8 of the rewrite):
-register `dro_cores_libvgm` in the web build's startup exactly as
+(`vgms-web`/`vgms-synth-worklet` are placeholders for Step 8 of the rewrite):
+register `vgms_cores_libvgm` in the web build's startup exactly as
 `install_cores` does natively, mind that the AudioWorklet module is the one
 that must link the cores if rendering happens there, and re-measure the
 module-size budget with the app around it.

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
   <!-- VGM Studio "Caret" app icon, Petrol theme. Colours from PETROL_CASE in
-       crates/dro-ui/src/theme/palette.rs. Vector source; the shipped .ico is
+       crates/vgms-ui/src/theme/palette.rs. Vector source; the shipped .ico is
        hand-rendered per size (see make_icon.py). -->
   <defs>
     <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">

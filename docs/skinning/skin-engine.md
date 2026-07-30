@@ -14,7 +14,7 @@ The plan's plate chrome and the handover's pad chrome were reconciled as
 switching case repaints the whole fascia **plate**, and the pads/deck/silkscreen
 follow. Buttons are backlit **pads** with line icons, not plate-buttons.
 
-## Architecture (`crates/dro-ui/src/theme/`)
+## Architecture (`crates/vgms-ui/src/theme/`)
 
 - `Skin { case: CaseColors, hardware: HardwareColors }` composes (const) into the
   flat `Palette` every widget still takes. Twelve `CaseColors` share one
@@ -33,8 +33,8 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   dropdown iterates `SurfaceChoice::DECK`, and `for_deck()` folds a grey
   `deck_style` from a hand-edited ini back to the theme default.
 - **Live preview.** Theme/Pad/Deck apply as they are picked in Settings and
-  revert on Close (`Action::PreviewSkin` → `DroApp::preview_skin`). The preview
-  is held in `DroApp::skin_preview`, which `palette()` prefers, and deliberately
+  revert on Close (`Action::PreviewSkin` → `VgmStudioApp::preview_skin`). The preview
+  is held in `VgmStudioApp::skin_preview`, which `palette()` prefers, and deliberately
   **not** in `config` -- the volume lever persists `config` from under us, so a
   preview parked there would write itself to the ini.
 - `paint.rs` — colour mix + `gradient_quad`/`plate_mesh` (shared with waveform).
@@ -47,7 +47,7 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
 
 ## Cases (twelve)
 
-`ThemeChoice` (in `dro-core::config`): navy (**default**), cream, verdigris,
+`ThemeChoice` (in `vgms-core::config`): navy (**default**), cream, verdigris,
 moss, plum, rust, petrol, slate, olive, wine, plus clone-dark / ft2-classic
 recast as plate cases (grey pads). navy demos pad=Light on deck=Dark; the
 dark-plate cases use a `dark_plate_case!` macro (eight anchor colours each).
@@ -146,7 +146,7 @@ whole viewport.
 **Screenshots is an inspector** (mockup S5 + E, `docs/skinning/mockup-pack-screenshots.html`):
 the image in a keylined sunken well beside its record — dimensions, aspect (named
 as a PC display mode when familiar), colour format, size — from
-`dro_core::pack::PngInfo`, which reads the IHDR chunk directly rather than
+`vgms_core::pack::PngInfo`, which reads the IHDR chunk directly rather than
 decoding (fixed offset, no decoder, wasm-clean) and is parsed once per image at
 scan. The empty state is a dashed box with an **Add Screenshot…** pad: it picks a
 `.png` through `FileService::pick_image` / `poll_picked_image` (its own channel,
@@ -185,7 +185,7 @@ and the loop note lists its tracks one per line rather than comma-joining them.
 
 **Petrol is the default case** (2026-07-25), with `pad: Surface::Light` —
 `dark_plate_case!` takes an optional pad surface for exactly this. Flipping the
-default also needs `src/drotrim.ini` and the `dro-core` config tests, plus the
+default also needs `src/vgmstudio.ini` and the `vgms-core` config tests, plus the
 Settings theme tests in `app_gui_tests.rs`, which name the default twice.
 
 **Alert boxes scroll.** `alert.rs` caps the message at
@@ -211,6 +211,6 @@ the window with its buttons off the bottom.
 
 ## Verifying
 
-`cargo test -p dro-ui -p dro-core`; regenerate snapshots with
+`cargo test -p vgms-ui -p vgms-core`; regenerate snapshots with
 `UPDATE_SNAPSHOTS=1` (see the `snapshot-baselines` memory) and eyeball the PNGs.
 Toolchain PATH prelude: the `rust-toolchain-env` memory.

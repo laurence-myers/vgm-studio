@@ -1,6 +1,6 @@
 /* What the C compiler thinks libvgm's public structs measure.
  *
- * Unlike `dro-cores-nuked`, this crate *does* declare Rust twins of the
+ * Unlike `vgms-cores-nuked`, this crate *does* declare Rust twins of the
  * upstream structs -- it has to, because `DEV_INFO` and `DEV_DEF` are read
  * field by field rather than passed around as an opaque blob. That buys a
  * failure mode the opaque approach does not have: a field added or reordered
@@ -23,38 +23,38 @@
 
 /* `offsetof` past a char gives the alignment the compiler actually uses;
  * <stdalign.h> is not guaranteed in a freestanding build. */
-#define DROTRIM_ALIGNOF(type)                                                  \
+#define VGMSTUDIO_ALIGNOF(type)                                                  \
 	(offsetof(struct { char c; type member; }, member))
 
 size_t vgms_libvgm_gencfg_sizeof(void) { return sizeof(DEV_GEN_CFG); }
-size_t vgms_libvgm_gencfg_alignof(void) { return DROTRIM_ALIGNOF(DEV_GEN_CFG); }
+size_t vgms_libvgm_gencfg_alignof(void) { return VGMSTUDIO_ALIGNOF(DEV_GEN_CFG); }
 
 size_t vgms_libvgm_devinfo_sizeof(void) { return sizeof(DEV_INFO); }
-size_t vgms_libvgm_devinfo_alignof(void) { return DROTRIM_ALIGNOF(DEV_INFO); }
+size_t vgms_libvgm_devinfo_alignof(void) { return VGMSTUDIO_ALIGNOF(DEV_INFO); }
 
 size_t vgms_libvgm_devdef_sizeof(void) { return sizeof(DEV_DEF); }
-size_t vgms_libvgm_devdef_alignof(void) { return DROTRIM_ALIGNOF(DEV_DEF); }
+size_t vgms_libvgm_devdef_alignof(void) { return VGMSTUDIO_ALIGNOF(DEV_DEF); }
 
 size_t vgms_libvgm_rwfunc_sizeof(void) { return sizeof(DEVDEF_RWFUNC); }
-size_t vgms_libvgm_rwfunc_alignof(void) { return DROTRIM_ALIGNOF(DEVDEF_RWFUNC); }
+size_t vgms_libvgm_rwfunc_alignof(void) { return VGMSTUDIO_ALIGNOF(DEVDEF_RWFUNC); }
 
 size_t vgms_libvgm_sn76496cfg_sizeof(void) { return sizeof(SN76496_CFG); }
-size_t vgms_libvgm_sn76496cfg_alignof(void) { return DROTRIM_ALIGNOF(SN76496_CFG); }
+size_t vgms_libvgm_sn76496cfg_alignof(void) { return VGMSTUDIO_ALIGNOF(SN76496_CFG); }
 
 size_t vgms_libvgm_ay8910cfg_sizeof(void) { return sizeof(AY8910_CFG); }
-size_t vgms_libvgm_ay8910cfg_alignof(void) { return DROTRIM_ALIGNOF(AY8910_CFG); }
+size_t vgms_libvgm_ay8910cfg_alignof(void) { return VGMSTUDIO_ALIGNOF(AY8910_CFG); }
 size_t vgms_libvgm_ay8910cfg_off_chiptype(void) { return offsetof(AY8910_CFG, chipType); }
 
 size_t vgms_libvgm_msm6258cfg_sizeof(void) { return sizeof(MSM6258_CFG); }
-size_t vgms_libvgm_msm6258cfg_alignof(void) { return DROTRIM_ALIGNOF(MSM6258_CFG); }
+size_t vgms_libvgm_msm6258cfg_alignof(void) { return VGMSTUDIO_ALIGNOF(MSM6258_CFG); }
 size_t vgms_libvgm_msm6258cfg_off_divider(void) { return offsetof(MSM6258_CFG, divider); }
 
 size_t vgms_libvgm_segapcmcfg_sizeof(void) { return sizeof(SEGAPCM_CFG); }
-size_t vgms_libvgm_segapcmcfg_alignof(void) { return DROTRIM_ALIGNOF(SEGAPCM_CFG); }
+size_t vgms_libvgm_segapcmcfg_alignof(void) { return VGMSTUDIO_ALIGNOF(SEGAPCM_CFG); }
 size_t vgms_libvgm_segapcmcfg_off_bnkshift(void) { return offsetof(SEGAPCM_CFG, bnkshift); }
 
 size_t vgms_libvgm_devlink_sizeof(void) { return sizeof(DEVLINK_INFO); }
-size_t vgms_libvgm_devlink_alignof(void) { return DROTRIM_ALIGNOF(DEVLINK_INFO); }
+size_t vgms_libvgm_devlink_alignof(void) { return VGMSTUDIO_ALIGNOF(DEVLINK_INFO); }
 size_t vgms_libvgm_devlink_off_linkid(void) { return offsetof(DEVLINK_INFO, linkID); }
 size_t vgms_libvgm_devlink_off_cfg(void) { return offsetof(DEVLINK_INFO, cfg); }
 

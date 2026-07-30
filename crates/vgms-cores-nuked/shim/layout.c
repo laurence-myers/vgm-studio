@@ -19,14 +19,14 @@
 
 /* `offsetof` past a char gives the alignment the compiler actually uses;
  * <stdalign.h> is not guaranteed in a freestanding build. */
-#define DROTRIM_ALIGNOF(type)                                                  \
+#define VGMSTUDIO_ALIGNOF(type)                                                  \
 	(offsetof(struct { char c; type member; }, member))
 
 size_t vgms_cqm_sizeof(void) { return sizeof(cqm_t); }
-size_t vgms_cqm_alignof(void) { return DROTRIM_ALIGNOF(cqm_t); }
+size_t vgms_cqm_alignof(void) { return VGMSTUDIO_ALIGNOF(cqm_t); }
 
 size_t vgms_ym3438_sizeof(void) { return sizeof(ym3438_t); }
-size_t vgms_ym3438_alignof(void) { return DROTRIM_ALIGNOF(ym3438_t); }
+size_t vgms_ym3438_alignof(void) { return VGMSTUDIO_ALIGNOF(ym3438_t); }
 
 size_t vgms_opm_sizeof(void) { return sizeof(opm_t); }
-size_t vgms_opm_alignof(void) { return DROTRIM_ALIGNOF(opm_t); }
+size_t vgms_opm_alignof(void) { return VGMSTUDIO_ALIGNOF(opm_t); }

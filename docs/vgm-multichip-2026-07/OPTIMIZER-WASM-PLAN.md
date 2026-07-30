@@ -2,12 +2,12 @@
 
 > **Status: PROPOSED (2026-07-30).** Follows `OPTIMIZER-PLAN.md`, whose ot-1
 > chose child processes for the desktop. This is the web half. It can be built
-> and proven under node *before* `dro-web` exists, exactly as the libvgm wasm
+> and proven under node *before* `vgms-web` exists, exactly as the libvgm wasm
 > spike was.
 
 ## The problem, and why it is smaller than it looks
 
-`dro-vgmtools` runs each tool as a child process. The browser has no processes,
+`vgms-vgmtools` runs each tool as a child process. The browser has no processes,
 no `fork`, no filesystem and no `argv`. On the face of it none of the desktop
 design survives.
 
@@ -56,7 +56,7 @@ is about a hundred lines of C, and it is a strict simplification of what the
 desktop build already does with `shim/zshim.c`.
 
 The freestanding libc underneath it already exists and is proven: the
-`dro-cores-libvgm` wasm spike (`6d3dbef`) linked 38 devices with
+`vgms-cores-libvgm` wasm spike (`6d3dbef`) linked 38 devices with
 `-ffreestanding`, `shim/wasm-libc/` headers, `src/wasm_libc.rs` for the
 `malloc`/`str*` family, and `shim/wasm_stubs.c` for the printf family. That work
 is reusable almost verbatim; `stdio.h` needs to grow `FILE`, and `printf` should
@@ -88,7 +88,7 @@ Two answers, and we take both:
    its *own* worker rather than sharing the app's -- terminating it must cost
    nothing but the current file.
 2. **Defuse the known loop before it starts.** We already parse the file:
-   `dro_core` walks `0x67` blocks and knows each declared ROM size. A size at or
+   `vgms_core` walks `0x67` blocks and knows each declared ROM size. A size at or
    above `0x8000_0000` is not a file we should optimise, it is a file whose
    header is wrong -- so the pipeline refuses that stage with a reason, on
    *both* targets. This is defence in depth rather than a substitute for the
@@ -129,8 +129,8 @@ has a reference implementation on day one:
 Any divergence is a shim bug, and it is localised to the ~100 lines of file
 table, because everything above it is the same C. Node can drive the modules
 directly -- the libvgm spike already ships
-`crates/dro-cores-libvgm/examples/run_wasm_smoke.mjs` as the pattern -- so this
-gate runs in CI **without a browser and without `dro-web`**.
+`crates/vgms-cores-libvgm/examples/run_wasm_smoke.mjs` as the pattern -- so this
+gate runs in CI **without a browser and without `vgms-web`**.
 
 That is what makes the whole thing safe to build now and wire later.
 
@@ -161,7 +161,7 @@ size at or above `0x8000_0000`, on both targets, with a reason on the stage.
 one per call, and enforces the timeout by terminating itself. `wasm.rs` behind
 the same API, `#[cfg(target_arch = "wasm32")]`.
 
-**ow-7 -- wire it into `dro-web`.** Waits on Step 8 of the web programme; ow-1
+**ow-7 -- wire it into `vgms-web`.** Waits on Step 8 of the web programme; ow-1
 to ow-6 do not.
 
 ## Risks

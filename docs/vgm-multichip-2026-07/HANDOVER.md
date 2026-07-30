@@ -2,7 +2,7 @@
 
 > **2026-07-27, later:** the core-emulation programme (what mc-8/mc-9 sketched)
 > now has its own plan — **`CORES-PLAN.md`** in this directory — locking a
-> license split (GPL-2.0-or-later app, MIT/Apache dro-synth + dro-core), a
+> license split (GPL-2.0-or-later app, MIT/Apache vgms-synth + vgms-core), a
 > per-chip runtime core registry, a no-vendoring submodule policy, and
 > Nuked-CQM as an OPL3 option. Read it before touching cores; the §7 audit
 > table below is superseded by the licensing analysis it encodes.
@@ -92,7 +92,7 @@
 >
 > ### mc-6: the engine is built, the cores are not (2026-07-27)
 >
-> `dro-synth` gained four modules and no emulation:
+> `vgms-synth` gained four modules and no emulation:
 >
 > - **`chip.rs`** — the `ChipCore` trait (reset, write, ROM, RAM, render at your
 >   own rate), `core_for` (the registry, empty), `playability`, and
@@ -123,7 +123,7 @@
 > splitter's prelude and this seek. A seek and a crop agree by construction about
 > what "the state at row N" means.
 >
-> **The engine corpus** (`crates/dro-trimmer/tests/engine_corpus.rs`) drives all
+> **The engine corpus** (`crates/vgms-app/tests/engine_corpus.rs`) drives all
 > 16461 openable files: 146 hours rendered, every one playing and seeking for
 > exactly as long as its own waits say. It bounds each file at 20 s and logs how
 > many ran to their end (4418) rather than leaving the cap implied.
@@ -171,7 +171,7 @@
 >
 > ### Where live playback got to (2026-07-27)
 >
-> `AudioService::load` takes a `dro_synth::AudioSource` (OPL `Arc<Song>` |
+> `AudioService::load` takes a `vgms_synth::AudioSource` (OPL `Arc<Song>` |
 > `Arc<VgmFile>`), and `NativeAudio` holds whichever engine that implies behind
 > one callback via a private `Engine` enum. The callback needs five things from
 > an engine -- render, seek, rewind, position, finished -- and everything else it
@@ -199,7 +199,7 @@
 > `widgets/chip_output.rs`: one row per chip this app can play, OPL keeping the
 > choice it always had (with the device picker under it), a chip with one core
 > stating it, and a closing line counting the chips with none. The rows come from
-> `dro_synth::core_for`, so a new core appears without anyone adding it, and a
+> `vgms_synth::core_for`, so a new core appears without anyone adding it, and a
 > test checks the rows plus the count still cover the whole chip table.
 >
 > One deviation from the plan, deliberate: the config key stays the flat
@@ -224,7 +224,7 @@
 >
 > ### The version computation, and the bug it found (2026-07-27)
 >
-> `dro_core::vgm::version` answers what a file actually requires -- its chips,
+> `vgms_core::vgm::version` answers what a file actually requires -- its chips,
 > its commands, its header fields, against a 1.50 floor -- plus `can_downgrade_to`
 > and `blockers` for the normalise operation mc-10 still wants.
 >
@@ -283,7 +283,7 @@
 >   and `0x20`-`0x28` are excluded because a wrong answer there is silent.
 >   Worth revisiting with a render oracle once those cores land (mc-8).
 >
-> **What the corpus said** (16466 files, `DROTRIM_CORPUS`): 3933 the old OPL
+> **What the corpus said** (16466 files, `VGMSTUDIO_CORPUS`): 3933 the old OPL
 > reader accepts, all 3933 now agreeing byte-for-byte through the
 > projection; **12533 openable that were not before**; 0 unreadable by both.
 > Of the OPL-accepted files, 0 carry a non-OPL command — so the strict
@@ -318,7 +318,7 @@
 >   rows, and saying what the file is beats an empty table.
 >
 > Notes from the build worth carrying forward:
-> - `read_track` in `dro-ui/src/pack.rs` tries the OPL reader first and the
+> - `read_track` in `vgms-ui/src/pack.rs` tries the OPL reader first and the
 >   chip-agnostic one second. An OPL VGM the *command table* rejects (a 0x67
 >   data block, say) therefore lands as `Foreign` today — readable and
 >   taggable, not editable. mc-4 moves those back to `Opl`.
@@ -336,7 +336,7 @@
 >   needs; decompressing one is only required to *play* it, so it belongs with
 >   the engine that consumes it.
 > - *The OPL reader's 0x67 support* moved to **mc-5**. `VgmData`/`Song` model
->   every command as a `DroInstruction` (register write, delay, bank switch),
+>   every command as a `Instruction` (register write, delay, bank switch),
 >   and a data block is none of those — so accepting one means growing that
 >   enum, which ripples into the table, the analyser, the optimiser and the
 >   state fold. mc-4 closed the *other* half of that TODO (minimal headers),
@@ -345,7 +345,7 @@
 
 **For:** a fresh Claude Code session implementing multi-chip VGM support.
 **From:** the planning session, 2026-07-20; revised against the tree 2026-07-26.
-**Repo:** `I:\Code\Python\dro-trimmer` · **branch `vgm-multichip`** (created
+**Repo:** `I:\Code\Python\vgm-studio` · **branch `vgm-multichip`** (created
 2026-07-26 off `rust` at `10138c0` — the user asked for this work on its own
 branch; land each step there and merge back to `rust` at agreed milestones).
 The Python original is gone from the tree (removed 2026-07-21); there is no
@@ -420,7 +420,7 @@ it. Both bullets verified still open, 2026-07-26.
 8. **The generic editor comes before any playback/emulation** (2026-07-20):
    it is mc-5 in §6, so any-chip trimming works with zero emulators.
 9. **Non-commercial-clause code is acceptable to the user** (2026-07-20) —
-   dro-trimmer is itself a non-commercial project. Caveat recorded in §7:
+   vgm-studio is itself a non-commercial project. Caveat recorded in §7:
    a non-commercial clause is a *further restriction* under the GPL, so
    Genesis-Plus-GX-derived code cannot ship in the same binary as the GPL
    cores; it serves as behaviour reference and test oracle instead.
@@ -685,7 +685,7 @@ the closed command table (`vgm/data.rs:9` `mod command` + `command_size` at
 `:120`, which hard-errors on any other opcode), the OPL-clock gate + `data
 offset ≥ 0x80` check (`vgm/io.rs` `read_uncompressed` at `:203` — the offset
 check at `:236`, the "No OPL2 or OPL3 data detected" gate at `:257`), and
-the OPL-only playback path (`dro-synth` `PlayerEngine` at `engine.rs:332` /
+the OPL-only playback path (`vgms-synth` `PlayerEngine` at `engine.rs:332` /
 the `OplChip` trait at `opl.rs:12` — see §3.7 for how that path has changed).
 
 ### 3.7 Hardware output (RetroWave OPL3, shipped 2026-07-23) — new since the plan
@@ -693,7 +693,7 @@ the `OplChip` trait at `opl.rs:12` — see §3.7 for how that path has changed).
 A second audio backend now exists, and the playback phases must stay
 compatible with it:
 
-- `crates/dro-retrowave`: serial protocol (`protocol.rs` — write-only
+- `crates/vgms-retrowave`: serial protocol (`protocol.rs` — write-only
   SPI-over-CDC framing, nothing is ever read back), device handling
   (`device.rs`, USB `04D8:E966` as a default hint), and `SerialOpl3Chip`
   (`chip.rs:61`) — a shadow+diff register chip that **implements the
@@ -709,11 +709,11 @@ compatible with it:
   `execute` (`engine.rs:653`) — mc-6's generic `VgmEngine` must not inherit
   any of it.
 - Backend choice: `OutputBackend::{Emulated, RetroWave}` in
-  `dro-core/src/config.rs:15` (ini keys `audio.output_backend`,
+  `vgms-core/src/config.rs:15` (ini keys `audio.output_backend`,
   `audio.retrowave_port`); `AudioConfig::renders_samples()` (`config.rs:95`)
   is the single predicate the UI greys controls off (peak meter, boost
   stepper, pan knobs). `SwitchingAudioService`
-  (`dro-trimmer/src/services/retrowave.rs:213`) holds both services and
+  (`vgm-studio/src/services/retrowave.rs:213`) holds both services and
   swaps **inside `load()`**; everything above `AudioService` is
   backend-blind.
 - Consequences for this plan: `is_playable` (mc-6) becomes a function of
@@ -733,14 +733,14 @@ assumptions matter to mc-2/mc-4/mc-5:
 
 | Tool | Where | OPL assumption |
 |------|-------|----------------|
-| Optimiser (vgm_cmp) | `dro-core/src/optimize.rs:99` | **OPL-only by construction** — folds an `OplState` latch to drop redundant writes; gated on `Song::is_vgm`. Reached from Edit > Optimize VGM, the pack export "Opt." toggle (default ON), and `drotrim optimize`. The export pipeline (`dro-trimmer/src/pack_zip.rs:125`) already fails safe — an unreadable file passes through verbatim — but after mc-1 foreign files *parse*, so the pipeline must gate on OPL-ness explicitly; never widen the optimiser itself. |
-| Volume (vgm_vol) | `dro-core/src/volume.rs:62` + pack Scan/Apply | The header-byte maths is chip-neutral; the *peak scan* needs a render, so it is OPL-only until cores land. "Apply Modifiers" writes via `revolumed_bytes` (`dro-ui/src/pack.rs:1501`) → `put_chip_clocks` — the §3.6 hazard; foreign tracks need the mc-1 writer. |
-| Loop finder (vgmlpfnd) | `dro-core/src/loopfind.rs:118` | Matches delay-stripped `DroInstruction::Register` writes — OPL-shaped today; generalises naturally once mc-4's command stream exists. |
-| Song splitter (vgm_sptd) | `dro-core/src/split_songs.rs:102` | Gap detection is format-agnostic; `materialise` prepends an **OPL state prelude** via the fold machinery below, so the feature stays OPL-only. |
+| Optimiser (vgm_cmp) | `vgms-core/src/optimize.rs:99` | **OPL-only by construction** — folds an `OplState` latch to drop redundant writes; gated on `Song::is_vgm`. Reached from Edit > Optimize VGM, the pack export "Opt." toggle (default ON), and `vgmstudio optimize`. The export pipeline (`vgm-studio/src/pack_zip.rs:125`) already fails safe — an unreadable file passes through verbatim — but after mc-1 foreign files *parse*, so the pipeline must gate on OPL-ness explicitly; never widen the optimiser itself. |
+| Volume (vgm_vol) | `vgms-core/src/volume.rs:62` + pack Scan/Apply | The header-byte maths is chip-neutral; the *peak scan* needs a render, so it is OPL-only until cores land. "Apply Modifiers" writes via `revolumed_bytes` (`vgms-ui/src/pack.rs:1501`) → `put_chip_clocks` — the §3.6 hazard; foreign tracks need the mc-1 writer. |
+| Loop finder (vgmlpfnd) | `vgms-core/src/loopfind.rs:118` | Matches delay-stripped `Instruction::Register` writes — OPL-shaped today; generalises naturally once mc-4's command stream exists. |
+| Song splitter (vgm_sptd) | `vgms-core/src/split_songs.rs:102` | Gap detection is format-agnostic; `materialise` prepends an **OPL state prelude** via the fold machinery below, so the feature stays OPL-only. |
 
 Behind the last one sits the crop machinery (also new since the plan):
-`dro-core/src/crop.rs` (`crop_to_region:91` / `delete_region:135`) and
-`dro-core/src/state_patch.rs`, whose `StateFold` (`:38`) is hardwired to the
+`vgms-core/src/crop.rs` (`crop_to_region:91` / `delete_region:135`) and
+`vgms-core/src/state_patch.rs`, whose `StateFold` (`:38`) is hardwired to the
 OPL shape (`[[Option<u8>; 256]; 2]`, via `opl_state.rs:31`) and whose
 `append_patch` (`:103`) re-emits the source stream's own bytes so encodings
 stay exact. Plain row deletion is chip-neutral byte splicing
@@ -794,7 +794,7 @@ cleanup), `opt_oki` (OKIM6258 → DAC-stream conversion), `vgm_dbc`
 (data-block bit-packing), `vgm_dso` (DAC-stream reordering for compression).
 
 > **Superseded 2026-07-30 by `OPTIMIZER-PLAN.md`.** `vgm_cmp`, `vgm_sro` and
-> `optdac` are now *bound* rather than ported: `crates/dro-vgmtools` builds them
+> `optdac` are now *bound* rather than ported: `crates/vgms-vgmtools` builds them
 > from a pinned GPL submodule and runs them as child processes, so the CLI, the
 > pack export and Edit > Optimize reach every chip `vgm_cmp` has rules for
 > instead of the three `chip_state::latch_rule` covers. `opt_oki` stays out
@@ -821,12 +821,12 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
 - Keep the workspace green after every step: `cargo test --workspace`,
   `cargo clippy --workspace --all-targets` (zero warnings), `cargo fmt --all
   --check` (toolchain pinned to 1.97.0), plus the wasm check build for
-  dro-core/dro-synth/dro-ui.
-- dro-core / dro-synth / dro-ui stay **wasm-clean** (no `std::fs`, no cpal, no
-  threads). Native-only code goes in dro-audio-native / dro-retrowave /
-  dro-trimmer.
+  vgms-core/vgms-synth/vgms-ui.
+- vgms-core / vgms-synth / vgms-ui stay **wasm-clean** (no `std::fs`, no cpal, no
+  threads). Native-only code goes in vgms-audio-native / vgms-retrowave /
+  vgm-studio.
 - New vendored cores follow the `vendor/nuked-opl3` pattern: own directory,
-  `[patch.crates-io]` or path dep, a `README.dro-trimmer.md` describing origin
+  `[patch.crates-io]` or path dep, a `README.vgm-studio.md` describing origin
   + license + local changes, `[profile.dev.package.*]` opt-level override if
   hot. License files must ride along; update the workspace license notes
   (and see §2.2.2 — the first GPL core is also the GPL-relicense trigger).
@@ -835,11 +835,11 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
   palette fields go in the per-theme showcase (`theme_showcase.rs` — the
   code still says "theme"; the theme→skin rename has not happened).
 - Every new key or gesture goes into the Help dialog's tables
-  (`dro-ui/src/dialogs/help.rs`, `SECTIONS`) in the same change. A test
+  (`vgms-ui/src/dialogs/help.rs`, `SECTIONS`) in the same change. A test
   catches bound-but-undocumented shortcuts; prose rows (mouse gestures, the
   "1–9" mute range whose copy says "OPL3") it cannot check — mind those by
   hand.
-- Commit style: `feat(dro-core): parse the full VGM header chip table (mc-1)`.
+- Commit style: `feat(vgms-core): parse the full VGM header chip table (mc-1)`.
 - Test fixtures: pull one small VGM per chip family from VGMRips packs (SMS,
   Mega Drive, Neo Geo, PC Engine, Game Boy, NES, arcade); keep them tiny and
   note pack provenance in the fixture directory README.
@@ -848,7 +848,7 @@ $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH
 
 ### Phase A — metadata for every VGM (the required minimum)
 
-#### mc-1 · dro-core: full header model + foreign-VGM container
+#### mc-1 · vgms-core: full header model + foreign-VGM container
 
 - New `vgm::header::VgmHeader`: parse **all** §3.1 fields version-gated, with
   the "header ends at data start" rule; keep the raw bytes verbatim alongside
@@ -880,28 +880,28 @@ scan/apply batch, vgm_ren file-name fixing, date fixing, a screenshots
 inspector, a submission-readiness checklist, and an export deck with gzip +
 optimize toggles. The good news: nearly all of it is GD3- or file-shaped,
 not OPL-shaped, so foreign tracks join cheaply. Where things live now: the
-pure layer (`TrackEntry`, presets, readiness) is `dro-core/src/pack.rs`; the
+pure layer (`TrackEntry`, presets, readiness) is `vgms-core/src/pack.rs`; the
 stateful model (`PackTrack`, `from_folder`, `validations`, `highest_opl`)
-is `dro-ui/src/pack.rs`.
+is `vgms-ui/src/pack.rs`.
 
-- `PackTrack.song` (`dro-ui/src/pack.rs:35` — today a per-track parse result
+- `PackTrack.song` (`vgms-ui/src/pack.rs:35` — today a per-track parse result
   whose failure renders "unreadable") becomes `PackSong::Opl(Arc<Song>) |
   Foreign(Arc<VgmFile>) | Unreadable(String)`. `from_folder`
-  (`dro-ui/src/pack.rs:153`) tries the OPL reader first (unchanged
+  (`vgms-ui/src/pack.rs:153`) tries the OPL reader first (unchanged
   behaviour for OPL files), falls back to the foreign reader; only true parse
   failures land in `Unreadable`.
-- `TrackEntry::from_song` (`dro-core/src/pack.rs:116`) generalises: title
+- `TrackEntry::from_song` (`vgms-core/src/pack.rs:116`) generalises: title
   from GD3/filename as today; duration/loop from `VgmHeader` for foreign
   tracks (vgm_stat parity — vgm_stat trusts these header fields too).
 - Description/preset generalisation: the chips line derives from
   `VgmHeader::chips()` joined display names; `preset_for`
-  (`dro-core/src/pack.rs:323`, `const` over the three `OplType`s — the
+  (`vgms-core/src/pack.rs:323`, `const` over the three `OplType`s — the
   PC/AT-only `PRESETS` table needs at least a neutral entry) and
-  `highest_opl` (`dro-ui/src/pack.rs:1021`) keep working for OPL packs and
+  `highest_opl` (`vgms-ui/src/pack.rs:1021`) keep working for OPL packs and
   fall back to the derived chip string otherwise. `unique_authors`/prefill
   already read GD3 — unchanged.
 - Tag paths work for foreign tracks via the mc-1 writer: quick-edit (rename
-  + GD3), **bulk tag** (`BulkTagOverlay`, `dro-ui/src/pack.rs:1527` — a pure
+  + GD3), **bulk tag** (`BulkTagOverlay`, `vgms-ui/src/pack.rs:1527` — a pure
   GD3 overlay, no OPL assumption), Fix File Names (vgm_ren rules,
   chip-neutral) and Fix Dates (chip-neutral). The one trap: today's rewrite
   paths (`retagged_bytes` `:1487`, `revolumed_bytes` `:1501`) round-trip
@@ -913,14 +913,14 @@ is `dro-ui/src/pack.rs`.
   the Peak cell stays empty); **Apply Modifiers** only writes tracks with a
   measured peak; the export **"Opt." toggle** passes foreign files through
   verbatim (§3.8 — gate in `pack_zip.rs`, don't widen the optimiser). The
-  readiness checklist (`dro-core/src/pack.rs:1029`) is already chip-neutral
+  readiness checklist (`vgms-core/src/pack.rs:1029`) is already chip-neutral
   (`TrackFacts` carries no chip info) and needs nothing.
-- Row UI (`track_table`, `dro-ui/src/pack.rs:1882`): foreign tracks get the
+- Row UI (`track_table`, `vgms-ui/src/pack.rs:1882`): foreign tracks get the
   normal title/duration cells; the preview (play) button is hidden/disabled
   with tooltip "Playback for <chips> is not supported yet"; "unreadable"
   styling (`:2050`) now only for `Unreadable`. The row menu's "Open in
   editor" is mc-3's to gate.
-- `validations()` (`dro-ui/src/pack.rs:625`) updated: foreign tracks are
+- `validations()` (`vgms-ui/src/pack.rs:625`) updated: foreign tracks are
   full citizens (counted, listed, exported); keep a soft note listing
   not-previewable chips.
 - Tests: pack open with a mixed OPL + Mega Drive + corrupt folder; quick-edit
@@ -930,7 +930,7 @@ is `dro-ui/src/pack.rs`.
 
 #### mc-3 · editor gating + open-file behaviour
 
-- `load_file` (`dro-ui/src/app.rs:2031`; the parse itself lives in
+- `load_file` (`vgms-ui/src/app.rs:2031`; the parse itself lives in
   `Editor::load`, `editor.rs:123`): when the OPL reader rejects but the
   foreign reader succeeds, replace the raw "Failed to load file" alert with
   a friendly dialog: chip list, version, duration, GD3 title, and "The
@@ -948,7 +948,7 @@ files are never structurally rewritten beyond the GD3 block.
 
 ### Phase B — the generic command stream
 
-#### mc-4 · dro-core: full-spec stream parser
+#### mc-4 · vgms-core: full-spec stream parser
 
 - `VgmBody::Commands(VgmStream)`: parse the §3.2 opcode table completely —
   every chip write, waits, 0x64 overrides, data blocks (§3.3, decompressor
@@ -965,7 +965,7 @@ files are never structurally rewritten beyond the GD3 block.
 - Upgrade the **OPL** reader with the same machinery so the two TODO gaps
   close for OPL files too: 0x67 blocks preserved (surfaced as rows), minimal
   headers accepted. `VgmData`'s closed table dissolves into the generic parser
-  with an OPL-projection to `DroInstruction`.
+  with an OPL-projection to `Instruction`.
 - Tests: opcode-table round-trip property tests (decode→encode byte-exact);
   fixtures per family incl. a YM2612+DAC-stream file and a compressed-block
   file; the existing OPL suite must pass untouched.
@@ -984,7 +984,7 @@ files are never structurally rewritten beyond the GD3 block.
 >   "future work" to a hard requirement (§2.1.14).
 > - *The OPL reader's 0x67 support* → **solved differently by uv-1**: the
 >   projection makes a data block a non-OPL row inside an OPL document, so
->   `DroInstruction` never needs to grow. The old note below about growing
+>   `Instruction` never needs to grow. The old note below about growing
 >   the enum is obsolete.
 
 Why this slot (user decision, §2.1): with mc-4's parser in hand, *trimming* —
@@ -1019,7 +1019,7 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   explicit intent — but rows that later commands depend on (a bank a
   0x93/0x95 references, a ROM a chip needs) earn a status-bar warning, never
   a veto. The marked-region crops (`crop_to_region`/`delete_region`,
-  `dro-core/src/crop.rs`) stay **OPL-only**: they splice synthesised state
+  `vgms-core/src/crop.rs`) stay **OPL-only**: they splice synthesised state
   patches, and the `StateFold` machinery is OPL-shaped (§3.8). Foreign docs
   get plain row deletion; a per-chip state model that would generalise the
   crops is future work, not mc-5.
@@ -1037,7 +1037,7 @@ niceties (audition, waveform, seek-to-row) bolt on later in mc-7.
   DRO-vs-VGM menu hiding) and `AudioConfig::renders_samples()` (backend,
   §3.7) — the flags struct subsumes the first and composes with the second.
 - **Chip-scoped channel panel (§2.1.11):** `ChannelPanel`
-  (`dro-ui/src/widgets/channels.rs:35`) is hard-coded OPL — `[bool; 18]`
+  (`vgms-ui/src/widgets/channels.rs:35`) is hard-coded OPL — `[bool; 18]`
   mutes, `[u8; 18]` pans, two banks, `OplType`-driven layout. Wrap it in a
   chip-strip widget: a selector across the chips present in the loaded doc,
   one panel per chip. OPL docs contribute today's panel verbatim; a
@@ -1066,7 +1066,7 @@ descriptions, find-register, the synth — consumes the projection.
 `Song` shrinks to what it is honest about: the DRO model.
 
 Alternatives considered and rejected: *(a)* keep `Song` universal and grow
-`DroInstruction` with generic arms — puts non-OPL semantics inside the OPL
+`Instruction` with generic arms — puts non-OPL semantics inside the OPL
 type and makes every consumer learn arms it can't handle; *(b)* read DRO
 files into the VGM model too — breaks DRO round-tripping (ms delays, DRO
 headers); *(c)* cache a `Song` beside the `VgmFile` for OPL files — two
@@ -1075,18 +1075,18 @@ The projection keeps one truth and derives the view.
 
 The safety net for the whole phase: the audio/waveform/render/peak paths all
 consume **immutable `Arc<Song>` snapshots**, not the editor's document — so
-`OplProjection::to_song()` materialises one and *nothing in dro-synth or
-dro-audio-native changes at all* in this phase. Playback generalisation
+`OplProjection::to_song()` materialises one and *nothing in vgms-synth or
+vgms-audio-native changes at all* in this phase. Playback generalisation
 stays where it was, in mc-6/mc-7.
 
 #### uv-1 · one document model: OPL becomes a capability
 
 - `OplProjection` on `VgmFile`: available iff every clocked chip is
   OPL-family and the body walks. Per row, `project(i) ->
-  Option<DroInstruction>` — OPL writes and waits project; a data block or
+  Option<Instruction>` — OPL writes and waits project; a data block or
   raw row is `None`, shown by its generic description, skipped by analysis
   and by the synth materialisation (it has no wait, so timings hold). This
-  is what finally closes the 0x67-in-an-OPL-file gap: no `DroInstruction`
+  is what finally closes the 0x67-in-an-OPL-file gap: no `Instruction`
   growth needed, the block is simply a non-OPL row.
 - **Parity gate before anything switches:** for every OPL VGM in the corpus,
   the old reader's `Song` and the projection agree — instruction-for-
@@ -1182,7 +1182,7 @@ and later the engine's fast seek (mc-6). Contents:
 
 #### uv-5 · header audit, fixed only when asked
 
-- `dro_core::vgm::audit(file) -> Vec<HeaderFinding>`, mirroring
+- `vgms_core::vgm::audit(file) -> Vec<HeaderFinding>`, mirroring
   `vgm_ptch -Check` (§3.9): total samples vs summed waits; loop offset on a
   command boundary and in range; loop samples vs the derived value; a
   missing end marker; junk between EOD and the tag (we preserve it —
@@ -1197,9 +1197,9 @@ and later the engine's fast seek (mc-6). Contents:
 
 ### Phase D — playback
 
-#### mc-6 · dro-synth: multi-chip engine
+#### mc-6 · vgms-synth: multi-chip engine
 
-- `ChipCore` trait (dro-synth, wasm-clean):
+- `ChipCore` trait (vgms-synth, wasm-clean):
   `reset(clock, variant_flags, out_rate)`, `write(port: u8, addr: u16, data:
   u16)`, `load_rom(block_type, total_size, start, &[u8])`,
   `write_ram(offset, &[u8])`, `render(&mut [i32; 2] frames…)` at a
@@ -1244,14 +1244,14 @@ and later the engine's fast seek (mc-6). Contents:
 
 #### mc-7 · wiring playback into the app
 
-- `AudioService::load` (`dro-ui/src/platform.rs:178`, today
+- `AudioService::load` (`vgms-ui/src/platform.rs:178`, today
   `load(song: Arc<Song>, config: &AudioConfig)`; the trait has grown to 20
   methods — §3.7) generalises to a source enum (OPL `Arc<Song>` |
   `Arc<VgmFile>`); NativeAudio hosts either engine behind the existing rtrb
   command/position plumbing (loop/mute/pan commands no-op for foreign
   sources). `SwitchingAudioService` (§3.7) threads the enum through: a
   foreign source always routes to the emulated service — the hardware
-  backend refuses non-OPL sources by construction. Update the dro-ui mocks
+  backend refuses non-OPL sources by construction. Update the vgms-ui mocks
   (`FakeAudioService`, `test_support.rs:186`, which today lets
   `list_hardware_ports`/`last_error` fall through to trait defaults).
 - **Per-chip output settings (§2.1.10):** replace the Settings dialog's
@@ -1272,8 +1272,8 @@ and later the engine's fast seek (mc-6). Contents:
 - Generic editor gains its playback slice (the bolt-on deferred from mc-5):
   capability flags flip transport/position/waveform on for playable foreign
   docs; seek-to-selected-row via `VgmEngine` replay.
-- The worklet stubs stay stubs; everything added lives in dro-core/dro-synth
-  so Step 8/9 of the port inherit it. (dro-retrowave stays native-only and
+- The worklet stubs stay stubs; everything added lives in vgms-core/vgms-synth
+  so Step 8/9 of the port inherit it. (vgms-retrowave stays native-only and
   OPL-only — hardware needs no worklet story.)
 
 #### mc-8 · first cores: prove the engine end-to-end
@@ -1335,7 +1335,7 @@ fixture → A/B render hash vs a reference player → tick the §7 table.
 
 | Order | Step | Scope | State |
 |-------|------|-------|-------|
-| 1 | mc-1 | dro-core: full header parse, `VgmFile` (opaque body), GD3 retag writer | **done** |
+| 1 | mc-1 | vgms-core: full header parse, `VgmFile` (opaque body), GD3 retag writer | **done** |
 | 2 | mc-2 | pack mode: any-VGM tracks first-class, preview gated, descriptions | **done** |
 | 3 | mc-3 | editor gating + friendly non-OPL open dialog | **done — Phase A: minimum requirement met** |
 | 4 | mc-4 | full command-stream parser (minimal headers for OPL too) | **done** |
@@ -1465,25 +1465,25 @@ re-syncing a Rust port is a re-porting exercise.
 
 | Concern | File |
 |---------|------|
-| VGM header read/write, OPL gate (`read_uncompressed:203`, gate `:257`), `put_chip_clocks:467`, GD3 | `crates/dro-core/src/vgm/io.rs` |
-| Command table (`mod command:9`, `command_size:120`), `VgmData`, `VgmMeta`, `Gd3Tag` | `crates/dro-core/src/vgm/data.rs` |
-| `Song`, `SongData`, prefix sums, deletion sliding, `slide_index_past_deletion:747` | `crates/dro-core/src/song.rs` |
-| Byte splicing shared by DRO+VGM deletes | `crates/dro-core/src/song/splice.rs` |
-| Crop/delete-region + the OPL state-patch fold (§3.8) | `crates/dro-core/src/crop.rs`, `state_patch.rs`, `opl_state.rs` |
-| vgmtools suite (§3.8) | `crates/dro-core/src/optimize.rs`, `volume.rs`, `loopfind.rs`, `split_songs.rs` |
-| Pack pure layer: `TrackEntry:99`, `preset_for:323`, `readiness:1029` | `crates/dro-core/src/pack.rs` |
-| Pack state/UI: `PackTrack:35`, `from_folder:153`, `validations:625`, `highest_opl:1021`, bulk tag, track table | `crates/dro-ui/src/pack.rs` |
-| Pack export pipeline (optimize + gzip + zip) | `crates/dro-trimmer/src/pack_zip.rs` |
-| Quick-edit / bulk-tag / VGM metadata dialogs | `crates/dro-ui/src/dialogs/track_edit.rs`, `bulk_tag.rs`, `vgm_metadata.rs` |
-| Settings dialog (Output row `:92`) + config (`OutputBackend:15`, `renders_samples:95`) | `crates/dro-ui/src/dialogs/settings.rs`, `crates/dro-core/src/config.rs` |
-| Pull engine (`PlayerEngine<B, C>:332`, `execute:653`), `OplChip` trait, muting/panning | `crates/dro-synth/src/engine.rs`, `opl.rs` |
-| RetroWave hardware backend (§3.7) | `crates/dro-retrowave/src/*`, `crates/dro-trimmer/src/services/retrowave.rs` |
-| cpal callback + command queue | `crates/dro-audio-native/src/lib.rs` |
-| `AudioService` trait (`:169`) + `FakeAudioService` (`test_support.rs:186`) | `crates/dro-ui/src/platform.rs` |
-| App shell: tabs, `load_file:2031`, transport, `menu_state:3958`, `ensure_audio:3860` | `crates/dro-ui/src/app.rs` |
-| Editor state + parse (`Editor::load:123`) | `crates/dro-ui/src/editor.rs` |
-| Channel panel (18-ch OPL — §2.1.11 wraps it) | `crates/dro-ui/src/widgets/channels.rs` |
-| Help dialog key tables (§4.2) | `crates/dro-ui/src/dialogs/help.rs` |
+| VGM header read/write, OPL gate (`read_uncompressed:203`, gate `:257`), `put_chip_clocks:467`, GD3 | `crates/vgms-core/src/vgm/io.rs` |
+| Command table (`mod command:9`, `command_size:120`), `VgmData`, `VgmMeta`, `Gd3Tag` | `crates/vgms-core/src/vgm/data.rs` |
+| `Song`, `SongData`, prefix sums, deletion sliding, `slide_index_past_deletion:747` | `crates/vgms-core/src/song.rs` |
+| Byte splicing shared by DRO+VGM deletes | `crates/vgms-core/src/song/splice.rs` |
+| Crop/delete-region + the OPL state-patch fold (§3.8) | `crates/vgms-core/src/crop.rs`, `state_patch.rs`, `opl_state.rs` |
+| vgmtools suite (§3.8) | `crates/vgms-core/src/optimize.rs`, `volume.rs`, `loopfind.rs`, `split_songs.rs` |
+| Pack pure layer: `TrackEntry:99`, `preset_for:323`, `readiness:1029` | `crates/vgms-core/src/pack.rs` |
+| Pack state/UI: `PackTrack:35`, `from_folder:153`, `validations:625`, `highest_opl:1021`, bulk tag, track table | `crates/vgms-ui/src/pack.rs` |
+| Pack export pipeline (optimize + gzip + zip) | `crates/vgms-app/src/pack_zip.rs` |
+| Quick-edit / bulk-tag / VGM metadata dialogs | `crates/vgms-ui/src/dialogs/track_edit.rs`, `bulk_tag.rs`, `vgm_metadata.rs` |
+| Settings dialog (Output row `:92`) + config (`OutputBackend:15`, `renders_samples:95`) | `crates/vgms-ui/src/dialogs/settings.rs`, `crates/vgms-core/src/config.rs` |
+| Pull engine (`PlayerEngine<B, C>:332`, `execute:653`), `OplChip` trait, muting/panning | `crates/vgms-synth/src/engine.rs`, `opl.rs` |
+| RetroWave hardware backend (§3.7) | `crates/vgms-retrowave/src/*`, `crates/vgms-app/src/services/retrowave.rs` |
+| cpal callback + command queue | `crates/vgms-audio-native/src/lib.rs` |
+| `AudioService` trait (`:169`) + `FakeAudioService` (`test_support.rs:186`) | `crates/vgms-ui/src/platform.rs` |
+| App shell: tabs, `load_file:2031`, transport, `menu_state:3958`, `ensure_audio:3860` | `crates/vgms-ui/src/app.rs` |
+| Editor state + parse (`Editor::load:123`) | `crates/vgms-ui/src/editor.rs` |
+| Channel panel (18-ch OPL — §2.1.11 wraps it) | `crates/vgms-ui/src/widgets/channels.rs` |
+| Help dialog key tables (§4.2) | `crates/vgms-ui/src/dialogs/help.rs` |
 | Vendored core pattern | `vendor/nuked-opl3` + root `Cargo.toml` patch |
 | Future work list | `TODO.md` |
 

@@ -12,7 +12,7 @@ work; they are 100% software-compatible with each other, so one backend covers b
 **VGM/VGZ files whose chip data is OPL2, dual-OPL2, or OPL3 only**. Dual-OPL2 *is*
 supported: the board's single YMF262 hosts both OPL2s via its two register arrays,
 exactly the mapping the emulator uses today (§3.5). Today this eligibility rule is
-vacuously true — `dro-core` hard-errors on VGMs containing any non-OPL command — but it
+vacuously true — `vgms-core` hard-errors on VGMs containing any non-OPL command — but it
 becomes a real gate when the any-chip VGM plan
 ([docs/vgm-multichip-2026-07/HANDOVER.md](../vgm-multichip-2026-07/HANDOVER.md)) lands;
 see §3.5 for the required seam.
@@ -164,22 +164,22 @@ Two candidate seams exist:
   mute/pan gating, seek-by-replay, loop-seam behavior ("no chip reset at the seam"),
   delay math (`FrameClock` integer carry) — and those must not drift between backends.
 - **B. Chip-level + wall-clock pump (chosen):** implement `OplChip`
-  ([opl.rs:12](../../crates/dro-synth/src/opl.rs)) for the serial device and drive the
+  ([opl.rs:12](../../crates/vgms-synth/src/opl.rs)) for the serial device and drive the
   *existing* `PlayerEngine` (via `PlayerEngine::with_chip`,
-  [engine.rs:359](../../crates/dro-synth/src/engine.rs)) from a plain thread paced by
+  [engine.rs:359](../../crates/vgms-synth/src/engine.rs)) from a plain thread paced by
   the wall clock instead of by a cpal callback. The engine already treats the chip as a
   write sink + sample generator; every engine behavior (mute/pan gating, loop seam,
   seek replay) flows through unchanged. The engine's `set_muting` even force-keys-off
   newly muted channels via `write_reg_buffered`
-  ([engine.rs:393-411](../../crates/dro-synth/src/engine.rs)), so hardware muting
+  ([engine.rs:393-411](../../crates/vgms-synth/src/engine.rs)), so hardware muting
   silences a sounding note exactly like the emulator — for free.
 
-The pump thread mirrors `dro-audio-native`'s structure (rtrb command queue in, shared
+The pump thread mirrors `vgms-audio-native`'s structure (rtrb command queue in, shared
 atomics out) so the service layer stays symmetric.
 
-### 3.1 New crate: `crates/dro-retrowave`
+### 3.1 New crate: `crates/vgms-retrowave`
 
-Native-only workspace member. Dependencies: `dro-core`, `dro-synth`, `serialport`,
+Native-only workspace member. Dependencies: `vgms-core`, `vgms-synth`, `serialport`,
 `rtrb`, `log` (+ `spin_sleep` pending the step-3 decision). Modules:
 
 - **`protocol`** — pure functions: `packed_len`, `pack`, and a `CmdBuffer` that
@@ -199,13 +199,13 @@ Native-only workspace member. Dependencies: `dro-core`, `dro-synth`, `serialport
 - **`chip`** — `SerialOpl3Chip: OplChip` (§3.4) — the register shadow + diff engine.
   Constructed with the song's `OplType` for OPL2-compatibility translation (§3.5).
 - **`player`** — `RetroWaveAudio`, the analog of `NativeAudio`
-  ([dro-audio-native/src/lib.rs:74](../../crates/dro-audio-native/src/lib.rs)): pump
+  ([vgms-audio-native/src/lib.rs:74](../../crates/vgms-audio-native/src/lib.rs)): pump
   thread + rtrb commands + shared atomics (`frames_rendered`, `next_instruction`,
   `finished`, `loop_iteration`, an `error` slot). The command vocabulary extends the
   native one (seek, rewind, muting, panning, loop config) with **`Pause` and `Resume`**
   — the native backend pauses via `cpal::Stream::pause()`, which has no pump analog,
   and pause/resume have real work to do on hardware (§3.3). `sample_rate()` reports
-  `NATIVE_SAMPLE_RATE` (49,716 — [lib.rs:37](../../crates/dro-synth/src/lib.rs)); this
+  `NATIVE_SAMPLE_RATE` (49,716 — [lib.rs:37](../../crates/vgms-synth/src/lib.rs)); this
   is load-bearing for the UI (§4.3).
 
 ### 3.2 The pump thread
@@ -252,7 +252,7 @@ of routine unload — it happens only when the owner tears the Device down for g
 A real YMF262 keeps sounding whatever its registers say, forever. Pause therefore must
 silence it, and resume must restore it — *without* disturbing the engine, because
 `seek_to_pos` is not position-preserving (it zeroes the in-progress delay and restarts
-the loop counters, [engine.rs:579-594](../../crates/dro-synth/src/engine.rs)); pausing
+the loop counters, [engine.rs:579-594](../../crates/vgms-synth/src/engine.rs)); pausing
 mid-delay and resuming via seek would audibly skip and corrupt the "loop 2/5" readout.
 
 - **Pause**: stop advancing the engine. Emit **transient** writes — key-off (bit 5
@@ -271,13 +271,13 @@ mid-delay and resuming via seek would audibly skip and corrupt the "loop 2/5" re
 
 The naive chip ("every `write_reg` becomes wire bytes") fails two ways: the engine's
 seek path replays *every historical register write* from position 0
-([engine.rs:579-594](../../crates/dro-synth/src/engine.rs) → `execute` →
+([engine.rs:579-594](../../crates/vgms-synth/src/engine.rs) → `execute` →
 `chip.write_reg` per instruction), which would stream potentially hundreds of
 thousands of writes to the device — seconds of transfer during which the chip audibly
 zips through the song's history — and paused seeks would re-arm key-on bits that pause
 had cleared.
 
-Instead the chip keeps two 2×256 register files (the same shape as `dro-core`'s
+Instead the chip keeps two 2×256 register files (the same shape as `vgms-core`'s
 `OplState`, whose diff-of-two-folds pattern the crop feature already proved):
 
 - `shadow` — the *target* state: **every** write (`write_reg` and
@@ -323,11 +323,11 @@ the wire, the chip stays silent with its keys off — resume's materialize catch
 everything up. The pause-deferral quirks of `NativeAudioService` are *not* needed for
 queue reasons (the pump always drains), but this shadow gating is the hardware
 equivalent — document the asymmetry where the native service documents its deferrals
-([services/audio.rs:8-13](../../crates/dro-trimmer/src/services/audio.rs)).
+([services/audio.rs:8-13](../../crates/vgms-app/src/services/audio.rs)).
 
 `generate_samples` zero-fills (trivially chunk-invariant). Bank addressing follows the
 engine's existing convention (bank encoded as a `0x100` register offset,
-[engine.rs:654](../../crates/dro-synth/src/engine.rs); DRO v1 `BankSwitch` is already
+[engine.rs:654](../../crates/vgms-synth/src/engine.rs); DRO v1 `BankSwitch` is already
 folded into that offset by the engine). The `stereo-ext` panpot pseudo-registers
 (`0xD0..=0xD8` per bank) are recorded in the shadow but **never** emitted — real
 hardware has no such registers.
@@ -364,8 +364,8 @@ already plays today. Not a regression.)
 exactly what one YMF262 can express: DRO files, and VGM/VGZ whose chip data is
 OPL2 / dual-OPL2 / OPL3 — nothing else, and no mixed-chip VGMs (a song pairing OPL3
 with, say, a SN76489 cannot split its audio between the device's analog jack and the
-PC speakers). Today every loadable song qualifies, because `dro-core`'s VGM reader
-hard-errors on non-OPL commands ([data.rs](../../crates/dro-core/src/vgm/data.rs),
+PC speakers). Today every loadable song qualifies, because `vgms-core`'s VGM reader
+hard-errors on non-OPL commands ([data.rs](../../crates/vgms-core/src/vgm/data.rs),
 `build_offsets`). When the any-chip plan
 ([docs/vgm-multichip-2026-07/HANDOVER.md](../vgm-multichip-2026-07/HANDOVER.md))
 relaxes that, it must also add a chip-set query on `Song` (e.g.
@@ -390,7 +390,7 @@ in the multichip handover when that work starts.
 | Channel mute/solo | Engine gates writes *and* force-keys-off newly muted channels — reaches hardware via the buffered path unchanged. |
 | Panning | Panpot pseudo-regs filtered (§3.4); per-channel pan is inert on hardware → grey out the pan sliders in hardware mode (like boost), tooltip "panning applies to emulated output only". |
 | Boost / limiter | PCM-domain — meaningless here. `min_engaged_boost` → `None`; the transport's boost stepper (it lives in the controls panel, not Settings) is disabled in hardware mode. |
-| VU meter | No PCM → `take_peaks` returns `None`; the meter already decays to silence on `None` ([peak_meter.rs:48-49](../../crates/dro-ui/src/widgets/peak_meter.rs)). (Optional later: a "monitor" mode wrapping a parallel `NukedOpl3` for meter data only.) |
+| VU meter | No PCM → `take_peaks` returns `None`; the meter already decays to silence on `None` ([peak_meter.rs:48-49](../../crates/vgms-ui/src/widgets/peak_meter.rs)). (Optional later: a "monitor" mode wrapping a parallel `NukedOpl3` for meter data only.) |
 | Waveform display | Unchanged — always an offline Nuked render; the live cursor derives from `position()` at 49,716 Hz (§4.3). |
 | Natural end | Pump emits the **chip-level** mute sweep when `finished` flips (keeps `hw` truthful, §3.4), so tails don't ring forever and replay-after-end reconstructs correctly. |
 | Device unplugged / write error | Pump parks, publishes the error, **and sets the finished/error atomics so `is_playing()` goes false** — transport UI recovers alongside the error toast; `play()` errors until a successful reload. |
@@ -402,9 +402,9 @@ in the multichip handover when that work starts.
 
 ## 4. Integration points
 
-### 4.1 Config (`dro-core`)
+### 4.1 Config (`vgms-core`)
 
-Extend `AudioConfig` ([config.rs:14](../../crates/dro-core/src/config.rs)):
+Extend `AudioConfig` ([config.rs:14](../../crates/vgms-core/src/config.rs)):
 
 ```rust
 pub output_backend: OutputBackend,   // enum { Emulated (default), RetroWave }
@@ -415,13 +415,13 @@ INI keys `[audio] output_backend = emulated|retrowave`, `retrowave_port = COM5`,
 through `apply_ini`/`to_ini_string`/`validate` with round-trip tests. Per the config's
 established convention, an *unrecognized* `output_backend` value errors and discards
 the whole document back to defaults (which are Emulated — playback still works); no
-special-case silent fallback. `dro-core` stays wasm-clean — plain data fields; web
+special-case silent fallback. `vgms-core` stays wasm-clean — plain data fields; web
 ignores them.
 
-### 4.2 Backend switching (`dro-trimmer` services)
+### 4.2 Backend switching (`vgms-app` services)
 
-`DroApp` keeps its single `Box<dyn AudioService>`. The switch lives inside a new
-composite in `crates/dro-trimmer/src/services/audio.rs`:
+`VgmStudioApp` keeps its single `Box<dyn AudioService>`. The switch lives inside a new
+composite in `crates/vgms-app/src/services/audio.rs`:
 
 ```rust
 SwitchingAudioService {
@@ -437,7 +437,7 @@ stream when switching to hardware). This is also where the §3.5 eligibility gat
 live once the any-chip VGM work lands: a song that is not OPL-only routes to `native`
 for that load regardless of the configured backend (with a notice; today this branch
 is unreachable). `list_hardware_ports()` calls
-`dro_retrowave::device::enumerate()` **directly** — no inner service needed, so the
+`vgms_retrowave::device::enumerate()` **directly** — no inner service needed, so the
 Settings dropdown works while the emulator is active (first-run setup flow).
 
 **Port ownership across loads:** every editor edit invalidates `audio_revision` and the
@@ -451,14 +451,14 @@ default; that is the desired behavior, surfaced not swallowed).
 
 **When the switch takes effect:** `apply_settings` clears `audio_revision`, so a
 backend change normally lands at the *next* play-triggering action
-([app.rs:2882-2918](../../crates/dro-ui/src/app.rs)). That leaves the old backend
+([app.rs:2882-2918](../../crates/vgms-ui/src/app.rs)). That leaves the old backend
 playing and the port held after Save — so `apply_settings` additionally calls
 `audio.unload()` when `output_backend` or `retrowave_port` changed (one small, explicit
 addition to the otherwise zero-plumbing path).
 
 `RetroWaveAudioService::output_rate()` returns `Some(49_716)`.
 
-### 4.3 `AudioService` trait additions (`dro-ui/src/platform.rs`)
+### 4.3 `AudioService` trait additions (`vgms-ui/src/platform.rs`)
 
 Two defaulted methods so web/fake impls need no changes:
 
@@ -470,10 +470,10 @@ fn last_error(&mut self) -> Option<String> { None }   // drained once per poll
 `playback_tick` polls `last_error` and raises the standard error toast. Note
 `output_rate()` is load-bearing for hardware mode: `push_loop_config` denominates
 `LoopConfig::start_frames` in it and `ensure_audio` retunes the position readout from
-it ([app.rs:3222-3227, 3284-3289](../../crates/dro-ui/src/app.rs)); returning anything
+it ([app.rs:3222-3227, 3284-3289](../../crates/vgms-ui/src/app.rs)); returning anything
 but 49,716 would skew the cursor and loop seam by ~3.5%. Covered by a service test.
 
-### 4.4 Settings UI (`dro-ui/src/dialogs/settings.rs`)
+### 4.4 Settings UI (`vgms-ui/src/dialogs/settings.rs`)
 
 New "Output" section above the existing audio grid:
 
@@ -490,11 +490,11 @@ New "Output" section above the existing audio grid:
 Emits the existing `Action::ApplySettings(Box<AppConfig>)`. kittest snapshots change;
 regenerate with `UPDATE_SNAPSHOTS=1` per the established baseline process.
 
-### 4.5 CLI (`dro-trimmer/src/cli/play.rs`)
+### 4.5 CLI (`vgm-studio/src/cli/play.rs`)
 
-`drotrim play --output retrowave[:COM5] file.dro`. The current `play()` takes
+`vgmstudio play --output retrowave[:COM5] file.dro`. The current `play()` takes
 `NativeAudio` concretely, so first extract the poll loop (`is_finished`/`position`)
-into a small generic function, then branch on the flag. Also `drotrim retrowave-probe`:
+into a small generic function, then branch on the flag. Also `vgmstudio retrowave-probe`:
 dump all serial ports with full USB descriptors (VID/PID/strings — this is how we learn
 what the real devices report), open the chosen one, play a two-second test chord, mute,
 exit. First hardware smoke test and a user support tool.
@@ -550,7 +550,7 @@ exit. First hardware smoke test and a user support tool.
    app exit silences device. Tune the 200 ms settle down if tolerated.
 
 CI note: workspace tests run on **windows-latest only**; the Linux jobs are per-crate
-(wasm check + c-parity) and never build `dro-retrowave`, so serialport's Linux-side
+(wasm check + c-parity) and never build `vgms-retrowave`, so serialport's Linux-side
 `libudev` needs no CI change today. If a Linux workspace job is ever added, install
 `libudev-dev` or disable serialport's default `libudev` feature (losing USB metadata).
 
@@ -558,16 +558,16 @@ CI note: workspace tests run on **windows-latest only**; the Linux jobs are per-
 
 ## 6. Staged implementation checklist (one commit per step, workspace green each step)
 
-1. **feat(retrowave): protocol + command building** — `dro-retrowave` crate,
+1. **feat(retrowave): protocol + command building** — `vgms-retrowave` crate,
    `protocol` module, §5.1–5.2 tests. No I/O yet.
 2. **feat(retrowave): device layer** — `SerialIo` + serialport impl + `enumerate()` +
-   init/reset/mute. `drotrim retrowave-probe` subcommand (▶ *user smoke test*: descriptor
+   init/reset/mute. `vgmstudio retrowave-probe` subcommand (▶ *user smoke test*: descriptor
    dump decides the §3.1 heuristic + §4.4 label format; chord proves the wire format).
 3. **feat(retrowave): chip + pump** — `SerialOpl3Chip` shadow/diff, OPL2 translation,
    `RetroWaveAudio` pump, §5.3–5.4 tests. Decide std-sleep vs spin_sleep here.
 4. **feat(core): audio backend config** — `AudioConfig` fields + INI round-trip.
 5. **feat(app): switching service** — `RetroWaveAudioService` (persistent Device) +
-   `SwitchingAudioService` wired at `drotrim.rs`; `AudioService` trait additions;
+   `SwitchingAudioService` wired at `vgmstudio.rs`; `AudioService` trait additions;
    `apply_settings` unload-on-backend-change.
 6. **feat(ui): output settings** — settings dialog Output section, greyed PCM rows,
    pan/boost disabling, error toast path, snapshots (▶ *user end-to-end test*).
@@ -607,13 +607,13 @@ these are the differences worth knowing.
 
 - It enumerates as **USB `04d8:e966`** (a Microchip VID) — the first published ID for
   this hardware anywhere, as far as we can tell. `KNOWN_USB_IDS` in
-  [device.rs](../../crates/dro-retrowave/src/device.rs) carries it.
+  [device.rs](../../crates/vgms-retrowave/src/device.rs) carries it.
 - The §3.1 Windows caveat was exactly right, and worse than feared: the board reports
   manufacturer "Microsoft" and product "USB Serial Device (COM3)", both from
   `usbser.sys`. **No product-string match can ever work on Windows.** Detection is by
   USB ID, with `is_generic_description` suppressing the placeholder so the picker shows
   a bare port name rather than a misleading one.
-- The wire format is right: `drotrim retrowave-probe` plays a chord on each register
+- The wire format is right: `vgmstudio retrowave-probe` plays a chord on each register
   bank, and an OPL2 DRO plays in real time (2.68 s of song took 3.09 s of wall clock,
   the difference being process startup and the connect sequence).
 
@@ -629,7 +629,7 @@ these are the differences worth knowing.
 - **`spin_sleep` was dropped** (the step-3 decision the plan left open). Since Rust
   1.75 `std::thread::sleep` uses high-resolution timers on Windows, which is finer
   than the 1.3 ms quantum. One less dependency.
-- **The CLI flag landed with step 3, not step 7**, because `drotrim play --retrowave`
+- **The CLI flag landed with step 3, not step 7**, because `vgmstudio play --retrowave`
   is how the pump was verified on hardware in the first place.
 - **`AppConfig` lost `Copy`** — an owned port name is a `String`. Eight call sites now
   clone, which is what they were doing implicitly anyway.
@@ -651,11 +651,11 @@ these are the differences worth knowing.
 
 - Provenance of every §1 fact: see §2.
 - Architecture seams verified against the repo on 2026-07-23: engine
-  [engine.rs](../../crates/dro-synth/src/engine.rs), chip trait
-  [opl.rs](../../crates/dro-synth/src/opl.rs), native driver
-  [dro-audio-native](../../crates/dro-audio-native/src/lib.rs), service seam
-  [platform.rs](../../crates/dro-ui/src/platform.rs), config
-  [config.rs](../../crates/dro-core/src/config.rs), settings dialog
-  [settings.rs](../../crates/dro-ui/src/dialogs/settings.rs).
+  [engine.rs](../../crates/vgms-synth/src/engine.rs), chip trait
+  [opl.rs](../../crates/vgms-synth/src/opl.rs), native driver
+  [vgms-audio-native](../../crates/vgms-audio-native/src/lib.rs), service seam
+  [platform.rs](../../crates/vgms-ui/src/platform.rs), config
+  [config.rs](../../crates/vgms-core/src/config.rs), settings dialog
+  [settings.rs](../../crates/vgms-ui/src/dialogs/settings.rs).
 - [SudoMaker/RetroWave](https://github.com/SudoMaker/RetroWave) (AGPL — see §2),
   [RetroWave OPL3 Express product page](https://shop.sudomaker.com/products/retrowave-opl3-express).

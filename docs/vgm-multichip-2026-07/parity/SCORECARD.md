@@ -192,8 +192,8 @@ search is quadratic in the rate.
 
 ## The next run
 
-`DROTRIM_PARITY_DUMP` writes both sides of every flagged pair as WAVs, and
-`DROTRIM_PARITY_CACHE` makes a repeat run minutes rather than an hour. Start
+`VGMSTUDIO_PARITY_DUMP` writes both sides of every flagged pair as WAVs, and
+`VGMSTUDIO_PARITY_CACHE` makes a repeat run minutes rather than an hour. Start
 with the three near-silent chips: whatever is wrong there is large enough to
 find quickly, and until it is found their thresholds cannot mean anything.
 
@@ -366,7 +366,7 @@ says is open, each with a tripwire under its current level.
 
 ## The ADPCM sections land (2026-07-28)
 
-Clean-room ADPCM-A and Delta-T (`dro-synth/src/adpcm.rs`, glue in `opn.rs`),
+Clean-room ADPCM-A and Delta-T (`vgms-synth/src/adpcm.rs`, glue in `opn.rs`),
 measured the same day:
 
 | Chip | corr before | corr after | note |
@@ -426,7 +426,7 @@ section through the registry — when that work is scheduled.
 
 ## The 2608 die arrives with the drums (2026-07-28)
 
-The 2608 die is wrapped (`dro-cores-gpl/src/lle_opna.rs`): the DRAM bus
+The 2608 die is wrapped (`vgms-cores-gpl/src/lle_opna.rs`): the DRAM bus
 served pin by pin, and — the point — **the decapped internal rhythm mask
 ROM plays**. A bass-drum key-on with no sample block loaded sounds, from
 silicon this project could never ship by any other route. Two packages, two
@@ -565,7 +565,7 @@ evidence.
 **Three ways to get a meaningless number, all met on the way.** Each produced a
 plausible score, which is why they are written down:
 
-1. **No `DROTRIM_REF_CONFIG`.** The pinned ini is what the harness rewrites the
+1. **No `VGMSTUDIO_REF_CONFIG`.** The pinned ini is what the harness rewrites the
    render rate into, so without it the reference rendered at its own 44100
    while we rendered at 223721. Every core scored ≈0.006 — including the
    clean-room one, whose frozen row is 0.586. A baseline that fails to
@@ -581,8 +581,8 @@ plausible score, which is why they are written down:
    the core under test.
 
 Two harness affordances came out of it, both of which lv-4 needs per chip:
-`DROTRIM_PARITY_CORE` (measure a provider that is not the default yet) and
-`DROTRIM_PARITY_CHIPS` (measure one chip instead of thirty-nine, an hour into a
+`VGMSTUDIO_PARITY_CORE` (measure a provider that is not the default yet) and
+`VGMSTUDIO_PARITY_CHIPS` (measure one chip instead of thirty-nine, an hour into a
 minute).
 
 **A property worth knowing before the next chip.** Maxim's SN76489 *ignores*
@@ -777,7 +777,7 @@ carry a `0xC3`, so the sample is not sparse in them:
 | core | before | after |
 |---|---|---|
 | clean-room (default) | corr 0.0343, lvl 0.413, **drop 0.111** | corr 0.0338, lvl **0.491**, **drop 0.030** |
-| libvgm (`DROTRIM_PARITY_CORE=libvgm`) | corr 0.0780, lvl 2.104, +36.0 cents | corr 0.0780, lvl 2.141, +36.0 cents |
+| libvgm (`VGMSTUDIO_PARITY_CORE=libvgm`) | corr 0.0780, lvl 2.104, +36.0 cents | corr 0.0780, lvl 2.141, +36.0 cents |
 
 The X1-010 lesson again, and more sharply: **correlation did not move at all**,
 and would have reported this fix as a no-op. Level and dropout are what a bank
@@ -807,7 +807,7 @@ differently from upstream? Every `Cmd_*` handler in libvgm's
 `vgmplayer_cmdhandler.cpp` was read against its arm of `decode()` (and against
 the write rules and cores downstream of it), and every suspected divergence
 was then *counted* over the corpus — a Python walk driven by
-`drotrim-chip-index.tsv`, so only the files declaring the chip are opened.
+`vgmstudio-chip-index.tsv`, so only the files declaring the chip are opened.
 Three real bugs, all fixed; a tail of inert divergences, recorded.
 
 **1. `0xB2` (PWM) is `Cmd_Ofs4_Data12`, not `Cmd_Ofs8_Data8`** (`a837273`).

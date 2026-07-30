@@ -1,10 +1,10 @@
-# dro-vgmtools: where the code came from, and why it is not ours
+# vgms-vgmtools: where the code came from, and why it is not ours
 
 ## What is here
 
 Three programs from [vgmtools](https://github.com/vgmrips/vgmtools), built from
 the pinned submodule at `vendor/upstream/vgmtools` and shipped inside the
-`drotrim` binary:
+`vgmstudio` binary:
 
 | Tool | What it does |
 |---|---|
@@ -30,8 +30,8 @@ invokes that command, but it is why the runner's deadline is not optional.
 vgmtools is **GPL-2.0** and ships a `LICENSE` saying so -- unlike libvgm, where
 the grant is unresolved and this workspace had to guess conservatively. This
 crate is therefore GPL-2.0-or-later, and only the copyleft half of the
-workspace links it: `dro-ui` (Edit > Optimize) and `dro-trimmer` (the CLI and
-pack export). `dro-core` and `dro-synth` stay MIT OR Apache-2.0 and never
+workspace links it: `vgms-ui` (Edit > Optimize) and `vgms-app` (the CLI and
+pack export). `vgms-core` and `vgms-synth` stay MIT OR Apache-2.0 and never
 depend on it.
 
 Because the executables are built into the distributed binary, the About box
@@ -44,7 +44,7 @@ tests plus the corpus render parity.
 
 ## Why bind rather than re-implement
 
-`dro_core::chip_state::latch_rule` optimises three chips, and its doc comment
+`vgms_core::chip_state::latch_rule` optimises three chips, and its doc comment
 explains the discipline: a chip earns a redundancy rule by being checked,
 because a register that *triggers* on write rather than latching makes the
 generic "same value, drop it" rule audibly wrong, and the failure is silent --
@@ -107,7 +107,7 @@ reason on it:
   those 23 files play. Whether that blames the trim or our own handling of the
   several smaller `0x67` blocks it splits one into is still open; the
   discriminating experiment (play a trimmed file through VGMPlay) is named in
-  `dro-trimmer/tests/optimize_parity.rs`.
+  `vgm-studio/tests/optimize_parity.rs`.
 - **K053260** and **SegaPCM**, from `vgm_sro` -- upstream's own wiki:
   *"It will still incorrectly strip K053260 PCM roms"*, and *"SegaPCM support
   isn't 100% safe. That means there may be samples stripped off despite them
