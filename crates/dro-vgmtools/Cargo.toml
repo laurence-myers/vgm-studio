@@ -27,6 +27,9 @@ cc.workspace = true
 [dev-dependencies]
 # The golden tests read fixtures the same way the crate's callers will.
 dro-core.workspace = true
+# Plenty of files named `.vgm` are gzip inside, so the corpus test unpacks
+# them exactly as the app does before handing bytes to a tool.
+flate2.workspace = true
 
 [lints.rust]
 # The tool entry points are `extern "C"`, and the temp-file plumbing around
