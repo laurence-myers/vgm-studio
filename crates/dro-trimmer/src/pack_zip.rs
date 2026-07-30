@@ -119,48 +119,72 @@ fn process_entry(
 
 /// Optimises one song's bytes when it is a VGM that shrinks, logging the saving.
 ///
-/// A DRO, an already-optimal VGM, or any read/write failure passes through
-/// unchanged and never fails the export -- the same never-fatal posture as the
-/// PNG path. The bytes stay in the song's own container (a `.vgm` stays plain,
-/// so the gzip step can still compress it; a `.vgz` stays gzipped).
+/// A DRO, an already-optimal VGM, or any failure passes through unchanged and
+/// never fails the export -- the same never-fatal posture as the PNG path. The
+/// result is plain bytes, so the gzip step can still compress it.
 ///
-/// One optimiser, for every chip. It strips only what its per-chip rules call
-/// safe and has rules for a handful of chips so far -- so an OPL or Mega Drive
-/// rip shrinks and a Neo Geo one comes back untouched, byte for byte, with the
-/// log saying which chips were left alone rather than implying the file was
-/// unreadable.
+/// Every chip, through the vgmtools optimisers plus this app's own pass. What
+/// each stage did goes in the log: a stage that shrank the file, a stage held
+/// back, and a stage that failed are three different things, and one byte count
+/// cannot tell them apart. A Neo Geo rip that comes back byte for byte should
+/// say which chips were left alone rather than look unreadable.
 fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
-    let Ok(mut file) = dro_core::vgm::file::read(name, bytes) else {
+    let Ok(file) = dro_core::vgm::file::read(name, bytes) else {
         // A DRO, or something unreadable. Either way it passes through.
         log.push(format!("{name}: kept as-is (not a readable VGM)"));
         return bytes.to_vec();
     };
-    let removed = file.optimize();
-    let skipped = file.unoptimised_chips();
+    // The optimisers take plain bytes, and a pack entry may already be a `.vgz`.
+    let Ok(plain) = dro_core::vgm::file::write(&file) else {
+        log.push(format!("{name}: kept as-is (could not be prepared)"));
+        return bytes.to_vec();
+    };
 
-    match (removed, skipped.is_empty()) {
-        (Some(removed), _) => match dro_core::vgm::file::write(&file) {
-            Ok(optimised) => {
-                log.push(format!(
-                    "{name}: {} -> {} bytes (optimized, {removed} command(s))",
-                    bytes.len(),
-                    optimised.len()
-                ));
-                optimised
+    let result = dro_vgmtools::optimize_vgm(&plain, dro_vgmtools::Options::default());
+
+    if result.changed() {
+        log.push(format!(
+            "{name}: {} -> {} bytes (optimized, {} saved)",
+            bytes.len(),
+            result.bytes.len(),
+            result.saved()
+        ));
+    }
+    // Only the stages worth a line: "nothing to gain" is the common case and
+    // would bury the rest.
+    for stage in &result.stages {
+        match &stage.outcome {
+            dro_vgmtools::StageOutcome::Shrank { from, to } => {
+                log.push(format!("{name}:   {} {from} -> {to} bytes", stage.name));
             }
-            Err(error) => {
-                log.push(format!("{name}: kept as-is (could not write: {error})"));
-                bytes.to_vec()
+            dro_vgmtools::StageOutcome::Failed(reason) => {
+                log.push(format!("{name}:   {} failed: {reason}", stage.name));
             }
-        },
-        (None, false) => {
-            log.push(format!(
-                "{name}: kept as-is ({} not optimised yet)",
-                skipped.join(", ")
-            ));
-            bytes.to_vec()
+            dro_vgmtools::StageOutcome::Skipped(reason) => {
+                log.push(format!("{name}:   {} skipped: {reason}", stage.name));
+            }
+            dro_vgmtools::StageOutcome::Unchanged => {}
         }
-        (None, true) => bytes.to_vec(), // already optimal
+    }
+
+    let untouched: Vec<&str> = file
+        .header
+        .chips()
+        .iter()
+        .filter(|chip| dro_vgmtools::passthrough_chips().contains(&chip.kind))
+        .map(|chip| chip.kind.name())
+        .collect();
+    if !untouched.is_empty() {
+        log.push(format!(
+            "{name}: {} not optimised yet -- their writes were all kept",
+            untouched.join(", ")
+        ));
+    }
+
+    if result.changed() {
+        result.bytes
+    } else {
+        bytes.to_vec()
     }
 }
 
@@ -316,13 +340,32 @@ mod tests {
         assert_eq!(reread.chip_list(), "YM2612");
     }
 
+    /// The YMZ280B used to be the example of a chip with no rules. It is not
+    /// any more -- `vgm_cmp` has a table for it, and that widening from three
+    /// chips to about thirty is the whole point of binding the tools.
+    #[test]
+    fn a_chip_the_built_in_pass_cannot_touch_is_optimised_by_the_tools() {
+        let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
+        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
+            .unwrap()
+            .unwrap();
+        let files = read_zip(&output.bytes);
+        assert!(
+            files[0].1.len() < original.len(),
+            "the YMZ280B's repeated write should now be dropped"
+        );
+        let reread = dro_core::vgm::file::read("01 Arcade.vgm", &files[0].1).unwrap();
+        assert_eq!(reread.chip_list(), "YMZ280B");
+    }
+
     /// A chip with no redundancy rules keeps every write. The export says which
     /// chip it left alone rather than implying the file was unreadable -- being
     /// smaller is not worth being silently wrong.
     #[test]
     fn a_chip_without_rules_ships_verbatim_and_says_so() {
-        // A YMZ280B, which has no rule table, writing the same value twice.
-        let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
+        // A K053260: `vgm_cmp` has a handler for it, but it is commented out
+        // (`chip_cmp.c:10` still lists it as a TODO), so every write is kept.
+        let original = non_opl_vgm(0xAC, &[0xBA, 0x01, 0x40, 0xBA, 0x01, 0x40, 0x66]);
         let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
             .unwrap()
             .unwrap();
@@ -332,7 +375,7 @@ mod tests {
             output
                 .log
                 .iter()
-                .any(|line| line.contains("YMZ280B not optimised yet")),
+                .any(|line| line.contains("K053260 not optimised yet")),
             "log: {:?}",
             output.log
         );
