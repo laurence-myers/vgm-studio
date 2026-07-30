@@ -1,6 +1,6 @@
 ## Rust rewrite (in progress)
 
-The `rust` branch is porting DRO Trimmer to Rust; the Python sources under `src/`
+The `rust` branch is porting VGM Studio to Rust; the Python sources under `src/`
 stay put during the transition, for parity comparison. Both suites run.
 
 The workspace is licensed in **two halves**, and which half a file is in decides
@@ -54,18 +54,18 @@ cargo clippy --workspace --all-targets -- -D warnings        # lint
 cargo check --target wasm32-unknown-unknown -p dro-core -p dro-synth   # wasm stays clean
 ```
 
-### The `drotrim` command line
+### The `vgmstudio` command line
 
 The workspace builds **one executable**. Run it with no arguments (or with just a
 file) for the GUI; run it with a subcommand for what used to be the `dro_player`,
 `dro_split` and `dro2to1` binaries:
 
 ```PowerShell
-cargo run -p dro-trimmer -- help                    # list the subcommands
-cargo run -p dro-trimmer -- play song.dro           # play through the speakers
-cargo run -p dro-trimmer -- render song.dro         # write song.dro.wav
-cargo run -p dro-trimmer -- split song.dro          # one WAV per channel used
-cargo run -p dro-trimmer -- split --song song.vgm   # one VGM per channel instead
+cargo run -p vgms-app -- help                    # list the subcommands
+cargo run -p vgms-app -- play song.dro           # play through the speakers
+cargo run -p vgms-app -- render song.dro         # write song.dro.wav
+cargo run -p vgms-app -- split song.dro          # one WAV per channel used
+cargo run -p vgms-app -- split --song song.vgm   # one VGM per channel instead
 ```
 
 DRO v2 -> v1 conversion (the old `dro2to1`) is GUI-only now, under Edit >
@@ -76,13 +76,13 @@ executable so double-clicking it does not flash a console window:
 
 - An interactive shell does not wait for a GUI-subsystem process, so the prompt
   comes back immediately and the subcommand's output interleaves with it. Piping
-  (`drotrim help | more`) and `cmd`-style redirection (`cmd /c "drotrim help >
+  (`vgmstudio help | more`) and `cmd`-style redirection (`cmd /c "vgmstudio help >
   out.txt"`) both capture it, but **PowerShell's `>` writes an empty file** —
   PowerShell has already moved on by the time the process prints. Debug builds
   are console-subsystem and behave like any other console program, so this only
   affects a release build run by hand.
 - A file whose name is exactly `play`, `render`, `split`, `convert` or `help`
-  parses as a subcommand. Open it as `drotrim .\play`.
+  parses as a subcommand. Open it as `vgmstudio .\play`.
 
 Run the file-format round trips as real wasm, under Node. The CLI version must
 match the `wasm-bindgen` version in `Cargo.lock`:
@@ -157,7 +157,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 ## Run
 
 ```PowerShell
-python -m src.drotrimmer.drotrim 
+cargo run -p vgms-app
 ```
 
 ## RetroWave OPL3 hardware output
@@ -170,7 +170,7 @@ be set to USB.
 Check that the board is found and makes sound:
 
 ```PowerShell
-drotrim retrowave-probe
+vgmstudio retrowave-probe
 ```
 
 That lists every serial port with its USB descriptors, then plays a chord on each
@@ -181,7 +181,7 @@ name "USB Serial Device", so it is recognised by USB ID (`04d8:e966`) instead.
 Play a song through it:
 
 ```PowerShell
-drotrim play song.dro --retrowave
+vgmstudio play song.dro --retrowave
 ```
 
 Note the protocol is write-only: the host cannot tell whether the board understood

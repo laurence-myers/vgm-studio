@@ -22,7 +22,7 @@
   file is safe rather than merely likely to be; the CLI names any such chips so
   a file that could not shrink does not look like one that had nothing to gain. Reached three ways: Edit > Optimize VGM
   (undoable), the "Optimize VGMs on export" pack checkbox (default on, runs before
-  the gzip step), and `drotrim optimize <in> [out]`. Route B (independent
+  the gzip step), and `vgmstudio optimize <in> [out]`. Route B (independent
   implementation from chip facts, not a port of vgmtools), which is what lets it
   live in the permissive `dro-core`; the correctness net is render parity
   through nuked-opl3 with
@@ -111,7 +111,7 @@
     two decimals) so every position is a real modifier value. By default the
     volume is per-song: opening a song sets it from that song's header volume
     modifier (unity for a DRO) and manual changes are transient (not written to
-    drotrim.ini). A "Lock" toggle keeps the volume across songs and persists it,
+    vgmstudio.ini). A "Lock" toggle keeps the volume across songs and persists it,
     like the old behaviour; unlocking snaps back to the current song's modifier.
     Arrows step ~1.0 at unity and above, ~0.1 below; a typed value snaps to the
     ladder. Behind it the

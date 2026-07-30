@@ -10,7 +10,7 @@ docs/readme.html
 *.wav
 
 # ...except the committed test fixtures: the DRO/VGM songs the format tests read,
-# and the known-good renders `dro-synth`'s render_regression compares against.
+# and the known-good renders `vgms-synth`'s render_regression compares against.
 !tests/*.dro
 !tests/render/*.wav
 
@@ -19,6 +19,6 @@ docs/readme.html
 
 # egui_kittest snapshot diffs (the committed baselines are the *.png without a
 # suffix; these are regenerated on every failing run).
-crates/dro-ui/tests/snapshots/*.new.png
-crates/dro-ui/tests/snapshots/*.diff.png
-crates/dro-ui/tests/snapshots/*.old.png
+crates/vgms-ui/tests/snapshots/*.new.png
+crates/vgms-ui/tests/snapshots/*.diff.png
+crates/vgms-ui/tests/snapshots/*.old.png

@@ -1,4 +1,4 @@
-# Vendored `nuked-opl3` 0.1.0 (dro-trimmer local patch)
+# Vendored `nuked-opl3` 0.1.0 (vgms-app local patch)
 
 This is a copy of `nuked-opl3` 0.1.0 from crates.io with **two one-line defect
 fixes** and **one deliberate pan-law change** in `src/core.rs`, applied so the

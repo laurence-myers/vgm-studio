@@ -1,4 +1,4 @@
-DRO Trimmer is licensed under the terms of the GNU General Public License,
+VGM Studio is licensed under the terms of the GNU General Public License,
 version 2 or (at your option) any later version (GPL-2.0-or-later).
 
 Copyright (c) 2008 - 2026 Laurence Dougal Myers
@@ -17,12 +17,12 @@ this program; if not, see <https://www.gnu.org/licenses/>. The full license
 text is also in the LICENSE file at the root of the source distribution.
 
 Complete corresponding source code is available at:
-https://github.com/laurence-myers/dro-trimmer
+https://github.com/laurence-myers/vgm-studio
 
 
 WHY GPL, AND WHAT IS NOT
 
-DRO Trimmer plays VGM and DRO files by linking chip emulator cores, and the
+VGM Studio plays VGM and DRO files by linking chip emulator cores, and the
 most accurate core for a given chip is often published under the GPL or the
 LGPL (the Nuked family, the low-level-emulation cores). Accuracy was chosen
 over license convenience, so the program as distributed is GPL-2.0-or-later.

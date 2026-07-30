@@ -6,7 +6,7 @@ members = ["crates/*"]
 exclude = ["vendor/nuked-opl3"]
 
 # Serve `nuked-opl3` from a locally patched copy (two upstream-PR-material fixes to
-# the `stereo-ext` path; see vendor/nuked-opl3/README.vgms-app.md). The version
+# the `stereo-ext` path; see vendor/nuked-opl3/README.vgm-studio.md). The version
 # and API are identical to 0.1.0, so `nuked-opl3 = "0.1"` above still resolves and
 # the `[profile.dev.package.nuked-opl3]` tuning below still matches by name. Remove
 # this and the vendor/ dir once a release carrying the fixes reaches crates.io.
@@ -30,7 +30,7 @@ rust-version = "1.97"
 # are reusable on their own; copyleft cores live in provider crates only the
 # app depends on, never in vgms-synth.
 authors = ["Laurence Dougal Myers"]
-repository = "https://github.com/laurence-myers/vgms-app"
+repository = "https://github.com/laurence-myers/vgm-studio"
 
 [workspace.dependencies]
 vgms-core = { path = "crates/vgms-core" }
@@ -49,7 +49,7 @@ vgms-vgmtools = { path = "crates/vgms-vgmtools" }
 
 # The GUI toolkit. All three move in lock-step (with egui_kittest below).
 # Since 0.34, eframe's default renderer is wgpu -- glow left the default
-# feature set, so drotrim renders via DX12/Vulkan on Windows.
+# feature set, so vgmstudio renders via DX12/Vulkan on Windows.
 eframe = "0.35"
 egui = "0.35"
 # `image` enables the byte-image loader for pack mode's inline screenshots; the
@@ -107,12 +107,12 @@ serialport = "4.9"
 # build. See `crates/vgms-cores-nuked/build.rs`.
 cc = "1"
 
-# CLI tooling for the `drotrim` binary (native only).
+# CLI tooling for the `vgmstudio` binary (native only).
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 # Console attaching for the GUI-subsystem release build (Windows only), so the
-# subcommands can print when drotrim is started from a terminal. The 0.61 line
+# subcommands can print when vgmstudio is started from a terminal. The 0.61 line
 # unifies with the newest already in the lock file via transitive deps.
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -134,7 +134,7 @@ oxipng = { version = "10.1", default-features = false, features = ["parallel"] }
 # Local-timezone "today" for the prefilled package-history line. `clock` enables
 # `Local::now()`; no default features (no oldtime, no wasm bindings).
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
-# Embeds the app icon into the drotrim.exe resource table so Windows Explorer
+# Embeds the app icon into the vgmstudio.exe resource table so Windows Explorer
 # shows it. A build-dependency, consumed only under `cfg(windows)` (the
 # maintained `winres` fork). The window/taskbar icon is set at runtime from the
 # same `src/dt.ico`.
