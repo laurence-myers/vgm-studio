@@ -19,9 +19,12 @@
 > - **ot-7 moved earlier**, as ot-7a, because the SAA1099 find showed these
 >   tools carry bugs that only real files reveal.
 >
-> **Next:** `vgm_ptch` can strip chips a rip declares but never writes to --
-> the natural ot-9, and `dro_core::vgm::version` already computes what a file
-> actually requires.
+> **ot-9 shipped too:** `vgm_ptch`, behind an opt-in `--strip-unused-chips`.
+> Measured first, and the corpus said no -- across 1500 published files, not
+> one declares a chip it never writes to. That is the right answer from the
+> wrong population: those files have already been through submission review,
+> and the case belongs to *fresh* rips. Built anyway, opt-in, with the
+> measurement kept as a test.
 
 ## Context
 

@@ -11,10 +11,19 @@ the pinned submodule at `vendor/upstream/vgmtools` and shipped inside the
 | `vgm_cmp` | Drops chip writes that change nothing, on per-chip rules for ~30 chips |
 | `vgm_sro` | Strips sample-ROM regions no register write can reach |
 | `optdac` | Collapses runs of 128+ identical YM2612 DAC writes |
+| `vgm_ptch` | Edits the header; used here to strip chips the stream never writes to |
 
 Plus `shim/zlib.h` and `shim/zshim.c`, which are ours: about a hundred lines
-serving the four `gz*` calls the tools make from `FILE*`, so no C compression
-library enters the build.
+serving the seven `gz*` calls the tools make from `FILE*`, so no C compression
+library enters the build. Everything is stored, never deflated -- `.vgz` is
+flate2's job in Rust, above this layer.
+
+`vgm_ptch` is the odd one out in three ways, each found rather than assumed: it
+patches its file **in place** with no output argument (`vgm_ptch.c:283`), so its
+caller works on a copy; it writes through `gzwrite` and asks `gzdirect`, where
+the others use plain `fwrite`; and its `-StripList` pauses mid-listing on a bare
+`_getch()` (`vgm_ptch.c:200`) that `MSYSTEM` does not disarm. Nothing here
+invokes that command, but it is why the runner's deadline is not optional.
 
 ## Licence
 
