@@ -1,14 +1,18 @@
 //! The three tools and the built-in optimiser, run as one pass.
 //!
-//! Order matters, and each step has a reason to be where it is:
+//! Order matters, and it is upstream's, not ours -- the VGMRips wiki's
+//! "Optimizing VGMs" page runs the sample-ROM trim *before* the write dedup:
 //!
 //! 1. **`optdac`** first, because collapsing a run of identical DAC writes
 //!    leaves fewer commands for everything after it to walk.
-//! 2. **`vgm_cmp`**, the main event: the per-chip redundancy table this whole
+//! 2. **`vgm_sro`**, while every write is still present. It decides which
+//!    sample-ROM bytes are reachable by replaying the register writes through
+//!    its own chip models -- which are *not* `vgm_cmp`'s. Running it second
+//!    would mean asking it to find the ROM from a write history another tool
+//!    had already pruned, on rules it does not share. The tempting argument
+//!    for the other order (fewer writes, less ROM to keep) is exactly the risk.
+//! 3. **`vgm_cmp`**, the main event: the per-chip redundancy table this whole
 //!    crate exists to borrow.
-//! 3. **`vgm_sro`** last of the tools, because it decides which sample-ROM
-//!    bytes are reachable by replaying the register writes -- and the fewer
-//!    writes remain, the less ROM it has to keep.
 //! 4. **`dro_core`'s own optimiser** to finish. Its redundancy pass is
 //!    subsumed by `vgm_cmp` and finds nothing, but its delay re-encoder is
 //!    provably byte-minimal where `vgm_cmp`'s writer is not, so it reliably
@@ -47,6 +51,44 @@ use crate::{ToolOutcome, clean_dac_runs, optimize_writes, trim_sample_roms};
 /// the alternative is a smaller file that plays wrong.
 const SAA1099_HELD_BACK: &str =
     "names an SAA1099, whose writes vgm_cmp judges with the YM2413's rules (a missing `break`)";
+
+/// Chips whose sample ROMs `vgm_sro` must not be let near.
+///
+/// The trim keeps only the ROM bytes its own chip models say some register
+/// write can reach. A model that misreads a chip throws away samples that do
+/// get played -- and the file still parses, still keeps its timing, and still
+/// sounds wrong, which is why only a render catches it.
+///
+/// - **QSound** -- measured here. Running `vgm_sro` alone over the corpus and
+///   rendering both sides, 12 of the 23 QSound files it changed came back
+///   playing something different. It was the *only* chip the trim fired on at
+///   all, the rest of the corpus being packs that have already been through it.
+///   (What that failure blames is still open -- see the note in
+///   `dro-trimmer/tests/optimize_parity.rs`. Held back either way: if the fault
+///   is ours it must not ship, and if it is upstream's it must not run.)
+/// - **K053260** -- upstream's own wiki: *"It will still incorrectly strip
+///   K053260 PCM roms."*
+/// - **SegaPCM** -- upstream again: *"SegaPCM support isn't 100% safe. That
+///   means there may be samples stripped off despite them being used."*
+///
+/// Everything else is unmeasured rather than cleared: the trim never fired on
+/// another chip in this corpus, so there is no evidence either way.
+/// `which_chips_the_sample_rom_trim_is_safe_for` is the instrument that would
+/// produce some.
+const ROM_TRIM_DENIED: &[(ChipKind, &str)] = &[
+    (
+        ChipKind::QSound,
+        "QSound: measured to change what 12 of 23 corpus files play",
+    ),
+    (
+        ChipKind::K053260,
+        "K053260: upstream says the trim strips its PCM ROMs incorrectly",
+    ),
+    (
+        ChipKind::SegaPcm,
+        "SegaPCM: upstream says the trim is not 100% safe on it",
+    ),
+];
 
 /// Which stages to run. Write dedup is not optional -- it is the point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,11 +195,19 @@ pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimised {
             let skip = (!facts.has_ym2612).then_some("no YM2612 to have a DAC");
             run_stage("optdac", skip, &mut bytes, &mut stages, clean_dac_runs);
         }
+        // Before vgm_cmp, on the wiki's order: the trim reads the ROM out of
+        // the write history, and that history should be the file's own.
+        if options.sample_roms {
+            run_stage(
+                "vgm_sro",
+                facts.rom_trim_denied,
+                &mut bytes,
+                &mut stages,
+                trim_sample_roms,
+            );
+        }
         let skip = facts.has_saa1099.then_some(SAA1099_HELD_BACK);
         run_stage("vgm_cmp", skip, &mut bytes, &mut stages, optimize_writes);
-        if options.sample_roms {
-            run_stage("vgm_sro", None, &mut bytes, &mut stages, trim_sample_roms);
-        }
     }
 
     built_in(&mut bytes, &mut stages);
@@ -238,18 +288,22 @@ struct Facts {
     is_opl: bool,
     has_ym2612: bool,
     has_saa1099: bool,
+    /// Why the sample-ROM trim must not run, if it must not.
+    rom_trim_denied: Option<&'static str>,
 }
 
 impl Facts {
     fn read(vgm: &[u8]) -> Self {
         let Ok(file) = dro_core::vgm::file::read("optimising.vgm", vgm) else {
             // Unreadable here does not mean unusable to the tools -- they have
-            // their own reader. Let the stages try, but keep the one hold-back
-            // that exists to prevent a wrong answer rather than to save work.
+            // their own reader. Let the stages try, but keep the hold-backs:
+            // they exist to prevent a wrong answer, not to save work, and a
+            // file we cannot read is the last one to take a chance on.
             return Self {
                 is_opl: false,
                 has_ym2612: true,
                 has_saa1099: true,
+                rom_trim_denied: Some("the header could not be read, so its chips are unknown"),
             };
         };
         let declares = |kind| file.header.chips().iter().any(|chip| chip.kind == kind);
@@ -257,6 +311,10 @@ impl Facts {
             is_opl: file.is_opl(),
             has_ym2612: declares(ChipKind::Ym2612),
             has_saa1099: declares(ChipKind::Saa1099),
+            rom_trim_denied: ROM_TRIM_DENIED
+                .iter()
+                .find(|(kind, _)| declares(*kind))
+                .map(|(_, reason)| *reason),
         }
     }
 }

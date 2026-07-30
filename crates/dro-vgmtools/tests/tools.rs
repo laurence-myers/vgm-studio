@@ -22,6 +22,8 @@ mod offset {
     /// The YM3812: an OPL2, so a file declaring one takes the bypass.
     pub(crate) const YM3812_CLOCK: usize = 0x50;
     pub(crate) const SAA1099_CLOCK: usize = 0xC8;
+    /// QSound: a sample-ROM chip the trim is held back from.
+    pub(crate) const QSOUND_CLOCK: usize = 0xB4;
 }
 
 const HEADER_LEN: usize = 0x100;
@@ -285,6 +287,49 @@ fn a_file_naming_an_saa1099_is_held_back_from_vgm_cmp() {
             "the reason should name the chip: {reason}"
         ),
         other => panic!("vgm_cmp should have been held back, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_sample_rom_trim_runs_before_the_write_dedup() {
+    // The VGMRips wiki's order. vgm_sro reads the sample ROM out of the write
+    // history, using chip models that are not vgm_cmp's, so it must see the
+    // file's own writes rather than what another tool left of them.
+    let bytes = vgm_with(&[0x52, 0x22, 0x08, 0x62, 0x66], 735);
+    let names: Vec<&str> = stage_names(&bytes, Options::default())
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect();
+
+    let sro = names.iter().position(|name| *name == "vgm_sro");
+    let cmp = names.iter().position(|name| *name == "vgm_cmp");
+    assert!(sro < cmp, "vgm_sro should come first, got {names:?}");
+    assert_eq!(names.last(), Some(&"built-in"), "{names:?}");
+}
+
+#[test]
+fn a_chip_the_rom_trim_gets_wrong_is_held_back_from_it() {
+    // QSound: measured to change what 12 of 23 corpus files play. The K053260
+    // and SegaPCM are held back on upstream's own warnings.
+    let mut bytes = vgm_with(&[0x66], 0)[..HEADER_LEN].to_vec();
+    put_u32(&mut bytes, offset::QSOUND_CLOCK, 4_000_000);
+    put_u32(&mut bytes, offset::VERSION, 0x161);
+    bytes.extend_from_slice(&[0x66]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+    let stages = stage_names(&bytes, Options::default());
+    let sro = stages
+        .iter()
+        .find(|(name, _)| *name == "vgm_sro")
+        .expect("the stage should still be reported");
+
+    match &sro.1 {
+        StageOutcome::Skipped(reason) => assert!(
+            reason.contains("QSound"),
+            "the reason should name the chip: {reason}"
+        ),
+        other => panic!("vgm_sro should have been held back, got {other:?}"),
     }
 }
 
