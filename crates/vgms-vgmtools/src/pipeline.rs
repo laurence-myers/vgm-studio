@@ -21,7 +21,7 @@
 //! bypass keeps those pins meaningful rather than re-spelling every OPL file
 //! through a second implementation.
 
-use vgms_core::vgm::ChipKind;
+use vgms_core::vgm::{ChipKind, VgmCommand};
 
 use crate::{ToolOutcome, clean_dac_runs, optimize_writes, trim_sample_roms};
 
@@ -76,6 +76,25 @@ const ROM_TRIM_DENIED: &[(ChipKind, &str)] = &[
         "SegaPCM: upstream says the trim is not 100% safe on it",
     ),
 ];
+
+/// The declared sample-ROM size `vgm_sro` cannot survive.
+///
+/// `chip_srom.c:3268` rounds a ROM-image block's declared total size up to a
+/// power of two by doubling a `UINT32`: `for (m = 1; m < ROMSize; m *= 2);`. At
+/// or above this value the mask overflows to zero and the loop never ends. No
+/// real chip carries 2 GiB of sample ROM, so a block declaring one is a broken
+/// header, not a file to optimise -- refused here rather than run into the loop.
+///
+/// This is defence in depth, not the only stop: on native a 120 s timeout kills
+/// the hung child, and on wasm the optimiser's worker is terminated (ow-6). But
+/// this fixes the loop we *know* about, on both targets, before it starts --
+/// which on wasm, where a run cannot be pre-empted, is the difference between a
+/// skipped file and a dead worker.
+const ROM_SIZE_CEILING: u32 = 0x8000_0000;
+
+/// Why a file naming a 2-GiB-or-larger sample ROM does not go through `vgm_sro`.
+const BOTTOMLESS_ROM: &str =
+    "declares a sample ROM of 2 GiB or more, which vgm_sro's size rounding cannot terminate on";
 
 /// Which stages to run. Write dedup is not optional -- it is the point.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -298,12 +317,43 @@ impl Facts {
             is_opl: file.is_opl(),
             has_ym2612: declares(ChipKind::Ym2612),
             has_saa1099: declares(ChipKind::Saa1099),
-            rom_trim_denied: ROM_TRIM_DENIED
-                .iter()
-                .find(|(kind, _)| declares(*kind))
-                .map(|(_, reason)| *reason),
+            // The bottomless-ROM guard takes precedence: it prevents a hang, not
+            // merely a wrong answer, so it is the more urgent reason to skip.
+            rom_trim_denied: if declares_bottomless_rom(&file) {
+                Some(BOTTOMLESS_ROM)
+            } else {
+                ROM_TRIM_DENIED
+                    .iter()
+                    .find(|(kind, _)| declares(*kind))
+                    .map(|(_, reason)| *reason)
+            },
         }
     }
+}
+
+/// Whether any `0x67` ROM-image block (types `0x80`-`0xBF`, whose payload begins
+/// `[UINT32 total ROM size][UINT32 start address]`) declares a total size at or
+/// above [`ROM_SIZE_CEILING`] -- the size that spins `chip_srom.c`'s mask.
+///
+/// `raw_command` hands back the block's whole byte run, so the declared size is
+/// the little-endian `u32` at offset 7 (past `0x67 0x66 <type> <u32 length>`).
+fn declares_bottomless_rom(file: &vgms_core::vgm::file::VgmFile) -> bool {
+    let Some(stream) = file.stream() else {
+        return false;
+    };
+    (0..stream.len()).any(|index| {
+        let is_rom_image = matches!(
+            stream.get(index),
+            Some(VgmCommand::DataBlock { kind, .. }) if (0x80..=0xBF).contains(&kind)
+        );
+        is_rom_image
+            && stream
+                .raw_command(index)
+                .and_then(|raw| raw.get(7..11))
+                .is_some_and(|size| {
+                    u32::from_le_bytes([size[0], size[1], size[2], size[3]]) >= ROM_SIZE_CEILING
+                })
+    })
 }
 
 /// The chips `vgm_cmp` copies through untouched.
@@ -328,4 +378,66 @@ pub fn passthrough_chips() -> &'static [ChipKind] {
         ChipKind::Es5505,
         ChipKind::Mikey,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal, readable v1.51 VGM declaring a SegaPCM (so it is not OPL, and
+    /// the tools run) whose one `0x67` type-`0x80` ROM-image block declares
+    /// `rom_size` as its total sample-ROM size.
+    fn segapcm_vgm(rom_size: u32) -> Vec<u8> {
+        let mut vgm = vec![0u8; 0x40];
+        vgm[0x00..0x04].copy_from_slice(b"Vgm ");
+        vgm[0x08..0x0C].copy_from_slice(&0x0000_0151u32.to_le_bytes()); // version 1.51
+        vgm[0x34..0x38].copy_from_slice(&0x0000_000Cu32.to_le_bytes()); // data at 0x40
+        vgm[0x38..0x3C].copy_from_slice(&4_000_000u32.to_le_bytes()); // SegaPCM clock
+        vgm[0x3C..0x40].copy_from_slice(&0u32.to_le_bytes()); // SegaPCM interface
+
+        // Data: one ROM-image block, then end-of-data.
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&rom_size.to_le_bytes()); // declared total ROM size
+        payload.extend_from_slice(&0u32.to_le_bytes()); // start address
+        payload.extend_from_slice(&[0xAB; 4]); // a little ROM data
+        vgm.push(0x67);
+        vgm.push(0x66);
+        vgm.push(0x80); // SegaPCM ROM image
+        vgm.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        vgm.extend_from_slice(&payload);
+        vgm.push(0x66); // end of sound data
+
+        let eof = u32::try_from(vgm.len()).unwrap() - 4;
+        vgm[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+        vgm
+    }
+
+    #[test]
+    fn a_readable_synthetic_segapcm_file_is_not_opl() {
+        // Guards the fixture itself: if this file stopped being readable, the
+        // two guard tests below would pass for the wrong reason (the unreadable
+        // fallback also denies the trim).
+        let facts = Facts::read(&segapcm_vgm(0x0006_0000));
+        assert!(!facts.is_opl, "a SegaPCM file must not read as OPL");
+    }
+
+    #[test]
+    fn a_bottomless_rom_block_denies_the_sample_rom_trim() {
+        let facts = Facts::read(&segapcm_vgm(ROM_SIZE_CEILING));
+        assert_eq!(
+            facts.rom_trim_denied,
+            Some(BOTTOMLESS_ROM),
+            "a 2 GiB ROM must deny vgm_sro, ahead of the SegaPCM chip reason"
+        );
+    }
+
+    #[test]
+    fn a_normal_rom_size_does_not_trip_the_bottomless_guard() {
+        let facts = Facts::read(&segapcm_vgm(0x0006_0000));
+        assert_ne!(
+            facts.rom_trim_denied,
+            Some(BOTTOMLESS_ROM),
+            "a 0x60000 ROM is normal; the bottomless guard must stay quiet"
+        );
+    }
 }

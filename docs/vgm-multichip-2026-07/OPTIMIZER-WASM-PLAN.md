@@ -181,3 +181,81 @@ to ow-6 do not.
   need care.
 - **Module size**: three C programs, no zlib, no libm to speak of -- expect
   tens of KB each, against libvgm's 541 KB. Not a concern.
+
+---
+
+## Re-evaluation (2026-07-31)
+
+Checked every load-bearing claim above against the tree before building. The
+plan is **sound and its central insight holds** -- a fresh wasm instance is a
+better process, and the native path is a byte-exact oracle. Seven corrections,
+all narrowing the design toward code that already exists and is proven, plus one
+piece of good news: **Step 8 landed, so ow-7 is no longer blocked.**
+
+**A. The I/O surface is eight functions; the *libc* surface is larger -- but
+already solved.** Grepping the five sources (`vgm_cmp`, `chip_cmp`, `vgm_sro`,
+`chip_srom`, `optdac`) confirms the eight I/O calls, and confirms *no* `exit`,
+`abort`, `setjmp`, `signal`, `time`, `rand`, `system`, `qsort`, `atoi`,
+`strtoul`, or `math.h` (the two `time` hits are a comment and a struct field; the
+one `getchar` is inside an undefined `#ifdef REMOVE_NES_DPCM_0`). But the tools
+*do* need `malloc`/`calloc`/`realloc`/`free`, the `str*`/`mem*` family, and
+`fgets`+`stdin` (for `ReadFilename`, which is compiled-but-unreached because we
+always pass argv). **Every one of these already exists, proven and node-verified,
+in `vgms-cores-libvgm/src/wasm_libc.rs` + `shim/wasm-libc/`.** That is the
+"reuse almost verbatim" the plan promised -- but it means reusing the *Rust
+allocator*, which decides B.
+
+**B. Build model: reuse the proven cc+cargo+`wasm_libc` path, not a standalone
+`clang --no-entry` link.** ow-2 as written (invoke clang directly, three
+freestanding `.wasm`) would force a hand-written C allocator -- the single
+scariest new component, and the one thing the libvgm spike does *not* prove.
+Instead, build each tool as its own **`[[example]] crate-type = ["cdylib"]`**,
+exactly the pattern `examples/wasm_smoke.rs` uses (just re-verified: 544 KB, zero
+imports, runs under node). Three examples -> three independent `.wasm`, each its
+own linear memory (**Key 2 preserved**), reusing the Rust allocator + `str*` for
+free. Symbol collisions between tools are avoided by `-Dmain=<tool>_main` and
+archive-pull isolation (an example that references only `cmp_main` never pulls
+`vgm_sro.o`). *This isolation is asserted, not assumed -- if the one-crate build
+duplicate-symbols, the fallback is three sibling crates; same three `.wasm`
+either way.*
+
+**C. `memfile.c` reuses `zshim.c` unchanged, and routes by open-mode.**
+`WriteVGMFile` writes output with `fopen(name,"wb")`+`fwrite`; `OpenVGMFile`
+reads input with `gzopen(name,"rb")` -> `zshim` -> `fopen(...,"rb")`. So a
+`FILE*` layer over two in-memory slots -- **read-open -> input, write-open ->
+output** -- satisfies everything, and `zshim.c` compiles verbatim on top of it.
+No filename table keyed by name (simpler and more robust than ow-1's sketch);
+`stdio.h` grows `FILE` + the `f*` family as the plan foresaw.
+
+**D. `printf` quality is off the critical path.** Byte-parity (ow-4) is
+independent of `printf` output, so nothing about the log formatter can break the
+key test. Ship a compact capturing `vsnprintf` subset (`%d %u %x %X %c %s %%`,
+width/zero-pad, `%l`, `%.1f`) from the start for useful error tails, but its
+correctness is a quality concern, never a parity one.
+
+**E. ow-5 guard, pinned.** The loop is `chip_srom.c:3268`
+`for(rom_mask=1; rom_mask<ROMSize; rom_mask*=2);` -- a `UINT32` wrap to 0 for any
+`0x67` block declaring a ROM size >= `0x8000_0000`. Guard = refuse `vgm_sro`
+when `vgms_core` sees such a block, on both targets, with a stage reason. The
+worker-terminate covers the unknown hangs; this fixes the one we know.
+
+**F. Parity harness = `wasmi` in a Rust test, plus the node smoke.** ow-4 stays a
+Rust `#[ignore]`, env-gated test in the `corpus.rs` idiom, driving the pre-built
+`.wasm` through the pure-Rust **`wasmi`** (a light dev-dependency) and comparing
+against the existing native `optimize_writes`/`trim_sample_roms`/`clean_dac_runs`
+-- one language, no browser, no node. ow-3's node smoke stays as the independent
+"no imports, it runs" proof.
+
+**G. ow-7 is unblocked. `crates/vgms-web` exists and ships the seam.** The pack
+worker already carries an `optimize_vgms` flag into
+`vgms-web/src/pack_zip.rs::optimize_song`, which today runs *only* `vgms_core`'s
+built-in pass (wt-7's deliberate placeholder). ow-7 = drive the three tool
+modules from that seam. The right integration keeps the plan's design intent:
+the tools run as **separate modules instantiated fresh per song** (not linked
+into `vgms-web`'s long-lived linear memory, which would resurrect the leak and
+the re-entrancy bug), driven via the browser `WebAssembly` API through `js-sys`,
+inside the dedicated pack worker whose cancel is already `terminate()`.
+
+**Sequencing.** ow-1..ow-5 are provable under node/`wasmi` with no browser and no
+`vgms-web` -- built and committed first. ow-6 (worker host) and ow-7 (the
+`vgms-web` wiring) are browser-coupled and land last, on top of a green core.

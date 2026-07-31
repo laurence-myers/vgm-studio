@@ -62,6 +62,15 @@ fn main() {
         );
     }
 
+    // The web target compiles the three optimisers into one `.wasm` each (the
+    // `[[example]]` cdylibs) over the freestanding libc in `src/wasm_libc.rs`
+    // and `shim/`, rather than into standalone executables. See
+    // `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md`.
+    if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
+        build_wasm(&upstream, &shim);
+        return;
+    }
+
     println!("cargo:rerun-if-changed=shim/zshim.c");
     println!("cargo:rerun-if-changed=shim/zlib.h");
     for tool in TOOLS {
@@ -148,4 +157,82 @@ fn exe_name(name: &str) -> String {
     } else {
         name.to_owned()
     }
+}
+
+/// Builds the three optimisers for `wasm32-unknown-unknown`, one **self-contained**
+/// static archive each (tool sources + its chip table + the three shim objects),
+/// left on disk for the matching `[[example]]` to link.
+///
+/// The desktop symbol-isolation problem the plan's Key 2 hoped separate modules
+/// would dissolve does bite: `chip_cmp.c` and `chip_srom.c` define dozens of
+/// globals with the same names and different meanings (`VGMHead`, `InitAllChips`,
+/// `SetChipSet`, ...). So the tools must never share a link. Two rules, the wasm
+/// analogue of three processes:
+///
+/// 1. **Each tool is its own self-contained archive** -- its own copy of the
+///    shims included, so its link never reaches for a sibling's archive.
+/// 2. **build.rs emits only the search path, not the `-l`.** Each `[[example]]`
+///    names its own archive with `#[link(name = ..., kind = "static")]` (via the
+///    `wasm_tool!` macro), so `tool_vgm_sro`'s link sees `vgmtools_wasm_sro` and
+///    nothing else. Emitting `-l` here would instead put all three archives on
+///    every example's line, and the linker would grab `vgm_cmp.o` for
+///    `tool_vgm_sro` and duplicate-symbol.
+///
+/// Each main-bearing unit is `-Dmain=<tool>_main` so the tools' entry points --
+/// and the globals `main` would otherwise anchor -- stay distinct.
+fn build_wasm(upstream: &Path, shim: &Path) {
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=shim");
+    println!("cargo:rerun-if-changed=src/wasm_libc.rs");
+    for source in ["vgm_cmp.c", "chip_cmp.c", "vgm_sro.c", "chip_srom.c", "optdac.c"] {
+        println!("cargo:rerun-if-changed={UPSTREAM}/{source}");
+    }
+
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
+    println!("cargo:rustc-link-search=native={}", out_dir.display());
+
+    // (archive name, main-bearing source, its chip table -- optdac has none).
+    let tools: &[(&str, &str, &[&str])] = &[
+        ("vgmtools_wasm_cmp", "vgm_cmp.c", &["chip_cmp.c"]),
+        ("vgmtools_wasm_sro", "vgm_sro.c", &["chip_srom.c"]),
+        ("vgmtools_wasm_dac", "optdac.c", &[]),
+    ];
+    let shims = ["zshim.c", "memfile.c", "wasm_printf.c"];
+
+    for (archive, main_source, chip_sources) in tools {
+        let rename = format!("{}_main", main_source.trim_end_matches(".c"));
+
+        let mut build = cc::Build::new();
+        configure_wasm(&mut build, upstream, shim);
+        // The `[[example]]`s do the linking via `#[link]`, so cc must not emit a
+        // crate-wide `-l` that would land on every example.
+        build.cargo_metadata(false);
+        // Rename this unit's `main` so the tools' entry points -- and the globals
+        // `main` would otherwise anchor -- stay distinct across the crate.
+        build.define("main", rename.as_str());
+        build.file(upstream.join(main_source));
+        for chip in *chip_sources {
+            build.file(upstream.join(chip));
+        }
+        for shim_source in shims {
+            build.file(shim.join(shim_source));
+        }
+        build.compile(archive);
+    }
+}
+
+/// Shared cc setup for the wasm tool objects: freestanding, our headers first.
+fn configure_wasm(build: &mut cc::Build, upstream: &Path, shim: &Path) {
+    build
+        // `shim/wasm-libc` must precede the others so our `<stdio.h>` (with a
+        // real `FILE`) wins over anything clang might otherwise find; `shim`
+        // serves `<zlib.h>`; `upstream` serves the tools' own headers.
+        .include(shim.join("wasm-libc"))
+        .include(shim)
+        .include(upstream)
+        // No libc, no sysroot: say so, and let `shim/wasm-libc` + `wasm_libc.rs`
+        // supply the slice the tools use.
+        .flag("-ffreestanding")
+        .warnings(false)
+        .opt_level(2);
 }
