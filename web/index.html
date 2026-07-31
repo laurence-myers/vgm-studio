@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+    <title>VGM Studio</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #12141a;
+        overflow: hidden;
+      }
+      #vgms-canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      #vgms-loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #9aa0aa;
+        font: 14px/1.4 system-ui, -apple-system, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="vgms-loading">Loading VGM Studio…</div>
+    <canvas id="vgms-canvas"></canvas>
+    <script type="module">
+      import init, { start } from "./vgms_web.js";
+      (async () => {
+        try {
+          await init();
+          document.getElementById("vgms-loading")?.remove();
+          start(document.getElementById("vgms-canvas"));
+        } catch (error) {
+          const loading = document.getElementById("vgms-loading");
+          if (loading) loading.textContent = "Failed to load VGM Studio: " + error;
+          console.error(error);
+        }
+      })();
+    </script>
+  </body>
+</html>

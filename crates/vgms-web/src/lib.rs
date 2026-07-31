@@ -11,6 +11,8 @@
 pub mod codec;
 
 #[cfg(target_arch = "wasm32")]
+pub mod runner;
+#[cfg(target_arch = "wasm32")]
 pub mod services;
 #[cfg(target_arch = "wasm32")]
 pub mod worker;

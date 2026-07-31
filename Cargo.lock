@@ -4659,6 +4659,7 @@ dependencies = [
 name = "vgms-web"
 version = "5.1.0"
 dependencies = [
+ "eframe",
  "js-sys",
  "log",
  "thiserror 2.0.18",

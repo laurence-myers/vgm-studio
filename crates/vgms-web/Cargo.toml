@@ -10,6 +10,18 @@ license = "GPL-2.0-or-later"
 authors.workspace = true
 repository.workspace = true
 
+[lib]
+# cdylib: the app module `wasm-bindgen --target web` post-processes into the
+# page's glue. rlib: the codec's native tests, and the Worker/runner sharing the
+# crate's own items. The `#[wasm_bindgen]` exports are all cfg(wasm32), so the
+# native cdylib carries none.
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# Ships the e2e test hook and the OPFS picker shims (wt-6). A debug/test-only
+# feature; a release build never enables it, so the hook never reaches users.
+e2e = []
+
 [dependencies]
 # The portable half: the codec that ships a background task across the Worker
 # boundary. Native-buildable so its round-trip tests run in ordinary `cargo test`.
@@ -29,11 +41,16 @@ log.workspace = true
 wasm-bindgen = "=0.2.126"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
+# The egui web runner: WebRunner over eframe's default wgpu (WebGPU + WebGL2
+# fallback). vgms-ui already pulls eframe for every target; naming it here lets
+# the runner reach `eframe::WebRunner` directly.
+eframe.workspace = true
 web-sys = { version = "0.3", features = [
     "Window",
     "Document",
     "Storage",
     "Performance",
+    "HtmlCanvasElement",
     "console",
     "Element",
     "HtmlElement",
