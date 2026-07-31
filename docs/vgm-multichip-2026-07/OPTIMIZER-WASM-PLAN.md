@@ -275,9 +275,11 @@ that spawns the child processes), and a new
 This keeps the order and every safety rule in one place rather than re-spelt in
 the browser.
 
-## Status (2026-07-31)
+## Status (2026-07-31) — SUPERSEDED by the wasip1 pivot below
 
 **ow-1..ow-7 implemented on branch `web-target`.** Not pushed, not merged.
+*(The freestanding-libc build described here was replaced the next day; the
+section is kept as the record of what was built and proven before the pivot.)*
 
 - **ow-1..ow-5 -- committed, proven browser-free.** The three tool `.wasm`
   modules build import-free (36-70 KB) over `shim/wasm-libc` + `memfile.c` +
@@ -306,3 +308,64 @@ the browser.
   suite (`tools/build-web.ps1 -E2e`, then `web/e2e/`), extended to assert a
   song's optimise log shows a `vgm_cmp`/`optdac` stage line rather than only
   the built-in pass.
+
+---
+
+## The wasip1 pivot (2026-08-01)
+
+A post-implementation review asked whether the freestanding-libc build was
+really the best shape, "particularly around the libc shims" -- and the honest
+answer was no. Key 1's premise ("the entire I/O surface is eight functions,
+about a hundred lines of C") had under-counted: the tools also need the
+allocator family, `str*`, `sprintf`, a float-capable `printf` and `fgets`, and
+the freestanding route ended up at ~1000 bespoke lines -- a hand `FILE*` layer,
+a hand printf, and a verbatim copy of vgms-cores-libvgm's unsafe allocator --
+plus per-tool archive isolation and a feature gate whose only job was keeping
+two `#[no_mangle] malloc`s out of one link.
+
+**Conventional wisdom for unmodified POSIX C CLI tools is WASI**, and research
+confirmed every piece is standard and maintained: wasi-sdk documents the
+stock-clang route (sysroot + compiler-rt builtins as separate release
+artifacts), `@bjorn3/browser_wasi_shim` is the de-facto browser host
+(in-memory `PreopenDirectory`, `start()` returns the exit code), and
+`wasmi_wasi` 1.1 pairs with wasmi 1.1 for a browser-free parity harness. A
+spike proved it end-to-end in minutes: Scoop clang 22 + the wasi-sdk-33
+sysroot compiled `vgm_cmp.c` unmodified, and node ran it **byte-identical
+with the native exe on the first try** -- real printf output included.
+
+**What replaced what (commits `ow-8`..`ow-10`):**
+
+- `tools/build-wasi-tools.ps1` compiles the three tools to `wasm32-wasip1`
+  command modules in `target/wasi-tools/` (sysroot + builtins downloaded once
+  and cached under `target/wasi`, the CJK-font pattern; `-nodefaultlibs`
+  keeps the clang install untouched). The link carries the promised
+  `--max-memory=256M` ceiling, `--stack-first`, and a 1 MiB stack. ~280-320 KB
+  per module against 36-70 KB freestanding -- wasi-libc's weight, irrelevant
+  at these sizes.
+- **Deleted entirely:** `shim/wasm-libc/`, `memfile.c`, `wasm_printf.c`,
+  `src/wasm_libc.rs`, the `wasm_tool!` macro, the three `[[example]]`
+  cdylibs, the `tool-modules` feature. Only `zlib.h`/`zshim.c` remain, riding
+  into the wasip1 build unchanged. The review's "extract a shared allocator
+  crate" finding dissolved -- the second copy no longer exists.
+- `src/command.rs` is the one shared interpretation of a finished run (argv in,
+  exit code + optional `out.vgm` + printed tail out -> `ToolOutcome`), used by
+  the native binding, the `wasmi` parity test and the web worker. The tools
+  run as *commands everywhere*, which is what they are.
+- The web: `pack_worker.js` hosts the modules through the vendored
+  `web/wasi-shim/` (`__vgms_run_tool`, the `__vgms_pick_dir` pattern; note
+  `debug: false` must be explicit -- the shim enables logging when the option
+  is absent). `WebTools` compiles the fetched modules and calls the hook.
+  Verified under node over the exact vendored files: byte-identical with the
+  native exe.
+- `optimize_song_logged` (vgms-vgmtools) is the one copy of the pack
+  narration; the desktop pack and the web optimizer are thin calls. Extracting
+  it surfaced a real drift: the web copy returned re-written plain bytes for
+  an unimproved song where native keeps the original spelling.
+- The watchdog (ow-10): the worker heartbeats per pack entry and the page
+  terminates a job silent for 3 minutes -- the web's stand-in for the native
+  120 s timeout kill, restoring ow-6's kill-switch promise.
+
+**Still open:** the browser-runtime confirmation above (unchanged), and CI does
+not yet build the wasip1 modules or run the parity gate -- both tests skip
+gracefully when the modules are absent, so wiring them into the wasm job (with
+a cache on `target/wasi`) is a follow-up.
