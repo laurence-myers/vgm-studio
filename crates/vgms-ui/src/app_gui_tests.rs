@@ -1039,6 +1039,99 @@ fn match_volume_without_a_song_submits_no_scan() {
     );
 }
 
+/// Match measures a VGM whose chips are not OPL and sets the volume from its
+/// peak, just as it does for an OPL song. It used to refuse with "This needs an
+/// OPL song" because the scan only measured the OPL projection.
+#[test]
+fn match_volume_measures_a_non_opl_vgm() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    act(&mut harness, Action::MatchVolume);
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    assert!(
+        handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::VolumeScan),
+        "a scan is submitted for the non-OPL VGM"
+    );
+
+    // The exact ladder volume the app must have chosen, recomputed through the
+    // same generic engine at the same rate and resample mode.
+    let rate = harness.state().config.audio.frequency;
+    let resample =
+        vgms_synth::resample::ResampleMode::from_slug(&harness.state().config.audio.resampling)
+            .unwrap_or_default();
+    let file = std::sync::Arc::new(harness.state().editor.vgm().unwrap().clone());
+    let peak = vgms_synth::measure_vgm_peak(file, rate, resample);
+    assert!(peak.max_level > 0, "the SN76489 tone is audible");
+    assert_eq!(
+        harness.state().config.audio.boost,
+        vgms_core::matched_volume(peak.max_level),
+        "the volume is matched to the measured peak; status={:?}",
+        harness.state().status
+    );
+}
+
+/// Measure fills the VGM metadata dialog's volume-modifier suggestion for a
+/// non-OPL VGM. The dialog opens for any VGM, so its Measure button was dead on
+/// a non-OPL file until the scan learned to measure one.
+#[test]
+fn measuring_the_modifier_fills_for_a_non_opl_vgm() {
+    let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    act(&mut harness, Action::OpenVgmMetadata);
+    assert!(
+        harness.state().dialogs.vgm_metadata.is_some(),
+        "dialog opens"
+    );
+    act(&mut harness, Action::MeasureVolumeModifier);
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    assert!(
+        harness.state().status.contains("volume modifier"),
+        "the measure reached the dialog: {:?}",
+        harness.state().status
+    );
+}
+
+/// A VGM for chips there is no core for is refused rather than measured: it
+/// would render silence, and a silent measurement suggests a nonsense +36 dB.
+#[test]
+fn match_volume_on_a_coreless_vgm_reports_nothing_to_play() {
+    let (mut harness, handles) = build(Some(other_chip_vgm_file()), true, false);
+    assert!(
+        !harness.state().editor.capabilities().renderable,
+        "no core for its chips"
+    );
+
+    act(&mut harness, Action::MatchVolume);
+    harness.run();
+
+    assert!(
+        !handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::VolumeScan),
+        "no scan is submitted for a coreless document"
+    );
+    assert_eq!(
+        harness.state().status,
+        crate::strings::APP_STATUS_NOTHING_TO_PLAY
+    );
+}
+
 #[test]
 fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
     let song = tone_song();

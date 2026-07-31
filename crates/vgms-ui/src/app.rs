@@ -1083,18 +1083,25 @@ impl VgmStudioApp {
         );
     }
 
-    /// Submits a volume scan of the current song for `purpose`, or asks for a song
-    /// if none is loaded. Shared by the "Match" and "Measure" buttons; the purpose
-    /// is remembered so [`Self::handle_volume_scan`] routes the result.
+    /// Submits a volume scan of the current document for `purpose`, or asks for
+    /// a file if there is nothing to measure. Shared by the "Match" and
+    /// "Measure" buttons; the purpose is remembered so
+    /// [`Self::handle_volume_scan`] routes the result.
     fn submit_volume_scan(&mut self, purpose: VolumeScanPurpose, status: &str) {
-        let Some(song) = self.editor.snapshot() else {
-            self.require_song();
+        // Measuring means rendering, so the gate is the render's own: any
+        // document with a chip this app can render, OPL or not -- the same rule
+        // the File menu and the pack scan apply. A coreless document is refused
+        // here rather than measured as silence and handed a bogus suggestion.
+        if !self.require_renderable() {
+            return;
+        }
+        let Some(source) = self.audio_source() else {
             return;
         };
         self.volume_scan_purpose = purpose;
         self.tasks.submit(
             TaskRequest::VolumeScan {
-                source: vgms_synth::AudioSource::Opl(song),
+                source,
                 sample_rate: self.config.audio.frequency,
                 resampling: self.resample_mode(),
             },
