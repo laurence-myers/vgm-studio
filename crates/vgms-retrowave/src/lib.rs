@@ -15,14 +15,24 @@
 //! reference sources — is the specification this code follows. See §2 there and
 //! `licenses/README.md`.
 
+// The pure protocol layer -- everything a Web Serial transport would sit under --
+// builds on every target. `device` (the `serialport` open/enumerate) and `player`
+// (the OS-thread pump: `std::thread`, `Instant`, `rtrb`) are native-only, and
+// `test_tone` takes `&mut Device`, so all three are gated off wasm (wt-9). The web
+// build offers no board, so nothing above needs them there.
 pub mod chip;
 pub mod commands;
-pub mod device;
-pub mod player;
 pub mod protocol;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod device;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod player;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod test_tone;
 
 pub use chip::SerialOpl3Chip;
+#[cfg(not(target_arch = "wasm32"))]
 pub use player::RetroWaveAudio;
 
 /// Adds this board to the core registry, so Settings offers it for OPL.
@@ -54,5 +64,6 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use device::{Device, Error, PortInfo, SerialIo, UsbInfo, default_port, enumerate};
 pub use protocol::{Bank, CmdBuffer};

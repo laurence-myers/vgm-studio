@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: GPL-2.0-or-later -->
+<!--
+  wt-9(c): a timing rehearsal for a Web-Serial RetroWave pump.
+
+  The native pump (crates/vgms-retrowave/src/player.rs) paces register writes to
+  real time with an absolute-deadline accumulator: QUANTUM_FRAMES = 64 frames at
+  NATIVE_SAMPLE_RATE = 49716 Hz ~= 1.287 ms per quantum, and a MAX_LAG = 250 ms
+  backlog tolerance beyond which the deadline resets rather than racing to catch
+  up. A browser cannot `thread::sleep`; the honest question is whether a Worker's
+  setTimeout loop can hold that ~1.3 ms cadence inside the 250 ms tolerance the
+  native code already grants.
+
+  This page runs that exact accumulator in a dedicated Worker against a mock
+  writer and measures the per-quantum lag. Open it (or drive it headless): it
+  writes a verdict to the page and to `window.__vgms_timing_result`.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>RetroWave Web-Serial timing rehearsal</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 2rem; max-width: 44rem; }
+      pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; }
+      .go { color: #137333; font-weight: 600; }
+      .nogo { color: #a50e0e; font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>RetroWave Web-Serial timing rehearsal</h1>
+    <p>Running the native pump's deadline accumulator in a Worker&hellip;</p>
+    <pre id="out">measuring&hellip;</pre>
+    <script type="module">
+      const QUANTUM_MS = (64 * 1000) / 49716; // ~1.287 ms
+      const MAX_LAG_MS = 250;
+      const QUANTA = 4000; // ~5.1 s of playback
+      const BATCH_TIMER_MS = 8; // the coarse timer the batched pump wakes on
+
+      // Two pumps, measured back to back:
+      //  - "naive" wakes once per quantum, the way the native pump loops. In a
+      //    browser this cannot hold ~1.3 ms: setTimeout clamps (~4 ms nested), so
+      //    it falls behind and the deadline keeps resetting.
+      //  - "batched" wakes on a coarse timer and renders every quantum whose
+      //    deadline has passed, so it tracks real time to within the timer
+      //    granularity. Its lag is the true "how far behind real time is the last
+      //    write" -- what a hardware pump must keep small.
+      const workerSource = `
+        const QUANTUM_MS = ${QUANTUM_MS};
+        const MAX_LAG_MS = ${MAX_LAG_MS};
+        const QUANTA = ${QUANTA};
+        const BATCH_TIMER_MS = ${BATCH_TIMER_MS};
+
+        function percentile(sorted, q) {
+          return sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
+        }
+
+        function runNaive(done) {
+          let deadline = performance.now();
+          let count = 0, maxLag = 0, sumLag = 0, resets = 0;
+          const lags = [];
+          function tick() {
+            const now = performance.now();
+            const lag = now - deadline;
+            if (lag > 0) { maxLag = Math.max(maxLag, lag); sumLag += lag; lags.push(lag); }
+            deadline += QUANTUM_MS;
+            if (now - deadline > MAX_LAG_MS) { resets++; deadline = now; }
+            if (++count >= QUANTA) {
+              lags.sort((a, b) => a - b);
+              done({ mode: "naive", maxLagMs: maxLag, meanLagMs: sumLag / QUANTA,
+                     p99Ms: percentile(lags, 0.99), resets });
+              return;
+            }
+            const sleep = deadline - performance.now();
+            setTimeout(tick, sleep > 0 ? sleep : 0);
+          }
+          tick();
+        }
+
+        function runBatched(done) {
+          let deadline = performance.now();     // next unrendered quantum's time
+          let rendered = 0, maxLag = 0, sumLag = 0, resets = 0, ticks = 0;
+          const lags = [];
+          function tick() {
+            const now = performance.now();
+            // Render every quantum whose time has arrived (the writes for it go to
+            // the mock writer here). The last one rendered is 'deadline - QUANTUM'.
+            while (deadline <= now && rendered < QUANTA) { deadline += QUANTUM_MS; rendered++; }
+            const lag = now - (deadline - QUANTUM_MS); // how stale the last write is
+            if (lag > 0) { maxLag = Math.max(maxLag, lag); sumLag += lag; lags.push(lag); }
+            if (now - deadline > MAX_LAG_MS) { resets++; deadline = now; }
+            ticks++;
+            if (rendered >= QUANTA) {
+              lags.sort((a, b) => a - b);
+              done({ mode: "batched", maxLagMs: maxLag, meanLagMs: sumLag / Math.max(ticks, 1),
+                     p99Ms: percentile(lags, 0.99), resets, ticks });
+              return;
+            }
+            setTimeout(tick, BATCH_TIMER_MS);
+          }
+          tick();
+        }
+
+        runNaive((naive) => runBatched((batched) => postMessage({
+          quanta: QUANTA, quantumMs: QUANTUM_MS, maxLagMs: MAX_LAG_MS,
+          batchTimerMs: BATCH_TIMER_MS, naive, batched,
+        })));
+      `;
+
+      const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: "text/javascript" })));
+      worker.onmessage = (event) => {
+        const r = event.data;
+        const naiveOk = r.naive.resets === 0 && r.naive.maxLagMs < r.maxLagMs;
+        const batchedOk = r.batched.resets === 0 && r.batched.maxLagMs < r.maxLagMs;
+        window.__vgms_timing_result = { ...r, naiveOk, batchedOk };
+        const row = (m) => `mean ${m.meanLagMs.toFixed(2)} ms | p99 ${m.p99Ms.toFixed(2)} ms | worst ${m.maxLagMs.toFixed(1)} ms | resets ${m.resets}`;
+        document.getElementById("out").innerHTML =
+          `quanta measured:   ${r.quanta} (${(r.quanta * r.quantumMs / 1000).toFixed(1)} s of playback)\n` +
+          `quantum:           ${r.quantumMs.toFixed(3)} ms   MAX_LAG: ${r.maxLagMs} ms   batch timer: ${r.batchTimerMs} ms\n\n` +
+          `naive (1 wake/quantum):   ${row(r.naive)}\n` +
+          `   -> <span class="${naiveOk ? "go" : "nogo"}">${naiveOk ? "WITHIN" : "BREACHES"}</span> tolerance` +
+          ` -- browser timers clamp, so a per-quantum loop cannot hold 1.3 ms\n\n` +
+          `batched (render to deadline): ${row(r.batched)}\n` +
+          `   -> <span class="${batchedOk ? "go" : "nogo"}">${batchedOk ? "WITHIN" : "BREACHES"}</span> tolerance` +
+          ` -- tracks real time to within the timer granularity`;
+        worker.terminate();
+      };
+    </script>
+  </body>
+</html>

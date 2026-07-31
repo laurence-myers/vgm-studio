@@ -13,10 +13,17 @@ repository.workspace = true
 [dependencies]
 vgms-core.workspace = true
 vgms-synth.workspace = true
-rtrb.workspace = true
-serialport.workspace = true
 log.workspace = true
 thiserror.workspace = true
+
+# The serial port and the OS-thread ring buffer are native-only: the web build
+# reaches the board over Web Serial, not `serialport`, so it must not pull them
+# (wt-9). The pure `protocol`/`commands`/`chip` modules -- everything a Web Serial
+# transport would sit under -- stay on the unconditional deps above and so
+# `cargo check -p vgms-retrowave --target wasm32-unknown-unknown` passes.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rtrb.workspace = true
+serialport.workspace = true
 
 [lints]
 workspace = true
