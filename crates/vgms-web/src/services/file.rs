@@ -1,35 +1,77 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! [`WebFileService`]: opening files with a hidden `<input type=file>`, and
-//! saving them as browser downloads.
+//! [`WebFileService`]: opening files with a hidden `<input type=file>`, saving
+//! them as browser downloads, and -- where the browser offers it -- reading and
+//! writing pack folders through the File System Access API (wt-7).
 //!
 //! Every asynchronous result lands in a shared slot that the trait's `poll_*`
 //! methods drain -- the same polled-never-awaited shape the native service has,
-//! which is why the app's update loop needs no web-specific code. Pack folder
-//! operations (folder/rename/image) are not reachable in the browser until the
-//! File System Access and zip-pack backends land, so they answer the honest
-//! "not available" error through the existing channel rather than pretending.
+//! which is why the app's update loop needs no web-specific code.
+//!
+//! Pack folders stay `PathBuf` tokens: a picked directory is registered in the
+//! JS side of `pack_fs.js` under an opaque name, and Rust round-trips it as a
+//! virtual `/<token>` path. `folder.join(name)` / `path.parent()` therefore
+//! reach the right directory handle with no change to the pack machinery above
+//! the service boundary. Folder/save/rename/delete are async (the FSA is
+//! Promise-based), so they run in `spawn_local` tasks that drop their outcome
+//! into a slot; saves are serialised through one queue so their outcomes stay
+//! strictly FIFO, which the pack executor and the doc-save pair rely on.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
+use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen_futures::spawn_local;
 
 use vgms_ui::platform::{FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest};
 
-/// The message the folder/rename channels answer with until pack backends exist.
-const NO_PACKS_YET: &str = "Pack folders are not available in this browser yet.";
+// The File System Access helpers. The directory handles live on the JS side,
+// keyed by the token Rust passes back as a `/<token>` path. See `pack_fs.js`.
+#[wasm_bindgen(module = "/pack_fs.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = pickPackFolder, catch)]
+    async fn pick_pack_folder_js() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = pickOutputFolder, catch)]
+    async fn pick_output_folder_js() -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = rescanPackFolder, catch)]
+    async fn rescan_pack_folder_js(token: &str) -> Result<JsValue, JsValue>;
+    #[wasm_bindgen(js_name = writePackFile, catch)]
+    async fn write_pack_file_js(token: &str, name: &str, bytes: &[u8]) -> Result<(), JsValue>;
+    #[wasm_bindgen(js_name = deletePackFile, catch)]
+    async fn delete_pack_file_js(token: &str, name: &str) -> Result<(), JsValue>;
+    #[wasm_bindgen(js_name = renamePackFile, catch)]
+    async fn rename_pack_file_js(token: &str, from: &str, to: &str) -> Result<(), JsValue>;
+}
 
 type Picked = Rc<RefCell<Option<Result<PickedFile, String>>>>;
+
+/// A pending save, processed in submission order so outcomes stay FIFO.
+enum SaveJob {
+    /// A Save As / export: a browser download; there is nowhere to save back to.
+    Download { name: String, bytes: Vec<u8> },
+    /// An in-place write to a held pack folder (`token` + bare `name`).
+    Write {
+        token: String,
+        name: String,
+        path: PathBuf,
+        bytes: Vec<u8>,
+    },
+}
 
 /// Opens and saves files in the browser.
 pub struct WebFileService {
     picked: Picked,
+    picked_image: Picked,
     saved: Rc<RefCell<VecDeque<SaveOutcome>>>,
+    save_queue: Rc<RefCell<VecDeque<SaveJob>>>,
+    save_busy: Rc<Cell<bool>>,
     folder: Rc<RefCell<Option<Result<PickedFolder, String>>>>,
     renamed: Rc<RefCell<Option<Result<(), String>>>>,
+    deleted: Rc<RefCell<Option<Result<(), String>>>>,
+    output_folder: Rc<RefCell<Option<Option<PathBuf>>>>,
     notify: Rc<dyn Fn()>,
 }
 
@@ -46,9 +88,14 @@ impl WebFileService {
     pub fn new(notify: impl Fn() + 'static) -> Self {
         Self {
             picked: Rc::new(RefCell::new(None)),
+            picked_image: Rc::new(RefCell::new(None)),
             saved: Rc::new(RefCell::new(VecDeque::new())),
+            save_queue: Rc::new(RefCell::new(VecDeque::new())),
+            save_busy: Rc::new(Cell::new(false)),
             folder: Rc::new(RefCell::new(None)),
             renamed: Rc::new(RefCell::new(None)),
+            deleted: Rc::new(RefCell::new(None)),
+            output_folder: Rc::new(RefCell::new(None)),
             notify: Rc::new(notify),
         }
     }
@@ -153,6 +200,130 @@ fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// Extracts a message from a thrown JS value, preferring an `Error.message`.
+fn js_error(value: JsValue) -> String {
+    if let Some(text) = value.as_string() {
+        return text;
+    }
+    if let Ok(message) = js_sys::Reflect::get(&value, &JsValue::from_str("message"))
+        && let Some(text) = message.as_string()
+    {
+        return text;
+    }
+    format!("{value:?}")
+}
+
+/// Reads a string property off a JS object.
+fn get_string(object: &JsValue, key: &str) -> Result<String, String> {
+    js_sys::Reflect::get(object, &JsValue::from_str(key))
+        .ok()
+        .and_then(|value| value.as_string())
+        .ok_or_else(|| format!("pack folder result missing {key:?}"))
+}
+
+/// Turns the JS `{ token, name, files: [{ name, bytes }] }` into a [`PickedFolder`]
+/// with virtual `/<token>` paths. `Ok(None)` means the picker was dismissed.
+fn parse_folder(value: &JsValue) -> Result<Option<PickedFolder>, String> {
+    if value.is_null() || value.is_undefined() {
+        return Ok(None);
+    }
+    let token = get_string(value, "token")?;
+    let name = get_string(value, "name")?;
+    let token_path = PathBuf::from(format!("/{token}"));
+
+    let files_value = js_sys::Reflect::get(value, &JsValue::from_str("files"))
+        .map_err(|_| "pack folder result missing files".to_owned())?;
+    let files_array: js_sys::Array = files_value
+        .dyn_into()
+        .map_err(|_| "pack folder files is not an array".to_owned())?;
+
+    let mut files = Vec::with_capacity(files_array.length() as usize);
+    for item in files_array.iter() {
+        let file_name = get_string(&item, "name")?;
+        let bytes_value = js_sys::Reflect::get(&item, &JsValue::from_str("bytes"))
+            .map_err(|_| "pack file missing bytes".to_owned())?;
+        let bytes = bytes_value
+            .dyn_into::<js_sys::Uint8Array>()
+            .map_err(|_| "pack file bytes is not a Uint8Array".to_owned())?
+            .to_vec();
+        files.push(PickedFile {
+            name: file_name.clone(),
+            path: Some(token_path.join(&file_name)),
+            bytes,
+        });
+    }
+
+    Ok(Some(PickedFolder {
+        name,
+        path: Some(token_path),
+        files,
+    }))
+}
+
+/// The `(token, bare-name)` a virtual `/<token>/<name>` path resolves to. Built
+/// with `Path::parent`/`file_name` so it is the exact inverse of the
+/// `folder.join(name)` the app builds paths with, whatever the wasm separator.
+fn split_token(path: &Path) -> Option<(String, String)> {
+    let name = path.file_name()?.to_str()?.to_owned();
+    let token = path.parent()?.file_name()?.to_str()?.to_owned();
+    Some((token, name))
+}
+
+/// Processes queued saves in order: downloads finish inline, writes are awaited
+/// one at a time so their outcomes reach `saved` strictly FIFO.
+fn pump_saves(
+    queue: Rc<RefCell<VecDeque<SaveJob>>>,
+    busy: Rc<Cell<bool>>,
+    saved: Rc<RefCell<VecDeque<SaveOutcome>>>,
+    notify: Rc<dyn Fn()>,
+) {
+    if busy.get() {
+        return;
+    }
+    loop {
+        let job = queue.borrow_mut().pop_front();
+        let Some(job) = job else {
+            return;
+        };
+        match job {
+            SaveJob::Download { name, bytes } => {
+                let outcome = match download(&name, &bytes) {
+                    Ok(()) => SaveOutcome::Saved { name, path: None },
+                    Err(message) => SaveOutcome::Failed(message),
+                };
+                saved.borrow_mut().push_back(outcome);
+                notify();
+            }
+            SaveJob::Write {
+                token,
+                name,
+                path,
+                bytes,
+            } => {
+                busy.set(true);
+                let queue = Rc::clone(&queue);
+                let busy_inner = Rc::clone(&busy);
+                let saved_inner = Rc::clone(&saved);
+                let notify_inner = Rc::clone(&notify);
+                spawn_local(async move {
+                    let outcome = match write_pack_file_js(&token, &name, &bytes).await {
+                        Ok(()) => SaveOutcome::Saved {
+                            name,
+                            path: Some(path),
+                        },
+                        Err(error) => SaveOutcome::Failed(js_error(error)),
+                    };
+                    saved_inner.borrow_mut().push_back(outcome);
+                    busy_inner.set(false);
+                    notify_inner();
+                    pump_saves(queue, busy_inner, saved_inner, notify_inner);
+                });
+                return;
+            }
+        }
+    }
+}
+
 impl FileService for WebFileService {
     fn pick_open(&mut self) {
         open_picker(
@@ -173,57 +344,176 @@ impl FileService for WebFileService {
     }
 
     fn save(&mut self, request: SaveRequest) {
-        let (name, bytes) = match request {
-            // The web has no in-place path, but honour one if the app ever makes
-            // it: download under the path's file name.
+        let job = match request {
             SaveRequest::InPlace { path, bytes } => {
-                let name = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("download")
-                    .to_owned();
-                (name, bytes)
+                // An in-place save on the web is a write-back to a held pack /
+                // split folder (its token is the virtual path's parent). If the
+                // path carries no token -- it never should -- fall back to a
+                // download so the bytes are not silently lost.
+                match split_token(&path) {
+                    Some((token, name)) => SaveJob::Write {
+                        token,
+                        name,
+                        path,
+                        bytes,
+                    },
+                    None => SaveJob::Download {
+                        name: path
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("download")
+                            .to_owned(),
+                        bytes,
+                    },
+                }
             }
             SaveRequest::Dialog {
                 suggested_name,
                 bytes,
-            } => (suggested_name, bytes),
+            } => SaveJob::Download {
+                name: suggested_name,
+                bytes,
+            },
         };
-        // A download cannot be cancelled or reported as failed by the browser, so
-        // the outcome is always `Saved` (with no path -- there is nowhere to save
-        // back to). A blob-build failure is the one thing we can see.
-        let outcome = match download(&name, &bytes) {
-            Ok(()) => SaveOutcome::Saved { name, path: None },
-            Err(message) => SaveOutcome::Failed(message),
-        };
-        self.saved.borrow_mut().push_back(outcome);
-        (self.notify)();
+        self.save_queue.borrow_mut().push_back(job);
+        pump_saves(
+            Rc::clone(&self.save_queue),
+            Rc::clone(&self.save_busy),
+            Rc::clone(&self.saved),
+            Rc::clone(&self.notify),
+        );
     }
 
     fn poll_saved(&mut self) -> Option<SaveOutcome> {
         self.saved.borrow_mut().pop_front()
     }
 
-    fn pick_folder(&mut self) {
-        *self.folder.borrow_mut() = Some(Err(NO_PACKS_YET.to_owned()));
-        (self.notify)();
+    fn pick_image(&mut self) {
+        open_picker(
+            ".png,image/png",
+            Rc::clone(&self.picked_image),
+            Rc::clone(&self.notify),
+        );
     }
 
-    fn open_folder_path(&mut self, _path: PathBuf) {
-        *self.folder.borrow_mut() = Some(Err(NO_PACKS_YET.to_owned()));
-        (self.notify)();
+    fn poll_picked_image(&mut self) -> Option<Result<PickedFile, String>> {
+        self.picked_image.borrow_mut().take()
+    }
+
+    fn delete(&mut self, path: PathBuf) {
+        let Some((token, name)) = split_token(&path) else {
+            *self.deleted.borrow_mut() = Some(Err(format!("cannot delete {}", path.display())));
+            (self.notify)();
+            return;
+        };
+        let deleted = Rc::clone(&self.deleted);
+        let notify = Rc::clone(&self.notify);
+        spawn_local(async move {
+            *deleted.borrow_mut() = Some(match delete_pack_file_js(&token, &name).await {
+                Ok(()) => Ok(()),
+                Err(error) => Err(js_error(error)),
+            });
+            notify();
+        });
+    }
+
+    fn poll_deleted(&mut self) -> Option<Result<(), String>> {
+        self.deleted.borrow_mut().take()
+    }
+
+    fn pick_folder(&mut self) {
+        let folder = Rc::clone(&self.folder);
+        let notify = Rc::clone(&self.notify);
+        spawn_local(async move {
+            match pick_pack_folder_js().await {
+                Ok(value) => match parse_folder(&value) {
+                    // Dismissed: leave the slot idle so the app simply does nothing.
+                    Ok(None) => {}
+                    Ok(Some(picked)) => *folder.borrow_mut() = Some(Ok(picked)),
+                    Err(message) => *folder.borrow_mut() = Some(Err(message)),
+                },
+                Err(error) => *folder.borrow_mut() = Some(Err(js_error(error))),
+            }
+            notify();
+        });
+    }
+
+    fn open_folder_path(&mut self, path: PathBuf) {
+        let Some(token) = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(str::to_owned)
+        else {
+            *self.folder.borrow_mut() = Some(Err(format!("cannot reopen {}", path.display())));
+            (self.notify)();
+            return;
+        };
+        let folder = Rc::clone(&self.folder);
+        let notify = Rc::clone(&self.notify);
+        spawn_local(async move {
+            match rescan_pack_folder_js(&token).await {
+                Ok(value) => match parse_folder(&value) {
+                    Ok(None) => {}
+                    Ok(Some(picked)) => *folder.borrow_mut() = Some(Ok(picked)),
+                    Err(message) => *folder.borrow_mut() = Some(Err(message)),
+                },
+                Err(error) => *folder.borrow_mut() = Some(Err(js_error(error))),
+            }
+            notify();
+        });
     }
 
     fn poll_folder(&mut self) -> Option<Result<PickedFolder, String>> {
         self.folder.borrow_mut().take()
     }
 
-    fn rename(&mut self, _from: PathBuf, _to_name: String) {
-        *self.renamed.borrow_mut() = Some(Err(NO_PACKS_YET.to_owned()));
-        (self.notify)();
+    fn rename(&mut self, from: PathBuf, to_name: String) {
+        let Some((token, from_name)) = split_token(&from) else {
+            *self.renamed.borrow_mut() = Some(Err(format!("cannot rename {}", from.display())));
+            (self.notify)();
+            return;
+        };
+        let renamed = Rc::clone(&self.renamed);
+        let notify = Rc::clone(&self.notify);
+        spawn_local(async move {
+            *renamed.borrow_mut() = Some(
+                match rename_pack_file_js(&token, &from_name, &to_name).await {
+                    Ok(()) => Ok(()),
+                    Err(error) => Err(js_error(error)),
+                },
+            );
+            notify();
+        });
     }
 
     fn poll_renamed(&mut self) -> Option<Result<(), String>> {
         self.renamed.borrow_mut().take()
+    }
+
+    fn pick_output_folder(&mut self) {
+        let output = Rc::clone(&self.output_folder);
+        let notify = Rc::clone(&self.notify);
+        spawn_local(async move {
+            let resolved = match pick_output_folder_js().await {
+                Ok(value) if value.is_null() || value.is_undefined() => None,
+                Ok(value) => match get_string(&value, "token") {
+                    Ok(token) => Some(PathBuf::from(format!("/{token}"))),
+                    Err(message) => {
+                        log::error!("pick output folder: {message}");
+                        None
+                    }
+                },
+                Err(error) => {
+                    log::error!("pick output folder: {}", js_error(error));
+                    None
+                }
+            };
+            *output.borrow_mut() = Some(resolved);
+            notify();
+        });
+    }
+
+    fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
+        self.output_folder.borrow_mut().take()
     }
 }

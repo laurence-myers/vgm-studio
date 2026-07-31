@@ -37,3 +37,44 @@ export function dispatch(page, name, arg) {
 export function state(page) {
   return page.evaluate(() => window.__vgms_e2e.state());
 }
+
+/**
+ * Seeds an OPFS-backed directory with `files` ([{ name, bytes: number[] }]) and
+ * installs `window.__vgms_pick_dir` so the app's folder picker resolves to it
+ * (the wt-7 OPFS shim) instead of prompting. A fresh valid 1x1 PNG is generated
+ * in-page so screenshot entries decode. Returns nothing; call before dispatching
+ * OpenPackFolder.
+ */
+export async function seedPackFolder(page, files, dirName = "vgms-e2e-pack") {
+  await page.evaluate(
+    async ([files, dirName]) => {
+      const root = await navigator.storage.getDirectory();
+      try {
+        await root.removeEntry(dirName, { recursive: true });
+      } catch {
+        /* first run: nothing to remove */
+      }
+      const dir = await root.getDirectoryHandle(dirName, { create: true });
+      for (const file of files) {
+        const handle = await dir.getFileHandle(file.name, { create: true });
+        const writable = await handle.createWritable();
+        await writable.write(new Uint8Array(file.bytes));
+        await writable.close();
+      }
+      window.__vgms_pick_dir = async () => dir;
+    },
+    [files, dirName],
+  );
+}
+
+/** A valid 1x1 PNG's bytes, generated in-page, as a number[]. */
+export async function pngBytes(page) {
+  return page.evaluate(async () => {
+    const canvas = new OffscreenCanvas(1, 1);
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#123456";
+    context.fillRect(0, 0, 1, 1);
+    const blob = await canvas.convertToBlob({ type: "image/png" });
+    return Array.from(new Uint8Array(await blob.arrayBuffer()));
+  });
+}
