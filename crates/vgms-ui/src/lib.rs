@@ -35,6 +35,8 @@ pub mod widgets;
 
 pub use action::AppTab;
 pub use app::VgmStudioApp;
+#[cfg(any(test, feature = "e2e"))]
+pub use app::{E2ePackSnapshot, E2eSnapshot};
 pub use pack::PackState;
 pub use platform::{
     AudioService, ConfigStore, FileService, OptimizedImage, PackEntry, PackEntryKind,

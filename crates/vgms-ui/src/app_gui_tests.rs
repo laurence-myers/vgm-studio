@@ -152,6 +152,35 @@ fn starts_with_placeholder() {
 }
 
 #[test]
+fn e2e_hook_dispatches_actions_and_reports_state() {
+    // The web e2e hook (`window.__vgms_e2e`) is a thin JS wrapper over exactly
+    // these two methods; pin their contract natively so a browser is not needed
+    // to catch a regression in enqueue -> drain -> handle -> snapshot.
+    let song = tone_song();
+    let (mut harness, _handles) = harness_with_song(&song);
+
+    // The snapshot reflects the loaded document.
+    let snap = harness.state().e2e_snapshot();
+    assert!(snap.has_document);
+    assert_eq!(snap.document_name.as_deref(), Some(song.name.as_str()));
+    assert_eq!(snap.row_count, song.len());
+    assert_eq!(snap.active_tab, "editor");
+    assert!(snap.pack.is_none());
+
+    // An enqueued action runs through the ordinary handler on the next frame.
+    harness
+        .state_mut()
+        .e2e_enqueue_action(Action::Status("e2e-probe".to_owned()));
+    harness.run();
+    assert_eq!(harness.state().e2e_snapshot().status, "e2e-probe");
+
+    // An action with real effect: closing a clean document (no discard prompt).
+    harness.state_mut().e2e_enqueue_action(Action::CloseFile);
+    harness.run();
+    assert!(!harness.state().e2e_snapshot().has_document);
+}
+
+#[test]
 fn loading_a_dro_shows_table_and_status() {
     let song = tone_song();
     let (harness, handles) = harness_with_song(&song);

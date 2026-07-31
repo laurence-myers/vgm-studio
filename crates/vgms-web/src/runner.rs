@@ -86,7 +86,19 @@ fn build_app(
         Box::new(LocalStorageStore::new()),
         None,
     );
-    Ok(Box::new(app))
+    // An `e2e` build wraps the app so `window.__vgms_e2e` can drive it (wt-6); a
+    // release build boxes it directly and exposes nothing.
+    let boxed: Box<dyn eframe::App> = {
+        #[cfg(feature = "e2e")]
+        {
+            e2e::attach(app, cc.egui_ctx.clone())
+        }
+        #[cfg(not(feature = "e2e"))]
+        {
+            Box::new(app)
+        }
+    };
+    Ok(boxed)
 }
 
 /// Fetches the CJK fallback font's bytes from [`CJK_FONT_URL`]. `Err` on any
@@ -134,4 +146,264 @@ fn install_logger() {
 
     // Ignore the error if a logger is already set (a second `start` in one page).
     let _ = log::set_logger(&ConsoleLogger).map(|()| log::set_max_level(LevelFilter::Info));
+}
+
+/// The debug/e2e-only action/state hook (wt-6). Compiled only into an `e2e`
+/// build; a release web build has none of this, so `window.__vgms_e2e` never
+/// exists for a real user.
+///
+/// egui draws to one canvas with no DOM to select, so Playwright drives the app
+/// through [`VgmStudioApp::e2e_enqueue_action`] (queued, drained next frame with
+/// a live `Context`) and reads it through [`VgmStudioApp::e2e_snapshot`] (a pure
+/// read). Both are reached through a `thread_local` handle stashed at boot, sound
+/// because wasm is single-threaded and every JS->wasm call is synchronous.
+#[cfg(feature = "e2e")]
+mod e2e {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use wasm_bindgen::closure::Closure;
+    use wasm_bindgen::{JsCast, JsValue};
+
+    use vgms_ui::VgmStudioApp;
+    use vgms_ui::action::{Action, AppTab};
+    use vgms_ui::app::E2eSnapshot;
+
+    /// The app and the egui context, retained so the JS hook can enqueue actions
+    /// and request the frame that drains them.
+    struct Handle {
+        app: Rc<RefCell<VgmStudioApp>>,
+        ctx: eframe::egui::Context,
+    }
+
+    thread_local! {
+        static E2E: RefCell<Option<Handle>> = const { RefCell::new(None) };
+    }
+
+    /// Delegates the frame to the shared app so a `thread_local` clone can reach
+    /// it between frames. eframe owns this; the JS hook borrows the `Rc`.
+    struct SharedApp(Rc<RefCell<VgmStudioApp>>);
+
+    impl eframe::App for SharedApp {
+        fn ui(&mut self, ui: &mut eframe::egui::Ui, frame: &mut eframe::Frame) {
+            eframe::App::ui(&mut *self.0.borrow_mut(), ui, frame);
+        }
+
+        fn on_exit(&mut self) {
+            eframe::App::on_exit(&mut *self.0.borrow_mut());
+        }
+    }
+
+    /// Wraps `app` so `window.__vgms_e2e` can drive it, and installs the hook.
+    pub(crate) fn attach(app: VgmStudioApp, ctx: eframe::egui::Context) -> Box<dyn eframe::App> {
+        let app = Rc::new(RefCell::new(app));
+        E2E.with(|slot| {
+            *slot.borrow_mut() = Some(Handle {
+                app: Rc::clone(&app),
+                ctx,
+            });
+        });
+        install();
+        Box::new(SharedApp(app))
+    }
+
+    /// Sets `window.__vgms_e2e = { dispatch, state }`. The closures live for the
+    /// page's lifetime (`forget`), which an e2e build is fine to leak.
+    fn install() {
+        let dispatch = Closure::<dyn Fn(String, JsValue) -> Result<(), JsValue>>::new(dispatch);
+        let state = Closure::<dyn Fn() -> Result<JsValue, JsValue>>::new(state);
+        let obj = js_sys::Object::new();
+        let _ = js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("dispatch"),
+            dispatch.as_ref().unchecked_ref(),
+        );
+        let _ = js_sys::Reflect::set(
+            &obj,
+            &JsValue::from_str("state"),
+            state.as_ref().unchecked_ref(),
+        );
+        if let Some(window) = web_sys::window() {
+            let _ = js_sys::Reflect::set(&window, &JsValue::from_str("__vgms_e2e"), &obj);
+        }
+        dispatch.forget();
+        state.forget();
+    }
+
+    /// Queues an action (named as its `Action` variant) to run next frame.
+    fn dispatch(name: String, arg: JsValue) -> Result<(), JsValue> {
+        let action = map_action(&name, &arg).map_err(|message| JsValue::from_str(&message))?;
+        E2E.with(|slot| -> Result<(), JsValue> {
+            let borrow = slot.borrow();
+            let handle = borrow
+                .as_ref()
+                .ok_or_else(|| JsValue::from_str("e2e app not initialised"))?;
+            handle
+                .app
+                .try_borrow_mut()
+                .map_err(|_| JsValue::from_str("e2e app is busy rendering"))?
+                .e2e_enqueue_action(action);
+            // Wake the loop so the queued action drains promptly.
+            handle.ctx.request_repaint();
+            Ok(())
+        })
+    }
+
+    /// Returns the app state as a JS object (see [`E2eSnapshot`]).
+    fn state() -> Result<JsValue, JsValue> {
+        E2E.with(|slot| {
+            let borrow = slot.borrow();
+            let handle = borrow
+                .as_ref()
+                .ok_or_else(|| JsValue::from_str("e2e app not initialised"))?;
+            let snapshot = handle
+                .app
+                .try_borrow()
+                .map_err(|_| JsValue::from_str("e2e app is busy rendering"))?
+                .e2e_snapshot();
+            Ok(snapshot_to_js(&snapshot))
+        })
+    }
+
+    /// Maps a variant name (+ optional argument) to an [`Action`]. Extended as the
+    /// specs need more; an unknown name is a loud error rather than a silent no-op.
+    fn map_action(name: &str, arg: &JsValue) -> Result<Action, String> {
+        let action = match name {
+            // File
+            "OpenFile" => Action::OpenFile,
+            "Save" => Action::Save,
+            "SaveAs" => Action::SaveAs,
+            "CloseFile" => Action::CloseFile,
+            "ConfirmCloseFile" => Action::ConfirmCloseFile,
+            // Edit
+            "Undo" => Action::Undo,
+            "Redo" => Action::Redo,
+            "Status" => Action::Status(arg.as_string().unwrap_or_default()),
+            // Playback
+            "Play" => Action::Play,
+            "Stop" => Action::Stop,
+            // Pack
+            "OpenPackFolder" => Action::OpenPackFolder,
+            "ConfirmOpenPackFolder" => Action::ConfirmOpenPackFolder,
+            "ClosePack" => Action::ClosePack,
+            "ConfirmClosePack" => Action::ConfirmClosePack,
+            "PackSaveDocs" => Action::PackSaveDocs,
+            "PackScanVolumes" => Action::PackScanVolumes,
+            "PackRenameFromTags" => Action::PackRenameFromTags,
+            "PackConvertDatesToHyphens" => Action::PackConvertDatesToHyphens,
+            "PackExportZip" => Action::PackExportZip,
+            "ConfirmExportZip" => Action::ConfirmExportZip,
+            "PackApplySuggestedModifiers" => Action::PackApplySuggestedModifiers {
+                album: field_bool(arg, "album").unwrap_or(false),
+            },
+            "SelectTab" => Action::SelectTab(match arg.as_string().as_deref() {
+                Some("pack") => AppTab::Pack,
+                _ => AppTab::Editor,
+            }),
+            "PackTrackOpen" => Action::PackTrackOpen(scalar_usize(arg)?),
+            "PackTrackPreview" => Action::PackTrackPreview(scalar_usize(arg)?),
+            "ConfirmDeleteScreenshot" => {
+                Action::ConfirmDeleteScreenshot(arg.as_string().unwrap_or_default())
+            }
+            "PackMoveTrack" => Action::PackMoveTrack {
+                index: field_usize(arg, "index")?,
+                delta: field_isize(arg, "delta")?,
+            },
+            "PackMoveTrackTo" => Action::PackMoveTrackTo {
+                from: field_usize(arg, "from")?,
+                to: field_usize(arg, "to")?,
+            },
+            other => return Err(format!("unknown e2e action {other:?}")),
+        };
+        Ok(action)
+    }
+
+    fn field_f64(arg: &JsValue, key: &str) -> Option<f64> {
+        js_sys::Reflect::get(arg, &JsValue::from_str(key))
+            .ok()
+            .and_then(|value| value.as_f64())
+    }
+
+    fn field_bool(arg: &JsValue, key: &str) -> Option<bool> {
+        js_sys::Reflect::get(arg, &JsValue::from_str(key))
+            .ok()
+            .and_then(|value| value.as_bool())
+    }
+
+    fn field_usize(arg: &JsValue, key: &str) -> Result<usize, String> {
+        field_f64(arg, key)
+            .map(|value| value as usize)
+            .ok_or_else(|| format!("missing numeric field {key:?}"))
+    }
+
+    fn field_isize(arg: &JsValue, key: &str) -> Result<isize, String> {
+        field_f64(arg, key)
+            .map(|value| value as isize)
+            .ok_or_else(|| format!("missing numeric field {key:?}"))
+    }
+
+    fn scalar_usize(arg: &JsValue) -> Result<usize, String> {
+        arg.as_f64()
+            .map(|value| value as usize)
+            .ok_or_else(|| "expected a numeric argument".to_owned())
+    }
+
+    fn snapshot_to_js(snapshot: &E2eSnapshot) -> JsValue {
+        let obj = js_sys::Object::new();
+        set(
+            &obj,
+            "hasDocument",
+            &JsValue::from_bool(snapshot.has_document),
+        );
+        set(
+            &obj,
+            "documentName",
+            &opt_str(snapshot.document_name.as_deref()),
+        );
+        set(
+            &obj,
+            "rowCount",
+            &JsValue::from_f64(snapshot.row_count as f64),
+        );
+        set(&obj, "dirty", &JsValue::from_bool(snapshot.dirty));
+        set(&obj, "canUndo", &JsValue::from_bool(snapshot.can_undo));
+        set(&obj, "canRedo", &JsValue::from_bool(snapshot.can_redo));
+        set(&obj, "playing", &JsValue::from_bool(snapshot.playing));
+        set(&obj, "status", &JsValue::from_str(&snapshot.status));
+        set(&obj, "activeTab", &JsValue::from_str(snapshot.active_tab));
+        set(&obj, "alert", &opt_str(snapshot.alert.as_deref()));
+        set(
+            &obj,
+            "dialogOpen",
+            &JsValue::from_bool(snapshot.dialog_open),
+        );
+        match &snapshot.pack {
+            Some(pack) => {
+                let pobj = js_sys::Object::new();
+                set(&pobj, "name", &JsValue::from_str(&pack.name));
+                set(&pobj, "dirty", &JsValue::from_bool(pack.dirty));
+                set(&pobj, "trackNames", &str_array(&pack.track_names));
+                set(&pobj, "imageNames", &str_array(&pack.image_names));
+                set(&obj, "pack", &pobj);
+            }
+            None => set(&obj, "pack", &JsValue::NULL),
+        }
+        obj.into()
+    }
+
+    fn set(obj: &js_sys::Object, key: &str, value: &JsValue) {
+        let _ = js_sys::Reflect::set(obj, &JsValue::from_str(key), value);
+    }
+
+    fn opt_str(value: Option<&str>) -> JsValue {
+        value.map_or(JsValue::NULL, JsValue::from_str)
+    }
+
+    fn str_array(values: &[String]) -> JsValue {
+        let array = js_sys::Array::new();
+        for value in values {
+            array.push(&JsValue::from_str(value));
+        }
+        array.into()
+    }
 }

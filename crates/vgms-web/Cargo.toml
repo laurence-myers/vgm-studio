@@ -18,9 +18,10 @@ repository.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [features]
-# Ships the e2e test hook and the OPFS picker shims (wt-6). A debug/test-only
+# Ships the e2e test hook and the OPFS picker shims (wt-6/wt-7). A debug/test-only
 # feature; a release build never enables it, so the hook never reaches users.
-e2e = []
+# Enabling it turns on `vgms-ui/e2e` so the app exposes its action/state surface.
+e2e = ["vgms-ui/e2e"]
 
 [dependencies]
 # The portable half: the codec that ships a background task across the Worker

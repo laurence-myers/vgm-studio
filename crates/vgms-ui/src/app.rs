@@ -334,6 +334,13 @@ pub struct VgmStudioApp {
     /// `(theme, pad_style, deck_style)`. `None` whenever the window is painted
     /// in the saved settings. See [`Self::preview_skin`].
     skin_preview: Option<(ThemeChoice, SurfaceChoice, SurfaceChoice)>,
+
+    /// Actions injected by the e2e hook, drained into the per-frame queue at the
+    /// top of [`Self::update_impl`] so they run through the ordinary handler with
+    /// a live `Context`. Present only in test / `e2e` builds; see
+    /// [`Self::e2e_enqueue_action`].
+    #[cfg(any(test, feature = "e2e"))]
+    e2e_actions: VecDeque<Action>,
 }
 
 impl VgmStudioApp {
@@ -395,6 +402,47 @@ impl VgmStudioApp {
             pack_redo: Vec::new(),
             pending_pack_undo: None,
             skin_preview: None,
+            #[cfg(any(test, feature = "e2e"))]
+            e2e_actions: VecDeque::new(),
+        }
+    }
+
+    /// Queues an [`Action`] to run on the next frame, as if the UI had emitted it.
+    /// The web e2e hook (`window.__vgms_e2e.dispatch`) calls this to drive the app
+    /// without pixel-hitting the egui canvas; the queue is drained at the top of
+    /// [`Self::update_impl`]. Test / `e2e` builds only.
+    #[cfg(any(test, feature = "e2e"))]
+    pub fn e2e_enqueue_action(&mut self, action: Action) {
+        self.e2e_actions.push_back(action);
+    }
+
+    /// A read-only snapshot of the state the e2e specs assert on. Pure (no
+    /// `Context`), so the web hook (`window.__vgms_e2e.state`) can call it between
+    /// frames. Test / `e2e` builds only.
+    #[cfg(any(test, feature = "e2e"))]
+    #[must_use]
+    pub fn e2e_snapshot(&self) -> E2eSnapshot {
+        E2eSnapshot {
+            has_document: self.editor.has_document(),
+            document_name: self.editor.document_name().map(str::to_owned),
+            row_count: self.editor.len(),
+            dirty: self.editor.is_dirty(),
+            can_undo: self.editor.can_undo(),
+            can_redo: self.editor.can_redo(),
+            playing: self.audio.is_playing(),
+            status: self.status.clone(),
+            active_tab: match self.active_tab {
+                AppTab::Editor => "editor",
+                AppTab::Pack => "pack",
+            },
+            alert: self.alerts.front().map(|alert| alert.message.clone()),
+            dialog_open: self.dialogs.any_open(),
+            pack: self.pack.as_ref().map(|pack| E2ePackSnapshot {
+                name: pack.folder_name.clone(),
+                dirty: pack.dirty,
+                track_names: pack.tracks.iter().map(|t| t.file_name.clone()).collect(),
+                image_names: pack.images.iter().map(|i| i.name.clone()).collect(),
+            }),
         }
     }
 
@@ -428,6 +476,10 @@ impl VgmStudioApp {
         self.handle_drops(&ctx);
 
         let mut actions: Vec<Action> = Vec::new();
+        // Actions injected by the e2e hook run first, through the same handler the
+        // UI feeds. Compiled out of release builds.
+        #[cfg(any(test, feature = "e2e"))]
+        actions.extend(self.e2e_actions.drain(..));
         self.gather_key_input(&ctx, &mut actions);
 
         let active_palette = self.palette();
@@ -4506,6 +4558,43 @@ impl VgmStudioApp {
                 .to_owned(),
         )
     }
+}
+
+/// A read-only view of the state the web e2e specs assert on, produced by
+/// [`VgmStudioApp::e2e_snapshot`]. Plain owned data with no serde: the web hook
+/// reflects it into a JS object by hand (`vgms-web` has no serde in its tree).
+/// Test / `e2e` builds only.
+#[cfg(any(test, feature = "e2e"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct E2eSnapshot {
+    pub has_document: bool,
+    pub document_name: Option<String>,
+    pub row_count: usize,
+    pub dirty: bool,
+    pub can_undo: bool,
+    pub can_redo: bool,
+    pub playing: bool,
+    pub status: String,
+    /// `"editor"` or `"pack"`.
+    pub active_tab: &'static str,
+    /// The front alert's message, if a modal alert is up.
+    pub alert: Option<String>,
+    /// Whether any dialog window is open.
+    pub dialog_open: bool,
+    /// The open pack project, if any.
+    pub pack: Option<E2ePackSnapshot>,
+}
+
+/// The pack half of [`E2eSnapshot`]. Test / `e2e` builds only.
+#[cfg(any(test, feature = "e2e"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct E2ePackSnapshot {
+    pub name: String,
+    pub dirty: bool,
+    /// Track file names, in list order.
+    pub track_names: Vec<String>,
+    /// Screenshot file names, in list order.
+    pub image_names: Vec<String>,
 }
 
 impl eframe::App for VgmStudioApp {

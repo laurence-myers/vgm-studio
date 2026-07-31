@@ -10,6 +10,13 @@ license = "GPL-2.0-or-later"
 authors.workspace = true
 repository.workspace = true
 
+[features]
+# The e2e action/state hook (wt-6). Off by default, so a release build (native
+# or web) never compiles the reflection surface `vgms-web` exposes to Playwright.
+# The `cfg(test)` builds pick it up too, so the native hook test runs under the
+# ordinary `cargo test`. See `VgmStudioApp::e2e_enqueue_action`/`e2e_snapshot`.
+e2e = []
+
 [dependencies]
 vgms-core.workspace = true
 vgms-synth.workspace = true

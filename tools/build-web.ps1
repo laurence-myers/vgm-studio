@@ -9,6 +9,14 @@
 # (0.2.126) -- `cargo install wasm-bindgen-cli --version 0.2.126 --locked`.
 #
 # No new build system: this is the whole pipeline, said out loud.
+#
+# -E2e builds the app module with the `e2e` feature, so the page installs the
+# `window.__vgms_e2e` action/state hook the Playwright suite drives (wt-6). A
+# normal (release) build never passes it, so the hook never ships.
+
+param(
+    [switch]$E2e
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -16,12 +24,18 @@ $root = Split-Path -Parent $PSScriptRoot
 $release = Join-Path $root "target\wasm32-unknown-unknown\release"
 $dist = Join-Path $root "target\web-dist"
 
+$appFeatures = @()
+if ($E2e) {
+    Write-Host "e2e build: enabling the vgms-web `e2e` feature (window.__vgms_e2e)."
+    $appFeatures = @("--features", "e2e")
+}
+
 Write-Host "Building the AudioWorklet module (vgms-synth-worklet)..."
 cargo build -p vgms-synth-worklet --lib --target wasm32-unknown-unknown --release
 if ($LASTEXITCODE -ne 0) { throw "worklet build failed" }
 
 Write-Host "Building the app module (vgms-web)..."
-cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release
+cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release @appFeatures
 if ($LASTEXITCODE -ne 0) { throw "app module build failed" }
 
 Write-Host "Running wasm-bindgen over the app module..."

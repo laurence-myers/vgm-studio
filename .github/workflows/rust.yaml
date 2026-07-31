@@ -90,6 +90,15 @@ jobs:
             --out-dir target/web-dist --out-name vgms_web \
             target/wasm32-unknown-unknown/release/vgms_web.wasm
 
+      # The native clippy job never sees the wasm-only modules, and the e2e hook
+      # (`window.__vgms_e2e`, feature `e2e`) is wasm-only, so lint it here on the
+      # wasm target with the feature on -- otherwise a warning in the hook only
+      # surfaces in the web-e2e job's build, or not at all.
+      - name: Lint the wasm-only + e2e code
+        run: |
+          rustup component add clippy
+          cargo clippy -p vgms-web --target wasm32-unknown-unknown --features e2e --all-targets -- -D warnings
+
   c-parity:
     name: pure-Rust OPL core == C reference
     runs-on: ubuntu-latest
@@ -110,3 +119,60 @@ jobs:
       # it and through Nuke.YKT's C and compares sample by sample.
       - name: Differential test against the C sources
         run: cargo test -p vgms-synth --features c-parity --test c_parity
+
+  web-e2e:
+    name: web e2e (Playwright)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      # The C sound cores compile to wasm through clang; the e2e build links them.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+
+      # Assemble target/web-dist with the `e2e` feature on, so the page installs
+      # the `window.__vgms_e2e` hook the specs drive. Same steps as
+      # tools/build-web.ps1, but Linux-native (the CJK font is optional and left
+      # out -- the specs never touch Japanese tags).
+      - name: Build the e2e web bundle
+        run: |
+          cargo build -p vgms-synth-worklet --lib --target wasm32-unknown-unknown --release
+          cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release --features e2e
+          wasm-bindgen --target web --no-typescript \
+            --out-dir target/web-dist --out-name vgms_web \
+            target/wasm32-unknown-unknown/release/vgms_web.wasm
+          cp target/wasm32-unknown-unknown/release/vgms_synth_worklet.wasm target/web-dist/
+          cp web/index.html web/task_worker.js web/worklet-processor.js target/web-dist/
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install the e2e harness
+        working-directory: web/e2e
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: web/e2e
+        run: npx playwright install --with-deps chromium firefox
+
+      - name: Run the web e2e suite
+        working-directory: web/e2e
+        run: npx playwright test
+
+      - name: Upload the report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: web/e2e/playwright-report/
+          retention-days: 7

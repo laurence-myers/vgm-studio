@@ -22,12 +22,24 @@
 > `target/web-dist`); CI extended to build both modules, run the node smoke, and
 > generate the wasm-bindgen glue. Two supporting commits: a repo-wide `rustfmt`
 > fix for the brand-rename import reorder, and `Muting`/`ChipMuting`/`ChipPanning`
-> raw accessors in `vgms-synth` for the worklet ABI. **Remaining: wt-6 (Playwright
-> e2e harness + the `__vgms_e2e` hook + OPFS picker shims), wt-7 (Chromium
-> packs), wt-8 (zip packs + `vgms-pack-archive`), wt-9 (Web Serial
-> investigation).** A pre-existing, unrelated `vgms-core` projection proptest bug
-> was found and flagged as a separate task (mixed OPL2/OPL3-write synthetic
-> files); it does not affect the web target.
+> raw accessors in `vgms-synth` for the worklet ABI. A pre-existing, unrelated
+> `vgms-core` projection proptest bug was found and flagged as a separate task
+> (mixed OPL2/OPL3-write synthetic files); it does not affect the web target.
+>
+> **Progress 2026-07-31 (cont.): wt-6 DONE.** The Playwright suite is live under
+> `web/e2e/` (Chromium + Firefox projects, dependency-free static server). The
+> debug-only `window.__vgms_e2e` hook (`dispatch` an `Action`, read a JSON
+> `state()`) is installed in `runner.rs` behind the `e2e` cargo feature, over two
+> public methods on `VgmStudioApp` (`e2e_enqueue_action` / `e2e_snapshot`, gated
+> `cfg(any(test, feature = "e2e"))`); a native test pins the contract.
+> `tools/build-web.ps1 -E2e` builds the hooked bundle. CI gains a `web-e2e` job
+> (Ubuntu, both browsers) plus a wasm+`e2e` clippy pass. Verified end-to-end on
+> headless Chromium (swiftshader WebGL): boot, dispatch, open via the file
+> picker, Save As download, and Play/Stop transport state all pass. **The OPFS
+> picker shims move to wt-7**, where `showDirectoryPicker` is first exercised —
+> Playwright drives the plain file-input and download pickers natively, so wt-6
+> needs no shim. **Remaining: wt-7 (Chromium packs), wt-8 (zip packs +
+> `vgms-pack-archive`), wt-9 (Web Serial investigation).**
 
 ## What already exists, and what this plan refuses to re-decide
 

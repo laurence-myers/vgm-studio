@@ -1,0 +1,17 @@
+{
+  "name": "vgms-web-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright regression suite pinning the web target's browser-only behaviours (wt-6..wt-8). Test-only; the build pipeline stays npm-free.",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:chromium": "playwright test --project=chromium",
+    "test:firefox": "playwright test --project=firefox",
+    "serve": "node serve.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
