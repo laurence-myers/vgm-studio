@@ -26,7 +26,9 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
 
-use vgms_ui::platform::{FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest};
+use vgms_ui::platform::{
+    ArchiveBackend, FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+};
 
 // The File System Access helpers. The directory handles live on the JS side,
 // keyed by the token Rust passes back as a `/<token>` path. See `pack_fs.js`.
@@ -72,6 +74,9 @@ pub struct WebFileService {
     renamed: Rc<RefCell<Option<Result<(), String>>>>,
     deleted: Rc<RefCell<Option<Result<(), String>>>>,
     output_folder: Rc<RefCell<Option<Option<PathBuf>>>>,
+    /// Zip-opened packs (wt-8): their edits stay in memory here, and are served
+    /// synchronously, ahead of the async File System Access path below.
+    archives: ArchiveBackend,
     notify: Rc<dyn Fn()>,
 }
 
@@ -96,6 +101,7 @@ impl WebFileService {
             renamed: Rc::new(RefCell::new(None)),
             deleted: Rc::new(RefCell::new(None)),
             output_folder: Rc::new(RefCell::new(None)),
+            archives: ArchiveBackend::new(),
             notify: Rc::new(notify),
         }
     }
@@ -344,6 +350,26 @@ impl FileService for WebFileService {
     }
 
     fn save(&mut self, request: SaveRequest) {
+        // A write to a zip-opened pack goes to the in-memory archive, synchronously.
+        if let SaveRequest::InPlace { path, bytes } = &request
+            && self.archives.holds_file(path)
+        {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("file")
+                .to_owned();
+            let outcome = match self.archives.write(path, bytes.clone()) {
+                Ok(()) => SaveOutcome::Saved {
+                    name,
+                    path: Some(path.clone()),
+                },
+                Err(message) => SaveOutcome::Failed(message),
+            };
+            self.saved.borrow_mut().push_back(outcome);
+            (self.notify)();
+            return;
+        }
         let job = match request {
             SaveRequest::InPlace { path, bytes } => {
                 // An in-place save on the web is a write-back to a held pack /
@@ -401,6 +427,11 @@ impl FileService for WebFileService {
     }
 
     fn delete(&mut self, path: PathBuf) {
+        if self.archives.holds_file(&path) {
+            *self.deleted.borrow_mut() = Some(self.archives.delete(&path));
+            (self.notify)();
+            return;
+        }
         let Some((token, name)) = split_token(&path) else {
             *self.deleted.borrow_mut() = Some(Err(format!("cannot delete {}", path.display())));
             (self.notify)();
@@ -438,7 +469,22 @@ impl FileService for WebFileService {
         });
     }
 
+    fn open_pack_archive(&mut self, name: String, bytes: Vec<u8>) {
+        *self.folder.borrow_mut() = Some(self.archives.open(&name, &bytes));
+        (self.notify)();
+    }
+
     fn open_folder_path(&mut self, path: PathBuf) {
+        // A zip pack rescan re-lists the in-memory archive; nothing async.
+        if self.archives.holds_folder(&path) {
+            *self.folder.borrow_mut() = self
+                .archives
+                .folder(&path)
+                .map(Ok)
+                .or_else(|| Some(Err(format!("lost the zip pack {}", path.display()))));
+            (self.notify)();
+            return;
+        }
         let Some(token) = path
             .file_name()
             .and_then(|name| name.to_str())
@@ -468,6 +514,11 @@ impl FileService for WebFileService {
     }
 
     fn rename(&mut self, from: PathBuf, to_name: String) {
+        if self.archives.holds_file(&from) {
+            *self.renamed.borrow_mut() = Some(self.archives.rename(&from, &to_name));
+            (self.notify)();
+            return;
+        }
         let Some((token, from_name)) = split_token(&from) else {
             *self.renamed.borrow_mut() = Some(Err(format!("cannot rename {}", from.display())));
             (self.notify)();

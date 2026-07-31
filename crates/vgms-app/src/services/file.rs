@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use vgms_ui::{FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest};
+use vgms_ui::{ArchiveBackend, FileService, PickedFile, PickedFolder, SaveOutcome, SaveRequest};
 
 /// The file-type wildcard string, as rfd filters.
 const FILTERS: [(&str, &[&str]); 4] = [
@@ -35,6 +35,9 @@ pub struct NativeFileService {
     /// Where a split should write, once chosen. The inner `None` is a dismissed
     /// picker, which the app reports rather than treating as an error.
     output_folder: Option<Option<PathBuf>>,
+    /// Zip-opened packs (wt-8): their edits stay in this in-memory archive until
+    /// Save Pack, and are routed here ahead of the filesystem.
+    archives: ArchiveBackend,
 }
 
 impl NativeFileService {
@@ -49,6 +52,14 @@ impl NativeFileService {
     fn read(&mut self, path: PathBuf) {
         if path.is_dir() {
             self.folder = Some(scan_folder(&path));
+            return;
+        }
+        // A .zip opens as an in-memory pack (wt-8) rather than a song.
+        if is_zip_path(&path) {
+            self.folder = Some(match fs::read(&path) {
+                Ok(bytes) => self.archives.open(&file_name(&path), &bytes),
+                Err(error) => Err(format!("{}: {error}", path.display())),
+            });
             return;
         }
         self.picked = Some(match fs::read(&path) {
@@ -103,7 +114,15 @@ impl FileService for NativeFileService {
         self.picked_image.take()
     }
 
+    fn open_pack_archive(&mut self, name: String, bytes: Vec<u8>) {
+        self.folder = Some(self.archives.open(&name, &bytes));
+    }
+
     fn delete(&mut self, path: PathBuf) {
+        if self.archives.holds_file(&path) {
+            self.deleted = Some(self.archives.delete(&path));
+            return;
+        }
         self.deleted = Some(match fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(error) => Err(format!("{}: {error}", path.display())),
@@ -115,6 +134,21 @@ impl FileService for NativeFileService {
     }
 
     fn save(&mut self, request: SaveRequest) {
+        // A write to a zip-opened pack goes to its in-memory archive.
+        if let SaveRequest::InPlace { path, bytes } = &request
+            && self.archives.holds_file(path)
+        {
+            let name = file_name(path);
+            let outcome = match self.archives.write(path, bytes.clone()) {
+                Ok(()) => SaveOutcome::Saved {
+                    name,
+                    path: Some(path.clone()),
+                },
+                Err(message) => SaveOutcome::Failed(message),
+            };
+            self.saved.push_back(outcome);
+            return;
+        }
         let outcome = match request {
             SaveRequest::InPlace { path, bytes } => write_outcome(path, &bytes),
             SaveRequest::Dialog {
@@ -156,6 +190,15 @@ impl FileService for NativeFileService {
     }
 
     fn open_folder_path(&mut self, path: PathBuf) {
+        // A zip pack rescan re-lists its in-memory archive.
+        if self.archives.holds_folder(&path) {
+            self.folder = Some(
+                self.archives
+                    .folder(&path)
+                    .ok_or_else(|| format!("lost the zip pack {}", path.display())),
+            );
+            return;
+        }
         self.folder = Some(scan_folder(&path));
     }
 
@@ -164,6 +207,10 @@ impl FileService for NativeFileService {
     }
 
     fn rename(&mut self, from: PathBuf, to_name: String) {
+        if self.archives.holds_file(&from) {
+            self.renamed = Some(self.archives.rename(&from, &to_name));
+            return;
+        }
         self.renamed = Some(rename_in_place(&from, &to_name));
     }
 
@@ -331,6 +378,12 @@ fn file_name(path: &Path) -> String {
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     )
+}
+
+/// Whether `path` is a `.zip` (a pack archive, not a song) -- wt-8.
+fn is_zip_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
 }
 
 fn folder_name(path: &Path) -> String {

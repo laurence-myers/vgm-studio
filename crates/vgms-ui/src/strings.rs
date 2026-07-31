@@ -235,6 +235,10 @@ pub(crate) fn app_status_exported(shown: &str) -> String {
     format!("Exported {shown}.")
 }
 
+pub(crate) fn app_status_pack_saved(shown: &str) -> String {
+    format!("Saved pack {shown}.")
+}
+
 pub(crate) fn app_status_rendered(shown: &str) -> String {
     format!("Rendered {shown}.")
 }
@@ -481,6 +485,8 @@ pub(crate) const PACK_VIEW_CHECKLIST_TIP: &str = "Open the submission checklist"
 pub(crate) const PACK_EXPORT_ZIP_TIP: &str =
     "Build the submission zip (songs, screenshot, description, playlist)";
 pub(crate) const PACK_SAVE_DOCS_TIP: &str = "Write Game Name.txt and Game Name.m3u into the folder";
+pub(crate) const PACK_SAVE_ARCHIVE_TIP: &str =
+    "Save this zip pack: re-export the archive (optimised, gzipped) back to a .zip";
 pub(crate) const PACK_OPT_TIP: &str =
     "Strip redundant register writes from each VGM before packing (vgm_cmp-style)";
 pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export -- the VGMRips convention";

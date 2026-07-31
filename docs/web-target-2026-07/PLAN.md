@@ -76,8 +76,26 @@
 > bound (a JS-handle transport is `!Send`, so the seam is the JS boundary), the
 > 200 ms reset settle becoming async, background-tab timer throttling (bounded by
 > the deadline reset; pause when hidden), and unmeasured WritableStream
-> backpressure. Not built in this programme. **Remaining: wt-8 (zip packs
-> everywhere + `vgms-pack-archive` wiring).**
+> backpressure. Not built in this programme.
+>
+> **Progress 2026-07-31 (cont.): wt-8 DONE. All web-target steps complete.** Zip
+> packs work everywhere (native + web, no File System Access needed). The leaf
+> crate `vgms-pack-archive` unzips a `.zip` into an in-memory file map with the
+> native mutation decision tree (9 tests). A shared `platform::ArchiveBackend`
+> (one implementation) is embedded in every file service -- native, web, and the
+> test fake -- and routes any save/delete/rename/rescan whose `/vgms-zip-N` token
+> it holds to the archive; a Directory pack's paths never match, so native
+> directory mode is untouched. vgms-ui gains a `PackOrigin` on `PackState`
+> (detected from the token path in `open_folder`, so no field on every
+> `PickedFolder`), `.zip` routing from the picker and drag-drop, dirty-on-mutation
+> for a memory pack, a discard prompt on open-while-dirty, and a **Save .zip**
+> deck action that re-exports the archive (the wt-7b Worker job) and clears dirty.
+> Proven by e2e on **both** Chromium and Firefox projects (open a `.zip`, reorder
+> in memory + dirty, Save .zip download whose songs are `.vgz`), plus the crate's
+> native tests. Deferred (documented): in-place save to the source `.zip` on
+> native (Save is a download / Save As), and the web `beforeunload` guard (the
+> in-app discard prompt covers navigation within the app). **All of wt-6..wt-9
+> are complete.**
 
 ## What already exists, and what this plan refuses to re-decide
 

@@ -181,6 +181,38 @@ fn e2e_hook_dispatches_actions_and_reports_state() {
 }
 
 #[test]
+fn opening_a_zip_makes_a_memory_pack_that_edits_dirty() {
+    // The whole wt-8 flow, natively: a .zip picked as a file becomes an in-memory
+    // pack (through the fake's real ArchiveBackend), and a reorder renumbers the
+    // archive and marks it dirty -- the same path the Firefox e2e proves.
+    const ZIP: &[u8] = include_bytes!("../../../tests/e2e-pack.zip");
+    let (mut harness, handles) = empty_harness();
+    handles.files.borrow_mut().picked.push_back(Ok(PickedFile {
+        name: "e2e-pack.zip".to_owned(),
+        path: None,
+        bytes: ZIP.to_vec(),
+    }));
+    harness.run();
+
+    let pack = harness
+        .state()
+        .e2e_snapshot()
+        .pack
+        .expect("the .zip opened as a pack");
+    assert_eq!(pack.track_names, ["01 Alpha.vgm", "02 Beta.vgm"]);
+    assert!(!pack.dirty, "a freshly opened pack is clean");
+
+    // Reordering renumbers the in-memory archive and marks the pack dirty. The
+    // file-op run spans several frames (a rename per poll), so step a fixed
+    // number rather than `run()`, which settles before the batch finishes.
+    act(&mut harness, Action::PackMoveTrack { index: 0, delta: 1 });
+    harness.run_steps(16);
+    let pack = harness.state().e2e_snapshot().pack.expect("still a pack");
+    assert_eq!(pack.track_names, ["01 Beta.vgm", "02 Alpha.vgm"]);
+    assert!(pack.dirty, "a memory pack is dirty after an edit");
+}
+
+#[test]
 fn loading_a_dro_shows_table_and_status() {
     let song = tone_song();
     let (harness, handles) = harness_with_song(&song);

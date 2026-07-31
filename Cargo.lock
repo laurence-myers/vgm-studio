@@ -4649,6 +4649,7 @@ dependencies = [
  "image",
  "log",
  "vgms-core",
+ "vgms-pack-archive",
  "vgms-synth",
  "vgms-vgmtools",
 ]

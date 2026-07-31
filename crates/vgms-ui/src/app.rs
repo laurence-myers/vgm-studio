@@ -130,6 +130,9 @@ enum SavePurpose {
     ImageWritten,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
+    /// Save Pack: re-exporting a memory-backed (zip) pack. On success the pack's
+    /// dirty flag clears; on cancel it stays, so nothing is silently lost (wt-8).
+    SaveArchive,
     /// A `Write` step of the pack file-op executor (reorder / undo / redo).
     PackOp,
 }
@@ -184,6 +187,19 @@ enum PackRunKind {
     Redo,
     /// Reverting an edit: push to redo.
     Undo,
+}
+
+/// Whether a name is a `.zip` (a pack archive, not a song) -- wt-8.
+fn is_zip_name(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".zip")
+}
+
+/// Whether a folder path is an in-memory zip pack's synthetic token
+/// (`/vgms-zip-N`), the marker every file service mints for one -- wt-8.
+fn folder_is_archive(path: Option<&Path>) -> bool {
+    path.and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.starts_with("vgms-zip-"))
 }
 
 /// A path's file name, for a status line or an undo label.
@@ -335,6 +351,12 @@ pub struct VgmStudioApp {
     /// in the saved settings. See [`Self::preview_skin`].
     skin_preview: Option<(ThemeChoice, SurfaceChoice, SurfaceChoice)>,
 
+    /// A `.zip` held behind the discard-changes prompt when a dirty pack is open.
+    pending_zip: Option<PickedFile>,
+    /// Set while a Save Pack export is in flight, so its delivered outcome clears
+    /// the memory pack's dirty flag rather than reading as a plain Export Zip.
+    pack_saving_archive: bool,
+
     /// Actions injected by the e2e hook, drained into the per-frame queue at the
     /// top of [`Self::update_impl`] so they run through the ordinary handler with
     /// a live `Context`. Present only in test / `e2e` builds; see
@@ -402,6 +424,8 @@ impl VgmStudioApp {
             pack_redo: Vec::new(),
             pending_pack_undo: None,
             skin_preview: None,
+            pending_zip: None,
+            pack_saving_archive: false,
             #[cfg(any(test, feature = "e2e"))]
             e2e_actions: VecDeque::new(),
         }
@@ -961,7 +985,14 @@ impl VgmStudioApp {
                     bytes,
                     log,
                 } => {
-                    self.pending_saves.push_back(SavePurpose::ExportZip);
+                    // A Save Pack export clears the memory pack's dirty flag when
+                    // it lands; a plain Export Zip does not.
+                    let purpose = if std::mem::take(&mut self.pack_saving_archive) {
+                        SavePurpose::SaveArchive
+                    } else {
+                        SavePurpose::ExportZip
+                    };
+                    self.pending_saves.push_back(purpose);
                     self.files.save(SaveRequest::Dialog {
                         suggested_name: zip_name,
                         bytes,
@@ -1258,6 +1289,16 @@ impl VgmStudioApp {
                         .map_or_else(|| name.clone(), |p| p.display().to_string());
                     self.status = crate::strings::app_status_exported(&shown);
                 }
+                SavePurpose::SaveArchive => {
+                    // The memory pack's edits are now in a saved zip: it is clean.
+                    if let Some(pack) = self.pack.as_mut() {
+                        pack.dirty = false;
+                    }
+                    let shown = path
+                        .as_ref()
+                        .map_or_else(|| name.clone(), |p| p.display().to_string());
+                    self.status = crate::strings::app_status_pack_saved(&shown);
+                }
                 SavePurpose::WavExport => {
                     let shown = path
                         .as_ref()
@@ -1326,9 +1367,16 @@ impl VgmStudioApp {
         let lower = name.to_ascii_lowercase();
         let is_song = lower.ends_with(".dro") || lower.ends_with(".vgm") || lower.ends_with(".vgz");
         if let Some(bytes) = file.bytes {
-            // The web path: eframe delivers the dropped file's contents. Only
-            // songs are handled here (a dropped folder has no bytes).
-            if is_song {
+            // The web path: eframe delivers the dropped file's contents. A song
+            // opens in the editor, a .zip opens as an in-memory pack; a dropped
+            // folder has no bytes and never reaches here.
+            if is_zip_name(&name) {
+                self.open_zip_pack(PickedFile {
+                    name,
+                    path: None,
+                    bytes: bytes.to_vec(),
+                });
+            } else if is_song {
                 self.load_file(PickedFile {
                     name,
                     path: None,
@@ -1338,11 +1386,11 @@ impl VgmStudioApp {
                 self.status = crate::strings::app_status_unsupported_type(&name);
             }
         } else if let Some(path) = file.path {
-            // Native: a song opens in the editor; anything else (a folder, which
-            // has no extension) is handed to the file service, which routes a
-            // directory into pack mode. A junk file surfaces the usual "bad
-            // format" alert.
-            if is_song || path.extension().is_none() {
+            // Native: a song opens in the editor; a .zip opens as a pack; a folder
+            // (no extension) is scanned into pack mode. The file service's read
+            // routes each; `open_folder` recognises a zip pack by its token path.
+            // A junk file surfaces the usual "bad format" alert.
+            if is_zip_name(&name) || is_song || path.extension().is_none() {
                 self.files.open_path(path);
             } else {
                 self.status = crate::strings::app_status_unsupported_type(&name);
@@ -1374,9 +1422,12 @@ impl VgmStudioApp {
     }
 
     /// Loads `file` into the editor, or -- if the current song has unsaved edits
-    /// -- stashes it behind a discard-changes confirm first.
+    /// -- stashes it behind a discard-changes confirm first. A `.zip` is a pack,
+    /// not a song, so it routes to the zip-pack open instead (wt-8).
     fn load_or_confirm(&mut self, file: PickedFile) {
-        if self.editor.is_dirty() {
+        if is_zip_name(&file.name) {
+            self.open_zip_pack(file);
+        } else if self.editor.is_dirty() {
             self.pending_load = Some(file);
             self.alerts.push_back(Alert::confirm(
                 crate::strings::APP_CONFIRM_DISCARD_TITLE,
@@ -1386,6 +1437,28 @@ impl VgmStudioApp {
         } else {
             self.load_file(file);
         }
+    }
+
+    /// Opens a `.zip` as an in-memory pack, prompting first if the open pack has
+    /// unsaved edits (a memory-backed pack's edits are lost on discard).
+    fn open_zip_pack(&mut self, file: PickedFile) {
+        if self.pack_is_dirty() {
+            self.pending_zip = Some(file);
+            self.alerts.push_back(Alert::confirm(
+                crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
+                crate::strings::APP_CONFIRM_PACK_OPEN_BODY,
+                Action::ConfirmOpenZipPack,
+            ));
+        } else {
+            self.do_open_zip_pack(file);
+        }
+    }
+
+    /// Hands a `.zip`'s bytes to the file service as an in-memory pack. The
+    /// delivered folder carries a `/vgms-zip-N` token path, which `open_folder`
+    /// recognises to stamp the memory origin.
+    fn do_open_zip_pack(&mut self, file: PickedFile) {
+        self.files.open_pack_archive(file.name, file.bytes);
     }
 
     fn gather_key_input(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) {
@@ -1979,6 +2052,12 @@ impl VgmStudioApp {
             Action::ConfirmDeleteScreenshot(name) => self.delete_screenshot(&name),
             Action::PackExportZip => self.export_pack_zip(false),
             Action::ConfirmExportZip => self.export_pack_zip(true),
+            Action::PackSaveArchive => self.save_pack_archive(),
+            Action::ConfirmOpenZipPack => {
+                if let Some(file) = self.pending_zip.take() {
+                    self.do_open_zip_pack(file);
+                }
+            }
             Action::PackTrackOpen(index) => self.open_track_in_editor(index),
             Action::PackTrackPreview(index) => self.preview_track(index),
             Action::PackStopPreview => self.stop_preview(),
@@ -2433,6 +2512,17 @@ impl VgmStudioApp {
                     PackRunKind::Redo => self.pack_undo.push(transaction),
                     PackRunKind::Undo => self.pack_redo.push(transaction),
                 }
+                // A memory-backed (zip) pack's file edits live only in the
+                // in-service archive until Save Pack, so any mutation makes it
+                // dirty -- the discard prompt and web beforeunload guard read this.
+                if self
+                    .pack
+                    .as_ref()
+                    .is_some_and(|pack| pack.origin.is_memory())
+                    && let Some(pack) = self.pack.as_mut()
+                {
+                    pack.dirty = true;
+                }
                 self.rescan_pack_folder();
                 self.status = match kind {
                     PackRunKind::Undo => crate::strings::app_status_pack_undone(&label),
@@ -2594,7 +2684,16 @@ impl VgmStudioApp {
         // A brand-new project starts with an empty edit history.
         self.clear_pack_edits();
         let today = self.pack_service.today();
-        let state = PackState::from_folder(folder, today);
+        // A zip-opened pack is delivered under a `/vgms-zip-N` token path; that is
+        // how any shell signals "this pack lives in memory" without a new field on
+        // every `PickedFolder`.
+        let origin = if folder_is_archive(folder.path.as_deref()) {
+            crate::platform::PackOrigin::MemoryZip { source: None }
+        } else {
+            crate::platform::PackOrigin::Directory
+        };
+        let mut state = PackState::from_folder(folder, today);
+        state.origin = origin;
         let warning = state.parse_warning.clone();
         let name = state.folder_name.clone();
         self.pack = Some(state);
@@ -2726,6 +2825,34 @@ impl VgmStudioApp {
         if self.pack.as_ref().is_some_and(|pack| pack.dirty) {
             self.save_pack_docs();
         }
+        self.pack_service.submit(request);
+        self.status = crate::strings::APP_STATUS_BUILDING_ZIP.to_owned();
+    }
+
+    /// Save Pack: re-export a memory-backed (zip) pack. Runs the same export job
+    /// as Export Zip -- songs optimised + gzipped, docs regenerated -- but names
+    /// the result after the source pack and clears the dirty flag once it lands
+    /// (see [`SavePurpose::SaveArchive`]). Delivered as a download / Save As; an
+    /// in-place write to the source `.zip` on native is a later nicety.
+    fn save_pack_archive(&mut self) {
+        let Some(pack) = self.pack.as_ref() else {
+            return;
+        };
+        if !pack.origin.is_memory() {
+            return;
+        }
+        // A game name is still required (it names every entry); block on the same
+        // hard errors Export Zip does rather than build a nameless zip.
+        let validations = pack.validations();
+        if !validations.errors.is_empty() {
+            self.alerts
+                .push_back(Alert::error(validations.errors.join("\n")));
+            return;
+        }
+        let mut request = pack.export_request();
+        // Save back under the pack's own name, not the game-name-derived one.
+        request.zip_name = format!("{}.zip", pack.folder_name);
+        self.pack_saving_archive = true;
         self.pack_service.submit(request);
         self.status = crate::strings::APP_STATUS_BUILDING_ZIP.to_owned();
     }

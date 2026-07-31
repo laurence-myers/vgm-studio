@@ -253,6 +253,10 @@ impl PackSection {
 pub struct PackState {
     pub folder_name: String,
     pub folder_path: Option<PathBuf>,
+    /// Where the files live: a writable directory, or an in-memory zip archive
+    /// that needs an explicit Save Pack (wt-8). Set by the app when the folder is
+    /// opened; preserved across an in-place rescan.
+    pub origin: crate::platform::PackOrigin,
     pub meta: PackMeta,
     pub tracks: Vec<PackTrack>,
     pub images: Vec<PackImage>,
@@ -347,6 +351,8 @@ impl PackState {
         Self {
             folder_name: folder.name,
             folder_path: folder.path,
+            // The app overrides this for a zip-opened pack right after building.
+            origin: crate::platform::PackOrigin::default(),
             meta,
             tracks,
             images,
@@ -1655,7 +1661,16 @@ pub fn deck(
             {
                 actions.push(Action::PackExportZip);
             }
-            if bevel::button(ui, palette, "Save Pack")
+            // A zip-opened pack has no folder to write docs to; its save is a
+            // re-export of the whole archive (wt-8).
+            if state.origin.is_memory() {
+                if bevel::button(ui, palette, "Save .zip\u{2026}")
+                    .on_hover_text(crate::strings::PACK_SAVE_ARCHIVE_TIP)
+                    .clicked()
+                {
+                    actions.push(Action::PackSaveArchive);
+                }
+            } else if bevel::button(ui, palette, "Save Pack")
                 .on_hover_text(crate::strings::PACK_SAVE_DOCS_TIP)
                 .clicked()
             {

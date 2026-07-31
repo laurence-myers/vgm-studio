@@ -293,6 +293,8 @@ mod e2e {
             "PackConvertDatesToHyphens" => Action::PackConvertDatesToHyphens,
             "PackExportZip" => Action::PackExportZip,
             "ConfirmExportZip" => Action::ConfirmExportZip,
+            "PackSaveArchive" => Action::PackSaveArchive,
+            "ConfirmOpenZipPack" => Action::ConfirmOpenZipPack,
             "PackApplySuggestedModifiers" => Action::PackApplySuggestedModifiers {
                 album: field_bool(arg, "album").unwrap_or(false),
             },

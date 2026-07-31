@@ -109,6 +109,12 @@ pub enum Action {
     ConfirmOpenPackFolder,
     /// Open a specific folder as a pack project (the Split Songs completion offer).
     OpenPackFolderAt(std::path::PathBuf),
+    /// Open the `.zip` held in `pending_zip` as a pack, after the user confirmed
+    /// discarding the current pack's unsaved edits (wt-8).
+    ConfirmOpenZipPack,
+    /// Save a memory-backed (zip-opened) pack: re-export the archive, in place to
+    /// its source `.zip` on native, or as a download on the web (wt-8).
+    PackSaveArchive,
     /// Switch the active tab (only meaningful while a pack is open).
     SelectTab(AppTab),
     /// Close the pack project (prompts first if it has unsaved edits).

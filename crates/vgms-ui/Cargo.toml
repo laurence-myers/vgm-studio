@@ -20,6 +20,11 @@ e2e = []
 [dependencies]
 vgms-core.workspace = true
 vgms-synth.workspace = true
+# The in-memory zip pack backend (wt-8). A `.zip` opened as a pack is unpacked
+# into this and mutated in place until saved; the file services embed an
+# `ArchiveBackend` over it. Builds for wasm32, so pack mode works on browsers
+# without the File System Access API too.
+vgms-pack-archive.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui_extras.workspace = true

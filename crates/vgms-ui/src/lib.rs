@@ -39,8 +39,8 @@ pub use app::VgmStudioApp;
 pub use app::{E2ePackSnapshot, E2eSnapshot};
 pub use pack::PackState;
 pub use platform::{
-    AudioService, ConfigStore, FileService, OptimizedImage, PackEntry, PackEntryKind,
-    PackJobOutcome, PackJobRequest, PackService, PickedFile, PickedFolder, SaveOutcome,
-    SaveRequest,
+    ArchiveBackend, AudioService, ConfigStore, FileService, OptimizedImage, PackEntry,
+    PackEntryKind, PackJobOutcome, PackJobRequest, PackOrigin, PackService, PickedFile,
+    PickedFolder, SaveOutcome, SaveRequest,
 };
 pub use tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};

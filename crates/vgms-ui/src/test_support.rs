@@ -16,8 +16,8 @@ use vgms_core::config::{AppConfig, AudioConfig, ConfigStore};
 use vgms_synth::{AudioSource, Muting, Panning};
 
 use crate::platform::{
-    AudioService, FileService, OptimizedImage, PackJobOutcome, PackJobRequest, PackService,
-    PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+    ArchiveBackend, AudioService, FileService, OptimizedImage, PackJobOutcome, PackJobRequest,
+    PackService, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
@@ -55,6 +55,10 @@ pub(crate) struct FileLog {
     pub delete_requests: Vec<PathBuf>,
     /// The answer to the last `delete`, waiting to be polled.
     pending_delete: Option<Result<(), String>>,
+    /// Zip packs opened through the fake (wt-8): archive paths route here for
+    /// real, so a test drives the true open/reorder/save flow; everything else
+    /// stays scripted.
+    archives: ArchiveBackend,
 }
 
 #[derive(Debug)]
@@ -81,8 +85,18 @@ impl FileService for FakeFileService {
         self.0.borrow_mut().picked_images.pop_front()
     }
 
+    fn open_pack_archive(&mut self, name: String, bytes: Vec<u8>) {
+        let mut log = self.0.borrow_mut();
+        let opened = log.archives.open(&name, &bytes);
+        log.picked_folders.push_back(opened);
+    }
+
     fn delete(&mut self, path: PathBuf) {
         let mut log = self.0.borrow_mut();
+        if log.archives.holds_file(&path) {
+            log.pending_delete = Some(log.archives.delete(&path));
+            return;
+        }
         log.delete_requests.push(path);
         // Deletes succeed unless a test says otherwise, like renames.
         let outcome = log.delete_outcomes.pop_front().unwrap_or(Ok(()));
@@ -94,7 +108,26 @@ impl FileService for FakeFileService {
     }
 
     fn save(&mut self, request: SaveRequest) {
-        self.0.borrow_mut().save_requests.push(request);
+        let mut log = self.0.borrow_mut();
+        if let SaveRequest::InPlace { path, bytes } = &request
+            && log.archives.holds_file(path)
+        {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("file")
+                .to_owned();
+            let outcome = match log.archives.write(path, bytes.clone()) {
+                Ok(()) => SaveOutcome::Saved {
+                    name,
+                    path: Some(path.clone()),
+                },
+                Err(message) => SaveOutcome::Failed(message),
+            };
+            log.save_outcomes.push_back(outcome);
+            return;
+        }
+        log.save_requests.push(request);
     }
 
     fn poll_saved(&mut self) -> Option<SaveOutcome> {
@@ -106,7 +139,16 @@ impl FileService for FakeFileService {
     }
 
     fn open_folder_path(&mut self, path: PathBuf) {
-        self.0.borrow_mut().opened_folder_paths.push(path);
+        let mut log = self.0.borrow_mut();
+        if log.archives.holds_folder(&path) {
+            let folder = log
+                .archives
+                .folder(&path)
+                .ok_or_else(|| format!("lost the zip pack {}", path.display()));
+            log.picked_folders.push_back(folder);
+            return;
+        }
+        log.opened_folder_paths.push(path);
     }
 
     fn poll_folder(&mut self) -> Option<Result<PickedFolder, String>> {
@@ -114,7 +156,13 @@ impl FileService for FakeFileService {
     }
 
     fn rename(&mut self, from: PathBuf, to_name: String) {
-        self.0.borrow_mut().rename_requests.push((from, to_name));
+        let mut log = self.0.borrow_mut();
+        if log.archives.holds_file(&from) {
+            let outcome = log.archives.rename(&from, &to_name);
+            log.rename_outcomes.push_back(outcome);
+            return;
+        }
+        log.rename_requests.push((from, to_name));
     }
 
     fn poll_renamed(&mut self) -> Option<Result<(), String>> {

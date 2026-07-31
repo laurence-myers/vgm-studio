@@ -6,9 +6,11 @@
 //! may block inside the call and deliver on the very next poll; a web
 //! implementation delivers whenever its future resolves.
 
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use vgms_core::config::AudioConfig;
+use vgms_pack_archive::PackArchive;
 use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
 
 pub use vgms_core::config::ConfigStore;
@@ -40,6 +42,33 @@ pub struct PickedFolder {
     /// The full path, for saving the description/playlist back. `None` on the web.
     pub path: Option<PathBuf>,
     pub files: Vec<PickedFile>,
+}
+
+/// Where a pack's files live, and therefore how edits are persisted.
+///
+/// A [`Directory`](PackOrigin::Directory) pack writes each edit straight to its
+/// folder (a real directory natively, a File System Access handle on Chromium).
+/// A [`MemoryZip`](PackOrigin::MemoryZip) pack -- one opened from a `.zip`, the
+/// everywhere answer for browsers without a writable-directory API -- holds its
+/// files in an [`ArchiveBackend`] in memory; edits are volatile until an explicit
+/// **Save Pack** re-exports the archive.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum PackOrigin {
+    /// Backed by a writable directory: edits land immediately.
+    #[default]
+    Directory,
+    /// Backed by an in-memory archive from a `.zip`: edits are volatile until
+    /// saved. `source` is the `.zip`'s path where one exists (native), for an
+    /// in-place Save Pack; `None` on the web, where saving is a download.
+    MemoryZip { source: Option<PathBuf> },
+}
+
+impl PackOrigin {
+    /// Whether edits are held in memory and need an explicit save.
+    #[must_use]
+    pub fn is_memory(&self) -> bool {
+        matches!(self, PackOrigin::MemoryZip { .. })
+    }
 }
 
 /// Where a save should go.
@@ -124,6 +153,17 @@ pub trait FileService {
         None
     }
 
+    /// Opens a `.zip`'s bytes as an in-memory pack (wt-8), delivering the result
+    /// through the same channel as [`Self::pick_folder`] ([`Self::poll_folder`]).
+    ///
+    /// The everywhere path: it needs no writable-directory API, so a browser
+    /// without File System Access still edits packs. The file service registers
+    /// an [`ArchiveBackend`] entry and routes this pack's later save/delete/rename
+    /// to it. Defaulted to nothing for a service that does not support it.
+    fn open_pack_archive(&mut self, name: String, bytes: Vec<u8>) {
+        let _ = (name, bytes);
+    }
+
     /// Opens the platform's folder picker (pack mode).
     fn pick_folder(&mut self);
 
@@ -157,6 +197,171 @@ pub trait FileService {
     fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
         None
     }
+}
+
+/// The in-memory backend a file service embeds to serve zip-opened packs (wt-8).
+///
+/// Each opened `.zip` gets a synthetic `/vgms-zip-N` token folder; the file
+/// service routes any save/delete/rename/rescan whose token this backend holds to
+/// the [`PackArchive`] instead of the disk (native) or a directory handle (web).
+/// The routing is one implementation, embedded in every file service (native,
+/// web, and the test fake), so a zip pack behaves identically everywhere. Every
+/// archive op is synchronous, so the outcome is ready on the same poll.
+#[derive(Debug, Default)]
+pub struct ArchiveBackend {
+    entries: HashMap<String, ArchiveEntry>,
+    next_id: u64,
+}
+
+#[derive(Debug)]
+struct ArchiveEntry {
+    archive: PackArchive,
+    /// The pack's display name (the `.zip`'s stem).
+    name: String,
+}
+
+impl ArchiveBackend {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Opens `bytes` as a new zip pack under a fresh token, returning the folder
+    /// to deliver through `poll_folder`.
+    ///
+    /// # Errors
+    /// If the bytes are not a readable zip.
+    pub fn open(&mut self, name: &str, bytes: &[u8]) -> Result<PickedFolder, String> {
+        let archive = PackArchive::open(bytes)?;
+        let token = format!("vgms-zip-{}", self.next_id);
+        self.next_id += 1;
+        let display = zip_stem(name);
+        let folder = folder_for(&token, &display, &archive);
+        self.entries.insert(
+            token,
+            ArchiveEntry {
+                archive,
+                name: display,
+            },
+        );
+        Ok(folder)
+    }
+
+    /// Whether this backend holds the pack folder at `path`.
+    #[must_use]
+    pub fn holds_folder(&self, path: &Path) -> bool {
+        archive_token(path).is_some_and(|token| self.entries.contains_key(&token))
+    }
+
+    /// Whether `path` names a file inside a pack this backend holds.
+    #[must_use]
+    pub fn holds_file(&self, path: &Path) -> bool {
+        path.parent()
+            .is_some_and(|parent| self.holds_folder(parent))
+    }
+
+    /// Re-lists the pack folder at `path` (the rescan path), if it is one.
+    #[must_use]
+    pub fn folder(&self, path: &Path) -> Option<PickedFolder> {
+        let token = archive_token(path)?;
+        let entry = self.entries.get(&token)?;
+        Some(folder_for(&token, &entry.name, &entry.archive))
+    }
+
+    /// Writes (creating or overwriting) a file in a held pack.
+    ///
+    /// # Errors
+    /// If `path` is not a held pack file.
+    pub fn write(&mut self, path: &Path, bytes: Vec<u8>) -> Result<(), String> {
+        let (token, name) = self.split(path)?;
+        self.entries
+            .get_mut(&token)
+            .ok_or_else(|| unknown(path))?
+            .archive
+            .write(&name, bytes);
+        Ok(())
+    }
+
+    /// Deletes a file from a held pack.
+    ///
+    /// # Errors
+    /// If `path` is not a held pack file, or the file is absent.
+    pub fn delete(&mut self, path: &Path) -> Result<(), String> {
+        let (token, name) = self.split(path)?;
+        self.entries
+            .get_mut(&token)
+            .ok_or_else(|| unknown(path))?
+            .archive
+            .delete(&name)
+    }
+
+    /// Renames a file in a held pack (the native decision tree lives in the
+    /// archive).
+    ///
+    /// # Errors
+    /// If `from` is not a held pack file, the source is absent, or the target
+    /// exists.
+    pub fn rename(&mut self, from: &Path, to_name: &str) -> Result<(), String> {
+        let (token, from_name) = self.split(from)?;
+        self.entries
+            .get_mut(&token)
+            .ok_or_else(|| unknown(from))?
+            .archive
+            .rename(&from_name, to_name)
+    }
+
+    fn split(&self, path: &Path) -> Result<(String, String), String> {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| unknown(path))?
+            .to_owned();
+        let token = path
+            .parent()
+            .and_then(archive_token)
+            .ok_or_else(|| unknown(path))?;
+        Ok((token, name))
+    }
+}
+
+/// Builds the [`PickedFolder`] for a token: the pack's files with `/token/<name>`
+/// paths, in the archive's (lowercase-sorted) order.
+fn folder_for(token: &str, name: &str, archive: &PackArchive) -> PickedFolder {
+    let root = PathBuf::from(format!("/{token}"));
+    let files = archive
+        .files()
+        .into_iter()
+        .map(|(file_name, bytes)| PickedFile {
+            path: Some(root.join(&file_name)),
+            name: file_name,
+            bytes,
+        })
+        .collect();
+    PickedFolder {
+        name: name.to_owned(),
+        path: Some(root),
+        files,
+    }
+}
+
+/// The `vgms-zip-N` token component of a `/vgms-zip-N` path, if it is one. Uses
+/// `file_name`, so it is oblivious to the platform path separator.
+fn archive_token(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| name.starts_with("vgms-zip-"))
+        .map(str::to_owned)
+}
+
+/// A `.zip`'s file name without the extension -- the pack's display name.
+fn zip_stem(name: &str) -> String {
+    name.rsplit_once('.')
+        .filter(|(_, ext)| ext.eq_ignore_ascii_case("zip"))
+        .map_or_else(|| name.to_owned(), |(stem, _)| stem.to_owned())
+}
+
+fn unknown(path: &Path) -> String {
+    format!("{} is not an open zip pack", path.display())
 }
 
 /// Owns the platform's audio output and the `PlayerEngine` behind it.
