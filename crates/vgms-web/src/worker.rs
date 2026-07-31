@@ -7,8 +7,8 @@
 //! `Worker.terminate()` -- the whole instance dies -- so the task never needs to
 //! ask whether it was cancelled.
 
-use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen::{JsCast, JsValue};
 
 /// Decodes `request`, runs the task, and calls `emit` with each result's bytes.
 ///
@@ -96,11 +96,27 @@ pub fn vgms_web_run_pack_job(
     };
 
     let never_cancelled = || false;
+    // A heartbeat per entry, so the page's inactivity watchdog can tell a slow
+    // job from a hung one (a tool spinning forever is terminate()d by the page,
+    // the wasm analogue of the native 120 s timeout kill).
+    let heartbeat = || {
+        let Ok(scope) = js_sys::global().dyn_into::<web_sys::DedicatedWorkerGlobalScope>() else {
+            return;
+        };
+        let message = js_sys::Object::new();
+        let _ = js_sys::Reflect::set(
+            &message,
+            &JsValue::from_str("heartbeat"),
+            &JsValue::from_bool(true),
+        );
+        let _ = scope.post_message(&message);
+    };
     let outcome = match crate::pack_zip::build_pack_zip(
         &request.entries,
         request.gzip_vgms,
         optimize,
         &never_cancelled,
+        &heartbeat,
     ) {
         Ok(Some(output)) => PackJobOutcome::Done {
             zip_name: request.zip_name,

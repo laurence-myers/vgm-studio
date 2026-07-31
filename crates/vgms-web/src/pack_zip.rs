@@ -56,14 +56,17 @@ impl SongOptimizer for BuiltInOptimizer {
 
 /// Builds the release zip from `entries` (already in final order). Songs are run
 /// through `optimize` when it is `Some`, kept verbatim when it is `None`.
-/// Returns `Ok(None)` if `is_cancelled` fired partway through, `Err` only on a
-/// genuine zip write failure. One bad song or PNG is kept verbatim and logged,
-/// never fatal.
+/// `on_progress` fires before each entry -- the pack Worker posts a heartbeat
+/// from it so the page's inactivity watchdog can tell a slow job from a hung
+/// one. Returns `Ok(None)` if `is_cancelled` fired partway through, `Err` only
+/// on a genuine zip write failure. One bad song or PNG is kept verbatim and
+/// logged, never fatal.
 pub fn build_pack_zip(
     entries: &[PackEntry],
     gzip_vgms: bool,
     optimize: Option<&dyn SongOptimizer>,
     is_cancelled: &dyn Fn() -> bool,
+    on_progress: &dyn Fn(),
 ) -> Result<Option<PackZipOutput>, String> {
     let mut log: Vec<String> = Vec::new();
     let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
@@ -73,6 +76,7 @@ pub fn build_pack_zip(
         if is_cancelled() {
             return Ok(None);
         }
+        on_progress();
         let (name, bytes) = process_entry(entry, gzip_vgms, optimize, &mut log);
         zip.start_file(name.as_str(), options)
             .map_err(|error| format!("adding {name} to the zip: {error}"))?;
@@ -247,7 +251,7 @@ mod tests {
     #[test]
     fn an_optimizable_vgm_is_shrunk_and_logged() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, Some(&BuiltInOptimizer), &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, Some(&BuiltInOptimizer), &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -270,7 +274,7 @@ mod tests {
     #[test]
     fn optimize_off_leaves_the_song_verbatim() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, None, &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, None, &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -279,7 +283,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_song_is_kept_verbatim_and_logged() {
-        let output = build_pack_zip(&[song("01 Bad.vgm", b"not a vgm")], false, Some(&BuiltInOptimizer), &never())
+        let output = build_pack_zip(&[song("01 Bad.vgm", b"not a vgm")], false, Some(&BuiltInOptimizer), &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -290,7 +294,7 @@ mod tests {
     #[test]
     fn optimizing_then_gzipping_shrinks_and_renames() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], true, Some(&BuiltInOptimizer), &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], true, Some(&BuiltInOptimizer), &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -325,7 +329,7 @@ mod tests {
                 kind: PackEntryKind::Image,
             },
         ];
-        let output = build_pack_zip(&entries, true, None, &never())
+        let output = build_pack_zip(&entries, true, None, &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -351,7 +355,7 @@ mod tests {
     #[test]
     fn an_already_gzipped_vgm_is_renamed_but_not_recompressed() {
         let gzipped = gzip(b"already compressed");
-        let output = build_pack_zip(&[song("01 First.vgm", &gzipped)], true, None, &never())
+        let output = build_pack_zip(&[song("01 First.vgm", &gzipped)], true, None, &never(), &|| {})
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -362,7 +366,7 @@ mod tests {
     #[test]
     fn cancellation_yields_none() {
         let output =
-            build_pack_zip(&[song("01 First.vgm", b"raw")], true, None, &|| true).unwrap();
+            build_pack_zip(&[song("01 First.vgm", b"raw")], true, None, &|| true, &|| {}).unwrap();
         assert!(output.is_none());
     }
 }
