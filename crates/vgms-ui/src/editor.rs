@@ -88,8 +88,6 @@ pub struct DocCapabilities {
     /// this app has a core for. The transport, waveform, position readout and
     /// peak meter all mean something.
     pub playable: bool,
-    /// There are rows to select and delete.
-    pub editable: bool,
     /// Whether anything would come out of rendering it to a WAV: an OPL stream,
     /// or a VGM with at least one chip this app has a core for. A file whose
     /// chips are all unknown renders silence, which is not worth offering.
@@ -290,7 +288,6 @@ impl Editor {
             // empty editor has always looked, and it is where the transport
             // lives. They go only for a document nothing would come out of.
             playable: audible || !self.has_document(),
-            editable: self.has_document(),
             renderable: audible,
         }
     }

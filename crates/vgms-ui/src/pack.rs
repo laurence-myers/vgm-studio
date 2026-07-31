@@ -1670,17 +1670,6 @@ pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8
     vgms_core::io::write_song(&song).map_err(|error| error.to_string())
 }
 
-/// Re-serialises `song` with its VGM volume modifier set to `modifier`, keeping
-/// the file name (and thus format/extension). The clone/set/write precedent for
-/// the "Apply suggested modifiers" batch, mirroring [`retagged_bytes`]. `None`
-/// if `song` is not a VGM, which has no modifier.
-#[must_use]
-pub fn revolumed_bytes(song: &Song, modifier: u8) -> Option<Result<Vec<u8>, String>> {
-    let mut song = song.clone();
-    song.vgm_meta_mut()?.volume_modifier = modifier;
-    Some(vgms_core::io::write_song(&song).map_err(|error| error.to_string()))
-}
-
 // GD3 field indices (file order), for the bulk-tag seeding below. The "native"
 // fields are GD3's original-language variants, paired with their English siblings.
 mod gd3_index {
@@ -3011,15 +3000,6 @@ mod tests {
             .vgm_meta()
             .unwrap()
             .volume_modifier
-    }
-
-    #[test]
-    fn revolumed_bytes_round_trips_the_modifier() {
-        let song = vgms_core::io::read_song("t.vgm", VGM_FIXTURE).unwrap();
-        let bytes = revolumed_bytes(&song, 0x20)
-            .expect("a VGM")
-            .expect("writes");
-        assert_eq!(modifier_of(&bytes), 0x20);
     }
 
     #[test]
