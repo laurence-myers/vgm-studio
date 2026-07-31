@@ -11,6 +11,13 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The portable half: the codec that ships a background task across the Worker
+# boundary. Native-buildable so its round-trip tests run in ordinary `cargo test`.
+vgms-core.workspace = true
+vgms-synth.workspace = true
+vgms-ui.workspace = true
+thiserror.workspace = true
+log.workspace = true
 
 [lints]
 workspace = true

@@ -4658,6 +4658,13 @@ dependencies = [
 [[package]]
 name = "vgms-web"
 version = "5.1.0"
+dependencies = [
+ "log",
+ "thiserror 2.0.18",
+ "vgms-core",
+ "vgms-synth",
+ "vgms-ui",
+]
 
 [[package]]
 name = "walkdir"
