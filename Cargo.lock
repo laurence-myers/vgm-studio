@@ -4660,6 +4660,7 @@ name = "vgms-web"
 version = "5.1.0"
 dependencies = [
  "eframe",
+ "flate2",
  "js-sys",
  "log",
  "thiserror 2.0.18",
@@ -4670,6 +4671,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "zip",
 ]
 
 [[package]]

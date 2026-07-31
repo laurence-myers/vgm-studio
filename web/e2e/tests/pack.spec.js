@@ -15,6 +15,10 @@ test.describe.configure({ mode: "serial" });
 
 const VGM = Array.from(readFileSync(FIXTURE_VGM));
 
+// A minimal VGMRips-format description, so the pack parses a game name (required
+// for export) and opens without a parse warning.
+const DESCRIPTION = "Game name:  E2E Test Pack\nSystem:  Test System\n\nSong list:\n";
+
 /** Boots, seeds an OPFS pack (two songs, a doc, a screenshot), and opens it. */
 async function openSeededPack(page) {
   await boot(page);
@@ -22,7 +26,7 @@ async function openSeededPack(page) {
   await seedPackFolder(page, [
     { name: "01 Alpha.vgm", bytes: VGM },
     { name: "02 Beta.vgm", bytes: VGM },
-    { name: "Game.txt", bytes: Array.from(Buffer.from("A test pack.\n")) },
+    { name: "Game.txt", bytes: Array.from(Buffer.from(DESCRIPTION)) },
     { name: "Shot.png", bytes: png },
   ]);
   await dispatch(page, "OpenPackFolder");
@@ -64,4 +68,29 @@ test("deleting a screenshot and undoing restores it", async ({ page }) => {
   await expect
     .poll(() => state(page).then((s) => s.pack.imageNames))
     .toEqual(["Shot.png"]);
+});
+
+test("exporting builds a release zip in the Worker and downloads it", async ({
+  page,
+}) => {
+  await openSeededPack(page);
+
+  const downloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+  // ConfirmExportZip skips the soft-warning gate (it only blocks on hard errors),
+  // so a well-formed pack exports straight away.
+  await dispatch(page, "ConfirmExportZip");
+  const download = await downloadPromise;
+
+  expect(download.suggestedFilename()).toMatch(/\.zip$/);
+  const stream = await download.createReadStream();
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks);
+
+  // A real zip, built by the wasm pack builder in the Worker.
+  expect(bytes.subarray(0, 2).toString("latin1")).toBe("PK");
+  // gzip-on-export is the default, so the songs are .vgz entries.
+  const asText = bytes.toString("latin1");
+  expect(asText).toContain("01 Alpha.vgz");
+  expect(asText).toContain("02 Beta.vgz");
 });

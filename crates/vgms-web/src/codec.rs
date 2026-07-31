@@ -24,10 +24,10 @@ use vgms_synth::{
     AudioSource, Muting, Panning, Peak, RenderMix, SplitFormat, SplitOptions, VgmSplitOptions,
     WaveformBucket,
 };
-use vgms_ui::TaskRequest;
 use vgms_ui::tasks::{
     LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
 };
+use vgms_ui::{PackEntry, PackEntryKind, PackJobOutcome, PackJobRequest, TaskRequest};
 
 /// Why a decode failed. Encodes never fail on scalars; a document encode can, if
 /// its own writer does.
@@ -775,6 +775,106 @@ pub fn decode_result(input: &[u8]) -> Result<TaskResult> {
     Ok(result)
 }
 
+// -- pack export jobs -----------------------------------------------------------
+
+/// Encodes a [`PackJobRequest`] for the pack Worker. Every field is scalars,
+/// strings, or entry bytes, so unlike a task request this never fails.
+#[must_use]
+pub fn encode_pack_job(request: &PackJobRequest) -> Vec<u8> {
+    let mut writer = Writer::default();
+    writer.str(&request.zip_name);
+    writer.u32(request.entries.len() as u32);
+    for entry in &request.entries {
+        writer.str(&entry.name);
+        writer.u8(match entry.kind {
+            PackEntryKind::Song => 0,
+            PackEntryKind::Image => 1,
+            PackEntryKind::Doc => 2,
+        });
+        writer.bytes(&entry.bytes);
+    }
+    writer.bool(request.gzip_vgms);
+    writer.bool(request.optimize_vgms);
+    writer.out
+}
+
+/// Decodes a [`PackJobRequest`] on the Worker side.
+pub fn decode_pack_job(input: &[u8]) -> Result<PackJobRequest> {
+    let mut reader = Reader::new(input);
+    let zip_name = reader.str("pack.zip_name")?;
+    let count = reader.u32("pack.count")? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let name = reader.str("pack.entry.name")?;
+        let kind = match reader.u8("pack.entry.kind")? {
+            0 => PackEntryKind::Song,
+            1 => PackEntryKind::Image,
+            2 => PackEntryKind::Doc,
+            other => return Err(CodecError::Tag("pack entry kind", other)),
+        };
+        let bytes = reader.bytes("pack.entry.bytes")?.to_vec();
+        entries.push(PackEntry { name, bytes, kind });
+    }
+    let gzip_vgms = reader.bool("pack.gzip")?;
+    let optimize_vgms = reader.bool("pack.optimize")?;
+    Ok(PackJobRequest {
+        zip_name,
+        entries,
+        gzip_vgms,
+        optimize_vgms,
+    })
+}
+
+/// Encodes a [`PackJobOutcome`] the Worker posts back.
+#[must_use]
+pub fn encode_pack_outcome(outcome: &PackJobOutcome) -> Vec<u8> {
+    let mut writer = Writer::default();
+    match outcome {
+        PackJobOutcome::Done {
+            zip_name,
+            bytes,
+            log,
+        } => {
+            writer.u8(0);
+            writer.str(zip_name);
+            writer.bytes(bytes);
+            writer.u32(log.len() as u32);
+            for line in log {
+                writer.str(line);
+            }
+        }
+        PackJobOutcome::Failed(message) => {
+            writer.u8(1);
+            writer.str(message);
+        }
+    }
+    writer.out
+}
+
+/// Decodes a [`PackJobOutcome`] on the page side.
+pub fn decode_pack_outcome(input: &[u8]) -> Result<PackJobOutcome> {
+    let mut reader = Reader::new(input);
+    let outcome = match reader.u8("pack outcome tag")? {
+        0 => {
+            let zip_name = reader.str("pack.done.zip_name")?;
+            let bytes = reader.bytes("pack.done.bytes")?.to_vec();
+            let count = reader.u32("pack.done.log_count")? as usize;
+            let mut log = Vec::with_capacity(count);
+            for _ in 0..count {
+                log.push(reader.str("pack.done.log")?);
+            }
+            PackJobOutcome::Done {
+                zip_name,
+                bytes,
+                log,
+            }
+        }
+        1 => PackJobOutcome::Failed(reader.str("pack.failed")?),
+        other => return Err(CodecError::Tag("pack outcome", other)),
+    };
+    Ok(outcome)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -1085,5 +1185,68 @@ mod tests {
             decode_request(&[0xFF]),
             Err(CodecError::Tag("request.tag", 0xFF))
         ));
+    }
+
+    #[test]
+    fn pack_job_round_trips() {
+        let request = PackJobRequest {
+            zip_name: "Great Game (1991).zip".to_owned(),
+            entries: vec![
+                PackEntry {
+                    name: "01 Intro.vgm".to_owned(),
+                    bytes: OPL_VGM.to_vec(),
+                    kind: PackEntryKind::Song,
+                },
+                PackEntry {
+                    name: "Cover.png".to_owned(),
+                    bytes: vec![0x89, b'P', b'N', b'G'],
+                    kind: PackEntryKind::Image,
+                },
+                PackEntry {
+                    name: "Great Game.txt".to_owned(),
+                    bytes: b"notes".to_vec(),
+                    kind: PackEntryKind::Doc,
+                },
+            ],
+            gzip_vgms: true,
+            optimize_vgms: false,
+        };
+        let decoded = decode_pack_job(&encode_pack_job(&request)).expect("round trips");
+        assert_eq!(decoded.zip_name, request.zip_name);
+        assert_eq!(decoded.gzip_vgms, request.gzip_vgms);
+        assert_eq!(decoded.optimize_vgms, request.optimize_vgms);
+        assert_eq!(decoded.entries.len(), 3);
+        assert_eq!(decoded.entries[0].name, "01 Intro.vgm");
+        assert!(matches!(decoded.entries[0].kind, PackEntryKind::Song));
+        assert_eq!(decoded.entries[0].bytes, OPL_VGM);
+        assert!(matches!(decoded.entries[1].kind, PackEntryKind::Image));
+        assert!(matches!(decoded.entries[2].kind, PackEntryKind::Doc));
+    }
+
+    #[test]
+    fn pack_outcome_round_trips() {
+        let done = PackJobOutcome::Done {
+            zip_name: "Game.zip".to_owned(),
+            bytes: vec![b'P', b'K', 3, 4, 9, 9],
+            log: vec!["01 Intro.vgm -> 01 Intro.vgz".to_owned(), "done".to_owned()],
+        };
+        match decode_pack_outcome(&encode_pack_outcome(&done)).expect("done round trips") {
+            PackJobOutcome::Done {
+                zip_name,
+                bytes,
+                log,
+            } => {
+                assert_eq!(zip_name, "Game.zip");
+                assert_eq!(bytes, vec![b'P', b'K', 3, 4, 9, 9]);
+                assert_eq!(log.len(), 2);
+            }
+            PackJobOutcome::Failed(message) => panic!("expected Done, got Failed({message})"),
+        }
+
+        let failed = PackJobOutcome::Failed("boom".to_owned());
+        match decode_pack_outcome(&encode_pack_outcome(&failed)).expect("failed round trips") {
+            PackJobOutcome::Failed(message) => assert_eq!(message, "boom"),
+            PackJobOutcome::Done { .. } => panic!("expected Failed"),
+        }
     }
 }

@@ -32,6 +32,14 @@ vgms-ui.workspace = true
 thiserror.workspace = true
 log.workspace = true
 
+# The pack-export zip builder (the wasm-portable half of vgms-app's pack_zip):
+# zip + gzip both build for wasm32. `default-features = false` keeps zip off the
+# `deflate-flate2-zlib-rs` path and flate2 on `rust_backend`, so native and wasm
+# produce byte-identical .vgz -- the same pins the workspace explains for
+# vgms-app. Native too, so the builder's round-trip tests run in `cargo test`.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
 # The wasm app module: the DOM-facing platform services and the Worker entry. All
 # of this is `#[cfg(target_arch = "wasm32")]` in the source, so a native build (and
 # the codec tests) never pulls it. Kept out of the workspace table because these

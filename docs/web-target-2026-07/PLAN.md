@@ -38,8 +38,25 @@
 > picker, Save As download, and Play/Stop transport state all pass. **The OPFS
 > picker shims move to wt-7**, where `showDirectoryPicker` is first exercised —
 > Playwright drives the plain file-input and download pickers natively, so wt-6
-> needs no shim. **Remaining: wt-7 (Chromium packs), wt-8 (zip packs +
-> `vgms-pack-archive`), wt-9 (Web Serial investigation).**
+> needs no shim.
+>
+> **Progress 2026-07-31 (cont.): wt-7 DONE (wt-7a + wt-7b).** Pack mode works on
+> Chromium. **wt-7a**: a picked directory is registered in `pack_fs.js` (a
+> wasm-bindgen snippet module) under an opaque token round-tripped as a virtual
+> `/<token>` path, so `folder.join`/`parent` reach the right handle with no
+> change above the service boundary; `WebFileService` implements
+> pick/rescan/save/delete/rename/pick_image/pick_output over it, with all saves
+> through one FIFO queue. A `globalThis.__vgms_pick_dir` seam is the OPFS shim the
+> specs use (the shim that was nominally wt-6's). **wt-7b**: the pack export runs
+> in a Worker (`pack_worker.js` + `vgms_web_run_pack_job`) over a wasm-portable
+> zip builder (`vgms-web/src/pack_zip.rs`: `VgmFile::optimize` for songs, PNGs
+> kept as-is, gzip via flate2 `rust_backend`); a new `PackJobRequest`/
+> `PackJobOutcome` codec crosses the boundary; `WebPackService` spawns it and
+> drains the outcome. `pack_zip` (8) + codec (2) native tests, plus Chromium e2e
+> specs (open OPFS pack, reorder temp-dance, delete+undo screenshot, export zip
+> reopened). The standalone PNG-optimise action stays the honest error (oxipng is
+> native-only). **Remaining: wt-8 (zip packs everywhere + `vgms-pack-archive`),
+> wt-9 (Web Serial investigation).**
 
 ## What already exists, and what this plan refuses to re-decide
 

@@ -44,3 +44,42 @@ pub fn vgms_web_run_task(request: &[u8], emit: &js_sys::Function) {
     };
     vgms_ui::run_task(&request, &never_cancelled, &mut on_result);
 }
+
+/// Builds a pack release zip and returns the encoded [`PackJobOutcome`] bytes.
+///
+/// `pack_worker.js` runs this and posts the returned bytes straight back to the
+/// page. Cancellation is `Worker.terminate()`, so the build always runs to
+/// completion here. Needs no cores -- the built-in optimise pass rewrites the
+/// command stream, it does not synthesise.
+#[wasm_bindgen]
+#[must_use]
+pub fn vgms_web_run_pack_job(request: &[u8]) -> Vec<u8> {
+    use vgms_ui::platform::PackJobOutcome;
+
+    let request = match crate::codec::decode_pack_job(request) {
+        Ok(request) => request,
+        Err(error) => {
+            return crate::codec::encode_pack_outcome(&PackJobOutcome::Failed(format!(
+                "could not decode the pack job: {error}"
+            )));
+        }
+    };
+
+    let never_cancelled = || false;
+    let outcome = match crate::pack_zip::build_pack_zip(
+        &request.entries,
+        request.gzip_vgms,
+        request.optimize_vgms,
+        &never_cancelled,
+    ) {
+        Ok(Some(output)) => PackJobOutcome::Done {
+            zip_name: request.zip_name,
+            bytes: output.bytes,
+            log: output.log,
+        },
+        // Unreachable (cancel is terminate), but honest rather than a panic.
+        Ok(None) => PackJobOutcome::Failed("the pack export was cancelled".to_owned()),
+        Err(error) => PackJobOutcome::Failed(error),
+    };
+    crate::codec::encode_pack_outcome(&outcome)
+}

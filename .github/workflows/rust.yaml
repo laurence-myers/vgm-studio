@@ -150,7 +150,7 @@ jobs:
             --out-dir target/web-dist --out-name vgms_web \
             target/wasm32-unknown-unknown/release/vgms_web.wasm
           cp target/wasm32-unknown-unknown/release/vgms_synth_worklet.wasm target/web-dist/
-          cp web/index.html web/task_worker.js web/worklet-processor.js target/web-dist/
+          cp web/index.html web/task_worker.js web/worklet-processor.js web/pack_worker.js target/web-dist/
 
       - name: Set up Node
         uses: actions/setup-node@v4

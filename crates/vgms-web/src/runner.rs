@@ -82,7 +82,7 @@ fn build_app(
         Box::new(WebFileService::new(notifier())),
         Box::new(WebAudioService::new(notifier())),
         Box::new(WorkerTaskService::new(notifier())),
-        Box::new(WebPackService::new()),
+        Box::new(WebPackService::new(notifier())),
         Box::new(LocalStorageStore::new()),
         None,
     );
