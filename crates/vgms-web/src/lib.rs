@@ -16,4 +16,6 @@ pub mod services;
 pub mod worker;
 
 #[cfg(target_arch = "wasm32")]
-pub use services::{LocalStorageStore, WebFileService, WebPackService, WorkerTaskService};
+pub use services::{
+    LocalStorageStore, WebAudioService, WebFileService, WebPackService, WorkerTaskService,
+};

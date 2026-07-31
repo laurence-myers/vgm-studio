@@ -52,7 +52,17 @@ web-sys = { version = "0.3", features = [
     "WorkerOptions",
     "WorkerType",
     "MessageEvent",
+    "MessagePort",
     "DedicatedWorkerGlobalScope",
+    "Response",
+    "AudioContext",
+    "AudioContextOptions",
+    "BaseAudioContext",
+    "AudioWorklet",
+    "AudioWorkletNode",
+    "AudioWorkletNodeOptions",
+    "AudioNode",
+    "AudioDestinationNode",
 ] }
 # The Worker installs the same cores the worklet does before it runs a task, so
 # a VGM waveform/render builds real chip cores. Depended on as an rlib.

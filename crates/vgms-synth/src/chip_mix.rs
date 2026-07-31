@@ -72,6 +72,15 @@ impl ChipMuting {
     pub fn is_neutral(&self) -> bool {
         self.entries.iter().all(|entry| entry.muted == 0)
     }
+
+    /// Each set instance's `(chip, instance, mask)`, for a backend that must
+    /// replay the mutes one at a time -- the AudioWorklet ABI, which sets one
+    /// chip instance per call.
+    pub fn entries(&self) -> impl Iterator<Item = (ChipKind, u8, u32)> + '_ {
+        self.entries
+            .iter()
+            .map(|entry| (entry.kind, entry.instance, entry.muted))
+    }
 }
 
 /// One chip instance's pan positions, entry `i` for channel `i`.
@@ -125,6 +134,14 @@ impl ChipPanning {
     pub fn is_neutral(&self) -> bool {
         self.entries.is_empty()
     }
+
+    /// Each set instance's `(chip, instance, pans)`, for a backend that replays
+    /// the pans one instance at a time (the AudioWorklet ABI).
+    pub fn entries(&self) -> impl Iterator<Item = (ChipKind, u8, &[i16])> + '_ {
+        self.entries
+            .iter()
+            .map(|entry| (entry.kind, entry.instance, entry.pans.as_slice()))
+    }
 }
 
 #[cfg(test)]
@@ -144,6 +161,32 @@ mod tests {
         muting.set(ChipKind::Sn76489, 0, 0);
         muting.set(ChipKind::Sn76489, 1, 0);
         assert!(muting.is_neutral(), "cleared masks read as neutral");
+    }
+
+    #[test]
+    fn entries_report_every_set_instance() {
+        // The worklet backend replays the mutes/pans one instance at a time, so
+        // `entries` must surface exactly what was set.
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Sn76489, 0, 0b0011);
+        muting.set(ChipKind::Ym2612, 1, 0b0100);
+        let mut got: Vec<_> = muting.entries().collect();
+        got.sort_by_key(|(_, instance, _)| *instance);
+        assert_eq!(
+            got,
+            vec![
+                (ChipKind::Sn76489, 0, 0b0011),
+                (ChipKind::Ym2612, 1, 0b0100)
+            ]
+        );
+
+        let mut panning = ChipPanning::new();
+        panning.set(ChipKind::Ay8910, 0, vec![PAN_LEFT, PAN_RIGHT]);
+        let pans: Vec<_> = panning.entries().collect();
+        assert_eq!(
+            pans,
+            vec![(ChipKind::Ay8910, 0, [PAN_LEFT, PAN_RIGHT].as_slice())]
+        );
     }
 
     #[test]

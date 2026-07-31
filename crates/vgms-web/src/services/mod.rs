@@ -7,11 +7,13 @@
 //! for Web Workers, `vgmstudio.ini` for `localStorage`. All are polled, never
 //! awaited, so the app's update loop drives them with no web-specific code.
 
+mod audio;
 mod config;
 mod file;
 mod pack;
 mod task;
 
+pub use audio::WebAudioService;
 pub use config::LocalStorageStore;
 pub use file::WebFileService;
 pub use pack::WebPackService;
