@@ -1612,8 +1612,13 @@ impl VgmStudioApp {
             }
             Action::ConfirmCloseFile => self.close_song(),
             Action::OpenRenderWav => {
-                if self.require_song() {
-                    self.dialogs.render_wav = Some(RenderWavDialog::new(self.config.audio.boost));
+                if self.require_renderable() {
+                    // A generic VGM's dialog hides the OPL-only channel options,
+                    // as the split dialog hides its format options.
+                    self.dialogs.render_wav = Some(RenderWavDialog::new(
+                        self.config.audio.boost,
+                        !self.editor.has_song(),
+                    ));
                 }
             }
             Action::RenderWavSubmitted {
@@ -3888,6 +3893,24 @@ impl VgmStudioApp {
         }
     }
 
+    /// The gate for the offline renders and scans: would a render carry sound?
+    ///
+    /// Renderable is the File menu's own predicate -- an OPL stream, or a VGM
+    /// with a chip this app has a core for -- so a shortcut or dialog gates on
+    /// exactly what the menu offered. A document that is open but silent (chips
+    /// with no core) gets the "nothing to play" message; nothing open falls
+    /// through to [`Self::require_document`]'s "open a file" prompt.
+    fn require_renderable(&mut self) -> bool {
+        if self.editor.capabilities().renderable {
+            true
+        } else if self.editor.has_document() {
+            self.status = crate::strings::APP_STATUS_NOTHING_TO_PLAY.to_owned();
+            false
+        } else {
+            self.require_document()
+        }
+    }
+
     /// Reports where the loaded VGM's header disagrees with its stream, and
     /// offers to correct it.
     ///
@@ -4440,7 +4463,9 @@ impl VgmStudioApp {
             is_dro_v2: self.editor.song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
-            can_render: self.editor.capabilities().renderable,
+            // Shown for an empty editor too, so the File menu looks as it always
+            // has with nothing loaded; the click is gated by require_renderable.
+            can_render: self.editor.capabilities().renderable || !self.editor.has_document(),
             // Anything that renders can be split per channel -- an OPL stream,
             // or a VGM with a core. Shown for an empty editor, like the rest of
             // the menu.

@@ -2514,6 +2514,51 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     assert!(peak > 1000, "and it is audible: peak {peak}");
 }
 
+/// The Render to WAV *dialog* opens for a non-OPL VGM. It was gated on
+/// require_song() while its menu item and its worker both handle any renderable
+/// document -- so clicking it refused with "This needs an OPL song." The
+/// existing render test above side-stepped the dialog by dispatching
+/// RenderWavSubmitted directly, which is why the gate went unnoticed.
+#[test]
+fn render_to_wav_dialog_opens_for_a_non_opl_vgm() {
+    let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    act(&mut harness, Action::OpenRenderWav);
+    assert!(
+        harness.state().dialogs.render_wav.is_some(),
+        "the dialog opened instead of refusing"
+    );
+
+    harness.run();
+    // The OPL-only channel options are hidden for a generic VGM; only Boost is
+    // offered, since the generic render carries neither toggles nor pans.
+    assert!(
+        harness.query_by_label_contains("Channel toggles").is_none(),
+        "the OPL-only channel option is hidden"
+    );
+    assert!(
+        harness.query_by_label_contains("Boost").is_some(),
+        "Boost is still offered"
+    );
+}
+
+/// The File menu offers Render to WAV with nothing loaded, as it always has --
+/// the click is gated, not the menu item. can_render used to drop to the bare
+/// `renderable` capability, which is false for an empty editor.
+#[test]
+fn an_empty_editor_still_offers_render_to_wav() {
+    let (mut harness, _handles) = empty_harness();
+    assert!(!harness.state().editor.has_document(), "nothing open");
+
+    harness.get_by_label("File").click();
+    harness.run();
+    assert!(
+        harness.query_by_label_contains("Render to WAV").is_some(),
+        "the empty-editor File menu still lists Render to WAV"
+    );
+}
+
 /// A file this app can actually play gets the transport, the waveform and the
 /// position readout -- the panels that were absent while OPL was the only thing
 /// it could make a sound with.
