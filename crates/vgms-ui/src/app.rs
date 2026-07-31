@@ -6,11 +6,11 @@ use core::time::Duration;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
+use egui::Key;
 use vgms_core::config::{AppConfig, ConfigStore, SurfaceChoice, ThemeChoice};
 use vgms_core::song::{DRO_FILE_V2, SongFileType};
 use vgms_core::{FindTarget, Gd3Tag};
 use vgms_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat, SplitOptions};
-use egui::Key;
 
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};

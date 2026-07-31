@@ -12,9 +12,10 @@ fn corpus_file_renders_sound() {
     };
     let bytes = std::fs::read(&path).expect("read");
     let file = vgms_core::vgm::file::read("scratch.vgz", &bytes).expect("parse");
-    let mut engine = vgms_synth::vgm_engine::VgmEngine::with_cores(Arc::new(file), 44_100, |kind| {
-        vgms_synth::registry::registry().build(kind, None)
-    });
+    let mut engine =
+        vgms_synth::vgm_engine::VgmEngine::with_cores(Arc::new(file), 44_100, |kind| {
+            vgms_synth::registry::registry().build(kind, None)
+        });
     let mut samples = Vec::new();
     let mut buffer = vec![0i16; 4096 * 2];
     while samples.len() < 44_100 * 20 * 2 {

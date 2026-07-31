@@ -18,9 +18,9 @@ mod palette;
 mod style;
 pub mod tabs;
 
-pub use vgms_core::config::{SurfaceChoice, ThemeChoice};
 pub use palette::{Palette, Surface, palette};
 pub(crate) use palette::{deck_stops, pad_caps};
+pub use vgms_core::config::{SurfaceChoice, ThemeChoice};
 
 /// The palette for `choice` with the configured pad/deck overrides applied.
 /// `SurfaceChoice::ThemeDefault` leaves the case's own treatment alone, so a

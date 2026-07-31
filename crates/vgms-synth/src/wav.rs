@@ -11,8 +11,8 @@
 use std::borrow::Borrow;
 use std::io::Cursor;
 
-use vgms_core::Song;
 use hound::{SampleFormat, WavSpec, WavWriter};
+use vgms_core::Song;
 
 use crate::chip_mix::{ChipMuting, ChipPanning};
 use crate::engine::{Muting, Panning, PlayerEngine};

@@ -808,7 +808,10 @@ mod tests {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), vec![port("COM3", true)]);
         assert_eq!(dialog.backend(), OutputBackend::Emulated);
 
-        dialog.choose_core(vgms_core::config::OPL_SLOT, vgms_core::config::RETROWAVE_CORE);
+        dialog.choose_core(
+            vgms_core::config::OPL_SLOT,
+            vgms_core::config::RETROWAVE_CORE,
+        );
         dialog.retrowave_port = "COM3".to_owned();
         assert_eq!(dialog.backend(), OutputBackend::RetroWave);
 
@@ -866,7 +869,10 @@ mod tests {
     fn the_signal_settings_only_apply_to_the_emulator() {
         let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
         assert!(dialog.emulating());
-        dialog.choose_core(vgms_core::config::OPL_SLOT, vgms_core::config::RETROWAVE_CORE);
+        dialog.choose_core(
+            vgms_core::config::OPL_SLOT,
+            vgms_core::config::RETROWAVE_CORE,
+        );
         assert!(!dialog.emulating(), "hardware output renders no signal");
     }
 

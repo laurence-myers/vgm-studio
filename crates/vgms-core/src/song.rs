@@ -9,7 +9,7 @@ pub(crate) mod splice;
 use core::fmt;
 
 pub use dro_data::{DroDataV1, DroDataV2};
-pub use instruction::{Bank, DelayKind, Instruction, FindTarget, ParseFindTargetError};
+pub use instruction::{Bank, DelayKind, FindTarget, Instruction, ParseFindTargetError};
 pub use splice::InsertEntry;
 
 use crate::regdata;
@@ -583,9 +583,7 @@ impl Song {
                 kind.description()
             }
             Instruction::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
-            Instruction::BankSwitch(Bank::High) => {
-                "Switch to high registers (Dual OPL-2 / OPL-3)"
-            }
+            Instruction::BankSwitch(Bank::High) => "Switch to high registers (Dual OPL-2 / OPL-3)",
             Instruction::Register { reg, bank, .. } => register_description(reg, bank),
         })
     }

@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use vgms_synth::Peak;
 
+use egui_extras::{Column, TableBuilder};
 use vgms_core::pack::{
     DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, PngInfo, ReadinessCategory,
     ReadinessItem, ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem,
@@ -24,7 +25,6 @@ use vgms_core::pack::{
 use vgms_core::vgm::data::GD3_FIELD_COUNT;
 use vgms_core::{Gd3Tag, OplType, Song, VgmFile};
 use vgms_synth::AudioSource;
-use egui_extras::{Column, TableBuilder};
 
 use crate::action::Action;
 use crate::platform::{PackEntry, PackEntryKind, PackJobRequest, PickedFile, PickedFolder};
@@ -2827,9 +2827,10 @@ mod tests {
     #[test]
     fn retagging_an_opl_track_no_longer_rewrites_its_chip_clock() {
         const ODD_CLOCK: u32 = 3_600_000; // not the canonical 3_579_545
-        let mut bytes =
-            vgms_core::io::write_song(&vgms_core::io::read_song("01 Tune.vgm", VGM_FIXTURE).unwrap())
-                .unwrap();
+        let mut bytes = vgms_core::io::write_song(
+            &vgms_core::io::read_song("01 Tune.vgm", VGM_FIXTURE).unwrap(),
+        )
+        .unwrap();
         let at = ChipKind::Ym3812.clock_offset();
         bytes[at..at + 4].copy_from_slice(&ODD_CLOCK.to_le_bytes());
 

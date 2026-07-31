@@ -150,7 +150,8 @@ fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
         // rather than the header on purpose: a header that disagrees with its
         // stream is a thing this app reports, not a thing it plays by.
         let samples = stream.total_samples();
-        let expected = samples * u64::from(OUTPUT_RATE) / u64::from(vgms_core::vgm::VGM_SAMPLE_RATE);
+        let expected =
+            samples * u64::from(OUTPUT_RATE) / u64::from(vgms_core::vgm::VGM_SAMPLE_RATE);
 
         let mut engine = VgmEngine::with_cores(Arc::clone(&file), OUTPUT_RATE, |_| {
             Some(Box::new(Counting { writes: 0 }))

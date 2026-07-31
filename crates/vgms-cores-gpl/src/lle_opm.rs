@@ -20,9 +20,9 @@
 //! exponent. The decode to linear PCM here is the wrapper's, from the YM3012
 //! datasheet.
 
+use std::collections::VecDeque;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::ChipCore;
-use std::collections::VecDeque;
 
 use crate::ffi::{LlePins, OpmLleChip};
 

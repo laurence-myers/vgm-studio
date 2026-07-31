@@ -381,12 +381,7 @@ impl Opn2LleChip {
     pub(crate) fn dac_pins(&mut self) -> (i32, i32) {
         let chip = self.state.as_ptr();
         // SAFETY: the shim reads two fields of the sized block.
-        unsafe {
-            (
-                vgms_fmopna2612_out_mol(chip),
-                vgms_fmopna2612_out_mor(chip),
-            )
-        }
+        unsafe { (vgms_fmopna2612_out_mol(chip), vgms_fmopna2612_out_mor(chip)) }
     }
 }
 
@@ -465,8 +460,7 @@ impl OpnaLleChip {
     pub(crate) fn dram_bus(&mut self) -> DramBus {
         let (mut dm, mut a8) = (0, 0);
         // SAFETY: the shim reads fields of the sized block into our locals.
-        let strobes =
-            unsafe { vgms_fmopna2608_dram_pins(self.state.as_ptr(), &mut dm, &mut a8) };
+        let strobes = unsafe { vgms_fmopna2608_dram_pins(self.state.as_ptr(), &mut dm, &mut a8) };
         DramBus {
             dm,
             a8: a8 != 0,

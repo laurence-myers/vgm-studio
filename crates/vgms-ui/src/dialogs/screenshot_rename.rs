@@ -107,7 +107,11 @@ impl ScreenshotRenameDialog {
     /// rules (so a subtitle's colon becomes " - ", as everywhere else), keeping
     /// the original extension.
     pub(crate) fn derived_name(&self) -> String {
-        format!("{}.{}", vgms_core::pack::vgm_ren_title(&self.stem), self.ext)
+        format!(
+            "{}.{}",
+            vgms_core::pack::vgm_ren_title(&self.stem),
+            self.ext
+        )
     }
 
     /// The dialog's wording, which is all that differs between the two jobs: its

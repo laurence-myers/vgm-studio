@@ -10,8 +10,8 @@
 //! [`Skin::compose`]s them into the flat [`Palette`] the widgets consume, so a
 //! future case is one more `CaseColors` const over a shared `HardwareColors`.
 
-use vgms_core::config::ThemeChoice;
 use egui::Color32;
+use vgms_core::config::ThemeChoice;
 
 use super::paint::{darken, lighten};
 

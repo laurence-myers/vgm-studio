@@ -1215,11 +1215,7 @@ mod tests {
         bytes.push(command::END);
 
         let song = read("t.vgm", &bytes).unwrap();
-        let samples: Vec<u32> = song
-            .data()
-            .iter()
-            .map(Instruction::delay_samples)
-            .collect();
+        let samples: Vec<u32> = song.data().iter().map(Instruction::delay_samples).collect();
         assert_eq!(samples, [735, 882, 1, 16]);
         assert_eq!(song.total_delay_samples(), 735 + 882 + 1 + 16);
         assert_eq!(

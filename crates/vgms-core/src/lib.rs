@@ -37,7 +37,7 @@ pub use opl_state::OplState;
 pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
 pub use pack::{PackMeta, TrackEntry};
 pub use song::{
-    Bank, DelayKind, DroDataV1, DroDataV2, Instruction, FindTarget, OplType, Song, SongData,
+    Bank, DelayKind, DroDataV1, DroDataV2, FindTarget, Instruction, OplType, Song, SongData,
     SongFileType, StreamSnapshot, slide_index_past_deletion,
 };
 pub use split_songs::{Segment, detect_segments};

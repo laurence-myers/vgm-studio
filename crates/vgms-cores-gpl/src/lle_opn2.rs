@@ -12,9 +12,9 @@
 //!
 //! `realtime: false`, like every die: render and oracle only.
 
+use std::collections::VecDeque;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::ChipCore;
-use std::collections::VecDeque;
 
 use crate::ffi::{Opn2LleChip, Opn2Pins};
 

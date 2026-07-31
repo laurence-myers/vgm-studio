@@ -14,9 +14,9 @@
 //! `ms_length`, so a file with a lying header still maps clicks to the right
 //! commands, and a Mega Drive rip is as clickable as a DRO.
 
-use vgms_synth::WaveformBucket;
 use egui::epaint::Mesh;
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2};
+use vgms_synth::WaveformBucket;
 
 use crate::editor::TimeSource;
 use crate::theme::Palette;

@@ -10,7 +10,9 @@
 use crate::action::Action;
 use crate::theme::icon::Icon;
 use crate::theme::{self, Palette};
-use vgms_core::{nearest_volume_modifier, volume_modifier_factor, volume_step_down, volume_step_up};
+use vgms_core::{
+    nearest_volume_modifier, volume_modifier_factor, volume_step_down, volume_step_up,
+};
 
 /// Snaps a desired factor onto the modifier ladder, then caps it at `ceiling`
 /// (the clipping-guard level) when one is set.

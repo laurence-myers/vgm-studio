@@ -23,10 +23,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vgms_core::vgm::ChipKind;
-use vgms_synth::vgm_engine::VgmEngine;
 use vgms_app::corpus::{self, ChipIndex};
 use vgms_app::parity::{self, Render};
+use vgms_core::vgm::ChipKind;
+use vgms_synth::vgm_engine::VgmEngine;
 
 /// Seconds compared. Shorter than the scorecard's 20: the LLE side pays for
 /// every second at die speed, and a correlation this controlled stabilises

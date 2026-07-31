@@ -1,4 +1,4 @@
-﻿//! A test-only "theme showcase": every themed surface laid out on one canvas,
+//! A test-only "theme showcase": every themed surface laid out on one canvas,
 //! snapshotted once per [`ThemeChoice`] so a single test guards the whole theme.
 //!
 //! This view is **not** reachable from the application UI -- it exists purely
@@ -17,10 +17,10 @@
 //! DX12 WARP software adapter on the maintainer's Windows machine and are
 //! therefore GPU/OS-specific; regenerate them there (see `DEVELOPMENT.md`).
 
+use egui::{Color32, Sense};
 use vgms_core::Song;
 use vgms_core::config::ThemeChoice;
 use vgms_synth::render_waveform;
-use egui::{Color32, Sense};
 
 use crate::dialogs::GotoDialog;
 use crate::editor::Editor;

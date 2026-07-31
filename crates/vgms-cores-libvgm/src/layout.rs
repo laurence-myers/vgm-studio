@@ -78,34 +78,22 @@ mod tests {
         unsafe {
             assert_eq!(
                 (size_of::<DevGenCfg>(), align_of::<DevGenCfg>()),
-                (
-                    vgms_libvgm_gencfg_sizeof(),
-                    vgms_libvgm_gencfg_alignof()
-                ),
+                (vgms_libvgm_gencfg_sizeof(), vgms_libvgm_gencfg_alignof()),
                 "DEV_GEN_CFG"
             );
             assert_eq!(
                 (size_of::<DevInfo>(), align_of::<DevInfo>()),
-                (
-                    vgms_libvgm_devinfo_sizeof(),
-                    vgms_libvgm_devinfo_alignof()
-                ),
+                (vgms_libvgm_devinfo_sizeof(), vgms_libvgm_devinfo_alignof()),
                 "DEV_INFO"
             );
             assert_eq!(
                 (size_of::<DevDef>(), align_of::<DevDef>()),
-                (
-                    vgms_libvgm_devdef_sizeof(),
-                    vgms_libvgm_devdef_alignof()
-                ),
+                (vgms_libvgm_devdef_sizeof(), vgms_libvgm_devdef_alignof()),
                 "DEV_DEF"
             );
             assert_eq!(
                 (size_of::<DevDefRwFunc>(), align_of::<DevDefRwFunc>()),
-                (
-                    vgms_libvgm_rwfunc_sizeof(),
-                    vgms_libvgm_rwfunc_alignof()
-                ),
+                (vgms_libvgm_rwfunc_sizeof(), vgms_libvgm_rwfunc_alignof()),
                 "DEVDEF_RWFUNC"
             );
             assert_eq!(
@@ -142,10 +130,7 @@ mod tests {
             );
             assert_eq!(
                 (size_of::<DevLinkInfo>(), align_of::<DevLinkInfo>()),
-                (
-                    vgms_libvgm_devlink_sizeof(),
-                    vgms_libvgm_devlink_alignof()
-                ),
+                (vgms_libvgm_devlink_sizeof(), vgms_libvgm_devlink_alignof()),
                 "DEVLINK_INFO"
             );
             assert_eq!(

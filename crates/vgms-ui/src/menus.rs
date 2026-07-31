@@ -1,7 +1,7 @@
 //! The menu bar and keyboard shortcuts.
 
-use vgms_core::SongFileType;
 use egui::{Key, KeyboardShortcut, Modifiers};
+use vgms_core::SongFileType;
 
 use crate::action::Action;
 use crate::theme::Palette;

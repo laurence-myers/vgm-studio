@@ -166,10 +166,7 @@ fn optimising_a_bloated_real_capture_matches_the_clean_render() {
     for index in 0..clean.len() {
         let raw = clean.data().raw_instruction(index).unwrap();
         bloated_bytes.extend_from_slice(raw);
-        if matches!(
-            clean.instruction(index),
-            Some(Instruction::Register { .. })
-        ) {
+        if matches!(clean.instruction(index), Some(Instruction::Register { .. })) {
             bloated_bytes.extend_from_slice(raw); // the redundant repeat
         }
     }

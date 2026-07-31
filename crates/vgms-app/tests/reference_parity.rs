@@ -18,10 +18,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vgms_core::vgm::ChipKind;
-use vgms_synth::vgm_engine::VgmEngine;
 use vgms_app::corpus::{self, ChipIndex};
 use vgms_app::parity::{self, Reference, ReferenceError, Render, Settings};
+use vgms_core::vgm::ChipKind;
+use vgms_synth::vgm_engine::VgmEngine;
 
 /// The rate both sides render at unless a chip's native rate is asked for.
 const RATE: u32 = 44_100;

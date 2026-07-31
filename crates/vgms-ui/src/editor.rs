@@ -5,10 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use vgms_core::undo::{DeleteCommands, DeleteInstructions, ReplaceStream, ReplaceVgm, UpdateHeader};
+use vgms_core::undo::{
+    DeleteCommands, DeleteInstructions, ReplaceStream, ReplaceVgm, UpdateHeader,
+};
 use vgms_core::{
-    CropOutcome, Instruction, FindTarget, OplType, RowAnalysis, Song, SongFileType,
-    UndoController, UndoableCommand, VgmCommand, VgmFile, convert, io,
+    CropOutcome, FindTarget, Instruction, OplType, RowAnalysis, Song, SongFileType, UndoController,
+    UndoableCommand, VgmCommand, VgmFile, convert, io,
 };
 
 use crate::analysis::AnalysisCache;
@@ -813,7 +815,8 @@ impl Editor {
             .ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
         let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
         let bytes = io::write_song(&converted).map_err(|e| e.to_string())?;
-        let file = vgms_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
+        let file =
+            vgms_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
 
         // No path: the converted song has no file yet, so Save falls through to
         // Save As rather than writing VGM bytes over the original `.dro`.

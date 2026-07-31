@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use vgms_core::{Bank, DroDataV2, Instruction, Error, OplType, Result, Song, SongData};
+use vgms_core::{Bank, DroDataV2, Error, Instruction, OplType, Result, Song, SongData};
 
 use crate::engine::Muting;
 

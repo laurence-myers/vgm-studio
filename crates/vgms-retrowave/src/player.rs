@@ -374,11 +374,11 @@ fn flush(
 mod tests {
     use super::*;
     use crate::device::SerialIo;
-    use vgms_core::{DroDataV2, OplType};
     use std::{
         io,
         sync::mpsc::{Sender, channel},
     };
+    use vgms_core::{DroDataV2, OplType};
 
     /// Reports every write with the time it arrived, so tests can check pacing.
     #[derive(Debug)]

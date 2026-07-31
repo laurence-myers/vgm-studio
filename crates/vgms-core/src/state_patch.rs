@@ -174,10 +174,7 @@ pub(crate) fn state_after_writes(song: &Song, n: usize) -> Vec<(Bank, u8, u8)> {
         if seen == n {
             break;
         }
-        if matches!(
-            song.instruction(index),
-            Some(Instruction::Register { .. })
-        ) {
+        if matches!(song.instruction(index), Some(Instruction::Register { .. })) {
             seen += 1;
         }
         fold.advance(song, index, index + 1);

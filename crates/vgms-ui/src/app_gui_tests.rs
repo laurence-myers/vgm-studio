@@ -3053,7 +3053,11 @@ fn four_track_folder() -> PickedFolder {
 }
 
 /// Queues a folder and runs a frame so `poll_folder` installs it.
-fn open_folder(harness: &mut Harness<'static, VgmStudioApp>, handles: &Handles, folder: PickedFolder) {
+fn open_folder(
+    harness: &mut Harness<'static, VgmStudioApp>,
+    handles: &Handles,
+    folder: PickedFolder,
+) {
     handles
         .files
         .borrow_mut()

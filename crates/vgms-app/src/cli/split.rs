@@ -88,8 +88,9 @@ pub fn run(args: &Args) -> Result<()> {
                     .collect::<Vec<_>>(),
                 "there is nothing to split",
             )?;
-            let resampling = vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
-                .unwrap_or_default();
+            let resampling =
+                vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
+                    .unwrap_or_default();
             let options = VgmSplitOptions {
                 audio: config.audio,
                 resampling,

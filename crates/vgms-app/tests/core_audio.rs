@@ -13,9 +13,9 @@
 
 use std::sync::Arc;
 
+use vgms_app::corpus::{self, ChipIndex};
 use vgms_core::vgm::ChipKind;
 use vgms_synth::vgm_engine::VgmEngine;
-use vgms_app::corpus::{self, ChipIndex};
 
 /// Files to draw per chip. Enough that one dud rip does not decide the answer,
 /// few enough that the run stays quick.

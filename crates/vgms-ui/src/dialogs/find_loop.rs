@@ -12,8 +12,8 @@
 //! count from the song's own command density, so "2 s" means roughly two
 //! seconds of music whatever the song's tempo.
 
-use vgms_core::{Candidate, Song};
 use egui_extras::{Column, TableBuilder};
+use vgms_core::{Candidate, Song};
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};

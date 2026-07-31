@@ -9,9 +9,9 @@
 use std::io::{Cursor, Write as _};
 
 use anyhow::Context as _;
-use vgms_ui::{PackEntry, PackEntryKind};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use vgms_ui::{PackEntry, PackEntryKind};
 use zip::CompressionMethod;
 use zip::write::{SimpleFileOptions, ZipWriter};
 

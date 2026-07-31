@@ -310,9 +310,9 @@ fn retain<T>(slot: &mut Option<T>, mut show: impl FnMut(&mut T) -> bool) {
 
 #[cfg(test)]
 mod tests {
-    use vgms_core::config::ThemeChoice;
     use egui::accesskit::Role;
     use egui_kittest::kittest::Queryable as _;
+    use vgms_core::config::ThemeChoice;
 
     /// Drives a lone [`super::text_field`] over `value`.
     fn harness(value: &str) -> egui_kittest::Harness<'static, String> {

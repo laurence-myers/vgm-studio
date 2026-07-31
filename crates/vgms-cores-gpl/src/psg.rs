@@ -16,9 +16,9 @@
 //! bit-for-bit across x86-64 and wasm32. The scale to integer happens once per
 //! sample, here, not in C.
 
+use std::collections::VecDeque;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::ChipCore;
-use std::collections::VecDeque;
 
 use crate::ffi::PsgChip;
 

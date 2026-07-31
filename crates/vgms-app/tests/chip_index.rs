@@ -12,8 +12,8 @@
 //! The first run reads every header in the corpus (minutes) and caches beside
 //! the corpus, so later runs are immediate.
 
-use vgms_core::vgm::ChipKind;
 use vgms_app::corpus::{self, ChipIndex};
+use vgms_core::vgm::ChipKind;
 
 #[test]
 #[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]

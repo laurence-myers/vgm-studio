@@ -107,8 +107,8 @@ pub fn measure_peak_cancellable<B: Borrow<Song>>(
 mod tests {
     use super::*;
     use crate::wav::render_wav;
-    use vgms_core::{DroDataV1, OplType};
     use std::io::Cursor;
+    use vgms_core::{DroDataV1, OplType};
 
     /// The same little keyed-on-then-off DRO the WAV render tests use, so a peak
     /// measured here can be checked against that render's samples.

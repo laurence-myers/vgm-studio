@@ -14,8 +14,8 @@
 mod common;
 
 use common::{FIXTURE_MS, TAIL_MS, render, script};
-use vgms_synth::{NATIVE_SAMPLE_RATE, NukedOpl3};
 use sha2::{Digest, Sha256};
+use vgms_synth::{NATIVE_SAMPLE_RATE, NukedOpl3};
 
 /// SHA-256 of the little-endian PCM produced by rendering `script()` at 49716 Hz.
 const GOLDEN_SHA256: &str = "718cb933816049b9021c014bb8df6bd010f320e043325100411c6018c1965f82";
