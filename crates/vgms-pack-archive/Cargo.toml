@@ -1,0 +1,24 @@
+[package]
+name = "vgms-pack-archive"
+description = "An in-memory pack archive: unzip a .zip into the pack file set, mutate it with the native rename/delete/write semantics, and re-list it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# App tier: it exists to back pack mode, which is GPL-2.0-or-later. It links only
+# `zip` (MIT/Apache), so this is a choice, not an obligation -- keeping it beside
+# the other pack code rather than in the reusable `vgms-core`/`vgms-synth` pair.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Read and (in tests) write zips, in memory over a Cursor. `default-features =
+# false` + `deflate-flate2` keeps zip off the zlib-rs path, and the explicit
+# flate2 pin below fixes the backend to pure-Rust `rust_backend` so the crate
+# builds for wasm32 and stays byte-compatible with the native export -- the same
+# pair (and reasoning) the workspace uses for vgms-app/vgms-web.
+zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+
+[lints]
+workspace = true

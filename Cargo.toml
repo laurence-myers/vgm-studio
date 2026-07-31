@@ -37,6 +37,7 @@ vgms-core = { path = "crates/vgms-core" }
 vgms-synth = { path = "crates/vgms-synth" }
 vgms-audio-native = { path = "crates/vgms-audio-native" }
 vgms-retrowave = { path = "crates/vgms-retrowave" }
+vgms-pack-archive = { path = "crates/vgms-pack-archive" }
 vgms-ui = { path = "crates/vgms-ui" }
 vgms-cores-nuked = { path = "crates/vgms-cores-nuked" }
 vgms-cores-gpl = { path = "crates/vgms-cores-gpl" }
