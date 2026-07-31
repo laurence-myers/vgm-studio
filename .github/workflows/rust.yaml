@@ -13,8 +13,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # `submodules: recursive` everywhere: the C sound cores and the vgmtools
+      # optimisers build from vendor/upstream submodules, so every job that
+      # invokes cargo needs them checked out.
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       # The toolchain, its components and the wasm target all come from
       # rust-toolchain.toml, which rustup applies on the first cargo invocation.
@@ -42,15 +47,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
       # The C sound cores compile to wasm through clang (`-ffreestanding`); the
       # worklet and app modules link them, so the wasm job needs a C compiler
-      # that can target wasm32.
+      # that can target wasm32. lld is for the wasip1 tool build below: linking
+      # a full command module goes through wasm-ld, which apt's clang package
+      # does not ship.
       - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang
+        run: sudo apt-get update && sudo apt-get install -y clang lld
 
       # Catches an accidental `std::fs`, `std::time::Instant` or native-only
       # dependency at the moment it is introduced. Every wasm-facing crate is
@@ -99,6 +108,42 @@ jobs:
           rustup component add clippy
           cargo clippy -p vgms-web --target wasm32-unknown-unknown --features e2e --all-targets -- -D warnings
 
+      # --- the wasip1 optimiser modules ---------------------------------------
+      # The three vgmtools optimisers ship to the browser as wasm32-wasip1
+      # command modules (tools/build-wasi-tools.ps1). Both gates below skip
+      # silently when the modules are absent, so CI has to build them here or
+      # the parity claim is never actually checked.
+
+      # The sysroot + builtins downloads (~120 MB), keyed on the version pinned
+      # in the build script: bumping $wasiVersion there rolls the cache with it.
+      - name: Read the pinned wasi-sdk version
+        id: wasi-sdk
+        run: |
+          version="$(grep -oP '(?<=\$wasiVersion = ")[^"]+' tools/build-wasi-tools.ps1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the wasi sysroot and builtins
+        uses: actions/cache@v4
+        with:
+          path: target/wasi
+          key: wasi-sdk-${{ steps.wasi-sdk.outputs.version }}
+
+      - name: Build the wasip1 tool modules
+        shell: pwsh
+        run: ./tools/build-wasi-tools.ps1
+
+      # Byte-parity against the native executables, over every repo fixture.
+      # The test builds the native tools itself (build.rs), which is why it
+      # lives in this job: ubuntu's host toolchain covers the native side while
+      # the steps above cover the wasm side.
+      - name: wasip1 tools match the native exes byte-for-byte
+        run: cargo test -p vgms-vgmtools --test wasm_parity -- --ignored
+
+      # And the second, independent WASI host: node runs each module end to end.
+      - name: wasip1 tools run under node's WASI
+        run: node tools/web/vgmtools_smoke.mjs target/wasi-tools tests/lsl3_score_up.vgm
+
   c-parity:
     name: pure-Rust OPL core == C reference
     runs-on: ubuntu-latest
@@ -106,6 +151,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache
         uses: Swatinem/rust-cache@v2
@@ -127,6 +174,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Cache
         uses: Swatinem/rust-cache@v2

@@ -365,7 +365,7 @@ with the native exe on the first try** -- real printf output included.
   terminates a job silent for 3 minutes -- the web's stand-in for the native
   120 s timeout kill, restoring ow-6's kill-switch promise.
 
-**Still open:** the browser-runtime confirmation above (unchanged), and CI does
-not yet build the wasip1 modules or run the parity gate -- both tests skip
-gracefully when the modules are absent, so wiring them into the wasm job (with
-a cache on `target/wasi`) is a follow-up.
+**Still open:** the browser-runtime confirmation above (unchanged). CI now
+builds the wasip1 modules and runs both gates in the wasm job -- the sysroot
+cached on the pinned `$wasiVersion`, then the `wasmi` byte-parity test and the
+node smoke; the modules-absent skip path remains only for local runs.

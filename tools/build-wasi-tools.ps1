@@ -18,22 +18,24 @@
 # with `-nodefaultlibs` and explicit paths, so nothing is installed into the
 # clang directory itself.
 #
-# Works in Windows PowerShell 5.1 and pwsh (CI).
+# Works in Windows PowerShell 5.1 and pwsh, on Windows and on Linux (CI).
+# Child paths use forward slashes: tar and clang receive these strings
+# verbatim, and on Linux a backslash is a filename character, not a separator.
 
 $ErrorActionPreference = "Stop"
 
 $root = Split-Path -Parent $PSScriptRoot
-$cache = Join-Path $root "target\wasi"
-$out = Join-Path $root "target\wasi-tools"
-$upstream = Join-Path $root "vendor\upstream\vgmtools"
-$shim = Join-Path $root "crates\vgms-vgmtools\shim"
+$cache = Join-Path $root "target/wasi"
+$out = Join-Path $root "target/wasi-tools"
+$upstream = Join-Path $root "vendor/upstream/vgmtools"
+$shim = Join-Path $root "crates/vgms-vgmtools/shim"
 
 # The pinned wasi-sdk release these artifacts come from. Bumping it is: change
 # the version, delete target/wasi, rebuild, and re-run the parity test.
 $wasiVersion = "33.0+m"
 $wasiTag = "wasi-sdk-33"
 $sysroot = Join-Path $cache "wasi-sysroot-$wasiVersion"
-$builtins = Join-Path $cache "libclang_rt-$wasiVersion\wasm32-unknown-wasip1\libclang_rt.builtins.a"
+$builtins = Join-Path $cache "libclang_rt-$wasiVersion/wasm32-unknown-wasip1/libclang_rt.builtins.a"
 
 if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
     throw "clang is not on PATH (any clang with the wasm32 backend will do)"
