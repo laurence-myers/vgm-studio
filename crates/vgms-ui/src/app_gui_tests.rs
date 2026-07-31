@@ -3331,6 +3331,51 @@ fn scanning_pack_volumes_fills_the_peak_map() {
     assert!(peaks.contains_key("02 Boss.vgm"));
 }
 
+/// A pack mixing an OPL rip and a non-OPL one (Master System SN76489) scans
+/// both. The scan used to filter on the OPL projection, so a non-OPL track kept
+/// a "-" in the Peak column forever and the levelling stayed greyed.
+#[test]
+fn pack_scan_measures_non_opl_tracks_too() {
+    let (mut harness, handles) = build(None, true, false);
+    let mut sms = sms_vgm_file();
+    sms.name = "02 Sms.vgm".to_owned();
+    sms.path = Some(PathBuf::from("C:/Mixed/02 Sms.vgm"));
+    let folder = pack_folder(
+        "Mixed",
+        vec![tagged_vgm("01 Opl.vgm", "Mixed", "Ada", "Ripper"), sms],
+    );
+    open_folder(&mut harness, &handles, folder);
+
+    act(&mut harness, Action::PackScanVolumes);
+    for _ in 0..4 {
+        harness.step();
+    }
+
+    let pack = harness.state().pack.as_ref().expect("a pack is open");
+    assert_eq!(
+        pack.peaks.len(),
+        2,
+        "both tracks measured: {:?}",
+        pack.peaks
+    );
+    assert!(
+        pack.peaks
+            .get("01 Opl.vgm")
+            .is_some_and(|p| p.max_level > 0),
+        "the OPL track was scanned"
+    );
+    assert!(
+        pack.peaks
+            .get("02 Sms.vgm")
+            .is_some_and(|p| p.max_level > 0),
+        "the non-OPL SN76489 track was scanned too"
+    );
+    assert!(
+        pack.suggested_modifier_transaction().is_some(),
+        "Apply/Album are no longer greyed out"
+    );
+}
+
 #[test]
 fn a_pack_preview_starts_at_the_tracks_modifier_volume() {
     let (mut harness, handles) = tall_pack_harness();

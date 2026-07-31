@@ -3013,12 +3013,10 @@ impl VgmStudioApp {
             .tracks
             .iter()
             .filter_map(|track| {
-                // Measuring a peak means rendering, so only the tracks this app
-                // has a core for can be scanned.
-                Some((
-                    track.file_name.clone(),
-                    vgms_synth::AudioSource::Opl(track.playable_song()?),
-                ))
+                // Measuring a peak means rendering, so only tracks with a chip
+                // this app can render are scanned -- the same rule the preview
+                // button applies (an OPL stream, or any chip with a core).
+                Some((track.file_name.clone(), track.preview_source()?))
             })
             .collect();
         if tracks.is_empty() {

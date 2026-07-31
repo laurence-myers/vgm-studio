@@ -147,17 +147,6 @@ impl PackTrack {
         self.vgm().is_some_and(|file| file.stream().is_some())
     }
 
-    /// A [`Song`] snapshot for the paths that render one -- preview, the volume
-    /// scan. `None` unless the track is playable.
-    ///
-    /// The track materialises one on demand rather than holding a second copy
-    /// of itself; this is called when a track is auditioned or scanned, not
-    /// per frame.
-    #[must_use]
-    pub fn playable_song(&self) -> Option<Arc<Song>> {
-        self.vgm()?.to_song().map(Arc::new)
-    }
-
     /// The track's GD3 tag, if it has one.
     #[must_use]
     pub fn tag(&self) -> Option<&Gd3Tag> {
