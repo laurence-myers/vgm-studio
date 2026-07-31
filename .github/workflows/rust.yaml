@@ -46,13 +46,29 @@ jobs:
       - name: Cache
         uses: Swatinem/rust-cache@v2
 
+      # The C sound cores compile to wasm through clang (`-ffreestanding`); the
+      # worklet and app modules link them, so the wasm job needs a C compiler
+      # that can target wasm32.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
       # Catches an accidental `std::fs`, `std::time::Instant` or native-only
-      # dependency at the moment it is introduced, rather than at Step 8.
+      # dependency at the moment it is introduced. Every wasm-facing crate is
+      # here: the shared model and UI, and both web modules.
       - name: Check wasm-clean crates
-        run: cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui
+        run: cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet
+
+      # The AudioWorklet module must import nothing (`AudioWorkletGlobalScope` has
+      # no libc to offer it) and must actually sound. The node smoke asserts both
+      # -- retiring the old "Step 9" TODO that asked for exactly this check.
+      - name: Worklet module imports nothing and sounds
+        run: |
+          cargo build -p vgms-synth-worklet --lib --target wasm32-unknown-unknown --release
+          node tools/web/worklet_smoke.mjs
 
       # The CLI's version must match the `wasm-bindgen` version Cargo.lock
-      # resolves, or the generated glue will not load. Bump both together.
+      # resolves (pinned `=0.2.126` in vgms-web), or the generated glue will not
+      # load. Bump both together.
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
@@ -61,6 +77,18 @@ jobs:
       # the wasm32 target at `wasm-bindgen-test-runner`, which runs these in Node.
       - name: File-format round trips, as wasm
         run: cargo test -p vgms-core --target wasm32-unknown-unknown
+
+      # Prove the whole web pipeline: the app module builds and wasm-bindgen
+      # generates its glue. A mismatch between the CLI and the generated bindings
+      # is a red build here rather than a blank page in a browser. (The full
+      # servable bundle is assembled by tools/build-web.ps1; CI only needs the
+      # glue-generation to succeed.)
+      - name: Build the web app module and generate glue
+        run: |
+          cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release
+          wasm-bindgen --target web --no-typescript \
+            --out-dir target/web-dist --out-name vgms_web \
+            target/wasm32-unknown-unknown/release/vgms_web.wasm
 
   c-parity:
     name: pure-Rust OPL core == C reference
@@ -82,8 +110,3 @@ jobs:
       # it and through Nuke.YKT's C and compares sample by sample.
       - name: Differential test against the C sources
         run: cargo test -p vgms-synth --features c-parity --test c_parity
-
-  # TODO (Step 9): once `vgms-synth-worklet` exists as a cdylib, add a job that
-  # builds it for wasm32 and asserts its import section is empty --
-  # `AudioWorkletGlobalScope` has no libc to offer it. The `nuked-opl3` core is
-  # pure Rust, so this holds today; the job is what notices if it stops holding.
