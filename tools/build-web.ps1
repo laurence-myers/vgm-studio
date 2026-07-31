@@ -38,6 +38,24 @@ Copy-Item (Join-Path $root "web\*") $dist -Recurse -Force
 # The licences: the distributed bundle is GPL-2.0-or-later, same as the exe.
 Copy-Item (Join-Path $root "licenses") (Join-Path $dist "licenses") -Recurse -Force
 
+# The CJK fallback font (for Japanese GD3 tags). The web build has no system
+# fonts, so it fetches this at runtime; here it is downloaded once into a cache
+# and copied beside the module. Best-effort: a failed download just means CJK
+# text renders as boxes, exactly as before. Noto Sans JP (SIL OFL), ~4.5 MB.
+$cjkCache = Join-Path $root "target\cjk-font.otf"
+$cjkUrl = "https://cdn.jsdelivr.net/npm/@expo-google-fonts/noto-sans-jp@0.2.3/NotoSansJP_400Regular.ttf"
+if (-not (Test-Path $cjkCache)) {
+    Write-Host "Downloading the CJK fallback font (once, ~4.5 MB)..."
+    try {
+        Invoke-WebRequest -Uri $cjkUrl -OutFile $cjkCache -UseBasicParsing -TimeoutSec 180
+    } catch {
+        Write-Warning "CJK font download failed; Japanese text will show as boxes on the web. ($_)"
+    }
+}
+if (Test-Path $cjkCache) {
+    Copy-Item $cjkCache (Join-Path $dist "cjk-font.otf") -Force
+}
+
 Write-Host "`nweb-dist contents:"
 Get-ChildItem $dist -File |
     Where-Object { $_.Extension -in ".wasm", ".js", ".html" } |
