@@ -6108,6 +6108,35 @@ fn applying_a_loop_writes_the_vgm_metadata() {
     assert_eq!(meta.loop_end, None);
 }
 
+/// Play Tail auditions the ending of a non-OPL VGM. It used to read the length
+/// off the OPL song, which a VGM whose chips are not OPL does not have -- so it
+/// panicked. It reads the timeline now, which serves either representation.
+#[test]
+fn play_tail_seeks_near_the_end_of_a_non_opl_vgm() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), false, false);
+    assert!(
+        harness.state().editor.song().is_none(),
+        "held as a VGM, with no OPL projection"
+    );
+    // A tail shorter than the song, so the seek lands inside it rather than at 0.
+    harness.state_mut().config.ui.tail_length = 200;
+    let total = harness
+        .state()
+        .editor
+        .timeline()
+        .expect("a length")
+        .total_ms();
+
+    act(&mut harness, Action::PlayTail);
+
+    let log = handles.audio.borrow();
+    assert_eq!(
+        log.seeks_ms.last().copied(),
+        Some(total.saturating_sub(200))
+    );
+    assert!(log.play_calls >= 1, "the tail plays");
+}
+
 #[test]
 fn play_seam_forces_looping_on_and_seeks_before_the_loop_end() {
     let song = tone_song();

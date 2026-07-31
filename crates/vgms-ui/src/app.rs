@@ -3433,7 +3433,11 @@ impl VgmStudioApp {
         }
         // Measured length, not the header's: on a DRO whose header overstates
         // the length, the header value would seek past the end and play nothing.
-        let total = self.editor.song().expect("gated").total_delay_ms();
+        // The timeline serves either representation, so a non-OPL VGM (playable,
+        // but with no OPL song) gets its ending auditioned too.
+        let Some(total) = self.editor.timeline().map(|timeline| timeline.total_ms()) else {
+            return;
+        };
         self.audio.rewind();
         self.audio
             .seek_ms(total.saturating_sub(self.config.ui.tail_length));
