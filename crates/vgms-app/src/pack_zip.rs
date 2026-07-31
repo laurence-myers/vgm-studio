@@ -119,72 +119,18 @@ fn process_entry(
 
 /// Optimises one song's bytes when it is a VGM that shrinks, logging the saving.
 ///
-/// A DRO, an already-optimal VGM, or any failure passes through unchanged and
-/// never fails the export -- the same never-fatal posture as the PNG path. The
-/// result is plain bytes, so the gzip step can still compress it.
-///
-/// Runs every chip through the vgmtools optimisers plus this app's own pass. Each
-/// stage's outcome (shrank, held back, or failed) goes in the log, since one byte
-/// count cannot tell them apart, and chips left untouched are named so a rip that
-/// comes back byte for byte does not look unreadable.
+/// The pass and its narration live in `vgms_vgmtools::optimize_song_logged` --
+/// one copy shared with the web pack worker -- driven here by the native tool
+/// runner (child processes). Never fatal: a DRO, an already-optimal VGM, or any
+/// failure passes through unchanged, the same posture as the PNG path.
 fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
-    let Ok(file) = vgms_core::vgm::file::read(name, bytes) else {
-        // A DRO, or something unreadable. Either way it passes through.
-        log.push(format!("{name}: kept as-is (not a readable VGM)"));
-        return bytes.to_vec();
-    };
-    // The optimisers take plain bytes, and a pack entry may already be a `.vgz`.
-    let Ok(plain) = vgms_core::vgm::file::write(&file) else {
-        log.push(format!("{name}: kept as-is (could not be prepared)"));
-        return bytes.to_vec();
-    };
-
-    let result = vgms_vgmtools::optimize_vgm(&plain, vgms_vgmtools::Options::default());
-
-    if result.changed() {
-        log.push(format!(
-            "{name}: {} -> {} bytes (optimized, {} saved)",
-            bytes.len(),
-            result.bytes.len(),
-            result.saved()
-        ));
-    }
-    // Only the stages worth a line: "nothing to gain" is the common case and
-    // would bury the rest.
-    for stage in &result.stages {
-        match &stage.outcome {
-            vgms_vgmtools::StageOutcome::Shrank { from, to } => {
-                log.push(format!("{name}:   {} {from} -> {to} bytes", stage.name));
-            }
-            vgms_vgmtools::StageOutcome::Failed(reason) => {
-                log.push(format!("{name}:   {} failed: {reason}", stage.name));
-            }
-            vgms_vgmtools::StageOutcome::Skipped(reason) => {
-                log.push(format!("{name}:   {} skipped: {reason}", stage.name));
-            }
-            vgms_vgmtools::StageOutcome::Unchanged => {}
-        }
-    }
-
-    let untouched: Vec<&str> = file
-        .header
-        .chips()
-        .iter()
-        .filter(|chip| vgms_vgmtools::passthrough_chips().contains(&chip.kind))
-        .map(|chip| chip.kind.name())
-        .collect();
-    if !untouched.is_empty() {
-        log.push(format!(
-            "{name}: {} not optimised yet -- their writes were all kept",
-            untouched.join(", ")
-        ));
-    }
-
-    if result.changed() {
-        result.bytes
-    } else {
-        bytes.to_vec()
-    }
+    vgms_vgmtools::optimize_song_logged(
+        name,
+        bytes,
+        vgms_vgmtools::Options::default(),
+        &vgms_vgmtools::NativeTools,
+        log,
+    )
 }
 
 /// The oxipng settings shared by the export job and the explicit

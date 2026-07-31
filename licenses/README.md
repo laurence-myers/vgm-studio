@@ -56,8 +56,10 @@ GPL does not permit.
 | [`LICENSE-APACHE-2.0.txt`](LICENSE-APACHE-2.0.txt) | `vgms-core`, `vgms-synth` (at your option) |
 
 Third-party notices that are not chip cores — the `serialport` crate (MPL-2.0)
-behind RetroWave output, and the Px437 IBM VGA font trace — are carried in the
-About dialog and beside the assets they cover.
+behind RetroWave output, the Px437 IBM VGA font trace, and the vendored
+`browser_wasi_shim` (MIT OR Apache-2.0, `web/wasi-shim/`) that hosts the
+optimiser modules in the web build — are carried in the About dialog and beside
+the assets they cover.
 
 ## Contributing
 

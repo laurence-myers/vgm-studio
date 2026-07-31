@@ -93,10 +93,11 @@ web-sys = { version = "0.3", features = [
 # The Worker installs the same cores the worklet does before it runs a task, so
 # a VGM waveform/render builds real chip cores. Depended on as an rlib.
 vgms-synth-worklet = { path = "../vgms-synth-worklet" }
-# The optimise pipeline (order, OPL bypass, ROM-size guard, chip hold-backs). The
-# default feature set is pipeline-only -- no `tool-modules`, so this pulls no C
-# and no freestanding libc (which would collide with vgms-cores-libvgm's). The
-# tool `.wasm` modules ship as separate fetched assets the pack worker drives.
+# The optimise pipeline (order, OPL bypass, ROM-size guard, chip hold-backs) and
+# the shared run interpretation (`command_outcome`). On wasm this is pure Rust --
+# the tools themselves are wasm32-wasip1 command modules built by
+# tools/build-wasi-tools.ps1, fetched beside the app and hosted by
+# pack_worker.js through the vendored browser_wasi_shim (web/wasi-shim/).
 vgms-vgmtools = { workspace = true }
 
 [lints]

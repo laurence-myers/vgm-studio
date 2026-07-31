@@ -95,11 +95,16 @@ impl ToolOutcome {
 // a child process on the desktop, a wasm module the host instantiates on the
 // web -- which is why [`optimize_vgm_with`] takes the runner as a parameter.
 pub use pipeline::{
-    Optimised, Options, Stage, StageOutcome, Tools, optimize_vgm_with, passthrough_chips,
+    Optimised, Options, Stage, StageOutcome, Tools, optimize_song_logged, optimize_vgm_with,
+    passthrough_chips,
 };
 
 /// Refuses bytes no tool should be handed: gzip (a `.vgz` a caller forgot to
 /// unpack) or something that is not a VGM at all.
+///
+/// Only the native binding pre-checks its input -- on the web the tool module
+/// itself is the first reader and refuses gzip through its own signature check.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn check_input(vgm: &[u8]) -> Result<(), String> {
     if vgm.len() >= 2 && vgm[0] == 0x1F && vgm[1] == 0x8B {
         return Err("the bytes are gzip; unpack a .vgz before optimising it".to_owned());

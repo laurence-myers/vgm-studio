@@ -39,11 +39,9 @@ cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release @appFeat
 if ($LASTEXITCODE -ne 0) { throw "app module build failed" }
 
 Write-Host "Building the vgmtools optimiser modules (vgm_cmp/vgm_sro/optdac)..."
-# The `tool-modules` feature turns on the C build + the freestanding libc shim;
-# a plain vgms-vgmtools dependency (the app links the pipeline) never sees them.
-cargo build -p vgms-vgmtools --target wasm32-unknown-unknown --release --features tool-modules `
-    --example tool_vgm_cmp --example tool_vgm_sro --example tool_optdac
-if ($LASTEXITCODE -ne 0) { throw "optimiser module build failed" }
+# wasm32-wasip1 command modules -- unmodified C over the real wasi-libc, built
+# outside cargo; the script fetches and caches its own sysroot on first run.
+& (Join-Path $PSScriptRoot "build-wasi-tools.ps1")
 
 Write-Host "Running wasm-bindgen over the app module..."
 New-Item -ItemType Directory -Force $dist | Out-Null
@@ -55,9 +53,9 @@ Write-Host "Assembling target/web-dist..."
 # The AudioWorklet module the processor instantiates from bytes.
 Copy-Item (Join-Path $release "vgms_synth_worklet.wasm") (Join-Path $dist "vgms_synth_worklet.wasm") -Force
 # The three optimiser modules the pack worker fetches and instantiates per song.
-$examples = Join-Path $release "examples"
+$wasiTools = Join-Path $root "target\wasi-tools"
 foreach ($tool in @("tool_vgm_cmp", "tool_vgm_sro", "tool_optdac")) {
-    Copy-Item (Join-Path $examples "$tool.wasm") (Join-Path $dist "$tool.wasm") -Force
+    Copy-Item (Join-Path $wasiTools "$tool.wasm") (Join-Path $dist "$tool.wasm") -Force
 }
 # The page, the Worker bootstrap, and the AudioWorklet processor.
 Copy-Item (Join-Path $root "web\*") $dist -Recurse -Force

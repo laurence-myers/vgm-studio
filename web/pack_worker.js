@@ -5,13 +5,49 @@
 // pack does not jank the frame. Cancellation is the page calling
 // `worker.terminate()`; there is nothing to cancel cooperatively here.
 //
-// It also fetches the three vgmtools optimiser modules (built beside the app by
-// tools/build-web.ps1) and hands their bytes to the job, which instantiates one
-// per song to run vgm_cmp/vgm_sro/optdac. A module that is missing or fails to
+// It also fetches the three vgmtools optimiser modules (wasm32-wasip1 commands
+// built by tools/build-wasi-tools.ps1) and hosts them through the vendored
+// browser_wasi_shim (web/wasi-shim/): `__vgms_run_tool` below runs one module
+// like a process -- argv, an in-memory directory holding in.vgm, an exit code,
+// maybe out.vgm -- and the Rust pipeline interprets the result exactly as it
+// interprets a native child process. A module that is missing or fails to
 // fetch is passed as empty bytes: the Rust side then falls back to vgms_core's
 // built-in pass rather than fail the export.
 
 import init, { vgms_web_run_pack_job } from "./vgms_web.js";
+import { WASI, File, PreopenDirectory, ConsoleStdout } from "./wasi-shim/index.js";
+
+// Runs one optimiser module over one file. Called synchronously from Rust
+// (wasm-bindgen binds it as `globalThis.__vgms_run_tool`), which is fine here:
+// sync instantiation is allowed off the main thread, and the pack job itself is
+// synchronous. A fresh instance per run is the design -- zero-initialised
+// globals, and the whole linear memory reclaimed in one go when it drops.
+//
+// Returns { code, output, tail }: the exit code, the bytes of out.vgm (null if
+// the tool wrote nothing), and the last line it printed (for error messages).
+globalThis.__vgms_run_tool = (module, name, input) => {
+  const lines = [];
+  const collect = ConsoleStdout.lineBuffered((line) => {
+    lines.push(line);
+    if (lines.length > 16) lines.shift();
+  });
+  const preopen = new PreopenDirectory(".", [["in.vgm", new File(input)]]);
+  // `debug: false` must be said out loud: the shim treats an *absent* option as
+  // "enable", and its per-syscall logging would flood the console.
+  const wasi = new WASI([name, "in.vgm", "out.vgm"], [], [collect, collect, collect, preopen], {
+    debug: false,
+  });
+
+  const instance = new WebAssembly.Instance(module, {
+    wasi_snapshot_preview1: wasi.wasiImport,
+  });
+  const code = wasi.start(instance);
+
+  const entry = preopen.dir.contents.get("out.vgm");
+  const output = entry ? entry.data : null;
+  const tail = lines.filter((l) => l.trim().length > 0).pop() ?? "";
+  return { code, output, tail };
+};
 
 // Best-effort: a missing optimiser module just means the built-in pass, so a
 // failed fetch warns and yields empty bytes rather than throwing.

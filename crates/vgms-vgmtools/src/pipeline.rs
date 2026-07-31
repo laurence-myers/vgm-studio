@@ -245,6 +245,85 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
     }
 }
 
+/// Optimises one pack song and narrates it: the whole pass over `bytes`, with
+/// every line a pack export's log wants -- the shrink summary, each stage worth
+/// a line, and the passthrough chips named so a rip that comes back byte for
+/// byte does not look unreadable.
+///
+/// This is the *one* copy of that narration; the desktop pack, the web pack
+/// worker and anything else with a `log` call it with their own [`Tools`].
+/// Never fatal: a DRO, an unreadable file, or a failed stage passes the
+/// original bytes through with a note.
+///
+/// Returns the optimised bytes when the pass shrank the file, or `bytes`
+/// exactly as given (possibly still a `.vgz`) when it did not -- so an entry
+/// the tools cannot improve keeps its original spelling, compression included.
+pub fn optimize_song_logged(
+    name: &str,
+    bytes: &[u8],
+    options: Options,
+    tools: &dyn Tools,
+    log: &mut Vec<String>,
+) -> Vec<u8> {
+    let Ok(file) = vgms_core::vgm::file::read(name, bytes) else {
+        // A DRO, or something unreadable. Either way it passes through.
+        log.push(format!("{name}: kept as-is (not a readable VGM)"));
+        return bytes.to_vec();
+    };
+    // The tools take plain bytes, and a pack entry may already be a `.vgz`.
+    let Ok(plain) = vgms_core::vgm::file::write(&file) else {
+        log.push(format!("{name}: kept as-is (could not be prepared)"));
+        return bytes.to_vec();
+    };
+
+    let result = optimize_vgm_with(&plain, options, tools);
+
+    if result.changed() {
+        log.push(format!(
+            "{name}: {} -> {} bytes (optimized, {} saved)",
+            bytes.len(),
+            result.bytes.len(),
+            result.saved()
+        ));
+    }
+    // Only the stages worth a line: "nothing to gain" is the common case and
+    // would bury the rest.
+    for stage in &result.stages {
+        match &stage.outcome {
+            StageOutcome::Shrank { from, to } => {
+                log.push(format!("{name}:   {} {from} -> {to} bytes", stage.name));
+            }
+            StageOutcome::Failed(reason) => {
+                log.push(format!("{name}:   {} failed: {reason}", stage.name));
+            }
+            StageOutcome::Skipped(reason) => {
+                log.push(format!("{name}:   {} skipped: {reason}", stage.name));
+            }
+            StageOutcome::Unchanged => {}
+        }
+    }
+
+    let untouched: Vec<&str> = file
+        .header
+        .chips()
+        .iter()
+        .filter(|chip| passthrough_chips().contains(&chip.kind))
+        .map(|chip| chip.kind.name())
+        .collect();
+    if !untouched.is_empty() {
+        log.push(format!(
+            "{name}: {} not optimised yet -- their writes were all kept",
+            untouched.join(", ")
+        ));
+    }
+
+    if result.changed() {
+        result.bytes
+    } else {
+        bytes.to_vec()
+    }
+}
+
 /// Runs one tool, or records why it did not.
 fn run_stage(
     name: &'static str,

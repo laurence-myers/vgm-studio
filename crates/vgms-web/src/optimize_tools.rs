@@ -1,33 +1,45 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! [`WebTools`]: the wasm side of the vgmtools optimisers.
+//! [`WebTools`]: the web side of the vgmtools optimisers.
 //!
 //! `vgms-vgmtools` owns the pipeline -- the order, the wholly-OPL bypass, the
-//! ROM-size guard and the chip hold-backs -- but a wasm module cannot
-//! instantiate another wasm module on its own. So the web supplies the runner:
-//! each of `vgm_cmp`, `vgm_sro` and `optdac` is its own `.wasm` (built by
-//! `vgms-vgmtools`'s `tool-modules` feature, fetched beside the app), and this
-//! drives them through the tiny ABI the modules export -- `reserve_input`,
-//! `run`, `output_ptr`/`output_len`, `log_ptr`/`log_len`.
+//! ROM-size guard, the chip hold-backs -- and the shared interpretation of a
+//! finished run ([`command_outcome`]). The tools themselves are
+//! `wasm32-wasip1` command modules fetched beside the app, and a wasm module
+//! cannot instantiate another on its own, so the *hosting* lives in
+//! `pack_worker.js`: its `globalThis.__vgms_run_tool` runs one module like a
+//! process through the vendored browser_wasi_shim (`web/wasi-shim/`) -- argv,
+//! an in-memory directory holding `in.vgm`, an exit code, maybe `out.vgm` --
+//! and this module carries the result back into the pipeline.
 //!
-//! Each call **instantiates a fresh module**: zero-initialised globals every
-//! run, and O(1) reclamation when the instance is dropped -- the wasm analogue
-//! of the desktop's fresh child process. A tool that traps surfaces as
-//! [`ToolOutcome::Failed`], which the pipeline records and steps past, never
-//! fatal. A genuinely hung module is the caller's problem: the pack export runs
-//! in a Worker whose cancel is `terminate()` (ow-6), and the ROM-size guard
-//! already refuses the one input known to spin forever (ow-5).
-//!
-//! The modules are compiled once (`WebAssembly.Module`) and instantiated per
-//! call; compilation is synchronous, which is why this only ever runs in the
-//! pack Worker, never on the main thread.
+//! Each call instantiates a fresh module instance over there: zero-initialised
+//! globals every run, the whole linear memory reclaimed in one go, the wasm
+//! analogue of the desktop's fresh child process. A genuinely hung module is
+//! the caller's problem: the pack export runs in a Worker whose cancel is
+//! `terminate()`, the page arms an inactivity watchdog, and the ROM-size guard
+//! refuses the one input known to spin forever before it starts.
 
-use js_sys::{Function, Object, Reflect, Uint8Array, WebAssembly};
-use vgms_vgmtools::{Options, StageOutcome, ToolOutcome, Tools};
+use js_sys::{Reflect, Uint8Array, WebAssembly};
+use vgms_vgmtools::command::{ToolId, command_outcome};
+use vgms_vgmtools::{Options, ToolOutcome, Tools};
+use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen::{JsCast, JsValue};
 
 use crate::pack_zip::SongOptimizer;
 
-/// The three tool modules, compiled once and instantiated per run.
+#[wasm_bindgen]
+extern "C" {
+    /// `pack_worker.js`'s tool host (the `__vgms_pick_dir` pattern): runs one
+    /// wasip1 module over `input` and returns `{ code, output, tail }`.
+    #[wasm_bindgen(catch, js_name = "__vgms_run_tool")]
+    fn vgms_run_tool(
+        module: &WebAssembly::Module,
+        name: &str,
+        input: &[u8],
+    ) -> Result<JsValue, JsValue>;
+}
+
+/// The three tool modules, compiled once and instantiated per run by the
+/// worker-side host.
 pub struct WebTools {
     compress: WebAssembly::Module,
     sample_rom: WebAssembly::Module,
@@ -43,26 +55,74 @@ impl std::fmt::Debug for WebTools {
 impl WebTools {
     /// Compiles the three tool modules from their `.wasm` bytes (fetched beside
     /// the app). Fails only if a module will not compile, which means the wrong
-    /// bytes were shipped.
+    /// bytes were shipped -- the caller then falls back to the built-in pass.
     pub fn new(compress: &[u8], sample_rom: &[u8], dac_runs: &[u8]) -> Result<Self, String> {
         Ok(Self {
-            compress: compile(compress, "vgm_cmp")?,
-            sample_rom: compile(sample_rom, "vgm_sro")?,
-            dac_runs: compile(dac_runs, "optdac")?,
+            compress: compile(compress, ToolId::Compress)?,
+            sample_rom: compile(sample_rom, ToolId::SampleRom)?,
+            dac_runs: compile(dac_runs, ToolId::DacRuns)?,
         })
+    }
+
+    fn run(&self, module: &WebAssembly::Module, tool: ToolId, vgm: &[u8]) -> ToolOutcome {
+        let result = match vgms_run_tool(module, tool.name(), vgm) {
+            Ok(result) => result,
+            // A trap, an instantiation failure, a missing hook: the run is
+            // lost, the file is not -- the pipeline records this and moves on.
+            Err(error) => {
+                return ToolOutcome::Failed(format!("{}: {}", tool.name(), describe(&error)));
+            }
+        };
+
+        let code = Reflect::get(&result, &JsValue::from_str("code"))
+            .ok()
+            .and_then(|v| v.as_f64())
+            .map_or(-1, |v| v as i32);
+        let output = Reflect::get(&result, &JsValue::from_str("output"))
+            .ok()
+            .and_then(|v| v.dyn_into::<Uint8Array>().ok())
+            .map(|bytes| bytes.to_vec());
+        let tail = Reflect::get(&result, &JsValue::from_str("tail"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default();
+
+        command_outcome(tool, code, output, &tail)
     }
 }
 
 impl Tools for WebTools {
     fn optimize_writes(&self, vgm: &[u8]) -> ToolOutcome {
-        run_module(&self.compress, "vgm_cmp", vgm)
+        self.run(&self.compress, ToolId::Compress, vgm)
     }
     fn trim_sample_roms(&self, vgm: &[u8]) -> ToolOutcome {
-        run_module(&self.sample_rom, "vgm_sro", vgm)
+        self.run(&self.sample_rom, ToolId::SampleRom, vgm)
     }
     fn clean_dac_runs(&self, vgm: &[u8]) -> ToolOutcome {
-        run_module(&self.dac_runs, "optdac", vgm)
+        self.run(&self.dac_runs, ToolId::DacRuns, vgm)
     }
+}
+
+fn compile(bytes: &[u8], tool: ToolId) -> Result<WebAssembly::Module, String> {
+    let source = Uint8Array::from(bytes);
+    // An empty byte array is the worker saying the fetch failed; say so rather
+    // than letting WebAssembly.Module produce a cryptic validation error.
+    if bytes.is_empty() {
+        return Err(format!("{}.wasm was not fetched", tool.name()));
+    }
+    WebAssembly::Module::new(source.as_ref())
+        .map_err(|error| format!("compiling {}.wasm: {}", tool.name(), describe(&error)))
+}
+
+fn describe(error: &JsValue) -> String {
+    error
+        .as_string()
+        .or_else(|| {
+            Reflect::get(error, &JsValue::from_str("message"))
+                .ok()
+                .and_then(|m| m.as_string())
+        })
+        .unwrap_or_else(|| "wasm error".to_owned())
 }
 
 /// The pack Worker's [`SongOptimizer`]: the full vgmtools pipeline over the tool
@@ -82,192 +142,8 @@ impl WebPipelineOptimizer {
 
 impl SongOptimizer for WebPipelineOptimizer {
     fn optimize(&self, name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
-        let Ok(file) = vgms_core::vgm::file::read(name, bytes) else {
-            // A DRO, or something unreadable. Either way it passes through.
-            log.push(format!("{name}: kept as-is (not a readable VGM)"));
-            return bytes.to_vec();
-        };
-        // The tools take plain bytes, and a pack entry may already be a `.vgz`.
-        let Ok(plain) = vgms_core::vgm::file::write(&file) else {
-            log.push(format!("{name}: kept as-is (could not be prepared)"));
-            return bytes.to_vec();
-        };
-
-        let result = vgms_vgmtools::optimize_vgm_with(&plain, Options::default(), &self.tools);
-
-        if result.changed() {
-            log.push(format!(
-                "{name}: {} -> {} bytes (optimized, {} saved)",
-                bytes.len(),
-                result.bytes.len(),
-                result.saved()
-            ));
-        }
-        // Only the stages worth a line: "nothing to gain" is the common case.
-        for stage in &result.stages {
-            match &stage.outcome {
-                StageOutcome::Shrank { from, to } => {
-                    log.push(format!("{name}:   {} {from} -> {to} bytes", stage.name));
-                }
-                StageOutcome::Failed(reason) => {
-                    log.push(format!("{name}:   {} failed: {reason}", stage.name));
-                }
-                StageOutcome::Skipped(reason) => {
-                    log.push(format!("{name}:   {} skipped: {reason}", stage.name));
-                }
-                StageOutcome::Unchanged => {}
-            }
-        }
-
-        let untouched: Vec<&str> = file
-            .header
-            .chips()
-            .iter()
-            .filter(|chip| vgms_vgmtools::passthrough_chips().contains(&chip.kind))
-            .map(|chip| chip.kind.name())
-            .collect();
-        if !untouched.is_empty() {
-            log.push(format!(
-                "{name}: {} not optimised yet -- their writes were all kept",
-                untouched.join(", ")
-            ));
-        }
-
-        result.bytes
+        // The pass and its narration are `optimize_song_logged` -- the one copy
+        // shared with the desktop pack -- driven by the wasm tool runner.
+        vgms_vgmtools::optimize_song_logged(name, bytes, Options::default(), &self.tools, log)
     }
-}
-
-fn compile(bytes: &[u8], name: &str) -> Result<WebAssembly::Module, String> {
-    let source = Uint8Array::from(bytes);
-    WebAssembly::Module::new(source.as_ref())
-        .map_err(|error| format!("compiling {name}.wasm: {}", describe(&error)))
-}
-
-/// Instantiates `module` fresh, runs the tool over `input`, and maps what it
-/// wrote to a [`ToolOutcome`] -- the same three answers the native binding gives:
-/// smaller bytes, unchanged (the tool declined or gained nothing), or failed.
-fn run_module(module: &WebAssembly::Module, name: &str, input: &[u8]) -> ToolOutcome {
-    match run_module_inner(module, input) {
-        Ok(RunResult { output, log }) => {
-            if output.is_empty() {
-                // No output file: the tool wrote nothing, i.e. it declined the
-                // file or found nothing to gain -- exactly `Unchanged` natively.
-                ToolOutcome::Unchanged
-            } else if is_vgm(&output) {
-                ToolOutcome::Smaller(output)
-            } else {
-                // Exited having written something that is not a VGM: the native
-                // `collect` treats this the same way -- a failure, not output.
-                ToolOutcome::Failed(with_tail(format!("{name} wrote a non-VGM"), &log))
-            }
-        }
-        Err(reason) => ToolOutcome::Failed(format!("{name}: {reason}")),
-    }
-}
-
-/// What a run produced: the bytes the tool wrote (empty when it wrote nothing)
-/// and the tail of what it printed, for a failure message.
-struct RunResult {
-    output: Vec<u8>,
-    log: String,
-}
-
-fn run_module_inner(module: &WebAssembly::Module, input: &[u8]) -> Result<RunResult, String> {
-    let instance = WebAssembly::Instance::new(module, &Object::new()).map_err(js_reason)?;
-    let exports = instance.exports();
-
-    let memory: WebAssembly::Memory = get(&exports, "memory")?
-        .dyn_into()
-        .map_err(|_| "the module's `memory` export is not a Memory".to_owned())?;
-    let reserve_input = func(&exports, "reserve_input")?;
-    let run = func(&exports, "run")?;
-    let output_len = func(&exports, "output_len")?;
-    let output_ptr = func(&exports, "output_ptr")?;
-    let log_len = func(&exports, "log_len")?;
-    let log_ptr = func(&exports, "log_ptr")?;
-
-    let len = u32::try_from(input.len()).map_err(|_| "input too large".to_owned())?;
-    let ptr = call_u32(&reserve_input, len)?;
-    // Write the input into the module's memory. `subarray` views the live
-    // buffer, so this must happen before `run` grows (and detaches) it.
-    Uint8Array::new(&memory.buffer())
-        .subarray(ptr, ptr + len)
-        .copy_from(input);
-
-    call0(&run)?;
-
-    let read_region = |ptr_fn: &Function, len_fn: &Function| -> Result<Vec<u8>, String> {
-        let region_len = call0_u32(len_fn)?;
-        if region_len == 0 {
-            return Ok(Vec::new());
-        }
-        let region_ptr = call0_u32(ptr_fn)?;
-        // Re-view the buffer: `run` may have grown memory, detaching the old one.
-        let mut bytes = vec![0u8; region_len as usize];
-        Uint8Array::new(&memory.buffer())
-            .subarray(region_ptr, region_ptr + region_len)
-            .copy_to(&mut bytes);
-        Ok(bytes)
-    };
-
-    let output = read_region(&output_ptr, &output_len)?;
-    let log = String::from_utf8_lossy(&read_region(&log_ptr, &log_len)?).into_owned();
-    Ok(RunResult { output, log })
-}
-
-/// The last non-empty line of `log`, appended to `message` when there is one.
-fn with_tail(message: String, log: &str) -> String {
-    match log.split(['\r', '\n']).rfind(|l| !l.trim().is_empty()) {
-        Some(tail) => format!("{message} ({tail})"),
-        None => message,
-    }
-}
-
-fn is_vgm(bytes: &[u8]) -> bool {
-    bytes.len() >= 0x40 && &bytes[..4] == b"Vgm "
-}
-
-fn get(exports: &Object, name: &str) -> Result<JsValue, String> {
-    Reflect::get(exports, &JsValue::from_str(name))
-        .map_err(|_| format!("the module exports no `{name}`"))
-}
-
-fn func(exports: &Object, name: &str) -> Result<Function, String> {
-    get(exports, name)?
-        .dyn_into()
-        .map_err(|_| format!("the module's `{name}` export is not a function"))
-}
-
-fn call0(f: &Function) -> Result<JsValue, String> {
-    f.call0(&JsValue::NULL).map_err(js_reason)
-}
-
-fn call0_u32(f: &Function) -> Result<u32, String> {
-    as_u32(call0(f)?)
-}
-
-fn call_u32(f: &Function, arg: u32) -> Result<u32, String> {
-    as_u32(f.call1(&JsValue::NULL, &JsValue::from(arg)).map_err(js_reason)?)
-}
-
-fn as_u32(value: JsValue) -> Result<u32, String> {
-    value
-        .as_f64()
-        .map(|n| n as u32)
-        .ok_or_else(|| "a module export did not return a number".to_owned())
-}
-
-fn js_reason(error: JsValue) -> String {
-    describe(&error)
-}
-
-fn describe(error: &JsValue) -> String {
-    error
-        .as_string()
-        .or_else(|| {
-            Reflect::get(error, &JsValue::from_str("message"))
-                .ok()
-                .and_then(|m| m.as_string())
-        })
-        .unwrap_or_else(|| "wasm error".to_owned())
 }
