@@ -3676,8 +3676,8 @@ impl VgmStudioApp {
         if self.audio.output_rate().is_none() {
             self.position.set_frequency(new_frequency);
         }
-        if let Some(song) = self.editor.song() {
-            self.position.set_length_ms(song.total_delay_ms());
+        if let Some(timeline) = self.editor.timeline() {
+            self.position.set_length_ms(timeline.total_ms());
         }
         if audio_changed {
             // Reload the audio output lazily on the next play.
@@ -3913,7 +3913,12 @@ impl VgmStudioApp {
         // outside the song comes back to the top, the one position every song is
         // guaranteed to have.
         let len = self.editor.len();
-        let length_ms = self.editor.song().map_or(0, |song| song.total_delay_ms());
+        // The timeline serves either representation, so a crop or a delete on a
+        // non-OPL VGM shrinks the readout too, not just an OPL song's.
+        let length_ms = self
+            .editor
+            .timeline()
+            .map_or(0, |timeline| timeline.total_ms());
         let row_outside = self.editor.selection.first().is_some_and(|row| row >= len);
         if row_outside || self.position.position_ms() > length_ms {
             if len == 0 {
@@ -3924,9 +3929,7 @@ impl VgmStudioApp {
             }
             self.reset_playback_start();
         }
-        if let Some(song) = self.editor.song() {
-            self.position.set_length_ms(song.total_delay_ms());
-        }
+        self.position.set_length_ms(length_ms);
         self.waveform.buckets.clear();
         self.submit_waveform(Some(Duration::from_secs(1)));
         // The selected row's time may have changed; force the indicator sync.
@@ -4268,8 +4271,8 @@ impl VgmStudioApp {
         // report frames at the stream's real rate, so the panel must too.
         if let Some(rate) = self.audio.output_rate() {
             self.position.set_frequency(rate);
-            if let Some(song) = self.editor.song() {
-                self.position.set_length_ms(song.total_delay_ms());
+            if let Some(timeline) = self.editor.timeline() {
+                self.position.set_length_ms(timeline.total_ms());
             }
         }
         // Only now is the stream's real rate known, and the loop's start frame is

@@ -63,6 +63,12 @@ impl PositionPanel {
         self.length_frames = ms_to_frames(ms, self.frequency);
     }
 
+    /// The length last set, in milliseconds.
+    #[must_use]
+    pub fn length_ms(&self) -> u32 {
+        self.length_ms
+    }
+
     /// A position expressed in time only -- row selection, waveform click.
     /// Where playback is (or would start), in milliseconds.
     #[must_use]

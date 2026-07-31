@@ -2138,6 +2138,44 @@ fn a_non_opl_document_can_be_edited_and_saved() {
     assert_eq!(harness.state().editor.len(), rows);
 }
 
+/// The position readout's length follows an edit on a non-OPL VGM. after_edit
+/// used to refresh the length only from the OPL song, so a crop or delete on a
+/// VGM whose chips are not OPL left the "N / TOTAL ms" total stale.
+#[test]
+fn editing_a_non_opl_vgm_keeps_the_position_length_current() {
+    let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    let before = harness
+        .state()
+        .editor
+        .timeline()
+        .expect("a length")
+        .total_ms();
+    assert_eq!(
+        harness.state().position.length_ms(),
+        before,
+        "the readout starts at the full length"
+    );
+
+    // Delete the 10000-sample wait (row 1); the rest is a 735-sample wait.
+    harness.state_mut().editor.selection.select_only(1);
+    act(&mut harness, Action::DeleteSelection);
+
+    let after = harness
+        .state()
+        .editor
+        .timeline()
+        .expect("a length")
+        .total_ms();
+    assert!(after < before, "the delete shortened the stream");
+    assert_eq!(
+        harness.state().position.length_ms(),
+        after,
+        "and the readout followed it, not the stale full length"
+    );
+}
+
 /// Save As on a VGM whose chips are not OPL offers the file's own name. It used
 /// to read the OPL projection's name, which a non-OPL VGM does not have -- so
 /// this was a panic, not a dialog.
