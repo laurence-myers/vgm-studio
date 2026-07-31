@@ -49,7 +49,7 @@ mod strip;
 
 // The libc the tool `.wasm` modules link against, and the ABI wrapper macro at
 // the foot of this file that each `[[example]]` invokes.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
 mod wasm_libc;
 
 /// What a tool did with the file.
@@ -349,7 +349,7 @@ mod native {
 #[macro_export]
 macro_rules! wasm_tool {
     ($tool_main:ident, $archive:literal) => {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[link(name = $archive, kind = "static")]
         unsafe extern "C" {
             fn $tool_main(
@@ -365,33 +365,33 @@ macro_rules! wasm_tool {
 
         /// Reserve `len` input bytes; the host writes them at the returned
         /// pointer, then calls `run`.
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn reserve_input(len: u32) -> *mut u8 {
             unsafe { vgmt_input_reserve(len) }
         }
 
         /// Bytes the tool wrote (0 == it left the file unchanged).
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn output_len() -> u32 {
             unsafe { vgmt_output_len() }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn output_ptr() -> *mut u8 {
             unsafe { vgmt_output_ptr() }
         }
 
         /// The tail of what the tool printed, for a failure message.
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn log_len() -> u32 {
             unsafe { vgmt_log_len() }
         }
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn log_ptr() -> *const u8 {
             unsafe { vgmt_log_ptr() }
@@ -400,7 +400,7 @@ macro_rules! wasm_tool {
         /// Run the tool over the reserved input with argv
         /// `[tool, in.vgm, out.vgm]`, the same two-argument call the native
         /// binding makes. Returns the tool's exit code.
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
         #[unsafe(no_mangle)]
         pub extern "C" fn run() -> i32 {
             const ARG0: &[u8] = b"tool\0";

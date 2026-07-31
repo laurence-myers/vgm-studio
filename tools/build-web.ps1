@@ -38,6 +38,13 @@ Write-Host "Building the app module (vgms-web)..."
 cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release @appFeatures
 if ($LASTEXITCODE -ne 0) { throw "app module build failed" }
 
+Write-Host "Building the vgmtools optimiser modules (vgm_cmp/vgm_sro/optdac)..."
+# The `tool-modules` feature turns on the C build + the freestanding libc shim;
+# a plain vgms-vgmtools dependency (the app links the pipeline) never sees them.
+cargo build -p vgms-vgmtools --target wasm32-unknown-unknown --release --features tool-modules `
+    --example tool_vgm_cmp --example tool_vgm_sro --example tool_optdac
+if ($LASTEXITCODE -ne 0) { throw "optimiser module build failed" }
+
 Write-Host "Running wasm-bindgen over the app module..."
 New-Item -ItemType Directory -Force $dist | Out-Null
 wasm-bindgen --target web --no-typescript --out-dir $dist --out-name vgms_web `
@@ -47,6 +54,11 @@ if ($LASTEXITCODE -ne 0) { throw "wasm-bindgen failed (is it installed at 0.2.12
 Write-Host "Assembling target/web-dist..."
 # The AudioWorklet module the processor instantiates from bytes.
 Copy-Item (Join-Path $release "vgms_synth_worklet.wasm") (Join-Path $dist "vgms_synth_worklet.wasm") -Force
+# The three optimiser modules the pack worker fetches and instantiates per song.
+$examples = Join-Path $release "examples"
+foreach ($tool in @("tool_vgm_cmp", "tool_vgm_sro", "tool_optdac")) {
+    Copy-Item (Join-Path $examples "$tool.wasm") (Join-Path $dist "$tool.wasm") -Force
+}
 # The page, the Worker bootstrap, and the AudioWorklet processor.
 Copy-Item (Join-Path $root "web\*") $dist -Recurse -Force
 # The licences: the distributed bundle is GPL-2.0-or-later, same as the exe.

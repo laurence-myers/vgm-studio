@@ -15,6 +15,7 @@
 //!
 //! ```text
 //! cargo build -p vgms-vgmtools --target wasm32-unknown-unknown --release \
+//!     --features tool-modules \
 //!     --example tool_vgm_cmp --example tool_vgm_sro --example tool_optdac
 //! ```
 //!

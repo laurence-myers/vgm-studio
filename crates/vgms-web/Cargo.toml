@@ -93,6 +93,11 @@ web-sys = { version = "0.3", features = [
 # The Worker installs the same cores the worklet does before it runs a task, so
 # a VGM waveform/render builds real chip cores. Depended on as an rlib.
 vgms-synth-worklet = { path = "../vgms-synth-worklet" }
+# The optimise pipeline (order, OPL bypass, ROM-size guard, chip hold-backs). The
+# default feature set is pipeline-only -- no `tool-modules`, so this pulls no C
+# and no freestanding libc (which would collide with vgms-cores-libvgm's). The
+# tool `.wasm` modules ship as separate fetched assets the pack worker drives.
+vgms-vgmtools = { workspace = true }
 
 [lints]
 workspace = true

@@ -47,14 +47,23 @@ pub fn vgms_web_run_task(request: &[u8], emit: &js_sys::Function) {
 
 /// Builds a pack release zip and returns the encoded [`PackJobOutcome`] bytes.
 ///
-/// `pack_worker.js` runs this and posts the returned bytes straight back to the
-/// page. Cancellation is `Worker.terminate()`, so the build always runs to
-/// completion here. Needs no cores -- the built-in optimise pass rewrites the
-/// command stream, it does not synthesise.
+/// `pack_worker.js` fetches the three optimiser `.wasm` modules
+/// (`tool_vgm_cmp`/`tool_vgm_sro`/`tool_optdac`, built beside the app) and passes
+/// their bytes here, then posts the returned outcome straight back to the page.
+/// Cancellation is `Worker.terminate()`, so the build always runs to completion
+/// here. Needs no cores -- the optimise pass rewrites the command stream, it does
+/// not synthesise.
 #[wasm_bindgen]
 #[must_use]
-pub fn vgms_web_run_pack_job(request: &[u8]) -> Vec<u8> {
+pub fn vgms_web_run_pack_job(
+    request: &[u8],
+    tool_vgm_cmp: &[u8],
+    tool_vgm_sro: &[u8],
+    tool_optdac: &[u8],
+) -> Vec<u8> {
     use vgms_ui::platform::PackJobOutcome;
+
+    use crate::pack_zip::{BuiltInOptimizer, SongOptimizer};
 
     let request = match crate::codec::decode_pack_job(request) {
         Ok(request) => request,
@@ -65,11 +74,32 @@ pub fn vgms_web_run_pack_job(request: &[u8]) -> Vec<u8> {
         }
     };
 
+    // Compile the tool modules once, if the export asked to optimise. If they do
+    // not load (the wrong bytes were shipped), fall back to `vgms_core`'s
+    // built-in pass rather than fail the whole export.
+    let built_in = BuiltInOptimizer;
+    let pipeline = request.optimize_vgms.then(|| {
+        crate::optimize_tools::WebTools::new(tool_vgm_cmp, tool_vgm_sro, tool_optdac)
+            .map(crate::optimize_tools::WebPipelineOptimizer::new)
+            .map_err(|error| {
+                web_sys::console::warn_1(&JsValue::from_str(&format!(
+                    "vgms-web: the optimiser modules did not load ({error}); \
+                     using the built-in pass"
+                )));
+            })
+            .ok()
+    });
+    let optimize: Option<&dyn SongOptimizer> = match &pipeline {
+        None => None,                             // optimise off
+        Some(Some(web)) => Some(web),             // the full vgmtools pipeline
+        Some(None) => Some(&built_in),            // modules failed: built-in pass
+    };
+
     let never_cancelled = || false;
     let outcome = match crate::pack_zip::build_pack_zip(
         &request.entries,
         request.gzip_vgms,
-        request.optimize_vgms,
+        optimize,
         &never_cancelled,
     ) {
         Ok(Some(output)) => PackJobOutcome::Done {

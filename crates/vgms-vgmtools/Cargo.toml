@@ -21,6 +21,14 @@ vgms-core.workspace = true
 # than through stdout -- which this crate swallows.
 log.workspace = true
 
+[features]
+# Build the three optimisers into `.wasm` modules (the `[[example]]` cdylibs).
+# Off by default: a plain wasm dependent -- vgms-web pulling the pipeline -- must
+# not drag in the C build or the freestanding libc shim, whose `#[no_mangle]`
+# allocator would collide with vgms-cores-libvgm's identical one at link. The
+# example build (tools/build-web.ps1, the parity CI job) turns it on.
+tool-modules = []
+
 [build-dependencies]
 cc.workspace = true
 

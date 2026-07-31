@@ -4706,6 +4706,7 @@ dependencies = [
  "vgms-synth",
  "vgms-synth-worklet",
  "vgms-ui",
+ "vgms-vgmtools",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

@@ -4,13 +4,15 @@
 //! all flat -- pure bytes-in/bytes-out, so the Worker (and a native test) can
 //! drive it.
 //!
-//! Two differences from the native builder, both by design (PLAN.md wt-7):
-//! - **Songs** are optimised through `vgms_core`'s own built-in pass (the same
-//!   one Edit > Optimize falls back to on wasm), not the vgmtools child
-//!   processes -- a smaller answer for the chips it has no rules for, never a
-//!   wrong one.
-//! - **PNGs** keep their original bytes with a log line: oxipng is C + rayon and
-//!   does not come to the browser.
+//! Songs are optimised through a caller-supplied [`SongOptimizer`], so this
+//! builder stays target-independent and its round-trip proofs run in an ordinary
+//! `cargo test`. The web pack Worker passes the **full vgmtools pipeline** over
+//! the tool `.wasm` modules (`crate::optimize_tools::WebPipelineOptimizer`,
+//! ow-7); the native tests pass [`BuiltInOptimizer`], `vgms_core`'s own pass.
+//!
+//! One difference from the native builder stays by design: **PNGs** keep their
+//! original bytes with a log line -- oxipng is C + rayon and does not come to
+//! the browser.
 //!
 //! `zip` + `flate2` build for both targets, so this module is portable and its
 //! round-trip proofs run in the ordinary `cargo test`.
@@ -30,14 +32,37 @@ pub struct PackZipOutput {
     pub log: Vec<String>,
 }
 
-/// Builds the release zip from `entries` (already in final order). Returns
-/// `Ok(None)` if `is_cancelled` fired partway through, `Err` only on a genuine
-/// zip write failure. One bad song or PNG is kept verbatim and logged, never
-/// fatal.
+/// Optimises one song's bytes in place of the pack, appending human-readable
+/// notes to `log` and returning the result (the original bytes, never fatal, on
+/// anything it cannot improve or read).
+///
+/// The web pack Worker supplies the full vgmtools pipeline over the tool `.wasm`
+/// modules; the native round-trip tests supply [`BuiltInOptimizer`].
+pub trait SongOptimizer {
+    /// Optimise `bytes` (named `name` for log lines), returning the new bytes.
+    fn optimize(&self, name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8>;
+}
+
+/// `vgms_core`'s own built-in pass -- the optimiser with no external tools, used
+/// by the native round-trip tests and as the honest fallback.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BuiltInOptimizer;
+
+impl SongOptimizer for BuiltInOptimizer {
+    fn optimize(&self, name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
+        optimize_song(name, bytes, log)
+    }
+}
+
+/// Builds the release zip from `entries` (already in final order). Songs are run
+/// through `optimize` when it is `Some`, kept verbatim when it is `None`.
+/// Returns `Ok(None)` if `is_cancelled` fired partway through, `Err` only on a
+/// genuine zip write failure. One bad song or PNG is kept verbatim and logged,
+/// never fatal.
 pub fn build_pack_zip(
     entries: &[PackEntry],
     gzip_vgms: bool,
-    optimize_vgms: bool,
+    optimize: Option<&dyn SongOptimizer>,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Result<Option<PackZipOutput>, String> {
     let mut log: Vec<String> = Vec::new();
@@ -48,7 +73,7 @@ pub fn build_pack_zip(
         if is_cancelled() {
             return Ok(None);
         }
-        let (name, bytes) = process_entry(entry, gzip_vgms, optimize_vgms, &mut log);
+        let (name, bytes) = process_entry(entry, gzip_vgms, optimize, &mut log);
         zip.start_file(name.as_str(), options)
             .map_err(|error| format!("adding {name} to the zip: {error}"))?;
         zip.write_all(&bytes)
@@ -73,15 +98,14 @@ pub fn build_pack_zip(
 fn process_entry(
     entry: &PackEntry,
     gzip_vgms: bool,
-    optimize_vgms: bool,
+    optimize: Option<&dyn SongOptimizer>,
     log: &mut Vec<String>,
 ) -> (String, Vec<u8>) {
     match entry.kind {
         PackEntryKind::Song => {
-            let bytes = if optimize_vgms {
-                optimize_song(&entry.name, &entry.bytes, log)
-            } else {
-                entry.bytes.clone()
+            let bytes = match optimize {
+                Some(optimizer) => optimizer.optimize(&entry.name, &entry.bytes, log),
+                None => entry.bytes.clone(),
             };
             if gzip_vgms && has_extension(&entry.name, "vgm") {
                 let name = to_vgz_name(&entry.name);
@@ -223,7 +247,7 @@ mod tests {
     #[test]
     fn an_optimizable_vgm_is_shrunk_and_logged() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, true, &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, Some(&BuiltInOptimizer), &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -246,7 +270,7 @@ mod tests {
     #[test]
     fn optimize_off_leaves_the_song_verbatim() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, false, &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], false, None, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -255,7 +279,7 @@ mod tests {
 
     #[test]
     fn an_unreadable_song_is_kept_verbatim_and_logged() {
-        let output = build_pack_zip(&[song("01 Bad.vgm", b"not a vgm")], false, true, &never())
+        let output = build_pack_zip(&[song("01 Bad.vgm", b"not a vgm")], false, Some(&BuiltInOptimizer), &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -266,7 +290,7 @@ mod tests {
     #[test]
     fn optimizing_then_gzipping_shrinks_and_renames() {
         let original = optimizable_vgm_bytes();
-        let output = build_pack_zip(&[song("01 Song.vgm", &original)], true, true, &never())
+        let output = build_pack_zip(&[song("01 Song.vgm", &original)], true, Some(&BuiltInOptimizer), &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -301,7 +325,7 @@ mod tests {
                 kind: PackEntryKind::Image,
             },
         ];
-        let output = build_pack_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, None, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -327,7 +351,7 @@ mod tests {
     #[test]
     fn an_already_gzipped_vgm_is_renamed_but_not_recompressed() {
         let gzipped = gzip(b"already compressed");
-        let output = build_pack_zip(&[song("01 First.vgm", &gzipped)], true, false, &never())
+        let output = build_pack_zip(&[song("01 First.vgm", &gzipped)], true, None, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -338,7 +362,7 @@ mod tests {
     #[test]
     fn cancellation_yields_none() {
         let output =
-            build_pack_zip(&[song("01 First.vgm", b"raw")], true, false, &|| true).unwrap();
+            build_pack_zip(&[song("01 First.vgm", b"raw")], true, None, &|| true).unwrap();
         assert!(output.is_none());
     }
 }

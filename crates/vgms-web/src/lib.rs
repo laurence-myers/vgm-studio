@@ -12,6 +12,8 @@ pub mod codec;
 pub mod pack_zip;
 
 #[cfg(target_arch = "wasm32")]
+pub mod optimize_tools;
+#[cfg(target_arch = "wasm32")]
 pub mod runner;
 #[cfg(target_arch = "wasm32")]
 pub mod services;

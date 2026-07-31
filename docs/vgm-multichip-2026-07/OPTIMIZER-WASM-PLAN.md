@@ -274,3 +274,35 @@ that spawns the child processes), and a new
 `optimize_vgm_with(bytes, options, &dyn Tools)` carries the same logic on wasm.
 This keeps the order and every safety rule in one place rather than re-spelt in
 the browser.
+
+## Status (2026-07-31)
+
+**ow-1..ow-7 implemented on branch `web-target`.** Not pushed, not merged.
+
+- **ow-1..ow-5 -- committed, proven browser-free.** The three tool `.wasm`
+  modules build import-free (36-70 KB) over `shim/wasm-libc` + `memfile.c` +
+  `wasm_printf.c` + `src/wasm_libc.rs`; the node smoke runs them; the
+  `wasmi`-driven parity gate is byte-identical to the native exes over valid
+  VGMs (the only divergences were upstream uninitialised-read UB on
+  malformed `vgm_ptch` repair fixtures, verified and out of scope); the
+  ROM-size guard is in `Facts`, with tests.
+- **ow-6 -- committed.** The pipeline is target-independent and takes a
+  [`Tools`] runner; `optimize_vgm(bytes, options)` stays the native call over
+  `NativeTools`. Verified: native workspace + wasm web build both green.
+- **ow-7 -- implemented.** `vgms-web` depends on the pipeline (feature off, so
+  no C and no libc collision with vgms-cores-libvgm); `optimize_tools.rs`'s
+  `WebTools` drives the modules through their ABI via `js-sys` (the same
+  protocol the node smoke proves), and `WebPipelineOptimizer` feeds the pack
+  export. `build-web.ps1` builds and ships the three modules; `pack_worker.js`
+  fetches them (best-effort -- a missing module falls back to the built-in
+  pass) and hands their bytes to `vgms_web_run_pack_job`. Verified: the wasm
+  web build and native `pack_zip` tests are green, `build-web.ps1` assembles a
+  bundle carrying the three modules, and the regenerated wasm-bindgen glue
+  matches the worker call.
+
+  **Remaining:** the `WebTools` **browser runtime** -- a real pack export
+  optimising through the modules in a page -- is the one thing this environment
+  cannot exercise (no browser). It should be confirmed with the Playwright
+  suite (`tools/build-web.ps1 -E2e`, then `web/e2e/`), extended to assert a
+  song's optimise log shows a `vgm_cmp`/`optdac` stage line rather than only
+  the built-in pass.

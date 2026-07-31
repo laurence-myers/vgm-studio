@@ -67,7 +67,12 @@ fn main() {
     // and `shim/`, rather than into standalone executables. See
     // `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md`.
     if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("wasm32") {
-        build_wasm(&upstream, &shim);
+        // Only when built to *produce* the modules (the `tool-modules` feature).
+        // A plain wasm dependent pulling the pipeline must not build the C or the
+        // libc shim -- see the feature's note in Cargo.toml.
+        if std::env::var_os("CARGO_FEATURE_TOOL_MODULES").is_some() {
+            build_wasm(&upstream, &shim);
+        }
         return;
     }
 
