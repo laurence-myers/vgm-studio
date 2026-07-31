@@ -1033,7 +1033,15 @@ impl VgmStudioApp {
     /// The volume a freshly opened *editor* song should start at when the volume
     /// is not locked.
     fn song_modifier_boost(&self) -> f32 {
-        self.editor.song().map_or(1.0, Self::modifier_boost)
+        // The document's own header modifier. A VGM is read straight from its
+        // header -- the OPL projection's meta only mirrors it -- so a VGM whose
+        // chips are not OPL (and so has no projection) opens at the volume it
+        // asks for too. A DRO has no modifier and stays at unity.
+        if let Some(file) = self.editor.vgm() {
+            vgms_core::volume_modifier_factor(file.header.volume_modifier())
+        } else {
+            self.editor.song().map_or(1.0, Self::modifier_boost)
+        }
     }
 
     /// Applies the "Lock" toggle. Locking remembers the current volume across
@@ -2156,13 +2164,6 @@ impl VgmStudioApp {
                         self.position.set_length_ms(song.total_delay_ms());
                         self.position.set_position_ms(0);
                         self.push_load_warnings(report, file_version);
-                        // Unless the volume is locked, a freshly opened song
-                        // starts at the volume its header modifier asks for
-                        // (unity for a DRO), so the boost does not carry over.
-                        if !self.config.audio.lock_boost {
-                            let boost = self.song_modifier_boost();
-                            self.set_boost(boost, false);
-                        }
                     }
                     None => {
                         let file = self.editor.vgm().expect("just loaded");
@@ -2195,6 +2196,15 @@ impl VgmStudioApp {
                             }
                         };
                     }
+                }
+                // Unless the volume is locked, a freshly opened document starts
+                // at the volume its header modifier asks for (unity for a DRO),
+                // so the boost does not carry over. This runs for either kind of
+                // document -- a non-OPL VGM's modifier counts too -- and after
+                // the status is set, since set_boost(_, false) writes none.
+                if !self.config.audio.lock_boost {
+                    let boost = self.song_modifier_boost();
+                    self.set_boost(boost, false);
                 }
             }
             // Readable as a container, but its commands will not walk, so there

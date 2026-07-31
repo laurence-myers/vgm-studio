@@ -797,6 +797,37 @@ fn a_locked_volume_ignores_the_songs_modifier_on_open() {
     );
 }
 
+/// A VGM whose chips are not OPL opens at the volume its header modifier asks
+/// for, just like an OPL one. The load boost used to read the OPL projection --
+/// which a non-OPL VGM does not have -- so it always opened such a file at unity.
+#[test]
+fn a_non_opl_vgms_header_modifier_sets_the_load_volume() {
+    let mut picked = sms_vgm_file();
+    picked.bytes[0x7C] = 0x20; // header modifier: 2x
+    let (mut harness, _handles) = build(Some(picked), false, false);
+    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+
+    let expected = vgms_core::volume_modifier_factor(0x20);
+    assert!((expected - 2.0).abs() < 1e-4, "sanity: 0x20 is 2x");
+    assert!(
+        (harness.state().config.audio.boost - expected).abs() < 1e-4,
+        "the volume follows the non-OPL VGM's modifier: {}",
+        harness.state().config.audio.boost
+    );
+
+    // Locked, opening a second non-OPL file keeps the volume, ignoring its 4x.
+    act(&mut harness, Action::SetLockBoost(true));
+    let mut other = sms_vgm_file();
+    other.bytes[0x7C] = 0x40; // would ask for 4x
+    harness.state_mut().load_file(other);
+    harness.run();
+    assert!(
+        (harness.state().config.audio.boost - expected).abs() < 1e-4,
+        "locked: kept at 2x, not reset to the second file's 4x: {}",
+        harness.state().config.audio.boost
+    );
+}
+
 #[test]
 fn unlocking_snaps_the_volume_to_the_current_songs_modifier() {
     // Locked at 4x over a song whose modifier asks for 2x.
