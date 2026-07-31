@@ -259,3 +259,18 @@ inside the dedicated pack worker whose cancel is already `terminate()`.
 **Sequencing.** ow-1..ow-5 are provable under node/`wasmi` with no browser and no
 `vgms-web` -- built and committed first. ow-6 (worker host) and ow-7 (the
 `vgms-web` wiring) are browser-coupled and land last, on top of a green core.
+
+**H. ow-6's "`wasm.rs` behind the same API" cannot live in `vgms-vgmtools`.** A
+wasm module cannot instantiate another wasm module on its own -- that needs the
+host's `WebAssembly` API, which reaches Rust only through `js-sys`/`wasm-bindgen`.
+`vgms-vgmtools` is a plain library with neither, and should stay that way. So the
+split is: **`vgms-vgmtools` owns the pipeline *logic*** (order, the wholly-OPL
+bypass, the ROM-size guard, the chip hold-backs, the stage report) as
+target-independent code driven by an injected `Tools` runner; **`vgms-web` owns
+the *runner*** -- the `js-sys` glue that instantiates the three modules in a
+worker and drives their `reserve_input`/`run`/`output_*` ABI. Concretely,
+`optimize_vgm(bytes, options)` stays the native convenience call (a `NativeTools`
+that spawns the child processes), and a new
+`optimize_vgm_with(bytes, options, &dyn Tools)` carries the same logic on wasm.
+This keeps the order and every safety rule in one place rather than re-spelt in
+the browser.

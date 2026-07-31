@@ -41,7 +41,6 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 mod exe;
-#[cfg(not(target_arch = "wasm32"))]
 mod pipeline;
 #[cfg(not(target_arch = "wasm32"))]
 mod run;
@@ -49,65 +48,73 @@ mod run;
 mod strip;
 
 // The libc the tool `.wasm` modules link against, and the ABI wrapper macro at
-// the foot of this file that each `[[example]]` invokes. Nothing else in this
-// crate compiles on wasm yet: the native library above spawns child processes
-// and embeds the built executables, neither of which the browser has.
+// the foot of this file that each `[[example]]` invokes.
 #[cfg(target_arch = "wasm32")]
 mod wasm_libc;
+
+/// What a tool did with the file.
+///
+/// Target-independent: the pipeline reports this the same whether the tool ran
+/// as a desktop child process or a wasm module the host instantiated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolOutcome {
+    /// It found something to remove. Carries the whole new file.
+    Smaller(Vec<u8>),
+    /// It ran, and left the file alone -- there was nothing to gain.
+    ///
+    /// The common answer on a published pack, most of which have been through
+    /// these same tools already.
+    Unchanged,
+    /// It could not be run, or did not finish, or produced something that is
+    /// not a VGM. Never fatal to a caller: the right response is to keep the
+    /// original bytes and say so.
+    Failed(String),
+}
+
+impl ToolOutcome {
+    /// The optimised bytes, or `original` when nothing changed or the run
+    /// failed.
+    #[must_use]
+    pub fn bytes_or<'a>(&'a self, original: &'a [u8]) -> &'a [u8] {
+        match self {
+            Self::Smaller(bytes) => bytes,
+            Self::Unchanged | Self::Failed(_) => original,
+        }
+    }
+
+    /// Whether the file actually shrank.
+    #[must_use]
+    pub const fn is_smaller(&self) -> bool {
+        matches!(self, Self::Smaller(_))
+    }
+}
+
+// The pipeline, its report types and the [`Tools`] runner trait are all
+// target-independent: the order, the wholly-OPL bypass, the ROM-size guard and
+// the chip hold-backs are the same everywhere. Only *running* a tool differs --
+// a child process on the desktop, a wasm module the host instantiates on the
+// web -- which is why [`optimize_vgm_with`] takes the runner as a parameter.
+pub use pipeline::{
+    Optimised, Options, Stage, StageOutcome, Tools, optimize_vgm_with, passthrough_chips,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
 #[cfg(not(target_arch = "wasm32"))]
-pub use pipeline::{Optimised, Options, Stage, StageOutcome, optimize_vgm, passthrough_chips};
-#[cfg(not(target_arch = "wasm32"))]
 pub use strip::{strip_unused_chips, unused_chips};
 
-/// The native library: everything that spawns a child process to run a tool.
-///
-/// Its public items are re-exported from the crate root (`pub use native::*`),
-/// so `strip` and `pipeline` still reach `crate::ToolOutcome`,
-/// `crate::optimize_writes` and friends exactly as before.
+/// The native library: everything that spawns a child process to run a tool,
+/// plus the [`optimize_vgm`](native::optimize_vgm) convenience call that drives
+/// the shared pipeline with a [`NativeTools`](native::NativeTools). Its public
+/// items are re-exported from the crate root (`pub use native::*`), so `strip`
+/// still reaches `crate::Workspace`, `crate::check_input` and friends.
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::exe::Tool;
-    use crate::run;
-
-    /// What a tool did with the file.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub enum ToolOutcome {
-        /// It found something to remove. Carries the whole new file.
-        Smaller(Vec<u8>),
-        /// It ran, and left the file alone -- there was nothing to gain.
-        ///
-        /// The common answer on a published pack, most of which have been
-        /// through these same tools already.
-        Unchanged,
-        /// It could not be run, or did not finish, or produced something that is
-        /// not a VGM. Never fatal to a caller: the right response is to keep the
-        /// original bytes and say so.
-        Failed(String),
-    }
-
-    impl ToolOutcome {
-        /// The optimised bytes, or `original` when nothing changed or the run
-        /// failed.
-        #[must_use]
-        pub fn bytes_or<'a>(&'a self, original: &'a [u8]) -> &'a [u8] {
-            match self {
-                Self::Smaller(bytes) => bytes,
-                Self::Unchanged | Self::Failed(_) => original,
-            }
-        }
-
-        /// Whether the file actually shrank.
-        #[must_use]
-        pub const fn is_smaller(&self) -> bool {
-            matches!(self, Self::Smaller(_))
-        }
-    }
+    use crate::{Optimised, Options, ToolOutcome, Tools, run};
 
     /// Drops chip writes that change nothing -- vgmtools' `vgm_cmp`.
     ///
@@ -139,6 +146,32 @@ mod native {
     #[must_use]
     pub fn clean_dac_runs(vgm: &[u8]) -> ToolOutcome {
         run_tool(Tool::DacRuns, vgm)
+    }
+
+    /// The desktop tool runner: each call spawns the real executable as a child
+    /// process. The default [`Tools`] for [`optimize_vgm`].
+    #[derive(Debug, Clone, Copy, Default)]
+    pub struct NativeTools;
+
+    impl Tools for NativeTools {
+        fn optimize_writes(&self, vgm: &[u8]) -> ToolOutcome {
+            optimize_writes(vgm)
+        }
+        fn trim_sample_roms(&self, vgm: &[u8]) -> ToolOutcome {
+            trim_sample_roms(vgm)
+        }
+        fn clean_dac_runs(&self, vgm: &[u8]) -> ToolOutcome {
+            clean_dac_runs(vgm)
+        }
+    }
+
+    /// Runs every applicable optimiser over `vgm`, spawning each tool as a child
+    /// process. The desktop entry point; the web calls
+    /// [`optimize_vgm_with`](crate::optimize_vgm_with) with its own wasm-module
+    /// runner instead.
+    #[must_use]
+    pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimised {
+        crate::optimize_vgm_with(vgm, options, &NativeTools)
     }
 
     fn run_tool(tool: Tool, vgm: &[u8]) -> ToolOutcome {

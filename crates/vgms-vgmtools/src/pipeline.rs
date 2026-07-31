@@ -23,7 +23,24 @@
 
 use vgms_core::vgm::{ChipKind, VgmCommand};
 
-use crate::{ToolOutcome, clean_dac_runs, optimize_writes, trim_sample_roms};
+use crate::ToolOutcome;
+
+/// Runs one optimiser over a buffer of VGM bytes.
+///
+/// The pipeline owns the order, the bypasses and the guards; a `Tools`
+/// implementation owns only *how a single tool runs* -- the desktop spawns a
+/// child process ([`NativeTools`](crate::NativeTools)), the web instantiates a
+/// wasm module. Each method returns [`ToolOutcome::Unchanged`] when the tool
+/// declined or gained nothing, and never panics: a failure is a
+/// [`ToolOutcome::Failed`] the pipeline records and steps past.
+pub trait Tools {
+    /// `vgm_cmp` -- drop chip writes that change nothing.
+    fn optimize_writes(&self, vgm: &[u8]) -> ToolOutcome;
+    /// `vgm_sro` -- strip unused regions out of sample ROMs.
+    fn trim_sample_roms(&self, vgm: &[u8]) -> ToolOutcome;
+    /// `optdac` -- collapse long runs of identical YM2612 DAC writes.
+    fn clean_dac_runs(&self, vgm: &[u8]) -> ToolOutcome;
+}
 
 /// Why a file naming an SAA1099 does not go through `vgm_cmp` yet.
 ///
@@ -176,13 +193,16 @@ impl Optimised {
     }
 }
 
-/// Runs every applicable optimiser over `vgm`, in the order described above.
+/// Runs every applicable optimiser over `vgm`, in the order described above,
+/// using `tools` to run each one -- child processes on the desktop
+/// ([`NativeTools`](crate::NativeTools)), wasm modules on the web. The desktop
+/// [`optimize_vgm`](crate::optimize_vgm) is this with the native runner.
 ///
 /// Never fails as a whole: a stage that cannot run is recorded and the pass
 /// continues from the bytes it was handed, so the worst case is the original
 /// file back with an explanation.
 #[must_use]
-pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimised {
+pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Optimised {
     let original_len = vgm.len();
     let mut bytes = vgm.to_vec();
     let mut stages = Vec::new();
@@ -199,21 +219,21 @@ pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimised {
     } else {
         if options.dac_runs {
             let skip = (!facts.has_ym2612).then_some("no YM2612 to have a DAC");
-            run_stage("optdac", skip, &mut bytes, &mut stages, clean_dac_runs);
+            run_stage("optdac", skip, &mut bytes, &mut stages, |b| {
+                tools.clean_dac_runs(b)
+            });
         }
         // Before vgm_cmp, on the wiki's order: the trim reads the ROM out of
         // the write history, and that history should be the file's own.
         if options.sample_roms {
-            run_stage(
-                "vgm_sro",
-                facts.rom_trim_denied,
-                &mut bytes,
-                &mut stages,
-                trim_sample_roms,
-            );
+            run_stage("vgm_sro", facts.rom_trim_denied, &mut bytes, &mut stages, |b| {
+                tools.trim_sample_roms(b)
+            });
         }
         let skip = facts.has_saa1099.then_some(SAA1099_HELD_BACK);
-        run_stage("vgm_cmp", skip, &mut bytes, &mut stages, optimize_writes);
+        run_stage("vgm_cmp", skip, &mut bytes, &mut stages, |b| {
+            tools.optimize_writes(b)
+        });
     }
 
     built_in(&mut bytes, &mut stages);
@@ -231,7 +251,7 @@ fn run_stage(
     skip: Option<&'static str>,
     bytes: &mut Vec<u8>,
     stages: &mut Vec<Stage>,
-    tool: fn(&[u8]) -> ToolOutcome,
+    tool: impl FnOnce(&[u8]) -> ToolOutcome,
 ) {
     if let Some(reason) = skip {
         stages.push(Stage {
