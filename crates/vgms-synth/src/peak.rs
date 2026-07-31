@@ -9,10 +9,13 @@
 //! [`vgms_core::volume`](../../vgms_core/volume/index.html)).
 
 use std::borrow::Borrow;
+use std::sync::Arc;
 
-use vgms_core::Song;
+use vgms_core::{Song, VgmFile};
 
 use crate::engine::PlayerEngine;
+use crate::resample::ResampleMode;
+use crate::vgm_engine::VgmEngine;
 
 /// The loudest sample a render produces, and whether it reached full scale.
 ///
@@ -103,10 +106,60 @@ pub fn measure_peak_cancellable<B: Borrow<Song>>(
     Some(Peak::from_abs(abs_peak))
 }
 
+/// Measures the peak of a full render of `file` at `sample_rate`, through the
+/// generic multichip engine -- the [`VgmEngine`] counterpart of
+/// [`measure_peak`], for a VGM whose chips are not OPL and so has no [`Song`].
+///
+/// One pass, like [`measure_peak`]: a freshly built [`VgmEngine`] has no
+/// [`LoopConfig`](crate::LoopConfig) and never wraps, and every sample a loop
+/// would replay already occurs in that pass. No boost and no muting or panning,
+/// so it reports the file's own un-boosted level -- the same signal the faithful
+/// [`render_vgm_wav`](crate::render_vgm_wav) writes at the same `resampling`.
+/// A chip this app has no core for contributes silence, so measure only what
+/// [`playability`](crate::playability) says would be heard.
+#[must_use]
+pub fn measure_vgm_peak(file: Arc<VgmFile>, sample_rate: u32, resampling: ResampleMode) -> Peak {
+    measure_vgm_peak_cancellable(file, sample_rate, resampling, &mut |_| {}, &mut || true)
+        .expect("a measurement that is never cancelled always completes")
+}
+
+/// As [`measure_vgm_peak`], reporting progress to `on_progress` and polling
+/// `keep_going` so a background scan can be abandoned. `None` iff `keep_going`
+/// returned `false`. The [`measure_peak_cancellable`] counterpart for a VGM;
+/// the two share the task service's scan plumbing.
+#[must_use]
+pub fn measure_vgm_peak_cancellable(
+    file: Arc<VgmFile>,
+    sample_rate: u32,
+    resampling: ResampleMode,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Option<Peak> {
+    let mut engine = VgmEngine::new(file, sample_rate);
+    // Measure the sound the user picked -- the render honours the same choice.
+    engine.set_resample_mode(resampling);
+    let mut buffer = vec![0i16; 4096 * 2];
+    let mut abs_peak: u16 = 0;
+    loop {
+        if !keep_going() {
+            return None;
+        }
+        let frames = engine.render(&mut buffer);
+        for &sample in &buffer[..frames * 2] {
+            abs_peak = abs_peak.max(sample.unsigned_abs());
+        }
+        on_progress(engine.position().frames_rendered);
+        if frames < buffer.len() / 2 {
+            break;
+        }
+    }
+    Some(Peak::from_abs(abs_peak))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wav::render_wav;
+    use crate::wav::{render_vgm_wav, render_wav};
     use std::io::Cursor;
     use vgms_core::{DroDataV1, OplType};
 
@@ -238,6 +291,108 @@ mod tests {
         let simple = measure_peak(&song, 48_000);
         let cancellable =
             measure_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || true).unwrap();
+        assert_eq!(simple, cancellable);
+    }
+
+    /// A Master System rip: a tone at full volume for a second, on the SN76489
+    /// the test stub renders. Mirrors the wav.rs fixture.
+    fn sms_vgm() -> Arc<VgmFile> {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let stream: &[u8] = &[
+            0x50, 0x8E, 0x50, 0x0F, // tone 0, period 254
+            0x50, 0x90, // full volume
+            0x61, 0x44, 0xAC, // a second
+            0x66,
+        ];
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        put_u32(
+            &mut bytes,
+            vgms_core::ChipKind::Sn76489.clock_offset(),
+            3_579_545,
+        );
+        bytes.extend_from_slice(stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(vgms_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    /// The loudest `|sample|` in a rendered 16-bit VGM WAV.
+    fn render_vgm_abs_peak(file: Arc<VgmFile>, rate: u32) -> u32 {
+        let bytes = render_vgm_wav(file, rate, 16, 1.0, ResampleMode::Sinc).unwrap();
+        hound::WavReader::new(Cursor::new(bytes))
+            .unwrap()
+            .into_samples::<i32>()
+            .map(|s| s.unwrap().unsigned_abs())
+            .max()
+            .unwrap()
+    }
+
+    #[test]
+    fn a_vgm_peak_matches_the_vgm_render_it_mirrors() {
+        // The faithful VGM render writes the very samples measure_vgm_peak scans
+        // (same engine, same resample mode, no boost), so their peaks agree
+        // exactly -- the multichip counterpart of the OPL invariant above.
+        crate::testing::install_registry_with_stub();
+        let peak = measure_vgm_peak(sms_vgm(), 44_100, ResampleMode::Sinc);
+        let render_peak = render_vgm_abs_peak(sms_vgm(), 44_100);
+
+        assert!(peak.max_level > 0, "a square wave, not silence");
+        assert_eq!(
+            i64::from(peak.max_level),
+            i64::from(render_peak.min(0x7FFF)),
+            "measured peak must equal the render's peak"
+        );
+        assert_eq!(peak.clipped, render_peak >= 0x7FFF);
+    }
+
+    #[test]
+    fn a_cancelled_vgm_scan_returns_nothing() {
+        crate::testing::install_registry_with_stub();
+        // Refused before the first chunk.
+        assert!(
+            measure_vgm_peak_cancellable(
+                sms_vgm(),
+                44_100,
+                ResampleMode::Sinc,
+                &mut |_| {},
+                &mut || false
+            )
+            .is_none(),
+            "an immediately cancelled scan yields None"
+        );
+
+        // ...and part-way through: the scan stops early.
+        let mut chunks = 0;
+        let cancelled = measure_vgm_peak_cancellable(
+            sms_vgm(),
+            44_100,
+            ResampleMode::Sinc,
+            &mut |_| {},
+            &mut || {
+                chunks += 1;
+                chunks <= 1
+            },
+        );
+        assert!(cancelled.is_none());
+    }
+
+    #[test]
+    fn an_uncancelled_vgm_scan_matches_the_shorthand() {
+        crate::testing::install_registry_with_stub();
+        let simple = measure_vgm_peak(sms_vgm(), 44_100, ResampleMode::Sinc);
+        let cancellable = measure_vgm_peak_cancellable(
+            sms_vgm(),
+            44_100,
+            ResampleMode::Sinc,
+            &mut |_| {},
+            &mut || true,
+        )
+        .unwrap();
         assert_eq!(simple, cancellable);
     }
 

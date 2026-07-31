@@ -44,7 +44,9 @@ pub use opl::CReferenceOpl3;
 #[cfg(feature = "nuked-opl")]
 pub use opl::NukedOpl3;
 pub use opl::{DefaultOplChip, OplChip, SilentOpl};
-pub use peak::{Peak, measure_peak, measure_peak_cancellable};
+pub use peak::{
+    Peak, measure_peak, measure_peak_cancellable, measure_vgm_peak, measure_vgm_peak_cancellable,
+};
 pub use registry::{CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, install, registry};
 pub use split::{
     SplitData, SplitFormat, SplitOptions, SplitOutput, VgmSplitOptions, split, split_cancellable,
