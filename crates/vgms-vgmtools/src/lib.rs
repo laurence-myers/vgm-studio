@@ -26,11 +26,15 @@
 //! linked in, they would be an unbounded leak in a long-lived GUI and a freeze
 //! with no way out.
 //!
-//! On **wasm32**, the browser has no processes -- but a fresh wasm instance is a
-//! *better* process (zero-initialised globals, O(1) reclamation, a catchable
-//! trap, a `--max-memory` ceiling). Each tool is compiled to its own `.wasm`
-//! module (the `[[example]]` targets) over the libc in [`wasm_libc`] plus
-//! `shim/memfile.c` and `shim/wasm_printf.c`; the native path stays the
+//! On the **web**, the browser has no processes -- but a `wasm32-wasip1`
+//! command module is a *better* process: fresh zero-initialised globals every
+//! instantiate, O(1) reclamation when the instance drops, a catchable trap, a
+//! `--max-memory` ceiling no native child has. The three tools compile
+//! *unmodified* against the real wasi-libc (`tools/build-wasi-tools.ps1`) and
+//! run exactly as they do natively -- argv in, files through a preopened
+//! directory, an exit code out -- with the host (the pack Worker, or `wasmi` in
+//! the parity test) standing in for the OS. [`command`] holds the one shared
+//! mapping from such a run to a [`ToolOutcome`]; the native path stays the
 //! byte-exact oracle. See `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md`.
 //!
 //! # Input
@@ -39,6 +43,7 @@
 //! layer, so gzip arriving here means a caller skipped that, and is refused
 //! rather than misread.
 
+pub mod command;
 #[cfg(not(target_arch = "wasm32"))]
 mod exe;
 mod pipeline;
@@ -46,11 +51,6 @@ mod pipeline;
 mod run;
 #[cfg(not(target_arch = "wasm32"))]
 mod strip;
-
-// The libc the tool `.wasm` modules link against, and the ABI wrapper macro at
-// the foot of this file that each `[[example]]` invokes.
-#[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-mod wasm_libc;
 
 /// What a tool did with the file.
 ///
@@ -98,6 +98,27 @@ pub use pipeline::{
     Optimised, Options, Stage, StageOutcome, Tools, optimize_vgm_with, passthrough_chips,
 };
 
+/// Refuses bytes no tool should be handed: gzip (a `.vgz` a caller forgot to
+/// unpack) or something that is not a VGM at all.
+pub(crate) fn check_input(vgm: &[u8]) -> Result<(), String> {
+    if vgm.len() >= 2 && vgm[0] == 0x1F && vgm[1] == 0x8B {
+        return Err("the bytes are gzip; unpack a .vgz before optimising it".to_owned());
+    }
+    check_output(vgm).map_err(|reason| format!("the bytes are {reason}"))
+}
+
+/// Whether `vgm` is a plausible VGM -- the check a tool's *output* must pass
+/// before a caller may propagate it.
+pub(crate) fn check_output(vgm: &[u8]) -> Result<(), String> {
+    if vgm.len() < 0x40 {
+        return Err(format!("too short to be a VGM ({} bytes)", vgm.len()));
+    }
+    if &vgm[..4] != b"Vgm " {
+        return Err("not a VGM (no `Vgm ` signature)".to_owned());
+    }
+    Ok(())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub use native::*;
 #[cfg(not(target_arch = "wasm32"))]
@@ -114,7 +135,7 @@ mod native {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::exe::Tool;
-    use crate::{Optimised, Options, ToolOutcome, Tools, run};
+    use crate::{Optimised, Options, ToolOutcome, Tools, check_input, check_output, run};
 
     /// Drops chip writes that change nothing -- vgmtools' `vgm_cmp`.
     ///
@@ -253,23 +274,6 @@ mod native {
         }
     }
 
-    pub(crate) fn check_input(vgm: &[u8]) -> Result<(), String> {
-        if vgm.len() >= 2 && vgm[0] == 0x1F && vgm[1] == 0x8B {
-            return Err("the bytes are gzip; unpack a .vgz before optimising it".to_owned());
-        }
-        check_output(vgm).map_err(|reason| format!("the bytes are {reason}"))
-    }
-
-    pub(crate) fn check_output(vgm: &[u8]) -> Result<(), String> {
-        if vgm.len() < 0x40 {
-            return Err(format!("too short to be a VGM ({} bytes)", vgm.len()));
-        }
-        if &vgm[..4] != b"Vgm " {
-            return Err("not a VGM (no `Vgm ` signature)".to_owned());
-        }
-        Ok(())
-    }
-
     /// A private directory for one run, removed when the run ends.
     pub(crate) struct Workspace {
         pub(crate) dir: PathBuf,
@@ -331,88 +335,4 @@ mod native {
             );
         }
     }
-}
-
-/// Emits the wasm host ABI for one tool module: `run()`, plus the input, output
-/// and log accessors the parity harness and the worker call. Invoked once per
-/// tool `[[example]]` with the tool's renamed `main` and the name of the static
-/// archive `build.rs` produced for it. Only expands on wasm32; on other targets
-/// it is empty, so a stray `cargo build --examples` on the desktop still
-/// succeeds.
-///
-/// The `#[link(kind = "static")]` names the tool's archive *here*, in the
-/// example, so only this cdylib pulls it -- the tools' colliding globals
-/// (`VGMHead`, `InitAllChips`, ...) never meet in one link. Defining the exports
-/// in the example crate (not the library) likewise guarantees `wasm-ld` exports
-/// them from the cdylib. Each accessor forwards to a C symbol in
-/// `shim/memfile.c` / `shim/wasm_printf.c`.
-#[macro_export]
-macro_rules! wasm_tool {
-    ($tool_main:ident, $archive:literal) => {
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[link(name = $archive, kind = "static")]
-        unsafe extern "C" {
-            fn $tool_main(
-                argc: core::ffi::c_int,
-                argv: *const *const core::ffi::c_char,
-            ) -> core::ffi::c_int;
-            fn vgmt_input_reserve(len: u32) -> *mut u8;
-            fn vgmt_output_len() -> u32;
-            fn vgmt_output_ptr() -> *mut u8;
-            fn vgmt_log_len() -> u32;
-            fn vgmt_log_ptr() -> *const u8;
-        }
-
-        /// Reserve `len` input bytes; the host writes them at the returned
-        /// pointer, then calls `run`.
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn reserve_input(len: u32) -> *mut u8 {
-            unsafe { vgmt_input_reserve(len) }
-        }
-
-        /// Bytes the tool wrote (0 == it left the file unchanged).
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn output_len() -> u32 {
-            unsafe { vgmt_output_len() }
-        }
-
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn output_ptr() -> *mut u8 {
-            unsafe { vgmt_output_ptr() }
-        }
-
-        /// The tail of what the tool printed, for a failure message.
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn log_len() -> u32 {
-            unsafe { vgmt_log_len() }
-        }
-
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn log_ptr() -> *const u8 {
-            unsafe { vgmt_log_ptr() }
-        }
-
-        /// Run the tool over the reserved input with argv
-        /// `[tool, in.vgm, out.vgm]`, the same two-argument call the native
-        /// binding makes. Returns the tool's exit code.
-        #[cfg(all(target_arch = "wasm32", feature = "tool-modules"))]
-        #[unsafe(no_mangle)]
-        pub extern "C" fn run() -> i32 {
-            const ARG0: &[u8] = b"tool\0";
-            const ARG1: &[u8] = b"in.vgm\0";
-            const ARG2: &[u8] = b"out.vgm\0";
-            let argv: [*const core::ffi::c_char; 4] = [
-                ARG0.as_ptr().cast(),
-                ARG1.as_ptr().cast(),
-                ARG2.as_ptr().cast(),
-                core::ptr::null(),
-            ];
-            unsafe { $tool_main(3, argv.as_ptr()) }
-        }
-    };
 }

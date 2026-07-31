@@ -21,14 +21,6 @@ vgms-core.workspace = true
 # than through stdout -- which this crate swallows.
 log.workspace = true
 
-[features]
-# Build the three optimisers into `.wasm` modules (the `[[example]]` cdylibs).
-# Off by default: a plain wasm dependent -- vgms-web pulling the pipeline -- must
-# not drag in the C build or the freestanding libc shim, whose `#[no_mangle]`
-# allocator would collide with vgms-cores-libvgm's identical one at link. The
-# example build (tools/build-web.ps1, the parity CI job) turns it on.
-tool-modules = []
-
 [build-dependencies]
 cc.workspace = true
 
@@ -38,28 +30,12 @@ vgms-core.workspace = true
 # Plenty of files named `.vgm` are gzip inside, so the corpus test unpacks
 # them exactly as the app does before handing bytes to a tool.
 flate2.workspace = true
-# Drives the pre-built tool `.wasm` modules in `tests/wasm_parity.rs` so the
+# Drives the pre-built wasip1 tool modules in `tests/wasm_parity.rs` so the
 # native-vs-wasm byte-parity gate runs in an ordinary `cargo test`, no browser
-# and no node. Pure Rust, so it needs no C toolchain of its own.
-wasmi = "0.47"
-
-# Each optimiser becomes its own `.wasm` module on `wasm32-unknown-unknown` --
-# a cdylib so the final link resolves every symbol the C references (an rlib
-# check would skip that), and separate targets so each gets its own linear
-# memory, the wasm analogue of a separate process. The macro they invoke is a
-# no-op off wasm, so `cargo build --examples` on the desktop just builds empty
-# cdylibs. See `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md`.
-[[example]]
-name = "tool_vgm_cmp"
-crate-type = ["cdylib"]
-
-[[example]]
-name = "tool_vgm_sro"
-crate-type = ["cdylib"]
-
-[[example]]
-name = "tool_optdac"
-crate-type = ["cdylib"]
+# and no node. `wasmi_wasi` supplies the WASI preview1 host functions the
+# command modules import (argv, preopened dirs, exit codes).
+wasmi = "1.1"
+wasmi_wasi = "1.1"
 
 [lints.rust]
 # The tool entry points are `extern "C"`, and the temp-file plumbing around

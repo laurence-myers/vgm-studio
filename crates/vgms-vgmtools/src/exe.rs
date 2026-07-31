@@ -54,17 +54,17 @@ impl Tool {
     }
 
     /// Whether `code` is this tool's way of saying "there is nothing here for
-    /// me", as opposed to "I broke".
-    ///
-    /// Every tool uses 0 for a normal run and 1 for a file it could not open.
-    /// `vgm_sro` adds two refusals that leave the file untouched and valid:
-    ///
-    /// - `2` -- the header declares no chip that has a sample ROM
-    ///   (vgm_sro.c:157), which is most files.
-    /// - `9` -- the stream uses RF5C memory writes or `0x68` PCM RAM writes,
-    ///   which it says outright it does not support (vgm_sro.c:512, 551, 557).
+    /// me", as opposed to "I broke" -- the shared rule in
+    /// [`ToolId::declines_with`](crate::command::ToolId::declines_with),
+    /// which the wasm hosts apply too. `vgm_ptch` is not a pipeline command
+    /// and declines nothing.
     pub(crate) const fn declines_with(self, code: i32) -> bool {
-        matches!(self, Self::SampleRom) && matches!(code, 2 | 9)
+        match self {
+            Self::Compress => crate::command::ToolId::Compress.declines_with(code),
+            Self::SampleRom => crate::command::ToolId::SampleRom.declines_with(code),
+            Self::DacRuns => crate::command::ToolId::DacRuns.declines_with(code),
+            Self::Patch => false,
+        }
     }
 
     const fn bytes(self) -> &'static [u8] {
