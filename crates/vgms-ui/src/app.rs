@@ -2261,7 +2261,11 @@ impl VgmStudioApp {
                 bytes,
             },
             _ => SaveRequest::Dialog {
-                suggested_name: self.editor.song().expect("gated").name.clone(),
+                suggested_name: self
+                    .editor
+                    .document_name()
+                    .expect("gated: require_document above")
+                    .to_owned(),
                 bytes,
             },
         };

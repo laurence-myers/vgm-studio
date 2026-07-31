@@ -2138,6 +2138,40 @@ fn a_non_opl_document_can_be_edited_and_saved() {
     assert_eq!(harness.state().editor.len(), rows);
 }
 
+/// Save As on a VGM whose chips are not OPL offers the file's own name. It used
+/// to read the OPL projection's name, which a non-OPL VGM does not have -- so
+/// this was a panic, not a dialog.
+#[test]
+fn save_as_offers_the_documents_own_name_for_a_non_opl_vgm() {
+    let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
+
+    act(&mut harness, Action::SaveAs);
+
+    let files = handles.files.borrow();
+    let Some(SaveRequest::Dialog { suggested_name, .. }) = files.save_requests.last() else {
+        panic!("expected a save dialog, got {:?}", files.save_requests)
+    };
+    assert_eq!(suggested_name, "03 Psycho Soldier.vgm");
+}
+
+/// A plain Save with no path -- every save on the web target, where a picked
+/// file has no path -- falls through to the dialog for a non-OPL VGM too, and by
+/// the same route this used to panic.
+#[test]
+fn saving_a_pathless_non_opl_vgm_falls_through_to_the_dialog() {
+    let mut picked = other_chip_vgm_file();
+    picked.path = None;
+    let (mut harness, handles) = build(Some(picked), false, false);
+
+    act(&mut harness, Action::Save);
+
+    let files = handles.files.borrow();
+    let Some(SaveRequest::Dialog { suggested_name, .. }) = files.save_requests.last() else {
+        panic!("expected a save dialog, got {:?}", files.save_requests)
+    };
+    assert_eq!(suggested_name, "03 Psycho Soldier.vgm");
+}
+
 /// A Neo Geo capture of three songs, parted by two seconds of silence each.
 fn other_chip_capture_file() -> PickedFile {
     // One song: a YM2610 write, a beat, an AY8910 write, a beat. The beats are

@@ -263,6 +263,20 @@ impl Editor {
         self.dro.is_some() || self.vgm.is_some()
     }
 
+    /// The loaded document's own file name, whichever slot holds it -- what a
+    /// Save As offers as the suggested name. `None` with nothing open.
+    ///
+    /// The VGM slot is asked first: a VGM is the document even when it also has
+    /// an OPL projection, so reading its name (rather than the projected song's)
+    /// works for a VGM whose chips are not OPL and has no projection at all.
+    #[must_use]
+    pub fn document_name(&self) -> Option<&str> {
+        self.vgm
+            .as_ref()
+            .map(|file| file.name.as_str())
+            .or_else(|| self.dro.as_ref().map(|song| song.name.as_str()))
+    }
+
     /// What the loaded document can do, for the panels that only make sense
     /// against some of it.
     #[must_use]
@@ -1285,6 +1299,30 @@ mod tests {
         let dac = editor.row_cells(1);
         assert!(dac.description.contains("DAC"), "{}", dac.description);
         assert!(dac.hover.is_empty(), "nothing documented to hover");
+    }
+
+    /// The Save As suggestion reads the document's own name for either kind of
+    /// document -- including a VGM whose chips are not OPL and has no projection.
+    #[test]
+    fn document_name_names_either_kind_of_document() {
+        let mut editor = Editor::new();
+        assert_eq!(editor.document_name(), None, "nothing open");
+
+        let (editor_dro, _) = loaded(&dro_song_v2());
+        assert_eq!(
+            editor_dro.document_name(),
+            Some(dro_song_v2().name.as_str())
+        );
+
+        editor
+            .load(PickedFile {
+                name: "md.vgm".to_owned(),
+                path: None,
+                bytes: mega_drive_vgm(),
+            })
+            .expect("it opens");
+        assert!(editor.song().is_none(), "no OPL projection to fall back on");
+        assert_eq!(editor.document_name(), Some("md.vgm"));
     }
 
     /// A minimal YM2612 VGM whose body the OPL command table cannot even size.
