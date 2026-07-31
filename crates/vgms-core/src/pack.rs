@@ -340,6 +340,61 @@ pub const PRESETS: [PackPreset; 3] = [
     },
 ];
 
+/// One-click fills for the common non-OPL systems, in rough console-era order.
+/// The OS line is blank for the cartridge consoles (they have none), which
+/// [`generate_description`] omits rather than printing empty. Every field stays
+/// editable after a click; these are a starting point, not a lock.
+pub const CONSOLE_PRESETS: [PackPreset; 8] = [
+    PackPreset {
+        name: "Mega Drive",
+        system: "Sega Mega Drive / Genesis",
+        os: "",
+        music_hardware: "YM2612, SN76489",
+    },
+    PackPreset {
+        name: "Master System",
+        system: "Sega Master System",
+        os: "",
+        music_hardware: "SN76489",
+    },
+    PackPreset {
+        name: "NES",
+        system: "Nintendo Famicom / NES",
+        os: "",
+        music_hardware: "RP2A03",
+    },
+    PackPreset {
+        name: "Game Boy",
+        system: "Nintendo Game Boy",
+        os: "",
+        music_hardware: "LR35902",
+    },
+    PackPreset {
+        name: "PC Engine",
+        system: "NEC PC Engine / TurboGrafx-16",
+        os: "",
+        music_hardware: "HuC6280",
+    },
+    PackPreset {
+        name: "Neo Geo",
+        system: "SNK Neo Geo",
+        os: "",
+        music_hardware: "YM2610",
+    },
+    PackPreset {
+        name: "X68000",
+        system: "Sharp X68000",
+        os: "Human68k",
+        music_hardware: "YM2151, MSM6258",
+    },
+    PackPreset {
+        name: "PC-98",
+        system: "NEC PC-9801",
+        os: "DOS",
+        music_hardware: "YM2608",
+    },
+];
+
 /// The preset matching a chip type.
 #[must_use]
 pub const fn preset_for(opl: OplType) -> &'static PackPreset {
@@ -1823,6 +1878,39 @@ mod tests {
         assert_eq!(wrap_line("xxxxxxx", 3, 2), vec!["xxx", "xx", "xx"]);
         // No words -> no chunks; callers supply their own fallback.
         assert!(wrap_line("   ", 5, 5).is_empty());
+    }
+
+    #[test]
+    fn console_presets_are_named_and_fill_the_hardware_fields() {
+        // Each has a button label and a music-hardware line; the cartridge
+        // consoles carry no OS, and generate_description omits an empty one.
+        assert_eq!(CONSOLE_PRESETS.len(), 8);
+        let names: Vec<&str> = CONSOLE_PRESETS.iter().map(|preset| preset.name).collect();
+        assert_eq!(
+            names,
+            [
+                "Mega Drive",
+                "Master System",
+                "NES",
+                "Game Boy",
+                "PC Engine",
+                "Neo Geo",
+                "X68000",
+                "PC-98",
+            ]
+        );
+        for preset in &CONSOLE_PRESETS {
+            assert!(!preset.system.is_empty(), "{} has a system", preset.name);
+            assert!(
+                !preset.music_hardware.is_empty(),
+                "{} names its hardware",
+                preset.name
+            );
+        }
+        // The cartridge consoles have no OS; the computers do.
+        assert_eq!(CONSOLE_PRESETS[0].os, "", "Mega Drive has no OS");
+        assert_eq!(CONSOLE_PRESETS[6].os, "Human68k", "X68000 runs Human68k");
+        assert_eq!(CONSOLE_PRESETS[7].os, "DOS", "PC-98 runs DOS");
     }
 
     #[test]

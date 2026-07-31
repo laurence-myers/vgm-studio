@@ -17,9 +17,9 @@ use vgms_synth::Peak;
 
 use egui_extras::{Column, TableBuilder};
 use vgms_core::pack::{
-    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, PngInfo, ReadinessCategory,
-    ReadinessItem, ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem,
-    format_byte_count, format_track_time, generate_description, generate_m3u,
+    CONSOLE_PRESETS, DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PRESETS, PackMeta, PngInfo,
+    ReadinessCategory, ReadinessItem, ReadinessTarget, Severity, TrackEntry, TrackFacts,
+    doc_file_stem, format_byte_count, format_track_time, generate_description, generate_m3u,
     music_hardware_suggestion, parse_description, readiness,
 };
 use vgms_core::vgm::data::GD3_FIELD_COUNT;
@@ -1439,16 +1439,22 @@ fn meta_form(ui: &mut egui::Ui, state: &mut PackState, palette: &Palette) {
                 Some(MetaField::GameName),
                 focus,
             );
-            // One-click chip presets for the three hardware fields below.
+            // One-click presets for the three hardware fields below: the OPL PC
+            // cards first, then the common non-OPL systems. Wrapped, because the
+            // console row does not fit the dialog on one line.
             ui.label("Presets:");
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                for preset in &PRESETS {
+                for preset in PRESETS.iter().chain(&CONSOLE_PRESETS) {
+                    // Skip an empty OS in the hover so a cartridge console reads
+                    // "System / hardware" rather than "System /  / hardware".
+                    let hover = [preset.system, preset.os, preset.music_hardware]
+                        .into_iter()
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" / ");
                     if bevel::button(ui, palette, preset.name)
-                        .on_hover_text(format!(
-                            "{} / {} / {}",
-                            preset.system, preset.os, preset.music_hardware
-                        ))
+                        .on_hover_text(hover)
                         .clicked()
                     {
                         state.meta.system = preset.system.to_owned();
