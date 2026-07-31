@@ -1439,29 +1439,39 @@ fn meta_form(ui: &mut egui::Ui, state: &mut PackState, palette: &Palette) {
                 Some(MetaField::GameName),
                 focus,
             );
-            // One-click presets for the three hardware fields below: the OPL PC
-            // cards first, then the common non-OPL systems. Wrapped, because the
-            // console row does not fit the dialog on one line.
+            // One-click presets for the three hardware fields below, the OPL PC
+            // cards first then the common non-OPL systems -- a dropdown rather
+            // than a button per system, which had grown to two wrapped rows.
+            // Picking one fills the fields and the box reverts to its prompt,
+            // since the fields stay editable afterwards.
             ui.label("Presets:");
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                for preset in PRESETS.iter().chain(&CONSOLE_PRESETS) {
-                    // Skip an empty OS in the hover so a cartridge console reads
-                    // "System / hardware" rather than "System /  / hardware".
-                    let hover = [preset.system, preset.os, preset.music_hardware]
-                        .into_iter()
-                        .filter(|part| !part.is_empty())
-                        .collect::<Vec<_>>()
-                        .join(" / ");
-                    if bevel::button(ui, palette, preset.name)
-                        .on_hover_text(hover)
-                        .clicked()
-                    {
-                        state.meta.system = preset.system.to_owned();
-                        state.meta.os = preset.os.to_owned();
-                        state.meta.music_hardware = preset.music_hardware.to_owned();
-                        dirty = true;
-                    }
+            ui.scope(|ui| {
+                crate::theme::style_dropdown(ui, palette);
+                let mut picked = String::new();
+                egui::ComboBox::from_id_salt("pack-preset")
+                    .selected_text(crate::strings::PACK_PRESET_PROMPT)
+                    .show_ui(ui, |ui| {
+                        for preset in PRESETS.iter().chain(&CONSOLE_PRESETS) {
+                            // Skip an empty OS in the hover so a cartridge console
+                            // reads "System / hardware", not "System /  / hardware".
+                            let hover = [preset.system, preset.os, preset.music_hardware]
+                                .into_iter()
+                                .filter(|part| !part.is_empty())
+                                .collect::<Vec<_>>()
+                                .join(" / ");
+                            ui.selectable_value(&mut picked, preset.name.to_owned(), preset.name)
+                                .on_hover_text(hover);
+                        }
+                    });
+                if let Some(preset) = PRESETS
+                    .iter()
+                    .chain(&CONSOLE_PRESETS)
+                    .find(|preset| preset.name == picked)
+                {
+                    state.meta.system = preset.system.to_owned();
+                    state.meta.os = preset.os.to_owned();
+                    state.meta.music_hardware = preset.music_hardware.to_owned();
+                    dirty = true;
                 }
             });
             ui.end_row();
@@ -1542,36 +1552,45 @@ fn hardware_fields(
     focus: Option<MetaField>,
 ) -> bool {
     ui.label("Hardware:");
-    ui.horizontal(|ui| {
-        let arrow = if state.show_hardware {
-            "\u{25BC}"
+    // An inline triangle glyph that toggles the fields, matching the Settings
+    // "All chips" disclosure -- a clickable muted label, not a pad button. When
+    // folded, the field summary trails the glyph in the same clickable label, so
+    // collapsing hides the editing, never the facts. CP437 triangles, as the
+    // volume stepper uses, so the DOS face has the glyph rather than a box.
+    let (glyph, tip) = if state.show_hardware {
+        ("\u{25BC}", crate::strings::PACK_HARDWARE_TIP_HIDE)
+    } else {
+        ("\u{25BA}", crate::strings::PACK_HARDWARE_TIP_EDIT)
+    };
+    let text = if state.show_hardware {
+        glyph.to_owned()
+    } else {
+        let summary = [
+            state.meta.system.as_str(),
+            state.meta.os.as_str(),
+            state.meta.music_hardware.as_str(),
+        ]
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" \u{00B7} ");
+        if summary.is_empty() {
+            glyph.to_owned()
         } else {
-            "\u{25B6}"
-        };
-        if bevel::button(ui, palette, arrow)
-            .on_hover_text(if state.show_hardware {
-                crate::strings::PACK_HARDWARE_TIP_HIDE
-            } else {
-                crate::strings::PACK_HARDWARE_TIP_EDIT
-            })
-            .clicked()
-        {
-            state.show_hardware = !state.show_hardware;
+            format!("{glyph} {summary}")
         }
-        if !state.show_hardware {
-            let summary = [
-                state.meta.system.as_str(),
-                state.meta.os.as_str(),
-                state.meta.music_hardware.as_str(),
-            ]
-            .iter()
-            .filter(|value| !value.trim().is_empty())
-            .copied()
-            .collect::<Vec<_>>()
-            .join(" \u{00B7} ");
-            ui.colored_label(palette.muted, summary);
-        }
-    });
+    };
+    let header = ui
+        .add(
+            egui::Label::new(egui::RichText::new(text).color(palette.muted))
+                .sense(egui::Sense::click()),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(tip);
+    if header.clicked() {
+        state.show_hardware = !state.show_hardware;
+    }
     ui.end_row();
     if !state.show_hardware {
         return false;

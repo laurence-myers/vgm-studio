@@ -4600,7 +4600,13 @@ fn a_chip_preset_fills_system_os_and_hardware() {
         pack.dirty = false;
     }
 
-    harness.get_by_label("OPL-3").click();
+    // Presets are a dropdown: open it (a closed combo reports its prompt as its
+    // value), then pick through accesskit, as the theme-combo test does.
+    harness
+        .get_by_value(crate::strings::PACK_PRESET_PROMPT)
+        .click();
+    harness.run();
+    harness.get_by_label("OPL-3").click_accesskit();
     harness.run();
 
     let state = harness.state();
@@ -4609,6 +4615,60 @@ fn a_chip_preset_fills_system_os_and_hardware() {
     assert_eq!(pack.meta.os, "DOS");
     assert_eq!(pack.meta.music_hardware, "Sound Blaster Pro 2 (YMF262)");
     assert!(pack.dirty, "a preset counts as an edit");
+}
+
+/// The Hardware disclosure is an inline triangle now, not a pad button. Clicking
+/// it toggles the System / OS / Music hardware fields, both directions.
+#[test]
+fn the_hardware_disclosure_toggles_the_fields() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    assert!(
+        !harness.state().pack.as_ref().unwrap().show_hardware,
+        "the fields are folded by default"
+    );
+
+    // Folded, the glyph leads the field summary in one clickable label.
+    harness.get_by_label_contains("\u{25BA}").click();
+    harness.run();
+    assert!(
+        harness.state().pack.as_ref().unwrap().show_hardware,
+        "clicking the inline triangle unfolds the fields"
+    );
+
+    // Expanded, the glyph flips and stands alone; clicking it folds again.
+    harness.get_by_label("\u{25BC}").click();
+    harness.run();
+    assert!(!harness.state().pack.as_ref().unwrap().show_hardware);
+}
+
+/// A non-OPL console preset fills the fields too, and leaves the OS blank for a
+/// cartridge system (the description omits an empty OS line).
+#[test]
+fn a_console_preset_fills_the_fields_and_leaves_no_os() {
+    let (mut harness, handles) = empty_harness();
+    open_folder(&mut harness, &handles, single_track_folder());
+    {
+        let pack = harness.state_mut().pack.as_mut().unwrap();
+        pack.meta.system.clear();
+        pack.meta.os = "DOS".to_owned();
+        pack.meta.music_hardware.clear();
+        pack.dirty = false;
+    }
+
+    harness
+        .get_by_value(crate::strings::PACK_PRESET_PROMPT)
+        .click();
+    harness.run();
+    harness.get_by_label("Mega Drive").click_accesskit();
+    harness.run();
+
+    let state = harness.state();
+    let pack = state.pack.as_ref().unwrap();
+    assert_eq!(pack.meta.system, "Sega Mega Drive / Genesis");
+    assert_eq!(pack.meta.os, "", "a cartridge console clears the OS");
+    assert_eq!(pack.meta.music_hardware, "YM2612, SN76489");
+    assert!(pack.dirty);
 }
 
 #[test]

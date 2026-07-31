@@ -469,6 +469,9 @@ pub(crate) const PACK_FIX_FILE_NAMES_TIP: &str =
     "Rename each file to \"NN Track Name.ext\" from its GD3 tag";
 pub(crate) const PACK_HARDWARE_TIP_HIDE: &str = "Hide the system, OS and music hardware fields";
 pub(crate) const PACK_HARDWARE_TIP_EDIT: &str = "Edit the system, OS and music hardware fields";
+/// The prompt on the closed preset dropdown -- it fills the three hardware
+/// fields, and reverts to this after a pick, since the fields stay editable.
+pub(crate) const PACK_PRESET_PROMPT: &str = "Choose a system...";
 pub(crate) const PACK_READINESS_TIP_NONE: &str = "Every submission check passes";
 pub(crate) const PACK_READINESS_TIP_ERROR: &str =
     "This must be fixed before the pack can be exported";
