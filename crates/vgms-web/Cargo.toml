@@ -19,5 +19,44 @@ vgms-ui.workspace = true
 thiserror.workspace = true
 log.workspace = true
 
+# The wasm app module: the DOM-facing platform services and the Worker entry. All
+# of this is `#[cfg(target_arch = "wasm32")]` in the source, so a native build (and
+# the codec tests) never pulls it. Kept out of the workspace table because these
+# are the only crate that needs them.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Pinned exactly to the `wasm-bindgen-cli` version CI installs: the generated glue
+# and the CLI must match to the patch or the module will not load. Bump both together.
+wasm-bindgen = "=0.2.126"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "Storage",
+    "Performance",
+    "console",
+    "Element",
+    "HtmlElement",
+    "Node",
+    "Event",
+    "EventTarget",
+    "HtmlInputElement",
+    "HtmlAnchorElement",
+    "File",
+    "FileList",
+    "FileReader",
+    "Blob",
+    "BlobPropertyBag",
+    "Url",
+    "Worker",
+    "WorkerOptions",
+    "WorkerType",
+    "MessageEvent",
+    "DedicatedWorkerGlobalScope",
+] }
+# The Worker installs the same cores the worklet does before it runs a task, so
+# a VGM waveform/render builds real chip cores. Depended on as an rlib.
+vgms-synth-worklet = { path = "../vgms-synth-worklet" }
+
 [lints]
 workspace = true

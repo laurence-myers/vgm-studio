@@ -4659,11 +4659,16 @@ dependencies = [
 name = "vgms-web"
 version = "5.1.0"
 dependencies = [
+ "js-sys",
  "log",
  "thiserror 2.0.18",
  "vgms-core",
  "vgms-synth",
+ "vgms-synth-worklet",
  "vgms-ui",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
