@@ -105,17 +105,26 @@ impl PositionPanel {
         let (position_ms, length_ms) = (self.position_ms, self.length_ms);
         let loop_progress = self.loop_progress.clone();
 
+        // `Extend` on these labels, not the default `Wrap`: a
+        // `centered_and_justified` column justifies its text, and when a long
+        // sample count wraps, justification fans the digits out across the whole
+        // column ("8 7 5 0 0 8 / ..."). Extend keeps the readout on one
+        // unjustified line, centred as before.
+        let readout = |ui: &mut egui::Ui, text: String| {
+            ui.add(egui::Label::new(text).wrap_mode(egui::TextWrapMode::Extend));
+        };
         ui.columns(3, |columns| {
             columns[0].centered_and_justified(|ui| {
-                ui.label(format!("{position_ms} / {length_ms} ms"));
+                readout(ui, format!("{position_ms} / {length_ms} ms"));
             });
             columns[1].centered_and_justified(|ui| {
-                match &loop_progress {
-                    // While a loop is running, which pass it is on matters more
-                    // than the sample count, and the two would not fit together.
-                    Some(progress) => ui.label(progress),
-                    None => ui.label(format!("{position_frames} / {length_frames} samples")),
+                // While a loop is running, which pass it is on matters more than
+                // the sample count, and the two would not fit together.
+                let text = match &loop_progress {
+                    Some(progress) => progress.clone(),
+                    None => format!("{position_frames} / {length_frames} samples"),
                 };
+                readout(ui, text);
             });
             columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 self.rate_picker(ui, palette);

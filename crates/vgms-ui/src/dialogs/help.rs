@@ -199,41 +199,52 @@ impl HelpDialog {
             palette,
             820.0,
             |ui| {
-                ui.colored_label(palette.muted, crate::strings::HELP_ADVICE);
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.colored_label(palette.muted, crate::strings::HELP_FULL_INSTRUCTIONS);
-                    ui.hyperlink(ONLINE);
-                });
-
-                for section in SECTIONS {
-                    ui.add_space(10.0);
-                    ui.label(
-                        egui::RichText::new(section.title)
-                            .color(palette.data_label)
-                            .strong(),
-                    );
-                    if let Some(note) = section.note {
-                        ui.colored_label(palette.muted, note);
-                    }
-                    ui.add_space(2.0);
-                    egui::Grid::new(section.title)
-                        .num_columns(2)
-                        .striped(true)
-                        .spacing([16.0, 3.0])
-                        .min_col_width(150.0)
-                        .show(ui, |ui| {
-                            for (keys, meaning) in section.rows {
-                                ui.label(
-                                    egui::RichText::new(keys.text())
-                                        .monospace()
-                                        .color(palette.data_text),
-                                );
-                                ui.label(egui::RichText::new(*meaning).color(palette.label));
-                                ui.end_row();
-                            }
+                // A reference table needs a readable width; on a narrow window
+                // the modal shrinks (down to ~240px), and a two-column Grid does
+                // not wrap or scroll -- it just crushes the columns together. So
+                // hold the body at a minimum width and let it scroll sideways.
+                egui::ScrollArea::horizontal()
+                    .id_salt("help-hscroll")
+                    .show(ui, |ui| {
+                        ui.set_min_width(600.0);
+                        ui.colored_label(palette.muted, crate::strings::HELP_ADVICE);
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.colored_label(palette.muted, crate::strings::HELP_FULL_INSTRUCTIONS);
+                            ui.hyperlink(ONLINE);
                         });
-                }
+
+                        for section in SECTIONS {
+                            ui.add_space(10.0);
+                            ui.label(
+                                egui::RichText::new(section.title)
+                                    .color(palette.data_label)
+                                    .strong(),
+                            );
+                            if let Some(note) = section.note {
+                                ui.colored_label(palette.muted, note);
+                            }
+                            ui.add_space(2.0);
+                            egui::Grid::new(section.title)
+                                .num_columns(2)
+                                .striped(true)
+                                .spacing([16.0, 3.0])
+                                .min_col_width(150.0)
+                                .show(ui, |ui| {
+                                    for (keys, meaning) in section.rows {
+                                        ui.label(
+                                            egui::RichText::new(keys.text())
+                                                .monospace()
+                                                .color(palette.data_text),
+                                        );
+                                        ui.label(
+                                            egui::RichText::new(*meaning).color(palette.label),
+                                        );
+                                        ui.end_row();
+                                    }
+                                });
+                        }
+                    });
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {

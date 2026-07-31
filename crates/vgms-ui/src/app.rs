@@ -537,7 +537,13 @@ impl VgmStudioApp {
             .show(ui, |ui| {
                 theme::plate_panel(ui, p, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label(&self.status);
+                        // Truncate rather than run off the right edge, and reveal
+                        // the whole message on hover -- some statuses (a crop
+                        // summary, a saved path) are longer than the bar is wide.
+                        let status = ui.add(egui::Label::new(&self.status).truncate());
+                        if !self.status.is_empty() {
+                            status.on_hover_text(&self.status);
+                        }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if self.pack_service.is_busy() {
                                 // The status text names the operation (export or a

@@ -79,23 +79,30 @@ pub fn show_front(
             });
         crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
         ui.add_space(8.0);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if is_confirm && bevel::button(ui, palette, "Cancel").clicked() {
-                dismissed = true;
-            }
-            // OK is drawn last (rightmost of the pair in this right-to-left row)
-            // and focused on open, so Enter accepts the box.
-            let ok = bevel::button(ui, palette, "OK");
-            if ok.clicked() {
-                if is_confirm {
-                    confirmed = true;
-                } else {
+        // Wrapped in `ui.horizontal` so the right-to-left button layout is
+        // confined to a single row. Without it the layout claims all the
+        // vertical space left in the modal and centres the buttons in it -- a
+        // one-line prompt then renders as a tall box with OK/Cancel floating in
+        // the middle. (The same rule the shared `dialog_footer` documents.)
+        ui.horizontal(|ui| {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if is_confirm && bevel::button(ui, palette, "Cancel").clicked() {
                     dismissed = true;
                 }
-            }
-            if ui.memory(|memory| memory.focused().is_none()) {
-                ok.request_focus();
-            }
+                // OK is drawn last (rightmost of the pair in this right-to-left
+                // row) and focused on open, so Enter accepts the box.
+                let ok = bevel::button(ui, palette, "OK");
+                if ok.clicked() {
+                    if is_confirm {
+                        confirmed = true;
+                    } else {
+                        dismissed = true;
+                    }
+                }
+                if ui.memory(|memory| memory.focused().is_none()) {
+                    ok.request_focus();
+                }
+            });
         });
     });
     // Enter is OK: it confirms a confirm box and dismisses an info box.

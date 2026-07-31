@@ -509,8 +509,14 @@ impl SettingsDialog {
                     });
                 ui.end_row();
 
-                checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
-                ui.end_row();
+                // Native only: the web build always fills the browser viewport,
+                // and no wasm code reads `maximize_window`, so the option would do
+                // nothing there. (`vgms-ui` is compiled separately for wasm32, so
+                // this `cfg!` resolves per target.)
+                if !cfg!(target_arch = "wasm32") {
+                    checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
+                    ui.end_row();
+                }
 
                 checkbox_row(
                     ui,
