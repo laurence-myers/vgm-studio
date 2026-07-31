@@ -7,8 +7,10 @@
 //! the web platform services in place of the native ones. Nothing above the
 //! service boundary knows it is on the web.
 
+use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
+use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 use vgms_ui::VgmStudioApp;
 use vgms_ui::platform::ConfigStore;
@@ -16,6 +18,10 @@ use vgms_ui::platform::ConfigStore;
 use crate::services::{
     LocalStorageStore, WebAudioService, WebFileService, WebPackService, WorkerTaskService,
 };
+
+/// A CJK fallback font, fetched at runtime and laid beside the app module by the
+/// build. Absent (a bare serve) degrades to the box glyph, as before.
+const CJK_FONT_URL: &str = "./cjk-font.otf";
 
 /// Boots the application onto `canvas`. Called from `index.html` after the wasm
 /// module initialises; returns immediately, driving eframe on the event loop.
@@ -26,7 +32,7 @@ pub fn start(canvas: web_sys::HtmlCanvasElement) {
         web_sys::console::error_1(&JsValue::from_str(&info.to_string()));
     }));
 
-    wasm_bindgen_futures::spawn_local(async move {
+    spawn_local(async move {
         let runner = eframe::WebRunner::new();
         if let Err(error) = runner
             .start(canvas, eframe::WebOptions::default(), Box::new(build_app))
@@ -62,6 +68,16 @@ fn build_app(
     let config = store.load();
     vgms_ui::theme::install(&cc.egui_ctx, config.ui.theme);
 
+    // The web build has no system fonts, so Japanese GD3 tags would render as
+    // boxes. Fetch a CJK fallback and install it once it arrives; a missing or
+    // malformed font leaves the box fallback in place.
+    let ctx = cc.egui_ctx.clone();
+    spawn_local(async move {
+        if let Ok(bytes) = fetch_cjk_font().await {
+            vgms_ui::theme::install_cjk_fallback(&ctx, bytes);
+        }
+    });
+
     let app = VgmStudioApp::new(
         Box::new(WebFileService::new(notifier())),
         Box::new(WebAudioService::new(notifier())),
@@ -71,6 +87,24 @@ fn build_app(
         None,
     );
     Ok(Box::new(app))
+}
+
+/// Fetches the CJK fallback font's bytes from [`CJK_FONT_URL`]. `Err` on any
+/// failure -- a missing file, a network error, a non-OK status -- so the caller
+/// simply keeps the box fallback.
+async fn fetch_cjk_font() -> Result<Vec<u8>, ()> {
+    let window = web_sys::window().ok_or(())?;
+    let response_value = JsFuture::from(window.fetch_with_str(CJK_FONT_URL))
+        .await
+        .map_err(|_| ())?;
+    let response: web_sys::Response = response_value.dyn_into().map_err(|_| ())?;
+    if !response.ok() {
+        return Err(());
+    }
+    let buffer = JsFuture::from(response.array_buffer().map_err(|_| ())?)
+        .await
+        .map_err(|_| ())?;
+    Ok(js_sys::Uint8Array::new(&buffer).to_vec())
 }
 
 /// Routes `log` records to the browser console. Hand-rolled to keep the web build

@@ -18,6 +18,7 @@ mod palette;
 mod style;
 pub mod tabs;
 
+pub use fonts::install_cjk_fallback;
 pub use palette::{Palette, Surface, palette};
 pub(crate) use palette::{deck_stops, pad_caps};
 pub use vgms_core::config::{SurfaceChoice, ThemeChoice};

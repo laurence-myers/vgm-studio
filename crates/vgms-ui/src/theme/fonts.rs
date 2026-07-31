@@ -57,6 +57,45 @@ pub(crate) fn font_definitions() -> FontDefinitions {
     defs
 }
 
+/// Installs an explicitly-supplied CJK fallback font and re-applies the fonts.
+///
+/// For the web build, which has no system fonts to draw from ([`system_cjk_font`]
+/// is `None` on wasm): the shell fetches a CJK face at runtime and hands its bytes
+/// here. A no-op if a CJK fallback is already registered (a second fetch, or a
+/// native system font) or if `bytes` is not a font egui can parse -- a failed
+/// fetch that returned an error page must not panic the renderer.
+pub fn install_cjk_fallback(ctx: &egui::Context, bytes: Vec<u8>) {
+    if !looks_like_font(&bytes) {
+        log::warn!("the fetched CJK font is not a recognised font; keeping the box fallback");
+        return;
+    }
+    let mut defs = font_definitions();
+    if defs.font_data.contains_key(CJK_FAMILY_NAME) {
+        return;
+    }
+    defs.font_data.insert(
+        CJK_FAMILY_NAME.to_owned(),
+        Arc::new(FontData::from_owned(bytes)),
+    );
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        defs.families
+            .entry(family)
+            .or_default()
+            .push(CJK_FAMILY_NAME.to_owned());
+    }
+    ctx.set_fonts(defs);
+}
+
+/// Whether `bytes` begins with a recognised sfnt magic (TrueType, OpenType/CFF,
+/// or a collection) -- a cheap guard so a 404 HTML page never reaches the font
+/// parser.
+fn looks_like_font(bytes: &[u8]) -> bool {
+    matches!(
+        bytes.get(0..4),
+        Some([0x00, 0x01, 0x00, 0x00]) | Some(b"OTTO") | Some(b"true") | Some(b"ttcf")
+    )
+}
+
 /// The first CJK-capable font the system offers, or `None` (wasm, or a very
 /// bare install) -- those glyphs then fall through to the replacement box.
 ///
