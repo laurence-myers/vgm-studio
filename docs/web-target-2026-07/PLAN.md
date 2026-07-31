@@ -11,6 +11,23 @@
 > every platform, native included** (wt-8); and a RetroWave-over-Web-Serial
 > investigation (wt-9). wt-6 is reworked from a one-off manual pass into a
 > permanent Playwright regression suite that pins the web-specific behaviours.
+>
+> **Progress 2026-07-31 (branch `web-target`): wt-1..wt-5 DONE and committed.**
+> The web app builds and boots in a browser (verified: eframe installs its event
+> handlers with no console errors). Shipped: `vgms-synth-worklet` (import-free
+> AudioWorklet module, node-smoke proven to sound); `vgms-web` with the
+> Worker-boundary codec (native round-trip tests), the four wasm platform
+> services, the AudioWorklet playback path, the `WebRunner` entry, `index.html`,
+> and `tools/build-web.ps1` (produces a 12.5 MB app module + 964 KB worklet into
+> `target/web-dist`); CI extended to build both modules, run the node smoke, and
+> generate the wasm-bindgen glue. Two supporting commits: a repo-wide `rustfmt`
+> fix for the brand-rename import reorder, and `Muting`/`ChipMuting`/`ChipPanning`
+> raw accessors in `vgms-synth` for the worklet ABI. **Remaining: wt-6 (Playwright
+> e2e harness + the `__vgms_e2e` hook + OPFS picker shims), wt-7 (Chromium
+> packs), wt-8 (zip packs + `vgms-pack-archive`), wt-9 (Web Serial
+> investigation).** A pre-existing, unrelated `vgms-core` projection proptest bug
+> was found and flagged as a separate task (mixed OPL2/OPL3-write synthetic
+> files); it does not affect the web target.
 
 ## What already exists, and what this plan refuses to re-decide
 
