@@ -1,35 +1,30 @@
-# Web target — session handover (2026-07-31)
+# Web target — completion handover (2026-07-31)
 
-Continues the WASM web target for VGM Studio (Step 8 of the Rust rewrite). This
-is a working-state handover for a fresh session. The durable one-paragraph
-summary is in memory `web-target-progress.md` (auto-loaded); this is the detail.
+The WASM web target for VGM Studio (Step 8 of the Rust rewrite) is **complete**:
+all of **wt-1..wt-9** are implemented, tested, and committed. This is the durable
+record. The step-by-step design is in `PLAN.md`; the one-paragraph summary is in
+memory `web-target-progress.md` (auto-loaded).
 
-## Where things are
+## Status
 
-- **Branch `web-target`** (off `rename-vgm-studio` at `b2b0f50`). Working tree
-  clean. **Nothing pushed or merged** — commit only, per repo convention.
-- **The web app builds and boots and plays** in a browser. Verified end-to-end.
-- Plan: `docs/web-target-2026-07/PLAN.md` (steps wt-1..wt-9). wt-1..wt-5 DONE.
+- **Branch `web-target`** (off `rename-vgm-studio`). Working tree clean.
+  **Nothing pushed or merged** — commit only, per repo convention.
+- **The web app builds, boots, plays, and edits + exports + zip-packs** in a
+  browser. Verified end-to-end on headless Chromium; the e2e suite also targets
+  Firefox (run in CI).
+- Plan: `PLAN.md` (steps wt-1..wt-9, all DONE). Each step's top-of-file progress
+  block records what landed.
 
-### Commits (newest first, since `b2b0f50`)
+### Commits (newest first, since `b2b0f50`; wt-1..wt-5 predate this session)
 
 ```
-9d9b680 Reapply CJK font fetch (owner confirmed after understanding it isn't embedded)
-fbb936d Revert CJK font fetch (superseded by 9d9b680)
-da9073d fix(web): fetch a CJK fallback font so Japanese GD3 tags render
-76343b6 fix(ui): disable channel-mute toggles for cores that can't mute
-e5e9fd3 fix(ui): dialog sizing, help layout, position readout, status overflow, web maximize
-0a1991d fix(web): non-OPL VGMs now play/render, and playback actually sounds
-7aeff66 docs: record wt-1..wt-5 done in the web-target plan
-c33e63a wt-5: extend CI to build and prove the web target
-f4e7360 wt-4: the web runner, the page, and the build script
-cc84c10 wt-3: web audio playback through an AudioWorklet
-2cc928c wt-2b: the web platform services (wasm) for vgms-web
-01525dc wt-2a: the Worker-boundary codec for vgms-web
-d51e3fe wt-1: implement vgms-synth-worklet, the bindgen-free AudioWorklet module
-e802885 style: rustfmt the import reorder left by the brand rename
-7e89531 docs: revise web-target plan (Chromium packs, zip packs, e2e, Web Serial)
-dcba726 docs: plan the web target (Step 8) as wt-1..wt-6
+wt-8: wire zip-backed packs into both shells, everywhere
+wt-9: RetroWave over Web Serial -- investigation, verdict GO-deferred
+wt-8: vgms-pack-archive -- the in-memory zip pack backend
+wt-7b: build the pack release zip in a Web Worker
+wt-7a: pack mode on Chromium via the File System Access API
+wt-6: Playwright e2e harness + the __vgms_e2e action/state hook
+... (wt-1..wt-5: the app builds + boots; see git log)
 ```
 
 ## Environment (CRITICAL — the agent process has a stale env)
@@ -43,8 +38,8 @@ $env:RUSTUP_HOME='E:\Apps\Dev\Scoop\persist\rustup\.rustup'
 $env:PATH="$env:CARGO_HOME\bin;E:\Apps\Dev\Scoop\apps\llvm\current\bin;$env:PATH"
 ```
 
-`wasm-bindgen` CLI 0.2.126 is installed and matches the `vgms-web` pin.
-`wasm32-unknown-unknown`, clang, node, python all present.
+`wasm-bindgen` CLI 0.2.126 matches the `vgms-web` pin.
+`wasm32-unknown-unknown`, clang, node, npm/npx all present.
 
 ## The gate (green before every commit)
 
@@ -53,103 +48,101 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 # wasm-clean + web modules:
-cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet
-# wasm-only code isn't seen by native clippy — lint it on the wasm target too:
-cargo clippy -p vgms-web --target wasm32-unknown-unknown --all-targets -- -D warnings
+cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui \
+  -p vgms-web -p vgms-synth-worklet -p vgms-pack-archive -p vgms-retrowave
+# wasm-only code isn't seen by native clippy — lint the e2e hook on wasm too:
+cargo clippy -p vgms-web --target wasm32-unknown-unknown --features e2e --all-targets -- -D warnings
 ```
 
-## Architecture (what was built, wt-1..wt-5)
+## What was built
 
-Two wasm modules. `vgms-ui` is the whole app, wasm-clean, behind service traits.
+**wt-1..wt-5 (app boots).** `vgms-synth-worklet` (bindgen-free AudioWorklet
+module), `vgms-web` (Worker-boundary codec, four wasm platform services,
+AudioWorklet playback, `WebRunner` entry, `index.html`, `tools/build-web.ps1`),
+CI extended. Detail in `PLAN.md` and the git log.
 
-- **`crates/vgms-synth-worklet`** (cdylib+rlib) — the AudioWorklet module. A
-  bindgen-free `extern "C"` ABI (`abi.rs`, prefix `vgmsw_`) over the safe player
-  in `player.rs` (`WebPlayer` = the native cpal callback body minus the device).
-  `install_web_cores()` = the app's `install_cores` minus RetroWave. Import-free,
-  proven by `tools/web/worklet_smoke.mjs` (node). **rlib is shared by vgms-web.**
-- **`crates/vgms-web`** (cdylib+rlib) —
-  - `codec.rs` (portable, native-tested): `TaskRequest`/`TaskResult` <-> bytes.
-    Documents ride their own file writers; scalars length-prefixed.
-  - `services/{config,file,task,pack,audio}.rs` (wasm-only): the four platform
-    traits + audio. localStorage config; file input + Blob downloads; Web Workers
-    for tasks (`worker.rs` + `web/task_worker.js`); AudioWorklet playback
-    (`web/worklet-processor.js`); pack = stub until wt-7/wt-8.
-  - `runner.rs`: `#[wasm_bindgen] start(canvas)` -> eframe::WebRunner. Installs
-    the core registry, the console logger, panic hook; fetches the CJK font.
-- **`web/`**: `index.html`, `task_worker.js`, `worklet-processor.js`.
-- **`tools/build-web.ps1`**: builds both modules, runs wasm-bindgen, assembles
-  `target/web-dist` (app module ~12.5 MB, worklet ~964 KB), downloads the CJK
-  font. **CI** (`.github/workflows/rust.yaml`) builds both + runs the node smoke.
+**wt-6 — Playwright e2e + `__vgms_e2e` hook.** Suite under `web/e2e/` (Chromium
++ Firefox, dependency-free `serve.mjs`). The debug-only `window.__vgms_e2e` hook
+(`dispatch` an Action, read a JSON `state()`) lives in `crates/vgms-web/src/runner.rs`
+behind the `e2e` feature, over two `VgmStudioApp` methods
+(`e2e_enqueue_action`/`e2e_snapshot`, gated `cfg(any(test, feature = "e2e"))`).
+`tools/build-web.ps1 -E2e` builds the hooked bundle; CI has a `web-e2e` job. The
+**OPFS picker shim** is `globalThis.__vgms_pick_dir`, landed in wt-7 where it is
+first exercised.
 
-## How to build, serve, and verify (no dev server needed)
+**wt-7 — Chromium packs (File System Access) + Worker export.**
+`crates/vgms-web/pack_fs.js` (a wasm-bindgen snippet module) holds the directory
+handles; Rust round-trips an opaque token as a `/<token>` path.
+`WebFileService` does pick/rescan/save/delete/rename over it, all saves through
+one FIFO queue. The pack export runs in a Worker (`web/pack_worker.js` +
+`vgms_web_run_pack_job`) over the wasm-portable builder
+`crates/vgms-web/src/pack_zip.rs` (built-in optimise, PNGs kept, gzip via flate2
+`rust_backend`); a new `PackJobRequest`/`PackJobOutcome` codec crosses the
+boundary.
+
+**wt-8 — zip packs everywhere (native + web).** Leaf crate `vgms-pack-archive`
+(unzip → in-memory mutation map, native decision tree). A shared
+`platform::ArchiveBackend` (ONE impl) is embedded in every file service — native,
+web, and the test fake — and routes any op whose `/vgms-zip-N` token it holds to
+the archive; a Directory pack's paths never match, so directory mode is
+untouched. `PackState` gains a `PackOrigin` (detected from the token path in
+`open_folder`); `.zip` routing from picker + drag-drop; dirty-on-mutation; a
+**Save .zip** deck action = the wt-7b export + clear dirty.
+
+**wt-9 — RetroWave over Web Serial (investigation).** Verdict **GO, deferred** —
+see the go/no-go in `PLAN.md` (wt-9 section) and `web-serial-spike/README.md`.
+
+## How to build, serve, and test
 
 ```bash
-pwsh tools/build-web.ps1
+pwsh tools/build-web.ps1            # release bundle into target/web-dist
+pwsh tools/build-web.ps1 -E2e       # + the window.__vgms_e2e hook, for the e2e suite
 cd target/web-dist && python -m http.server 8199 --bind 127.0.0.1 &
 ```
-Then navigate the in-app Browser pane to `http://127.0.0.1:8199/index.html`.
 
-**The egui canvas cannot be screenshotted in the Browser pane** (it renders 0x0
-when the pane isn't composited -> an egui-wgpu "texture not allocated" panic that
-is an ARTIFACT, not a bug). Verify web behaviour WITHOUT the canvas:
-- **Audio**: drive `worklet-processor.js` + the worklet wasm in an
-  `OfflineAudioContext` with `processorOptions.autoplay: true` (offline render
-  does not deliver port messages mid-render), measure the output buffer.
-- **Fonts**: load the served font via the `FontFace` API; check it applies.
-- **App boot**: read console — eframe logs "event handlers installed", no errors.
+The Playwright suite (prepend the env prelude, build the `-E2e` bundle first):
 
-## Traps (each cost real time this session)
+```bash
+cd web/e2e
+npm ci
+npx playwright install chromium firefox   # + --with-deps on Linux/CI
+npx playwright test                        # both projects
+npm run test:chromium                      # Chromium only
+```
+
+**The egui canvas cannot be screenshotted in the in-app Browser pane** (it
+renders 0x0 → an egui-wgpu "texture not allocated" panic that is an ARTIFACT).
+The e2e suite drives the app through the `__vgms_e2e` hook instead, and runs in a
+real headless browser where the canvas composites fine (Chromium needs the
+swiftshader flags the Playwright config passes).
+
+## Deferred (documented, not blocking)
+
+- **In-place save to the source `.zip` on native** — Save Pack is a Save As /
+  download for now; the memory-zip origin can carry the source path later.
+- **The web `beforeunload` dirty guard** — the in-app discard prompt covers
+  navigation within the app; the tab-close guard is the follow-up.
+- **Real Nuked channel muting** (still the wt-5-era gate) and the wt-9 Web Serial
+  *implementation* (a follow-up design, per the go/no-go).
+
+## Traps (each cost real time)
 
 - **`TextEncoder`/`TextDecoder` do NOT exist in `AudioWorkletGlobalScope`** —
   `worklet-processor.js` hand-rolls UTF-8. Never reintroduce them there.
-- **Three separate wasm instances each install their own core registry**: the
-  app module (`runner.rs`), the Worker (`worker.rs`), the AudioWorklet
-  (`vgmsw_init`). Miss one and capability gating / playback silently breaks.
-- **AudioContext must be created synchronously in `load()`** so `play()`'s
-  `resume()` rides the user gesture (else silent).
+- **Multiple wasm instances each install their own core registry**: the app
+  module (`runner.rs`), the task Worker (`worker.rs`), the pack Worker, and the
+  AudioWorklet. Miss one and capability gating / playback silently breaks. (The
+  pack Worker needs no cores — the built-in optimise pass is stream-only.)
+- **PowerShell `pwsh` is not on the Bash tool's PATH** — run `.ps1` scripts via
+  the PowerShell tool (`powershell.exe`), or the Linux-native cargo steps.
 - **PowerShell `2>&1` on native exes** wraps stderr as errors and sets a false
-  non-zero exit — do NOT pipe cargo through `2>&1`; the tool captures stderr.
-- **UI changes regrow egui_kittest snapshots**: `UPDATE_SNAPSHOTS=1 cargo test
-  -p vgms-ui`, then `git status` should show only the intended PNGs. Read a PNG
-  with the Read tool to eyeball it.
-- **Flaky pre-existing `vgms-core` proptest** `any_opl_file_projects_identically_to_the_opl_reader`
-  fails ~occasionally on synthetic OPL2+OPL3-write files. UNRELATED to this work
-  (flagged as its own task). If `cargo test --workspace` reddens on it, re-run.
-
-## What remains
-
-- **wt-6** Playwright e2e harness + core specs. Needs: a debug/e2e-only
-  `window.__vgms_e2e` action/state hook in `runner.rs` behind the `e2e` cargo
-  feature (already declared in vgms-web's Cargo.toml), OPFS-backed picker shims,
-  a static server, chromium+firefox projects, a `web-e2e` CI job. `VgmStudioApp`
-  must expose action-dispatch/state-read for the hook. Design in PLAN.md wt-6.
-- **wt-7** Pack mode on Chromium (File System Access API). Paths stay `PathBuf`
-  as virtual tokens `/<name>` resolved against held `FileSystemDirectoryHandle`s
-  inside a pluggable `WebFileService` backend. Design in PLAN.md wt-7. (Two
-  earlier Explore reports mapped the pack dataflow — the app treats pack paths
-  as opaque tokens; virtual paths need ~zero vgms-ui change.)
-- **wt-8** Zip-backed packs everywhere (native + web) — new leaf crate
-  `vgms-pack-archive`, memory-backed with an explicit Save Pack = the release
-  export (VGMs individually optimized + gzipped to .vgz). Design in PLAN.md wt-8.
-- **wt-9** RetroWave over Web Serial — low-priority investigation (crate
-  hygiene so `vgms-retrowave` wasm-checks; a no-Rust hardware spike; a timing
-  rehearsal; a written go/no-go). Design in PLAN.md wt-9.
-
-## Deferred: real channel muting for the Nuked cores
-
-`76343b6` only GATES the UI (disables mute toggles) for chips whose core can't
-mute. The Nuked YM2612/YM2151/YM2413 cores don't implement
-`ChipCore::set_channel_mutes` (they inherit the no-op). Capability lives in
-`CoreInfo.channel_mute` + `CoreRegistry::mute_capable(chip)` (mirrors
-`channel_pan`/`pan_capable`). To make muting actually work, the owner's options
-(their call — accuracy-critical, `vendor/upstream/` is off-limits to edit):
-implement `set_channel_mutes` in the Nuked wrapper via a shim over the C's
-per-channel `ch_out[6]` + the DAC cycle timing (`chip->channel = cycles % 6`),
-OR default those chips to the mute-capable libvgm core. Also flagged as a task.
-
-## Watchdog
-
-A usage-limit watchdog is armed for the PREVIOUS session
-(`a62f89b7-...`); it belongs to that session and will resume it, not a new one.
-A fresh session should arm its own if doing a long autonomous run (skill
-`watchdog`). Resume note at that session's scratchpad `watchdog-resume.md`.
+  non-zero exit — do NOT pipe cargo through `2>&1`.
+- **A memory-zip pack's file-op run spans several frames** in the egui_kittest
+  harness; drive it with `harness.run_steps(16)`, not `run()` (which settles
+  before the batch finishes — the fake services request no repaints).
+- **Firefox's bundled Playwright binary won't launch in some locked-down Windows
+  sandboxes** (`spawn UNKNOWN` / permission denied). Run `npm run test:chromium`
+  there; CI (Ubuntu) runs both projects.
+- **Flaky pre-existing `vgms-core` proptest**
+  `any_opl_file_projects_identically_to_the_opl_reader` fails ~occasionally on
+  synthetic OPL2+OPL3-write files. UNRELATED to this work; re-run if it reddens.
