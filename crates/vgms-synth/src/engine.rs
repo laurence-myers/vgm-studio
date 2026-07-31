@@ -130,6 +130,32 @@ impl Muting {
         self.percussion[usize::from(bank.index())] = mask;
     }
 
+    /// Rebuilds a muting from its raw parts. The inverse of
+    /// [`channels_raw`](Self::channels_raw) + [`percussion_raw`](Self::percussion_raw),
+    /// for carrying a `Muting` across a boundary that can only ship primitives --
+    /// the AudioWorklet ABI, which posts the two numbers to the worklet module and
+    /// rebuilds the `Muting` there.
+    #[must_use]
+    pub const fn from_raw(channels: u32, percussion: [u8; 2]) -> Self {
+        Self {
+            channels: channels & Self::ALL_CHANNELS,
+            percussion,
+        }
+    }
+
+    /// The 18-bit channel-audible mask (bit `bank * 9 + (reg - 0xB0)`), for the
+    /// worklet ABI to ship as a single primitive.
+    #[must_use]
+    pub const fn channels_raw(&self) -> u32 {
+        self.channels
+    }
+
+    /// The two per-bank `0xBD` AND-masks, for the worklet ABI.
+    #[must_use]
+    pub const fn percussion_raw(&self) -> [u8; 2] {
+        self.percussion
+    }
+
     /// The value to write for register `reg` on `bank`, or `None` if muting drops
     /// it: a muted melodic channel (`0xB0..=0xB8`) is dropped, `0xBD` is AND-masked
     /// per bank, and every other register passes unchanged.
@@ -1147,6 +1173,27 @@ mod tests {
             last_b0,
             Some(&(0xB0, 0x00)),
             "the channel ends keyed off, not stuck on"
+        );
+    }
+
+    #[test]
+    fn a_muting_survives_its_raw_round_trip() {
+        // The worklet ABI ships a `Muting` as its two primitives and rebuilds it
+        // on the far side; that pair of conversions must be lossless.
+        let mut muting = Muting::all();
+        muting.mute_channel(Bank::High, 0xB3);
+        muting.mute_channel(Bank::Low, 0xB0);
+        muting.set_percussion(Bank::Low, 0xE0);
+        muting.set_percussion(Bank::High, 0xA5);
+
+        let rebuilt = Muting::from_raw(muting.channels_raw(), muting.percussion_raw());
+        assert_eq!(rebuilt, muting);
+        // And the raw channel mask never carries bits past the 18 real channels,
+        // so a stray high bit from the wire cannot reach the engine.
+        assert_eq!(
+            Muting::from_raw(u32::MAX, [0xFF, 0xFF]),
+            Muting::all(),
+            "an all-ones wire value is the everything-audible muting"
         );
     }
 

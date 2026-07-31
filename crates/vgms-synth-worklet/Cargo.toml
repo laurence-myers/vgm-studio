@@ -10,7 +10,34 @@ license = "GPL-2.0-or-later"
 authors.workspace = true
 repository.workspace = true
 
-[dependencies]
+[lib]
+# cdylib: the wasm module the AudioWorkletProcessor instantiates -- built with
+# `--target wasm32-unknown-unknown`, loaded from `worklet-processor.js`. On
+# native it is an unused .dll/.so; the tests use the rlib below.
+# rlib: lets `vgms-web` share `install_web_cores` (so the two modules cannot
+# drift on which cores exist), and lets the native test suite drive the whole
+# player without a browser.
+crate-type = ["cdylib", "rlib"]
 
-[lints]
-workspace = true
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+# The app tier's cores, exactly as `vgms-app::install_cores` links them minus
+# the native-only RetroWave board. libvgm first (the default for every chip it
+# serves); its wasm libc shim also satisfies the C the other two providers pull.
+vgms-cores-nuked.workspace = true
+vgms-cores-gpl.workspace = true
+vgms-cores-libvgm.workspace = true
+log.workspace = true
+
+# Not `[lints] workspace = true`: the `extern "C"` exports need
+# `#[unsafe(no_mangle)]` and the pointer plumbing needs `unsafe`, which the
+# workspace's `unsafe_code = "deny"` forbids (the workspace manifest's comment
+# names this crate as the override). Unsafe is confined to `abi.rs`.
+[lints.rust]
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

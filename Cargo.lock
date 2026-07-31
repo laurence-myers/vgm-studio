@@ -4621,6 +4621,14 @@ dependencies = [
 [[package]]
 name = "vgms-synth-worklet"
 version = "5.1.0"
+dependencies = [
+ "log",
+ "vgms-core",
+ "vgms-cores-gpl",
+ "vgms-cores-libvgm",
+ "vgms-cores-nuked",
+ "vgms-synth",
+]
 
 [[package]]
 name = "vgms-ui"
