@@ -135,8 +135,9 @@ pub struct MenuState {
     /// with nothing loaded, so an empty editor's File menu looks as it always
     /// has.
     pub can_render: bool,
-    /// Whether the channel split applies: it decides which OPL channel each
-    /// register write belongs to, so it needs an OPL stream specifically.
+    /// Whether the channel split applies: an OPL stream splits per OPL channel,
+    /// and any renderable VGM splits per chip channel to WAV -- so this is the
+    /// renderable question, shown with nothing loaded like the rest of the menu.
     pub can_split_channels: bool,
 }
 

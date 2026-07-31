@@ -61,7 +61,7 @@ pub fn build_pack_zip(
 /// The final `(name, bytes)` for one entry, applying optimise/gzip/oxipng as its
 /// kind and the job settings dictate.
 ///
-/// A song is optimised first (stripping redundant OPL writes, `vgm_cmp`-style),
+/// A song is optimised first (stripping redundant writes, `vgm_cmp`-style),
 /// then gzipped -- so the log shows the two savings on their own lines.
 fn process_entry(
     entry: &PackEntry,

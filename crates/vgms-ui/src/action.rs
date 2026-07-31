@@ -93,7 +93,7 @@ pub enum Action {
     /// Convert the loaded DRO v2 down to DRO v1.
     ConvertToDro1,
     DeleteSelection,
-    /// Strip redundant OPL writes and merge the delays left behind (VGM only).
+    /// Strip redundant register writes and merge the delays left behind (VGM only).
     OptimizeVgm,
     /// Edit > Fix Header: audit the loaded VGM's header against its stream and
     /// offer to correct what disagrees.

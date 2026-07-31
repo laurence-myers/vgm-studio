@@ -264,8 +264,8 @@ pub struct PackState {
     pub dirty: bool,
     /// Gzip `.vgm` songs to `.vgz` on export (the VGMRips convention).
     pub gzip_on_export: bool,
-    /// Strip redundant OPL writes from each VGM on export (`vgm_cmp`, the final
-    /// step of the VGMRips optimisation pipeline).
+    /// Strip redundant register writes from each VGM on export (`vgm_cmp`, the
+    /// final step of the VGMRips optimisation pipeline).
     pub optimize_on_export: bool,
     /// The row currently previewing through the audio output (pack mode playback).
     pub preview: Option<usize>,
@@ -2138,9 +2138,9 @@ fn track_table(
                             // The preview control sits with the thing it plays,
                             // as an inline glyph rather than a keycap: a row of
                             // pads is what pushed this table off its own edge.
-                            // Playable means OPL: there is no core for any
-                            // other chip yet, so a track that needs one says
-                            // so rather than offering a button that does
+                            // Playable means a chip this app can render -- an OPL
+                            // stream, or any chip with a core; a track with
+                            // neither gets the label, not a button that plays
                             // nothing.
                             if !track.is_playable() {
                                 if let Some(chips) = track.chip_list() {

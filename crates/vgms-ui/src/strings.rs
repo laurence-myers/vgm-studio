@@ -479,7 +479,7 @@ pub(crate) const PACK_EXPORT_ZIP_TIP: &str =
     "Build the submission zip (songs, screenshot, description, playlist)";
 pub(crate) const PACK_SAVE_DOCS_TIP: &str = "Write Game Name.txt and Game Name.m3u into the folder";
 pub(crate) const PACK_OPT_TIP: &str =
-    "Strip redundant OPL register writes from each VGM before packing (vgm_cmp)";
+    "Strip redundant register writes from each VGM before packing (vgm_cmp-style)";
 pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export -- the VGMRips convention";
 pub(crate) const PACK_CHECKLIST_LINK_TIP: &str = "Click to jump to the fix";
 pub(crate) const PACK_TRACK_READY_TIP: &str = "Ready for submission";

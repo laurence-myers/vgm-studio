@@ -323,8 +323,8 @@ pub struct PackJobRequest {
     pub entries: Vec<PackEntry>,
     /// Whether to gzip `.vgm` songs to `.vgz` (renaming the entry).
     pub gzip_vgms: bool,
-    /// Whether to strip redundant OPL writes from each VGM before packing it
-    /// (the `vgm_cmp` step of the VGMRips pipeline).
+    /// Whether to strip redundant register writes from each VGM before packing
+    /// it (the `vgm_cmp` step of the VGMRips pipeline).
     pub optimize_vgms: bool,
 }
 

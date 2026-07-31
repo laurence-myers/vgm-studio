@@ -629,7 +629,7 @@ impl Editor {
         true
     }
 
-    /// Optimises the loaded VGM: strips redundant OPL writes and merges the
+    /// Optimises the loaded VGM: strips redundant register writes and merges the
     /// delays left behind, undoably. Returns `(commands_removed, bytes_saved)`,
     /// or `None` when no VGM is loaded or there is nothing to optimise.
     ///
