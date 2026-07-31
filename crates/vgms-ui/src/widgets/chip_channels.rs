@@ -126,12 +126,16 @@ impl GenericChannelPanel {
 
     /// Draws the panel. `pan_supported` decides whether the pan knobs and the
     /// Custom/Original toggle appear at all -- omitted, not greyed, when the
-    /// core cannot pan. Returns which of muting/panning changed this frame.
+    /// core cannot pan. `mute_supported` decides whether the channel toggles are
+    /// live: a core with no channel-mute (the Nuked family) gets *disabled*
+    /// toggles with an explaining tooltip, rather than toggles that light up and
+    /// silence nothing. Returns which of muting/panning changed this frame.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,
         pan_supported: bool,
+        mute_supported: bool,
     ) -> ChannelsResponse {
         let mut response = ChannelsResponse::default();
         let row_height = ui.spacing().interact_size.y;
@@ -163,7 +167,8 @@ impl GenericChannelPanel {
                     // The toggle row: the channel's short label, hover its name.
                     ui.label(if row_start == 0 { "Channels:" } else { "" });
                     for offset in 0..chunk.len() {
-                        response.muting_changed |= self.channel_toggle(ui, palette, base + offset);
+                        response.muting_changed |=
+                            self.channel_toggle(ui, palette, base + offset, mute_supported);
                     }
                     ui.end_row();
                 }
@@ -180,10 +185,19 @@ impl GenericChannelPanel {
                         response.panning_changed = true;
                     }
                 }
-                if bevel::icon_button(ui, palette, Icon::All, "All")
-                    .on_hover_text(crate::strings::CHIP_CHANNELS_UNMUTE_ALL)
-                    .clicked()
-                {
+                // "All" unmutes; moot when muting does nothing, so it is disabled
+                // with the toggles.
+                let all = ui
+                    .add_enabled_ui(mute_supported, |ui| {
+                        bevel::icon_button(ui, palette, Icon::All, "All")
+                    })
+                    .inner;
+                let all = if mute_supported {
+                    all.on_hover_text(crate::strings::CHIP_CHANNELS_UNMUTE_ALL)
+                } else {
+                    all.on_disabled_hover_text(crate::strings::CHIP_CHANNELS_MUTE_UNAVAILABLE)
+                };
+                if all.clicked() {
                     response.muting_changed |= self.audible.iter().any(|&on| !on);
                     self.audible.fill(true);
                 }
@@ -194,18 +208,34 @@ impl GenericChannelPanel {
     }
 
     /// One channel toggle: audible is lit, muting un-lights it. Left-click
-    /// mutes, right-click solos.
-    fn channel_toggle(&mut self, ui: &mut egui::Ui, palette: &Palette, index: usize) -> bool {
+    /// mutes, right-click solos. When `mute_supported` is false the toggle is
+    /// disabled and only explains why on hover -- the resolved core cannot mute.
+    fn channel_toggle(
+        &mut self,
+        ui: &mut egui::Ui,
+        palette: &Palette,
+        index: usize,
+        mute_supported: bool,
+    ) -> bool {
         let channel = self.channels[index];
         let side = ui.spacing().interact_size.y.max(pan_knob::SIZE);
-        let response = bevel::toggle_sized(
-            ui,
-            palette,
-            &mut self.audible[index],
-            channel.short,
-            egui::vec2(side, side),
-        )
-        .on_hover_text(crate::strings::chip_channels_channel_hover(channel.name));
+        let response = ui
+            .add_enabled_ui(mute_supported, |ui| {
+                bevel::toggle_sized(
+                    ui,
+                    palette,
+                    &mut self.audible[index],
+                    channel.short,
+                    egui::vec2(side, side),
+                )
+            })
+            .inner;
+        if !mute_supported {
+            response.on_disabled_hover_text(crate::strings::CHIP_CHANNELS_MUTE_UNAVAILABLE);
+            return false;
+        }
+        let response =
+            response.on_hover_text(crate::strings::chip_channels_channel_hover(channel.name));
         let mut changed = response.changed();
         if response.secondary_clicked() {
             self.toggle_solo(index);

@@ -684,8 +684,16 @@ impl VgmStudioApp {
                             None => opl_can_pan,
                             Some(kind) => vgms_synth::registry().pan_capable(kind),
                         };
+                        // Muting: an OPL document is always mutable (register
+                        // gating); a generic chip only when its resolved core
+                        // honours channel mutes (the Nuked family does not).
+                        let mute_supported =
+                            move |chip: Option<vgms_core::vgm::ChipKind>| match chip {
+                                None => true,
+                                Some(kind) => vgms_synth::registry().mute_capable(kind),
+                            };
                         // The panel hides its own high bank for a plain OPL2 song.
-                        let channels = self.channels.show(ui, p, pan_supported);
+                        let channels = self.channels.show(ui, p, pan_supported, mute_supported);
                         if channels.muting_changed {
                             actions.push(Action::MutingChanged);
                         }

@@ -69,6 +69,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
             channel_pan: chip::default_core_pans(spec.kind),
+            // libvgm implements `set_channel_mutes` (via `split_mute`), so its
+            // cores honour channel muting -- the reason the UI keeps the toggles
+            // live for a chip resolved to libvgm.
+            channel_mute: true,
             level: spec.level,
             make: spec.maker(),
         });

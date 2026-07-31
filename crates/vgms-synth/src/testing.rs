@@ -113,6 +113,7 @@ pub(crate) fn install_registry_with_stub() {
         upstream: "",
         realtime: true,
         channel_pan: false,
+        channel_mute: true,
         level: LEVEL_UNITY,
         make: CoreMaker::Generic(|| Box::new(ToneStub::new())),
     });

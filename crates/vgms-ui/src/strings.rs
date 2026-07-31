@@ -795,6 +795,8 @@ pub(crate) const CHIP_CHANNELS_CUSTOM: &str =
     "Custom: the pan knobs drive the output. Original: the chip's own image.";
 pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning is left alone)";
 
+pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
+
 pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
     format!("{}. Left-click mutes, right-click solos.", name)
 }

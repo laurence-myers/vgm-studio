@@ -96,6 +96,14 @@ pub struct CoreInfo {
     /// hides pan controls when the resolved core says `false`, rather than
     /// drawing knobs that turn and do nothing.
     pub channel_pan: bool,
+    /// Whether this core honours per-channel muting --
+    /// [`ChipCore::set_channel_mutes`](crate::ChipCore::set_channel_mutes). Only
+    /// the libvgm cores implement it; the Nuked and LLE cores inherit the trait's
+    /// no-op default. The UI disables the mute buttons for a chip whose resolved
+    /// core says `false`, rather than drawing toggles that silence nothing. (An
+    /// OPL document mutes through the register-gating path instead, which every
+    /// OPL core supports, so this only gates the generic multichip panel.)
+    pub channel_mute: bool,
     /// This core's output calibration, in 8.8 fixed point
     /// ([`LEVEL_UNITY`] = 1.0). Applied to every sample it renders.
     ///
@@ -284,6 +292,8 @@ impl CoreRegistry {
                 // `PlayerEngine` drives (not the `ChipCore` mute/pan API); CQM
                 // and the RetroWave board cannot, and keep `false`.
                 channel_pan: true,
+                // OPL muting is register-gated by `PlayerEngine`, always works.
+                channel_mute: true,
                 level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
@@ -463,6 +473,16 @@ impl CoreRegistry {
     pub fn pan_capable(&self, chip: ChipKind) -> bool {
         self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
             .is_some_and(|info| info.channel_pan)
+    }
+
+    /// Whether the core the transport would build for `chip` honours per-channel
+    /// muting. Mirrors [`pan_capable`](Self::pan_capable): the resolved realtime
+    /// core is the one whose mute toggles the UI would draw. `false` for a chip
+    /// with no core at all.
+    #[must_use]
+    pub fn mute_capable(&self, chip: ChipKind) -> bool {
+        self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
+            .is_some_and(|info| info.channel_mute)
     }
 }
 
@@ -779,6 +799,7 @@ mod tests {
             upstream: "",
             realtime: true,
             channel_pan: false,
+            channel_mute: false,
             level,
             make: CoreMaker::Generic(|| Box::new(Tone::default())),
         }

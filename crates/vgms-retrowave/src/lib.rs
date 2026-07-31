@@ -45,6 +45,9 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/SudoMaker/RetroWave",
             realtime: true,
             channel_pan: false,
+            // An OPL device: muting is register-gated on the shadow chip and
+            // reaches the board, so it works.
+            channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Routed,
         });

@@ -38,6 +38,9 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-CQM",
             realtime: true,
             channel_pan: false,
+            // An OPL core: muting is register-gated by `PlayerEngine`, not the
+            // `ChipCore` path, so it always works.
+            channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Opl(|rate| Box::new(CqmOpl3::new(rate))),
         });
@@ -52,6 +55,9 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
             realtime: true,
             channel_pan: false,
+            // Nuked-OPN2 has no per-channel mute (the trait no-op): the UI
+            // disables its channel toggles rather than showing dead ones.
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             // A `ChipCore`, not an `OplChip`: this one plays through
             // `VgmEngine`, the generic path with no register policy.
@@ -68,6 +74,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-OPM",
             realtime: true,
             channel_pan: false,
+            // As OPN2: no per-channel mute, so the UI disables its toggles.
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2151::new())),
         });

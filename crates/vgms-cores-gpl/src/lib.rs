@@ -37,6 +37,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-OPLL",
             realtime: true,
             channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2413::new())),
         });
@@ -51,6 +53,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-PSG",
             realtime: true,
             channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Sn76489Nuked::new())),
         });
@@ -65,6 +69,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/YM2151-LLE",
             realtime: false,
             channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2151Lle::new())),
         });
@@ -79,6 +85,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/YM2608-LLE",
             realtime: false,
             channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2612Lle::new())),
         });
@@ -93,6 +101,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/YM2608-LLE",
             realtime: false,
             channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2608Lle::new())),
         });

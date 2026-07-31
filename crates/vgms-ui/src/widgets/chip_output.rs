@@ -289,6 +289,7 @@ pub(crate) fn install_test_cores() {
                 upstream: "https://github.com/nukeykt/Nuked-CQM",
                 realtime: true,
                 channel_pan: false,
+                channel_mute: true,
                 level: vgms_synth::LEVEL_UNITY,
                 // The real one builds a chip; a stand-in only has to be
                 // listable, and this crate cannot link the C provider.
@@ -303,6 +304,7 @@ pub(crate) fn install_test_cores() {
                 upstream: "https://github.com/SudoMaker/RetroWave",
                 realtime: true,
                 channel_pan: false,
+                channel_mute: true,
                 level: vgms_synth::LEVEL_UNITY,
                 make: vgms_synth::CoreMaker::Routed,
             });
@@ -322,6 +324,7 @@ pub(crate) fn install_test_cores() {
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
             channel_pan: false,
+            channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(ToneStub::new())),
         });

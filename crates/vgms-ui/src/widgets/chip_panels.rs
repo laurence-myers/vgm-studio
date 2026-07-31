@@ -207,22 +207,27 @@ impl ChipPanels {
 
     /// Draws the selector strip (always) and the selected chip's controls.
     ///
-    /// `pan_supported(chip)` answers whether pan controls should be drawn for a
-    /// given chip -- `None` for the OPL panel, `Some(kind)` for a generic one.
-    /// The app supplies it because pan capability is a registry-and-output
-    /// question the panel does not own.
+    /// `pan_supported(chip)` / `mute_supported(chip)` answer whether pan and mute
+    /// controls should be live for a given chip -- `None` for the OPL panel,
+    /// `Some(kind)` for a generic one. The app supplies them because the
+    /// capability is a registry question the panel does not own. The OPL panel
+    /// always mutes (register-gated), so only its pan support is consulted.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,
         pan_supported: impl Fn(Option<ChipKind>) -> bool,
+        mute_supported: impl Fn(Option<ChipKind>) -> bool,
     ) -> ChannelsResponse {
         self.selector(ui, palette);
-        let supported = pan_supported(self.selected_chip());
+        let chip = self.selected_chip();
+        let pan = pan_supported(chip);
         match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
-            Some(ChipControls::Generic(panel)) => panel.show(ui, palette, supported),
+            Some(ChipControls::Generic(panel)) => {
+                panel.show(ui, palette, pan, mute_supported(chip))
+            }
             // The OPL entry, or (defensively) an out-of-range selection.
-            _ => self.opl.show(ui, palette, supported),
+            _ => self.opl.show(ui, palette, pan),
         }
     }
 
