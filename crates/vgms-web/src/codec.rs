@@ -448,22 +448,29 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             }
             writer.u32(*trailing_tail);
         }
-        TaskRequest::VolumeScan { song, sample_rate } => {
+        TaskRequest::VolumeScan {
+            source,
+            sample_rate,
+            resampling,
+        } => {
             writer.u8(4);
-            write_song(&mut writer, song)?;
+            write_audio_source(&mut writer, source)?;
             writer.u32(*sample_rate);
+            write_resample(&mut writer, *resampling);
         }
         TaskRequest::PackVolumeScan {
             tracks,
             sample_rate,
+            resampling,
         } => {
             writer.u8(5);
             writer.u32(tracks.len() as u32);
-            for (name, song) in tracks {
+            for (name, source) in tracks {
                 writer.str(name);
-                write_song(&mut writer, song)?;
+                write_audio_source(&mut writer, source)?;
             }
             writer.u32(*sample_rate);
+            write_resample(&mut writer, *resampling);
         }
         TaskRequest::LoopSearch {
             source,
@@ -561,20 +568,22 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
             }
         }
         4 => TaskRequest::VolumeScan {
-            song: std::sync::Arc::new(read_song(&mut reader)?),
+            source: read_audio_source(&mut reader)?,
             sample_rate: reader.u32("sample_rate")?,
+            resampling: read_resample(&mut reader)?,
         },
         5 => {
             let count = reader.u32("tracks.len")? as usize;
             let mut tracks = Vec::with_capacity(count);
             for _ in 0..count {
                 let name = reader.str("track.name")?;
-                let song = std::sync::Arc::new(read_song(&mut reader)?);
-                tracks.push((name, song));
+                let source = read_audio_source(&mut reader)?;
+                tracks.push((name, source));
             }
             TaskRequest::PackVolumeScan {
                 tracks,
                 sample_rate: reader.u32("sample_rate")?,
+                resampling: read_resample(&mut reader)?,
             }
         }
         6 => {
@@ -892,15 +901,24 @@ mod tests {
                 trailing_tail: 4410,
             },
             TaskRequest::VolumeScan {
-                song: sample_song(),
+                source: AudioSource::Opl(sample_song()),
                 sample_rate: 48_000,
+                resampling: ResampleMode::Sinc,
+            },
+            // A VGM-source scan, and a pack list with both arms, so the codec's
+            // audio-source tag is exercised for VolumeScan too.
+            TaskRequest::VolumeScan {
+                source: AudioSource::Vgm(sample_vgm()),
+                sample_rate: 44_100,
+                resampling: ResampleMode::Linear,
             },
             TaskRequest::PackVolumeScan {
                 tracks: vec![
-                    ("01 first.vgm".to_owned(), sample_song()),
-                    ("02 second.vgm".to_owned(), sample_song()),
+                    ("01 first.vgm".to_owned(), AudioSource::Opl(sample_song())),
+                    ("02 second.vgm".to_owned(), AudioSource::Vgm(sample_vgm())),
                 ],
                 sample_rate: 44_100,
+                resampling: ResampleMode::Linear,
             },
             TaskRequest::LoopSearch {
                 source: LoopSearchSource::Vgm(sample_vgm()),
@@ -917,8 +935,9 @@ mod tests {
         // The byte-stable round-trip proves faithfulness structurally; this pins
         // that the scalars are the actual values, not just self-consistent ones.
         let bytes = encode_request(&TaskRequest::VolumeScan {
-            song: sample_song(),
+            source: AudioSource::Opl(sample_song()),
             sample_rate: 12_345,
+            resampling: ResampleMode::Sinc,
         })
         .unwrap();
         let TaskRequest::VolumeScan { sample_rate, .. } = decode_request(&bytes).unwrap() else {
@@ -1049,8 +1068,9 @@ mod tests {
     #[test]
     fn a_truncated_buffer_errors_rather_than_panics() {
         let bytes = encode_request(&TaskRequest::VolumeScan {
-            song: sample_song(),
+            source: AudioSource::Opl(sample_song()),
             sample_rate: 48_000,
+            resampling: ResampleMode::Sinc,
         })
         .unwrap();
         // Lopping off the tail must surface an Eof, never an index panic.

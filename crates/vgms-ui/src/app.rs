@@ -1094,8 +1094,9 @@ impl VgmStudioApp {
         self.volume_scan_purpose = purpose;
         self.tasks.submit(
             TaskRequest::VolumeScan {
-                song,
+                source: vgms_synth::AudioSource::Opl(song),
                 sample_rate: self.config.audio.frequency,
+                resampling: self.resample_mode(),
             },
             None,
         );
@@ -2997,16 +2998,20 @@ impl VgmStudioApp {
     /// [`Self::handle_pack_peaks`] through `poll_services` and fill the Peak column.
     fn scan_pack_volumes(&mut self) {
         let sample_rate = self.config.audio.frequency;
+        let resampling = self.resample_mode();
         let Some(pack) = self.pack.as_ref() else {
             return;
         };
-        let tracks: Vec<(String, std::sync::Arc<vgms_core::Song>)> = pack
+        let tracks: Vec<(String, vgms_synth::AudioSource)> = pack
             .tracks
             .iter()
             .filter_map(|track| {
                 // Measuring a peak means rendering, so only the tracks this app
                 // has a core for can be scanned.
-                Some((track.file_name.clone(), track.playable_song()?))
+                Some((
+                    track.file_name.clone(),
+                    vgms_synth::AudioSource::Opl(track.playable_song()?),
+                ))
             })
             .collect();
         if tracks.is_empty() {
@@ -3018,6 +3023,7 @@ impl VgmStudioApp {
             TaskRequest::PackVolumeScan {
                 tracks,
                 sample_rate,
+                resampling,
             },
             None,
         );

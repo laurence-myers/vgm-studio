@@ -17,8 +17,8 @@ use vgms_core::split_songs::{
 };
 use vgms_synth::{
     AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmSplitOptions, WaveformBucket,
-    measure_peak_cancellable, render_wav_cancellable, render_waveform_progressive,
-    split_cancellable, split_vgm_cancellable,
+    measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
+    render_waveform_progressive, split_cancellable, split_vgm_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -77,17 +77,23 @@ pub enum TaskRequest {
         /// Decay tail to keep after each piece, in native units.
         trailing_tail: u32,
     },
-    /// Measures `song`'s peak level by rendering it internally at `sample_rate`.
+    /// Measures `source`'s peak level by rendering it internally at
+    /// `sample_rate`. Either representation is measured, through its own engine.
     VolumeScan {
-        song: Arc<Song>,
+        source: AudioSource,
         sample_rate: u32,
+        /// As on [`TaskRequest::RenderWaveform`]: how a non-OPL engine reaches
+        /// the output rate; ignored by an OPL source.
+        resampling: vgms_synth::resample::ResampleMode,
     },
-    /// Measures the peak of every `(file_name, song)` at `sample_rate`, for pack
-    /// mode's "Scan Volumes". One background task covers the whole pack so its
-    /// many songs never freeze the UI.
+    /// Measures the peak of every `(file_name, source)` at `sample_rate`, for
+    /// pack mode's "Scan Volumes". One background task covers the whole pack so
+    /// its many tracks never freeze the UI.
     PackVolumeScan {
-        tracks: Vec<(String, Arc<Song>)>,
+        tracks: Vec<(String, AudioSource)>,
         sample_rate: u32,
+        /// As on [`TaskRequest::VolumeScan`].
+        resampling: vgms_synth::resample::ResampleMode,
     },
     /// Searches the loaded document for loop candidates at least
     /// `min_len_commands` delay-stripped commands long, for the Find Loop
@@ -291,6 +297,31 @@ pub trait TaskService {
 /// Worker. A task may `emit` more than once -- the waveform render
 /// emits progressive snapshots as it fills in, then the finished buckets -- and
 /// emits nothing more once cancelled.
+/// Measures a peak through whichever engine would render `source`: the OPL
+/// player for a `Song`, the multichip engine for a `VgmFile`. `None` iff the
+/// scan was cancelled. Shared by the single and pack scans.
+fn measure_source(
+    source: &AudioSource,
+    sample_rate: u32,
+    resampling: vgms_synth::resample::ResampleMode,
+    is_cancelled: &dyn Fn() -> bool,
+) -> Option<Peak> {
+    match source {
+        AudioSource::Opl(song) => {
+            measure_peak_cancellable(Arc::clone(song), sample_rate, &mut |_| {}, &mut || {
+                !is_cancelled()
+            })
+        }
+        AudioSource::Vgm(file) => measure_vgm_peak_cancellable(
+            Arc::clone(file),
+            sample_rate,
+            resampling,
+            &mut |_| {},
+            &mut || !is_cancelled(),
+        ),
+    }
+}
+
 pub fn run_task(
     request: &TaskRequest,
     is_cancelled: &dyn Fn() -> bool,
@@ -385,31 +416,28 @@ pub fn run_task(
                 emit(TaskResult::SplitSongs(result));
             }
         }
-        TaskRequest::VolumeScan { song, sample_rate } => {
+        TaskRequest::VolumeScan {
+            source,
+            sample_rate,
+            resampling,
+        } => {
             // A cancelled scan (the song was replaced, or a fresh scan started)
             // emits nothing, like the WAV render.
-            if let Some(peak) =
-                measure_peak_cancellable(Arc::clone(song), *sample_rate, &mut |_| {}, &mut || {
-                    !is_cancelled()
-                })
-            {
+            if let Some(peak) = measure_source(source, *sample_rate, *resampling, is_cancelled) {
                 emit(TaskResult::Peak(peak));
             }
         }
         TaskRequest::PackVolumeScan {
             tracks,
             sample_rate,
+            resampling,
         } => {
             let mut peaks = Vec::with_capacity(tracks.len());
-            for (name, song) in tracks {
+            for (name, source) in tracks {
                 // Abandon promptly (emitting nothing) if the folder changed under
                 // us -- a whole-pack scan is easy to leave stale.
-                let Some(peak) = measure_peak_cancellable(
-                    Arc::clone(song),
-                    *sample_rate,
-                    &mut |_| {},
-                    &mut || !is_cancelled(),
-                ) else {
+                let Some(peak) = measure_source(source, *sample_rate, *resampling, is_cancelled)
+                else {
                     return;
                 };
                 peaks.push((name.clone(), peak));
@@ -582,8 +610,9 @@ mod tests {
         let song = tone_song();
         let expected = vgms_synth::measure_peak(&song, 48_000);
         let scan = TaskRequest::VolumeScan {
-            song: Arc::new(song),
+            source: AudioSource::Opl(Arc::new(song)),
             sample_rate: 48_000,
+            resampling: vgms_synth::resample::ResampleMode::Sinc,
         };
         let results = collect(&scan, || false);
         assert!(
@@ -591,6 +620,49 @@ mod tests {
             "expected one Peak matching the direct measurement, got {results:?}"
         );
         // A cancelled scan emits nothing.
+        assert!(collect(&scan, || true).is_empty());
+    }
+
+    /// A minimal SN76489 VGM held as a file, for the generic scan arm.
+    fn sms_vgm_file() -> Arc<vgms_core::VgmFile> {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let stream: &[u8] = &[
+            0x50, 0x8E, 0x50, 0x0F, 0x50, 0x90, // tone 0, full volume
+            0x61, 0x44, 0xAC, // a second
+            0x66,
+        ];
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        put_u32(
+            &mut bytes,
+            vgms_core::ChipKind::Sn76489.clock_offset(),
+            3_579_545,
+        );
+        bytes.extend_from_slice(stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        Arc::new(vgms_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    #[test]
+    fn the_volume_scan_measures_a_vgm_through_the_generic_engine() {
+        // The VGM arm is wired through the multichip engine: one Peak comes back
+        // (its level depending on whether a core is installed in this process),
+        // and a cancelled scan emits nothing, exactly like the OPL arm.
+        let scan = TaskRequest::VolumeScan {
+            source: AudioSource::Vgm(sms_vgm_file()),
+            sample_rate: 44_100,
+            resampling: vgms_synth::resample::ResampleMode::Sinc,
+        };
+        let results = collect(&scan, || false);
+        assert!(
+            matches!(results.as_slice(), [TaskResult::Peak(_)]),
+            "expected one Peak from the generic engine, got {results:?}"
+        );
         assert!(collect(&scan, || true).is_empty());
     }
 
@@ -643,10 +715,11 @@ mod tests {
         let expected = vgms_synth::measure_peak(&*song, 48_000);
         let scan = TaskRequest::PackVolumeScan {
             tracks: vec![
-                ("01.vgm".to_owned(), Arc::clone(&song)),
-                ("02.vgm".to_owned(), Arc::clone(&song)),
+                ("01.vgm".to_owned(), AudioSource::Opl(Arc::clone(&song))),
+                ("02.vgm".to_owned(), AudioSource::Opl(Arc::clone(&song))),
             ],
             sample_rate: 48_000,
+            resampling: vgms_synth::resample::ResampleMode::Sinc,
         };
         let results = collect(&scan, || false);
         let [TaskResult::PackPeaks(peaks)] = results.as_slice() else {
