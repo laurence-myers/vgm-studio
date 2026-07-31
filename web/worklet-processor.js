@@ -12,6 +12,51 @@
 const QUANTUM = 128; // the AudioWorklet render quantum, fixed by the platform
 const POSTS_EVERY = 8; // post state ~ every 8 quanta (~23 ms at 44.1 kHz)
 
+// The AudioWorkletGlobalScope has no TextEncoder/TextDecoder -- the very reason
+// the worklet wasm module is bindgen-free -- so encode/decode UTF-8 by hand.
+function utf8Encode(str) {
+  const out = [];
+  for (let i = 0; i < str.length; i++) {
+    let c = str.charCodeAt(i);
+    if (c < 0x80) {
+      out.push(c);
+    } else if (c < 0x800) {
+      out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if (c >= 0xd800 && c <= 0xdbff) {
+      const c2 = str.charCodeAt(++i);
+      c = 0x10000 + ((c & 0x3ff) << 10) + (c2 & 0x3ff);
+      out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    } else {
+      out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  return new Uint8Array(out);
+}
+
+function utf8Decode(bytes) {
+  let str = "";
+  let i = 0;
+  while (i < bytes.length) {
+    let c = bytes[i++];
+    if (c >= 0x80) {
+      if (c < 0xe0) {
+        c = ((c & 0x1f) << 6) | (bytes[i++] & 0x3f);
+      } else if (c < 0xf0) {
+        c = ((c & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+      } else {
+        c = ((c & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+      }
+    }
+    if (c > 0xffff) {
+      c -= 0x10000;
+      str += String.fromCharCode(0xd800 + (c >> 10), 0xdc00 + (c & 0x3ff));
+    } else {
+      str += String.fromCharCode(c);
+    }
+  }
+  return str;
+}
+
 class VgmsEngineProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
@@ -40,7 +85,10 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
     this.leftPtr = this.ex.vgmsw_alloc(QUANTUM * 4);
     this.rightPtr = this.ex.vgmsw_alloc(QUANTUM * 4);
 
-    this.playing = false;
+    // Normally play/pause arrives as a command message; `autoplay` lets an
+    // offline render (which does not deliver port messages mid-render) start
+    // sounding without one.
+    this.playing = !!opts.autoplay;
     this.tick = 0;
     // Peaks accumulate between state posts so a transient is never dropped.
     this.peakL = 0;
@@ -67,11 +115,11 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
   }
 
   _withString(text, fn) {
-    return this._withBytes(new TextEncoder().encode(text), fn);
+    return this._withBytes(utf8Encode(text), fn);
   }
 
   _load(name, songBytes, sampleRate, resampleMode) {
-    const nameBytes = new TextEncoder().encode(name || "song.vgm");
+    const nameBytes = utf8Encode(name || "song.vgm");
     return this._withBytes(nameBytes, (namePtr, nameLen) =>
       this._withBytes(new Uint8Array(songBytes), (bytesPtr, bytesLen) => {
         const code = this.ex.vgmsw_load(
@@ -92,7 +140,7 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
     if (len === 0) return "";
     const ptr = this.ex.vgmsw_alloc(len);
     this.ex.vgmsw_error_copy(ptr, len);
-    const text = new TextDecoder().decode(this._mem().slice(ptr, ptr + len));
+    const text = utf8Decode(this._mem().slice(ptr, ptr + len));
     this.ex.vgmsw_free(ptr, len);
     return text;
   }

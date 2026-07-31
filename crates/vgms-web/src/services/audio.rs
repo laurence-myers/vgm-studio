@@ -172,6 +172,17 @@ impl AudioService for WebAudioService {
             inner.limited = false;
         }
 
+        // Open the AudioContext *now*, synchronously, not inside the async setup.
+        // A browser only lets `resume()` start audio from within a user gesture,
+        // and Play is that gesture -- but if the context does not yet exist when
+        // Play fires (the async node setup is still running), the resume is a
+        // no-op and playback stays silent. Creating it here means `play`'s resume
+        // always has a context to act on, on the click that reached it.
+        if let Err(message) = ensure_context(&self.inner, sample_rate) {
+            self.inner.borrow_mut().last_error = Some(message);
+            return Ok(());
+        }
+
         let inner = Rc::clone(&self.inner);
         spawn_local(async move {
             if let Err(message) = setup(&inner, name, bytes, sample_rate, resample, choices).await {

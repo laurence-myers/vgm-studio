@@ -42,6 +42,15 @@ pub fn start(canvas: web_sys::HtmlCanvasElement) {
 fn build_app(
     cc: &eframe::CreationContext<'_>,
 ) -> Result<Box<dyn eframe::App>, Box<dyn std::error::Error + Send + Sync>> {
+    // Install the core registry into *this* module before the app asks it
+    // anything. Without this the app's own registry is the OPL-only fallback, so
+    // every "can this play / render" question about a non-OPL chip answers no --
+    // the transport is disabled and no waveform is ever requested. The native
+    // shell makes the equivalent `install_cores` call in `main`; the Worker and
+    // the AudioWorklet install their own copies for the work they do. (The three
+    // registries are separate wasm instances, so each must install.)
+    vgms_synth_worklet::install_web_cores();
+
     // A fresh notifier per service, each holding its own cheap `Context` clone,
     // so none has to be `Clone`.
     let notifier = || {
