@@ -617,6 +617,13 @@ pub struct LibVgmChip {
     /// Where each channel sits in the stereo image, libvgm's `-0x100..=0x100`.
     /// Empty means the chip's own image; reapplied after each `start`.
     pans: Vec<i16>,
+    /// The RF5C pair's selected RAM bank, pre-shifted (`wbank << 12`), OR'd
+    /// into every RAM-write address exactly as upstream's `DoRAMOfsPatches`
+    /// does. Tracked here -- mirroring `Cmd_RF5C_Reg`'s bank patch -- because
+    /// the *player* owns this OR upstream; the core cannot do it (its byte
+    /// window masks to 4 KiB) and the block writer takes absolute addresses.
+    /// Zero for every other chip.
+    ram_bank: u32,
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
     right: Vec<i32>,
@@ -658,6 +665,7 @@ impl LibVgmChip {
             settings: ChipSettings::default(),
             mute_mask: 0,
             pans: Vec::new(),
+            ram_bank: 0,
             left: Vec::new(),
             right: Vec::new(),
         }
@@ -996,6 +1004,8 @@ impl ChipCore for LibVgmChip {
         // it, and carrying the previous file's noise taps into the gap would be
         // a silent bug.
         self.settings = ChipSettings::default();
+        // ...and the RF5C bank: the device restart clears the core's own.
+        self.ram_bank = 0;
         self.start();
     }
 
@@ -1016,6 +1026,17 @@ impl ChipCore for LibVgmChip {
     fn write(&mut self, port: u8, addr: u16, data: u16) {
         if !self.is_started() {
             return;
+        }
+        // Upstream's `Cmd_RF5C_Reg` bank patch: the player watches the RF5C
+        // control register (7) in bank mode (bit 6 clear) and remembers the
+        // bank, because RAM-write commands need it OR'd into their addresses
+        // (`DoRAMOfsPatches`) -- see [`write_ram_absolute`](Self::write_ram_absolute).
+        if matches!(self.spec.kind, ChipKind::Rf5c68 | ChipKind::Rf5c164)
+            && port == 0
+            && addr == 0x07
+            && data & 0x40 == 0
+        {
+            self.ram_bank = u32::from(data & 0x0F) << 12;
         }
         let chip = self.dev.data_ptr;
         // SAFETY: a live device, and every writer below was fetched from it
@@ -1100,34 +1121,41 @@ impl ChipCore for LibVgmChip {
         }
     }
 
-    /// A RAM block: through the chip's block writer where it has one, or its
-    /// memory writer byte by byte.
-    ///
-    /// The split is upstream's. The RF5C pair take RAM through `writeM8` (each
-    /// byte lands through a bank register, so there is no block form), while the
-    /// SCSP's half-megabyte sample RAM arrives through the same `DEVRW_BLOCK`
-    /// writer its ROMs would -- its addresses do not fit the 16-bit memory writer.
+    /// A RAM block, at a window-relative offset. Same path as
+    /// [`write_ram_absolute`](Self::write_ram_absolute): upstream patches both
+    /// the `0xC0` blocks and the `0x68` copies identically.
     fn write_ram(&mut self, offset: u32, data: &[u8]) {
-        if !self.is_started() {
+        self.write_ram_absolute(offset, data);
+    }
+
+    /// A RAM image: through the chip's `DEVRW_BLOCK` writer, with the RF5C
+    /// pair's tracked bank OR'd into the address (upstream's
+    /// `DoRAMOfsPatches`; the bank is zero for every other chip).
+    ///
+    /// The block writer, **not** the byte window, and the difference is the
+    /// Lemmings (FM Towns) bug: `rf5c68_mem_w` masks its offset into the CPU's
+    /// 4 KiB banked window (`offset &= 0x0FFF`), so a whole-RAM image looped
+    /// through it folds onto one window and the channels -- which fetch
+    /// *absolute* addresses -- play empty RAM. Upstream sends every RAM write
+    /// command through `romWrite`, which each RAM chip files absolute; the
+    /// byte loop stays only as a fallback for a core with no block writer.
+    fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+        if !self.is_started() || data.is_empty() {
             return;
         }
-        if ram_via_block(self.spec.kind) {
-            if let Some(write) = self.writers.rom_write[0]
-                && !data.is_empty()
-            {
-                // SAFETY: a live device; libvgm copies out of `data`.
-                unsafe { write(self.dev.data_ptr, offset, data.len() as u32, data.as_ptr()) };
-            }
+        let address = address | self.ram_bank;
+        if let Some(write) = self.writers.rom_write[0] {
+            // SAFETY: a live device; libvgm copies out of `data`.
+            unsafe { write(self.dev.data_ptr, address, data.len() as u32, data.as_ptr()) };
             return;
         }
         let Some(write) = self.writers.mem8 else {
             return;
         };
         for (index, &byte) in data.iter().enumerate() {
-            let address = offset.wrapping_add(index as u32);
-            // SAFETY: a live device and its own memory writer; libvgm masks
-            // the address into the chip's window itself.
-            unsafe { write(self.dev.data_ptr, address as u16, byte) };
+            let at = address.wrapping_add(index as u32);
+            // SAFETY: a live device and its own memory writer.
+            unsafe { write(self.dev.data_ptr, at as u16, byte) };
         }
     }
 
@@ -1218,18 +1246,6 @@ pub(crate) const fn default_core_pans(kind: ChipKind) -> bool {
         kind,
         ChipKind::Sn76489 | ChipKind::Ay8910 | ChipKind::NesApu | ChipKind::Ym2413
     )
-}
-
-/// Whether `kind` takes its RAM blocks through the block writer rather than
-/// the byte-wide memory writer -- see [`LibVgmChip::write_ram`].
-///
-/// Read off each core's `rwFuncs` table: the SCSP, ES5503 and NES APU file their
-/// sample RAM *only* under `RWF_MEMORY | DEVRW_BLOCK`, so a byte loop finds no
-/// writer and silently drops every wavetable. The RF5C pair stays on the byte
-/// writer: their `A16D8` memory function *is* the banked window our port-1
-/// convention feeds.
-const fn ram_via_block(kind: ChipKind) -> bool {
-    matches!(kind, ChipKind::Scsp | ChipKind::Es5503 | ChipKind::NesApu)
 }
 
 /// Declares the chip table and, per row, the bare `fn` the registry needs.
@@ -1645,6 +1661,90 @@ mod tests {
             energy(&loud) > at_rest * 4 + 1000,
             "the chip must sound after a write (rest {at_rest}, playing {})",
             energy(&loud)
+        );
+    }
+
+    /// A whole-RAM image lands at its absolute addresses and the channels
+    /// sound -- the Lemmings (FM Towns) shape: one 34 KiB type-`0xC0` block at
+    /// offset 0, channels starting at 0x7400.
+    ///
+    /// The regression this pins: RAM images used to loop through the byte-wide
+    /// memory writer, whose window masks offsets to 4 KiB (`offset &= 0x0FFF`),
+    /// so everything past the first window folded and the channels -- which
+    /// fetch absolute addresses -- played empty RAM. Silence, with the play
+    /// cursor advancing normally.
+    #[test]
+    fn an_rf5c68_ram_image_lands_absolute_and_sounds() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Rf5c68));
+        chip.reset(8_000_000, false);
+        chip.configure(&ChipSettings::default());
+        assert!(chip.is_started());
+
+        // A loud square well past the 4 KiB window; 0xFF avoided (the
+        // end-of-sample marker), 0x80 too (the loop-to marker).
+        let mut ram = vec![0u8; 0x9000];
+        for (index, byte) in ram.iter_mut().enumerate() {
+            *byte = if (index / 32) % 2 == 0 { 0x7E } else { 0xFE };
+        }
+        chip.write_ram(0, &ram);
+
+        // The file's own driver sequence: sounding on, ch0 selected, envelope,
+        // pan, start 0x7400, loop start, frequency, key-on.
+        for (addr, data) in [
+            (7u16, 0x88u16),
+            (7, 0xC0),
+            (0, 0x50),
+            (1, 0x3D),
+            (6, 0x74),
+            (4, 0x02),
+            (5, 0x80),
+            (2, 0xDC),
+            (3, 0x04),
+            (8, 0xFE),
+        ] {
+            chip.write(0, addr, data);
+        }
+        let mut out = vec![0i32; 8192];
+        chip.render(&mut out);
+        assert!(
+            energy(&out) > 0,
+            "channels starting past the CPU window must find their samples"
+        );
+    }
+
+    /// A RAM image sent after the driver selects a bank lands at that bank --
+    /// upstream's `Cmd_RF5C_Reg` bank patch plus `DoRAMOfsPatches`, mirrored
+    /// by the binding since the block writer takes absolute addresses.
+    #[test]
+    fn an_rf5c68_ram_image_follows_the_selected_bank() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Rf5c68));
+        chip.reset(8_000_000, false);
+        chip.configure(&ChipSettings::default());
+
+        // Sounding on, bank 2 selected -- then the image at window offset 0,
+        // which must land at 0x2000.
+        chip.write(0, 7, 0x82);
+        chip.write_ram(0, &[0x7E; 0x800]);
+
+        // A channel playing from 0x2000: silence unless the image landed there.
+        for (addr, data) in [
+            (7u16, 0xC0u16),
+            (0, 0x50),
+            (1, 0x3D),
+            (6, 0x20),
+            (4, 0x00),
+            (5, 0x20),
+            (2, 0x00),
+            (3, 0x04),
+            (8, 0xFE),
+        ] {
+            chip.write(0, addr, data);
+        }
+        let mut out = vec![0i32; 4096];
+        chip.render(&mut out);
+        assert!(
+            energy(&out) > 0,
+            "the image must land at the bank the driver had selected"
         );
     }
 
@@ -2344,13 +2444,15 @@ mod tests {
         }
     }
 
-    /// Every chip that takes RAM blocks has the writer its RAM path needs.
+    /// Every chip that takes RAM blocks files a block writer.
     ///
-    /// `ram_via_block` is a transcription of each core's `rwFuncs` table, and the
-    /// two can drift silently: a chip listed for the block path whose core has no
-    /// block writer (or the reverse) drops every wavetable and plays silence.
+    /// [`LibVgmChip::write_ram_absolute`] writes images through `DEVRW_BLOCK`
+    /// -- the absolute path -- and only falls back to the byte window when a
+    /// core files none. The fallback must stay a fallback: the RF5C pair's
+    /// byte window masks to 4 KiB, so an image through it folds and the file
+    /// plays silence (the Lemmings FM Towns bug).
     #[test]
-    fn every_ram_taking_chip_has_the_writer_its_path_needs() {
+    fn every_ram_taking_chip_has_a_block_writer() {
         for kind in [
             ChipKind::Rf5c68,
             ChipKind::Rf5c164,
@@ -2361,19 +2463,11 @@ mod tests {
             let mut chip = LibVgmChip::new(spec(kind));
             chip.reset(8_000_000, false);
             assert!(chip.is_started(), "{} starts", kind.name());
-            if ram_via_block(kind) {
-                assert!(
-                    chip.writers.rom_write[0].is_some(),
-                    "{} takes RAM via the block writer, which its core must file",
-                    kind.name()
-                );
-            } else {
-                assert!(
-                    chip.writers.mem8.is_some(),
-                    "{} takes RAM via the byte writer, which its core must file",
-                    kind.name()
-                );
-            }
+            assert!(
+                chip.writers.rom_write[0].is_some(),
+                "{} takes RAM images, so its core must file a block writer",
+                kind.name()
+            );
         }
     }
 
