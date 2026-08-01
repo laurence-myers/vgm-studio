@@ -15,6 +15,6 @@ pub use audit::HeaderFinding;
 pub use channels::{ChannelInfo, channels_of};
 pub use data::{Gd3Tag, VgmData, VgmMeta};
 pub use file::{RegionReport, VgmBody, VgmFile};
-pub use header::{ChipKind, ChipSettings, ChipUse, ExtraHeader, VgmHeader};
+pub use header::{ChipKind, ChipSettings, ChipUse, ExtraHeader, ExtraVolume, VgmHeader};
 pub use projection::{OplProjection, opl_type_of};
 pub use stream::{ChipTarget, VgmCommand, VgmFindTarget, VgmStream};

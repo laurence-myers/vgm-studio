@@ -46,6 +46,12 @@ struct Voice {
     /// and everything it puts above 22 kHz would fold straight back into the
     /// audible band. See [`crate::resample`].
     resampler: Resampler,
+    /// This voice's share of the file's cross-chip balance, 8.8 fixed point
+    /// ([`balance::GAIN_UNITY`] = 1.0). Exactly unity for a single-chip file;
+    /// see [`balance`](crate::balance) for what it mirrors and why it is a
+    /// ratio. Applied per frame *before* the voices are summed, so the
+    /// headroom exists before the mix clamps to 16 bits.
+    balance: u32,
 }
 
 impl Voice {
@@ -55,6 +61,7 @@ impl Voice {
         chip: &ChipUse,
         settings: &vgms_core::vgm::ChipSettings,
         output_rate: u32,
+        balance: u32,
     ) -> Self {
         core.reset(chip.clock, chip.variant);
         // After the reset, which is what clears the state this configures.
@@ -66,6 +73,7 @@ impl Voice {
             native_rate: native,
             output_rate,
             resampler: Resampler::new(native, output_rate),
+            balance,
         }
     }
 
@@ -88,11 +96,16 @@ impl Voice {
     /// happening.
     fn next_frame(&mut self) -> [i32; 2] {
         let core = &mut self.core;
-        self.resampler.next_frame(|| {
+        let frame = self.resampler.next_frame(|| {
             let mut frame = [0i32; 2];
             core.render(&mut frame);
             frame
-        })
+        });
+        if self.balance == crate::balance::GAIN_UNITY {
+            return frame;
+        }
+        let scale = |sample: i32| ((i64::from(sample) * i64::from(self.balance)) >> 8) as i32;
+        [scale(frame[0]), scale(frame[1])]
     }
 }
 
@@ -197,12 +210,21 @@ impl VgmEngine {
                         instance,
                         port: 0,
                     };
+                    // The reference's cross-chip balance for this instance in
+                    // this file's chip set -- unity for a single-chip file.
+                    let balance = crate::balance::voice_gain(
+                        file.header.chips(),
+                        chip,
+                        instance,
+                        file.header.extra(),
+                    );
                     voices.push(Voice::new(
                         target,
                         core,
                         chip,
                         file.header.settings(),
                         output_rate,
+                        balance,
                     ));
                 }
             }
