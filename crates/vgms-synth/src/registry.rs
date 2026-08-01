@@ -97,12 +97,16 @@ pub struct CoreInfo {
     /// drawing knobs that turn and do nothing.
     pub channel_pan: bool,
     /// Whether this core honours per-channel muting --
-    /// [`ChipCore::set_channel_mutes`](crate::ChipCore::set_channel_mutes). Only
-    /// the libvgm cores implement it; the Nuked and LLE cores inherit the trait's
-    /// no-op default. The UI disables the mute buttons for a chip whose resolved
-    /// core says `false`, rather than drawing toggles that silence nothing. (An
-    /// OPL document mutes through the register-gating path instead, which every
-    /// OPL core supports, so this only gates the generic multichip panel.)
+    /// [`ChipCore::set_channel_mutes`](crate::ChipCore::set_channel_mutes). The
+    /// libvgm cores implement it, and the Nuked OPN2/OPLL bindings gate their
+    /// own render loops (the chips' outputs are time-multiplexed, so muting is
+    /// choosing which cycles to add); Nuked-OPM cannot -- its DAC accumulates
+    /// all eight channels inside the chip -- and the LLE tier inherits the
+    /// trait's no-op default. The UI disables the mute buttons for a chip whose
+    /// resolved core says `false`, rather than drawing toggles that silence
+    /// nothing. (An OPL document mutes through the register-gating path
+    /// instead, which every OPL core supports, so this only gates the generic
+    /// multichip panel.)
     pub channel_mute: bool,
     /// This core's output calibration, in 8.8 fixed point
     /// ([`LEVEL_UNITY`] = 1.0). Applied to every sample it renders.

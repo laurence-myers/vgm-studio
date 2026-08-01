@@ -67,6 +67,18 @@ pub struct Ym2612 {
     /// it (a note that never starts, not a glitch). The rate is the real chip's
     /// too -- a YM2612 raises its busy flag for about a rotation after each write.
     writes: WriteQueue,
+    /// A mirror of the chip's internal 24-cycle counter, which upstream keeps
+    /// private: zeroed by reset, advanced by every `OPN2_Clock`, untouched by
+    /// writes. What [`render`](ChipCore::render)'s mute gate keys on -- see
+    /// [`mute_bit_for_group`].
+    cycles: u32,
+    /// The channel-mute mask, [`vgms_core::vgm::channels_of`] order: bits 0-5
+    /// the FM channels, bit 6 the DAC. Survives [`reset`](ChipCore::reset)
+    /// like every core's, and the engine restates it anyway.
+    mute_mask: u32,
+    /// Register `0x2B` bit 7: whether channel 6's slot on the pins carries the
+    /// DAC. Decides whether that slot answers to mask bit 5 or bit 6.
+    dac_enabled: bool,
 }
 
 impl Ym2612 {
@@ -79,6 +91,9 @@ impl Ym2612 {
             // before being reset divides by something.
             rate: 44_100,
             writes: WriteQueue::new(ADDRESS_SETTLE, VALUE_SETTLE),
+            cycles: 0,
+            mute_mask: 0,
+            dac_enabled: false,
         }
     }
 
@@ -86,6 +101,26 @@ impl Ym2612 {
     #[cfg(test)]
     fn pending(&self) -> usize {
         self.writes.pending()
+    }
+}
+
+/// The mask bit for the channel whose output is on the DAC pins during cycle
+/// group `group` (the internal counter's top three bits, `cycles >> 2`).
+///
+/// The chip time-multiplexes its six channels over the 24-cycle rotation in
+/// the fixed order 2, 6, 4, 1, 5, 3 -- transcribed from the mute gating in
+/// libvgm's `nukedopn2_update`, whose copy of this same core is where the
+/// idea of muting it from the outside comes from. When the DAC is enabled it
+/// takes channel 6's slot, and the mask's DAC bit (6) governs it instead.
+const fn mute_bit_for_group(group: u32, dac_enabled: bool) -> u32 {
+    match group {
+        0 => 1,                // channel 2
+        1 if dac_enabled => 6, // the DAC, in channel 6's slot
+        1 => 5,                // channel 6
+        2 => 3,                // channel 4
+        3 => 0,                // channel 1
+        4 => 4,                // channel 5
+        _ => 2,                // channel 3
     }
 }
 
@@ -102,6 +137,9 @@ impl ChipCore for Ym2612 {
         self.writes.clear();
         self.rate = (clock / MASTER_PER_SAMPLE).max(1);
         self.chip.reset(!variant);
+        // The chip's internal counter restarts with it; the mirror follows.
+        self.cycles = 0;
+        self.dac_enabled = false;
     }
 
     fn native_rate(&self) -> u32 {
@@ -111,6 +149,11 @@ impl ChipCore for Ym2612 {
     /// `addr` is a register number and `port` selects the chip's register bank,
     /// so each write is really two: the address, then the data.
     fn write(&mut self, port: u8, addr: u16, data: u16) {
+        // The DAC-enable register, sniffed on the way past: the mute gate
+        // needs to know whose sound sits in channel 6's slot.
+        if port & 1 == 0 && addr & 0xFF == 0x2B {
+            self.dac_enabled = data & 0x80 != 0;
+        }
         // Ports are 0 and 1 on the chip; upstream numbers the address and data
         // halves of each as 0/1 and 2/3.
         let base = u32::from(port & 1) * 2;
@@ -128,13 +171,29 @@ impl ChipCore for Ym2612 {
             let mut right = 0i32;
             for _ in 0..CLOCKS_PER_SAMPLE {
                 self.writes.advance(|port, byte| clocking.write(port, byte));
+                // Whose channel is on the pins this cycle, read *before* the
+                // clock advances the rotation -- as libvgm's own copy of this
+                // core gates its mute mask.
+                let bit = mute_bit_for_group(self.cycles >> 2, self.dac_enabled);
                 let (l, r) = clocking.clock();
+                self.cycles = (self.cycles + 1) % CLOCKS_PER_SAMPLE;
+                if self.mute_mask & (1 << bit) != 0 {
+                    continue;
+                }
                 left += l;
                 right += r;
             }
             frame[0] = left * OUTPUT_GAIN;
             frame[1] = right * OUTPUT_GAIN;
         }
+    }
+
+    /// Which channels to leave out of the sum: bit `i` is entry `i` of the
+    /// canonical order -- FM 1-6, then the DAC. Gated in [`render`], since the
+    /// chip itself has no mute (its output is one time-multiplexed DAC pin
+    /// pair, so muting is choosing which cycles to add).
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.mute_mask = muted;
     }
 }
 
@@ -223,6 +282,34 @@ mod tests {
             "the C core linked, reset, latched its writes and generated -- or it did not:              loud={} idle={}",
             energy(&loud),
             energy(&quiet)
+        );
+    }
+
+    /// Muting the playing channel silences it; muting a different one does
+    /// not. The gate lives in the binding's render loop (the chip itself has
+    /// no mute), keyed on a mirrored cycle counter -- so this also pins that
+    /// the mirror stays in phase with the chip's own rotation.
+    #[test]
+    fn muting_gates_the_playing_channels_cycles() {
+        let render = |mask: u32| -> i64 {
+            let mut chip = Ym2612::new();
+            chip.reset(MD_CLOCK, false);
+            chip.set_channel_mutes(mask);
+            key_on(&mut chip);
+            let mut out = vec![0i32; 4096 * 2];
+            chip.render(&mut out);
+            energy(&out)
+        };
+        let loud = render(0);
+        let muted = render(0b000_0001); // channel 1, the one key_on plays
+        let other = render(0b010_0000); // channel 6, which is idle
+        assert!(
+            muted * 8 < loud,
+            "muting channel 1 must silence the note (loud {loud}, muted {muted})"
+        );
+        assert!(
+            other * 2 > loud,
+            "muting an idle channel must not touch the note (loud {loud}, other {other})"
         );
     }
 

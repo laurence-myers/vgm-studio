@@ -55,9 +55,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
             realtime: true,
             channel_pan: false,
-            // Nuked-OPN2 has no per-channel mute (the trait no-op): the UI
-            // disables its channel toggles rather than showing dead ones.
-            channel_mute: false,
+            // Muted in the binding's own render gate: the chip's output is one
+            // time-multiplexed DAC pin pair, so muting is choosing which
+            // cycles to add -- the same idea as libvgm's copy of this core.
+            channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             // A `ChipCore`, not an `OplChip`: this one plays through
             // `VgmEngine`, the generic path with no register policy.

@@ -37,8 +37,9 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-OPLL",
             realtime: true,
             channel_pan: false,
-            // Generic ChipCores with no channel-mute impl (the trait no-op).
-            channel_mute: false,
+            // Muted in the binding's own render gate, cycle by cycle -- the
+            // same idea as libvgm's copy of this core.
+            channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2413::new())),
         });

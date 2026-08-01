@@ -56,6 +56,13 @@ pub struct Ym2413 {
     writes: WriteQueue,
     dc_prev_in: i64,
     dc_prev_out: i64,
+    /// A mirror of the chip's internal 18-cycle counter, which upstream keeps
+    /// private: zeroed by reset, advanced by every `NOPLL_Clock`, untouched by
+    /// writes. What [`render`](ChipCore::render)'s mute gate keys on.
+    cycles: u32,
+    /// The channel-mute mask, [`vgms_core::vgm::channels_of`] order: bits 0-8
+    /// the FM channels, 9-13 the rhythm voices (BD, SD, TT, CY, HH).
+    mute_mask: u32,
 }
 
 impl Ym2413 {
@@ -68,6 +75,8 @@ impl Ym2413 {
             writes: WriteQueue::new(SETTLE, SETTLE),
             dc_prev_in: 0,
             dc_prev_out: 0,
+            cycles: 0,
+            mute_mask: 0,
         }
     }
 
@@ -106,6 +115,8 @@ impl ChipCore for Ym2413 {
         self.chip.reset(variant);
         self.dc_prev_in = 0;
         self.dc_prev_out = 0;
+        // The chip's internal counter restarts with it; the mirror follows.
+        self.cycles = 0;
     }
 
     fn native_rate(&self) -> u32 {
@@ -124,16 +135,61 @@ impl ChipCore for Ym2413 {
             for _ in 0..CLOCKS_PER_SAMPLE {
                 let chip = &mut self.chip;
                 self.writes.advance(|port, byte| chip.write(port, byte));
+                // Whose voices are on the two DACs this cycle, read *before*
+                // the clock advances the rotation.
+                let (melody_bit, rhythm_bit) = mute_bits_for_cycle(self.cycles);
                 let (melody, rhythm) = self.chip.clock();
+                self.cycles = (self.cycles + 1) % CLOCKS_PER_SAMPLE;
                 // Two DACs, multiplexed across the rotation: the sample is that
-                // whole rotation of both.
-                sum += melody + rhythm;
+                // whole rotation of both, minus the cycles of muted voices.
+                if melody_bit.is_none_or(|bit| self.mute_mask & (1 << bit) == 0) {
+                    sum += melody;
+                }
+                if rhythm_bit.is_none_or(|bit| self.mute_mask & (1 << bit) == 0) {
+                    sum += rhythm;
+                }
             }
             let sample = self.block_dc(sum * OUTPUT_GAIN);
             // Mono: the chip has one output pin.
             frame[0] = sample;
             frame[1] = sample;
         }
+    }
+
+    /// Which voices to leave out of the sum: bit `i` is entry `i` of the
+    /// canonical order -- FM 1-9, then BD, SD, TT, CY, HH. Gated in
+    /// [`render`], since the chip itself has no mute (two time-multiplexed
+    /// DACs, so muting is choosing which cycles to add).
+    fn set_channel_mutes(&mut self, muted: u32) {
+        self.mute_mask = muted;
+    }
+}
+
+/// The mask bits for the voices on the melody and rhythm DACs during internal
+/// cycle `cycle` -- upstream's time-multiplex order, transcribed from the mute
+/// gating in libvgm's `nukedopll_update`, whose copy of this same core is
+/// where muting it from the outside comes from. `None` when that DAC carries
+/// nothing gateable this cycle.
+const fn mute_bits_for_cycle(cycle: u32) -> (Option<u32>, Option<u32>) {
+    match cycle {
+        1 => (Some(6), Some(9)),
+        2 => (Some(7), Some(10)),
+        3 => (Some(8), Some(12)),
+        4 => (None, Some(13)),
+        5 => (None, Some(11)),
+        6 => (None, Some(9)),
+        7 => (Some(0), None),
+        8 => (Some(1), None),
+        9 => (Some(2), None),
+        10 => (None, Some(10)),
+        11 => (None, Some(12)),
+        12 | 16 => (None, None),
+        13 => (Some(3), None),
+        14 => (Some(4), None),
+        15 => (Some(5), None),
+        17 => (None, Some(13)),
+        // Cycle 0, and anything unexpected: upstream's `default` arm.
+        _ => (None, Some(11)),
     }
 }
 
@@ -179,6 +235,32 @@ mod tests {
             loud > quiet * 8,
             "the C core linked, reset, latched its writes and generated -- or it \
              did not: loud={loud} quiet={quiet}"
+        );
+    }
+
+    /// Muting the playing channel silences it; muting a different one does
+    /// not. The gate lives in the binding's render loop (the chip itself has
+    /// no mute), keyed on a mirrored cycle counter -- so this also pins that
+    /// the mirror stays in phase with the chip's own rotation.
+    #[test]
+    fn muting_gates_the_playing_channels_cycles() {
+        let energy_with = |mask: u32| -> i64 {
+            let mut chip = Ym2413::new();
+            chip.reset(CLOCK, false);
+            chip.set_channel_mutes(mask);
+            key_on(&mut chip);
+            energy(&render(&mut chip, 8000))
+        };
+        let loud = energy_with(0);
+        let muted = energy_with(0b1); // FM 1, the one key_on plays
+        let other = energy_with(0b10_0000); // FM 6, which is idle
+        assert!(
+            muted * 8 < loud,
+            "muting FM 1 must silence the note (loud {loud}, muted {muted})"
+        );
+        assert!(
+            other * 2 > loud,
+            "muting an idle channel must not touch the note (loud {loud}, other {other})"
         );
     }
 
