@@ -411,13 +411,24 @@ pub trait AudioService {
     fn set_panning(&mut self, panning: Panning);
 
     /// Replaces the any-chip channel mutes, live -- the generic engine's
-    /// counterpart of [`set_muting`](Self::set_muting). The default is a no-op,
-    /// for backends with no generic engine (the RetroWave board, the test
-    /// stub, the web shell until it wires one).
-    fn set_chip_muting(&mut self, _muting: ChipMuting) {}
+    /// counterpart of [`set_muting`](Self::set_muting).
+    ///
+    /// **Deliberately not defaulted**, unlike almost everything a backend can
+    /// decline to do. These two had a `{}` default once, and
+    /// [`SwitchingAudioService`] -- the only service the desktop binary builds
+    /// -- inherited it while forwarding its OPL siblings, so every channel
+    /// mute, chip mute and pan on a non-OPL file was swallowed between the UI
+    /// and an engine that applied them perfectly. Nothing failed; the calls
+    /// simply stopped. A required method makes a forwarding wrapper say so,
+    /// and a backend that truly cannot must write the empty body and its
+    /// reason.
+    ///
+    /// [`SwitchingAudioService`]: https://docs.rs/vgms-app
+    fn set_chip_muting(&mut self, muting: ChipMuting);
 
-    /// Replaces the any-chip channel pans, live. Default no-op, as above.
-    fn set_chip_panning(&mut self, _panning: ChipPanning) {}
+    /// Replaces the any-chip channel pans, live. Required, for the reason on
+    /// [`set_chip_muting`](Self::set_chip_muting).
+    fn set_chip_panning(&mut self, panning: ChipPanning);
 
     /// Sets the live playback volume boost. A limiter keeps the boosted signal
     /// from clipping. Never affects a WAV render or the waveform.

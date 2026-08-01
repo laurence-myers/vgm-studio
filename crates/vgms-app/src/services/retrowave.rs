@@ -9,7 +9,7 @@
 
 use vgms_core::config::{AudioConfig, OutputBackend};
 use vgms_retrowave::{Device, RetroWaveAudio};
-use vgms_synth::{AudioSource, LoopConfig, Muting, Panning, Position};
+use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
 use vgms_ui::{AudioService, platform::HardwarePortInfo};
 
 use super::NativeAudioService;
@@ -142,6 +142,15 @@ impl AudioService for RetroWaveAudioService {
     /// Nothing to do: the boost is a property of the rendered signal, and this
     /// backend renders none.
     fn set_boost(&mut self, _boost: f32) {}
+
+    /// Nothing to do, and not an oversight: the board is an OPL3, `load`
+    /// refuses anything else, so there is never a generic chip here to mute.
+    /// Written out because the trait requires it -- see
+    /// [`AudioService::set_chip_muting`].
+    fn set_chip_muting(&mut self, _muting: ChipMuting) {}
+
+    /// As above: no generic engine, so no per-chip pans to place.
+    fn set_chip_panning(&mut self, _panning: ChipPanning) {}
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {
         self.loop_config = config;
@@ -299,6 +308,18 @@ impl AudioService for SwitchingAudioService {
         self.active_mut().set_panning(panning);
     }
 
+    /// Forwarded like every other live control -- and the reason
+    /// [`AudioService::set_chip_muting`] is a required method: this pair was
+    /// missing here while its OPL siblings above were not, and a non-OPL file's
+    /// mutes and pans died silently on the way to a working engine.
+    fn set_chip_muting(&mut self, muting: ChipMuting) {
+        self.active_mut().set_chip_muting(muting);
+    }
+
+    fn set_chip_panning(&mut self, panning: ChipPanning) {
+        self.active_mut().set_chip_panning(panning);
+    }
+
     fn set_boost(&mut self, boost: f32) {
         self.active_mut().set_boost(boost);
     }
@@ -363,6 +384,59 @@ mod tests {
             0,
             OplType::Opl3,
         ))
+    }
+
+    /// The live controls reach the backend that is playing -- **including the
+    /// any-chip pair**, which is what this test exists for.
+    ///
+    /// The bug it pins shipped: `set_chip_muting` / `set_chip_panning` had
+    /// `{}` defaults on `AudioService`, and this wrapper -- the only service
+    /// the desktop binary builds -- forwarded their OPL siblings while
+    /// inheriting the defaults for these. Every channel mute, chip mute and pan
+    /// on a non-OPL file was dropped here, between a UI that sent them and an
+    /// engine that applied them; both ends tested green in isolation and the
+    /// feature was dead in the app. The methods are required now, so a future
+    /// wrapper cannot repeat it silently -- and this checks the forwarding
+    /// itself, which needs no audio device because the backend stores what it
+    /// is given whether or not a stream is live.
+    #[test]
+    fn the_switching_service_forwards_the_any_chip_controls() {
+        use vgms_core::ChipKind;
+
+        let mut service = SwitchingAudioService::new();
+        assert_eq!(
+            service.active,
+            OutputBackend::Emulated,
+            "the default backend"
+        );
+
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Ym2612, 0, 0x7F);
+        muting.set(ChipKind::Sn76489, 0, 0b0001);
+        service.set_chip_muting(muting);
+        let stored = service.native.last_chip_muting();
+        assert_eq!(
+            stored.mask_for(ChipKind::Ym2612, 0),
+            0x7F,
+            "a whole-chip mask must reach the backend"
+        );
+        assert_eq!(
+            stored.mask_for(ChipKind::Sn76489, 0),
+            0b0001,
+            "and so must a single channel's"
+        );
+
+        let mut panning = ChipPanning::new();
+        panning.set(ChipKind::Sn76489, 0, vec![-0x100; 4]);
+        service.set_chip_panning(panning);
+        assert_eq!(
+            service
+                .native
+                .last_chip_panning()
+                .pans_for(ChipKind::Sn76489, 0),
+            Some(&[-0x100i16, -0x100, -0x100, -0x100][..]),
+            "pans must reach the backend too"
+        );
     }
 
     /// Loading hardware output with no device present must fail loudly rather

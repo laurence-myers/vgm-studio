@@ -74,6 +74,20 @@ impl NativeAudioService {
     fn stream_live(&self) -> bool {
         self.playing && self.audio.is_some()
     }
+
+    /// The any-chip mutes this service last accepted. For the sibling module's
+    /// test that the switching wrapper forwards them -- reading the stored
+    /// state needs no audio device, which is the point.
+    #[cfg(test)]
+    pub(super) const fn last_chip_muting(&self) -> &ChipMuting {
+        &self.chip_muting
+    }
+
+    /// The any-chip pans this service last accepted, as above.
+    #[cfg(test)]
+    pub(super) const fn last_chip_panning(&self) -> &ChipPanning {
+        &self.chip_panning
+    }
 }
 
 impl AudioService for NativeAudioService {
