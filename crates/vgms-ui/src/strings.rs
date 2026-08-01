@@ -806,6 +806,11 @@ pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning
 
 pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
 
+pub(crate) const CHIP_PANELS_MUTE_CHIP: &str =
+    "Mute this whole chip. Works with every core; the channel toggles keep their pattern.";
+pub(crate) const CHIP_PANELS_SOLO_CHIP: &str =
+    "Solo this chip: mute every other chip in the file. Press again to bring them back.";
+
 pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
     format!("{}. Left-click mutes, right-click solos.", name)
 }

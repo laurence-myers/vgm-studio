@@ -40,6 +40,10 @@ pub struct GenericChannelPanel {
     channels: &'static [ChannelInfo],
     /// Audible per channel; muting un-lights a toggle.
     audible: Vec<bool>,
+    /// The whole chip muted, over and above the per-channel toggles -- the
+    /// chip tab's Mute control, and what Solo on a sibling sets. Kept separate
+    /// from `audible` so un-muting the chip restores the channel pattern.
+    chip_muted: bool,
     /// Pan byte per channel, edited under Custom mode.
     pans: Vec<u8>,
     /// Whether the pan knobs drive the output (Custom) or the chip's own image
@@ -57,6 +61,7 @@ impl GenericChannelPanel {
             instance,
             channels,
             audible: vec![true; channels.len()],
+            chip_muted: false,
             pans: vec![PAN_CENTER; channels.len()],
             custom: false,
         }
@@ -75,9 +80,14 @@ impl GenericChannelPanel {
     }
 
     /// The mute mask: bit `i` set for each muted channel, in the canonical
-    /// [`channels_of`] order.
+    /// [`channels_of`] order. A chip-level mute covers every bit -- which the
+    /// engine also reads as "silence this voice entirely", so it holds even
+    /// for a core that cannot mute single channels.
     #[must_use]
     pub fn mask(&self) -> u32 {
+        if self.chip_muted {
+            return (1u32 << self.channels.len()) - 1;
+        }
         let mut mask = 0u32;
         for (index, &audible) in self.audible.iter().enumerate() {
             if !audible {
@@ -85,6 +95,18 @@ impl GenericChannelPanel {
             }
         }
         mask
+    }
+
+    /// Whether the whole chip is muted (the tab's Mute control).
+    #[must_use]
+    pub const fn chip_muted(&self) -> bool {
+        self.chip_muted
+    }
+
+    /// Mutes or unmutes the whole chip, leaving the per-channel pattern to
+    /// come back when it is unmuted.
+    pub fn set_chip_muted(&mut self, muted: bool) {
+        self.chip_muted = muted;
     }
 
     /// The pan positions to apply, or `None` for "leave the chip's own image

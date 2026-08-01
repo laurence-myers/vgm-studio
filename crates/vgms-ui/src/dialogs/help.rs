@@ -82,6 +82,14 @@ const SECTIONS: &[Section] = &[
                 Keys::Text("Shift+1 - 9"),
                 "Mute or unmute channels 10 to 18 (chips with more)",
             ),
+            (
+                Keys::Text("Right-click a channel"),
+                "Solo it (again to bring the rest back)",
+            ),
+            (
+                Keys::Text("Mute / Solo by the chip tabs"),
+                "Mute or solo a whole chip of a multi-chip file, whatever its core",
+            ),
         ],
     },
     Section {

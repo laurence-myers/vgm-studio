@@ -52,6 +52,15 @@ struct Voice {
     /// ratio. Applied per frame *before* the voices are summed, so the
     /// headroom exists before the mix clamps to 16 bits.
     balance: u32,
+    /// How many channels this chip has, so [`apply_mix`](VgmEngine::apply_mix)
+    /// can tell "every channel muted" from a partial mask.
+    channel_count: u32,
+    /// A mute mask covering every channel silences the voice here in the
+    /// engine, whatever the core can do -- the whole-chip Mute/Solo controls
+    /// rest on this, and it is what makes them work even for a core with no
+    /// per-channel mute. The core still renders (mute is not pause; its state
+    /// must stay where the music is), the frames just do not reach the sum.
+    silenced: bool,
 }
 
 impl Voice {
@@ -74,6 +83,8 @@ impl Voice {
             output_rate,
             resampler: Resampler::new(native, output_rate),
             balance,
+            channel_count: vgms_core::vgm::channels_of(chip.kind, chip.variant).len() as u32,
+            silenced: false,
         }
     }
 
@@ -101,6 +112,11 @@ impl Voice {
             core.render(&mut frame);
             frame
         });
+        // After the pull: a silenced chip keeps running (mute is not pause),
+        // its frames just never reach the sum.
+        if self.silenced {
+            return [0, 0];
+        }
         if self.balance == crate::balance::GAIN_UNITY {
             return frame;
         }
@@ -276,10 +292,16 @@ impl VgmEngine {
     /// bug would be a muted channel coming back after a seek.
     fn apply_mix(&mut self) {
         for voice in &mut self.voices {
-            voice.core.set_channel_mutes(
-                self.muting
-                    .mask_for(voice.target.kind, voice.target.instance),
-            );
+            let mask = self
+                .muting
+                .mask_for(voice.target.kind, voice.target.instance);
+            voice.core.set_channel_mutes(mask);
+            // A mask covering the whole chip is a promise the engine keeps
+            // itself, so the whole-chip Mute/Solo hold on every core -- a core
+            // with no per-channel mute included. Every channel's bit must be
+            // set, not merely enough bits: a stray high bit is not a mute.
+            let full = (1u64 << voice.channel_count) - 1;
+            voice.silenced = voice.channel_count > 0 && u64::from(mask) & full == full;
             if let Some(pans) = self
                 .panning
                 .pans_for(voice.target.kind, voice.target.instance)
@@ -894,6 +916,61 @@ mod tests {
         }
         assert_eq!(total, 44_835);
         assert!(engine.is_finished());
+    }
+
+    /// A mask covering every channel silences the voice in the engine itself
+    /// -- on a core that ignores `set_channel_mutes` entirely, which is the
+    /// case the whole-chip Mute/Solo controls exist for. A partial mask on the
+    /// same core changes nothing, which is honest: that core cannot mute one
+    /// channel, and pretending otherwise here would hide it.
+    #[test]
+    fn a_full_mask_silences_a_voice_whose_core_cannot_mute() {
+        /// Renders a constant and ignores mutes, like the Nuked-OPM.
+        #[derive(Debug)]
+        struct Constant;
+        impl ChipCore for Constant {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(1000);
+            }
+        }
+
+        let file = vgm(&[(ChipKind::Ym2151, 3_579_545)], &[0x61, 0x00, 0x10, 0x66]);
+        let mut engine =
+            VgmEngine::with_cores(Arc::clone(&file), 44_100, |_| Some(Box::new(Constant)));
+        let mut out = vec![0i16; 512];
+        engine.render(&mut out);
+        assert!(out.iter().any(|&s| s != 0), "sanity: the constant sounds");
+
+        // Every one of the YM2151's eight channels -- the whole chip.
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Ym2151, 0, 0xFF);
+        let mut engine =
+            VgmEngine::with_cores(Arc::clone(&file), 44_100, |_| Some(Box::new(Constant)));
+        engine.set_muting(muting);
+        let mut out = vec![0i16; 512];
+        engine.render(&mut out);
+        assert!(
+            out.iter().all(|&s| s == 0),
+            "a whole-chip mask must silence the voice in the engine"
+        );
+
+        // One channel only: this core cannot honour it, and the engine must
+        // not silence the other seven for it.
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Ym2151, 0, 0b1);
+        let mut engine = VgmEngine::with_cores(file, 44_100, |_| Some(Box::new(Constant)));
+        engine.set_muting(muting);
+        let mut out = vec![0i16; 512];
+        engine.render(&mut out);
+        assert!(
+            out.iter().any(|&s| s != 0),
+            "a partial mask is the core's business"
+        );
     }
 
     #[test]

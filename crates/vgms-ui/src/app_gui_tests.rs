@@ -2114,6 +2114,52 @@ fn other_chip_vgm_file() -> PickedFile {
     }
 }
 
+/// A VGM declaring the one chip the GUI-test registry can actually play and
+/// mute: the SN76489 (the tone-stub core registers under its id with
+/// `channel_mute: true`). What the *clicked* channel toggles are tested on.
+fn sn76489_vgm_file() -> PickedFile {
+    generic_vgm_file("01 Tone.vgm", &[(vgms_core::ChipKind::Sn76489, 3_579_545)])
+}
+
+/// A Mega Drive pair -- the shape the chip Mute/Solo controls exist for.
+fn mega_drive_vgm_file() -> PickedFile {
+    generic_vgm_file(
+        "01 Zone.vgm",
+        &[
+            (vgms_core::ChipKind::Sn76489, 3_579_545),
+            (vgms_core::ChipKind::Ym2612, 7_670_454),
+        ],
+    )
+}
+
+/// A generic (non-OPL) VGM declaring `chips`, with a small walkable body.
+fn generic_vgm_file(name: &str, chips: &[(vgms_core::ChipKind, u32)]) -> PickedFile {
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x161);
+    put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+    for (kind, clock) in chips {
+        put_u32(&mut bytes, kind.clock_offset(), *clock);
+    }
+    put_u32(&mut bytes, 0x18, 10_735);
+    bytes.extend_from_slice(&[
+        0x50, 0x8E, // SN76489 write
+        0x61, 0x10, 0x27, // wait 10000
+        0x62, // wait 735
+        0x66, // end
+    ]);
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+    PickedFile {
+        name: name.to_owned(),
+        path: Some(PathBuf::from(format!("C:/rips/Tone/{name}"))),
+        bytes,
+    }
+}
+
 /// The same file with a stream that will not walk: `0x00` is an opcode the
 /// spec gives no length, so there is no way past it and no rows to show.
 fn unwalkable_vgm_file() -> PickedFile {
@@ -2164,6 +2210,84 @@ fn opening_a_vgm_for_other_chips_opens_it_for_trimming() {
         app.status.contains("playback is not supported"),
         "{}",
         app.status
+    );
+}
+
+/// *Clicking* a generic chip's channel toggle pushes the mask to the audio
+/// output -- the path the pointer takes, as distinct from the number-key
+/// action below. This is the click the "muting does nothing" report describes,
+/// so it is pinned end to end at the UI layer.
+#[test]
+fn clicking_a_chip_channel_toggle_pushes_the_mask() {
+    let (mut harness, handles) = build(Some(sn76489_vgm_file()), false, false);
+    harness.run();
+
+    // The SN76489 panel's first channel, by its toggle label.
+    harness.get_by_label("T1").click();
+    harness.run();
+
+    let audio = handles.audio.borrow();
+    let last = audio.chip_mutings.last().expect("a chip muting was pushed");
+    assert_eq!(
+        last.mask_for(vgms_core::ChipKind::Sn76489, 0),
+        0b1,
+        "clicking T1 must mute Tone 1"
+    );
+}
+
+/// The chip tab's Mute control masks that whole chip, and Solo mutes every
+/// *other* chip -- the isolation workflow: solo the SN76489 of a Mega Drive
+/// rip and only the PSG is left sounding. Works whatever the cores can do,
+/// because a whole-chip mask is honoured by the engine itself.
+#[test]
+fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
+    use vgms_core::ChipKind;
+
+    let (mut harness, handles) = build(Some(mega_drive_vgm_file()), false, false);
+    harness.run();
+
+    // The SN76489 tab is selected first; Solo it.
+    harness.get_by_label("Solo").click();
+    harness.run();
+    {
+        let audio = handles.audio.borrow();
+        let last = audio.chip_mutings.last().expect("a chip muting was pushed");
+        assert_eq!(
+            last.mask_for(ChipKind::Sn76489, 0),
+            0,
+            "the soloed chip plays"
+        );
+        assert_eq!(
+            last.mask_for(ChipKind::Ym2612, 0),
+            0x7F,
+            "the other chip is fully masked"
+        );
+    }
+
+    // Solo again: everything comes back.
+    harness.get_by_label("Solo").click();
+    harness.run();
+    {
+        let audio = handles.audio.borrow();
+        let last = audio.chip_mutings.last().expect("a chip muting was pushed");
+        assert_eq!(last.mask_for(ChipKind::Sn76489, 0), 0);
+        assert_eq!(last.mask_for(ChipKind::Ym2612, 0), 0);
+    }
+
+    // Mute the selected chip alone.
+    harness.get_by_label("Mute").click();
+    harness.run();
+    let audio = handles.audio.borrow();
+    let last = audio.chip_mutings.last().expect("a chip muting was pushed");
+    assert_eq!(
+        last.mask_for(ChipKind::Sn76489, 0),
+        0xF,
+        "the selected chip is fully masked"
+    );
+    assert_eq!(
+        last.mask_for(ChipKind::Ym2612, 0),
+        0,
+        "the other is untouched"
     );
 }
 

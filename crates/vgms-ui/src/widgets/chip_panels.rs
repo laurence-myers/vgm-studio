@@ -27,7 +27,7 @@ use vgms_synth::{ChipMuting, ChipPanning, Muting, Panning};
 
 use super::channels::{ChannelPanel, ChannelsResponse};
 use super::chip_channels::GenericChannelPanel;
-use crate::theme::{Palette, tabs};
+use crate::theme::{Palette, bevel, tabs};
 
 /// What a chip contributes to the deck.
 #[derive(Debug)]
@@ -205,6 +205,30 @@ impl ChipPanels {
         }
     }
 
+    /// Whether the selected chip is the only unmuted one -- the state Solo
+    /// puts the strip in, and what a second Solo press undoes.
+    fn selected_is_soloed(&self) -> bool {
+        self.entries.iter().enumerate().all(|(at, entry)| {
+            match &entry.controls {
+                ChipControls::Generic(panel) => panel.chip_muted() == (at != self.selected),
+                // An OPL entry never coexists with generic ones in a real
+                // document, so it neither blocks nor satisfies a solo.
+                ChipControls::Opl => true,
+            }
+        })
+    }
+
+    /// Solo the selected chip -- every other chip muted -- or, when it already
+    /// is soloed, bring the others back.
+    fn toggle_selected_solo(&mut self) {
+        let undo = self.selected_is_soloed();
+        for (at, entry) in self.entries.iter_mut().enumerate() {
+            if let ChipControls::Generic(panel) = &mut entry.controls {
+                panel.set_chip_muted(!undo && at != self.selected);
+            }
+        }
+    }
+
     /// Draws the selector strip (always) and the selected chip's controls.
     ///
     /// `pan_supported(chip)` / `mute_supported(chip)` answer whether pan and mute
@@ -219,30 +243,72 @@ impl ChipPanels {
         pan_supported: impl Fn(Option<ChipKind>) -> bool,
         mute_supported: impl Fn(Option<ChipKind>) -> bool,
     ) -> ChannelsResponse {
-        self.selector(ui, palette);
+        let mut response = self.selector(ui, palette);
         let chip = self.selected_chip();
         let pan = pan_supported(chip);
-        match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
+        let body = match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
             Some(ChipControls::Generic(panel)) => {
                 panel.show(ui, palette, pan, mute_supported(chip))
             }
             // The OPL entry, or (defensively) an out-of-range selection.
             _ => self.opl.show(ui, palette, pan),
-        }
+        };
+        response.muting_changed |= body.muting_changed;
+        response.panning_changed |= body.panning_changed;
+        response
     }
 
-    fn selector(&mut self, ui: &mut egui::Ui, palette: &Palette) {
-        let strip: Vec<tabs::Tab> = self
+    fn selector(&mut self, ui: &mut egui::Ui, palette: &Palette) -> ChannelsResponse {
+        let mut response = ChannelsResponse::default();
+        // Owned, so the strip does not hold `self.entries` borrowed across the
+        // mute/solo controls below, which mutate the panels.
+        let labels: Vec<String> = self
             .entries
             .iter()
-            .map(|entry| tabs::Tab::new(entry.label.as_str()))
+            .map(|entry| entry.label.clone())
             .collect();
         ui.horizontal(|ui| {
+            let strip: Vec<tabs::Tab> = labels
+                .iter()
+                .map(|label| tabs::Tab::new(label.as_str()))
+                .collect();
             ui.label("Chip:");
             if let Some(clicked) = tabs::strip(ui, palette, &strip, self.selected) {
                 self.selected = clicked;
             }
+            // Whole-chip mute and solo, beside the tabs they act on. Only on a
+            // multi-chip document -- isolation needs something to isolate
+            // *from* -- and only for a generic chip. Not gated on the core's
+            // per-channel mute: a whole-chip mask silences the voice in the
+            // engine itself, so these work on every core (the reason they are
+            // the reliable way to A/B one chip's output).
+            if self.entries.len() < 2 {
+                return;
+            }
+            let Some(ChipControls::Generic(panel)) =
+                self.entries.get_mut(self.selected).map(|e| &mut e.controls)
+            else {
+                return;
+            };
+            let mut muted = panel.chip_muted();
+            if bevel::toggle(ui, palette, &mut muted, "Mute")
+                .on_hover_text(crate::strings::CHIP_PANELS_MUTE_CHIP)
+                .changed()
+            {
+                panel.set_chip_muted(muted);
+                response.muting_changed = true;
+            }
+            let soloed = self.selected_is_soloed();
+            let mut solo = soloed;
+            if bevel::toggle(ui, palette, &mut solo, "Solo")
+                .on_hover_text(crate::strings::CHIP_PANELS_SOLO_CHIP)
+                .changed()
+            {
+                self.toggle_selected_solo();
+                response.muting_changed = true;
+            }
         });
+        response
     }
 }
 
