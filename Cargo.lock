@@ -4694,7 +4694,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vgms-app"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4723,7 +4723,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-audio-native"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cpal",
  "log",
@@ -4735,7 +4735,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-core"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "flate2",
  "log",
@@ -4747,7 +4747,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-cores-gpl"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "log",
@@ -4757,7 +4757,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-cores-libvgm"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "libm",
@@ -4768,7 +4768,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-cores-nuked"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "log",
@@ -4778,7 +4778,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-cores-ymfm"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "vgms-core",
@@ -4787,7 +4787,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-pack-archive"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "flate2",
  "zip",
@@ -4795,7 +4795,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-retrowave"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "log",
  "rtrb",
@@ -4807,7 +4807,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-synth"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "hound",
  "log",
@@ -4819,7 +4819,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-synth-worklet"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "log",
  "vgms-core",
@@ -4831,7 +4831,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-ui"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
@@ -4847,7 +4847,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-vgmtools"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "cc",
  "flate2",
@@ -4859,7 +4859,7 @@ dependencies = [
 
 [[package]]
 name = "vgms-web"
-version = "5.1.0"
+version = "0.1.0"
 dependencies = [
  "eframe",
  "flate2",

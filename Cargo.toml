@@ -14,7 +14,7 @@ exclude = ["vendor/nuked-opl3"]
 nuked-opl3 = { path = "vendor/nuked-opl3" }
 
 [workspace.package]
-version = "5.1.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
 # NOTE: there is deliberately no workspace `license` key. The workspace is
