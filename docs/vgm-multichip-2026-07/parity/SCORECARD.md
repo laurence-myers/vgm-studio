@@ -862,3 +862,233 @@ features no core models. Self-consistent conventions that would bite only if a
 libvgm row were added for the chip: WonderSwan registers 0-based here versus
 `0x80`-based upstream; the SAA1099's address/data latch order; `0x68` RAM
 addresses treated as absolute where upstream ORs in the RF5C bank register.
+
+## 2026-08-01 — the core picker was also a volume control
+
+Reported from listening, not from the table: *"the volume between cores for the
+same chip is quite different — libvgm is a lot quieter than Nuked-\*, which
+causes issues when the VGM contains different chips."* The rip named was Sonic 3
+& Knuckles' Hydrocity Zone Act 2 — a YM2612 and an SN76489, and switching the
+YM2612 to libvgm drops its FM ~6 dB while the PSG stays put.
+
+**It is real, and it is the three chips whose default is a Nuked core**
+(`install_cores` promotes `ym2612.nuked`, `ym2151.nuked`, `ym2413.nuked`; libvgm
+is the default everywhere else, so on every other chip a "core change" is one
+libvgm core for another). Measured two independent ways — the reference harness
+at native rate (n=12), and a direct core-against-core render at 44100 (n=8):
+
+| chip | default `lvl` vs reference | libvgm `lvl` vs reference | ratio | direct (n=8) |
+|---|---|---|---|---|
+| YM2612 | 0.955 | 0.466 | **0.488** | 0.4877 [0.4858..0.5018] |
+| YM2151 | 1.000 | 0.498 | **0.498** | 0.4973 [0.4663..0.4998] |
+| YM2413 | 0.370 | 0.246 | **0.665** | 0.7375 [0.7053..0.9281] |
+
+The YM2612 and YM2151 agree to three decimals across the two methods and barely
+scatter across files: one scalar describes the whole difference, which is
+exactly the condition `CoreInfo::level` states for being usable at all.
+
+**Read `lvl`, never `gain`.** The libvgm YM2612 reads `lvl 0.466 gain 1.766` on
+the same twelve files — the least-squares fit is `α = ρ · σ_ref / σ_ours`, so it
+collapses for any decorrelated pair, and two *different* emulators for one chip
+are the pair most likely to decorrelate. `ChannelScore` has warned about this
+since the SN76489's first row; this is the second time it has mattered.
+
+**The corrections**, in `vgms-cores-libvgm`'s spec table:
+
+| row | level | anchored to |
+|---|---|---|
+| `ym2612.libvgm` | 525 | the reference (its default is there already) |
+| `ym2612.libvgm-gens` | 516 | " |
+| `ym2151.libvgm` | 514 | " |
+| `ym2413.libvgm` | 385 | **the chip's default, not the reference** |
+| `ay8910.libvgm-mame` | 399 | its own default row (0.6415 [0.5886..0.6938]) |
+
+The YM2413 is the one that could not be anchored to the reference: the chip's
+own default sits at 0.370 of VGMPlay's, the shortfall this chronicle has carried
+as open since 2026-07-28. Calibrating the alternate to the reference would have
+left it 2.7x above the chip's own default — the same complaint, an octave
+louder. **If that open item is ever settled, this row's number moves with it.**
+
+**Left alone, and why.** A row whose ratio scatters across files is not
+describable by one scalar, and a fitted constant there would be a guess wearing
+a measurement's clothes:
+
+| row | ratio | spread | reading |
+|---|---|---|---|
+| `nesapu.libvgm-mame` | 1.262 | 1.97x | differs in more than level |
+| `gameboydmg.libvgm-mame` | 1.148 | 1.74x | " |
+| `qsound.libvgm-mame` | 1.029 | 1.56x | within band anyway |
+| `ym2413.libvgm-mame` | 0.779 | 1.51x | scatters; EMU2413 vs MAME vs Nuked, three ways |
+| `sn76489.nuked-psg` | 0.895 | 1.49x | 10.5%, at the band's edge, scattered |
+| `huc6280.libvgm-mame` | 0.932 | 1.41x | within band |
+| `saa1099.libvgm-mame` | 1.000 | 1.25x | within band |
+| `rf5c68/164.libvgm-gens` | 0.994 | 1.02x | within band |
+| `sn76489.libvgm-mame` | 1.021 | 1.05x | within band |
+
+**The regression guard.** `every_core_for_a_chip_agrees_on_its_level` in
+`reference_parity` is the measurement above, kept: every chip with more than one
+realtime core, each core's RMS over the default's, failing a row that is more
+than 10% out *and* consistent enough for a scalar to fix. It needs the corpus
+and no reference player. A scattered row prints its numbers and does not fail —
+saying so out loud, so the list above cannot quietly become a list of tolerated
+faults.
+
+**What this did not touch.** libvgm's own per-chip volume table
+(`VGMPlayer::_CHIP_VOLUME`) is still not applied by our binding — VGMPlay halves
+the SN76489 and doubles the YM2413 relative to everything else, and we do
+neither. That is a *cross-chip* balance question about every libvgm row at once,
+not the *same-chip* one reported here, and it belongs with the YM2413's open
+shortfall rather than in a fix for the core picker.
+
+## 2026-08-01, later — the volume model itself, and a silent chip
+
+Three more listening reports, each of which turned out to be a different layer
+of the same subject:
+
+**1. Lemmings (FM Towns) played silence.** An RF5C68-only rip: one 34 KiB
+type-`0xC0` RAM block, channels starting at 0x7400. Our binding looped RAM
+images through the byte-wide memory writer — whose window (this is the CPU's
+own view of the chip) masks offsets to 4 KiB (`rf5c68_mem_w`:
+`offset &= 0x0FFF`) — so the whole image folded onto one window while the
+channels fetch *absolute* addresses. The play cursor advanced normally through
+empty RAM. Diagnosed by dumping the C state byte by byte after every layer of
+the stack checked out individually; the tell was a sentinel that read back
+through the window but not through the raw data pointer. Fix: RAM images go
+through each core's `DEVRW_BLOCK` writer (absolute, as upstream's
+`Cmd_DataBlock` does), with the RF5C bank register tracked binding-side and
+OR'd into every RAM-write address (upstream's `Cmd_RF5C_Reg` bank patch +
+`DoRAMOfsPatches`). This also fixes the same folding on the `0x68` copies.
+
+**2. Black Knight 2000 clipped hard.** Its rips are YM2612+YM2151+PWM, and one
+carries volume modifier `0xC1` (0.25x). Two findings:
+
+* The header volume modifier was already honoured by the volume lever for the
+  editor — but the **pack preview** only read it off OPL sources, so a non-OPL
+  VGM previewed at whatever the lever last was. Fixed.
+* The real damage was **cross-chip balance**: VGMPlay normalises every file's
+  loudness from its declared chip set (`EstimateOverallVolume` /
+  `NormalizeOverallVolume` — double every chip volume while the weighted sum
+  is ≤ 0x180, halve while > 0x300). Our per-core levels are calibrated against
+  *single-chip* reference renders, which fold that normalisation in — so a
+  three-chip mix summed voices each sitting at its normalised-up solo level,
+  clipped the 16-bit mix, and no output lever could undo it.
+
+  The fix is `vgms_synth::balance`: VGMPlay's `_CHIP_VOLUME` + `_PB_VOL_AMNT`
+  tables and normalisation, expressed as a per-voice **ratio**
+  `V_eff·N(set) / (V·N({chip}))` — exactly 1.0 for every single-instance
+  single-chip file, so no calibration and no parity row moves. Black Knight's
+  set puts all three voices at 1/2 (peak 32768→16036, unclipped); Hydrocity's
+  keeps the FM at unity and drops the PSG to half, which *is* VGMPlay's Mega
+  Drive tilt. Dual declarations halve per instance (T6W28 excepted), the
+  v1.70 extra header's per-chip volumes override the table (Black Knight
+  carries entries), and the estimate counts chips this build cannot play,
+  because the reference's does.
+
+**3. 500GP (C352) was ~4x hot.** The unmeasured `c352.libvgm` row, measured at
+last: the files that correlate at 1.0000 read lvl 4.0000 exactly — VGMPlay's
+`_CHIP_VOLUME[C352]` (0x40). Level set to 64; the mix stops clipping. Rows for
+other never-measured chips still sit at unity; the C352 measurement is the
+template for closing them chip by chip.
+
+**And channel muting stopped being OPL-only.** The report: mute selectors did
+nothing for other chips. Engine, UI and service wiring all proved correct —
+the gap was the three chips whose default core is Nuked (`ym2612.nuked`,
+`ym2151.nuked`, `ym2413.nuked`), which had no mute and so shipped disabled
+toggles. Now:
+
+| core | mute | how |
+|---|---|---|
+| `ym2612.nuked` | **yes** | render-gate on the 24-cycle rotation (order 2,6/DAC,4,1,5,3, from libvgm's copy); DAC-enable sniffed off register 0x2B |
+| `ym2413.nuked` | **yes** | render-gate on the 18-cycle rotation's melody/rhythm pair, map transcribed from libvgm's `nukedopll_update` |
+| `ym2151.nuked` | no — cannot | its DAC accumulates all eight channels inside the chip; the tooltip points at the libvgm core, which mutes |
+
+Both gates key on a binding-side mirror of the chip's private cycle counter
+(zeroed by reset, +1 per clock, untouched by writes), pinned by tests that mute
+the playing channel and an idle one.
+
+## 2026-08-01, later still — the muting report, re-verified end to end
+
+A follow-up report said muting and panning still did nothing on Hydrocity
+(SN76489+YM2612), on every core. Rather than assume, every layer was measured
+against that exact file **in the current tree**:
+
+| layer | evidence |
+|---|---|
+| engine + real cores | both chips masked → RMS 0.0/0.0; YM2612 masked → PSG remains; SN hard-left + FM masked → right channel 0.0 |
+| the real `NativeAudio` (cpal stream, command ring, callback) | its own peak meter: 0.0356 → 0.0000 after a full mask |
+| the clicked toggle | new GUI test `clicking_a_chip_channel_toggle_pushes_the_mask` |
+
+All passed — **and the conclusion drawn from them was wrong.** "Every layer" was
+three layers of four. The reader should skip to the next section: the fault was
+real, in the one seam not on that list, and blaming the user's binary was a
+misreading of a gap in the evidence.
+
+**Whole-chip Mute/Solo landed with it**, as the report suggested — the right
+instrument for exactly this A/B. Each chip tab of a multi-chip file gets a
+Mute toggle and a Solo toggle (solo mutes every other chip; again restores).
+Backed by a new engine guarantee: a mask covering every channel silences the
+voice *in the engine*, whatever the core can do -- so chip Mute/Solo work even
+on cores with no per-channel mute (Nuked-OPM included), pinned by
+`a_full_mask_silences_a_voice_whose_core_cannot_mute`. The Help dialog lists
+both gestures.
+
+## 2026-08-01 — the seam nobody tested: a defaulted trait method
+
+The muting report was right and the section above was wrong. A screen recording
+settled it: the channel toggles visibly un-lit while the peak meter never
+moved. The UI was sending, the engine was applying, and the two were not
+connected.
+
+**`SwitchingAudioService` — the only `AudioService` the desktop binary ever
+builds** (`vgmstudio.rs:119`) — forwards eighteen methods to the active
+backend, including `set_muting` and `set_panning`. It never defined
+`set_chip_muting` or `set_chip_panning`, and those two were the only live
+controls the trait gave a `{}` **default body** (`platform.rs:417,420`). So the
+wrapper silently inherited two no-ops, and every any-chip mute and pan died
+between a UI that sent them and an engine that would have applied them.
+
+The A/B, same file, same config, same call order, same process — only the
+wrapper differs:
+
+| service | peak before | after a full mask |
+|---|---|---|
+| `NativeAudioService` (what every probe used) | L 0.90607 | **L 0.00000** |
+| `SwitchingAudioService` (what the app uses) | L 0.90607 | **L 0.89005** |
+
+**Why three green layers proved nothing.** The engine probes constructed
+`VgmEngine` directly; the "real audio service" probe constructed `NativeAudio`
+directly; the GUI test used `FakeAudioService`. Each end was real and each
+passed. Nothing exercised the wrapper in between, and a defaulted trait method
+is invisible exactly there — it is not a wrong line of code, it is an absent
+one, and absent code has no line to review.
+
+**The fix is the trait, not the wrapper.** Forwarding the two methods repairs
+today's bug; *removing their defaults* is what stops the next one. They are
+required methods now, so a backend must either forward them or write the empty
+body and its reason — `RetroWaveAudioService` does the latter (an OPL3 board;
+`load` refuses anything else). `the_switching_service_forwards_the_any_chip_controls`
+pins the forwarding behaviourally; the compiler pins the class.
+
+**Measured on the way, and worth keeping** (release, real cores, real file):
+
+| core | per-channel mute | note |
+|---|---|---|
+| `sn76489.libvgm` (default) | **works**, to exactly 0 | pan works too: hard-left L 22.3M / R 0 |
+| `sn76489.libvgm-mame` | works | no pan (`supports_pan=false`) |
+| `sn76489.nuked-psg` | none, honestly declared | registry says `channel_mute=false`; UI greys it |
+| `ym2612.nuked` (default) | **works** (0.0845; the residual is the idle DAC-ladder floor) | the render gate added earlier is real, verified not assumed |
+| `ym2612.libvgm` (level 525) | works, to 0 | `Leveled`-wrapped, and the wrapper forwards |
+| `ym2612.libvgm-gens` (level 516) | works, to 0 | also wrapped |
+| `ym2612.lle` | none | `channel_mute=false`, `realtime=false` — never the transport's core anyway |
+
+A mask also survives libvgm's device restart on `configure`, and survives a
+rewind (`start()` re-applies both).
+
+**Panning is not broken, but it is near-undiscoverable**, and the report is
+fair. Two things hide it, both by design: the pan knobs are not drawn at all
+until the small **Custom** icon under the channel row is pressed
+(`show_pans = pan_supported && self.custom`), and pressing Custom is itself
+inaudible because every knob defaults to centre. On Hydrocity there is a third:
+the SN76489 is ~6% of the mix (peak 0.0597 against the YM2612's 0.9315), so
+panning it moves the meter by ~1% unless the YM2612 is muted first — with it
+muted, the pan is total (L 0.08438 / R 0.00000, and the exact mirror).
