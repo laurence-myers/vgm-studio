@@ -284,6 +284,7 @@ mod e2e {
             "Stop" => Action::Stop,
             // Pack
             "OpenPackFolder" => Action::OpenPackFolder,
+            "OpenPackZip" => Action::OpenPackZip,
             "ConfirmOpenPackFolder" => Action::ConfirmOpenPackFolder,
             "ClosePack" => Action::ClosePack,
             "ConfirmClosePack" => Action::ConfirmClosePack,

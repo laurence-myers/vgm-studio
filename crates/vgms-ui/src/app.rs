@@ -2010,6 +2010,10 @@ impl VgmStudioApp {
             }
             Action::ConfirmOpenPackFolder => self.files.pick_folder(),
             Action::OpenPackFolderAt(path) => self.files.open_folder_path(path),
+            // No dirty prompt here: the picked `.zip` comes back through
+            // `load_or_confirm`, which raises it once the file is in hand --
+            // asking before the picker would prompt even for a dismissed one.
+            Action::OpenPackZip => self.files.pick_pack_zip(),
             Action::SelectTab(tab) => self.select_tab(tab),
             Action::ClosePack => {
                 if self.pack_is_dirty() {

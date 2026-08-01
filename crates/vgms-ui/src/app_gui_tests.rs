@@ -6236,11 +6236,27 @@ fn in_the_editor_file_carries_the_song_commands_and_both_openers() {
     harness.run();
     let _ = harness.get_by_label_contains("Open Song...");
     let _ = harness.get_by_label("Open Pack Folder...");
+    let _ = harness.get_by_label("Open Pack Zip...");
     let _ = harness.get_by_label_contains("Save As...");
     assert!(
         harness.query_by_label("Save Package Files").is_none(),
         "the pack's outputs belong to the pack tab"
     );
+}
+
+/// A pack in a `.zip` is openable from the menu, not only by dropping it: the
+/// item opens the zip picker rather than the folder one.
+#[test]
+fn open_pack_zip_opens_the_zip_picker() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.get_by_label("File").click();
+    harness.run();
+    harness.get_by_label("Open Pack Zip...").click();
+    harness.run();
+
+    let files = handles.files.borrow();
+    assert_eq!(files.pick_pack_zip_calls, 1, "the zip picker opened");
+    assert_eq!(files.pick_folder_calls, 0, "not the folder picker");
 }
 
 #[test]

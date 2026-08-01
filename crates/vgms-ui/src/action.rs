@@ -109,6 +109,10 @@ pub enum Action {
     ConfirmOpenPackFolder,
     /// Open a specific folder as a pack project (the Split Songs completion offer).
     OpenPackFolderAt(std::path::PathBuf),
+    /// Open the file picker for a `.zip` to edit as an in-memory pack (wt-8).
+    /// The picked file arrives on the ordinary picked-file channel, so the
+    /// discard-changes prompt is the same one a dropped `.zip` raises.
+    OpenPackZip,
     /// Open the `.zip` held in `pending_zip` as a pack, after the user confirmed
     /// discarding the current pack's unsaved edits (wt-8).
     ConfirmOpenZipPack,

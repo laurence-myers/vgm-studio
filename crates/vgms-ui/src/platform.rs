@@ -164,6 +164,17 @@ pub trait FileService {
         let _ = (name, bytes);
     }
 
+    /// Opens the platform's file picker, filtered to `.zip`, for a pack archive
+    /// (File > Open Pack Zip).
+    ///
+    /// The picked file arrives through [`Self::poll_picked`], not
+    /// [`Self::poll_folder`]: the app recognises a `.zip` there and routes it to
+    /// [`Self::open_pack_archive`] *after* its discard-changes prompt, so the
+    /// menu path and a dropped `.zip` behave identically. Required rather than
+    /// defaulted, so a new service cannot silently answer the menu item with
+    /// nothing.
+    fn pick_pack_zip(&mut self);
+
     /// Opens the platform's folder picker (pack mode).
     fn pick_folder(&mut self);
 

@@ -452,6 +452,17 @@ impl FileService for WebFileService {
         self.deleted.borrow_mut().take()
     }
 
+    fn pick_pack_zip(&mut self) {
+        // The picked-file channel, like `pick_open`: the app routes a `.zip`
+        // there to the in-memory pack open, prompting first if the current pack
+        // is dirty.
+        open_picker(
+            ".zip,application/zip",
+            Rc::clone(&self.picked),
+            Rc::clone(&self.notify),
+        );
+    }
+
     fn pick_folder(&mut self) {
         let folder = Rc::clone(&self.folder);
         let notify = Rc::clone(&self.notify);

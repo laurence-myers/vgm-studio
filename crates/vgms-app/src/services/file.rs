@@ -180,6 +180,27 @@ impl FileService for NativeFileService {
         self.saved.pop_front()
     }
 
+    fn pick_pack_zip(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .set_title("Open pack zip")
+            .add_filter("Zip archive (*.zip)", &["zip"])
+            .pick_file()
+        else {
+            return; // dismissed; nothing to report
+        };
+        // Delivered on the picked-file channel rather than opened here, so the
+        // app can prompt before discarding a dirty pack; `read` would open it
+        // there and then.
+        self.picked = Some(match fs::read(&path) {
+            Ok(bytes) => Ok(PickedFile {
+                name: file_name(&path),
+                path: Some(path),
+                bytes,
+            }),
+            Err(error) => Err(format!("{}: {error}", path.display())),
+        });
+    }
+
     fn pick_folder(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open pack project folder")

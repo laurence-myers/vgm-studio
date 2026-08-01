@@ -46,6 +46,8 @@ pub(crate) struct FileLog {
     /// Fed to `poll_folder`, front first (pack mode).
     pub picked_folders: VecDeque<Result<PickedFolder, String>>,
     pub pick_folder_calls: usize,
+    /// How often File > Open Pack Zip opened its picker.
+    pub pick_pack_zip_calls: usize,
     pub opened_folder_paths: Vec<PathBuf>,
     /// Fed to `poll_renamed`, front first.
     pub rename_outcomes: VecDeque<Result<(), String>>,
@@ -132,6 +134,10 @@ impl FileService for FakeFileService {
 
     fn poll_saved(&mut self) -> Option<SaveOutcome> {
         self.0.borrow_mut().save_outcomes.pop_front()
+    }
+
+    fn pick_pack_zip(&mut self) {
+        self.0.borrow_mut().pick_pack_zip_calls += 1;
     }
 
     fn pick_folder(&mut self) {
