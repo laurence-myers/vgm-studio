@@ -1435,8 +1435,12 @@ chip_specs! {
 
     // The one-off shapes: the three the plan named, the MultiPCM's bank and
     // the PWM's 12-bit values.
+    // Exactly a quarter: the files that correlate at 1.0000 measure lvl
+    // 4.0000 against the reference, which is VGMPlay's own `_CHIP_VOLUME`
+    // entry for the chip (0x40). At unity this was the "500GP is far too
+    // loud" report -- a single-C352 rip clipping the mix on its own.
     make_c352: "c352.libvgm" / "libvgm" => C352,
-        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], LEVEL_UNITY, configure_c352;
+        ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], 64, configure_c352;  // measured 4.000 (n=12, corr-1.0 rows exact; range 3.21..4.00)
     make_qsound: "qsound.libvgm" / "libvgm" => QSound,
         ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     make_qsound_mame: "qsound.libvgm-mame" / "libvgm (MAME core)" => QSound,
