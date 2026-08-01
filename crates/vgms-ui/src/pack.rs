@@ -95,9 +95,25 @@ impl PackTrack {
 
     /// Whether this app can make a sound from the track: an OPL stream, or a
     /// chip it has a core for.
+    ///
+    /// Asks [`preview_source`](Self::preview_source)'s question without building
+    /// its answer. **The table asks this once per row per frame**, and
+    /// `preview_source` materialises a whole [`Song`](vgms_core::Song) -- a copy
+    /// of every command byte and every offset in the file -- to say yes. A pack
+    /// of 38 OPL rips spent 9 ms of every frame on that in release and 150 ms in
+    /// a dev build, which is the whole of the Tracks view's slowdown.
+    /// `the_two_playability_answers_agree` pins the two against each other.
     #[must_use]
     pub fn is_playable(&self) -> bool {
-        self.preview_source().is_some()
+        let Some(file) = self.vgm() else {
+            return false;
+        };
+        // `to_song()` is `Some` exactly when `opl()` is, so this is the same
+        // branch `preview_source` takes -- minus the snapshot.
+        if file.opl().is_some() {
+            return true;
+        }
+        vgms_synth::playability(&chip_kinds(file)).can_play()
     }
 
     /// The track's chips this app has no core for, as a comma-separated list.
@@ -113,8 +129,7 @@ impl PackTrack {
         if file.is_opl() {
             return String::new();
         }
-        let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-        vgms_synth::playability(&chips)
+        vgms_synth::playability(&chip_kinds(file))
             .missing()
             .iter()
             .map(|chip| chip.name())
@@ -135,8 +150,7 @@ impl PackTrack {
         if let Some(song) = file.to_song() {
             return Some(AudioSource::Opl(Arc::new(song)));
         }
-        let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-        vgms_synth::playability(&chips)
+        vgms_synth::playability(&chip_kinds(file))
             .can_play()
             .then(|| AudioSource::Vgm(Arc::clone(file)))
     }
@@ -189,6 +203,11 @@ impl PackTrack {
             .set_volume_modifier(modifier)
             .then(|| write_vgm(&file))
     }
+}
+
+/// The chips a file declares, as the kinds [`vgms_synth::playability`] takes.
+fn chip_kinds(file: &VgmFile) -> Vec<vgms_core::vgm::ChipKind> {
+    file.header.chips().iter().map(|chip| chip.kind).collect()
 }
 
 /// Writes a VGM, gzipping when its name says `.vgz`.
@@ -2114,7 +2133,7 @@ fn track_table(
         // floor the row then overruns: `remainder` budgets the title from these
         // figures, so an under-declared cell is laid out over the scrollbar and
         // off the panel edge.
-        let mut row_rects: Vec<egui::Rect> = Vec::new();
+        let mut row_rects: Vec<(usize, egui::Rect)> = Vec::new();
         TableBuilder::new(ui)
             .striped(true)
             .sense(egui::Sense::click())
@@ -2139,161 +2158,190 @@ fn track_table(
                     });
                 }
             })
-            .body(|mut body| {
-                for (index, track) in state.tracks.iter().enumerate() {
-                    body.row(row_height, |mut row| {
-                        // The keyboard's row, lit like a selection so Alt+arrow
-                        // has something visible to act on.
-                        row.set_selected(state.focused_track == Some(index));
-                        row.col(|ui| {
-                            // The row's own response rect overshoots into the
-                            // next row; a cell's does not, and the y-range is
-                            // all the drop target needs.
-                            row_rects.push(ui.max_rect());
-                            drag_grip(ui, index, track, palette);
-                        });
-                        row.col(|ui| {
-                            track_status_glyph(ui, index, track, items, palette, actions);
-                        });
-                        row.col(|ui| {
-                            ui.label(
-                                egui::RichText::new(format!("{:02}", index + 1))
-                                    .monospace()
-                                    .color(palette.muted),
-                            )
-                            .on_hover_text(&track.file_name);
-                        });
-                        row.col(|ui| {
-                            // The preview control sits with the thing it plays,
-                            // as an inline glyph rather than a keycap: a row of
-                            // pads is what pushed this table off its own edge.
-                            // Playable means a chip this app can render -- an OPL
-                            // stream, or any chip with a core; a track with
-                            // neither gets the label, not a button that plays
-                            // nothing.
-                            if !track.is_playable() {
-                                if let Some(chips) = track.chip_list() {
-                                    ui.add_enabled(
-                                        false,
-                                        egui::Label::new(
-                                            egui::RichText::new("\u{25B6}").color(palette.muted),
-                                        ),
-                                    )
-                                    .on_disabled_hover_text(
-                                        crate::strings::pack_playback_unsupported(&chips),
-                                    );
-                                }
-                                return;
+            // `rows`, not a `row` per track: this is an immediate-mode table
+            // inside a scroll area, so a `for` loop lays out and hit-tests every
+            // track in the pack on every frame whether or not it is on screen.
+            // `rows` draws only the rows the clip rect actually shows -- about
+            // fifteen -- which is what stops the view getting slower the longer
+            // the pack is. Uniform `row_height` is what makes it applicable.
+            .body(|body| {
+                let count = state.tracks.len();
+                body.rows(row_height, count, |mut row| {
+                    let index = row.index();
+                    let Some(track) = state.tracks.get(index) else {
+                        return;
+                    };
+                    // The keyboard's row, lit like a selection so Alt+arrow
+                    // has something visible to act on.
+                    row.set_selected(state.focused_track == Some(index));
+                    row.col(|ui| {
+                        // The row's own response rect overshoots into the
+                        // next row; a cell's does not, and the y-range is
+                        // all the drop target needs. Only the drawn rows
+                        // land here, so the index travels with the rect --
+                        // a position in this list is no longer a track
+                        // number.
+                        row_rects.push((index, ui.max_rect()));
+                        drag_grip(ui, index, track, palette);
+                    });
+                    row.col(|ui| {
+                        track_status_glyph(ui, index, track, items, palette, actions);
+                    });
+                    row.col(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("{:02}", index + 1))
+                                .monospace()
+                                .color(palette.muted),
+                        )
+                        .on_hover_text(&track.file_name);
+                    });
+                    row.col(|ui| {
+                        // The preview control sits with the thing it plays,
+                        // as an inline glyph rather than a keycap: a row of
+                        // pads is what pushed this table off its own edge.
+                        // Playable means a chip this app can render -- an OPL
+                        // stream, or any chip with a core; a track with
+                        // neither gets the label, not a button that plays
+                        // nothing.
+                        if !track.is_playable() {
+                            if let Some(chips) = track.chip_list() {
+                                ui.add_enabled(
+                                    false,
+                                    egui::Label::new(
+                                        egui::RichText::new("\u{25B6}").color(palette.muted),
+                                    ),
+                                )
+                                .on_disabled_hover_text(
+                                    crate::strings::pack_playback_unsupported(&chips),
+                                );
                             }
-                            let previewing = state.preview == Some(index);
-                            // U+25A0 stop / U+25B6 play.
-                            let (glyph, name) = if previewing {
-                                ("\u{25A0}", "Stop preview")
+                            return;
+                        }
+                        let previewing = state.preview == Some(index);
+                        // U+25A0 stop / U+25B6 play.
+                        let (glyph, name) = if previewing {
+                            ("\u{25A0}", "Stop preview")
+                        } else {
+                            ("\u{25B6}", "Preview")
+                        };
+                        if row_icon(ui, palette, glyph, name).clicked() {
+                            actions.push(if previewing {
+                                Action::PackStopPreview
                             } else {
-                                ("\u{25B6}", "Preview")
-                            };
-                            if row_icon(ui, palette, glyph, name).clicked() {
-                                actions.push(if previewing {
-                                    Action::PackStopPreview
-                                } else {
-                                    Action::PackTrackPreview(index)
-                                });
-                            }
-                        });
-                        match &track.entry {
-                            Some(entry) => {
-                                row.col(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(&entry.title)
-                                            .monospace()
-                                            .color(palette.data_text),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    ui.label(
-                                        egui::RichText::new(format_track_time(entry.total_samples))
-                                            .monospace()
-                                            .color(palette.data_text),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    let loop_str = entry
-                                        .loop_samples
-                                        .map_or_else(|| "-".to_owned(), format_track_time);
-                                    ui.label(
-                                        egui::RichText::new(loop_str)
-                                            .monospace()
-                                            .color(palette.muted),
-                                    );
-                                });
-                                row.col(|ui| {
-                                    // Peak in dBFS once scanned; clipped tracks in
-                                    // the meter's "hot" colour, "-" until scanned.
-                                    match state.peaks.get(&track.file_name) {
-                                        Some(peak) => {
-                                            let dbfs = vgms_core::peak_dbfs(peak.max_level);
-                                            let text = if dbfs.is_finite() {
-                                                format!("{dbfs:.1}")
-                                            } else {
-                                                "silent".to_owned()
-                                            };
-                                            let color = if peak.clipped {
-                                                palette.meter_high
-                                            } else {
-                                                palette.data_text
-                                            };
-                                            ui.label(
-                                                egui::RichText::new(text).monospace().color(color),
-                                            )
-                                            .on_hover_text(if peak.clipped {
+                                Action::PackTrackPreview(index)
+                            });
+                        }
+                    });
+                    match &track.entry {
+                        Some(entry) => {
+                            row.col(|ui| {
+                                ui.label(
+                                    egui::RichText::new(&entry.title)
+                                        .monospace()
+                                        .color(palette.data_text),
+                                );
+                            });
+                            row.col(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format_track_time(entry.total_samples))
+                                        .monospace()
+                                        .color(palette.data_text),
+                                );
+                            });
+                            row.col(|ui| {
+                                let loop_str = entry
+                                    .loop_samples
+                                    .map_or_else(|| "-".to_owned(), format_track_time);
+                                ui.label(
+                                    egui::RichText::new(loop_str)
+                                        .monospace()
+                                        .color(palette.muted),
+                                );
+                            });
+                            row.col(|ui| {
+                                // Peak in dBFS once scanned; clipped tracks in
+                                // the meter's "hot" colour, "-" until scanned.
+                                match state.peaks.get(&track.file_name) {
+                                    Some(peak) => {
+                                        let dbfs = vgms_core::peak_dbfs(peak.max_level);
+                                        let text = if dbfs.is_finite() {
+                                            format!("{dbfs:.1}")
+                                        } else {
+                                            "silent".to_owned()
+                                        };
+                                        let color = if peak.clipped {
+                                            palette.meter_high
+                                        } else {
+                                            palette.data_text
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(text).monospace().color(color),
+                                        )
+                                        .on_hover_text(
+                                            if peak.clipped {
                                                 crate::strings::PACK_PEAK_TIP_CLIPPED
                                             } else {
                                                 crate::strings::PACK_PEAK_TIP
-                                            });
-                                        }
-                                        None => {
-                                            ui.label(
-                                                egui::RichText::new("-")
-                                                    .monospace()
-                                                    .color(palette.muted),
-                                            );
-                                        }
+                                            },
+                                        );
                                     }
-                                });
-                                row.col(|ui| {
-                                    row_menu(ui, index, track, palette, actions);
-                                });
-                            }
-                            None => {
-                                row.col(|ui| {
-                                    ui.colored_label(palette.muted, "unreadable")
-                                        .on_hover_text(track.error().unwrap_or_default());
-                                });
-                                // Total, Loop, Peak, menu -- empty for a track
-                                // that did not parse.
-                                row.col(|_ui| {});
-                                row.col(|_ui| {});
-                                row.col(|_ui| {});
-                                row.col(|_ui| {});
-                            }
+                                    None => {
+                                        ui.label(
+                                            egui::RichText::new("-")
+                                                .monospace()
+                                                .color(palette.muted),
+                                        );
+                                    }
+                                }
+                            });
+                            row.col(|ui| {
+                                row_menu(ui, index, track, palette, actions);
+                            });
                         }
+                        None => {
+                            row.col(|ui| {
+                                ui.colored_label(palette.muted, "unreadable")
+                                    .on_hover_text(track.error().unwrap_or_default());
+                            });
+                            // Total, Loop, Peak, menu -- empty for a track
+                            // that did not parse.
+                            row.col(|_ui| {});
+                            row.col(|_ui| {});
+                            row.col(|_ui| {});
+                            row.col(|_ui| {});
+                        }
+                    }
 
-                        let response = row.response();
-                        if response.clicked() {
-                            actions.push(Action::PackFocusTrack(index));
-                        }
-                        if response.double_clicked() {
-                            actions.push(Action::PackTrackOpen(index));
-                        }
-                        // A row moved by the keyboard must not walk off the top
-                        // or bottom of the view.
-                        if scroll_to == Some(index) {
-                            response.scroll_to_me(Some(egui::Align::Center));
-                        }
-                    });
-                }
+                    let response = row.response();
+                    if response.clicked() {
+                        actions.push(Action::PackFocusTrack(index));
+                    }
+                    if response.double_clicked() {
+                        actions.push(Action::PackTrackOpen(index));
+                    }
+                });
             });
         drop_target(ui, &row_rects, palette, actions);
+        // A row moved by the keyboard must not walk off the top or bottom of
+        // the view. Asked here rather than from the row itself, for two
+        // reasons: a culled row never draws, so the one case that needs
+        // scrolling is the one that could not ask; and a `scroll_to_me` inside
+        // the table is swallowed by the table's own (disabled) scroll area
+        // before the section's scroll area -- the one that actually moves --
+        // ever sees it.
+        //
+        // Where the row *would* be is extrapolated from a row that did draw,
+        // rather than from the header's height: the rows are a uniform pitch
+        // apart, so one drawn rect and its index fix the whole column, and
+        // nothing here has to guess what the header cost.
+        if let Some(index) = scroll_to
+            && let Some(&(known, rect)) = row_rects.first()
+        {
+            let step = row_height + ui.spacing().item_spacing.y;
+            let top = rect.top() + step * (index as f32 - known as f32);
+            let row = egui::Rect::from_x_y_ranges(rect.x_range(), top..=top + row_height);
+            ui.scroll_to_rect(row, Some(egui::Align::Center));
+        }
     });
 }
 
@@ -2383,15 +2431,17 @@ fn row_menu(
 }
 
 /// Turns a drag in progress into a drop: paints the line where the row would
-/// land, and on release emits the move. `row_rects` is one rect per row, in list
-/// order, collected as the table drew.
+/// land, and on release emits the move. `row_rects` is `(track index, rect)` for
+/// each row the table actually drew, in list order -- which since the table
+/// culls is the visible window, not the whole pack. That is no loss: a drop can
+/// only be aimed at a row that can be seen.
 ///
 /// The insertion slot is a boundary (0 = above the first row, `len` = below the
 /// last), so it is converted to a destination *index* -- one less when the track
 /// is moving down, since removing it first shifts everything below up.
 fn drop_target(
     ui: &mut egui::Ui,
-    row_rects: &[egui::Rect],
+    row_rects: &[(usize, egui::Rect)],
     palette: &Palette,
     actions: &mut Vec<Action>,
 ) {
@@ -2402,26 +2452,29 @@ fn drop_target(
     // takes the pointer off the screen (a touch release, and what kittest sends),
     // and a drop must not be lost because the cursor's position went with it.
     let slot_id = egui::Id::new("pack-track-drop-slot");
-    if let Some(pointer) = ui.ctx().pointer_interact_pos() {
+    if let Some(pointer) = ui.ctx().pointer_interact_pos()
+        && let (Some(&(first, _)), Some(&(last, last_rect))) = (row_rects.first(), row_rects.last())
+    {
+        // A boundary in *track* numbers: the index of the row the dragged track
+        // would push down, or one past the last drawn row when it goes below
+        // them all.
         let slot = row_rects
             .iter()
-            .position(|rect| pointer.y < rect.center().y)
-            .unwrap_or(row_rects.len());
-        ui.ctx()
-            .data_mut(|data| data.insert_temp(slot_id, slot.min(row_rects.len())));
+            .find(|(_, rect)| pointer.y < rect.center().y)
+            .map_or(last + 1, |&(index, _)| index)
+            .clamp(first, last + 1);
+        ui.ctx().data_mut(|data| data.insert_temp(slot_id, slot));
         // The boundary that slot sits on: the top of the row it would push down,
         // or the foot of the table when it is going last.
-        let y = match row_rects.get(slot) {
-            Some(rect) => rect.top(),
-            None => row_rects.last().map_or(pointer.y, egui::Rect::bottom),
-        };
-        if !row_rects.is_empty() {
-            ui.painter().hline(
-                ui.max_rect().x_range(),
-                y,
-                egui::Stroke::new(2.0, palette.data_text),
-            );
-        }
+        let y = row_rects
+            .iter()
+            .find(|(index, _)| *index == slot)
+            .map_or_else(|| last_rect.bottom(), |(_, rect)| rect.top());
+        ui.painter().hline(
+            ui.max_rect().x_range(),
+            y,
+            egui::Stroke::new(2.0, palette.data_text),
+        );
     }
     if ui.input(|i| i.pointer.any_released()) {
         egui::DragAndDrop::take_payload::<usize>(ui.ctx());
@@ -2794,6 +2847,39 @@ mod tests {
         );
         assert!(!state.tracks[2].is_readable());
         assert!(state.tracks[2].error().is_some());
+    }
+
+    /// `is_playable` answers `preview_source`'s question the cheap way, because
+    /// the track table asks it once per row per frame and `preview_source`
+    /// copies the whole command stream to answer. The two must never disagree:
+    /// a `▶` that plays nothing, or a missing one on a track that would.
+    #[test]
+    fn the_two_playability_answers_agree() {
+        let files = vec![
+            tagged_song("01 Theme.vgm", tag("Cool Game", "Composer", "Ripper")),
+            other_chip_song("02 Mega.vgm", tag("Sonic", "Nakamura", "Ripper")),
+            PickedFile {
+                name: "03 Broken.vgm".to_owned(),
+                path: None,
+                bytes: b"not a vgm at all".to_vec(),
+            },
+        ];
+        let state = PackState::from_folder(folder("Cool Game", files), None);
+        assert_eq!(state.tracks.len(), 3);
+        for track in &state.tracks {
+            assert_eq!(
+                track.is_playable(),
+                track.preview_source().is_some(),
+                "{} disagrees about being playable",
+                track.file_name
+            );
+        }
+        // ...and the fixtures actually cover both answers, or the loop above
+        // would pass on three tracks that are all the same case. (Whether the
+        // Mega Drive one plays depends on which providers this build links, so
+        // it is only held to agreeing with itself.)
+        assert!(state.tracks[0].is_playable(), "the OPL rip plays");
+        assert!(!state.tracks[2].is_playable(), "a non-VGM does not");
     }
 
     #[test]

@@ -4241,6 +4241,71 @@ fn a_keyboard_move_asks_to_scroll_the_row_back_into_view() {
     );
 }
 
+/// The track table draws the rows that are on screen, not the rows the pack
+/// has.
+///
+/// egui is immediate mode: a `for` loop over the tracks lays out, hit-tests and
+/// paints every row of a 150-track pack sixty times a second, and the Tracks
+/// view got measurably slower the longer the pack was. Counting the per-row
+/// Preview controls is how that stays fixed -- one per drawn row, so the count
+/// is the number of rows the table actually built.
+#[test]
+fn the_track_table_only_builds_the_rows_it_can_show() {
+    // A short window, so most of a long pack is off screen.
+    let (mut harness, handles) = build_sized(None, false, false, egui::vec2(1000.0, 620.0));
+    let tracks: Vec<PickedFile> = (1..=120)
+        .map(|n| tagged_vgm(&format!("{n:03} Track.vgz"), "Cool Game", "Ada", "Ripper"))
+        .collect();
+    open_folder(&mut harness, &handles, pack_folder("Cool Game", tracks));
+    pack_section(&mut harness, PackSection::Tracks);
+    harness.run();
+
+    let drawn = harness.get_all_by_label("Preview").count();
+    assert!(
+        drawn > 0,
+        "the visible rows still draw their Preview control"
+    );
+    assert!(
+        drawn < 40,
+        "{drawn} of 120 rows drew -- the table is laying out the whole pack \
+         instead of the visible window"
+    );
+}
+
+/// ...and a row the keyboard moves is scrolled to even when it was culled.
+///
+/// The half of the same change that could regress silently: the request is
+/// answered outside the table, because a row that is off screen is exactly the
+/// row that does not draw and so cannot ask for itself. (It never worked from
+/// inside either -- a `scroll_to_me` there is swallowed by the table's own
+/// disabled scroll area before the section's can see it.)
+#[test]
+fn a_keyboard_move_scrolls_a_culled_row_into_view() {
+    let (mut harness, handles) = build_sized(None, false, false, egui::vec2(1000.0, 620.0));
+    let tracks: Vec<PickedFile> = (1..=120)
+        .map(|n| tagged_vgm(&format!("{n:03} Track.vgz"), "Cool Game", "Ada", "Ripper"))
+        .collect();
+    open_folder(&mut harness, &handles, pack_folder("Cool Game", tracks));
+    pack_section(&mut harness, PackSection::Tracks);
+    harness.run();
+
+    // Track 100 is far below the fold: its row number is not drawn at all.
+    assert!(
+        harness.query_by_label("100").is_none(),
+        "the fixture must start with track 100 off screen"
+    );
+
+    // The request a keyboard move leaves behind, set directly: the move itself
+    // renames files and rescans the folder, none of which this is about.
+    harness.state_mut().pack.as_mut().unwrap().scroll_to_track = Some(99);
+    harness.run();
+    assert!(
+        harness.query_by_label("100").is_some(),
+        "the row is still off screen -- the scroll request never reached the \
+         section's scroll area"
+    );
+}
+
 #[test]
 fn moving_the_pointer_hands_the_row_back_to_the_mouse() {
     let (mut harness, handles) = tall_pack_harness();
