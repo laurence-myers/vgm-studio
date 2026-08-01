@@ -113,11 +113,18 @@ pub struct CoreInfo {
     /// that way (VGMPlay's `MulFixed8x8`), and because [`ChipCore`] forbids
     /// output that could differ across targets.
     ///
-    /// **A number here is a measurement, not a preference.** It is the
-    /// least-squares gain the parity harness reports against the pinned
-    /// reference, meaningful only for a core whose correlation is high enough
-    /// that a single scalar describes the difference. Leave it at
-    /// [`LEVEL_UNITY`] until measured; an unmeasured guess is worse than none.
+    /// **A number here is a measurement, not a preference.** It is
+    /// `LEVEL_UNITY / lvl`, where `lvl` is the RMS ratio the parity harness
+    /// reports for this core against the pinned reference -- so a core at half
+    /// the reference's level carries `0x200`. Leave it at [`LEVEL_UNITY`] until
+    /// measured; an unmeasured guess is worse than none.
+    ///
+    /// **The RMS ratio, not the harness's `gain` column.** The least-squares
+    /// fit is `α = ρ · σ_reference / σ_ours`, so it reports a small α for any
+    /// decorrelated pair whatever its level, and two cores for one chip are
+    /// exactly the pair most likely to decorrelate. `parity::ChannelScore`
+    /// spells the trap out; the libvgm YM2612 walked into it, reading `lvl
+    /// 0.466 gain 1.766` on the same twelve files.
     pub level: u16,
     /// How to build it, or why it is not built here.
     pub make: CoreMaker,

@@ -310,10 +310,21 @@ pub(crate) struct ChipSpec {
     /// This core's measured output calibration, 8.8 fixed point, as
     /// [`CoreInfo::level`](vgms_synth::CoreInfo::level).
     ///
-    /// **Measured or unity, never guessed.** The number is the least-squares
-    /// gain the parity harness reports against the pinned reference, meaningful
-    /// only because these rows correlate at 1.0000 (a single scalar describes
-    /// the whole difference). An unmeasured row stays at unity.
+    /// **Measured or unity, never guessed**, by one of two runs, both in
+    /// `vgms-app`'s `reference_parity`:
+    ///
+    /// * against the pinned reference, for a chip this is the only core for
+    ///   (`every_cored_chip_matches_the_reference_within_its_band`, reading the
+    ///   `lvl` column -- the RMS ratio, *not* the `gain` column);
+    /// * against the chip's default core, for a row that is an alternative to
+    ///   one (`every_core_for_a_chip_agrees_on_its_level`) -- which is the same
+    ///   anchor by another route, since the default is itself calibrated to the
+    ///   reference.
+    ///
+    /// A row whose ratio scatters across files is left at unity on purpose: one
+    /// scalar cannot describe two emulators that differ in more than level, and
+    /// the wrong constant is worse than none. The comment on each measured row
+    /// carries the sample size and the observed range for exactly that reason.
     pub(crate) level: u16,
     /// The `user` selector for each of the chip's two sample-memory spaces.
     ///
@@ -1355,23 +1366,37 @@ chip_specs! {
     make_ay8910: "ay8910.libvgm" / "libvgm" => Ay8910,
         ffi::DEVID_AY8910, 0, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
     make_ay8910_mame: "ay8910.libvgm-mame" / "libvgm (MAME core)" => Ay8910,
-        ffi::DEVID_AY8910, ffi::FCC_MAME, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
+        ffi::DEVID_AY8910, ffi::FCC_MAME, WriteRule::RegisterWithStereo, [0, 0], 399, configure_ay8910;  // measured 1.559 (n=8, 0.5886..0.6938)
 
     // The Yamaha latch pair.
     make_ymz280b: "ymz280b.libvgm" / "libvgm" => Ymz280b,
         ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], 303, configure_none;  // measured 1.185 (n=12)
     make_k051649: "k051649.libvgm" / "libvgm" => K051649,
         ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    // EMU2413 against the chip's Nuked-OPLL default. Anchored to that default
+    // and not to the reference on purpose: the YM2413's own level sits at 0.370
+    // of VGMPlay's, a shortfall the scorecard has carried as open since
+    // 2026-07-28. Calibrating this row to the reference would put it 2.7x above
+    // the chip's own default -- the same complaint, louder. **If that open item
+    // is ever settled, this number moves with it.**
     make_ym2413: "ym2413.libvgm" / "libvgm" => Ym2413,
-        ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], 385, configure_none;  // measured 1.504 (n=12 native; 0.246/0.370 vs the reference)
+    // No number for the MAME core: it scatters 0.672..1.014 over eight files, so
+    // one scalar does not describe it and a fitted constant would be a guess.
     make_ym2413_mame: "ym2413.libvgm-mame" / "libvgm (MAME core)" => Ym2413,
         ffi::DEVID_YM2413, ffi::FCC_MAME, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    // With the YM2413 above, the three chips whose default is a Nuked core (see
+    // `install_cores`) -- so the three where changing the core in Settings
+    // swaps emulator *families*, and where the two disagree most about scale.
+    // libvgm's YM2612 and YM2151 both render at almost exactly half of Nuked's:
+    // left at unity, choosing libvgm for a Mega Drive rip's YM2612 dropped its
+    // FM 6 dB under its own PSG.
     make_ym2612: "ym2612.libvgm" / "libvgm" => Ym2612,
-        ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], 525, configure_none;  // measured 2.051 (0.466/0.955 vs the reference, n=12; 0.4877 direct, n=8)
     make_ym2612_gens: "ym2612.libvgm-gens" / "libvgm (Gens core)" => Ym2612,
-        ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], 516, configure_none;  // measured 2.016 (n=8, 0.4744..0.5093)
     make_ym2151: "ym2151.libvgm" / "libvgm" => Ym2151,
-        ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], 514, configure_none;  // measured 2.008 (0.498/1.000 vs the reference, n=12; 0.4973 direct, n=8)
     make_ymf271: "ymf271.libvgm" / "libvgm" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // The OPL4: its wave half is this device, its FM half a linked YMF262.

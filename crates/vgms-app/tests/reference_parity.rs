@@ -877,6 +877,137 @@ fn the_pipeline_agrees_with_itself() {
     println!("the pipeline agreed with itself on {checked} real renders");
 }
 
+/// How far a core's level may sit from its chip's default before the picker is
+/// a volume control. A tenth is about 0.8 dB -- under what a listener calls a
+/// level change, and wide enough that two emulators rounding differently do not
+/// trip it.
+const LEVEL_BAND: f64 = 0.10;
+
+/// How much scatter across files still counts as "one scalar describes the
+/// difference". Above this the cores differ in more than level, and
+/// [`CoreInfo::level`] is the wrong tool -- see the YM2413 row.
+///
+/// [`CoreInfo::level`]: vgms_synth::CoreInfo::level
+const LEVEL_SPREAD: f64 = 1.25;
+
+/// Every core for one chip renders it at the same loudness.
+///
+/// Changing the core in Settings is a choice about *accuracy*; if it also moves
+/// the fader, then a multi-chip rip's balance depends on which emulators
+/// happen to be selected -- picking libvgm for a Mega Drive rip's YM2612 used
+/// to drop its FM 6 dB under its PSG. [`CoreInfo::level`] is the correction,
+/// and this is the measurement that sizes it and then keeps it sized.
+///
+/// No reference player: this is a question about our cores agreeing with each
+/// other, so the chip's default row is the datum and the reference only enters
+/// through the default's own calibration.
+///
+/// [`CoreInfo::level`]: vgms_synth::CoreInfo::level
+#[test]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
+fn every_core_for_a_chip_agrees_on_its_level() {
+    let Some(root) = corpus::corpus_root() else {
+        eprintln!("{} not set; skipping", corpus::CORPUS_ENV);
+        return;
+    };
+    vgms_app::install_cores();
+    let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
+    let registry = vgms_synth::registry::registry();
+
+    let mut failures = Vec::new();
+    for chip in ChipKind::all() {
+        if !chip_wanted(chip) {
+            continue;
+        }
+        // Realtime rows only. The LLE die sims render orders of magnitude
+        // slower than realtime, and their calibration rides the Nuked core's
+        // own gain rather than a row of its own.
+        let ids: Vec<&str> = registry
+            .for_chip(chip)
+            .filter(|info| info.realtime && info.build().is_some())
+            .map(|info| info.id)
+            .collect();
+        if ids.len() < 2 {
+            continue;
+        }
+        let files = single_chip_files(&index, &root, chip, SAMPLE);
+        if files.is_empty() {
+            println!("{:<14} no single-chip corpus file", chip.name());
+            continue;
+        }
+
+        // One row per core: its RMS over the default core's, file by file.
+        let mut ratios: Vec<Vec<f64>> = vec![Vec::new(); ids.len()];
+        for original in &files {
+            let path = &shortened(original, &work_dir());
+            // One rate for every core of this chip -- the default's -- rather
+            // than each core's own. This measures level, not pitch, and a
+            // common rate keeps our resampler's contribution identical on both
+            // sides of the ratio instead of leaving it in one of them.
+            let rate = native_rate_of(path, chip).unwrap_or(RATE);
+            let Some(base) = render_with_core(path, rate, chip, ids[0]) else {
+                continue;
+            };
+            let base = parity::metrics::rms(&base.left);
+            if base < 1e-6 {
+                continue; // a silent render fixes no ratio
+            }
+            for (at, id) in ids.iter().enumerate() {
+                let Some(render) = render_with_core(path, rate, chip, id) else {
+                    continue;
+                };
+                ratios[at].push(parity::metrics::rms(&render.left) / base);
+            }
+        }
+
+        for (at, id) in ids.iter().enumerate() {
+            if ratios[at].is_empty() {
+                println!("{:<14} {id:<28} nothing measured", chip.name());
+                continue;
+            }
+            let n = ratios[at].len();
+            let level = median(&mut ratios[at]);
+            let (low, high) = (ratios[at][0], ratios[at][n - 1]);
+            let spread = if low > 1e-9 { high / low } else { f64::MAX };
+            println!(
+                "{:<14} {id:<28} lvl {level:.4} [{low:.4}..{high:.4}] (n={n})",
+                chip.name()
+            );
+            if (level - 1.0).abs() <= LEVEL_BAND {
+                continue;
+            }
+            // A row that scatters is reported and not failed: a scalar cannot
+            // fix it, so demanding one would only invite a wrong constant.
+            if spread > LEVEL_SPREAD {
+                println!(
+                    "   off by {:.0}% but scattered {spread:.2}x -- not one scalar's worth of \
+                     difference; left alone deliberately",
+                    (level - 1.0) * 100.0
+                );
+                continue;
+            }
+            failures.push(format!(
+                "{}: {id} renders at {level:.3} of {} -- set its `level` to {}",
+                chip.name(),
+                ids[0],
+                (f64::from(vgms_synth::LEVEL_UNITY) / level).round() as u32
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Renders `path` at `rate` with `id` driving `chip` and nothing else voiced.
+/// The files are single-chip, so that is the whole render.
+fn render_with_core(path: &Path, rate: u32, chip: ChipKind, id: &'static str) -> Option<Render> {
+    render_with_at(path, rate, move |kind| {
+        (kind == chip)
+            .then(|| vgms_synth::registry::registry().find(kind, id))
+            .flatten()
+            .and_then(vgms_synth::CoreInfo::build)
+    })
+}
+
 fn median(values: &mut [f64]) -> f64 {
     values.sort_by(f64::total_cmp);
     values[values.len() / 2]
