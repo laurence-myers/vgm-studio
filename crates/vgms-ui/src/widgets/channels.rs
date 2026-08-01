@@ -9,19 +9,8 @@ use vgms_core::{Bank, OplType, Song};
 use vgms_synth::{Muting, Panning};
 
 use crate::theme::{Palette, bevel, icon::Icon};
+use crate::widgets::pan_controls::{self, PAN_CENTER, PAN_LEFT, PAN_RIGHT};
 use crate::widgets::pan_knob;
-
-/// The centred pan byte (`0x80`), and the hard-left / hard-right extremes.
-const PAN_CENTER: u8 = 0x80;
-const PAN_LEFT: u8 = 0x00;
-const PAN_RIGHT: u8 = 0xFF;
-
-/// The auto-spread template (scaled by the Spread knob's strength): how far the
-/// first channel of each group of five leans off centre at full strength, and how
-/// much each successive channel widens, so neighbours never share a value. Wide,
-/// but short of a hard split -- `84 + 4*9 = 120`, so `centre +/- 120` never clips.
-const SPREAD_BASE: f32 = 84.0;
-const SPREAD_STEP: f32 = 9.0;
 
 /// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
 /// resends muting mid-note and a mute toggle never resends panning.
@@ -90,28 +79,11 @@ fn dual_opl2_image() -> [u8; 18] {
     pans
 }
 
-/// One channel's signed distance from centre in the auto-spread template, before
-/// the Spread knob's strength scales it: even channels lean left (negative), odd
-/// lean right (positive), widening gently across each group of five.
-fn spread_delta(slot: usize) -> f32 {
-    let amount = SPREAD_BASE + (slot % 5) as f32 * SPREAD_STEP;
-    if slot.is_multiple_of(2) {
-        -amount // even channels lean left
-    } else {
-        amount // odd channels lean right
-    }
-}
-
-/// The pan image for a spread `strength` in `-1.0..=1.0`: `centre + strength *
-/// template_delta`, clamped to a byte. `0.0` is mono (everything centred); the
-/// extremes give a wide stereo image, its sign mirroring which side each channel
-/// leans.
+/// The pan image for a spread `strength`, as [`pan_controls::spread_into`]
+/// writes it into OPL's eighteen slots.
 fn spread_pans(strength: f32) -> [u8; 18] {
     let mut pans = [PAN_CENTER; 18];
-    for (slot, pan) in pans.iter_mut().enumerate() {
-        let value = f32::from(PAN_CENTER) + strength * spread_delta(slot);
-        *pan = value.round().clamp(0.0, 255.0) as u8;
-    }
+    pan_controls::spread_into(&mut pans, strength);
     pans
 }
 
@@ -269,9 +241,10 @@ impl ChannelPanel {
     }
 
     /// Draws the strip. Each bank is a pan row (nine knobs) directly above its
-    /// toggle row (channels 1-9, Drums), so a knob sits over its channel's digit.
-    /// The low bank always shows; the high bank shows for dual-OPL2 and OPL3. The
-    /// Original/Custom mode toggle sits above "All".
+    /// toggle row (All, channels 1-9, Drums), so a knob sits over its channel's
+    /// digit. The low bank always shows; the high bank shows for dual-OPL2 and
+    /// OPL3. "All" leads its row, ahead of the digits it acts on; the
+    /// Original/Custom latch, the Spread knob and Reset close the first pan row.
     ///
     /// Left-click a toggle to mute it; right-click to solo it. Knobs are live only
     /// under Custom; under Original they show the policy pan, greyed. Returns which
@@ -304,6 +277,17 @@ impl ChannelPanel {
                 }
 
                 ui.label("Channels:");
+                // "All" leads the row it acts on, in its own column: the pan row
+                // above leaves that column empty, so the digits still line up
+                // under their knobs.
+                if bevel::icon_button(ui, palette, Icon::All, "All")
+                    .on_hover_text(crate::strings::CHANNELS_UNMUTE_ALL)
+                    .clicked()
+                {
+                    response.muting_changed |=
+                        self.channels != [true; 18] || self.percussion != [true; 2];
+                    self.unmute_all();
+                }
                 for index in 0..9 {
                     response.muting_changed |= self.channel_toggle(ui, palette, index);
                 }
@@ -314,14 +298,6 @@ impl ChannelPanel {
                     "Perc.",
                     crate::strings::CHANNELS_PERCUSSION_LOW,
                 );
-                if bevel::icon_button(ui, palette, Icon::All, "All")
-                    .on_hover_text(crate::strings::CHANNELS_UNMUTE_ALL)
-                    .clicked()
-                {
-                    response.muting_changed |=
-                        self.channels != [true; 18] || self.percussion != [true; 2];
-                    self.unmute_all();
-                }
                 ui.end_row();
 
                 if show_high_bank {
@@ -331,6 +307,7 @@ impl ChannelPanel {
                     }
 
                     ui.label("High bank:");
+                    ui.label(""); // the "All" column: one button covers both banks
                     for index in 9..18 {
                         response.muting_changed |= self.channel_toggle(ui, palette, index);
                     }
@@ -347,9 +324,10 @@ impl ChannelPanel {
         response
     }
 
-    /// One bank's pan row: a label, nine pan knobs (over the toggle digits), an
-    /// empty cell in the Perc. column, and -- on the low bank -- the
-    /// Original/Custom mode toggle under "All". Returns whether panning changed.
+    /// One bank's pan row: a label, an empty cell in the "All" column, nine pan
+    /// knobs (over the toggle digits), an empty cell in the Perc. column, and --
+    /// on the low bank -- the Custom / Spread / Reset group. Returns whether
+    /// panning changed.
     ///
     /// Only called when the output can pan; when it cannot the whole row is
     /// omitted (see [`Self::show`]), so there is no disabled state to draw here.
@@ -362,6 +340,7 @@ impl ChannelPanel {
     ) -> bool {
         let mut changed = false;
         ui.label(if bank == 0 { "Pan:" } else { "" });
+        ui.label(""); // the "All" column, which has no pan of its own
         let bank_name = if bank == 0 { "low" } else { "high" };
         for channel in 0..9 {
             let slot = bank * 9 + channel;
@@ -385,33 +364,27 @@ impl ChannelPanel {
                 _ => crate::strings::CHANNELS_ORIGINAL_MONO,
             };
             let mut custom = self.custom;
-            if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
-                .on_hover_text(hint)
-                .changed()
-            {
+            let mut spread = self.spread;
+            let mode = pan_controls::mode_controls(
+                ui,
+                palette,
+                &mut custom,
+                &mut spread,
+                hint,
+                crate::strings::CHANNELS_RESET,
+            );
+            if mode.mode_toggled {
                 self.custom = custom;
                 // Switching mode changes the effective panning.
                 changed = true;
             }
-            // The Spread knob: one global stereo-width control, -1..+1. 0 is mono,
-            // the extremes a wide image. Engages Custom so it is heard at once.
-            ui.horizontal(|ui| {
-                ui.label("Spread:");
-                let mut spread = self.spread;
-                if pan_knob::show_spread(ui, palette, &mut spread, "Spread")
-                    .on_hover_text(crate::strings::CHANNELS_SPREAD)
-                    .changed()
-                {
-                    self.set_spread(spread);
-                    changed = true;
-                }
-                if bevel::icon_button(ui, palette, Icon::Reset, "Reset")
-                    .on_hover_text(crate::strings::CHANNELS_RESET)
-                    .clicked()
-                {
-                    changed |= self.reset_pans();
-                }
-            });
+            if mode.spread_changed {
+                self.set_spread(spread);
+                changed = true;
+            }
+            if mode.reset {
+                changed |= self.reset_pans();
+            }
         }
         changed
     }

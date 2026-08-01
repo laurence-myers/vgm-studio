@@ -2235,6 +2235,77 @@ fn clicking_a_chip_channel_toggle_pushes_the_mask() {
     );
 }
 
+/// Drags the widget centred at `from` by `delta`, in the three steps the
+/// harness needs (press, move, release).
+fn drag_by(harness: &mut Harness<'static, VgmStudioApp>, from: egui::Pos2, delta: egui::Vec2) {
+    harness.drag_at(from);
+    harness.run();
+    harness.hover_at(from + delta);
+    harness.run();
+    harness.drop_at(from + delta);
+    harness.run();
+}
+
+/// A pan-capable chip shows its knobs whether or not Custom is latched -- a
+/// control you can see is how Custom is found -- but they only move the output
+/// once it is.
+#[test]
+fn a_generic_chips_pan_knobs_are_shown_before_custom_and_go_live_with_it() {
+    let (mut harness, handles) = build(Some(sn76489_vgm_file()), false, false);
+    harness.run();
+
+    // Shown under Original, and inert: a drag pushes no panning at all.
+    let knob = harness.get_by_label("Tone 1").rect().center();
+    drag_by(&mut harness, knob, egui::vec2(-200.0, 0.0));
+    assert!(
+        handles.audio.borrow().chip_pannings.is_empty(),
+        "an Original-mode knob must not move the output"
+    );
+
+    harness.get_by_label("Custom").click();
+    harness.run();
+    let knob = harness.get_by_label("Tone 1").rect().center();
+    drag_by(&mut harness, knob, egui::vec2(-200.0, 0.0));
+
+    let audio = handles.audio.borrow();
+    let last = audio.chip_pannings.last().expect("a chip panning was pushed");
+    let pans = last
+        .pans_for(vgms_core::ChipKind::Sn76489, 0)
+        .expect("the chip's pans");
+    assert_eq!(pans[0], vgms_synth::chip_mix::PAN_LEFT, "Tone 1 dragged hard left");
+    assert_eq!(pans[1], vgms_synth::chip_mix::PAN_CENTER, "Tone 2 stays centred");
+}
+
+/// The Spread knob and Reset button work on a generic chip exactly as they do
+/// on OPL: spread engages Custom and leans the voices apart, Reset puts the
+/// chip's own image back.
+#[test]
+fn spread_and_reset_pan_a_generic_chip_like_the_opl_panel() {
+    let (mut harness, handles) = build(Some(sn76489_vgm_file()), false, false);
+    harness.run();
+
+    let spread = harness.get_by_label("Spread").rect().center();
+    drag_by(&mut harness, spread, egui::vec2(200.0, 0.0));
+    {
+        let audio = handles.audio.borrow();
+        let last = audio.chip_pannings.last().expect("a chip panning was pushed");
+        let pans = last
+            .pans_for(vgms_core::ChipKind::Sn76489, 0)
+            .expect("the spread engaged Custom");
+        assert!(pans[0] < vgms_synth::chip_mix::PAN_CENTER, "Tone 1 leans left");
+        assert!(pans[1] > vgms_synth::chip_mix::PAN_CENTER, "Tone 2 leans right");
+    }
+
+    harness.get_by_label("Reset").click();
+    harness.run();
+    let audio = handles.audio.borrow();
+    let last = audio.chip_pannings.last().expect("the reset was pushed");
+    assert!(
+        last.is_neutral(),
+        "Reset returns the chip to its own image, {last:?}"
+    );
+}
+
 /// The chip tab's Mute control masks that whole chip, and Solo mutes every
 /// *other* chip -- the isolation workflow: solo the SN76489 of a Mega Drive
 /// rip and only the PSG is left sounding. Works whatever the cores can do,

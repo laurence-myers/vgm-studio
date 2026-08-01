@@ -16,11 +16,9 @@
 use vgms_core::vgm::{ChannelInfo, ChipKind, channels_of};
 
 use super::channels::ChannelsResponse;
+use super::pan_controls::{self, PAN_CENTER};
 use super::pan_knob;
 use crate::theme::{Palette, bevel, icon::Icon};
-
-/// The centred pan byte (`0x80`), matching the OPL panel and the knob widget.
-const PAN_CENTER: u8 = 0x80;
 
 /// Channels drawn per row before wrapping -- the OPL panel's bank width, so a
 /// 16-channel chip reads as two familiar rows rather than one long one.
@@ -46,6 +44,9 @@ pub struct GenericChannelPanel {
     chip_muted: bool,
     /// Pan byte per channel, edited under Custom mode.
     pans: Vec<u8>,
+    /// The last strength applied via the Spread knob (`-1.0..=1.0`, `0.0` mono),
+    /// kept so the knob shows where it was left -- as the OPL panel's does.
+    spread: f32,
     /// Whether the pan knobs drive the output (Custom) or the chip's own image
     /// does (Original).
     custom: bool,
@@ -63,6 +64,7 @@ impl GenericChannelPanel {
             audible: vec![true; channels.len()],
             chip_muted: false,
             pans: vec![PAN_CENTER; channels.len()],
+            spread: 0.0,
             custom: false,
         }
     }
@@ -146,12 +148,39 @@ impl GenericChannelPanel {
             .all(|(i, &on)| on == (i == index))
     }
 
-    /// Draws the panel. `pan_supported` decides whether the pan knobs and the
-    /// Custom/Original toggle appear at all -- omitted, not greyed, when the
-    /// core cannot pan. `mute_supported` decides whether the channel toggles are
-    /// live: a core with no channel-mute (the Nuked family) gets *disabled*
-    /// toggles with an explaining tooltip, rather than toggles that light up and
-    /// silence nothing. Returns which of muting/panning changed this frame.
+    /// Applies a stereo-spread `strength` (`-1.0..=1.0`) across this chip's
+    /// channels and engages Custom mode so it takes effect -- the OPL panel's
+    /// Spread knob, over however many voices this chip has.
+    fn set_spread(&mut self, strength: f32) {
+        self.spread = strength.clamp(-1.0, 1.0);
+        pan_controls::spread_into(&mut self.pans, self.spread);
+        self.custom = true;
+    }
+
+    /// Resets panning to centred and returns to Original mode (the chip's own
+    /// image), with the spread back to mono. Returns whether the *effective*
+    /// panning changed, so the caller only resends when it must.
+    fn reset_pans(&mut self) -> bool {
+        let before = self.pan_entry();
+        self.pans.fill(PAN_CENTER);
+        self.spread = 0.0;
+        self.custom = false;
+        before != self.pan_entry()
+    }
+
+    /// Draws the panel, laid out like the OPL one: each group of channels is a
+    /// pan row directly above its toggle row, "All" leads the first toggle row,
+    /// and the Custom latch, Spread knob and Reset button close the first pan
+    /// row.
+    ///
+    /// `pan_supported` decides whether the pan controls appear at all -- omitted,
+    /// not greyed, when the core cannot pan. When it can, the knobs are always
+    /// *shown*, live only under Custom: a control you can see and reach for is
+    /// how Custom is discovered in the first place. `mute_supported` decides
+    /// whether the channel toggles are live: a core with no channel-mute (the
+    /// Nuked family) gets *disabled* toggles with an explaining tooltip, rather
+    /// than toggles that light up and silence nothing. Returns which of
+    /// muting/panning changed this frame.
     pub fn show(
         &mut self,
         ui: &mut egui::Ui,
@@ -167,66 +196,96 @@ impl GenericChannelPanel {
             .min_col_width(0.0)
             .spacing([6.0, 4.0])
             .show(ui, |ui| {
-                let show_pans = pan_supported && self.custom;
                 for (row_start, chunk) in self.channels.chunks(ROW).enumerate() {
                     let base = row_start * ROW;
-                    // The pan row above this group of toggles, when panning.
-                    if show_pans {
+                    // The pan row above this group of toggles.
+                    if pan_supported {
                         ui.label(if row_start == 0 { "Pan:" } else { "" });
+                        ui.label(""); // the "All" column, which has no pan
+                        let live = self.custom;
                         for offset in 0..chunk.len() {
                             let label = self.channels[base + offset].name;
                             response.panning_changed |= pan_knob::show(
                                 ui,
                                 palette,
                                 &mut self.pans[base + offset],
-                                true,
+                                live,
                                 label,
                             )
                             .changed();
+                        }
+                        // The mode controls close the first pan row, past the
+                        // knobs they govern.
+                        if row_start == 0 {
+                            response.panning_changed |= self.mode_controls(ui, palette);
                         }
                         ui.end_row();
                     }
                     // The toggle row: the channel's short label, hover its name.
                     ui.label(if row_start == 0 { "Channels:" } else { "" });
+                    if row_start == 0 {
+                        response.muting_changed |= self.all_button(ui, palette, mute_supported);
+                    } else {
+                        ui.label(""); // one "All" covers every row
+                    }
                     for offset in 0..chunk.len() {
                         response.muting_changed |=
                             self.channel_toggle(ui, palette, base + offset, mute_supported);
                     }
                     ui.end_row();
                 }
-
-                // The mode/All controls sit on their own row beneath.
-                ui.label("");
-                if pan_supported {
-                    let mut custom = self.custom;
-                    if bevel::icon_toggle(ui, palette, &mut custom, Icon::Custom, "Custom")
-                        .on_hover_text(crate::strings::CHIP_CHANNELS_CUSTOM)
-                        .changed()
-                    {
-                        self.custom = custom;
-                        response.panning_changed = true;
-                    }
-                }
-                // "All" unmutes; moot when muting does nothing, so it is disabled
-                // with the toggles.
-                let all = ui
-                    .add_enabled_ui(mute_supported, |ui| {
-                        bevel::icon_button(ui, palette, Icon::All, "All")
-                    })
-                    .inner;
-                let all = if mute_supported {
-                    all.on_hover_text(crate::strings::CHIP_CHANNELS_UNMUTE_ALL)
-                } else {
-                    all.on_disabled_hover_text(crate::strings::CHIP_CHANNELS_MUTE_UNAVAILABLE)
-                };
-                if all.clicked() {
-                    response.muting_changed |= self.audible.iter().any(|&on| !on);
-                    self.audible.fill(true);
-                }
-                ui.end_row();
             });
 
         response
+    }
+
+    /// The Custom latch, Spread knob and Reset button, shared with the OPL panel.
+    /// Returns whether the effective panning changed.
+    fn mode_controls(&mut self, ui: &mut egui::Ui, palette: &Palette) -> bool {
+        let mut custom = self.custom;
+        let mut spread = self.spread;
+        let mode = pan_controls::mode_controls(
+            ui,
+            palette,
+            &mut custom,
+            &mut spread,
+            crate::strings::CHIP_CHANNELS_CUSTOM,
+            crate::strings::CHIP_CHANNELS_RESET,
+        );
+        let mut changed = false;
+        if mode.mode_toggled {
+            self.custom = custom;
+            changed = true;
+        }
+        if mode.spread_changed {
+            self.set_spread(spread);
+            changed = true;
+        }
+        if mode.reset {
+            changed |= self.reset_pans();
+        }
+        changed
+    }
+
+    /// "All": unmutes every channel. Moot when muting does nothing, so it is
+    /// disabled with the toggles it leads. Returns whether the muting changed.
+    fn all_button(&mut self, ui: &mut egui::Ui, palette: &Palette, mute_supported: bool) -> bool {
+        let all = ui
+            .add_enabled_ui(mute_supported, |ui| {
+                bevel::icon_button(ui, palette, Icon::All, "All")
+            })
+            .inner;
+        let all = if mute_supported {
+            all.on_hover_text(crate::strings::CHIP_CHANNELS_UNMUTE_ALL)
+        } else {
+            all.on_disabled_hover_text(crate::strings::CHIP_CHANNELS_MUTE_UNAVAILABLE)
+        };
+        if !all.clicked() {
+            return false;
+        }
+        let changed = self.audible.iter().any(|&on| !on);
+        self.audible.fill(true);
+        changed
     }
 
     /// One channel toggle: audible is lit, muting un-lights it. Left-click

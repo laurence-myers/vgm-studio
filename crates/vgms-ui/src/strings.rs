@@ -803,6 +803,7 @@ pub(crate) fn channels_percussion_hover(hover: &str) -> String {
 pub(crate) const CHIP_CHANNELS_CUSTOM: &str =
     "Custom: the pan knobs drive the output. Original: the chip's own image.";
 pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning is left alone)";
+pub(crate) const CHIP_CHANNELS_RESET: &str = "Reset panning to centred (Original mode: the chip's own image)";
 
 pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
 

@@ -323,7 +323,11 @@ pub(crate) fn install_test_cores() {
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
             realtime: true,
-            channel_pan: false,
+            // As the real one: the SN76489's Maxim core carries `SetPanning`,
+            // so this stand-in claims it too and the GUI tests exercise the
+            // chip panel's pan controls. The stub itself ignores the positions
+            // -- what is under test is the panel and the service call.
+            channel_pan: true,
             channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(ToneStub::new())),
