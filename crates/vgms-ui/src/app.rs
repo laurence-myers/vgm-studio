@@ -2888,12 +2888,18 @@ impl VgmStudioApp {
         }
         // Preview at the track's own volume: unless the volume is locked, start it
         // from the track's header modifier -- on a copy of the config, so the
-        // preview does not disturb the editor's volume.
+        // preview does not disturb the editor's volume. Both kinds of source
+        // carry one: an OPL snapshot in its meta, any other VGM in its header.
+        // (Black Knight 2000's rips ask for as little as 0.25x, and previewing
+        // them at the editor's boost was most of why they played too loud.)
         let mut preview_config = self.config.audio.clone();
         if !preview_config.lock_boost {
-            preview_config.boost = source
-                .opl()
-                .map_or(preview_config.boost, |song| Self::modifier_boost(song));
+            preview_config.boost = match &source {
+                vgms_synth::AudioSource::Opl(song) => Self::modifier_boost(song),
+                vgms_synth::AudioSource::Vgm(file) => {
+                    vgms_core::volume_modifier_factor(file.header.volume_modifier())
+                }
+            };
         }
         self.audio.pause();
         if let Err(message) = self.audio.load(source, &preview_config) {
