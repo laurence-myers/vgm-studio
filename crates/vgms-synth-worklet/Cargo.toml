@@ -22,12 +22,11 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 vgms-core.workspace = true
 vgms-synth.workspace = true
-# The app tier's cores, exactly as `vgms-app::install_cores` links them minus
-# the native-only RetroWave board. libvgm first (the default for every chip it
-# serves); its wasm libc shim also satisfies the C the other two providers pull.
-vgms-cores-nuked.workspace = true
-vgms-cores-gpl.workspace = true
-vgms-cores-libvgm.workspace = true
+# The app tier's cores, exactly as `vgms-app::install_cores` links them minus the
+# native-only RetroWave board -- the same `register_common_cores` builds both, so
+# the two rosters cannot drift. It pulls libvgm (whose wasm libc shim also
+# satisfies the C the other two providers need), Nuked and the GPL die-sims.
+vgms-cores.workspace = true
 log.workspace = true
 
 # Not `[lints] workspace = true`: the `extern "C"` exports need

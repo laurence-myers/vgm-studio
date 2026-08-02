@@ -1,0 +1,22 @@
+[package]
+name = "vgms-cores"
+description = "The core providers every VGM Studio build shares, registered in one place so the native and web builds cannot drift on which chip each core owns."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+# GPL because it names and links the GPL provider crates. A leaf that only the
+# application and the worklet depend on, which is what keeps `vgms-synth`
+# permissive. See `licenses/README.md`.
+license = "GPL-2.0-or-later"
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+vgms-core.workspace = true
+vgms-synth.workspace = true
+vgms-cores-libvgm.workspace = true
+vgms-cores-nuked.workspace = true
+vgms-cores-gpl.workspace = true
+
+[lints]
+workspace = true

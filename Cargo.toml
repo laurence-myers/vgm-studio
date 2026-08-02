@@ -42,6 +42,8 @@ vgms-ui = { path = "crates/vgms-ui" }
 vgms-cores-nuked = { path = "crates/vgms-cores-nuked" }
 vgms-cores-gpl = { path = "crates/vgms-cores-gpl" }
 vgms-cores-libvgm = { path = "crates/vgms-cores-libvgm" }
+# The shared common-core registration; keeps the native and web rosters in step.
+vgms-cores = { path = "crates/vgms-cores" }
 vgms-synth-worklet = { path = "crates/vgms-synth-worklet" }
 # The vgmtools optimisers. Desktop-only: it spawns child processes, so any
 # crate that also builds for wasm must depend on it behind

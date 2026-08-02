@@ -47,12 +47,11 @@ static LAST_ERROR: Mutex<String> = Mutex::new(String::new());
 /// exist.
 pub fn install_web_cores() {
     let mut registry = CoreRegistry::with_builtins();
-    vgms_cores_libvgm::register(&mut registry);
-    vgms_cores_nuked::register(&mut registry);
-    vgms_cores_gpl::register(&mut registry);
-    registry.promote(ChipKind::Ym2612, "ym2612.nuked");
-    registry.promote(ChipKind::Ym2151, "ym2151.nuked");
-    registry.promote(ChipKind::Ym2413, "ym2413.nuked");
+    // The same providers, in the same order, as the native app's `install_cores`
+    // -- built from the one shared function so the two wasm-and-native rosters
+    // cannot disagree about which core owns a chip. The web adds nothing extra:
+    // the RetroWave board is native-only.
+    vgms_cores::register_common_cores(&mut registry);
     if vgms_synth::install(registry).is_err() {
         // Only reachable if setup ran twice; the installed registry is already
         // correct, so this is a note, not a failure.

@@ -4709,6 +4709,7 @@ dependencies = [
  "rfd",
  "vgms-audio-native",
  "vgms-core",
+ "vgms-cores",
  "vgms-cores-gpl",
  "vgms-cores-libvgm",
  "vgms-cores-nuked",
@@ -4743,6 +4744,17 @@ dependencies = [
  "rust-ini",
  "thiserror 2.0.18",
  "wasm-bindgen-test",
+]
+
+[[package]]
+name = "vgms-cores"
+version = "0.1.0"
+dependencies = [
+ "vgms-core",
+ "vgms-cores-gpl",
+ "vgms-cores-libvgm",
+ "vgms-cores-nuked",
+ "vgms-synth",
 ]
 
 [[package]]
@@ -4812,9 +4824,7 @@ version = "0.1.0"
 dependencies = [
  "log",
  "vgms-core",
- "vgms-cores-gpl",
- "vgms-cores-libvgm",
- "vgms-cores-nuked",
+ "vgms-cores",
  "vgms-synth",
 ]
 

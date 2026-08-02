@@ -32,24 +32,13 @@ pub use pack_zip::{PackZipOutput, build_pack_zip};
 /// rather than `vgms-synth`: the web build never calls it.
 pub fn install_cores() {
     let mut registry = vgms_synth::CoreRegistry::with_builtins();
-    // libvgm first: the source of truth and the default for every chip it
-    // serves. It carries no OPL rows, so the built-ins' Nuked-OPL3 keeps that
-    // family's default untouched.
-    vgms_cores_libvgm::register(&mut registry);
-    // Behind it, the Nuked integrations stay as picker options: CQM is
-    // Creative's clone of a YMF262 beside the faithful one, OPN2/OPM flavours
-    // behind libvgm's rows.
-    vgms_cores_nuked::register(&mut registry);
-    // The LLE die and Nuked-OPLL/PSG stay as options.
-    vgms_cores_gpl::register(&mut registry);
+    // The providers every build shares, in priority order (libvgm first, Nuked
+    // and the GPL die-sims behind it, the three Nuked promotions). The web
+    // worklet builds the identical set from the same function.
+    vgms_cores::register_common_cores(&mut registry);
+    // Then the one native-only provider: the RetroWave board. It is why this
+    // lives in the app rather than `vgms-cores` -- the web build never links it.
     vgms_retrowave::register(&mut registry);
-    // Three exceptions: Nuked stays the default for these chips, libvgm the
-    // picker alternative. Promotion rather than registration order because the
-    // OPLL shares a crate with Nuked-PSG and the LLE, which must stay behind
-    // libvgm.
-    registry.promote(ChipKind::Ym2612, "ym2612.nuked");
-    registry.promote(ChipKind::Ym2151, "ym2151.nuked");
-    registry.promote(ChipKind::Ym2413, "ym2413.nuked");
     if vgms_synth::install(registry).is_err() {
         // Only reachable if startup ran twice in one process. The installed
         // registry is already correct, so this is a note, not a failure.

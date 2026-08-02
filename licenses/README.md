@@ -5,7 +5,7 @@ vgm-studio is **not** licensed as one blob. Two halves, on purpose:
 | Part | Crates | License |
 |---|---|---|
 | **The reusable library pair** | `vgms-core`, `vgms-synth` | `MIT OR Apache-2.0` |
-| **The application** | `vgms-app`, `vgms-ui`, `vgms-audio-native`, `vgms-retrowave`, `vgms-web`, `vgms-synth-worklet`, `vgms-pack-archive`, `vgms-vgmtools` | `GPL-2.0-or-later` |
+| **The application** | `vgms-app`, `vgms-ui`, `vgms-audio-native`, `vgms-retrowave`, `vgms-cores`, `vgms-web`, `vgms-synth-worklet`, `vgms-pack-archive`, `vgms-vgmtools` | `GPL-2.0-or-later` |
 
 **The distributed program — the `vgmstudio` binary and the web build — is
 `GPL-2.0-or-later`.** That is the license that reaches a user who downloads a
@@ -39,6 +39,10 @@ crates that the *app* depends on, so the permissive half stays permissive:
 headers and no top-level `LICENSE`, so `vgms-cores-libvgm` is treated as
 `GPL-2.0-or-later` — the most conservative reading, and the same tier the rest of
 the copyleft cores sit in. See `crates/vgms-cores-libvgm/src/lib.rs`.
+
+`vgms-cores` names and links all three providers above (so the native app and
+the web worklet register the identical set); it holds no core of its own, and is
+`GPL-2.0-or-later` because it links them.
 
 `vgms-synth`'s one copyleft dependency, the `nuked-opl3` OPL core, is behind a
 **default-on `nuked-opl` feature**. `cargo build -p vgms-synth

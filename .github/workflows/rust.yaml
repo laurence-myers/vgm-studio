@@ -65,7 +65,7 @@ jobs:
       # dependency at the moment it is introduced. Every wasm-facing crate is
       # here: the shared model and UI, and both web modules.
       - name: Check wasm-clean crates
-        run: cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet -p vgms-pack-archive -p vgms-retrowave
+        run: cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet -p vgms-cores -p vgms-pack-archive -p vgms-retrowave
 
       # The AudioWorklet module must import nothing (`AudioWorkletGlobalScope` has
       # no libc to offer it) and must actually sound. The node smoke asserts both
