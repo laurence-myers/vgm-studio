@@ -619,7 +619,7 @@ const NAVY_CASE: CaseColors = CaseColors {
 
     label: Color32::from_rgb(0xD6, 0xE2, 0xF5),
     muted: Color32::from_rgb(0x7E, 0x8F, 0xB0),
-    // Ice blue, to sit with the navy plate.
+    // Warm amber, to sit with the navy plate.
     data_text: Color32::from_rgb(0xF2, 0xC7, 0x66),
     data_label: Color32::from_rgb(0xB8, 0xC6, 0xE0),
 
@@ -672,7 +672,7 @@ const CREAM_CASE: CaseColors = CaseColors {
     label: Color32::from_rgb(0x38, 0x35, 0x2A),
     muted: Color32::from_rgb(0x8A, 0x82, 0x66),
     // Light: it still sits on the dark data well.
-    // Warm amber, matching the cream plate.
+    // Ice blue, matching the cream plate.
     data_text: Color32::from_rgb(0x74, 0xCF, 0xE6),
     data_label: Color32::from_rgb(0xC8, 0xBE, 0x9E),
 
@@ -723,7 +723,7 @@ const VERDIGRIS_CASE: CaseColors = CaseColors {
 
     label: Color32::from_rgb(0xE2, 0xED, 0xE2),
     muted: Color32::from_rgb(0x8A, 0xA8, 0x98),
-    // Pale mint, matching the patina plate.
+    // Warm peach, matching the patina plate.
     data_text: Color32::from_rgb(0xF0, 0xA8, 0x78),
     data_label: Color32::from_rgb(0xB8, 0xD0, 0xC2),
 

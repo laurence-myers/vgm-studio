@@ -1,6 +1,6 @@
 //! The virtual instruction table.
 //!
-//! Six columns. Only visible rows are built each frame (`egui_extras` virtual
+//! Five columns. Only visible rows are built each frame (`egui_extras` virtual
 //! rows), so the 100k+-row requirement holds. The Bank and Description columns
 //! are computed synchronously from the replay cursor, so there is no "`?` until
 //! the analysis task finishes" phase.
@@ -74,7 +74,7 @@ pub fn show(
     }
 
     builder
-        .header(row_height + 2.0, |mut header| {
+        .header(header_height, |mut header| {
             for title in editor.column_titles() {
                 header.col(|ui| {
                     ui.label(
