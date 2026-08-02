@@ -522,25 +522,10 @@ pub struct HardwarePortInfo {
     pub recognised: bool,
 }
 
-/// What a [`PackEntry`] is, which decides how the export job treats its bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PackEntryKind {
-    /// A `.vgm`/`.vgz` song. Gzipped to `.vgz` when the job asks for it.
-    Song,
-    /// A `.png` screenshot. Optimised with oxipng.
-    Image,
-    /// A generated `.txt`/`.m3u` document. Stored verbatim.
-    Doc,
-}
-
-/// One file bound for the release zip.
-#[derive(Debug, Clone)]
-pub struct PackEntry {
-    /// The name inside the zip (flat -- no directories).
-    pub name: String,
-    pub bytes: Vec<u8>,
-    pub kind: PackEntryKind,
-}
+/// A file bound for the release zip, and what kind it is. Both are defined by
+/// [`vgms_pack_archive`] -- the crate that packs them -- and re-exported here so
+/// the UI's platform surface still names them.
+pub use vgms_pack_archive::{PackEntry, PackEntryKind};
 
 /// A request to build a release zip. The entries are already in final order.
 #[derive(Debug, Clone)]

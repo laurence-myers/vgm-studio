@@ -25,6 +25,26 @@ use std::io::{Cursor, Read as _};
 /// The extensions a pack folder keeps, matching the native scan filter.
 pub const PACK_EXTENSIONS: [&str; 4] = ["vgm", "vgz", "png", "txt"];
 
+/// What a [`PackEntry`] is, which decides how the export job treats its bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackEntryKind {
+    /// A `.vgm`/`.vgz` song. Gzipped to `.vgz` when the job asks for it.
+    Song,
+    /// A `.png` screenshot. Optimised when an image optimizer is supplied.
+    Image,
+    /// A generated `.txt`/`.m3u` document. Stored verbatim.
+    Doc,
+}
+
+/// One file bound for the release zip.
+#[derive(Debug, Clone)]
+pub struct PackEntry {
+    /// The name inside the zip (flat -- no directories).
+    pub name: String,
+    pub bytes: Vec<u8>,
+    pub kind: PackEntryKind,
+}
+
 /// The most a single pack entry may decompress to: 128 MiB. A pack holds VGM,
 /// VGZ, PNG and text files, none of which reach this in practice; the cap is a
 /// zip-bomb guard, so a tiny entry declaring a huge uncompressed length cannot
