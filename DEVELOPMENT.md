@@ -1,7 +1,8 @@
-## Rust rewrite (in progress)
+## Development
 
-The `rust` branch is porting VGM Studio to Rust; the Python sources under `src/`
-stay put during the transition, for parity comparison. Both suites run.
+VGM Studio is a Rust workspace. (An earlier Python implementation has been
+retired; anything still referring to `src/` Python, `black`, `mypy` or
+`requirements.txt` is history, not the build.)
 
 The workspace is licensed in **two halves**, and which half a file is in decides
 what may be copied into it:
@@ -51,7 +52,8 @@ Whatever the build needs and an upstream does not provide goes in that crate's
 cargo test --workspace                                       # unit + integration tests
 cargo fmt --all                                              # format
 cargo clippy --workspace --all-targets -- -D warnings        # lint
-cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth   # wasm stays clean
+# wasm stays clean -- every wasm-facing crate, matching rust.yaml's job
+cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet -p vgms-pack-archive -p vgms-retrowave
 ```
 
 ### The `vgmstudio` command line
@@ -66,7 +68,13 @@ cargo run -p vgms-app -- play song.dro           # play through the speakers
 cargo run -p vgms-app -- render song.dro         # write song.dro.wav
 cargo run -p vgms-app -- split song.dro          # one WAV per channel used
 cargo run -p vgms-app -- split --song song.vgm   # one VGM per channel instead
+cargo run -p vgms-app -- optimize song.vgm       # drop redundant writes, merge delays
+cargo run -p vgms-app -- retrowave-probe         # find and test a RetroWave board
 ```
+
+The five subcommands are `play`, `render`, `split`, `optimize` and
+`retrowave-probe`. `convert` is **not** one -- DRO v2 -> v1 is a GUI action
+(Edit > Convert to DRO v1).
 
 DRO v2 -> v1 conversion (the old `dro2to1`) is GUI-only now, under Edit >
 Convert to DRO v1.
@@ -136,31 +144,8 @@ Once installed, "Modify" it, go to Individual Components, select only:
 
 ## Setup
 
-Install Python v3.13. On Windows, I used Scoop in a Powershell terminal.
-
-```PowerShell
-scoop install python313
-```
-
-In IntelliJ, go to Project Structure -> SDKs, add a new Python (virtualenv).
-
-In Project, select the new SDK.
-
-Install normal dependencies:
-
-```PowerShell
-py -m pip install -r requirements.txt
-```
-
-Install dev dependencies:
-
-```PowerShell
-py -m pip install -r requirements_dev.txt
-```
-
-Set up Black for auto-formatting: [here's how to set it up in IntelliJ or PyCharm.](https://www.jetbrains.com/help/pycharm/2023.2/reformat-and-rearrange-code.html#format-python-code-with-black)
-
-Set up Git to ignore bulk change commits (like auto-formatting) when running "blame":
+Set up Git to ignore bulk-change commits (like auto-formatting) when running
+"blame":
 
 ```PowerShell
 git config blame.ignoreRevsFile .git-blame-ignore-revs
@@ -201,28 +186,26 @@ anything. If a change to the wire format goes wrong, the failure is silence, not
 error — so listen, do not just check the exit code. The design and its reasoning are
 in `docs/retrowave-2026-07/PLAN.md`.
 
-## Build .exe
+## The web build
+
+The browser target is assembled by one script -- no Node build system (every
+runtime asset is named by a Rust string constant, so a bundler's asset hashing
+would break the app). It needs the `wasm-bindgen` CLI at the version `Cargo.lock`
+pins:
 
 ```PowerShell
-cd src
-python setup.py
+cargo install wasm-bindgen-cli --version 0.2.126 --locked
+tools/build-web.ps1                 # assembles target/web-dist
 ```
 
-## Format code
+`build-web.ps1 -E2e` builds the same bundle with the `window.__vgms_e2e` test
+hook on; `-SkipWasiTools` omits the wasip1 optimiser modules and their wasi-sdk
+fetch. `web/` holds exactly the files the browser gets; the Playwright harness
+lives separately in `web-e2e/`.
+
+Serve and drive the built target:
 
 ```PowerShell
-black src/ tests/
-```
-
-## Type-check code
-
-```PowerShell
-mypy src/
-mypy tests/
-```
-
-## Run tests
-
-```Powershell
-python -m unittest discover --start-directory tests/
+node web-e2e/serve.mjs              # static-serve target/web-dist at :5178
+cd web-e2e; npm ci; npx playwright test   # the browser e2e suite (Chromium + Firefox)
 ```
