@@ -94,6 +94,10 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
     this.peakL = 0;
     this.peakR = 0;
     this.limited = false;
+    // Set by the `dispose` command when the page supersedes this node; the next
+    // `process()` returns false so the browser stops the processor and lets it be
+    // collected, instead of the default (return true, run forever).
+    this.disposed = false;
 
     this.port.onmessage = (event) => this._onCommand(event.data);
   }
@@ -153,6 +157,9 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
       case "pause":
         this.playing = false;
         break;
+      case "dispose":
+        this.disposed = true;
+        break;
       case "seekMs":
         this.ex.vgmsw_seek_ms(data.ms >>> 0);
         break;
@@ -208,6 +215,10 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
   }
 
   process(_inputs, outputs) {
+    // A disposed node stops here: returning false removes the processor from the
+    // graph so a superseded node does not keep rendering (and leaking) forever.
+    if (this.disposed) return false;
+
     const out = outputs[0];
     const left = out[0];
     const right = out.length > 1 ? out[1] : out[0];

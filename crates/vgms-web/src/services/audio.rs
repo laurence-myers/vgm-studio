@@ -51,7 +51,12 @@ struct StateSnapshot {
 struct Inner {
     context: Option<web_sys::AudioContext>,
     node: Option<web_sys::AudioWorkletNode>,
-    module_added: bool,
+    /// The `add_module` promise, stored so every concurrent setup awaits the same
+    /// one instead of racing a flag across the await and adding it twice.
+    module_promise: Option<js_sys::Promise>,
+    /// Bumped on every load and unload. A setup captures it and, if it no longer
+    /// matches when the setup finishes, knows a newer load has superseded it.
+    epoch: u64,
     ready: bool,
     /// Commands posted before the node existed, replayed in order once it does.
     pending: Vec<JsValue>,
@@ -87,7 +92,8 @@ impl WebAudioService {
             inner: Rc::new(RefCell::new(Inner {
                 context: None,
                 node: None,
-                module_added: false,
+                module_promise: None,
+                epoch: 0,
                 ready: false,
                 pending: Vec::new(),
                 playing: false,
@@ -115,6 +121,32 @@ impl WebAudioService {
             inner.pending.push(command);
         }
     }
+}
+
+/// Tears the current node down: dispose the processor so it stops rendering,
+/// unhook its port handler so a late message cannot fire a dropped closure
+/// (~43/s throw storm otherwise), and disconnect it from the graph.
+fn teardown_node(inner: &mut Inner) {
+    if let Some(node) = inner.node.take() {
+        if let Ok(port) = node.port() {
+            let _ = port.post_message(&command("dispose", &[]));
+            port.set_onmessage(None);
+        }
+        let _ = node.disconnect();
+    }
+    inner._on_message = None;
+}
+
+/// Tears the node down and resets the playback state, bumping the epoch so an
+/// in-flight setup knows it has been superseded.
+fn reset(inner: &mut Inner) {
+    teardown_node(inner);
+    inner.ready = false;
+    inner.playing = false;
+    inner.state = StateSnapshot::default();
+    inner.accum_peak = [0.0, 0.0];
+    inner.limited = false;
+    inner.epoch = inner.epoch.wrapping_add(1);
 }
 
 /// Builds a command object `{ cmd, ...fields }` for the processor.
@@ -160,34 +192,39 @@ impl AudioService for WebAudioService {
             .map(|(slug, id)| (slug.clone(), id.clone()))
             .collect();
 
-        // A fresh node supersedes any current one: reset the ready flag and drop
-        // the old node so its handler stops updating our state.
-        {
+        // A fresh node supersedes any current one: tear the old node down
+        // (disconnect, dispose, unhook its handler), reset the state, and bump the
+        // epoch so a still-running previous setup knows it has been superseded.
+        let epoch = {
             let mut inner = self.inner.borrow_mut();
-            inner.ready = false;
-            inner.playing = false;
-            inner.node = None;
-            inner.state = StateSnapshot::default();
-            inner.accum_peak = [0.0, 0.0];
-            inner.limited = false;
-        }
+            reset(&mut inner);
+            inner.epoch
+        };
 
         // Open the AudioContext *now*, synchronously, not inside the async setup.
         // A browser only lets `resume()` start audio from within a user gesture,
         // and Play is that gesture -- but if the context does not yet exist when
         // Play fires (the async node setup is still running), the resume is a
         // no-op and playback stays silent. Creating it here means `play`'s resume
-        // always has a context to act on, on the click that reached it.
-        if let Err(message) = ensure_context(&self.inner, sample_rate) {
-            self.inner.borrow_mut().last_error = Some(message);
-            return Ok(());
-        }
+        // always has a context to act on, on the click that reached it. A failure
+        // here is synchronous with this call, so return it rather than deferring
+        // it to `last_error`.
+        ensure_context(&self.inner, sample_rate)?;
 
         let inner = Rc::clone(&self.inner);
         spawn_local(async move {
-            if let Err(message) = setup(&inner, name, bytes, sample_rate, resample, choices).await {
-                inner.borrow_mut().last_error = Some(message);
-                let notify = Rc::clone(&inner.borrow().notify);
+            if let Err(message) =
+                setup(&inner, name, bytes, sample_rate, resample, choices, epoch).await
+            {
+                // Only the current load reports a fault; a superseded one is silent.
+                let notify = {
+                    let mut b = inner.borrow_mut();
+                    if b.epoch != epoch {
+                        return;
+                    }
+                    b.last_error = Some(message);
+                    Rc::clone(&b.notify)
+                };
                 notify();
             }
         });
@@ -196,11 +233,7 @@ impl AudioService for WebAudioService {
 
     fn unload(&mut self) {
         let mut inner = self.inner.borrow_mut();
-        if let Some(node) = inner.node.take() {
-            let _ = node.disconnect();
-        }
-        inner.ready = false;
-        inner.playing = false;
+        reset(&mut inner);
         inner.pending.clear();
     }
 
@@ -363,23 +396,44 @@ async fn setup(
     sample_rate: u32,
     resample: u32,
     choices: Vec<(String, String)>,
+    epoch: u64,
 ) -> Result<(), String> {
     let context = ensure_context(inner, sample_rate)?;
 
-    if !inner.borrow().module_added {
-        let worklet = context
-            .audio_worklet()
-            .map_err(|_| "this browser has no AudioWorklet".to_owned())?;
-        let promise = worklet
-            .add_module(PROCESSOR_URL)
-            .map_err(|_| "could not add the audio processor module".to_owned())?;
-        JsFuture::from(promise)
-            .await
-            .map_err(|_| "the audio processor module failed to load".to_owned())?;
-        inner.borrow_mut().module_added = true;
+    // Add the processor module once. The promise is stored, so a second load that
+    // arrives before this one finishes awaits the same add rather than adding the
+    // module twice (which throws).
+    let module_promise = {
+        let mut b = inner.borrow_mut();
+        match b.module_promise.clone() {
+            Some(promise) => promise,
+            None => {
+                let worklet = context
+                    .audio_worklet()
+                    .map_err(|_| "this browser has no AudioWorklet".to_owned())?;
+                let promise = worklet
+                    .add_module(PROCESSOR_URL)
+                    .map_err(|_| "could not add the audio processor module".to_owned())?;
+                b.module_promise = Some(promise.clone());
+                promise
+            }
+        }
+    };
+    if let Err(error) = JsFuture::from(module_promise).await {
+        // Let a later load retry the add rather than awaiting a rejected promise.
+        inner.borrow_mut().module_promise = None;
+        let _ = error;
+        return Err("the audio processor module failed to load".to_owned());
+    }
+    if inner.borrow().epoch != epoch {
+        return Ok(()); // superseded while adding the module
     }
 
     let wasm_bytes = fetch_bytes(WORKLET_WASM_URL).await?;
+    if inner.borrow().epoch != epoch {
+        return Ok(()); // superseded while fetching the worklet wasm
+    }
+
     let options = node_options(
         &wasm_bytes,
         &name,
@@ -405,6 +459,14 @@ async fn setup(
 
     {
         let mut inner = inner.borrow_mut();
+        // A newer load may have superseded this one while the node was being
+        // built. If so, dispose the node we just made and install nothing.
+        if inner.epoch != epoch {
+            let _ = port.post_message(&command("dispose", &[]));
+            port.set_onmessage(None);
+            let _ = node.disconnect();
+            return Ok(());
+        }
         inner.output_rate = Some(context.sample_rate() as u32);
         inner._on_message = Some(on_message);
         inner.ready = true;
