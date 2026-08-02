@@ -168,11 +168,12 @@ impl<'a> BitReader<'a> {
 /// bit-packing modes ignore.
 ///
 /// # Errors
-/// If the payload is shorter than its sub-header, or names a compression scheme
-/// the spec does not define. A block whose packed data runs out early
-/// decompresses to what it did carry rather than failing: a truncated bank is a
-/// quieter fault than a refused file, and the sample count is what the caller
-/// has to trust anyway.
+/// If the payload is shorter than its sub-header, names a compression scheme the
+/// spec does not define, or declares a value width of zero or more than 32 bits
+/// (`u32` cannot hold it, and the byte-emit and shift below would panic). A
+/// block whose packed data runs out early decompresses to what it did carry
+/// rather than failing: a truncated bank is a quieter fault than a refused file,
+/// and the sample count is what the caller has to trust anyway.
 pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<Vec<u8>> {
     // `{u8 type, u32 uncompressed_size, u8 bits_decompressed,
     //   u8 bits_compressed, u8 sub_type, u16 add_or_start}`
@@ -204,6 +205,14 @@ pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<
             "a compressed data block declares a zero-bit value".to_owned(),
         ));
     }
+    // A width past 32 bits does not fit a `u32`: `to_le_bytes()[..width]` would
+    // slice past four bytes, and `packed << (bits_out - bits_in)` would overflow
+    // the shift. One check closes both.
+    if bits_out > 32 {
+        return Err(Error::file(
+            "a compressed data block declares a value wider than 32 bits".to_owned(),
+        ));
+    }
     let count = uncompressed_size / width;
     let mask = if bits_out >= 32 {
         u32::MAX
@@ -211,8 +220,15 @@ pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<
         (1u32 << bits_out) - 1
     };
 
+    // `uncompressed_size` is attacker-controlled and only an upper bound: the
+    // packed data can yield no more values than its own bits allow, and the loop
+    // below stops the moment the reader runs dry. Reserve against what the input
+    // can actually produce, so a block declaring gigabytes while carrying a
+    // handful of bytes cannot turn into a gigabyte reservation.
+    let max_values = data.len().saturating_mul(8) / usize::from(bits_in);
+    let capacity = uncompressed_size.min(max_values.saturating_mul(width));
     let mut reader = BitReader::new(data);
-    let mut out = Vec::with_capacity(uncompressed_size);
+    let mut out = Vec::with_capacity(capacity);
     let mut running = operand;
 
     for _ in 0..count {
@@ -344,6 +360,29 @@ mod tests {
         let payload = packed(0x09, 1, 8, 8, 0, 0, &[1]);
         let error = decompress(&payload, None).unwrap_err();
         assert!(error.to_string().contains("compression type"), "{error}");
+    }
+
+    #[test]
+    fn a_block_declaring_more_than_thirty_two_bits_is_refused() {
+        // `bits_out` of 40 would slice a five-byte value out of a four-byte
+        // buffer and shift a `u32` by more than 31; refuse it, do not panic.
+        let payload = packed(0x00, 8, 40, 8, 0, 0, &[1]);
+        let error = decompress(&payload, None).unwrap_err();
+        assert!(error.to_string().contains("wider than 32"), "{error}");
+    }
+
+    #[test]
+    fn a_declared_size_does_not_become_an_unbounded_reservation() {
+        // Declares four gigabytes of output while carrying one packed byte.
+        let mut payload = vec![0x00];
+        payload.extend_from_slice(&u32::MAX.to_le_bytes());
+        payload.extend_from_slice(&[8, 8, 0]); // bits_out, bits_in, sub_type
+        payload.extend_from_slice(&0u16.to_le_bytes()); // operand
+        payload.push(0x77); // one packed value
+        let out = decompress(&payload, None).unwrap();
+        assert_eq!(out, vec![0x77]);
+        // The reservation followed the input, not the four-gigabyte claim.
+        assert!(out.capacity() <= 16, "reserved {} bytes", out.capacity());
     }
 
     #[test]
