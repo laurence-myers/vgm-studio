@@ -370,8 +370,10 @@ impl VgmFile {
             return false;
         };
         let before = stream.len();
-        // Where the loop was, and where the deletion leaves it.
+        // Where the loop was, and where the deletion leaves it -- both the point
+        // and any deliberately-short end, captured before the stream changes.
         let loop_index = self.loop_index();
+        let loop_end = self.loop_end_index();
         let mut sorted: Vec<usize> = indices.iter().copied().filter(|&i| i < before).collect();
         sorted.sort_unstable();
         sorted.dedup();
@@ -388,7 +390,9 @@ impl VgmFile {
 
         let moved =
             loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
-        self.repatch_header(moved, total);
+        let moved_end =
+            loop_end.and_then(|end| slide_index_past_deletion(end, &sorted, surviving));
+        self.repatch_header(moved, moved_end, total);
         self.refresh_opl();
         true
     }
@@ -415,11 +419,15 @@ impl VgmFile {
 
         // A loop inside the kept region moves with it; one outside it is gone.
         let loop_at = self.loop_index().filter(|&at| (start..end).contains(&at));
-        let new_loop = loop_at.map(|at| {
-            prelude_len + stream.byte_offset(at).unwrap_or(0)
-                - stream.byte_offset(start).unwrap_or(0)
-        });
-        self.rebuild(bytes, new_loop);
+        let base = stream.byte_offset(start).unwrap_or(0);
+        let new_loop = loop_at.map(|at| prelude_len + stream.byte_offset(at).unwrap_or(0) - base);
+        // A deliberately-short loop end inside the kept region moves with it too;
+        // an end at or past the crop lets the loop run to the new tail instead.
+        let new_loop_end = self
+            .loop_end_index()
+            .filter(|&e| loop_at.is_some() && e <= end)
+            .map(|e| prelude_len + stream.byte_offset(e).unwrap_or(0) - base);
+        self.rebuild(bytes, new_loop, new_loop_end);
         Some(report)
     }
 
@@ -457,7 +465,7 @@ impl VgmFile {
         bytes.push(END_OF_DATA);
 
         let mut piece = self.clone();
-        piece.rebuild(bytes, None);
+        piece.rebuild(bytes, None, None);
         Some((piece, report))
     }
 
@@ -503,7 +511,18 @@ impl VgmFile {
                 None
             }
         });
-        self.rebuild(bytes, new_loop);
+        // The deliberately-short loop end moves the same way. Its end is
+        // exclusive, so it may sit exactly on the cut's start.
+        let new_loop_end = self.loop_end_index().and_then(|e| {
+            if e <= start {
+                stream.byte_offset(e)
+            } else if e >= end {
+                Some(tail_at + stream.byte_offset(e)? - stream.byte_offset(end)?)
+            } else {
+                None // the loop end was inside the deleted span
+            }
+        });
+        self.rebuild(bytes, new_loop, new_loop_end);
         Some(report)
     }
 
@@ -521,9 +540,11 @@ impl VgmFile {
 
     /// Installs a rebuilt stream and brings the header back into step.
     ///
-    /// `loop_at` is a byte offset into the *new* stream, or `None` for a file
-    /// that no longer loops.
-    fn rebuild(&mut self, bytes: Vec<u8>, loop_at: Option<usize>) {
+    /// `loop_at` and `loop_end_at` are byte offsets into the *new* stream: the
+    /// loop point and its deliberately-short end, both moved by the caller into
+    /// post-edit coordinates. `None` loop point means a file that no longer loops;
+    /// `None` end means the loop runs to the stream's end.
+    fn rebuild(&mut self, bytes: Vec<u8>, loop_at: Option<usize>, loop_end_at: Option<usize>) {
         let version = self.header.version();
         let stream = match VgmStream::parse(bytes, version) {
             Ok(stream) => stream,
@@ -536,8 +557,9 @@ impl VgmFile {
         };
         let total = stream.total_samples();
         let loop_index = loop_at.and_then(|at| stream.index_at_byte_offset(at));
+        let loop_end = loop_end_at.and_then(|at| stream.index_at_byte_offset(at));
         self.body = VgmBody::Commands(stream);
-        self.repatch_header(loop_index, total);
+        self.repatch_header(loop_index, loop_end, total);
         self.refresh_opl();
     }
 
@@ -592,6 +614,12 @@ impl VgmFile {
     pub fn optimize(&mut self) -> Option<usize> {
         let before_rows = self.len();
         let before_bytes = self.body.raw().len();
+        // A deliberately-short loop's length in samples, and the whole stream's
+        // play time -- both invariants of the pass: phase 1 only drops zero-wait
+        // writes, and phase 2 merges delays, which preserves their sum. `rebuild`
+        // would widen the loop to the full tail, so it is restored afterwards.
+        let loop_samples_before = self.header.loop_samples();
+        let play_time_before = self.stream()?.total_samples();
         let mut work = self.clone();
 
         // Phase 1: the redundant writes, which slides the loop past them.
@@ -607,7 +635,20 @@ impl VgmFile {
         // arithmetic itself.
         let stream = work.stream()?;
         let (bytes, loop_at) = crate::optimize::merge_stream_delays(stream, work.loop_index());
-        work.rebuild(bytes, loop_at);
+        work.rebuild(bytes, loop_at, None);
+
+        // Post-condition (sw-1b): merging delays must preserve total play time, so
+        // the loop plays for exactly as long as before. Restore the length
+        // `rebuild` widened, and assert the play time really did survive rather
+        // than trusting it.
+        if let (Some(absolute), Some(samples)) = (work.header.loop_offset(), loop_samples_before) {
+            work.header.set_loop(Some(absolute), samples);
+        }
+        debug_assert_eq!(
+            work.stream().map(VgmStream::total_samples),
+            Some(play_time_before),
+            "optimize must preserve total play time"
+        );
 
         if work.body.raw().len() >= before_bytes {
             return None;
@@ -675,12 +716,27 @@ impl VgmFile {
     }
 
     /// Rewrites the header's derived fields from the stream as it now stands.
-    fn repatch_header(&mut self, loop_index: Option<usize>, total_samples: u64) {
+    ///
+    /// `loop_end` is the deliberately-short loop's exclusive end row, threaded
+    /// through the edit that moved it. When present, the loop length is the span
+    /// between the loop point and that end -- not the whole tail -- so an edit
+    /// cannot widen a loop the user meant to stop early. See
+    /// [`loop_end_index`](Self::loop_end_index).
+    fn repatch_header(
+        &mut self,
+        loop_index: Option<usize>,
+        loop_end: Option<usize>,
+        total_samples: u64,
+    ) {
         let data_start = self.header.data_start();
         let (absolute, loop_samples) = match (loop_index, self.body.stream()) {
             (Some(index), Some(stream)) => {
                 let at = stream.byte_offset(index).map(|offset| data_start + offset);
-                let after = stream.samples_from(index);
+                let to_end = stream.samples_from(index);
+                let after = match loop_end.filter(|&end| end > index) {
+                    Some(end) => to_end.saturating_sub(stream.samples_from(end)),
+                    None => to_end,
+                };
                 (at, u32::try_from(after).unwrap_or(u32::MAX))
             }
             _ => (None, 0),
@@ -1737,6 +1793,48 @@ mod tests {
         assert_eq!(file.header.total_samples(), 30_000, "and the header agrees");
     }
 
+    /// Optimising must not widen a deliberately-short loop: merging the delays it
+    /// leaves adjacent preserves the play time, so the loop keeps its length
+    /// rather than snapping to the full tail (sw-1, sw-1b).
+    #[test]
+    fn optimising_preserves_a_deliberately_short_loop() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[
+            0x52, 0x22, 0x08, // 0: write A          (loop start)
+            0x61, 0x10, 0x27, // 1: wait 10000
+            0x52, 0x22, 0x08, // 2: write A again -- redundant, dropped
+            0x61, 0x20, 0x4E, // 3: wait 20000
+            0x52, 0x23, 0x09, // 4: write B          (loop end, exclusive)
+            0x61, 0x00, 0x05, // 5: wait 1280
+            0x66,
+        ]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("x.vgm", &bytes).unwrap();
+        file.set_loop_rows(Some(0), Some(4));
+        assert_eq!(file.header.loop_samples(), Some(30_000), "a short loop");
+
+        assert!(
+            file.optimize().is_some(),
+            "the redundant write goes and the delays it separated merge"
+        );
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(30_000),
+            "the loop keeps its length, not widened to the 31280-sample tail"
+        );
+        assert_eq!(file.loop_index(), Some(0), "and still starts where it did");
+    }
+
     /// Find Loop, for a chip with no OPL anywhere in it: a body that recurs is
     /// a body that recurs, whatever wrote it.
     #[test]
@@ -1817,6 +1915,25 @@ mod tests {
         file.set_loop_rows(Some(4), Some(6));
         assert_eq!(file.header.loop_samples(), Some(20_000));
         assert_eq!(file.loop_end_index(), Some(6), "and it reads back");
+    }
+
+    /// A deliberately-short loop must survive an edit that does not touch its
+    /// region: `repatch_header` threads the loop end through, so it is not
+    /// widened to the full tail on every edit (sw-1).
+    #[test]
+    fn a_short_loop_survives_a_delete_without_widening() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(4), Some(6)); // a 20000-sample loop, stops early
+        assert_eq!(file.header.loop_samples(), Some(20_000));
+
+        // Delete a zero-wait write before the loop; the loop region is untouched.
+        assert!(file.delete_commands(&[0]));
+        assert_eq!(file.loop_index(), Some(3), "the loop point slid back one");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(20_000),
+            "the short loop is preserved, not widened to the full tail"
+        );
     }
 
     #[test]
