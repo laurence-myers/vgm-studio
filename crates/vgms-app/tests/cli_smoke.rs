@@ -68,7 +68,7 @@ fn help_lists_every_subcommand() {
     let output = run(&["help"]);
     assert!(output.status.success(), "`vgmstudio help` failed");
     let text = stdout_of(&output);
-    for subcommand in ["play", "render", "split"] {
+    for subcommand in ["play", "render", "split", "optimize", "retrowave-probe"] {
         assert!(
             text.contains(subcommand),
             "`help` omits {subcommand}:\n{text}"
@@ -91,11 +91,16 @@ fn version_is_reported() {
 #[test]
 fn an_unknown_subcommand_is_rejected() {
     // An unknown subcommand (a typo, or the old `convert`) must error, not
-    // silently do nothing.
-    let output = run(&["convert", "song.dro"]);
+    // silently do nothing. The file exists, so the *only* reason to fail is that
+    // `convert` is not a subcommand -- not that the argument names a missing file.
+    let dir = temp_dir("unknown-subcommand");
+    let input = dir.join("song.dro");
+    std::fs::write(&input, small_song_bytes()).unwrap();
+
+    let output = run(&["convert", input.to_str().unwrap()]);
     assert!(
         !output.status.success(),
-        "an unknown subcommand should fail"
+        "an unknown subcommand should fail even with a valid file"
     );
 }
 
@@ -180,7 +185,12 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
 #[test]
 fn a_file_argument_is_not_mistaken_for_a_subcommand() {
     // `vgmstudio <file> <subcommand>` is a mistake, and must be reported as one
-    // rather than half-parsed.
-    let output = run(&["small.dro", "render"]);
+    // rather than half-parsed. The file exists, so the failure is the argument
+    // order, not a missing file.
+    let dir = temp_dir("file-then-subcommand");
+    let input = dir.join("small.dro");
+    std::fs::write(&input, small_song_bytes()).unwrap();
+
+    let output = run(&[input.to_str().unwrap(), "render"]);
     assert!(!output.status.success());
 }
