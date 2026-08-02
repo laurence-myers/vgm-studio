@@ -4791,6 +4791,7 @@ name = "vgms-pack-archive"
 version = "0.1.0"
 dependencies = [
  "flate2",
+ "vgms-core",
  "zip",
 ]
 

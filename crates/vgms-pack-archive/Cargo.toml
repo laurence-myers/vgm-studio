@@ -12,6 +12,10 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
+# The file model: `is_gzipped` for the already-compressed check, and the
+# built-in VGM pass behind `BuiltInOptimizer`. Portable, so the builder and its
+# round-trip proofs stay wasm-clean.
+vgms-core.workspace = true
 # Read and (in tests) write zips, in memory over a Cursor. Inherited from the
 # workspace so the `deflate-flate2` + `rust_backend` pinning that keeps zip off
 # the zlib-rs path -- and native and wasm VGZ output byte-identical -- lives in
