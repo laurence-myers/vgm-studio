@@ -29,20 +29,31 @@ use crate::vgm::stream::{VgmCommand, VgmStream};
 /// which arrived in 1.50.
 pub const FLOOR: u32 = 0x0000_0150;
 
-/// The version a file's own contents require.
+/// The version a file's own contents genuinely require, ignoring the writer's
+/// floor: the highest of the chips it clocks, the commands it uses and the
+/// header fields it fills in.
 ///
-/// The highest of four answers, each of which is a claim the file makes by
-/// existing: the chips it clocks, the commands it uses, the header fields it
-/// fills in, and the floor this writer never goes below.
+/// This is the honest answer the [`audit`](crate::vgm::audit) needs. A genuine
+/// pre-1.50 file needs less than [`FLOOR`], and folding the floor in here would
+/// make the audit report every such file as underclaiming its version -- a
+/// false finding, since the file is perfectly valid at the version it declares.
 #[must_use]
-pub fn minimum_version(header: &VgmHeader, stream: Option<&VgmStream>) -> u32 {
-    let mut version = FLOOR;
-    version = version.max(chips_version(header));
-    version = version.max(fields_version(header));
+pub fn content_version(header: &VgmHeader, stream: Option<&VgmStream>) -> u32 {
+    let mut version = chips_version(header).max(fields_version(header));
     if let Some(stream) = stream {
         version = version.max(commands_version(stream));
     }
     version
+}
+
+/// The version a file's own contents require, never below the writer's floor.
+///
+/// [`content_version`] raised to [`FLOOR`]: the floor this writer never goes
+/// below, because every file it emits carries a data-offset field. This is the
+/// answer the converter stamps and the downgrade check uses.
+#[must_use]
+pub fn minimum_version(header: &VgmHeader, stream: Option<&VgmStream>) -> u32 {
+    content_version(header, stream).max(FLOOR)
 }
 
 /// The version the file's clocked chips need: each chip's own introduction.
@@ -211,6 +222,22 @@ mod tests {
         // thing this writer insists on.
         let file = vgm(0x171, &[], &[0x66]);
         assert_eq!(minimum_of(&file), FLOOR);
+    }
+
+    #[test]
+    fn content_version_ignores_the_writer_floor() {
+        // A YM2612-only stream with nothing past 1.50 in it: its genuine content
+        // need is below the floor the writer adds, so the audit sees the truth.
+        let file = vgm(0x171, &[(ChipKind::Ym2612, 7_670_454)], &[0x66]);
+        assert!(
+            content_version(&file.header, file.stream()) < FLOOR,
+            "content alone needs less than the writer's floor"
+        );
+        assert_eq!(
+            minimum_version(&file.header, file.stream()),
+            FLOOR,
+            "but the writer still never goes below the floor"
+        );
     }
 
     #[test]

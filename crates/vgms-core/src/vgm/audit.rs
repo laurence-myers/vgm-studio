@@ -113,8 +113,10 @@ pub fn audit(file: &VgmFile) -> Vec<HeaderFinding> {
         _ => findings.push(HeaderFinding::MissingEndMarker),
     }
 
-    // Last, and one-directional: see `VersionUnderclaimed`.
-    let needed = crate::vgm::version::minimum_version(&file.header, Some(stream));
+    // Last, and one-directional: see `VersionUnderclaimed`. The floor-less
+    // `content_version` is what makes this honest -- a genuine pre-1.50 file
+    // needs less than the writer's floor and must not be flagged for it.
+    let needed = crate::vgm::version::content_version(&file.header, Some(stream));
     if file.header.version() < needed {
         findings.push(HeaderFinding::VersionUnderclaimed {
             declared: file.header.version(),
@@ -148,7 +150,22 @@ pub fn fix(file: &mut VgmFile) -> Vec<HeaderFinding> {
         file.replace_stream(bytes);
     }
 
-    // Then the derived fields, from the stream as it now stands.
+    // Then the derived fields -- but only the ones the audit actually reported.
+    // A fix triggered by one finding must not silently rewrite a field the audit
+    // was content with: a loop the user deliberately shortened (a valid early-stop
+    // loop, never a finding) has to survive an unrelated fix.
+    let fixes_total = findings
+        .iter()
+        .any(|f| matches!(f, HeaderFinding::TotalSamples { .. }));
+    let fixes_loop = findings
+        .iter()
+        .any(|f| matches!(f, HeaderFinding::LoopSamples { .. } | HeaderFinding::LoopAdrift));
+    let fixes_version = findings
+        .iter()
+        .any(|f| matches!(f, HeaderFinding::VersionUnderclaimed { .. }));
+
+    // All stream reads first, then the mutations -- so the stream borrow ends
+    // before the header is written.
     let Some(stream) = file.stream() else {
         return findings;
     };
@@ -158,14 +175,20 @@ pub fn fix(file: &mut VgmFile) -> Vec<HeaderFinding> {
         u32::try_from(stream.samples_from(at)).unwrap_or(u32::MAX)
     });
     let absolute = loop_at.and_then(|at| Some(file.header.data_start() + stream.byte_offset(at)?));
-    // A loop that resolved to nothing is cleared rather than guessed at.
-    file.header.set_loop(absolute, loop_samples);
-    file.header.set_total_samples(total);
+    if fixes_total {
+        file.header.set_total_samples(total);
+    }
+    if fixes_loop {
+        // A loop that resolved to nothing is cleared rather than guessed at.
+        file.header.set_loop(absolute, loop_samples);
+    }
     // The version last, computed from the file as it now stands: a structural
     // fix can remove the very command that was holding the version up. Only
     // ever raised -- lowering one is a tidy-up nobody asked for here.
-    if let Some(stream) = file.stream() {
-        let needed = crate::vgm::version::minimum_version(&file.header, Some(stream));
+    if fixes_version
+        && let Some(stream) = file.stream()
+    {
+        let needed = crate::vgm::version::content_version(&file.header, Some(stream));
         if file.header.version() < needed {
             file.header.set_version(needed);
         }
@@ -285,6 +308,34 @@ mod tests {
         assert!(audit(&read(&bytes)).is_empty());
     }
 
+    /// And that deliberately-short loop must survive a fix triggered by an
+    /// *unrelated* finding -- `fix` must not widen a loop the audit never
+    /// flagged (sw-2). The unrelated finding is needed because `fix` early-returns
+    /// when the audit is empty.
+    #[test]
+    fn a_deliberately_short_loop_survives_an_unrelated_fix() {
+        let mut bytes = honest();
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 10_000); // short: not a finding
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 44_100); // wrong: the finding
+        let mut file = read(&bytes);
+        assert_eq!(
+            audit(&file),
+            [HeaderFinding::TotalSamples {
+                declared: 44_100,
+                actual: 10_735
+            }],
+            "only the total is a finding"
+        );
+
+        fix(&mut file);
+        assert_eq!(file.header.total_samples(), 10_735, "the flagged total is fixed");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(10_000),
+            "the short loop the audit never flagged is left as it was"
+        );
+    }
+
     #[test]
     fn a_missing_end_marker_is_found_and_added() {
         let mut bytes = honest();
@@ -380,6 +431,30 @@ mod tests {
         fix(&mut file);
         assert_eq!(file.header.version(), 0x160);
         assert!(audit(&file).is_empty(), "and it stays fixed");
+    }
+
+    /// A genuine pre-1.50 file that declares its true version is not a finding:
+    /// the writer's floor is not the file's need, and reporting it would open the
+    /// box for a perfectly valid old file (sw-3).
+    #[test]
+    fn a_genuine_pre_1_50_file_is_not_reported_as_underclaimed() {
+        // A v1.10 header, legacy layout (data at 0x40), clocking a 1.10 chip and
+        // using nothing past it.
+        let mut bytes = vec![0u8; 0x40];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x110);
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        put_u32(&mut bytes, offset::TOTAL_SAMPLES, 0);
+        bytes.push(END_OF_DATA); // the whole stream: just the end marker
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let file = read(&bytes);
+        assert_eq!(file.header.version(), 0x110);
+        assert!(
+            audit(&file).is_empty(),
+            "a 1.10 file needing only 1.10 must not be flagged for the writer's 1.50 floor"
+        );
     }
 
     /// Declaring more than is needed is not a finding: almost every file does,
