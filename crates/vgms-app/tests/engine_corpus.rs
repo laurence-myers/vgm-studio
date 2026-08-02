@@ -14,9 +14,11 @@
 //!     --test engine_corpus -- --ignored --nocapture
 //! ```
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use vgms_core::vgm::ChipKind;
 use vgms_synth::chip::ChipCore;
 use vgms_synth::vgm_engine::VgmEngine;
 
@@ -40,8 +42,88 @@ impl ChipCore for Counting {
     }
 
     fn render(&mut self, out: &mut [i32]) {
+        // Non-zero once it has been written to, so the field is not dead and a
+        // chip that never receives its writes is audibly (and testably) distinct.
+        out.fill(i32::from(self.writes > 0));
+    }
+}
+
+/// A core that tallies its writes into a shared per-chip map, so a test can
+/// prove each chip's writes reached *it* and not a sibling.
+struct Recording {
+    kind: ChipKind,
+    seen: Arc<Mutex<HashMap<ChipKind, u64>>>,
+}
+
+impl ChipCore for Recording {
+    fn reset(&mut self, _clock: u32, _variant: bool) {}
+
+    fn native_rate(&self) -> u32 {
+        44_100
+    }
+
+    fn write(&mut self, _port: u8, _addr: u16, _data: u16) {
+        *self.seen.lock().unwrap().entry(self.kind).or_insert(0) += 1;
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
         out.fill(0);
     }
+}
+
+/// A cheap, non-ignored gate: a two-chip VGM must route each chip's writes to
+/// that chip. The whole-corpus walk below cannot see this -- its `Counting` core
+/// renders regardless of where a write landed -- so misrouting needs its own
+/// fixture-scale check that runs in ordinary `cargo test`.
+#[test]
+fn each_chips_writes_reach_that_chip() {
+    fn put(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    // A Mega Drive header: SN76489 + YM2612, with two SN writes and three YM2612
+    // writes in the stream.
+    let mut bytes = vec![0u8; 0x100];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put(&mut bytes, 0x08, 0x151);
+    put(&mut bytes, 0x34, 0x100 - 0x34);
+    put(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+    put(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+    bytes.extend_from_slice(&[
+        0x50, 0x9F, // SN76489 write
+        0x50, 0x81, // SN76489 write
+        0x52, 0x22, 0x08, // YM2612 port 0 write
+        0x52, 0x28, 0xF0, // YM2612 port 0 write
+        0x52, 0x2A, 0x80, // YM2612 port 0 write
+        0x66,
+    ]);
+    let eof = bytes.len();
+    put(&mut bytes, 0x04, (eof - 4) as u32);
+
+    let file = Arc::new(vgms_core::vgm::file::read("md.vgm", &bytes).expect("a walkable VGM"));
+    let seen: Arc<Mutex<HashMap<ChipKind, u64>>> = Arc::new(Mutex::new(HashMap::new()));
+    let seen_for_cores = Arc::clone(&seen);
+    let mut engine = VgmEngine::with_cores(file, 44_100, move |kind| {
+        Some(Box::new(Recording {
+            kind,
+            seen: Arc::clone(&seen_for_cores),
+        }))
+    });
+
+    let mut buffer = vec![0i16; 512 * 2];
+    while engine.render(&mut buffer) != 0 {}
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(
+        seen.get(&ChipKind::Sn76489),
+        Some(&2),
+        "the SN76489 must see its two writes"
+    );
+    assert_eq!(
+        seen.get(&ChipKind::Ym2612),
+        Some(&3),
+        "the YM2612 must see its three writes"
+    );
 }
 
 /// Pulls up to `want` frames, in audio-callback-sized chunks, and returns how
