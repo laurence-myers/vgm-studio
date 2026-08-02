@@ -11,7 +11,7 @@ import { test, expect } from "@playwright/test";
 import { boot, dispatch, state } from "./helpers.js";
 
 const FIXTURE_ZIP = fileURLToPath(
-  new URL("../../../tests/e2e-pack.zip", import.meta.url),
+  new URL("../../tests/e2e-pack.zip", import.meta.url),
 );
 
 /** Opens the fixture .zip through the file picker as an in-memory pack. */

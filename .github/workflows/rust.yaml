@@ -188,18 +188,14 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       # Assemble target/web-dist with the `e2e` feature on, so the page installs
-      # the `window.__vgms_e2e` hook the specs drive. Same steps as
-      # tools/build-web.ps1, but Linux-native (the CJK font is optional and left
-      # out -- the specs never touch Japanese tags).
+      # the `window.__vgms_e2e` hook the specs drive. One source of truth: the
+      # same script the native build runs (pwsh works on Ubuntu). -SkipWasiTools
+      # omits the wasip1 optimisers and their wasi-sdk fetch, which these specs
+      # never exercise; everything else -- including web/wasi-shim/, which
+      # pack_worker.js imports at top level -- is copied by construction.
       - name: Build the e2e web bundle
-        run: |
-          cargo build -p vgms-synth-worklet --lib --target wasm32-unknown-unknown --release
-          cargo build -p vgms-web --lib --target wasm32-unknown-unknown --release --features e2e
-          wasm-bindgen --target web --no-typescript \
-            --out-dir target/web-dist --out-name vgms_web \
-            target/wasm32-unknown-unknown/release/vgms_web.wasm
-          cp target/wasm32-unknown-unknown/release/vgms_synth_worklet.wasm target/web-dist/
-          cp web/index.html web/task_worker.js web/worklet-processor.js web/pack_worker.js target/web-dist/
+        shell: pwsh
+        run: ./tools/build-web.ps1 -E2e -SkipWasiTools
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -207,15 +203,15 @@ jobs:
           node-version: "20"
 
       - name: Install the e2e harness
-        working-directory: web/e2e
+        working-directory: web-e2e
         run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: web/e2e
+        working-directory: web-e2e
         run: npx playwright install --with-deps chromium firefox
 
       - name: Run the web e2e suite
-        working-directory: web/e2e
+        working-directory: web-e2e
         run: npx playwright test
 
       - name: Upload the report on failure
@@ -223,5 +219,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: web/e2e/playwright-report/
+          path: web-e2e/playwright-report/
           retention-days: 7

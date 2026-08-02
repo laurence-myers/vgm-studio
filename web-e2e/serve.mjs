@@ -14,7 +14,8 @@ import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-const DIST = resolve(here, "..", "..", "target", "web-dist");
+// This harness lives at <root>/web-e2e/, so the built target is one level up.
+const DIST = resolve(here, "..", "target", "web-dist");
 const HOST = process.env.VGMS_E2E_HOST ?? "127.0.0.1";
 const PORT = Number(process.env.VGMS_E2E_PORT ?? "5178");
 

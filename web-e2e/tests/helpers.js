@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 /** A tiny committed VGM fixture (1 KB) the app can load. */
 export const FIXTURE_VGM = fileURLToPath(
-  new URL("../../../tests/lsl3_score_up.vgm", import.meta.url),
+  new URL("../../tests/lsl3_score_up.vgm", import.meta.url),
 );
 
 /**
