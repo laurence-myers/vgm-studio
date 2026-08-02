@@ -596,6 +596,10 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
     let registry = vgms_synth::registry::registry();
 
     let mut failures = Vec::new();
+    // How many files were actually compared. A run that compared nothing -- the
+    // reference player missing, the corpus empty -- must not report PASS by
+    // asserting an empty failure list over an empty scorecard.
+    let mut total_compared = 0usize;
     for chip in ChipKind::all() {
         if !registry.can_build(chip) || !chip_wanted(chip) {
             continue;
@@ -632,11 +636,30 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             let Some(ours) = render_ours_at(path, rate) else {
                 continue;
             };
-            let Ok(bytes) = reference.at_rate(rate).render(path, &work_dir()) else {
-                continue;
+            // A reference-player error is a hard failure, not a silent skip: the
+            // reference is the oracle, so a comparison it could not produce leaves
+            // the scorecard measuring less than it reports.
+            let bytes = match reference.at_rate(rate).render(path, &work_dir()) {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    failures.push(format!(
+                        "{}: the reference player failed on {}: {error}",
+                        chip.name(),
+                        short(original)
+                    ));
+                    continue;
+                }
             };
-            let Ok((samples, rate)) = parity::reference::read_wav(&bytes) else {
-                continue;
+            let (samples, rate) = match parity::reference::read_wav(&bytes) {
+                Ok(parsed) => parsed,
+                Err(error) => {
+                    failures.push(format!(
+                        "{}: the reference player's output for {} would not parse: {error}",
+                        chip.name(),
+                        short(original)
+                    ));
+                    continue;
+                }
             };
             let theirs = Render::from_interleaved_i16(&samples, rate);
             let score = parity::compare(&ours, &theirs, Settings::default());
@@ -665,6 +688,7 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
             println!("{:<14} nothing comparable", chip.name());
             continue;
         }
+        total_compared += correlations.len();
 
         // Medians: one dud rip should not decide a chip, and a systematic
         // fault moves every file together anyway.
@@ -722,6 +746,11 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         }
     }
 
+    assert!(
+        total_compared > 0,
+        "the scorecard compared nothing -- the reference player or corpus is not \
+         producing renders, so an empty failure list means nothing"
+    );
     assert!(failures.is_empty(), "\n{}", failures.join("\n"));
 }
 

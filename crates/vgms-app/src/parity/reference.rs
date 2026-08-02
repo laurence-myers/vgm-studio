@@ -262,10 +262,10 @@ impl Reference {
                 continue;
             }
             let to = staged_dir.join(entry.file_name());
-            // Copying is one-time; later renders reuse the staged tree.
-            if !to.exists() {
-                std::fs::copy(&from, &to)?;
-            }
+            // Always re-copy: a staged tree left by an earlier run must never
+            // shadow a source player that has since changed, or the scorecard
+            // silently measures against the wrong reference.
+            std::fs::copy(&from, &to)?;
         }
         if let Some(config) = &self.config
             && let Some(name) = config.file_name()
@@ -284,9 +284,12 @@ impl Reference {
 
     /// Where a cached render of `input` would live. Keyed by the input's name
     /// and size, which is enough to tell corpus files apart without hashing
-    /// every one of them -- **and by the rate**, because the same file rendered
-    /// at two rates is two different answers and serving one for the other
-    /// would silently reintroduce the resampler the rate exists to avoid.
+    /// every one of them; **by the rate**, because the same file rendered at two
+    /// rates is two different answers and serving one for the other would
+    /// silently reintroduce the resampler the rate exists to avoid; and **by the
+    /// config**, because the pinned settings select the reference's cores, loop
+    /// count and fade -- serving a WAV rendered under a different config would be
+    /// worse than no cache at all.
     fn cached_path(&self, input: &Path) -> Option<PathBuf> {
         let cache = self.cache.as_ref()?;
         let name = input.file_name()?.to_string_lossy();
@@ -294,7 +297,21 @@ impl Reference {
         let rate = self
             .rate
             .map_or_else(|| "default".to_owned(), |r| r.to_string());
-        Some(cache.join(format!("{name}.{size}.{rate}.wav")))
+        let config = self.config_fingerprint();
+        Some(cache.join(format!("{name}.{size}.{rate}.{config}.wav")))
+    }
+
+    /// A short hash of the pinned config's contents, so a change to it -- which
+    /// changes what the reference *is* -- misses the cache rather than serving a
+    /// render made under the old settings.
+    fn config_fingerprint(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        match &self.config {
+            Some(path) => std::fs::read(path).unwrap_or_default().hash(&mut hasher),
+            None => "no-config".hash(&mut hasher),
+        }
+        format!("{:016x}", hasher.finish())
     }
 }
 
