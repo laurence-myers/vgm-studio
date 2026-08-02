@@ -448,16 +448,24 @@ pub fn run_task(
             source,
             min_len_commands,
         } => {
-            // Accumulate as the search streams, emitting a ranked snapshot each
-            // time so the dialog's table fills in best-first while it runs. A
-            // cancelled search never emits (find_loops stops before the first
-            // candidate), like the volume scans above.
+            // Accumulate as the search streams, emitting a ranked snapshot so the
+            // dialog's table fills in best-first while it runs. Cloning and ranking
+            // the whole set on *every* candidate is O(n^2) and floods the result
+            // channel, so throttle to at most one emit per EMIT_STRIDE candidates
+            // -- the strided pacing the progressive waveform render uses -- with a
+            // final emit for the tail. A cancelled search never emits (find_loops
+            // stops before the first candidate), like the volume scans above.
+            const EMIT_STRIDE: usize = 16;
             let mut found: Vec<Candidate> = Vec::new();
+            let mut emitted_len = 0usize;
             let mut on_candidate = |candidate| {
                 found.push(candidate);
-                let mut snapshot = found.clone();
-                rank(&mut snapshot);
-                emit(TaskResult::LoopCandidates(snapshot));
+                if found.len() - emitted_len >= EMIT_STRIDE {
+                    emitted_len = found.len();
+                    let mut snapshot = found.clone();
+                    rank(&mut snapshot);
+                    emit(TaskResult::LoopCandidates(snapshot));
+                }
             };
             match source {
                 LoopSearchSource::Opl(song) => {
@@ -473,6 +481,13 @@ pub fn run_task(
                         );
                     }
                 }
+            }
+            // A final ranked snapshot so the last (fewer than a stride) candidates
+            // show. Skipped when cancelled, so a superseded search emits nothing
+            // new, and when nothing remains unshown.
+            if !is_cancelled() && found.len() != emitted_len {
+                rank(&mut found);
+                emit(TaskResult::LoopCandidates(found));
             }
         }
     }
@@ -707,6 +722,30 @@ mod tests {
             min_len_commands: 4,
         };
         assert!(collect(&search, || true).is_empty());
+    }
+
+    /// Throttling the streamed snapshots must not drop the tail: the final emit
+    /// holds every candidate a direct, un-throttled search finds (sw-11).
+    #[test]
+    fn the_final_loop_snapshot_holds_every_candidate() {
+        let song = looping_vgm();
+        let mut expected = Vec::new();
+        find_loops(&song, 4, &mut |c| expected.push(c), &|| false);
+        assert!(!expected.is_empty(), "the fixture has candidates to lose");
+
+        let search = TaskRequest::LoopSearch {
+            source: LoopSearchSource::Opl(Arc::new(song)),
+            min_len_commands: 4,
+        };
+        let results = collect(&search, || false);
+        let Some(TaskResult::LoopCandidates(candidates)) = results.last() else {
+            panic!("expected loop candidates, got {results:?}");
+        };
+        assert_eq!(
+            candidates.len(),
+            expected.len(),
+            "no candidate lost to throttling"
+        );
     }
 
     #[test]
