@@ -24,35 +24,35 @@ use crate::theme::Palette;
 
 /// One core a row can be set to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CoreChoice {
+pub(crate) struct CoreChoice {
     /// What `vgmstudio.ini` stores: the core id without its slot prefix.
-    pub name: String,
+    pub(crate) name: String,
     /// What the dropdown shows.
-    pub label: String,
+    pub(crate) label: String,
     /// SPDX expression. Not displayed here -- the About box carries the
     /// credits -- but still required of every row, so a core cannot be
     /// registered without its terms on record.
-    pub license: String,
+    pub(crate) license: String,
 }
 
 /// One row: a chip (or a family of them), and the cores it can play through.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ChipOutputRow {
+pub(crate) struct ChipOutputRow {
     /// The config slot, e.g. `"opl3"` -- what `core.<slot>=` names.
-    pub slot: &'static str,
+    pub(crate) slot: &'static str,
     /// What to call this group, e.g. `"OPL2 / OPL3"`.
-    pub label: &'static str,
+    pub(crate) label: &'static str,
     /// A representative chip, for looking the row back up in the registry.
-    pub chip: ChipKind,
+    pub(crate) chip: ChipKind,
     /// The cores available, best first. Never empty -- a chip with none is
     /// counted by [`without_cores`] instead of listed.
-    pub cores: Vec<CoreChoice>,
+    pub(crate) cores: Vec<CoreChoice>,
 }
 
 impl ChipOutputRow {
     /// Whether this row offers a choice at all, rather than stating a fact.
     #[must_use]
-    pub fn is_choice(&self) -> bool {
+    pub(crate) fn is_choice(&self) -> bool {
         self.cores.len() > 1
     }
 }
@@ -71,7 +71,7 @@ const OPL_REPRESENTATIVE: ChipKind = ChipKind::Ymf262;
 /// The OPL row first because it is the one most likely to have a choice, then
 /// every other chip with a core, in header order.
 #[must_use]
-pub fn rows() -> Vec<ChipOutputRow> {
+pub(crate) fn rows() -> Vec<ChipOutputRow> {
     let mut rows = Vec::new();
     if let Some(row) = row_for(OPL_REPRESENTATIVE, OPL_LABEL) {
         rows.push(row);
@@ -115,8 +115,10 @@ fn choice(info: &CoreInfo) -> CoreChoice {
 /// How many of the spec's chips have no core yet. Not shown, but used by
 /// [`every_chip_is_either_a_row_or_counted`](tests) to prove the roster covers
 /// the whole chip table with nothing quietly dropped.
+// Test-only: the roster UI never counts these, only the coverage test does.
+#[cfg_attr(not(test), allow(dead_code))]
 #[must_use]
-pub fn without_cores() -> usize {
+pub(crate) fn without_cores() -> usize {
     let registry = registry::registry();
     ChipKind::all()
         .filter(|&chip| !registry::is_opl(chip) && !registry.has_core(chip))
@@ -126,29 +128,29 @@ pub fn without_cores() -> usize {
 /// One chip the loaded song uses, as the "Current" section shows it: the chip,
 /// and its roster row when this build has a core for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SongChipRow {
+pub(crate) struct SongChipRow {
     /// The chip the file clocks. Named directly (rather than via `row`) so a
     /// chip with no core is still shown -- the file uses it, whether or not this
     /// app can play it.
-    pub kind: ChipKind,
+    pub(crate) kind: ChipKind,
     /// The roster row, when a core exists: a chooser if the chip has more than
     /// one, a fact if it has exactly one. `None` when this build plays it silent.
-    pub row: Option<ChipOutputRow>,
+    pub(crate) row: Option<ChipOutputRow>,
 }
 
 /// The Settings roster, split into the two sections the Output tab shows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct OutputPlan {
+pub(crate) struct OutputPlan {
     /// The loaded song's own chips, in file order, deduped by slot -- the
     /// "Current" section. Every chip the file uses is here, whether it offers a
     /// core choice, a single fixed core, or none at all. Empty when nothing is
     /// loaded.
-    pub song: Vec<SongChipRow>,
+    pub(crate) song: Vec<SongChipRow>,
     /// Every other chip that has a core -- the "All chips" section -- so a core
     /// can be configured for any chip, not just the ones the current song uses.
     /// Choosers and single-core facts alike; a chip the song already lists is
     /// not repeated here.
-    pub all: Vec<ChipOutputRow>,
+    pub(crate) all: Vec<ChipOutputRow>,
 }
 
 /// Shapes the roster for the Settings dialog around `song_chips` (the loaded
@@ -157,7 +159,7 @@ pub struct OutputPlan {
 /// A chip appears exactly once: in `song` if the file uses it (with or without a
 /// core), otherwise in `all`. Pure, so the split is tested without a UI.
 #[must_use]
-pub fn plan(song_chips: &[ChipKind]) -> OutputPlan {
+pub(crate) fn plan(song_chips: &[ChipKind]) -> OutputPlan {
     let rows = rows();
 
     // The song's chips, in file order, one entry per slot (the OPL family and a
@@ -189,7 +191,7 @@ pub fn plan(song_chips: &[ChipKind]) -> OutputPlan {
 
 /// Draws one "Current" section entry: the chip's core row when it has one, or
 /// the chip named with a muted "no core yet" when this build plays it silent.
-pub fn song_chip_row(
+pub(crate) fn song_chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     cores: &mut std::collections::BTreeMap<String, String>,
@@ -208,7 +210,7 @@ pub fn song_chip_row(
 /// Draws one roster row into an open two-column grid: the chip's name, then
 /// either a core chooser (when it has alternatives) or the muted name of the one
 /// core that plays it. Editing the chooser writes the choice into `cores`.
-pub fn chip_row(
+pub(crate) fn chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     cores: &mut std::collections::BTreeMap<String, String>,

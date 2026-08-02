@@ -19,7 +19,7 @@ fn ms_to_frames(ms: u32, frequency: u32) -> u64 {
 }
 
 #[derive(Debug)]
-pub struct PositionPanel {
+pub(crate) struct PositionPanel {
     frequency: u32,
     position_ms: u32,
     position_frames: u64,
@@ -33,7 +33,7 @@ pub struct PositionPanel {
 
 impl PositionPanel {
     #[must_use]
-    pub fn new(frequency: u32) -> Self {
+    pub(crate) fn new(frequency: u32) -> Self {
         Self {
             frequency,
             position_ms: 0,
@@ -46,43 +46,46 @@ impl PositionPanel {
     }
 
     /// Adopts a (possibly changed) rendering sample rate from the settings.
-    pub fn set_frequency(&mut self, frequency: u32) {
+    pub(crate) fn set_frequency(&mut self, frequency: u32) {
         self.frequency = frequency;
     }
 
     /// The rate the readout currently renders at (the stream's real rate while
     /// one is live, else the configured rate).
+    // Test-only: the panel renders straight from the field; tests read it back.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub fn frequency(&self) -> u32 {
+    pub(crate) fn frequency(&self) -> u32 {
         self.frequency
     }
 
     /// The song (or edit) length. Called on load and after every edit.
-    pub fn set_length_ms(&mut self, ms: u32) {
+    pub(crate) fn set_length_ms(&mut self, ms: u32) {
         self.length_ms = ms;
         self.length_frames = ms_to_frames(ms, self.frequency);
     }
 
     /// The length last set, in milliseconds.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub fn length_ms(&self) -> u32 {
+    pub(crate) fn length_ms(&self) -> u32 {
         self.length_ms
     }
 
     /// A position expressed in time only -- row selection, waveform click.
     /// Where playback is (or would start), in milliseconds.
     #[must_use]
-    pub fn position_ms(&self) -> u32 {
+    pub(crate) fn position_ms(&self) -> u32 {
         self.position_ms
     }
 
-    pub fn set_position_ms(&mut self, ms: u32) {
+    pub(crate) fn set_position_ms(&mut self, ms: u32) {
         self.position_ms = ms;
         self.position_frames = ms_to_frames(ms, self.frequency);
     }
 
     /// A live playback position, with its exact frame count.
-    pub fn set_position(&mut self, position: Position) {
+    pub(crate) fn set_position(&mut self, position: Position) {
         self.position_ms = position.elapsed_ms;
         self.position_frames = position.frames_rendered;
     }
@@ -91,13 +94,13 @@ impl PositionPanel {
     ///
     /// `iteration` is how many times playback has jumped back, so the pass being
     /// heard is one more than that.
-    pub fn set_loop_progress(&mut self, progress: Option<(u32, LoopCount)>) {
+    pub(crate) fn set_loop_progress(&mut self, progress: Option<(u32, LoopCount)>) {
         self.loop_progress = progress.map(|(iteration, count)| {
             crate::strings::position_panel_loop_progress(iteration, count)
         });
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) {
+    pub(crate) fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         let (position_frames, length_frames) = if self.show_at_44100 && self.frequency != 44_100 {
             (
                 rescale_to_44100(self.position_frames, self.frequency),

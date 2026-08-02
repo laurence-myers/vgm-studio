@@ -14,9 +14,9 @@ use crate::theme::Palette;
 
 /// A row the table should bring into view, and where in the view it should land.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ScrollTo {
-    pub row: usize,
-    pub align: egui::Align,
+pub(crate) struct ScrollTo {
+    pub(crate) row: usize,
+    pub(crate) align: egui::Align,
 }
 
 impl ScrollTo {
@@ -24,7 +24,7 @@ impl ScrollTo {
     /// hit, a selection moved by the keyboard -- where the rows either side are
     /// the context that matters.
     #[must_use]
-    pub fn centered(row: usize) -> Self {
+    pub(crate) fn centered(row: usize) -> Self {
         Self {
             row,
             align: egui::Align::Center,
@@ -36,7 +36,7 @@ impl ScrollTo {
     /// the end of the list, so a row with too few after it to fill the view
     /// simply sits as high as it can.
     #[must_use]
-    pub fn to_top(row: usize) -> Self {
+    pub(crate) fn to_top(row: usize) -> Self {
         Self {
             row,
             align: egui::Align::TOP,
@@ -44,7 +44,7 @@ impl ScrollTo {
     }
 }
 
-pub fn show(
+pub(crate) fn show(
     ui: &mut egui::Ui,
     editor: &mut Editor,
     scroll_to: Option<ScrollTo>,

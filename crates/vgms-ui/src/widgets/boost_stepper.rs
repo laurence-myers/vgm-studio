@@ -40,7 +40,7 @@ fn snapped_within_ceiling(desired: f32, ceiling: Option<f32>) -> f32 {
 /// when set, the volume is kept across songs; when clear, each song sets its own
 /// from its header modifier. `scanning` greys the Match button while its peak
 /// measurement is still running.
-pub fn boost_stepper(
+pub(crate) fn boost_stepper(
     ui: &mut egui::Ui,
     palette: &Palette,
     boost: f32,

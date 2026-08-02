@@ -31,7 +31,9 @@ mod test_support;
 pub mod theme;
 #[cfg(test)]
 mod theme_showcase;
-pub mod widgets;
+// Crate-internal: nothing outside `vgms-ui` builds these widgets, and keeping the
+// tree off the public API is what lets `dead_code` see an unused role inside it.
+pub(crate) mod widgets;
 
 pub use action::AppTab;
 pub use app::VgmStudioApp;

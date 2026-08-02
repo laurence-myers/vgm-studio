@@ -13,7 +13,7 @@ use crate::theme::Palette;
 use crate::theme::bevel::{self, Bevel};
 
 /// Total meter width: two channel columns, their gap, and the insets.
-pub const WIDTH: f32 = 22.0;
+pub(crate) const WIDTH: f32 = 22.0;
 
 /// How fast the displayed bar falls, in display fractions per second.
 const FALL_PER_SEC: f32 = 1.5;
@@ -36,7 +36,7 @@ const HIGH_ZONE: f32 = 0.85;
 
 /// The meter's displayed state, owned by the app and advanced every frame.
 #[derive(Debug, Default)]
-pub struct PeakMeterState {
+pub(crate) struct PeakMeterState {
     /// The displayed bar per channel, `0..=1` in display fractions.
     level: [f32; 2],
     /// The peak-hold marker per channel, in the same fractions.
@@ -52,7 +52,11 @@ impl PeakMeterState {
     /// Advances the meter by `dt` seconds. `peaks` are the raw output peaks
     /// (`0..=1`) taken from the audio service, `None` when nothing is loaded.
     /// Attack is instant; release is a steady fall.
-    pub fn update(&mut self, peaks: Option<[f32; 2]>, dt: f32) {
+    // Test-only: playback always knows whether the limiter engaged, so it calls
+    // `update_with` directly; this unlimited shorthand is for tests and the
+    // theme showcase.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn update(&mut self, peaks: Option<[f32; 2]>, dt: f32) {
         self.update_with(peaks, dt, false);
     }
 
@@ -60,7 +64,7 @@ impl PeakMeterState {
     /// audio played since the last call. It pins both markers for
     /// [`CLIP_HOLD_SECONDS`], so a clip that lasted one buffer is still on the
     /// meter when the eye gets there.
-    pub fn update_with(&mut self, peaks: Option<[f32; 2]>, dt: f32, limited: bool) {
+    pub(crate) fn update_with(&mut self, peaks: Option<[f32; 2]>, dt: f32, limited: bool) {
         if limited {
             self.clip_hold = CLIP_HOLD_SECONDS;
         } else {
@@ -91,13 +95,13 @@ impl PeakMeterState {
     /// Whether anything is still lit, so the app keeps repainting until the
     /// bars and markers have fully decayed.
     #[must_use]
-    pub fn is_active(&self) -> bool {
+    pub(crate) fn is_active(&self) -> bool {
         self.clip_hold > 0.0 || self.level.iter().chain(&self.hold).any(|&v| v > 0.0)
     }
 }
 
 /// Draws the meter at [`WIDTH`], filling the available height.
-pub fn show(ui: &mut egui::Ui, state: &PeakMeterState, palette: &Palette) {
+pub(crate) fn show(ui: &mut egui::Ui, state: &PeakMeterState, palette: &Palette) {
     let (response, painter) =
         ui.allocate_painter(vec2(WIDTH, ui.available_height()), Sense::hover());
     let rect = response.rect;

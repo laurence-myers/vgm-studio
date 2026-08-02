@@ -15,13 +15,13 @@ use crate::widgets::pan_knob;
 /// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
 /// resends muting mid-note and a mute toggle never resends panning.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct ChannelsResponse {
-    pub muting_changed: bool,
-    pub panning_changed: bool,
+pub(crate) struct ChannelsResponse {
+    pub(crate) muting_changed: bool,
+    pub(crate) panning_changed: bool,
 }
 
 #[derive(Debug)]
-pub struct ChannelPanel {
+pub(crate) struct ChannelPanel {
     /// Channel `bank * 9 + n` audible? Registers `0xB0 + n` on that bank.
     channels: [bool; 18],
     /// Drums audible, per bank.
@@ -90,14 +90,14 @@ fn spread_pans(strength: f32) -> [u8; 18] {
 impl ChannelPanel {
     /// A panel with no song: everything audible, centred, Original mode.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// A panel seeded for `song`: audible, mode Original, pans defaulted to the
     /// song type's image.
     #[must_use]
-    pub fn for_song(song: &Song) -> Self {
+    pub(crate) fn for_song(song: &Song) -> Self {
         let opl_type = song.opl_type;
         let default_pans = default_pans_for(opl_type, song);
         Self {
@@ -113,7 +113,7 @@ impl ChannelPanel {
 
     /// Adopts a new chip type after a live DRO Info edit, recomputing the pan
     /// defaults (and, while Original, the shown pans) from `song`.
-    pub fn set_opl_type(&mut self, opl_type: OplType, song: Option<&Song>) {
+    pub(crate) fn set_opl_type(&mut self, opl_type: OplType, song: Option<&Song>) {
         self.opl_type = Some(opl_type);
         self.default_pans = match song {
             Some(song) => default_pans_for(opl_type, song),
@@ -126,7 +126,7 @@ impl ChannelPanel {
 
     /// The muting the current toggles describe.
     #[must_use]
-    pub fn muting(&self) -> Muting {
+    pub(crate) fn muting(&self) -> Muting {
         let mut muting = Muting::all();
         for (index, &audible) in self.channels.iter().enumerate() {
             if !audible {
@@ -151,7 +151,7 @@ impl ChannelPanel {
     /// song plays the fixed hard-L/R chip image (ignoring the knobs), while OPL2
     /// and OPL3 defer to the song's own output (`Panning::Original`).
     #[must_use]
-    pub fn panning(&self) -> Panning {
+    pub(crate) fn panning(&self) -> Panning {
         if self.custom {
             return Panning::Custom(self.pans);
         }
@@ -162,7 +162,7 @@ impl ChannelPanel {
     }
 
     /// Toggles melodic channel `index` (`0..18`). The number keys use this.
-    pub fn toggle_channel(&mut self, index: usize) {
+    pub(crate) fn toggle_channel(&mut self, index: usize) {
         if let Some(channel) = self.channels.get_mut(index) {
             *channel = !*channel;
         }
@@ -171,7 +171,7 @@ impl ChannelPanel {
     /// Right-click solo for melodic channel `index`: makes it the only audible
     /// voice, or restores everything if it already is the only one. Pans are left
     /// untouched -- soloing is a muting concern.
-    pub fn toggle_solo_channel(&mut self, index: usize) {
+    pub(crate) fn toggle_solo_channel(&mut self, index: usize) {
         if index >= self.channels.len() {
             return;
         }
@@ -185,7 +185,7 @@ impl ChannelPanel {
     }
 
     /// Right-click solo for the drums on `bank` (`0` low, `1` high).
-    pub fn toggle_solo_percussion(&mut self, bank: usize) {
+    pub(crate) fn toggle_solo_percussion(&mut self, bank: usize) {
         if bank >= self.percussion.len() {
             return;
         }
@@ -251,7 +251,7 @@ impl ChannelPanel {
     /// of muting/panning changed this frame. `panning_supported` is false when the
     /// output cannot pan (hardware playback mixes on the chip), which omits the pan
     /// controls.
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,

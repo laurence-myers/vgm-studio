@@ -12,9 +12,9 @@ use crate::theme::{Palette, bevel, icon::Icon};
 use crate::widgets::pan_knob;
 
 /// The centred pan byte (`0x80`), and the hard-left / hard-right extremes.
-pub const PAN_CENTER: u8 = 0x80;
-pub const PAN_LEFT: u8 = 0x00;
-pub const PAN_RIGHT: u8 = 0xFF;
+pub(crate) const PAN_CENTER: u8 = 0x80;
+pub(crate) const PAN_LEFT: u8 = 0x00;
+pub(crate) const PAN_RIGHT: u8 = 0xFF;
 
 /// The auto-spread template (scaled by the Spread knob's strength): how far the
 /// first channel of each group of five leans off centre at full strength, and how
@@ -42,7 +42,7 @@ fn spread_delta(slot: usize) -> f32 {
 ///
 /// Takes a slice rather than returning an array, so the same image serves OPL's
 /// eighteen slots and a chip's however-many.
-pub fn spread_into(pans: &mut [u8], strength: f32) {
+pub(crate) fn spread_into(pans: &mut [u8], strength: f32) {
     for (slot, pan) in pans.iter_mut().enumerate() {
         let value = f32::from(PAN_CENTER) + strength * spread_delta(slot);
         *pan = value.round().clamp(0.0, 255.0) as u8;
@@ -53,22 +53,13 @@ pub fn spread_into(pans: &mut [u8], strength: f32) {
 /// caller answers each differently: a mode flip only changes which image applies,
 /// a spread drag rewrites every pan, and a reset restores the defaults.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PanModeResponse {
+pub(crate) struct PanModeResponse {
     /// The Custom/Original latch flipped (`custom` now holds the new mode).
-    pub mode_toggled: bool,
+    pub(crate) mode_toggled: bool,
     /// The Spread knob moved (`spread` now holds the new strength).
-    pub spread_changed: bool,
+    pub(crate) spread_changed: bool,
     /// Reset was clicked.
-    pub reset: bool,
-}
-
-impl PanModeResponse {
-    /// Whether anything at all changed -- what a caller with a single "panning
-    /// changed" flag reports.
-    #[must_use]
-    pub const fn any(self) -> bool {
-        self.mode_toggled || self.spread_changed || self.reset
-    }
+    pub(crate) reset: bool,
 }
 
 /// Draws the Custom latch, the Spread knob and the Reset button in a row,
@@ -76,7 +67,7 @@ impl PanModeResponse {
 ///
 /// `custom_hover` differs per panel (OPL names what Original means for the song
 /// type; a generic chip says "the chip's own image"), as does `reset_hover`.
-pub fn mode_controls(
+pub(crate) fn mode_controls(
     ui: &mut egui::Ui,
     palette: &Palette,
     custom: &mut bool,

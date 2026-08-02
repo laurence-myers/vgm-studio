@@ -47,7 +47,7 @@ struct ChipEntry {
 
 /// The chips of the loaded document, and the controls for the selected one.
 #[derive(Debug)]
-pub struct ChipPanels {
+pub(crate) struct ChipPanels {
     entries: Vec<ChipEntry>,
     selected: usize,
     /// The OPL panel. It outlives any particular document's chip list: the
@@ -73,13 +73,13 @@ impl Default for ChipPanels {
 impl ChipPanels {
     /// A deck with no document: the OPL panel, ready.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// The deck for an OPL song: one OPL entry.
     #[must_use]
-    pub fn for_song(song: &Song) -> Self {
+    pub(crate) fn for_song(song: &Song) -> Self {
         Self {
             entries: vec![ChipEntry {
                 label: opl_label(song.opl_type).to_owned(),
@@ -93,7 +93,7 @@ impl ChipPanels {
     /// The deck for a generic multichip VGM: one entry per chip instance, in
     /// header order.
     #[must_use]
-    pub fn for_vgm(file: &VgmFile) -> Self {
+    pub(crate) fn for_vgm(file: &VgmFile) -> Self {
         let mut entries = Vec::new();
         for chip in file.header.chips() {
             let instances = if chip.dual { 2 } else { 1 };
@@ -121,7 +121,7 @@ impl ChipPanels {
     }
 
     /// Adopts a new chip type after a live DRO Info edit.
-    pub fn set_opl_type(&mut self, opl_type: OplType, song: Option<&Song>) {
+    pub(crate) fn set_opl_type(&mut self, opl_type: OplType, song: Option<&Song>) {
         self.opl.set_opl_type(opl_type, song);
         if let Some(entry) = self
             .entries
@@ -133,27 +133,28 @@ impl ChipPanels {
     }
 
     /// The OPL panel, for the tests that drive it directly.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub fn opl(&mut self) -> &mut ChannelPanel {
+    pub(crate) fn opl(&mut self) -> &mut ChannelPanel {
         &mut self.opl
     }
 
     /// The OPL muting the OPL panel describes (for the OPL playback path).
     #[must_use]
-    pub fn muting(&self) -> Muting {
+    pub(crate) fn muting(&self) -> Muting {
         self.opl.muting()
     }
 
     /// The OPL panning the OPL panel describes.
     #[must_use]
-    pub fn panning(&self) -> Panning {
+    pub(crate) fn panning(&self) -> Panning {
         self.opl.panning()
     }
 
     /// The any-chip mutes every generic panel describes (for the generic
     /// playback path). Empty when the document is OPL.
     #[must_use]
-    pub fn chip_muting(&self) -> ChipMuting {
+    pub(crate) fn chip_muting(&self) -> ChipMuting {
         let mut muting = ChipMuting::new();
         for entry in &self.entries {
             if let ChipControls::Generic(panel) = &entry.controls {
@@ -165,7 +166,7 @@ impl ChipPanels {
 
     /// The any-chip pans every generic panel in Custom mode describes.
     #[must_use]
-    pub fn chip_panning(&self) -> ChipPanning {
+    pub(crate) fn chip_panning(&self) -> ChipPanning {
         let mut panning = ChipPanning::new();
         for entry in &self.entries {
             if let ChipControls::Generic(panel) = &entry.controls
@@ -180,7 +181,7 @@ impl ChipPanels {
     /// The chip whose controls are on screen, or `None` when the OPL panel is
     /// selected. What the app asks to decide the selected tab's pan support.
     #[must_use]
-    pub fn selected_chip(&self) -> Option<ChipKind> {
+    pub(crate) fn selected_chip(&self) -> Option<ChipKind> {
         match self.entries.get(self.selected).map(|e| &e.controls) {
             Some(ChipControls::Generic(panel)) => Some(panel.kind()),
             _ => None,
@@ -188,8 +189,9 @@ impl ChipPanels {
     }
 
     /// The label of the chip whose controls are on screen.
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
-    pub fn selected_label(&self) -> Option<&str> {
+    pub(crate) fn selected_label(&self) -> Option<&str> {
         self.entries
             .get(self.selected)
             .map(|entry| entry.label.as_str())
@@ -197,7 +199,7 @@ impl ChipPanels {
 
     /// Toggles channel `index` on the *selected* chip's panel -- so the number
     /// keys act on whatever tab is open, not always on the OPL one.
-    pub fn toggle_selected_channel(&mut self, index: usize) {
+    pub(crate) fn toggle_selected_channel(&mut self, index: usize) {
         match self.entries.get_mut(self.selected).map(|e| &mut e.controls) {
             Some(ChipControls::Generic(panel)) => panel.toggle_channel(index),
             // The OPL panel, or an empty deck: the OPL toggles.
@@ -236,7 +238,7 @@ impl ChipPanels {
     /// `Some(kind)` for a generic one. The app supplies them because the
     /// capability is a registry question the panel does not own. The OPL panel
     /// always mutes (register-gated), so only its pan support is consulted.
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,

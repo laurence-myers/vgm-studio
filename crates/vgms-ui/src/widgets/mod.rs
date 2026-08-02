@@ -1,14 +1,14 @@
 //! The main window's custom widgets.
 
-pub mod boost_stepper;
-pub mod channels;
-pub mod chip_channels;
-pub mod chip_output;
-pub mod chip_panels;
-pub mod loop_stepper;
-pub mod pan_controls;
-pub mod pan_knob;
-pub mod peak_meter;
-pub mod position_panel;
-pub mod table;
-pub mod waveform;
+pub(crate) mod boost_stepper;
+pub(crate) mod channels;
+pub(crate) mod chip_channels;
+pub(crate) mod chip_output;
+pub(crate) mod chip_panels;
+pub(crate) mod loop_stepper;
+pub(crate) mod pan_controls;
+pub(crate) mod pan_knob;
+pub(crate) mod peak_meter;
+pub(crate) mod position_panel;
+pub(crate) mod table;
+pub(crate) mod waveform;

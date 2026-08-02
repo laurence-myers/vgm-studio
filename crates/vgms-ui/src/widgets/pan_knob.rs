@@ -25,7 +25,7 @@ use crate::theme::{Palette, deck_stops, pad_caps};
 
 /// The knob's square side, in points. Shared with the channel grid so each digit
 /// toggle sits in a cell of exactly this width, centred under its knob.
-pub const SIZE: f32 = 20.0;
+pub(crate) const SIZE: f32 = 20.0;
 /// The centred pan value.
 const CENTER: u8 = 0x80;
 /// Half-width of the snap-to-centre band, in pan units. At [`DRAG_UNITS_PER_POINT`]
@@ -80,7 +80,7 @@ fn dot_angle(value: u8) -> f32 {
 /// pans right. Double-click or right-click recentres. When disabled it is inert and dimmed, showing the pan the policy
 /// implies. `label` names it for accessibility and the headless tests. Returns the
 /// [`Response`]; `response.changed()` is true on the frames the pan moved.
-pub fn show(
+pub(crate) fn show(
     ui: &mut Ui,
     palette: &Palette,
     value: &mut u8,
@@ -139,7 +139,7 @@ pub fn show(
 /// `label` names it for accessibility and the headless tests. Always live -- a
 /// drag engages Custom panning in the caller. Returns the [`Response`];
 /// `response.changed()` is true on the frames the spread moved.
-pub fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str) -> Response {
+pub(crate) fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
 
     // A continuous raw value in per-widget memory, so the snap-to-mono detent can

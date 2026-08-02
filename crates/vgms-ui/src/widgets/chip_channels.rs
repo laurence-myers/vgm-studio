@@ -45,7 +45,7 @@ fn pan_to_i16(byte: u8) -> i16 {
 
 /// One chip instance's channel controls.
 #[derive(Debug, Clone)]
-pub struct GenericChannelPanel {
+pub(crate) struct GenericChannelPanel {
     kind: ChipKind,
     instance: u8,
     channels: &'static [ChannelInfo],
@@ -68,7 +68,7 @@ pub struct GenericChannelPanel {
 impl GenericChannelPanel {
     /// A panel for `(kind, instance)`, every channel audible and centred.
     #[must_use]
-    pub fn new(kind: ChipKind, instance: u8, variant: bool) -> Self {
+    pub(crate) fn new(kind: ChipKind, instance: u8, variant: bool) -> Self {
         let channels = channels_of(kind, variant);
         Self {
             kind,
@@ -84,13 +84,13 @@ impl GenericChannelPanel {
 
     /// The chip this panel controls.
     #[must_use]
-    pub const fn kind(&self) -> ChipKind {
+    pub(crate) const fn kind(&self) -> ChipKind {
         self.kind
     }
 
     /// Which instance of that chip.
     #[must_use]
-    pub const fn instance(&self) -> u8 {
+    pub(crate) const fn instance(&self) -> u8 {
         self.instance
     }
 
@@ -99,7 +99,7 @@ impl GenericChannelPanel {
     /// engine also reads as "silence this voice entirely", so it holds even
     /// for a core that cannot mute single channels.
     #[must_use]
-    pub fn mask(&self) -> u32 {
+    pub(crate) fn mask(&self) -> u32 {
         if self.chip_muted {
             return (1u32 << self.channels.len()) - 1;
         }
@@ -114,27 +114,27 @@ impl GenericChannelPanel {
 
     /// Whether the whole chip is muted (the tab's Mute control).
     #[must_use]
-    pub const fn chip_muted(&self) -> bool {
+    pub(crate) const fn chip_muted(&self) -> bool {
         self.chip_muted
     }
 
     /// Mutes or unmutes the whole chip, leaving the per-channel pattern to
     /// come back when it is unmuted.
-    pub fn set_chip_muted(&mut self, muted: bool) {
+    pub(crate) fn set_chip_muted(&mut self, muted: bool) {
         self.chip_muted = muted;
     }
 
     /// The pan positions to apply, or `None` for "leave the chip's own image
     /// alone" (Original mode).
     #[must_use]
-    pub fn pan_entry(&self) -> Option<Vec<i16>> {
+    pub(crate) fn pan_entry(&self) -> Option<Vec<i16>> {
         self.custom
             .then(|| self.pans.iter().copied().map(pan_to_i16).collect())
     }
 
     /// Toggles channel `index`, for the number-key shortcuts. Out-of-range
     /// indices (a key past this chip's channel count) are ignored.
-    pub fn toggle_channel(&mut self, index: usize) {
+    pub(crate) fn toggle_channel(&mut self, index: usize) {
         if let Some(audible) = self.audible.get_mut(index) {
             *audible = !*audible;
         }
@@ -194,7 +194,7 @@ impl GenericChannelPanel {
     /// Nuked family) gets *disabled* toggles with an explaining tooltip, rather
     /// than toggles that light up and silence nothing. Returns which of
     /// muting/panning changed this frame.
-    pub fn show(
+    pub(crate) fn show(
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,

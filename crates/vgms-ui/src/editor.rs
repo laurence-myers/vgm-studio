@@ -1003,7 +1003,7 @@ impl Editor {
     /// The two arms are the same call; they are written out because each has to
     /// borrow a different field alongside the cache, and `song()` borrows the
     /// whole editor.
-    pub fn row_analysis(&mut self, index: usize) -> Option<RowAnalysis> {
+    fn row_analysis(&mut self, index: usize) -> Option<RowAnalysis> {
         if let Some(song) = self.dro.as_ref() {
             return self.analysis.row(song, index);
         }

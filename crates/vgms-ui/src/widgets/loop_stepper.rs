@@ -15,7 +15,7 @@ const MAX_FINITE: u32 = 9;
 
 /// Draws the stepper: down arrow, the current count, up arrow. Emits
 /// [`Action::SetLoopCount`] on a change.
-pub fn loop_count_stepper(
+pub(crate) fn loop_count_stepper(
     ui: &mut egui::Ui,
     palette: &Palette,
     count: LoopCount,

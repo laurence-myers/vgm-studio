@@ -24,51 +24,51 @@ use crate::theme::bevel::{self, Bevel};
 use crate::theme::paint::{gradient_quad, lerp_color};
 
 /// The fixed bucket count. The painted panel stretches these to its width.
-pub const NUM_BUCKETS: usize = 768;
+pub(crate) const NUM_BUCKETS: usize = 768;
 
 /// Headroom above the tallest bucket.
 const HEADROOM: f32 = 5.0;
 
 /// The waveform's displayed state, owned by the app.
 #[derive(Debug, Default)]
-pub struct WaveformState {
-    pub buckets: Vec<WaveformBucket>,
+pub(crate) struct WaveformState {
+    pub(crate) buckets: Vec<WaveformBucket>,
     /// The white playback-start indicator, from the selected row.
-    pub start_ms: u32,
+    pub(crate) start_ms: u32,
     /// The yellow cursor. Only playback moves it; it survives edits, and is
     /// reset explicitly on file load.
-    pub cursor_ms: u32,
+    pub(crate) cursor_ms: u32,
     /// The loop brackets, when there is a region worth showing.
-    pub loop_overlay: Option<LoopOverlay>,
+    pub(crate) loop_overlay: Option<LoopOverlay>,
 }
 
 /// The loop region as the panel needs it: in milliseconds, plus the two facts
 /// that change how it is drawn.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct LoopOverlay {
-    pub start_ms: u32,
-    pub end_ms: u32,
+pub(crate) struct LoopOverlay {
+    pub(crate) start_ms: u32,
+    pub(crate) end_ms: u32,
     /// Loop playback is on, so the region is washed as well as bracketed --
     /// the difference between "marked" and "actually repeating".
-    pub active: bool,
+    pub(crate) active: bool,
     /// The markers differ from the loop the song stores, so the flags are drawn
     /// hollow: the cue that there is something to apply.
-    pub unapplied: bool,
+    pub(crate) unapplied: bool,
 }
 
 /// What the panel reported this frame.
 #[derive(Debug, Default)]
-pub struct WaveformResponse {
+pub(crate) struct WaveformResponse {
     /// A click, already snapped to an instruction and its time.
-    pub clicked: Option<(usize, u32)>,
+    pub(crate) clicked: Option<(usize, u32)>,
     /// Whether `clicked` was the secondary (right) button.
-    pub secondary: bool,
+    pub(crate) secondary: bool,
     /// The modifiers held for `clicked`, so the caller can tell a plain seek from
     /// a loop-marking gesture. The panel itself stays ignorant of what they mean.
-    pub modifiers: egui::Modifiers,
+    pub(crate) modifiers: egui::Modifiers,
 }
 
-pub fn show(
+pub(crate) fn show(
     ui: &mut egui::Ui,
     state: &WaveformState,
     timeline: Option<TimeSource<'_>>,
