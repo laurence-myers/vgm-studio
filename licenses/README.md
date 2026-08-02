@@ -5,7 +5,7 @@ vgm-studio is **not** licensed as one blob. Two halves, on purpose:
 | Part | Crates | License |
 |---|---|---|
 | **The reusable library pair** | `vgms-core`, `vgms-synth` | `MIT OR Apache-2.0` |
-| **The application** | `vgms-app`, `vgms-ui`, `vgms-audio-native`, `vgms-retrowave`, `vgms-web`, `vgms-synth-worklet` | `GPL-2.0-or-later` |
+| **The application** | `vgms-app`, `vgms-ui`, `vgms-audio-native`, `vgms-retrowave`, `vgms-web`, `vgms-synth-worklet`, `vgms-pack-archive`, `vgms-vgmtools` | `GPL-2.0-or-later` |
 
 **The distributed program — the `vgmstudio` binary and the web build — is
 `GPL-2.0-or-later`.** That is the license that reaches a user who downloads a
@@ -33,6 +33,12 @@ crates that the *app* depends on, so the permissive half stays permissive:
 |---|---|---|
 | `vgms-cores-nuked` | `LGPL-2.1-or-later` | Nuked-family cores (CQM, OPN2, OPM, …) |
 | `vgms-cores-gpl` | `GPL-2.0-or-later` | GPL-2 cores (OPLL, PSG, the LLE tier) |
+| `vgms-cores-libvgm` | `GPL-2.0-or-later` (assumed) | libvgm's device cores for every non-OPL chip |
+
+**libvgm ships no explicit licence grant.** Its source carries no per-file
+headers and no top-level `LICENSE`, so `vgms-cores-libvgm` is treated as
+`GPL-2.0-or-later` — the most conservative reading, and the same tier the rest of
+the copyleft cores sit in. See `crates/vgms-cores-libvgm/src/lib.rs`.
 
 `vgms-synth`'s one copyleft dependency, the `nuked-opl3` OPL core, is behind a
 **default-on `nuked-opl` feature**. `cargo build -p vgms-synth
