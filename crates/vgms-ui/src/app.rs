@@ -50,8 +50,6 @@ fn about_text() -> String {
     )
 }
 
-/// The DRO timing mismatch box; the v2 advice points at the Settings dialog
-/// rather than a hand edit of vgmstudio.ini.
 /// What a click on the waveform means, given the button and whether Shift was
 /// held. `None` for a gesture that does nothing.
 ///

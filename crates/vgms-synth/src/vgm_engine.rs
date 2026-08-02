@@ -314,7 +314,6 @@ impl VgmEngine {
         self.finished
     }
 
-    /// Restarts from the first command with every chip reset.
     /// Chooses how every voice is brought to the output rate.
     ///
     /// [`ResampleMode::Sinc`] is the accurate default; [`ResampleMode::Linear`]

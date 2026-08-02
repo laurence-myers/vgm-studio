@@ -487,10 +487,6 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "audio", "frequency") {
             self.audio.frequency = parse(value, "audio.frequency")?;
         }
-        // `output_backend` is the OPL row's core choice under a legacy name.
-        // Read it so an existing vgmstudio.ini keeps its hardware setting; it is
-        // not written back, so the file converges on the new spelling. Applied
-        // *before* the `core.*` keys so an explicit new-style choice wins.
         if let Some(value) = lookup(&ini, "audio", "resampling") {
             // Normalised but not validated, matching the core names: an empty
             // value restores the default, anything else is kept verbatim for
@@ -502,6 +498,10 @@ impl AppConfig {
                 value
             };
         }
+        // `output_backend` is the OPL row's core choice under a legacy name.
+        // Read it so an existing vgmstudio.ini keeps its hardware setting; it is
+        // not written back, so the file converges on the new spelling. Applied
+        // *before* the `core.*` keys so an explicit new-style choice wins.
         if let Some(value) = lookup(&ini, "audio", "output_backend") {
             let backend: OutputBackend = parse(value, "audio.output_backend")?;
             self.audio.set_output_backend(backend);
@@ -888,8 +888,6 @@ mod tests {
         assert_eq!(config.audio.core("ym2612"), Some("nonesuch"));
     }
 
-    /// An unset port means "find one", which is different from a port literally
-    /// named the empty string.
     /// The GUI disables the boost, the pan knobs and the peak meter off this:
     /// hardware output mixes on the chip, so none of them can do anything.
     #[test]
@@ -900,6 +898,8 @@ mod tests {
         assert!(!config.renders_samples(), "the board mixes its own output");
     }
 
+    /// An unset port means "find one", which is different from a port literally
+    /// named the empty string.
     #[test]
     fn an_empty_retrowave_port_reads_back_as_no_port() {
         let config = AppConfig::from_ini_sources(&["[audio]\nretrowave_port=\n"]);
