@@ -88,11 +88,16 @@ fn notable_lists_exist_for_documented_chips() {
         K::GameBoyDmg,
         K::NesApu,
         K::HuC6280,
+        // Every OPL chip, not just OPL3: the shared NOTABLE list must be filtered
+        // so each two-operator chip lists only registers it actually documents.
+        K::Ym3812,
+        K::Ym3526,
+        K::Y8950,
         K::Ymf262,
     ] {
         let notable = documented_registers(chip);
         assert!(!notable.is_empty(), "{chip:?}");
-        for &(port, addr, name) in notable {
+        for &(port, addr, name) in &notable {
             assert!(
                 register_doc(chip, port, addr).is_some(),
                 "{chip:?}'s notable {name:?} has no doc"

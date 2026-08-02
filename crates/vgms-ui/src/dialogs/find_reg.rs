@@ -209,7 +209,7 @@ impl VgmFind {
             },
         ];
         if let Some(chip) = self.chips.get(self.chip) {
-            for &(port, addr, name) in chip_docs::documented_registers(chip.kind) {
+            for (port, addr, name) in chip_docs::documented_registers(chip.kind) {
                 // The port sits in the high byte of the address the search
                 // matches, mirroring the stream decoder's addressing.
                 let target = (u16::from(port) << 8) | addr;

@@ -86,21 +86,29 @@ pub fn register_doc(chip: ChipKind, port: u8, addr: u16) -> Option<&'static Regi
 /// undocumented chips and for the SN76489, whose writes have no address to
 /// find; the dialog offers "any write" there.
 #[must_use]
-pub fn documented_registers(chip: ChipKind) -> &'static [(u8, u16, &'static str)] {
+pub fn documented_registers(chip: ChipKind) -> Vec<(u8, u16, &'static str)> {
     use ChipKind as K;
     match chip {
-        K::Ym3812 | K::Ym3526 | K::Y8950 | K::Ymf262 => opl::NOTABLE,
-        K::Ym2612 => ym2612::NOTABLE,
-        K::Ym2413 => ym2413::NOTABLE,
-        K::Ym2151 => ym2151::NOTABLE,
-        K::Ym2203 => opn::NOTABLE_2203,
-        K::Ym2608 | K::Ym2610 => opn::NOTABLE_2608,
-        K::Ay8910 => ay8910::NOTABLE,
-        K::GameBoyDmg => gb_dmg::NOTABLE,
-        K::NesApu => nes_apu::NOTABLE,
-        K::HuC6280 => huc6280::NOTABLE,
-        K::SegaPcm => segapcm::NOTABLE,
-        _ => &[],
+        // The OPL NOTABLE list is shared across OPL2 and OPL3, so it carries the
+        // OPL3-only port-1 registers (Four-Operator Enable, OPL3 Mode). Filter it
+        // through `register_doc` so an OPL2 chip never offers a register it has no
+        // documentation -- or hardware -- for.
+        K::Ym3812 | K::Ym3526 | K::Y8950 | K::Ymf262 => opl::NOTABLE
+            .iter()
+            .copied()
+            .filter(|&(port, addr, _)| register_doc(chip, port, addr).is_some())
+            .collect(),
+        K::Ym2612 => ym2612::NOTABLE.to_vec(),
+        K::Ym2413 => ym2413::NOTABLE.to_vec(),
+        K::Ym2151 => ym2151::NOTABLE.to_vec(),
+        K::Ym2203 => opn::NOTABLE_2203.to_vec(),
+        K::Ym2608 | K::Ym2610 => opn::NOTABLE_2608.to_vec(),
+        K::Ay8910 => ay8910::NOTABLE.to_vec(),
+        K::GameBoyDmg => gb_dmg::NOTABLE.to_vec(),
+        K::NesApu => nes_apu::NOTABLE.to_vec(),
+        K::HuC6280 => huc6280::NOTABLE.to_vec(),
+        K::SegaPcm => segapcm::NOTABLE.to_vec(),
+        _ => Vec::new(),
     }
 }
 
