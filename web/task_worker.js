@@ -17,23 +17,21 @@ import init, { vgms_web_run_task } from "./vgms_web.js";
 const ready = init();
 
 self.onmessage = async (event) => {
-  await ready;
-
-  const request = new Uint8Array(event.data);
-
-  // Post each result's bytes straight back to the page, transferring the buffer
-  // so nothing is copied.
-  const emit = (bytes) => {
-    const copy = bytes.slice();
-    self.postMessage(copy, [copy.buffer]);
-  };
-
   try {
+    await ready;
+
+    const request = new Uint8Array(event.data);
+
+    // Each result's bytes are already an owned buffer (Uint8Array::from copies
+    // out of wasm memory), so transfer it straight back with no extra copy.
+    const emit = (bytes) => self.postMessage(bytes, [bytes.buffer]);
+
     vgms_web_run_task(request, emit);
   } catch (error) {
     console.error("vgms-web task worker:", error);
+  } finally {
+    // Always signal completion -- even if init() rejected -- so the page never
+    // leaves this task kind wedged busy forever.
+    self.postMessage("done");
   }
-
-  // Signal completion so the page can mark this task kind idle and reap us.
-  self.postMessage("done");
 };

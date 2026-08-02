@@ -11,6 +11,11 @@
 pub mod codec;
 pub mod pack_zip;
 
+// The Worker task service's stale-result filter. Buildable natively so its logic
+// is unit-tested off-target, like `codec`; only the wasm services consume it.
+#[cfg(any(target_arch = "wasm32", test))]
+mod generations;
+
 #[cfg(target_arch = "wasm32")]
 pub mod optimize_tools;
 #[cfg(target_arch = "wasm32")]

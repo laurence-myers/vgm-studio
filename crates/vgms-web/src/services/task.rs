@@ -20,6 +20,8 @@ use wasm_bindgen::closure::Closure;
 
 use vgms_ui::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 
+use crate::generations::Generations;
+
 /// Where the Worker bootstrap script lives, relative to the page. The build lays
 /// it beside the app module.
 const WORKER_URL: &str = "./task_worker.js";
@@ -33,8 +35,11 @@ struct WorkerSlot {
     worker: web_sys::Worker,
     /// Kept alive for as long as the Worker: dropping it would unhook the handler.
     _on_message: Closure<dyn FnMut(web_sys::MessageEvent)>,
-    /// Set by the handler when the Worker posts [`DONE`]; a done Worker is idle
-    /// and gets reaped on the next poll.
+    /// The error handler, a backstop for a failure that never reaches onmessage
+    /// (a Worker that errors out before posting anything). Kept alive the same way.
+    _on_error: Closure<dyn FnMut(web_sys::Event)>,
+    /// Set by the handler when the Worker posts [`DONE`], or by the error handler;
+    /// a done Worker is idle and gets reaped on the next poll.
     done: Rc<Cell<bool>>,
 }
 
@@ -48,7 +53,11 @@ struct Pending {
 pub struct WorkerTaskService {
     workers: HashMap<TaskKind, WorkerSlot>,
     pending: HashMap<TaskKind, Pending>,
-    results: Rc<RefCell<Vec<TaskResult>>>,
+    /// Each queued result carries the `(kind, generation)` of the spawn that
+    /// produced it, so `poll` can drop one whose task has since been superseded.
+    results: Rc<RefCell<Vec<(TaskKind, u64, TaskResult)>>>,
+    /// The current generation per kind; bumped on every spawn and terminate.
+    generations: Rc<RefCell<Generations>>,
     notify: Rc<dyn Fn()>,
 }
 
@@ -69,6 +78,7 @@ impl WorkerTaskService {
             workers: HashMap::new(),
             pending: HashMap::new(),
             results: Rc::new(RefCell::new(Vec::new())),
+            generations: Rc::new(RefCell::new(Generations::default())),
             notify: Rc::new(notify),
         }
     }
@@ -84,7 +94,8 @@ impl WorkerTaskService {
     /// Spawns a Worker for `kind`, posts `bytes`, and wires its results into the
     /// shared queue. Any Worker already running that kind is terminated first.
     fn spawn(&mut self, kind: TaskKind, bytes: Vec<u8>) {
-        self.terminate(kind);
+        self.terminate(kind); // bumps this kind's generation
+        let generation = self.generations.borrow().current(kind);
 
         let options = web_sys::WorkerOptions::new();
         options.set_type(web_sys::WorkerType::Module);
@@ -118,7 +129,9 @@ impl WorkerTaskService {
                 };
                 match crate::codec::decode_result(&array.to_vec()) {
                     Ok(result) => {
-                        results.borrow_mut().push(result);
+                        // Tag the result with the spawn that produced it; `poll`
+                        // drops it if this kind has since moved on.
+                        results.borrow_mut().push((kind, generation, result));
                         notify();
                     }
                     Err(error) => web_sys::console::error_1(&JsValue::from_str(&format!(
@@ -128,6 +141,20 @@ impl WorkerTaskService {
             }
         });
         worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+
+        // A Worker that errors out (a failed import, an uncaught throw at load)
+        // never posts DONE, so mark it done here too, or the kind looks busy
+        // forever.
+        let on_error = Closure::<dyn FnMut(web_sys::Event)>::new({
+            let done = Rc::clone(&done);
+            let notify = Rc::clone(&self.notify);
+            move |_event: web_sys::Event| {
+                web_sys::console::error_1(&JsValue::from_str("vgms-web: a task Worker errored"));
+                done.set(true);
+                notify();
+            }
+        });
+        worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
 
         let message: JsValue = js_sys::Uint8Array::from(bytes.as_slice()).into();
         if let Err(error) = worker.post_message(&message) {
@@ -139,16 +166,19 @@ impl WorkerTaskService {
             WorkerSlot {
                 worker,
                 _on_message: on_message,
+                _on_error: on_error,
                 done,
             },
         );
     }
 
-    /// Terminates and forgets the Worker running `kind`, if any.
+    /// Terminates and forgets the Worker running `kind`, if any, and bumps the
+    /// kind's generation so any result it already queued is dropped by `poll`.
     fn terminate(&mut self, kind: TaskKind) {
         if let Some(slot) = self.workers.remove(&kind) {
             slot.worker.terminate();
         }
+        self.generations.borrow_mut().bump(kind);
     }
 }
 
@@ -208,9 +238,22 @@ impl TaskService for WorkerTaskService {
             .map(|(kind, _)| *kind)
             .collect();
         for kind in finished {
-            self.terminate(kind);
+            // Reap without bumping the generation: the Worker finished normally,
+            // so the results it already queued are valid and must survive the
+            // filter below (only superseding -- submit/cancel/spawn -- invalidates).
+            if let Some(slot) = self.workers.remove(&kind) {
+                slot.worker.terminate();
+            }
         }
+        // Return only results whose task is still current: a stale one (its kind
+        // was superseded or cancelled before this poll) is dropped so it never
+        // lands on the document that replaced it.
+        let generations = self.generations.borrow();
         std::mem::take(&mut *self.results.borrow_mut())
+            .into_iter()
+            .filter(|(kind, generation, _)| generations.is_current(*kind, *generation))
+            .map(|(_, _, result)| result)
+            .collect()
     }
 
     fn is_busy(&self) -> bool {
