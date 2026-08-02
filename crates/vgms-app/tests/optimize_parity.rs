@@ -14,7 +14,7 @@
 //! Ignored by default:
 //!
 //! ```text
-//! VGMSTUDIO_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
 //!     --test optimize_parity -- --ignored --nocapture
 //! ```
 
@@ -89,12 +89,14 @@ fn plain_bytes(path: &Path) -> Option<(Arc<vgms_core::vgm::VgmFile>, Vec<u8>)> {
 }
 
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS"]
 fn an_optimised_file_renders_to_the_same_samples() {
-    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
-        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
-        return;
-    };
+    // Loud, not a silent skip: run explicitly (`--ignored`), so an unset corpus
+    // is a setup mistake to report, not a reason to pass green.
+    let root = PathBuf::from(
+        std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS")
+            .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test"),
+    );
     let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -196,12 +198,14 @@ fn an_optimised_file_renders_to_the_same_samples() {
 /// `vgms_vgmtools`' allowlist. (Upstream calls SegaPCM support "not entirely
 /// reliable" and warns YM2610 ADPCM "may need a patch for certain games".)
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS"]
 fn which_chips_the_sample_rom_trim_is_safe_for() {
-    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
-        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
-        return;
-    };
+    // Loud, not a silent skip: run explicitly (`--ignored`), so an unset corpus
+    // is a setup mistake to report, not a reason to pass green.
+    let root = PathBuf::from(
+        std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS")
+            .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test"),
+    );
     let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -260,12 +264,14 @@ fn which_chips_the_sample_rom_trim_is_safe_for() {
 /// would cost, by running `vgm_cmp` on an SAA1099 file directly and rendering
 /// both sides. Run it over a corpus of SAA1099 rips before changing anything.
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS pointed at SAA1099 rips"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS pointed at SAA1099 rips"]
 fn what_holding_the_saa1099_back_is_buying() {
-    let Some(root) = std::env::var_os("VGMSTUDIO_CORPUS").map(PathBuf::from) else {
-        eprintln!("VGMSTUDIO_CORPUS is not set; nothing to do");
-        return;
-    };
+    // Loud, not a silent skip: run explicitly (`--ignored`), so an unset corpus
+    // is a setup mistake to report, not a reason to pass green.
+    let root = PathBuf::from(
+        std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS")
+            .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test"),
+    );
     vgms_app::install_cores();
 
     let mut paths = Vec::new();

@@ -6,10 +6,10 @@
 //! projected song must agree row for row, total for total, and byte for byte on
 //! the way out.
 //!
-//! Needs the local corpus via `VGMSTUDIO_CORPUS`:
+//! Needs the local corpus via `VGMSTUDIO_VGMRIPS_CORPUS`:
 //!
 //! ```powershell
-//! $env:VGMSTUDIO_CORPUS = 'F:\GameMusic\VGM'
+//! $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:\GameMusic\VGM'
 //! cargo test -p vgms-app --release --test projection_corpus -- --ignored --nocapture
 //! ```
 //!
@@ -39,12 +39,12 @@ fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs the local corpus via VGMSTUDIO_CORPUS"]
+#[ignore = "needs the local corpus via VGMSTUDIO_VGMRIPS_CORPUS"]
 fn the_projection_matches_the_opl_reader_across_the_corpus() {
-    let Ok(root) = std::env::var("VGMSTUDIO_CORPUS") else {
-        eprintln!("VGMSTUDIO_CORPUS not set; skipping corpus validation");
-        return;
-    };
+    // Loud, not a silent skip: run explicitly (`--ignored`), so an unset corpus
+    // is a setup mistake to report, not a reason to pass green.
+    let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
+        .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
     let mut songs = Vec::new();
     collect_songs(Path::new(&root), &mut songs);
     songs.sort();

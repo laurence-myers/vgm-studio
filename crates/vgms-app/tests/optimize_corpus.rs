@@ -1,9 +1,9 @@
 //! Corpus validation for the VGM optimiser, run on demand.
 //!
-//! Needs the local OPL VGM corpus via `VGMSTUDIO_CORPUS`:
+//! Needs the local OPL VGM corpus via `VGMSTUDIO_VGMRIPS_CORPUS`:
 //!
 //! ```powershell
-//! $env:VGMSTUDIO_CORPUS = 'F:\GameMusic\VGM'
+//! $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:\GameMusic\VGM'
 //! cargo test -p vgms-app --release --test optimize_corpus -- --ignored --nocapture
 //! ```
 //!
@@ -103,12 +103,12 @@ fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs the local corpus via VGMSTUDIO_CORPUS"]
+#[ignore = "needs the local corpus via VGMSTUDIO_VGMRIPS_CORPUS"]
 fn optimise_the_whole_corpus() {
-    let Ok(root) = std::env::var("VGMSTUDIO_CORPUS") else {
-        eprintln!("VGMSTUDIO_CORPUS not set; skipping corpus validation");
-        return;
-    };
+    // Loud, not a silent skip: this is explicitly run (`--ignored`), so an unset
+    // corpus is a setup mistake to report, not a reason to pass green.
+    let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
+        .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
     let mut songs = Vec::new();
     collect_songs(Path::new(&root), &mut songs);
     songs.sort();

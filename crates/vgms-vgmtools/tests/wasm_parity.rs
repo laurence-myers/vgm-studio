@@ -22,7 +22,7 @@
 //!
 //! and found at `target/wasi-tools` (or the dir in `VGMS_VGMTOOLS_WASM_DIR`).
 //! Absent, the test skips, exactly as `corpus.rs` does without
-//! `VGMSTUDIO_CORPUS`. Setting `VGMSTUDIO_CORPUS` widens the sample past the
+//! `VGMSTUDIO_VGMRIPS_CORPUS`. Setting `VGMSTUDIO_VGMRIPS_CORPUS` widens the sample past the
 //! repo fixtures.
 
 use std::path::{Path, PathBuf};
@@ -192,7 +192,7 @@ fn collect_dir(root: &Path, limit: usize, out: &mut Vec<(String, Vec<u8>)>) {
     }
 }
 
-/// The repo fixtures (always) plus `VGMSTUDIO_CORPUS` (when set).
+/// The repo fixtures (always) plus `VGMSTUDIO_VGMRIPS_CORPUS` (when set).
 ///
 /// Deliberately *not* `vendor/upstream/vgmtools/ptch-test-vgms`: those are
 /// malformed-by-design fixtures for `vgm_ptch`, the *repairer*, and several
@@ -204,7 +204,7 @@ fn collect_fixtures() -> Vec<(String, Vec<u8>)> {
     let mut out = Vec::new();
     let manifest = manifest_dir();
     collect_dir(&manifest.join("../../tests"), usize::MAX, &mut out);
-    if let Some(corpus) = std::env::var_os("VGMSTUDIO_CORPUS") {
+    if let Some(corpus) = std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS") {
         let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
             .ok()
             .and_then(|v| v.parse().ok())

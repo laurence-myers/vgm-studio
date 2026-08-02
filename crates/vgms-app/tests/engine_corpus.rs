@@ -7,10 +7,10 @@
 //! banks -- the shapes rippers actually produced, including ones the spec did
 //! not anticipate.
 //!
-//! Ignored by default and pointed at a corpus with `VGMSTUDIO_CORPUS`:
+//! Ignored by default and pointed at a corpus with `VGMSTUDIO_VGMRIPS_CORPUS`:
 //!
 //! ```text
-//! VGMSTUDIO_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
 //!     --test engine_corpus -- --ignored --nocapture
 //! ```
 
@@ -163,12 +163,12 @@ fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
 }
 
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS; run explicitly"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
-    let Ok(root) = std::env::var("VGMSTUDIO_CORPUS") else {
-        eprintln!("VGMSTUDIO_CORPUS not set; skipping engine corpus validation");
-        return;
-    };
+    // Loud, not a silent skip: run explicitly (`--ignored`), so an unset corpus
+    // is a setup mistake to report, not a reason to pass green.
+    let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
+        .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
     let mut songs = Vec::new();
     collect_songs(Path::new(&root), &mut songs);
     songs.sort();

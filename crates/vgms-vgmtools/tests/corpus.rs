@@ -1,9 +1,9 @@
 //! The pass, over real files.
 //!
-//! Ignored by default and driven by `VGMSTUDIO_CORPUS`:
+//! Ignored by default and driven by `VGMSTUDIO_VGMRIPS_CORPUS`:
 //!
 //! ```text
-//! VGMSTUDIO_CORPUS=F:\GameMusic\VGM cargo test -p vgms-vgmtools --release \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:\GameMusic\VGM cargo test -p vgms-vgmtools --release \
 //!     --test corpus -- --ignored --nocapture
 //! ```
 //!
@@ -24,9 +24,20 @@ use std::path::{Path, PathBuf};
 
 use vgms_vgmtools::{Options, StageOutcome, optimize_vgm};
 
-fn corpus_root() -> Option<PathBuf> {
-    let root = PathBuf::from(std::env::var_os("VGMSTUDIO_CORPUS")?);
-    root.is_dir().then_some(root)
+/// The corpus directory. Loud, not a silent skip: these tests are run
+/// explicitly (`--ignored`), so an unset corpus is a setup mistake to report,
+/// not a reason to pass green.
+fn corpus_root() -> PathBuf {
+    let root = PathBuf::from(
+        std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS")
+            .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test"),
+    );
+    assert!(
+        root.is_dir(),
+        "VGMSTUDIO_VGMRIPS_CORPUS is not a directory: {}",
+        root.display()
+    );
+    root
 }
 
 /// Every `.vgm`/`.vgz` under `root`, uncompressed, capped at `limit`.
@@ -92,12 +103,9 @@ fn total_samples(bytes: &[u8]) -> Option<u64> {
 /// those can feed a chip without a register write appearing against it, so they
 /// must not be stripped on this evidence alone.
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS"]
 fn how_many_rips_declare_a_chip_they_never_write_to() {
-    let Some(root) = corpus_root() else {
-        eprintln!("VGMSTUDIO_CORPUS is not set to a directory; nothing to do");
-        return;
-    };
+    let root = corpus_root();
     let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
@@ -169,12 +177,9 @@ fn how_many_rips_declare_a_chip_they_never_write_to() {
 }
 
 #[test]
-#[ignore = "needs VGMSTUDIO_CORPUS"]
+#[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS"]
 fn the_pass_never_corrupts_a_file_or_moves_its_timing() {
-    let Some(root) = corpus_root() else {
-        eprintln!("VGMSTUDIO_CORPUS is not set to a directory; nothing to do");
-        return;
-    };
+    let root = corpus_root();
     let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
