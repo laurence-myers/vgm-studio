@@ -77,6 +77,9 @@ pub struct WebPackService {
     busy: Rc<Cell<bool>>,
     running: Rc<RefCell<Option<RunningJob>>>,
     _on_message: Option<Closure<dyn FnMut(web_sys::MessageEvent)>>,
+    // The Worker error handler: reports failure immediately if the Worker throws
+    // before posting anything, rather than waiting the whole watchdog interval.
+    _on_error: Option<Closure<dyn FnMut(web_sys::Event)>>,
     // Kept alive for as long as any timer may fire it.
     _on_timeout: TimeoutClosure,
     notify: Rc<dyn Fn()>,
@@ -117,6 +120,7 @@ impl WebPackService {
             busy: Rc::new(Cell::new(false)),
             running: Rc::new(RefCell::new(None)),
             _on_message: None,
+            _on_error: None,
             _on_timeout: Rc::new(RefCell::new(None)),
             notify: Rc::new(notify),
         }
@@ -216,6 +220,25 @@ impl PackService for WebPackService {
         });
         worker.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
 
+        // A Worker that errors before posting anything would otherwise only be
+        // caught by the watchdog, minutes later. Report it at once.
+        let on_error = Closure::<dyn FnMut(web_sys::Event)>::new({
+            let running = Rc::clone(&self.running);
+            let jobs = Rc::clone(&self.jobs);
+            let busy = Rc::clone(&self.busy);
+            let notify = Rc::clone(&self.notify);
+            move |_event: web_sys::Event| {
+                if let Some(job) = running.borrow_mut().take() {
+                    job.terminate();
+                }
+                jobs.borrow_mut()
+                    .push_back(PackJobOutcome::Failed("the pack worker errored".to_owned()));
+                busy.set(false);
+                notify();
+            }
+        });
+        worker.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+
         let message: JsValue = js_sys::Uint8Array::from(bytes.as_slice()).into();
         if let Err(error) = worker.post_message(&message) {
             web_sys::console::error_1(&error);
@@ -228,6 +251,7 @@ impl PackService for WebPackService {
         });
         rearm_watchdog(&self.running, &self._on_timeout);
         self._on_message = Some(on_message);
+        self._on_error = Some(on_error);
     }
 
     fn poll(&mut self) -> Option<PackJobOutcome> {
