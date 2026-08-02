@@ -115,14 +115,7 @@ fn compile(bytes: &[u8], tool: ToolId) -> Result<WebAssembly::Module, String> {
 }
 
 fn describe(error: &JsValue) -> String {
-    error
-        .as_string()
-        .or_else(|| {
-            Reflect::get(error, &JsValue::from_str("message"))
-                .ok()
-                .and_then(|m| m.as_string())
-        })
-        .unwrap_or_else(|| "wasm error".to_owned())
+    crate::js::message(error).unwrap_or_else(|| "wasm error".to_owned())
 }
 
 /// The pack Worker's [`SongOptimizer`]: the full vgmtools pipeline over the tool

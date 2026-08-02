@@ -206,17 +206,10 @@ fn download(name: &str, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// Extracts a message from a thrown JS value, preferring an `Error.message`.
+/// Extracts a message from a thrown JS value, preferring an `Error.message`,
+/// and falling back to the value's debug form.
 fn js_error(value: JsValue) -> String {
-    if let Some(text) = value.as_string() {
-        return text;
-    }
-    if let Ok(message) = js_sys::Reflect::get(&value, &JsValue::from_str("message"))
-        && let Some(text) = message.as_string()
-    {
-        return text;
-    }
-    format!("{value:?}")
+    crate::js::message(&value).unwrap_or_else(|| format!("{value:?}"))
 }
 
 /// Reads a string property off a JS object.

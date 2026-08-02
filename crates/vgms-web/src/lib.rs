@@ -17,6 +17,8 @@ pub mod pack_zip;
 mod generations;
 
 #[cfg(target_arch = "wasm32")]
+mod js;
+#[cfg(target_arch = "wasm32")]
 pub mod optimize_tools;
 #[cfg(target_arch = "wasm32")]
 pub mod runner;
