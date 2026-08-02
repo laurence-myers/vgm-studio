@@ -85,10 +85,8 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
     this.leftPtr = this.ex.vgmsw_alloc(QUANTUM * 4);
     this.rightPtr = this.ex.vgmsw_alloc(QUANTUM * 4);
 
-    // Normally play/pause arrives as a command message; `autoplay` lets an
-    // offline render (which does not deliver port messages mid-render) start
-    // sounding without one.
-    this.playing = !!opts.autoplay;
+    // Play/pause arrives as a command message; a fresh node starts paused.
+    this.playing = false;
     this.tick = 0;
     // Peaks accumulate between state posts so a transient is never dropped.
     this.peakL = 0;

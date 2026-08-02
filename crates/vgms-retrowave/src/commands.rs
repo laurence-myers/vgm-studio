@@ -80,15 +80,6 @@ pub fn queue_mute_sweep(buf: &mut CmdBuffer, mut record: impl FnMut(Bank, u8, u8
     }
 }
 
-/// The value a register holds after a chip reset, for the diffing chip's benefit.
-///
-/// Matches [`queue_mute_sweep`]: silence means maximum attenuation on the
-/// total-level registers and zero everywhere else.
-#[must_use]
-pub const fn reset_value(reg: u8) -> u8 {
-    silent_value(reg)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,11 +218,11 @@ mod tests {
     }
 
     #[test]
-    fn reset_value_agrees_with_the_sweep() {
-        assert_eq!(reset_value(0x40), 0xFF);
-        assert_eq!(reset_value(0x55), 0xFF);
-        assert_eq!(reset_value(0x3F), 0x00);
-        assert_eq!(reset_value(0x56), 0x00);
+    fn silent_value_agrees_with_the_sweep() {
+        assert_eq!(silent_value(0x40), 0xFF);
+        assert_eq!(silent_value(0x55), 0xFF);
+        assert_eq!(silent_value(0x3F), 0x00);
+        assert_eq!(silent_value(0x56), 0x00);
         assert!(is_total_level(0x4A));
         assert!(!is_total_level(0xB0));
     }

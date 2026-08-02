@@ -24,7 +24,7 @@ use vgms_core::error::{Error, Result};
 
 /// How a compressed block is packed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compression {
+enum Compression {
     /// Each value stored in fewer bits, recovered by add, shift or table.
     BitPacking,
     /// A start value and a run of table-indexed deltas.

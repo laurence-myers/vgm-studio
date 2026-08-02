@@ -176,7 +176,6 @@ pub struct Device {
     io: Box<dyn SerialIo>,
     /// Scratch for this layer's own command sequences, reused across calls.
     buf: CmdBuffer,
-    port_name: String,
 }
 
 impl Device {
@@ -196,24 +195,17 @@ impl Device {
         let mut port = port;
         let _ = port.write_data_terminal_ready(true);
 
-        Self::with_io(Box::new(SerialPortIo(port)), port_name.to_owned())
+        Self::with_io(Box::new(SerialPortIo(port)))
     }
 
     /// Drives an arbitrary [`SerialIo`], running the same bring-up. For tests.
-    pub fn with_io(io: Box<dyn SerialIo>, port_name: String) -> Result<Self, Error> {
+    pub fn with_io(io: Box<dyn SerialIo>) -> Result<Self, Error> {
         let mut device = Self {
             io,
             buf: CmdBuffer::new(),
-            port_name,
         };
         device.initialise()?;
         Ok(device)
-    }
-
-    /// Which port this device is on.
-    #[must_use]
-    pub fn port_name(&self) -> &str {
-        &self.port_name
     }
 
     fn initialise(&mut self) -> Result<(), Error> {
@@ -310,7 +302,7 @@ mod tests {
     fn opened() -> (Device, Arc<Mutex<Vec<u8>>>) {
         let io = MockIo::default();
         let written = Arc::clone(&io.written);
-        let device = Device::with_io(Box::new(io), "MOCK".to_owned()).expect("bring-up succeeds");
+        let device = Device::with_io(Box::new(io)).expect("bring-up succeeds");
         (device, written)
     }
 
@@ -331,7 +323,7 @@ mod tests {
 
     #[test]
     fn a_dead_port_surfaces_its_error_rather_than_pretending() {
-        let error = Device::with_io(Box::new(DeadIo), "DEAD".to_owned())
+        let error = Device::with_io(Box::new(DeadIo))
             .expect_err("bring-up must fail on a dead port");
         assert!(matches!(error, Error::Write(_)));
     }

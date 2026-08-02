@@ -105,73 +105,12 @@ pub fn render_wav_cancellable<B: Borrow<Song>>(
     render_wav_impl(song, mix, sample_rate, bit_depth, on_progress, keep_going)
 }
 
-/// As [`render_wav`], but with channel/percussion muting applied -- what
-/// `dro_split` uses to render one isolated voice. Generic over the song
-/// container so the audio thread can pass an `Arc<Song>` without cloning.
-///
-/// # Errors
-/// See [`render_wav`].
-pub fn render_wav_muted<B: Borrow<Song>>(
-    song: B,
-    muting: Muting,
-    sample_rate: u32,
-    bit_depth: u16,
-) -> Result<Vec<u8>, hound::Error> {
-    let mix = RenderMix {
-        muting,
-        ..RenderMix::default()
-    };
-    render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
-}
-
-/// As [`render_wav_muted`], reporting the running rendered-frame count to
-/// `on_progress` after each chunk so `dro_split` can show live progress per
-/// channel on a long render. The rendered bytes are identical to
-/// [`render_wav_muted`].
-///
-/// # Errors
-/// See [`render_wav`].
-pub fn render_wav_muted_with_progress<B: Borrow<Song>>(
-    song: B,
-    muting: Muting,
-    sample_rate: u32,
-    bit_depth: u16,
-    on_progress: &mut dyn FnMut(u64),
-) -> Result<Vec<u8>, hound::Error> {
-    let mix = RenderMix {
-        muting,
-        ..RenderMix::default()
-    };
-    render_uncancelled(song, mix, sample_rate, bit_depth, on_progress)
-}
-
 /// As [`render_wav`], but multiplies the signal by `boost` through the same peak
 /// limiter used for live playback, so a boosted render matches boosted playback
-/// and still cannot clip. `boost == 1.0` is bit-transparent -- identical to
-/// [`render_wav`].
-///
-/// This is the one render path deliberately *not* faithful to the un-boosted
-/// signal; it is opt-in through `dro_player --render --boost`. The `vgmstudio.ini`
-/// / GUI boost never reaches a render -- only an explicit CLI value does.
-///
-/// # Errors
-/// See [`render_wav`].
-pub fn render_wav_boosted(
-    song: &Song,
-    sample_rate: u32,
-    bit_depth: u16,
-    boost: f32,
-) -> Result<Vec<u8>, hound::Error> {
-    let mix = RenderMix {
-        boost,
-        ..RenderMix::default()
-    };
-    render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
-}
-
-/// As [`render_wav_boosted`], reporting the running rendered-frame count to
-/// `on_progress` after each chunk so a CLI can show live progress on a long
-/// render. The rendered bytes are identical to [`render_wav_boosted`].
+/// and still cannot clip (`boost == 1.0` is bit-transparent). Reports the running
+/// rendered-frame count to `on_progress` after each chunk so a CLI can show live
+/// progress on a long render. It is opt-in through an explicit CLI `--boost`; the
+/// GUI / `vgmstudio.ini` boost never reaches a render.
 ///
 /// # Errors
 /// See [`render_wav`].
@@ -568,34 +507,12 @@ mod tests {
     #[test]
     fn progress_is_reported_without_changing_the_render() {
         let song = small_song();
-        let plain = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
+        let plain = render_wav(&song, 48_000, 16).unwrap();
         let mut frames = Vec::new();
         let tracked = render_wav_boosted_with_progress(&song, 48_000, 16, 1.0, &mut |rendered| {
             frames.push(rendered);
         })
         .unwrap();
-        assert_eq!(
-            tracked, plain,
-            "progress reporting must not change the bytes"
-        );
-        assert!(!frames.is_empty(), "progress was reported");
-        assert!(
-            frames.windows(2).all(|pair| pair[0] <= pair[1]),
-            "the reported frame count only grows"
-        );
-        assert!(*frames.last().unwrap() > 0);
-    }
-
-    #[test]
-    fn muted_progress_is_reported_without_changing_the_render() {
-        let song = small_song();
-        let plain = render_wav_muted(&song, Muting::all(), 48_000, 16).unwrap();
-        let mut frames = Vec::new();
-        let tracked =
-            render_wav_muted_with_progress(&song, Muting::all(), 48_000, 16, &mut |rendered| {
-                frames.push(rendered)
-            })
-            .unwrap();
         assert_eq!(
             tracked, plain,
             "progress reporting must not change the bytes"
@@ -633,16 +550,6 @@ mod tests {
         assert_eq!(spec.bits_per_sample, 8);
         assert_eq!(samples.len(), 150 * 48 * 2);
         assert!(samples.iter().any(|&s| s != 0));
-    }
-
-    #[test]
-    fn unity_boost_render_is_byte_identical_to_the_plain_render() {
-        // The limiter bypasses at boost 1.0, so an opt-in boosted render with no
-        // actual boost is the same faithful render as `render_wav`.
-        let song = small_song();
-        let plain = render_wav(&song, 48_000, 16).unwrap();
-        let unity = render_wav_boosted(&song, 48_000, 16, 1.0).unwrap();
-        assert_eq!(plain, unity);
     }
 
     #[test]
@@ -706,40 +613,6 @@ mod tests {
         assert_eq!(plain, mixed);
     }
 
-    #[test]
-    fn each_mix_option_alone_matches_its_single_purpose_render() {
-        let song = small_song();
-        let mut muting = Muting::silent();
-        muting.allow_channel(vgms_core::Bank::Low, 0xB0);
-
-        assert_eq!(
-            render_wav_mixed(
-                &song,
-                RenderMix {
-                    muting,
-                    ..RenderMix::default()
-                },
-                48_000,
-                16
-            )
-            .unwrap(),
-            render_wav_muted(&song, muting, 48_000, 16).unwrap(),
-        );
-        assert_eq!(
-            render_wav_mixed(
-                &song,
-                RenderMix {
-                    boost: 4.0,
-                    ..RenderMix::default()
-                },
-                48_000,
-                16
-            )
-            .unwrap(),
-            render_wav_boosted(&song, 48_000, 16, 4.0).unwrap(),
-        );
-    }
-
     // Asserts the OPL render is *not* silent, which only an OPL core can
     // make true. `--no-default-features` has none by design.
     #[cfg(feature = "nuked-opl")]
@@ -782,7 +655,16 @@ mod tests {
     fn a_boosted_render_is_louder_but_never_clips() {
         let song = small_song();
         let plain = render_wav(&song, 48_000, 16).unwrap();
-        let boosted = render_wav_boosted(&song, 48_000, 16, 4.0).unwrap();
+        let boosted = render_wav_mixed(
+            &song,
+            RenderMix {
+                boost: 4.0,
+                ..RenderMix::default()
+            },
+            48_000,
+            16,
+        )
+        .unwrap();
         let (_, plain_s) = read_back(&plain);
         let (_, boosted_s) = read_back(&boosted);
         assert_eq!(plain_s.len(), boosted_s.len());

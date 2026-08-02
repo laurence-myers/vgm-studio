@@ -439,7 +439,7 @@ mod tests {
     }
 
     fn device_with(events: Sender<(Instant, Vec<u8>)>) -> Device {
-        Device::with_io(Box::new(TimedIo { events }), "MOCK".to_owned()).expect("bring-up")
+        Device::with_io(Box::new(TimedIo { events })).expect("bring-up")
     }
 
     /// Collects everything written until the wire stays quiet for `quiet_for`.
@@ -636,7 +636,7 @@ mod tests {
             }
         }
 
-        let device = Device::with_io(Box::new(DiesOnThirdWrite(0)), "DYING".to_owned())
+        let device = Device::with_io(Box::new(DiesOnThirdWrite(0)))
             .expect("bring-up writes fewer than three times");
         let mut audio = RetroWaveAudio::new(device, two_writes_apart(50));
         audio.play();

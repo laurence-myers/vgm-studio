@@ -40,7 +40,7 @@ fn main() {
 
     // `with_io` runs the whole bring-up: IO expander init, chip reset (with the
     // 200 ms settle), and the mute sweep.
-    let mut device = Device::with_io(Box::new(capture), "capture".to_owned()).expect("bring-up");
+    let mut device = Device::with_io(Box::new(capture)).expect("bring-up");
     test_tone::enable_opl3(&mut device).expect("NEW on");
     test_tone::key_on_chord(&mut device, Bank::Zero).expect("key on");
 

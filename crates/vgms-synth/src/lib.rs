@@ -8,7 +8,6 @@
 
 #![forbid(unsafe_code)]
 
-pub mod adpcm;
 pub(crate) mod balance;
 pub mod banks;
 pub mod capture;
@@ -37,7 +36,7 @@ pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_realtime
 pub use chip_mix::{ChipMuting, ChipPanning};
 pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
-pub use decompress::{Compression, DecompressionTable, decompress};
+pub use decompress::{DecompressionTable, decompress};
 pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, PlayerEngine, Position};
 pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
@@ -56,9 +55,8 @@ pub use split::{
 pub use vgm_engine::VgmEngine;
 pub use wav::{
     RenderMix, VgmRenderMix, render_vgm_wav, render_vgm_wav_cancellable,
-    render_vgm_wav_mixed_cancellable, render_wav, render_wav_boosted,
-    render_wav_boosted_with_progress, render_wav_cancellable, render_wav_mixed, render_wav_muted,
-    render_wav_muted_with_progress,
+    render_vgm_wav_mixed_cancellable, render_wav, render_wav_boosted_with_progress,
+    render_wav_cancellable, render_wav_mixed,
 };
 pub use waveform::{
     WaveformBucket, WaveformBucketer, render_vgm_waveform, render_vgm_waveform_progressive,

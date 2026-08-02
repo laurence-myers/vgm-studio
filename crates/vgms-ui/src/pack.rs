@@ -23,7 +23,7 @@ use vgms_core::pack::{
     music_hardware_suggestion, parse_description, readiness,
 };
 use vgms_core::vgm::data::GD3_FIELD_COUNT;
-use vgms_core::{Gd3Tag, OplType, Song, VgmFile};
+use vgms_core::{Gd3Tag, OplType, VgmFile};
 use vgms_synth::AudioSource;
 
 use crate::action::Action;
@@ -1717,18 +1717,6 @@ fn lamp_colour(severity: Option<Severity>, palette: &Palette) -> egui::Color32 {
     }
 }
 
-/// Re-serialises `song` under `new_name` with `tag` applied. The name drives the
-/// output format, so a `.vgm` -> `.vgz` rename gzips the result. Used by the
-/// quick-edit dialog to rewrite a track without loading it into the editor.
-pub fn retagged_bytes(song: &Song, new_name: &str, tag: Gd3Tag) -> Result<Vec<u8>, String> {
-    let mut song = song.clone();
-    song.name = new_name.to_owned();
-    if let Some(meta) = song.vgm_meta_mut() {
-        meta.tag = Some(tag);
-    }
-    vgms_core::io::write_song(&song).map_err(|error| error.to_string())
-}
-
 // GD3 field indices (file order), for the bulk-tag seeding below. The "native"
 // fields are GD3's original-language variants, paired with their English siblings.
 mod gd3_index {
@@ -3268,41 +3256,6 @@ mod tests {
         let state = PackState::from_folder(folder("Pack", files), Some((2026, 7, 16)));
         assert!(state.parse_warning.is_some());
         assert_eq!(state.meta.game_name, "GD3 Game", "prefilled from GD3");
-    }
-
-    #[test]
-    fn retagged_bytes_applies_the_tag_and_follows_the_new_extension() {
-        let song = vgms_core::io::read_song("01 Old.vgm", VGM_FIXTURE).unwrap();
-        let new_tag = Gd3Tag {
-            track_name_en: "Renamed Track".to_owned(),
-            ..Gd3Tag::default()
-        };
-
-        // Same extension: uncompressed VGM bytes carrying the new tag.
-        let vgm = retagged_bytes(&song, "01 New.vgm", new_tag.clone()).unwrap();
-        assert!(
-            !vgms_core::vgm::io::is_gzipped(&vgm),
-            "a .vgm stays uncompressed"
-        );
-        let reparsed = vgms_core::io::read_song("01 New.vgm", &vgm).unwrap();
-        assert_eq!(
-            reparsed
-                .vgm_meta()
-                .unwrap()
-                .tag
-                .as_ref()
-                .unwrap()
-                .track_name_en,
-            "Renamed Track"
-        );
-
-        // A .vgz name gzips the same bytes.
-        let vgz = retagged_bytes(&song, "01 New.vgz", new_tag).unwrap();
-        assert!(vgms_core::vgm::io::is_gzipped(&vgz), "a .vgz is gzipped");
-        assert_eq!(
-            vgms_core::io::read_song("01 New.vgz", &vgz).unwrap().name,
-            "01 New.vgz"
-        );
     }
 
     #[test]

@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 
 use crate::Gd3Tag;
 use crate::error::{Error, Result};
-use crate::song::{OplType, Song};
+use crate::song::OplType;
 use crate::vgm::VgmFile;
 
 /// The system name a fresh PC pack defaults to.
@@ -108,30 +108,6 @@ pub struct TrackEntry {
 }
 
 impl TrackEntry {
-    /// Derives an entry from a loaded song and its file name.
-    ///
-    /// The title is the GD3 English track name, falling back to the file name's
-    /// stem (minus any `NN ` prefix) when there is no tag. Timings come from the
-    /// command stream, so they stay correct after trimming.
-    #[must_use]
-    pub fn from_song(song: &Song, file_name: &str) -> Self {
-        let title = song
-            .vgm_meta()
-            .and_then(|meta| meta.tag.as_ref())
-            .map(|tag| tag.track_name_en.trim())
-            .filter(|name| !name.is_empty())
-            .map_or_else(|| title_from_filename(file_name).to_owned(), str::to_owned);
-        let plays = song
-            .vgm_meta()
-            .map_or(1, |meta| vgm_play_count(meta.loop_base, meta.loop_modifier));
-        Self {
-            title,
-            total_samples: u64::from(song.total_delay_samples()),
-            loop_samples: song.loop_num_samples().map(u64::from),
-            plays,
-        }
-    }
-
     /// Derives an entry from a VGM whose commands this app cannot decode.
     ///
     /// The timings come from the header rather than from the stream, which is
@@ -1374,10 +1350,8 @@ fn split_authors(text: &str) -> impl Iterator<Item = String> + '_ {
 mod tests {
     use super::*;
     use crate::Gd3Tag;
-    use crate::io;
 
     const FIXTURE: &str = include_str!("../../../tests/description_vgm151_PC.txt");
-    const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 
     /// A PNG header (signature + IHDR) with the given shape. Only the first 26
     /// bytes matter to [`PngInfo::parse`], so the rest of the file is elided.
@@ -1963,29 +1937,6 @@ mod tests {
     #[test]
     fn rejects_unrelated_text() {
         assert!(parse_description("just some\r\nrandom text\r\n").is_err());
-    }
-
-    #[test]
-    fn track_entry_from_song_prefers_gd3_then_falls_back_to_filename() {
-        // The VGM fixture carries no GD3 tag, so the title falls back to the stem.
-        let song = io::read_song("01 Fallback Title.vgm", VGM_FIXTURE).unwrap();
-        let entry = TrackEntry::from_song(&song, "01 Fallback Title.vgm");
-        assert_eq!(entry.title, "Fallback Title");
-        assert_eq!(entry.total_samples, u64::from(song.total_delay_samples()));
-        assert_eq!(entry.loop_samples, song.loop_num_samples().map(u64::from));
-
-        // With a GD3 English track name, that wins.
-        let mut tagged = io::read_song("01 Fallback Title.vgm", VGM_FIXTURE).unwrap();
-        if let Some(meta) = tagged.vgm_meta_mut() {
-            meta.tag = Some(Gd3Tag {
-                track_name_en: "Real Title".to_owned(),
-                ..Gd3Tag::default()
-            });
-        }
-        assert_eq!(
-            TrackEntry::from_song(&tagged, "01 Fallback Title.vgm").title,
-            "Real Title"
-        );
     }
 
     // -- submission readiness --------------------------------------------------
