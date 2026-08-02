@@ -43,7 +43,7 @@ How a core gets here, most preferred first — the policy is *avoid vendoring*:
    names the revision it matches.
 
    *Amended 2026-07-28.* This tier used to say C++ could not be consumed here;
-   `clang++` is now in the toolchain and `vgms-cores-ymfm` compiles C++ directly,
+   `clang++` is now in the toolchain and the provider crates compile C++ directly,
    so that only holds for `wasm32-unknown-unknown`, which has no C++ standard
    library. It also used to route libvgm here, on the grounds that compiling its
    BSD-tagged files drags in untagged framework headers. **That finding stands

@@ -4777,15 +4777,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vgms-cores-ymfm"
-version = "0.1.0"
-dependencies = [
- "cc",
- "vgms-core",
- "vgms-synth",
-]
-
-[[package]]
 name = "vgms-pack-archive"
 version = "0.1.0"
 dependencies = [

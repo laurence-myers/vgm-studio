@@ -41,7 +41,6 @@ vgms-pack-archive = { path = "crates/vgms-pack-archive" }
 vgms-ui = { path = "crates/vgms-ui" }
 vgms-cores-nuked = { path = "crates/vgms-cores-nuked" }
 vgms-cores-gpl = { path = "crates/vgms-cores-gpl" }
-vgms-cores-ymfm = { path = "crates/vgms-cores-ymfm" }
 vgms-cores-libvgm = { path = "crates/vgms-cores-libvgm" }
 vgms-synth-worklet = { path = "crates/vgms-synth-worklet" }
 # The vgmtools optimisers. Desktop-only: it spawns child processes, so any
