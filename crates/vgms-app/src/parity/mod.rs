@@ -7,17 +7,14 @@
 //! offset, a wrong balance -- so ears are needed for the residual, not for
 //! everything.
 //!
-//! The full reasoning and the two regimes are in
-//! `docs/vgm-multichip-2026-07/PARITY-PLAN.md`. In short:
-//!
-//! - **Shared-core chips** (YM2612, YM2151, YM2413, OPL) run the same Nuked
-//!   upstream in the reference as they do here, so a mismatch is a *driver*
-//!   bug -- write pacing, routing, a variant flag -- and the bar is high.
-//! - **Clean-room chips** face a different implementation, so the comparison is
-//!   statistical and the bar is a frozen band rather than a near-identity.
-//! - **OPL is the control group.** Our OPL core is proven bit-identical to the
-//!   C the reference runs, so an end-to-end OPL comparison measures only this
-//!   pipeline. Until it scores near 1.0, the harness is what is broken.
+//! The full reasoning is in `docs/vgm-multichip-2026-07/PARITY-PLAN.md`. In
+//! short, every chip this harness bars is **shared-core**: it runs the same
+//! upstream emulator (pinned via VGMPlay.ini) in the reference as it does here,
+//! so a mismatch is a *driver* bug -- write pacing, routing, a variant flag --
+//! and the bar is a near-identity floor. **OPL is the control group**: our OPL
+//! core is proven bit-identical to the C the reference runs, so an end-to-end
+//! OPL comparison measures only this pipeline. Until it scores near 1.0, the
+//! harness is what is broken.
 
 pub mod metrics;
 pub mod reference;
@@ -302,20 +299,6 @@ pub fn compare(ours: &Render, reference: &Render, settings: Settings) -> Score {
     }
 }
 
-/// Which regime a chip's comparison falls into.
-///
-/// Not a detail: it decides what a number *means*. A correlation of 0.95 is a
-/// bug on the left and unremarkable on the right.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Regime {
-    /// The reference runs the same upstream core we do, so the two should agree
-    /// closely and a gap is a driver fault.
-    SharedCore,
-    /// The reference runs a different implementation, so differences are
-    /// expected and only *systematic* ones are faults.
-    CleanRoom,
-}
-
 /// What a chip has to score to pass.
 ///
 /// The bars are regression floors, not certificates: each sits just below its
@@ -323,21 +306,15 @@ pub enum Regime {
 /// ideal is an open investigation with a tripwire under it -- the reason is on
 /// the entry (`known_gap`) and in `parity/SCORECARD.md`. Raising a bar when its
 /// chip improves is expected; lowering one needs the same evidence that set it.
+///
+/// Every barred chip is shared-core (see the module docs), so a low score is
+/// always a driver or binding fault, never "implementations differ".
 #[derive(Debug)]
 pub struct Threshold {
     pub chip: ChipKind,
-    pub regime: Regime,
     pub min_correlation: f64,
     pub max_cents: f64,
     pub max_dropout: f64,
-    /// The envelope's mean relative error, where a bar has been measured.
-    ///
-    /// The metric that arbitrates chips whose waveform phase is
-    /// implementation-defined: VGMPlay's two HuC6280 cores score -0.19
-    /// against *each other* on correlation while agreeing to 0.96 on
-    /// envelope, so for that class of chip correlation certifies nothing and
-    /// this does.
-    pub max_envelope: Option<f64>,
     /// Set when a chip is knowingly incomplete or its bar sits below the
     /// ideal, and why. Printed, never silently skipped.
     pub known_gap: Option<&'static str>,
@@ -354,22 +331,18 @@ pub const THRESHOLDS: &[Threshold] = &[
     // SCORECARD.md, with the floor under the observed score.
     Threshold {
         chip: ChipKind::Ym2612,
-        regime: Regime::SharedCore,
         min_correlation: 0.88,
         max_cents: 2.0,
         max_dropout: 0.01,
-        max_envelope: None,
         known_gap: Some(
             "0.904 observed (n=12) against a shared core; the LLE oracle puts          Nuked-OPN2 at 0.985 against the 2612 die, so the gap to VGMPlay          lives in the reference player's driver, not our emulation",
         ),
     },
     Threshold {
         chip: ChipKind::Ym2413,
-        regime: Regime::SharedCore,
         min_correlation: 0.95,
         max_cents: 2.0,
         max_dropout: 0.01,
-        max_envelope: None,
         known_gap: Some(
             "0.977 observed (n=12) against a shared core; short of the 0.99              ideal, unexplained by the LFO or the resampler",
         ),
@@ -383,11 +356,9 @@ pub const THRESHOLDS: &[Threshold] = &[
 const fn shared(chip: ChipKind) -> Threshold {
     Threshold {
         chip,
-        regime: Regime::SharedCore,
         min_correlation: 0.99,
         max_cents: 2.0,
         max_dropout: 0.01,
-        max_envelope: None,
         known_gap: None,
     }
 }
@@ -416,23 +387,15 @@ mod tests {
                 entry.chip
             );
             assert!(entry.max_cents > 0.0 && entry.max_dropout >= 0.0);
-            // A shared-core chip runs *our* upstream on both sides, so its
-            // bar is near-identity -- or the entry says, on itself, why it is
-            // temporarily not. A silent discount is what this test forbids: a
-            // regression floor below the ideal must carry its reason, so the
-            // table cannot quietly become a list of tolerated bugs.
-            if entry.regime == Regime::SharedCore && entry.min_correlation < 0.99 {
+            // Every barred chip runs *our* upstream on both sides, so its bar is
+            // near-identity -- or the entry says, on itself, why it is temporarily
+            // not. A silent discount is what this test forbids: a regression floor
+            // below the ideal must carry its reason, so the table cannot quietly
+            // become a list of tolerated bugs.
+            if entry.min_correlation < 0.99 {
                 assert!(
                     entry.known_gap.is_some(),
-                    "{:?} shares a core and sits below the 0.99 ideal with no                      stated reason",
-                    entry.chip
-                );
-            }
-            // The same rule for a clean-room floor below the family's band.
-            if entry.regime == Regime::CleanRoom && entry.min_correlation < 0.55 {
-                assert!(
-                    entry.known_gap.is_some(),
-                    "{:?} sits below the clean-room band with no stated reason",
+                    "{:?} sits below the 0.99 ideal with no stated reason",
                     entry.chip
                 );
             }

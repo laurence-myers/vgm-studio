@@ -223,5 +223,6 @@ module-size budget with the app around it.
 - The clean-room cores are **deleted at ru-0** except K053260 and C140
   (CORES-REUSE-PLAN §6). Nothing here restores them; libvgm is what fills the
   gap they leave.
-- The scorecard remains the arbiter. No core takes a default it has not earned
-  against the frozen row it replaces.
+- The parity harness is the arbiter for the shared-lineage chips it still bars
+  (the scorecard's clean-room tiers were retired with those cores). No core
+  takes a default it has not earned against the row it replaces.

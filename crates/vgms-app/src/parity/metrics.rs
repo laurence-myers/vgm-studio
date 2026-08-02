@@ -18,7 +18,7 @@
 //!
 //! | Metric | Caught, or would have caught |
 //! |---|---|
-//! | [`cents_error`] | The AY's counter reloading a tick late -- every note flat by ~27 cents |
+//! | [`detune_cents`] | The AY's counter reloading a tick late -- every note flat by ~27 cents |
 //! | [`envelope`] comparison | The OKIM6295's untriggerable fourth voice; the OPN family's absent ADPCM |
 //! | [`silence_disagreement`] | The YM2203 rendering nothing at all |
 //! | [`dc_offset`] | The DC blockers' fixed point on the negative half |
@@ -296,90 +296,6 @@ pub fn silence_disagreement(ours: &[f64], reference: &[f64], floor: f64) -> (f64
         }
     }
     (phantom as f64 / n as f64, dropout as f64 / n as f64)
-}
-
-/// The dominant period of a window, in frames, by autocorrelation.
-///
-/// `None` for a window with no clear periodicity -- noise, silence, a
-/// transient. Callers measure pitch only on windows where *both* sides find
-/// one, so an unpitched passage is skipped rather than scored as a mismatch.
-#[must_use]
-pub fn dominant_period(samples: &[f64], min_period: usize, max_period: usize) -> Option<f64> {
-    let n = samples.len();
-    if n < max_period * 2 || min_period < 1 || min_period >= max_period {
-        return None;
-    }
-    let mean = samples.iter().sum::<f64>() / n as f64;
-    let centred: Vec<f64> = samples.iter().map(|s| s - mean).collect();
-    let energy: f64 = centred.iter().map(|s| s * s).sum();
-    if energy < 1e-9 {
-        return None;
-    }
-
-    // Normalised per lag by the terms actually summed. Without that, a longer
-    // period sums fewer products and scores lower for arithmetic reasons rather
-    // than musical ones -- which biases the answer in a way that is invisible
-    // until it is not.
-    let score_at = |period: usize| -> f64 {
-        let terms = n.saturating_sub(period);
-        if terms == 0 {
-            return 0.0;
-        }
-        let mut sum = 0.0;
-        for index in 0..terms {
-            sum += centred[index] * centred[index + period];
-        }
-        sum / (energy * terms as f64 / n as f64)
-    };
-
-    let mut scores: Vec<(usize, f64)> = (min_period..=max_period)
-        .map(|period| (period, score_at(period)))
-        .collect();
-    let peak = scores
-        .iter()
-        .map(|(_, score)| *score)
-        .fold(f64::MIN, f64::max);
-    // A weak peak means the window was not pitched -- noise, silence, a
-    // transient. Skipped rather than scored, since a pitch comparison of two
-    // unpitched windows is noise on both sides.
-    if peak < 0.3 {
-        return None;
-    }
-    // **The octave fix.** A periodic signal correlates just as well at twice
-    // and three times its period, so taking the maximum picks an arbitrary
-    // multiple -- and an octave error reads as a 1200-cent bug that is not
-    // there. The shortest period scoring near the peak is the fundamental.
-    scores.retain(|(_, score)| *score >= peak * 0.9);
-    let period = scores
-        .first()
-        .map(|(period, _)| *period)
-        .expect("the peak itself always qualifies");
-
-    // Parabolic interpolation around the integer peak, because a whole-frame
-    // period is far too coarse for cents: at 44100 Hz a 100-frame period is
-    // 441 Hz and 101 frames is 437 Hz, seventeen cents apart.
-    if period > min_period && period < max_period {
-        let (before, here, after) = (score_at(period - 1), score_at(period), score_at(period + 1));
-        let denominator = 2.0 * (2.0f64.mul_add(here, -before) - after);
-        if denominator.abs() > 1e-12 {
-            let shift = (after - before) / denominator;
-            if shift.abs() < 1.0 {
-                return Some(period as f64 + shift);
-            }
-        }
-    }
-    Some(period as f64)
-}
-
-/// The interval between two periods, in cents. Positive means `ours` is sharp.
-///
-/// Cents because that is the unit the audible threshold is known in: about five
-/// is the limit of most listeners' discrimination on a sustained tone, and the
-/// AY bug was twenty-seven.
-#[must_use]
-pub fn cents_error(our_period: f64, reference_period: f64) -> Option<f64> {
-    (our_period > 0.0 && reference_period > 0.0)
-        .then(|| 1200.0 * (reference_period / our_period).log2())
 }
 
 /// `samples` read back at `ratio` times the rate, linearly interpolated.
@@ -664,13 +580,6 @@ mod tests {
             (-30.0..-24.0).contains(&measured),
             "an off-by-one period measured {measured} cents"
         );
-    }
-
-    #[test]
-    fn an_unpitched_window_reports_no_period() {
-        // A constant is not pitched, and neither is silence.
-        assert!(dominant_period(&vec![0.5; 4000], 20, 800).is_none());
-        assert!(dominant_period(&vec![0.0; 4000], 20, 800).is_none());
     }
 
     /// **The metric that would have caught the missing OKI voice.** A part

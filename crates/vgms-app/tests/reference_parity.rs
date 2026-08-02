@@ -704,9 +704,8 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         // The sample size travels with the number: a small-sample median read as
         // a chip's score has misled this programme more than once.
         println!(
-            "{:<14} {:?}  corr {correlation:.4} (n={})  lvl {level:.3}  gain {gain:.3}  drop {dropout:.3}  cents {}{}",
+            "{:<14}  corr {correlation:.4} (n={})  lvl {level:.3}  gain {gain:.3}  drop {dropout:.3}  cents {}{}",
             chip.name(),
-            bar.regime,
             correlations.len(),
             detune.map_or_else(|| "  --".to_owned(), |c| format!("{c:+.1}")),
             bar.known_gap
