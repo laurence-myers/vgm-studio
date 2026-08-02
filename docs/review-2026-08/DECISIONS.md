@@ -1,498 +1,456 @@
-# Review remediation — decisions needed from the owner
+# Review remediation — decisions
 
-Date: 2026-08-02. Status: **OPEN — nothing here is settled.** Branch: `review-2026-08`.
+Date: 2026-08-02. Status: **ANSWERED by the owner**, except the five marked
+**OPEN** below. Branch: `review-2026-08`.
 
-Companion to [PLAN.md](PLAN.md). Every step in that plan is either something a
-competent implementer can just do, or it is blocked on one of the questions
-below. Nothing on this page has been guessed at in the plan.
+Companion to [PLAN.md](PLAN.md). This was a list of questions; it is now the
+record of what was decided and why. Five entries changed materially once
+researched — three of them reversed the recommendation this document originally
+carried. Those are marked **↺ REVERSED** so nobody re-derives the old answer
+from the old reasoning.
 
-Each entry gives the question, the concrete options, and a recommendation. If
-you agree with every recommendation, the shortest possible answer is *"take the
-recommendations"* and the whole programme unblocks. Where a recommendation
-would change bytes users ship, or change a legal posture, that is called out —
-those are the ones worth reading properly.
-
-The list is ordered by **when it blocks**, not by importance.
+**Still open, needing one more word from the owner:** D5, D11, D21, D22, and the
+D4/D11 tension noted under D4.
 
 ---
 
-## Answer before anything can be committed
+## Answered
 
-### D1 — What ceiling does gunzip get, and where is the amplification bounded?
+### D1 — gunzip ceiling · **ANSWERED: 256 MiB, identical on both targets**
 
-`.vgz` decompression has no size limit, on either of the two byte-identical
-readers (`vgm/io.rs:80`, `vgm/file.rs:698`). A ~1 MB file of compressed zeros
-expands to ~1 GB, and on the `vgm::file` path the command index multiplies that
-by roughly twelve (4 bytes in `offsets` plus 8 in `wait_prefix` per one-byte
-`0x00` command). On wasm32 that is a guaranteed abort of the whole module.
+A single cap, same number natively and on wasm32, so the "opens the same
+everywhere" property holds.
 
-- **(a)** One conservative cap shared by both targets.
-- **(b)** A per-target cap under `cfg(target_pointer_width)`.
-- **(c)** A generous byte cap **plus** a separate bound on the index build in
-  `VgmStream::parse`, which is where the 12× actually lands.
+> ⚠️ **This does not close the wasm32 case on its own, and the plan reflects
+> that.** The measured amplification on the `vgm::file` path is ~12 bytes of
+> index per decompressed byte in the worst case (`offsets` 4 + `wait_prefix` 8
+> per command, and a `0x00` byte decodes as a one-byte command). 256 MiB
+> decompressed therefore still implies ~3 GB of index against wasm32's 4 GiB
+> address space. The byte cap is necessary but not sufficient.
+>
+> **hf-3 therefore also bounds the command count in `VgmStream::parse`**, which
+> is where the amplification actually lands. That is not a new decision — it is
+> the second half of what the 256 MiB cap needs in order to mean anything on the
+> web. If you would rather have a single lower byte cap instead (~20 MiB would
+> bound the index without a second check), say so and hf-3 shrinks.
 
-**Recommendation: (c), with the byte cap identical on both targets (256 MiB).**
-Option (b) manufactures a file that opens natively and fails in the browser,
-which is precisely the divergence `crates/vgms-core/tests/wasm_roundtrip.rs`
-exists to prevent. The cap is a *refusal*, so it is the one number in Stage A a
-conservative guess is not free on — a legitimate oversized rip becomes
-unopenable.
+### D2 — loop-end preservation · **ANSWERED: (b), plus post-optimise validation**
 
-*Blocks: hf-3 (Stage A).*
+Thread a loop end through `rebuild` and the region edits. For `optimize`
+specifically, rather than exempting it: **validate after the pass** that the
+loop length is preserved — e.g. that merging delays still yields the same total
+play time. That is a stronger answer than the original recommendation, which
+simply let the optimiser widen the loop and documented it.
 
-### D2 — How far does loop-end preservation reach?
+Recorded as sw-1 plus a new sw-1b.
 
-Saving after almost any edit silently widens a deliberately-short loop
-(`vgm/file.rs:674`). The fix's scope is a real choice:
+### D3 — the `0x64` wait override · **ANSWERED: (B), and the evidence is decisive**
 
-- **(a)** The delete path only — ~20 lines, covers the reported repro.
-- **(b)** Thread a loop end through `rebuild` and all three region edits.
-- **(c)** Preserve the declared `loop_samples` count rather than a row index —
-  no signature changes, but a preserved count can miss a command boundary and
-  the next save widens it back anyway.
+Researched with references; the summary matters because it changes how much
+this is worth caring about.
 
-**Recommendation: (b) minus `optimize`.** Fix delete, crop and delete-region;
-let the optimiser widen the loop and say so in its doc comment. Giving
-`merge_stream_delays` a second merge barrier changes optimiser output bytes and
-can flip its "nothing to do" guard — a bad trade for a rare short loop end.
+| Question | Finding |
+|---|---|
+| Which spec? | **v1.70 only.** Absent from 1.50, 1.60, 1.61, and gone again in 1.71 beta and the current wiki (1.72 beta). |
+| The spec's own words | `0x64 cc nn nn : override length of 0x62/0x63` — followed by the author's bracketed note, *"Not yet implemented. Am I really sure about this?"* |
+| Reserved range? | **No.** The current spec gives `0x64` no defined length, so a conforming parser cannot even skip it. |
+| libvgm (the reference) | Classified **invalid**, not unknown — its own comment draws that distinction explicitly. `Cmd_invalid` sets `PLAYSTATE_END`: **playback stops.** |
+| Legacy VGMPlay | No `case 0x64`, and no `case 0x60` in the length switch either, so it hits `default: VGMEnd = true`. Playback stops. |
+| ymfm's vgmrender, vgm-converter | No handling. |
+| Real files | **0 occurrences in 73,400 corpus files**, via a proper stream walk (not a byte grep). Two subtrees (~15.5k files) did not finish and are excluded. |
 
-*Blocks: sw-1 (Stage C).*
+So this is a withdrawn proposal that no player implements, that the reference
+players treat as fatal, and that no real file uses. Resolution **(B)**: the
+engine stops honouring the override, and `command_wait` documents the
+divergence.
 
-### D3 — The `0x64` wait-override divergence
+Two consequences worth noting:
+- **The match-on-value bug disappears for free.** With the engine no longer
+  applying overrides, `wait_60hz`/`wait_50hz` are constants, so a literal
+  `0x61 DF 02` can no longer be remapped. No separate fix needed.
+- **`version.rs:100` is wrong** and should be corrected in the same step: it
+  maps `OverrideWait` to v1.50, but `0x64` was v1.70-only.
 
-`wait_prefix` ignores the `0x64` wait override that the playback engine
-honours, so the timeline, cursor, seeks and the audit's total-samples check all
-disagree with what actually plays.
+**Deliberately not doing:** removing `0x64` from the length table to match
+libvgm's "invalid" treatment. Decoding it costs nothing, and refusing it would
+turn an openable file into a failed open for zero real benefit.
 
-- **(A)** Honour the override in `VgmStream::parse`. Changes `total_samples`,
-  makes `audit()` newly report files that are currently clean, and drags the
-  `Song`/`VgmData` mirror along with it.
-- **(B)** Make the engine ignore the override and document the divergence at
-  `command_wait`. A five-line deletion; everything then agrees, and we
-  knowingly differ from VGMPlay on a command almost no rip uses.
+### D6 — the WASI shim gate · **ANSWERED, and the conflict is settled: OPL-only**
 
-**Recommendation: (B).** Model coherence is worth more here than fidelity to
-`0x64`. (A) also forces sw-1, sw-2, sw-3 and mg-4 to be rewritten against a
-moved baseline.
+The owner said the fixture is OPL-only. Verified independently by decoding
+`tests/e2e-pack.zip`: `01 Alpha.vgm` and `02 Beta.vgm` are both v1.51,
+**YM3812-only**. The reviewer who reported YM2203 was wrong.
 
-Either way, a separate bug gets fixed regardless: the engine currently matches
-on the *value* 735/882, so a literal `0x61 DF 02` wait is wrongly re-mapped by
-an active override.
+Consequences, all verified:
+- The wholly-OPL bypass always fires, so `__vgms_run_tool` is **never called by
+  any spec**. The vendored shim has **zero runtime coverage anywhere.**
+- CI copies neither `web/wasi-shim/` nor the `tool_*.wasm` into the e2e dist.
+- The CI smoke test uses Node's built-in `node:wasi`, **not** the vendored shim.
 
-*Blocks: sw-6 (Stage C), and constrains mg-4 (Stage I).*
+The owner's further instruction: **the wholly-OPL bypass should be removed**,
+as part of the OPL→VGM work rather than as a test fix.
 
-### D11 — The web-dist copy manifest
+Two corrections to where the bypass lives and what it does:
+- It is **not** in `vgms-web`. It is in the shared, target-independent
+  `crates/vgms-vgmtools/src/pipeline.rs:212`.
+- It gates on `VgmFile::is_opl`, **not** `is_opl_only`. `opl_type_of` recognises
+  only YM3812 and YMF262, so a **YM3526-only file already takes the tools
+  path.** (`VgmHeader::is_opl_only` accepts YM3526/Y8950 and has no production
+  callers at all.)
+- Removing it requires re-basing `compare_optimised`, which today asserts
+  `VgmFile::optimize()` equals the OPL optimiser byte-for-byte over 3,933
+  corpus files. Feeding `vgm_cmp` output in first would make that assertion
+  measure the C tool instead.
 
-`tools/build-web.ps1:61` copies all of `web/` into the servable dist, dragging
-27 MB of Playwright `node_modules` and stale `test-results` with it. The CI job
-at `rust.yaml:202` has its own drifted copy of the same list, and **that copy
-omits `web/wasi-shim/` entirely** — which is why the export specs would be red
-the first time that job runs, for reasons unrelated to any fix here.
+### D7 — trimming the permissive crates' API · **ANSWERED: yes, trim**
 
-- **(a)** Allowlist in each place (explicit and auditable; silently drops future
-  additions — the failure already live in CI).
-- **(b)** Denylist (`-Exclude e2e`; unreliable with `-Recurse`).
-- **(c)** One shared manifest consumed by both the build script and the CI job.
-
-**Recommendation: (c).** They are already two drifted copies of one list, and
-that drift is the bug. Whichever wins, `web/wasi-shim/` must travel as a
-*directory*, carrying its `LICENSE-MIT` and `LICENSE-APACHE`.
-
-*Blocks: ci-3 (Stage B), which in turn blocks most of Stage D's test hooks.*
-
-### (c) — `build.yaml` and the absent release workflow
-
-`check.yaml` runs on every push and fails on every push (it `pip install`s a
-requirements file deleted in `5e9ece7`). `build.yaml` is the same dead Python
-pipeline, escaping notice only because it is `workflow_dispatch`. Deleting both
-is uncontroversial — but it makes explicit that **the repo has no working
-release workflow at all**.
-
-**Recommendation: delete both now** (Stage B), and treat "do you want automated
-releases?" as the real question. If yes, a tag-triggered `release.yaml` running
-`cargo build --release` on windows-latest plus `tools/build-web.ps1`, uploading
-both artefacts, is about half a day. If no, say so in `DEVELOPMENT.md` so the
-gap reads as deliberate rather than as rot.
-
-*Blocks: nothing — but answer it while you are in that file.*
-
----
-
-## Answer before the middle of the programme
-
-### D4 — Vendored WASI shim: fork it or wrap it?
-
-**Correction to the review first:** the review said the shim's debug logger
-defaults to on. More precisely — `web/wasi-shim/debug.js` constructs the
-singleton **disabled**; it is the `WASI` *constructor* that turns it on when the
-`debug` option is absent, and `enable()` never updates `isEnabled`, so
-`debug.enabled` is permanently stale. The exposure is real; the fix site is not
-where the review said.
-
-- **(a)** Patch the vendored file in place — the next upgrade silently reverts it.
-- **(b)** Keep the vendor byte-identical; add `web/wasi-host.js` owning argv, fds
-  and `debug: false`.
-- **(c)** No code change; a grep-level test asserting every `new WASI(` passes
-  `debug: false`.
-
-**Recommendation: (b).**
-
-*Blocks: wb-6 (Stage D).*
-
-### D5 — The parity render cache: is the warm corpus worth preserving?
-
-Widening the cache key to include the pinned config, the extra args and the
-player identity invalidates the entire existing `VGMSTUDIO_PARITY_CACHE` —
-potentially hours of re-rendering across 72k files.
-
-- **(a)** Widen the key and eat one cold rebuild.
-- **(b)** A sidecar manifest recording what produced each WAV (keeps warm
-  entries; more code).
-- **(c)** Put the reference identity in the cache *directory* name.
-
-**Recommendation: always re-copy the staged player (mechanical, land it now)
-plus (c).** Only you know the state of that cache.
-
-Note for whoever lands this: the project memory's claim that the cache is keyed
-per `(file, rate, player, config)` is false, and should be corrected then.
-
-*Blocks: sn-2 (Stage E).*
-
-### D6 — Where does the shipped WASI host get gated?
-
-**Unresolved factual conflict — settle this first.** Two reviewers disagreed
-about whether any test exercises the shim today: one found the e2e pack fixture
-is `lsl3_score_up.vgm` (YM2203, so the wholly-OPL bypass does *not* apply and
-the tools really run); the other found the fixture is OPL-only, so
-`__vgms_run_tool` is never reached. **Check which is true before choosing** —
-it decides whether sn-6 is "strengthen an existing gate" or "build the first
-one."
-
-- **(a)** Browser e2e — needs a committed non-OPL fixture, a rewritten
-  `tests/e2e-pack.zip`, and the wasi-sdk cache plus pwsh build step imported
-  into the `web-e2e` job, roughly doubling its setup.
-- **(b)** Node — point `tools/web/vgmtools_smoke.mjs` at
-  `web/wasi-shim/index.js`. Near-zero cost, never proves the browser wiring.
-
-**Recommendation: (b) now, (a) as a tracked follow-up.**
-
-*Blocks: sn-6 (Stage E).*
-
-### D7 — May the permissive pair's public API be trimmed on in-tree evidence alone?
-
-`vgms-core` and `vgms-synth` are `MIT OR Apache-2.0` and meant to be reusable,
-so "no caller in this repo" is only "dead" if there is no downstream. Affected:
+This repo is the only consumer, so "no in-tree caller" is "no caller". Covers
 `TrackEntry::from_song`, `render_wav_muted(_with_progress)`, `Compression`,
-`VgmFile::unoptimised_chips`, and the eight-entry `wav.rs` render surface.
+`VgmFile::unoptimised_chips`, and shrinking the eight-entry `wav.rs` surface.
+Subsumes the original standing question (f).
 
-**Recommendation: yes, delete.** Neither crate is published to crates.io, so
-in-tree evidence is the whole story. Shrink `wav.rs` to the entry points that
-have callers and document the survivors as the intended library API. **If you
-intend to publish these crates, say so** — then they stay, with `#[deprecated]`
-aliases instead.
+### D8 — clean-room concepts · **ANSWERED: delete the whole concept**
 
-*Blocks: dd-2 (Stage F), and subsumes named decision (f).*
+`Regime`, `Threshold::regime`, `max_envelope`, the `shared()` const fn, the
+unreachable test branch, and the stale module doc that still describes two live
+regimes in the present tense.
 
-### D12 — Spelling policy for identifiers and UI strings
+### D9 — libvgm's licence · **ANSWERED: note it, assume GPL-2.0-or-later**
 
-The two spellings interleave *within one surface*: the Edit menu says "Optimize
-VGM" while the undo entry beside it says "Undo Optimise shot.png".
+Record in `licenses/README.md` that libvgm ships no explicit licence grant and
+is **assumed GPL-2.0-or-later**. Plus the two missing app-tier crates.
 
-- **(a)** US in identifiers **and** every user-visible string; British in
-  comments, logs and docs.
-- **(b)** British everywhere except Rust identifiers — which means the existing
-  "Optimize VGM" menu item and `strings.rs`'s "Optimized" change instead.
+### D10 — `TODO.md` · **ANSWERED: delete it**
 
-**Recommendation: (a).** It matches what the menus already say, so it changes
-the least user-visible text.
+### D12 — spelling · **ANSWERED: (a)**
 
-*Blocks: tm-1 (Stage G).*
+US in identifiers and every user-visible string; British stays in comments,
+logs and docs.
 
-### D13 — One corpus environment variable or two?
+### D13 — corpus variables · **↺ REVERSED · ANSWERED: one variable, the VGMRips corpus**
 
-Four test suites read `VGMSTUDIO_CORPUS`; four read `VGMSTUDIO_VGMRIPS_CORPUS`.
-Setting one silently skips half the suite.
+This document originally recommended keeping both, on the grounds that they name
+different trees. The owner's reasoning wins: **a single corpus is easier for
+other people to download and set up.** Keep `VGMSTUDIO_VGMRIPS_CORPUS`, repoint
+the four suites that read `VGMSTUDIO_CORPUS`, and keep the loud-skip half — a
+required-but-unset corpus must fail with the variable name, not `eprintln` and
+return.
 
-**Recommendation: keep both, documented, plus a loud skip.** They are not quite
-the same thing — the second names the VGMRips tree the chip index is built
-from, and collapsing them silently repoints the chip-selected suites at the
-wrong tree. Document both (and `VGMSTUDIO_CORPUS_LIMIT`) in `DEVELOPMENT.md`,
-and make a required-but-unset corpus **fail with the variable name** instead of
-`eprintln`-and-return. Say explicitly whether the two `vgms-vgmtools` suites
-come along — they cannot see `vgms-app`, so they stay split unless you accept a
-duplicated fallback.
+One consequence to handle: the two `vgms-vgmtools` suites cannot see
+`vgms-app`, so they need their own small fallback rather than
+`corpus::corpus_root()`.
 
-*Blocks: tm-4 (Stage G), and is a prerequisite for named decision (b).*
+### D14 — pack-zip builder home · **ANSWERED: (1)**
 
-### D14 — Where does the unified pack-zip builder live?
+Move `PackEntry`/`PackEntryKind` down into `vgms-pack-archive`, re-export from
+`vgms-ui`. The shared builder takes `Option<&dyn ImageOptimizer>`; the web
+supplies a null optimizer that logs its own browser-specific line.
 
-`vgms-pack-archive` cannot depend on `vgms-ui` (cycle), and `PackEntry` lives in
-`vgms-ui`.
+### D15 — `register_common_cores` host · **ANSWERED: (A)**
 
-- **(1)** Move `PackEntry`/`PackEntryKind` down into `vgms-pack-archive` and
-  re-export from `vgms-ui`.
-- **(2)** A portable entry type in the archive crate with `From` impls at both
-  call sites — one extra copy of every entry's bytes per export, and the
-  multi-megabyte case is exactly the one that matters.
-- **(3)** Leave the builder in `vgms-web` and have `vgms-app` depend on it.
+A new GPL-2.0-or-later `vgms-cores` crate. Signature must be
+`fn register_common_cores(&mut CoreRegistry)` — `install` is a process-global
+one-shot, so a comparison test needs a registry it can build without installing.
 
-**Recommendation: (1).** Also settle the null-optimizer wording: the shared
-builder should take `Option<&dyn ImageOptimizer>` and let the web supply a null
-optimizer that logs its own browser-specific line, so no browser sentence lands
-in a target-independent crate.
+### D16 — dialog registry · **↺ REVERSED · ANSWERED: no registry; close one real hole**
 
-*Blocks: fk-1 (Stage H).*
+The owner rejected the finding: modal dialogs prevent closing the song or pack,
+so the lockstep is not a correctness risk — just make sure the *modeless*
+dialogs are covered.
 
-### D15 — Which crate hosts `register_common_cores`?
+**Verified, and the owner is right about the classification.** Of the sixteen
+dialogs, exactly two are modeless — Find Register and Goto — and both are
+already safe:
+- `find_reg` is **already** cleared by `close_song_dialogs`.
+- `goto` holds nothing but a `String`; validation happens in the app against the
+  current song, so it is genuinely song-independent.
 
-- **(A)** A new GPL-2.0-or-later `vgms-cores` crate that both `vgms-app` and
-  `vgms-synth-worklet` depend on.
-- **(B)** Host it in `vgms-synth-worklet` and have `vgms-app` depend on that.
-- **(C)** Leave both copies; add a cross-checking test.
+**One hole the modality argument does not cover.** `handle_drops`
+(`app.rs:1349`, called unconditionally from `update_impl` at `:500`) reads
+`ctx.input(|i| i.raw.dropped_files)` — raw OS drop events that never pass
+through egui's interaction layer, so a `Modal` cannot block them. Dropping a
+`.vgm` while Find Loop is open swaps the song underneath it, and Apply then
+writes the old song's row indices into the new one.
 
-**Recommendation: (A)**, despite the three hand-maintained lists a new crate
-must join (`[workspace.dependencies]`, `licenses/README.md`, `rust.yaml`'s
-wasm-check line). (B) makes the desktop binary depend on the AudioWorklet
-crate, which exports `#[unsafe(no_mangle)] extern "C"` symbols and overrides
-`unsafe_code = "deny"`.
+**Resolution: gate drops while a modal is open** (with a status line), rather
+than adding dialog-closing lines. It closes the class instead of the two
+instances that exist today, and dropping a file into a modal is ambiguous UX
+regardless. The `LoopSearch` cancellation then becomes unnecessary, since the
+song can no longer change under a running search.
 
-Whichever wins, the signature must be `fn register_common_cores(&mut
-CoreRegistry)` — `install` is a process-global one-shot, so any comparison test
-needs a registry it can build without installing.
+st-1 is **dropped** from the plan; sw-5 shrinks to the drop gate.
 
-*Blocks: fk-2 (Stage H).*
+### D17 — dialog footer · **ANSWERED: a real Footer widget**
 
----
+One common basic footer offering Save or Close; anything richer (Find Loop's
+third button) supplies its own footer implementation. **Also fix DRO Info's
+label flipping** so its buttons sit where every other dialog puts them.
 
-## Answer before the late stages
+### D18 — `app.rs` visibility · **ANSWERED: (i) then (iii)**
 
-### D16 — Dialog registry shape
+`pub(super)` for the move; splitting `handle_action` follows as its own commit.
 
-- **(a)** A `macro_rules!` listing emitting the struct, `any_open()` and
-  `show_all()`, keeping named fields so all 68 call sites are untouched.
-- **(b)** A trait-object registry with a `Scope` enum — genuinely removes the
-  lockstep, rewrites all 68 sites.
-- **(c)** No registry; just add sw-5's two missing lines.
+### D19 — splitting `vgms-core::pack` · **ANSWERED: (b)**
 
-**Recommendation: (a), with two independent tag columns**
-(`closes_with_song`, `closes_with_pack`) and `goto` as a hand-written,
-documented exception — it survives a song load but closes on a tab switch, so
-it is neither. A single `song_bound()` flag would silently change dismissal
-behaviour that no test currently covers.
+`pub mod readiness;` with no re-export. Consistent with D7 — nothing downstream
+to break.
 
-*Blocks: st-1 (Stage J).*
+### D20 / (e) — one path per format · **REFINED · ANSWERED: shape (i-b), no fallback**
 
-### D17 — Dialog footer scaffold
+The owner's target: DRO opened by exactly one code path, VGM by exactly one,
+no fallback. Research found a cheaper route to it than either option offered
+here, because the original framing was wrong on one point:
 
-The ten `Cell<bool>` sites are five different shapes, so the saving is smaller
-than the review implied.
+**`SongData::Vgm` is not merely the legacy reader's output — it is the carrier
+type for the OPL projection.** `OplProjection::to_song` returns `Song::vgm(…)`,
+and the synth, analyser, waveform, pack preview and worklet all consume it. So
+"delete the OPL VGM reader" and "delete `SongData::Vgm`" are separable, and only
+the second is expensive (~108 call sites across 8 crates).
 
-- **(a)** Generic footer: `footer: impl FnOnce(&mut Ui) -> T`, scaffold returns
-  `(dismissed, T)`; each dialog declares a tiny button enum. **~40 lines saved,
-  not 150.**
-- **(b)** Scaffold owns Close plus one primary button and returns a
-  `FooterClick`. Nine sites lose their button code, but `dro_info`'s label
-  flipping and `find_loop`'s third button need escape hatches.
-- **(c)** Leave the `Cell`s; extract only the repeated comment into the
-  scaffold's rustdoc.
+**Shape (i-b), adopted:** delete `vgm::io::read`, make `read_song` DRO-only, and
+keep `SongData::Vgm` purely as the projection carrier — a view, not a document,
+which is what `editor.rs` already documents it as. That satisfies the target
+literally and leaves the projection port optional.
 
-**Recommendation: (a)** — and if the appetite for this is low, **(c) is a
-legitimate answer that costs nothing.**
+Supporting facts, each verified:
+- `vgm::io::read` has exactly **one** production caller (`read_song`).
+- `optimize::optimize` (the OPL optimiser) has **zero** production callers; it
+  survives only as a differential oracle.
+- The editor's VGM fallback is **already unreachable**: both readers call the
+  same `VgmHeader::parse`, after which `file::read` can only additionally fail
+  on a malformed GD3 — which `io::read` rejects too. It accepts a strict
+  superset. The fallback exists to serve DRO. **(e) is therefore free.**
+- Corpus, 16,466 files: 3,933 accepted by the old reader, **all agreeing
+  byte-for-byte**; 12,533 newly openable; **zero stop opening**.
 
-*Blocks: st-2 (Stage J).*
+**Rejected: converting DRO into the VGM model.** There is no `vgm_to_dro` and it
+cannot be written faithfully — DRO v2 carries a codemap and delay codes with no
+VGM representation, v1 carries register escaping, and DRO delays are
+milliseconds against VGM samples through a *stateful* carry (two identical 16 ms
+delays legitimately become 706 and 705 samples). Preserving byte-exactness would
+mean keeping the DRO container alongside the stream, i.e. rebuilding `Song`
+under another name.
 
-### D18 — `app.rs` method visibility after the split
+**Still required:** the acceptance widening is invisible to the corpus gate,
+because newly-openable files count as success. Take the delegation with the old
+gates re-imposed first, then remove each gate in its own revertable commit.
 
-Rust privacy is descendant-only, so the ~90 methods that move into `app::*`
-submodules become invisible to the 533-line `handle_action` that stays behind.
+### (a) — `vgms-cores-ymfm` · **ANSWERED: delete it**
 
-- **(i)** `pub(super)` on each — precise, but the diff stops reading as a pure
-  move.
-- **(ii)** `pub(crate)` — leaks 90 methods into the rest of `vgms-ui`.
-- **(iii)** Split `handle_action` itself so each submodule owns its arms behind
-  two or three entry points.
+### (b) — scheduled CI for the ignored suites · **ANSWERED: no**
 
-**Recommendation: (i) for the move, then (iii) as a separate follow-up commit.**
-Doing (iii) inside the move turns a mechanical relocation into a redesign of the
-dispatch, and this is already the riskiest step in the programme.
+Instead: fixture-scale non-ignored versions of the cheap gates, the loud skip
+from D13, and a `cargo test -- --ignored` pre-release checklist in
+`DEVELOPMENT.md` carrying the absolute-path warning.
 
-*Blocks: st-4 (Stage J).*
+### (c) — dead workflows · **ANSWERED: delete both; releases deferred**
 
-### D19 — Splitting a module in the permissive pair
-
-Splitting `vgms-core::pack` changes import paths for 24 call sites.
-
-- **(a)** Split with `pub use` back from `pack/mod.rs` — no break, but two
-  importable paths per item.
-- **(b)** `pub mod readiness;` with no re-export — clean tree, path break.
-- **(c)** Don't split; the finding's stated harm is the stale module doc, so
-  refresh the doc and leave 2,412 lines.
-
-**Recommendation: (b) if D7 concludes the crates are unpublished**, else (a).
-Also settle what `naming.rs` actually takes — the answer decides whether the
-re-export list is 9 names or 15.
-
-*Blocks: st-8 (Stage J).*
-
-### D20 — Does the OPL reader keep its own acceptance rules?
-
-Routing `vgm::io::read` through `vgm::file::read` is **not** behaviour-preserving
-in four places: the v1.51 version floor, the "Unsupported VGM command"
-rejection, the stream extent (`0x66` anywhere versus bounded by declared
-EOF/GD3 — a latent bug *fix*), and two `log::warn` paths.
-
-- **(A)** Pure delegation with widened acceptance; rewrite four rejection tests.
-- **(B)** Delegation with the old gates re-imposed after `file::read`.
-- **(C)** Skip `io.rs` entirely and repoint `io/mod.rs`.
-
-**Recommendation: (B) first**, then widen deliberately in a separate change
-with corpus evidence. `read_song` is public API, and the widening is **invisible
-to the corpus gate** — newly-openable files are counted as a success, so (A)
-would ship an unmeasured behaviour change through a test reporting green.
-
-*Blocks: mg-1 (Stage I).*
-
-### D21 — How does the Editor hold its `VgmFile`?
-
-Today `ensure_audio` on a large Mega Drive rip deep-clones the whole indexed
-stream on every edit-then-play, in six places.
-
-- Ownership: **(i)** cache an `Arc<VgmFile>` rebuilt in `bump_revision`, exactly
-  as `refresh_projection` already rebuilds the OPL projection; **(ii)**
-  `Option<Arc<VgmFile>>` + `Arc::make_mut`; **(iii)** dedup the match arms only
-  and keep cloning.
-- Type: reuse `vgms_synth::AudioSource`, or a new `vgms_ui::DocSource` that
-  `AudioSource` is built from.
-
-**Recommendation: (i) plus a new `vgms_ui::DocSource`** — `SplitSource`'s
-`rate`/`detect`/`can_preview` are UI-and-core knowledge that does not belong in
-the permissive synth crate.
-
-*Blocks: mg-5 (Stage I).*
-
-### D22 — Retiring the OPL state fold from the split path
-
-- **(A)** Route `SplitSource::Opl` to prefer `editor.vgm()` and narrow
-  `state_patch` to DRO. **This changes the bytes users submit to VGMRips** —
-  split pieces get a different prelude ordering and explicit zeros restored.
-- **(B)** Teach the generic prelude the OPL fold's ordering and zero-skip so the
-  two are byte-identical, then upgrade `compare_split` from state-equality to
-  byte-equality.
-- **(C)** Keep both stacks; fix the docs and mark `state_patch` DRO-only with a
-  pointer to `chip_state`.
-
-**Recommendation: (C) now, (B) as the real completion.** (A) is the
-migration-completing answer, but it silently changes exported bytes for a
-feature people use on real rips.
-
-*Blocks: mg-6 (Stage I).*
+Automated releases are **wanted but deferred**. Record that in
+`DEVELOPMENT.md` so the gap reads as deliberate rather than as rot.
 
 ---
 
-## Standing questions, not tied to one step
+## Open — needs one more word
 
-### (a) — `vgms-cores-ymfm`: delete or freeze?
+### D4 — the vendored WASI shim · **ANSWERED (b), but with a tension to resolve**
 
-Zero dependents; no `register()`; its C++ submodule is compiled by every
-`cargo test --workspace`; its lib.rs claims YM2608/YM2610/YMF278B/Y8950 coverage
-while `build.rs` compiles only `ymfm_opn.cpp`. `CORES-REUSE-PLAN.md` ru-2
-records a deliberate freeze — but nothing in the crate says so, which is why
-two independent reviewers flagged it for deletion. Note there is no
-`default-members` key today (`members = ["crates/*"]`), so "exclude it from
-default-members" means *adding* one.
+Adopted: keep the vendor byte-identical, add a `web/wasi-host.js` owning argv,
+fds and `debug: false`. The owner added: **avoid vendoring if possible.**
 
-**Recommendation: delete the crate.** The decision is preserved in
-`CORES-REUSE-PLAN.md` and in git. Keeping it costs workspace build time, a
-`licenses/README.md` row, a wasm-check line, and a permissive-crate exception in
-a provider table that exists to make a copyleft point.
+Two findings bear on that, and they pull in opposite directions:
 
-**If you disagree:** keep it, add a "frozen PoC — see CORES-REUSE-PLAN.md ru-2"
-note at the top of its `lib.rs`, drop the unused `vgms-core` dependency, and add
-a `default-members` key excluding it.
+1. **The case for de-vendoring is stronger than it looked.** The shim has
+   *zero* runtime coverage (D6): no spec reaches it, CI does not ship it, and
+   the smoke test uses `node:wasi` instead. Nothing would notice if it broke.
+2. **But de-vendoring means adding npm to the shipped dependency graph**, which
+   is currently **empty** — and that emptiness is the entire argument for the
+   D11 answer below. Taking `@bjorn3/browser_wasi_shim` as a real dependency
+   makes the bundler question live again.
 
-### (b) — Scheduled CI for the 17 `#[ignore]`d parity and corpus suites?
+**Options, pick one:**
+- **(i)** Keep it vendored, add the wrapper, and *give it a test* — point
+  `tools/web/vgmtools_smoke.mjs` at `web/wasi-shim/index.js` instead of
+  `node:wasi`. Near-zero cost, and it removes the "nothing would notice"
+  problem, which is the real defect.
+- **(ii)** De-vendor to an npm dependency, accepting a package manager in the
+  shipped graph and re-opening D11.
 
-They need a local 72k-file corpus and a licensed reference player, neither of
-which can live on a GitHub-hosted runner — and every one of them currently
-`eprintln`s and returns when its variable is unset, so a scheduled job would
-report green having compared nothing.
+**Recommendation: (i).** The exposure is the missing test, not the vendoring.
 
-**Recommendation: no scheduled job.** Instead: (i) land fixture-scale,
-non-ignored versions of the cheap gates so `cargo test --workspace` covers the
-*shape*; (ii) make a required-but-unset corpus fail loudly (D13); (iii) put a
-`cargo test -- --ignored` pre-release checklist in `DEVELOPMENT.md`, carrying
-the absolute-path warning (a relative `DROTRIM_REF_CONFIG` makes every row skip
-silently). Add a self-hosted runner only if you want the corpus gated
-continuously.
+### D5 — the parity harness · **↺ REVERSED · OPEN**
 
-### (d) — Move `vgms_app::parity` + `::corpus` to a dev-only crate?
+The owner proposed deleting the parity checks, reasoning that with clean-room
+cores gone we now compare libvgm to itself. **The evidence contradicts the
+premise**, so this is put back for a final call.
 
-2,215 lines plus the `hound` dependency are `pub` in the crate that builds the
-shipped GPL binary, consumed only by integration tests.
+- The `THRESHOLDS` table was already cut to six rows, **all shared-lineage, on
+  purpose**. Holding the emulator constant is the experimental *control*: it
+  turns every remaining difference into a readout of our binding, volume model,
+  balance, resampler and mixing.
+- **VGMPlay does not use our cores by default.** The pinned `VGMPlay.ini` forces
+  `Core = NUKE`; stock VGMPlay would use AdLibEmu for OPL and Genesis Plus GX
+  for YM2612. The pinning is why the numbers mean anything.
+- **Four catches after the clean-room cull (2026-07-29):** `852436c` AY8910
+  writes bypassing the IO-port latch ("every AY song rendered as digital
+  noise"); `c115d42` the core picker acting as a ~6 dB volume control;
+  `7191e73` the C352 ~4× too loud; `24c8138` RF5C68 RAM images misaddressed.
+- The C352 commit is the direct refutation: *"the ones that correlate at 1.0000
+  read `lvl` 4.0000 exactly."* Perfect correlation **proved** the core identical,
+  which is what made the level unambiguous.
+- **39 chips still sit at unmeasured `LEVEL_UNITY`**; the 9 measured ones each
+  carry an `n=12` provenance stamp from this harness. The C352 was an unmeasured
+  unity row until it turned out to clip.
+- Nothing else covers **multi-chip mixing** (every engine fixture declares one
+  chip) or **absolute per-chip level** (`every_core_for_a_chip_agrees_on_its_level`
+  bails when a chip has one core).
+- Cost figures were overstated: `hound` is a non-dev dependency of `vgms-synth`
+  regardless, so deleting parity does not remove it; and it is 8 ignored tests,
+  not 17.
 
-**Recommendation: yes — a new `vgms-parity` crate consumed as a
-`dev-dependency`.** Sequence it **after** sn-1/sn-2 and after D8's `Regime`
-deletion, so less code moves and content fixes travel with the `git mv` rather
-than needing to be re-anchored onto a moved file.
+**The cache instinct was right, though:** a cache keyed on name/size/rate but
+not on the config that selects the reference's cores can serve a WAV rendered
+under a different reference. Worse than no cache.
 
-### (e) — `editor.rs:153`: the `dro` slot's doc versus `Editor::load`'s fallback
+**Recommendation: keep the harness, delete the stale narrative.** Fix the three
+defects (sn-1/sn-2), delete the clean-room concept (D8), and correct
+`PARITY-PLAN.md` and `LIBVGM-PLAN.md:226` — the latter still says "the scorecard
+remains the arbiter", contradicting its own retirement header. That stale prose
+is very likely why the tool reads as dead weight. **Say the word if you still
+want it deleted and the plan will stage that instead.**
 
-The field says it holds only DROs; the load fallback can put a legacy-read VGM
-there.
+*(This also gates standing question (d): if parity is deleted there is no
+`vgms-parity` crate to create.)*
 
-**Recommendation: keep the fallback and re-document.** It is the only rescue
-path for a VGM that `vgm::file::read` rejects but the legacy OPL reader accepts
-— refusing it turns a degraded open into a failed open. Rename the field to
-`legacy_opl`, document both ways it fills, and add a test pinning what a save
-does in that state (that is where an OPL-projected VGM can silently lose its VGM
-identity). **Sequence after D20**, whose resolution may remove the fallback's
-reason to exist.
+### D11 — the web-dist manifest · **REFINED · OPEN**
 
-### D8 — `Regime::CleanRoom` and the parity `Threshold` fields
+The owner asked whether a separate Node project consuming the Rust crates would
+be cleaner. **Investigated; the answer is no, and there is a better fix than any
+of the three options originally offered.**
 
-- Delete just the variant (leaves a one-variant enum and a trivially-true
-  guard), delete the whole regime concept, or keep it documented as reserved.
+Why a bundler does not fit:
+- Every runtime asset is named by a **Rust string constant** (`WORKER_URL`, the
+  worklet processor path, `cjk-font.otf`) or a literal inside worker code. There
+  is no `new Worker(new URL(…), import.meta.url)` anywhere — the Workers are
+  built from Rust via `web-sys`. Vite's worker support keys off exactly that
+  form, so it would see an empty module graph.
+- **Asset hashing, the main production benefit, would break the app** by
+  renaming files the Rust constants still point at.
+- The shipped JS has **zero** npm dependencies; the only `package.json` is
+  Playwright's, test-only.
+- Nothing publishes `target/web-dist`, and the e2e server sets
+  `Cache-Control: no-store`, so hashing and minification currently buy nothing.
+- `worklet-processor.js` must stay an opaque classic script — it hand-rolls
+  UTF-8 because `AudioWorkletGlobalScope` has no `TextEncoder`, and CI asserts
+  the worklet wasm imports nothing.
 
-**Recommendation: delete the whole concept** — `Regime`, `Threshold::regime`,
-`max_envelope`, the `shared()` const fn and the dead test branch. The clean-room
-cores have no survivors, so the concept has no future referent.
+**Proposed instead — option (D): make the manifest stop existing.**
+`web/` currently means two incompatible things, "files the browser gets" and
+"the test harness". Move `web/e2e/` out to `web-e2e/`, and the copy becomes
+correct by construction. Then have CI **call `tools/build-web.ps1`** instead of
+re-implementing it — proven feasible, since `rust.yaml:132` already runs
+`shell: pwsh` on Ubuntu for the sibling script.
 
-### D9 — `licenses/README.md` and libvgm's absent licence grant
+That CI duplication is already broken: `rust.yaml:195` hand-copies four files
+under a comment reading "Same steps as tools/build-web.ps1, but Linux-native",
+and omits `web/wasi-shim/`, which `pack_worker.js:18` imports at top level.
 
-- **(a)** Add the libvgm row carrying its Cargo.toml caveat verbatim **and**
-  caveat the claim that the distributed binary is GPL-2.0-or-later.
-- **(b)** Add the row with the caveat; leave that claim alone.
-- **(c)** Hold the docs fix until LIBVGM-PLAN lv-0 resolves.
+Cost: ~half a day. `build-web.ps1` embeds Windows path separators in five places
+that need normalising, and wants a `-SkipWasiTools` switch.
 
-**Recommendation: (b) now**, plus the two missing app-tier crates. **(a) is a
-legal-posture change you should make knowingly, not as a side effect of a docs
-sweep.**
+**Free win found on the way:** `wasm-bindgen-cli` does not run `wasm-opt`, so
+the app module ships at 12.7 MB unoptimised. Four lines and a binaryen
+prerequisite typically takes 20–40% off.
 
-### D10 — What is `TODO.md` for?
+**The trigger that would flip this:** the first real npm dependency in the
+*shipped* graph. Note D4 option (ii) would be exactly that.
 
-It currently holds four overlapping "Any-chip VGM support" entries, one of which
-describes a world that no longer exists.
+**Confirm option (D)** and the plan adopts it.
 
-**Recommendation: treat it as a dated log** and add a superseded-by note
-pointing at `docs/vgm-multichip-2026-07/`. Rewriting it in the past tense
-falsifies a record; deleting it loses the history.
+### D21 — Editor `VgmFile` ownership · **REFINED · OPEN**
+
+Measured, not estimated. A `VgmFile` clone copies the command index as well as
+the body — `offsets` at 4 bytes/command plus `wait_prefix` at 8 — so a 4 MiB
+command-dense rip is **20 MiB and ~8 ms per clone**. An edit-then-play pays two,
+and because the source is built *before* the debounce, **holding Delete pays a
+full clone per keystroke** and discards all but the last.
+
+- **(i) cache an `Arc<VgmFile>` rebuilt in `bump_revision` — recommended.** It
+  is cheaper than its own precedent: for an OPL VGM, `refresh_projection`
+  already runs `to_song()` unconditionally at **21.9 ms**, three times the
+  6.9 ms clone. Consider making it lazy; the reason the projection is eager
+  (`Editor::song` hands out a plain reference) does not apply to a by-value doc
+  handle.
+- **(ii) `Arc::make_mut` — worse than today.** `after_edit` only *pauses* audio,
+  so the audio service holds its `Arc` for the rest of the session after the
+  first Play. The strong count is permanently ≥2, so `make_mut` deep-copies on
+  every edit — inside the keystroke handler rather than the debounced
+  submission, making edit latency depend on invisible state.
+- **(iii) dedup only** — zero risk, keeps every clone.
+
+**Home for the shared type: `vgms-core`. ↺ This reverses the original
+recommendation of `vgms_ui::DocSource`**, which was wrong — `vgms-ui` is
+**GPL-2.0-or-later**, and `vgms-synth`'s public API takes `AudioSource`
+regardless, so you would end up with two types again. Three of `SplitSource`'s
+four methods (`rate`, `detect`, `stem_and_extension`) are `vgms-core` knowledge;
+only `can_preview` is UI policy and stays in the UI.
+
+**Confirm (i) + (iii) with the type in `vgms-core`.**
+
+### D22 — the OPL state fold · **↺ REVERSED · OPEN**
+
+This document recommended (C) — keep both stacks — and warned that routing the
+split path to the VGM stack "silently changes the bytes users submit to
+VGMRips". **That warning was wrong in the direction that matters.**
+
+- **The prelude difference is a permutation and is inaudible.** The prelude
+  carries **no delay between any write**, so the chip advances zero samples
+  across it and only the final latch state is observable — exactly what
+  `compare_split` pins. (The test comment claiming the generic path restores
+  explicit zeros the OPL fold skips is **stale**; both emit them.)
+- **The audible difference runs the other way, and the current OPL path is the
+  one with the bug.** `materialise` synthesises a fresh v1.51 header and
+  re-derives clocks from hard-coded constants (`OPL2 = 3_579_545`,
+  `OPL3 = 14_318_180`). A rip declaring a non-canonical clock comes out of Split
+  Songs **at a different pitch and tempo** in any player honouring the header,
+  and loses its rate, volume modifier and loop base. The VGM stack preserves the
+  source header.
+- **The two paths already disagree.** `replace_stream` checks
+  `self.vgm.is_some()` first, so **Crop already uses the VGM stack** for an OPL
+  VGM, while `split_source` asks `snapshot()` first and gets the OPL projection.
+  Split is the outlier, not a guarantee.
+
+**Revised recommendation: route Split Songs to prefer the VGM stack — invert one
+match at `app.rs:4242`.** It is a bug fix, it matches Crop, and it reaches "one
+path per format".
+
+Two things that will bite:
+- `can_preview()` returns `matches!(self, Opl(_))` and gates the Preview button,
+  so OPL VGMs would lose it unless that becomes `capabilities().renderable` —
+  the more honest predicate anyway.
+- `opl_state.rs`/`state_patch.rs` **cannot retire** while DRO editing exists:
+  `append_patch`'s DRO v1 bank-switch emission has no VGM analogue.
+
+**Byte-identity is not safely achievable**, so do not hold out for it. Sorting
+the generic prelude by register address matches OPL but breaks banked chips —
+HuC6280 register 0 selects the channel, likewise RF5C68 and the MultiPCM bank
+port. Source order is the only generally-correct order.
+
+**Confirm the reversal.**
 
 ---
 
 ## Settled without asking
 
-Recorded so the plan does not look like it skipped them. Each had one
-defensible answer:
-
 | Question | Answer taken |
 |---|---|
-| Where the shared gunzip helper lives | A new `vgm/gzip.rs`, not `io.rs` — it survives the later io.rs unification |
-| `hf-1`'s `bits_in > 32` clause | Documentation only; `BitReader::read` already refuses `> 32`, so only `bits_out` can crash |
-| `hf-7`'s fuzzing tool | No cargo-fuzz (needs nightly; the toolchain is pinned stable by policy). Check the hostile payloads in as a table-driven corpus instead |
+| Where the shared gunzip helper lives | A new `vgm/gzip.rs`, not `io.rs` — survives the later io.rs deletion |
+| `hf-1`'s `bits_in > 32` clause | Documentation only; `BitReader::read` already refuses `> 32` |
+| `hf-7`'s fuzzing tool | No cargo-fuzz (needs nightly; toolchain pinned stable). A table-driven hostile-payload corpus instead |
 | `sw-3`'s second call site | Fix both; the step was incomplete, not undecided |
-| `sw-7`'s "shared Unicode helper" | Not achievable (`vgms-pack-archive` deliberately has no such dependency) and not needed — making the collision check unconditional removes the branch |
-| `Compression` | Remove the re-export *and* privatise the enum; the half-fix leaves it importable by module path |
-| `Device::port_name` | Delete accessor, field and the `with_io` parameter — an unused field fails `clippy -D warnings`, so the cheap option does not compile |
-| `st-4`'s module layout | Non-`mod.rs` (`src/app.rs` head + `src/app/*.rs`). The `mod.rs` form breaks the `#[path]` gui-tests mount |
-| `vgms-vgmtools`'s lint block | Delete it and inherit `[lints] workspace = true` — it exists solely to flip `unsafe_code` for an `ffi.rs` the crate does not have |
-| `mg-7` | Rename, do not fold — folding needs a `VgmStream` where only a `Song` exists |
+| `sw-7`'s "shared Unicode helper" | Not achievable and not needed — an unconditional collision check removes the branch |
+| `Compression` | Remove the re-export *and* privatise the enum |
+| `Device::port_name` | Delete accessor, field and the `with_io` parameter — an unused field fails `clippy -D warnings` |
+| `st-4`'s module layout | Non-`mod.rs` (`src/app.rs` + `src/app/*.rs`); the `mod.rs` form breaks the `#[path]` mount |
+| `vgms-vgmtools`'s lint block | Delete it, inherit `[lints] workspace = true` |
+| `mg-7` | Rename, do not fold |
+| `0x64`'s length table entry | Keep decoding it; refusing it would fail an openable file for no benefit |
