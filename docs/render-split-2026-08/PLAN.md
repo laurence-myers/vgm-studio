@@ -210,17 +210,53 @@ table code.
 Stage 0 is independent and lands first; 1→2→3 are ordered; Stage 4 is a
 separately-decided follow-up programme (render split does **not** wait on it).
 
-### Stage 0 — quick win: VGM renders honor the toggles (rs-0)
+### Stage 0 — render controls (rs-0, rc-1, rc-2)
 
-The GUI Render-to-WAV arm for generic VGMs currently drops everything but
-boost (`tasks.rs` `WavSource::Vgm` → `render_vgm_wav_cancellable`), even
-though `render_vgm_wav_mixed_cancellable` + `VgmRenderMix` exist (reached only
-by the split today). Carry a `VgmRenderMix` through `TaskRequest::RenderWav`,
-un-hide the toggle/pan rows in the render dialog for generic VGMs, extend the
-web codec (`vgms-web/src/codec.rs`) — the one place a shape crosses a wire —
-and regenerate the `render_wav_dialog` kittest snapshot. Fully independent of
-the gate; delivers user value on the libvgm default cores immediately and
-exercises the codec change in isolation.
+All three steps are independent of the gate and land first.
+
+- **rs-0 — mix opt-ins for generic VGMs.** The GUI Render-to-WAV arm for
+  generic VGMs currently drops everything but boost (`tasks.rs`
+  `WavSource::Vgm` → `render_vgm_wav_cancellable`), even though
+  `render_vgm_wav_mixed_cancellable` + `VgmRenderMix` exist (reached only by
+  the split today). The OPL render dialog already has the right shape —
+  independent "Channel toggles" / "Channel panning" / "Boost" opt-ins (+ "All
+  of the above") — so rs-0 extends that exact trio to generic documents:
+  each opt-in disabled means its neutral value (`ChipMuting`/`ChipPanning`
+  neutral, boost 1.0), so the all-off default stays the faithful,
+  byte-identical render. Carry a `VgmRenderMix` through
+  `TaskRequest::RenderWav`, un-hide the toggle/pan rows, extend the web codec
+  (`vgms-web/src/codec.rs`) — the one place a shape crosses a wire — and
+  regenerate the `render_wav_dialog` kittest snapshot.
+- **rc-1 — per-render core choice, plumbing.** Renders and splits get their
+  own core selection, independent of the process-wide Settings choices
+  (`CHOICES` in registry.rs, persisted to vgmstudio.ini — untouched by this
+  feature). Mechanism: a `CoreChoices` map (slot slug → core short-name)
+  carried by the render/split requests; a registry helper
+  (`CoreRegistry::build_with(&choices, kind)`) resolves via `resolve_choice`
+  — the *offline* resolution, so non-realtime LLE cores are legitimate picks
+  for a render even though the transport cannot play them (that asymmetry is
+  the point of the feature) — and applies `Leveled` (and, after pm-3,
+  `GatedCore`) uniformly, so a per-render core is indistinguishable from a
+  Settings-chosen one below the registry. The engine seam already exists:
+  `VgmEngine::with_cores` takes a core factory (`vgm_engine.rs:212`); the
+  render/split entry points in `wav.rs`/`split.rs` grow an optional choices
+  parameter that builds the engine through it (absent ⇒ today's behavior).
+  The OPL arm honors the same picker via `build_opl(choice, rate)` +
+  `PlayerEngine::with_chip` — a small, named OPL special case that Stage 4
+  dissolves with the rest.
+- **rc-2 — per-render core choice, surfaces.** Render-to-WAV and Split
+  dialogs get a per-slot core picker: one row per chip slot present in the
+  document (the Settings core-picker rows are the template), seeded from the
+  current Settings choices, session-sticky like other dialog state, never
+  written to vgmstudio.ini. The Split dialog also gains the pan/boost
+  opt-ins from rs-0 plus a "skip muted channels" option (see decision 9 —
+  the split owns its solo masks, so "muting" for a split means excluding
+  channels the user has muted from the output set). CLI: a repeatable
+  `--core <slot>=<name>` flag on `render` and `split` (the CLI has no live
+  panel, so the toggle opt-ins stay GUI-only; `-b/--boost` already exists).
+  Web: the choices map rides the task-request codec, which also insulates
+  the worker module from any registry-choice drift between wasm instances.
+  Kittest snapshots for both dialogs regenerate.
 
 ### Stage 1 — ChannelGate (pm-1, pm-2)
 
@@ -254,10 +290,13 @@ exercises the codec change in isolation.
   parity harness): per chip, render each channel (a) native-mute-soloed vs
   (b) gate-soloed **with mask-forwarding disabled** (test-only constructor —
   otherwise the libvgm core underneath is also native-muted and the
-  comparison is vacuous). Expect small legitimate deviations (gating changes
-  state evolution; native mute only masks output) — compare RMS/peak with
-  tolerances, not bytes. This harness is the only meaningful validation the
-  exotic tables get (§1.3) and is a prerequisite for rs-2's table build-out.
+  comparison is vacuous). The harness builds both arms through rc-1's
+  explicit-choices builder (`build_with`) so it pins the exact cores under
+  test instead of whatever Settings holds. Expect small legitimate deviations
+  (gating changes state evolution; native mute only masks output) — compare
+  RMS/peak with tolerances, not bytes. This harness is the only meaningful
+  validation the exotic tables get (§1.3) and is a prerequisite for rs-2's
+  table build-out.
   Byte-parity guard: neutral mask ⇒ byte-identical render (render_regression
   fixtures unchanged in this stage).
 
@@ -268,7 +307,9 @@ exercises the codec change in isolation.
   for chip instances whose resolved *offline* core has neither native mute
   nor a gate table, instead of silently writing N identical full-mix files
   (the split renders through the offline core choice, which `mute_capable`'s
-  realtime resolution does not govern). Naming unchanged.
+  realtime resolution does not govern — and when an rc-1 per-render choices
+  map is supplied, the guard evaluates against *that* map, not the Settings
+  resolution). Naming unchanged.
 - **rs-2**: song-format split for generic VGMs — a stream filter (`SongGate`)
   layered on `ChannelGate`, replaying the command stream per (chip, instance,
   channel) solo with the mask fixed before replay (no edges, no replay
@@ -405,6 +446,10 @@ with a go/no-go decision, and stages 0-3 do not depend on it. Scope:
    per-channel VGM re-renders ≈ the corresponding WAV-split channel.
 5. UI kittest snapshots regenerated where dialogs/toggles change (Stage 0,
    pm-4, ou-4); add a GUI test pinning the *enabled* toggles.
+   Stage-0 additions: the `CoreChoices` map and the three mix opt-ins
+   round-trip the web task codec; a render with all opt-ins off and no core
+   override stays byte-identical to today's; a render with a core override
+   ignores and does not mutate the Settings choices.
 6. Pinned tests that must keep passing: channels_of rosters,
    mute-mask-survives-seek (both engines), switching-service forwarding,
    worklet smoke. Pinned test deliberately rewritten in ou-1:
@@ -428,6 +473,18 @@ with a go/no-go decision, and stages 0-3 do not depend on it. Scope:
    drives tests.
 7. **Song split refuses per-chip** where no table exists (honest, incremental
    coverage) rather than waiting for a complete table set.
+8. **Per-render core choices are one-shot** — seeded from Settings,
+   session-sticky in the dialogs, never persisted to vgmstudio.ini, and
+   resolved through the *offline* rule so non-realtime LLE cores are valid
+   render picks. Playback and its Settings are never disturbed by a render's
+   choices.
+9. **Mix opt-ins are three independent toggles, all-off = faithful** —
+   muting/panning/boost each individually enabled, mirroring the existing
+   OPL dialog; disabled means the neutral value, keeping the default render
+   byte-identical. For the *split*, "muting" means **skip muted channels**
+   (the split owns its per-channel solo masks; the user's live toggles,
+   when enabled, exclude muted channels from the output set), while pan and
+   boost apply to the rendered stems exactly as in a whole-song render.
 
 ---
 
