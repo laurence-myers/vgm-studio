@@ -16,6 +16,7 @@ use crate::song::dro_data::v1_opcode;
 use crate::song::{DroDataV1, DroDataV2, Instruction, Song, SongData};
 use crate::state_patch::{StateFold, append_patch};
 use crate::util::VGM_SAMPLE_RATE;
+#[cfg(test)]
 use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
 use crate::vgm::stream::VgmCommand;
@@ -299,14 +300,8 @@ fn append_state_prelude(bytes: &mut Vec<u8>, song: &Song, start: usize) {
 fn append_delay(bytes: &mut Vec<u8>, song: &Song, native: u32) {
     match song.data() {
         SongData::Vgm(_) => {
-            // `0x61 nn nn` waits up to 65535 samples; chunk anything longer.
-            let mut samples = native;
-            while samples > 0 {
-                let chunk = samples.min(0xFFFF);
-                bytes.push(command::WAIT);
-                bytes.extend_from_slice(&(chunk as u16).to_le_bytes());
-                samples -= chunk;
-            }
+            // `0x61 nn nn` waits up to 65535 samples; the shared helper chunks it.
+            crate::vgm::data::append_wait(bytes, u64::from(native));
         }
         SongData::V1(_) => {
             // `0x01 lo hi` waits (word + 1) ms, up to 65536; chunk longer waits.

@@ -135,18 +135,6 @@ fn region_bytes(
     (bytes, prelude_len, report)
 }
 
-/// Appends a wait of `samples`, chunked into as many `0x61 nn nn` commands as
-/// it takes (one waits at most 65535 samples).
-fn append_wait(bytes: &mut Vec<u8>, samples: u32) {
-    let mut left = samples;
-    while left > 0 {
-        let chunk = left.min(u32::from(u16::MAX));
-        bytes.push(0x61);
-        bytes.extend_from_slice(&(chunk as u16).to_le_bytes());
-        left -= chunk;
-    }
-}
-
 /// A VGM file for any chip, with its tags editable and its music left alone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VgmFile {
@@ -461,7 +449,7 @@ impl VgmFile {
             return None;
         }
         let (mut bytes, _prelude_len, report) = region_bytes(stream, start, end, state_replay);
-        append_wait(&mut bytes, tail_samples);
+        crate::vgm::data::append_wait(&mut bytes, u64::from(tail_samples));
         bytes.push(END_OF_DATA);
 
         let mut piece = self.clone();

@@ -404,16 +404,9 @@ fn encode_wait(samples: u64) -> (Vec<u8>, usize) {
         })
         .expect("the empty tail is always a candidate");
 
+    // The bulk goes in `0x61` chunks (the shared emitter), then the chosen tail.
     let mut out = Vec::new();
-    let mut commands = 0usize;
-    let mut remaining = samples - tail_value;
-    while remaining > 0 {
-        let chunk = remaining.min(MAX_WAIT);
-        out.push(command::WAIT);
-        out.extend_from_slice(&(chunk as u16).to_le_bytes());
-        remaining -= chunk;
-        commands += 1;
-    }
+    let mut commands = crate::vgm::data::append_wait(&mut out, samples - tail_value);
     out.extend_from_slice(tail_ops);
     commands += tail_ops.len();
     (out, commands)

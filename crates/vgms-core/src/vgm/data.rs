@@ -33,6 +33,27 @@ pub mod command {
     pub const SAMPLES_50TH: u32 = 882;
 }
 
+/// Appends `samples` as chunked `0x61 nn nn` waits (each up to 65535 samples),
+/// returning how many commands were written.
+///
+/// The one place the "emit a wait, capped at 65535, as many times as it takes"
+/// loop lives: the crop tail, the song splitter, and the optimiser's bulk chunks
+/// all call it. A zero wait writes nothing -- the DRO->VGM converter, which must
+/// keep a zero-length delay in the stream for byte-exactness, emits its own
+/// single `0x61 0000` instead.
+pub(crate) fn append_wait(bytes: &mut Vec<u8>, samples: u64) -> usize {
+    let mut remaining = samples;
+    let mut commands = 0;
+    while remaining > 0 {
+        let chunk = remaining.min(u64::from(u16::MAX));
+        bytes.push(command::WAIT);
+        bytes.extend_from_slice(&(chunk as u16).to_le_bytes());
+        remaining -= chunk;
+        commands += 1;
+    }
+    commands
+}
+
 /// The VGM command stream, minus its `0x66` end marker.
 ///
 /// Commands are variable length, so a logical index needs a lookup table -- the

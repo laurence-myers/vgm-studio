@@ -9,7 +9,10 @@ use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
 use crate::vgm::{VgmData, VgmMeta};
 
-/// The longest wait a single `0x61` command can express.
+/// The longest wait a single `0x61` command can express. Only the test that a
+/// long delay spans several commands names it now; the chunking itself lives in
+/// [`vgm::data::append_wait`](crate::vgm::data).
+#[cfg(test)]
 const MAX_WAIT_SAMPLES: u64 = 0xFFFF;
 
 /// Milliseconds to samples, rounding the *running total* half up.
@@ -67,17 +70,11 @@ impl VgmStream {
     /// Emits `samples` as one or more `0x61` waits. A zero-sample wait still
     /// emits one command, so a delay never vanishes from the stream.
     fn wait(&mut self, samples: u64) {
-        let mut remaining = samples;
-        loop {
-            let chunk = remaining.min(MAX_WAIT_SAMPLES);
-            let chunk16 = u16::try_from(chunk).expect("clamped to 0xFFFF");
-            self.out.push(command::WAIT);
-            self.out.extend_from_slice(&chunk16.to_le_bytes());
+        if samples == 0 {
+            self.out.extend_from_slice(&[command::WAIT, 0, 0]);
             self.count += 1;
-            remaining -= chunk;
-            if remaining == 0 {
-                break;
-            }
+        } else {
+            self.count += crate::vgm::data::append_wait(&mut self.out, samples);
         }
     }
 
