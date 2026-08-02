@@ -262,4 +262,10 @@ impl AudioService for NativeAudioService {
     fn take_limited(&mut self) -> bool {
         self.audio.as_ref().is_some_and(NativeAudio::take_limited)
     }
+
+    fn last_error(&mut self) -> Option<String> {
+        // A device fault (unplugged mid-song) surfaces on cpal's error callback,
+        // away from any call the app made, so this is where it reaches the UI.
+        self.audio.as_mut().and_then(NativeAudio::take_error)
+    }
 }

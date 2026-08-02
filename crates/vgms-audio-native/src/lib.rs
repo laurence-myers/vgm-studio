@@ -12,8 +12,8 @@
 //! `PlayerEngine::render`.
 
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
@@ -84,6 +84,14 @@ struct SharedState {
     /// polls is reported exactly once -- unlike `min_engaged_boost`, which is
     /// sticky and says nothing about *when* it last clipped.
     limited: AtomicBool,
+    /// Set when the stream has stopped for good (a device fault), so the
+    /// transport can leave "playing" instead of showing a frozen cursor.
+    /// Written only by cpal's error callback, never the data callback.
+    stopped: AtomicBool,
+    /// The first stream error, waiting to be shown once. Behind a `Mutex`, but
+    /// touched only by the error callback -- never the real-time data callback --
+    /// so the "nothing locks in the audio path" promise holds.
+    error: Mutex<Option<String>>,
 }
 
 /// An open output stream playing one song.
@@ -344,10 +352,16 @@ impl NativeAudio {
             .map(|peak| peak.swap(0, Ordering::Relaxed) as f32 / 32_768.0)
     }
 
-    /// Whether the song has played to the end.
+    /// Whether the song has played to the end, or the stream stopped on a fault.
     #[must_use]
     pub fn is_finished(&self) -> bool {
-        self.shared.finished.load(Ordering::Relaxed)
+        self.shared.finished.load(Ordering::Relaxed) || self.shared.stopped.load(Ordering::Relaxed)
+    }
+
+    /// Takes the stream's first error, if it hit one (a device unplugged
+    /// mid-song, say). Reported once.
+    pub fn take_error(&mut self) -> Option<String> {
+        self.shared.error.lock().ok()?.take()
     }
 
     /// Whether the limiter engaged since the last call: a clip happened, and the
@@ -496,6 +510,8 @@ where
 {
     // Pre-sized so the real-time callback never allocates on its first run.
     let mut scratch: Vec<i16> = vec![0; scratch_frames * 2];
+    // A second handle for the error callback (the data callback moves `shared`).
+    let error_shared = Arc::clone(&shared);
     device.build_output_stream(
         *config,
         move |out: &mut [T], _: &cpal::OutputCallbackInfo| {
@@ -558,9 +574,22 @@ where
                 .finished
                 .store(engine.is_finished(), Ordering::Relaxed);
         },
-        |error| log::error!("audio output stream error: {error}"),
+        move |error| record_stream_error(&error_shared, error.to_string()),
         None,
     )
+}
+
+/// Records a stream error into the shared state: the first error wins, and the
+/// `stopped` flag lets the transport leave "playing". Extracted so it is testable
+/// without opening a device. Runs on cpal's error callback -- a separate callback
+/// from the real-time data one -- so taking the lock here does not break the
+/// "nothing locks in the audio path" promise.
+fn record_stream_error(shared: &SharedState, message: String) {
+    log::error!("audio output stream error: {message}");
+    if let Ok(mut slot) = shared.error.lock() {
+        slot.get_or_insert(message);
+    }
+    shared.stopped.store(true, Ordering::Relaxed);
 }
 
 /// A generous scratch pre-size for the host-default buffer path, where the exact
@@ -647,6 +676,27 @@ mod tests {
         let eof = bytes.len();
         put(&mut bytes, 0x04, (eof - 4) as u32);
         Arc::new(vgms_core::vgm::file::read("t.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    #[test]
+    fn a_stream_error_is_recorded_once_and_marks_the_stream_stopped() {
+        let shared = SharedState::default();
+        record_stream_error(&shared, "device unplugged".to_owned());
+        record_stream_error(&shared, "a later error".to_owned());
+
+        assert!(
+            shared.stopped.load(Ordering::Relaxed),
+            "the transport can leave the playing state"
+        );
+        // First error wins, reported exactly once.
+        assert_eq!(
+            shared.error.lock().unwrap().take().as_deref(),
+            Some("device unplugged")
+        );
+        assert!(
+            shared.error.lock().unwrap().is_none(),
+            "the error is taken only once"
+        );
     }
 
     /// The `Engine::Vgm` arm forwards chip muting to its voices; the wrapper's
