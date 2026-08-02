@@ -25,6 +25,8 @@ vgms-vgmtools.workspace = true
 # Reads the reference player's WAV output for the parity harness.
 hound.workspace = true
 vgms-ui.workspace = true
+# The shared release-zip builder; the app supplies the native oxipng + tools passes.
+vgms-pack-archive.workspace = true
 anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true

@@ -29,14 +29,15 @@ e2e = ["vgms-ui/e2e"]
 vgms-core.workspace = true
 vgms-synth.workspace = true
 vgms-ui.workspace = true
+# The shared release-zip builder; the web supplies its own browser PNG note.
+vgms-pack-archive.workspace = true
 thiserror.workspace = true
 log.workspace = true
 
-# The pack-export zip builder (the wasm-portable half of vgms-app's pack_zip):
-# zip + gzip both build for wasm32. Inherited from the workspace so the
-# `deflate-flate2` + `rust_backend` pinning -- which keeps native and wasm .vgz
-# byte-identical -- lives in one place. Native too, so the builder's round-trip
-# tests run in `cargo test`.
+# `zip` for reading a built archive back in the pack tests; `flate2` for the
+# codec's own gzip. The builder's gzip now lives in `vgms-pack-archive`, but both
+# stay wasm-clean (the `deflate-flate2` + `rust_backend` pinning is in the
+# workspace manifest, keeping native and wasm .vgz byte-identical).
 zip.workspace = true
 flate2.workspace = true
 
