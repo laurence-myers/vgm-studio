@@ -160,9 +160,6 @@ pub struct VgmEngine {
     wraps_remaining: Option<u32>,
     /// Wraps done since the last seek, for the position readout.
     loops_done: u32,
-    /// What `0x62` and `0x63` wait for, which `0x64` can override.
-    wait_60hz: u32,
-    wait_50hz: u32,
     output_rate: u32,
     /// The channel mutes in force, kept so every reset (rewind, seek) can
     /// say them again -- a core's mask does not survive its own reset.
@@ -184,10 +181,6 @@ impl std::fmt::Debug for VgmEngine {
     }
 }
 
-/// `0x62`'s wait: one 60 Hz frame.
-const WAIT_60HZ: u32 = 735;
-/// `0x63`'s wait: one 50 Hz frame.
-const WAIT_50HZ: u32 = 882;
 
 impl VgmEngine {
     /// Builds an engine for `file`, rendering at `output_rate` Hz.
@@ -261,8 +254,6 @@ impl VgmEngine {
             loop_config: None,
             wraps_remaining: None,
             loops_done: 0,
-            wait_60hz: WAIT_60HZ,
-            wait_50hz: WAIT_50HZ,
             output_rate: output_rate.max(1),
             muting: ChipMuting::new(),
             panning: ChipPanning::new(),
@@ -371,8 +362,6 @@ impl VgmEngine {
         self.finished = false;
         self.frames_rendered = 0;
         self.restart_loop_count();
-        self.wait_60hz = WAIT_60HZ;
-        self.wait_50hz = WAIT_50HZ;
         // The resets above cleared every core's mutes and pans; restate them.
         self.apply_mix();
     }
@@ -576,13 +565,7 @@ impl VgmEngine {
                 self.write(target, addr, data);
                 0
             }
-            VgmCommand::Wait(samples) => match samples {
-                // The two fixed waits are the ones `0x64` can redefine; every
-                // other wait carries its own length.
-                WAIT_60HZ => self.wait_60hz,
-                WAIT_50HZ => self.wait_50hz,
-                other => other,
-            },
+            VgmCommand::Wait(samples) => samples,
             VgmCommand::DacWrite { wait } => {
                 // The YM2612 DAC fast path: play the next byte of the PCM bank
                 // -- a write to the DAC's sample port, `0x2A` -- then wait. The
@@ -620,13 +603,13 @@ impl VgmEngine {
                 0
             }
             VgmCommand::Raw { .. } => 0,
-            VgmCommand::OverrideWait { which, samples } => {
-                // `0x64 62|63 nnnn` redefines what the short waits mean.
-                match which {
-                    0x62 => self.wait_60hz = u32::from(samples),
-                    0x63 => self.wait_50hz = u32::from(samples),
-                    _ => {}
-                }
+            VgmCommand::OverrideWait { .. } => {
+                // `0x64` was a withdrawn v1.70 proposal -- its own author noted
+                // "Not yet implemented. Am I really sure about this?" -- gone by
+                // v1.71 and used by no real file; libvgm and legacy VGMPlay both
+                // classify it invalid and stop playback. We keep decoding the
+                // opcode so the file still opens, but ignore its effect: the short
+                // waits keep their fixed 735/882-sample lengths.
                 0
             }
         }
@@ -987,15 +970,17 @@ mod tests {
     }
 
     #[test]
-    fn the_short_waits_can_be_redefined() {
-        // `0x64 0x62 nnnn` redefines what a `0x62` waits for.
+    fn the_zero_64_wait_override_is_ignored() {
+        // `0x64 0x62 nnnn` was a withdrawn v1.70 proposal no player implements;
+        // the reference players treat it as invalid. The engine ignores it, so a
+        // later `0x62` still waits its fixed 735 samples, not the overridden 16.
         let file = vgm(
             &[(ChipKind::Sn76489, 3_579_545)],
             &[0x64, 0x62, 0x10, 0x00, 0x62, 0x66],
         );
         let mut engine = VgmEngine::new(file, 44_100);
         let mut out = vec![0i16; 2000];
-        assert_eq!(engine.render(&mut out), 16, "not 735");
+        assert_eq!(engine.render(&mut out), 735, "the override is ignored");
     }
 
     #[test]

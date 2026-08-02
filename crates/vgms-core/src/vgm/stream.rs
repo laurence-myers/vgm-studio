@@ -341,6 +341,11 @@ fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
 }
 
 /// How long `command` waits, in samples. Zero for anything that does not wait.
+///
+/// `0x64` (`OverrideWait`) falls under the zero arm: it is decoded so the file
+/// still opens, but its proposed redefinition of the `0x62`/`0x63` waits is
+/// ignored -- a withdrawn v1.70 idea no player implements, so those short waits
+/// keep their fixed lengths here and in the engine.
 const fn command_wait(command: &VgmCommand) -> u32 {
     match command {
         VgmCommand::Wait(samples) => *samples,

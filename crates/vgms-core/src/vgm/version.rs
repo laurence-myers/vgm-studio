@@ -108,7 +108,8 @@ fn commands_version(stream: &VgmStream) -> u32 {
             }
             // PCM RAM writes and the whole DAC stream engine arrived together.
             VgmCommand::PcmRamWrite { .. } | VgmCommand::DacStream { .. } => 0x0000_0160,
-            VgmCommand::OverrideWait { .. } => 0x0000_0150,
+            // `0x64` appeared only in the v1.70 spec (withdrawn by v1.71).
+            VgmCommand::OverrideWait { .. } => 0x0000_0170,
             // The opcodes whose own version is later than anything above.
             VgmCommand::Raw { opcode } => raw_opcode_version(opcode),
             _ => 0,
