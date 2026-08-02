@@ -43,6 +43,7 @@ vgms-cores-nuked = { path = "crates/vgms-cores-nuked" }
 vgms-cores-gpl = { path = "crates/vgms-cores-gpl" }
 vgms-cores-ymfm = { path = "crates/vgms-cores-ymfm" }
 vgms-cores-libvgm = { path = "crates/vgms-cores-libvgm" }
+vgms-synth-worklet = { path = "crates/vgms-synth-worklet" }
 # The vgmtools optimisers. Desktop-only: it spawns child processes, so any
 # crate that also builds for wasm must depend on it behind
 # `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`.
@@ -138,7 +139,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # Embeds the app icon into the vgmstudio.exe resource table so Windows Explorer
 # shows it. A build-dependency, consumed only under `cfg(windows)` (the
 # maintained `winres` fork). The window/taskbar icon is set at runtime from the
-# same `src/dt.ico`.
+# same `src/vgmstudio.ico`.
 winresource = "0.1"
 
 # `fork`/`timeout` are on by default and pull in process spawning (rusty-fork,

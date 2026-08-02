@@ -12,13 +12,12 @@ authors.workspace = true
 repository.workspace = true
 
 [dependencies]
-# Read and (in tests) write zips, in memory over a Cursor. `default-features =
-# false` + `deflate-flate2` keeps zip off the zlib-rs path, and the explicit
-# flate2 pin below fixes the backend to pure-Rust `rust_backend` so the crate
-# builds for wasm32 and stays byte-compatible with the native export -- the same
-# pair (and reasoning) the workspace uses for vgms-app/vgms-web.
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# Read and (in tests) write zips, in memory over a Cursor. Inherited from the
+# workspace so the `deflate-flate2` + `rust_backend` pinning that keeps zip off
+# the zlib-rs path -- and native and wasm VGZ output byte-identical -- lives in
+# exactly one place. See the workspace manifest for the full reasoning.
+zip.workspace = true
+flate2.workspace = true
 
 [lints]
 workspace = true

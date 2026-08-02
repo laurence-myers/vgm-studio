@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
 //! The vgmtools optimisers, callable on a buffer of VGM bytes.
 //!
 //! # Why this crate exists

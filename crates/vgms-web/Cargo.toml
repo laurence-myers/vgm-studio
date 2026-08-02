@@ -33,12 +33,12 @@ thiserror.workspace = true
 log.workspace = true
 
 # The pack-export zip builder (the wasm-portable half of vgms-app's pack_zip):
-# zip + gzip both build for wasm32. `default-features = false` keeps zip off the
-# `deflate-flate2-zlib-rs` path and flate2 on `rust_backend`, so native and wasm
-# produce byte-identical .vgz -- the same pins the workspace explains for
-# vgms-app. Native too, so the builder's round-trip tests run in `cargo test`.
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2"] }
-flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# zip + gzip both build for wasm32. Inherited from the workspace so the
+# `deflate-flate2` + `rust_backend` pinning -- which keeps native and wasm .vgz
+# byte-identical -- lives in one place. Native too, so the builder's round-trip
+# tests run in `cargo test`.
+zip.workspace = true
+flate2.workspace = true
 
 # The wasm app module: the DOM-facing platform services and the Worker entry. All
 # of this is `#[cfg(target_arch = "wasm32")]` in the source, so a native build (and
@@ -92,7 +92,7 @@ web-sys = { version = "0.3", features = [
 ] }
 # The Worker installs the same cores the worklet does before it runs a task, so
 # a VGM waveform/render builds real chip cores. Depended on as an rlib.
-vgms-synth-worklet = { path = "../vgms-synth-worklet" }
+vgms-synth-worklet.workspace = true
 # The optimise pipeline (order, OPL bypass, ROM-size guard, chip hold-backs) and
 # the shared run interpretation (`command_outcome`). On wasm this is pure Rust --
 # the tools themselves are wasm32-wasip1 command modules built by

@@ -37,13 +37,8 @@ flate2.workspace = true
 wasmi = "1.1"
 wasmi_wasi = "1.1"
 
-[lints.rust]
-# The tool entry points are `extern "C"`, and the temp-file plumbing around
-# them is safe Rust. Confined to `ffi.rs`, as in the provider crates.
-unsafe_code = "allow"
-missing_debug_implementations = "warn"
-unreachable_pub = "warn"
-unused_qualifications = "warn"
-
-[lints.clippy]
-all = { level = "warn", priority = -1 }
+[lints]
+# No FFI here after all -- the tools run as child processes (native) or wasip1
+# command modules (web), so the crate has no unsafe code and simply inherits the
+# workspace lints.
+workspace = true
