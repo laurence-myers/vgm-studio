@@ -320,6 +320,39 @@ fn goto_reads_hex_positions() {
     assert_eq!(harness.state().editor.selection.first(), Some(3));
 }
 
+/// A raw OS file drop never passes through egui's interaction layer, so a
+/// `Modal` cannot block it. While any dialog is open a drop must be refused, or
+/// the song would swap under the dialog and a later Apply would target the old
+/// song's rows in the new one (sw-5).
+#[test]
+fn a_file_drop_is_refused_while_a_dialog_is_open() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    let before = harness.state().editor.len();
+
+    // Open a dialog, then deliver a raw OS drop of a different song.
+    harness.state_mut().dialogs.goto = Some(crate::dialogs::GotoDialog::new());
+    harness.input_mut().dropped_files.push(egui::DroppedFile {
+        name: "other.vgm".to_owned(),
+        path: Some(PathBuf::from("C:/songs/other.vgm")),
+        ..Default::default()
+    });
+    harness.run();
+
+    assert_eq!(
+        harness.state().editor.len(),
+        before,
+        "the song must not change under an open dialog"
+    );
+    assert_eq!(
+        harness.state().status,
+        crate::strings::APP_STATUS_DROP_DIALOG_OPEN
+    );
+    assert!(
+        handles.files.borrow().opened_paths.is_empty(),
+        "the drop never reached the file service"
+    );
+}
+
 #[test]
 fn edit_menu_opens_goto_dialog_and_it_jumps_the_selection() {
     let (mut harness, _handles) = harness_with_song(&tone_song());

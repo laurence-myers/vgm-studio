@@ -1351,6 +1351,16 @@ impl VgmStudioApp {
         if dropped.is_empty() {
             return;
         }
+        // A modal dialog cannot block raw OS drop events -- they never pass
+        // through egui's interaction layer, so a `Modal` never sees them. A drop
+        // while any dialog is open would swap the song underneath it, and a later
+        // Apply (Find Loop, say) would write the old song's row indices into the
+        // new one. Refuse the drop with a status line instead of letting the
+        // document change out from under an open dialog.
+        if self.dialogs.any_open() {
+            self.status = crate::strings::APP_STATUS_DROP_DIALOG_OPEN.to_owned();
+            return;
+        }
         // Only single-file drops; say so rather than silently ignoring a
         // multi-drop.
         if dropped.len() > 1 {
