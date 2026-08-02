@@ -145,8 +145,12 @@ impl SerialOpl3Chip {
     /// 4. NEW goes off last if that is where the song wants it, by which point
     ///    bank 1 has been written.
     pub fn materialize(&mut self) {
-        let needs_bank_one = (0..=u8::MAX)
-            .any(|reg| reg != NEW_REGISTER && !is_key_register(reg) && self.differs(1, reg));
+        // Any bank-1 register needing a write forces NEW on first -- key
+        // registers included, since the chip ignores the whole array while NEW
+        // is clear, even a key-on. (The earlier `!is_key_register` term left a
+        // note living only in bank 1 deaf after a seek.)
+        let needs_bank_one =
+            (0..=u8::MAX).any(|reg| reg != NEW_REGISTER && self.differs(1, reg));
         if needs_bank_one && self.hw[1][usize::from(NEW_REGISTER)] != Some(0x01) {
             self.emit(1, NEW_REGISTER, 0x01);
         }
@@ -415,6 +419,29 @@ mod tests {
             .expect("NEW should be restored");
         assert!(new_on < target, "NEW must rise before bank-1 writes");
         assert!(target < new_off, "NEW must fall after them");
+    }
+
+    /// A note that lives only in bank 1 -- nothing else there differs -- still
+    /// needs NEW raised first, or the key-on is ignored (sw-12).
+    #[test]
+    fn materialise_raises_new_when_only_a_bank_one_key_register_differs() {
+        let mut chip = chip();
+        chip.materialize();
+        let _ = queued(&mut chip);
+
+        chip.write_reg(0x1B0, 0x31); // key-on, bank 1, NEW left clear
+        chip.materialize();
+
+        let writes = queued(&mut chip);
+        let new_on = writes
+            .iter()
+            .position(|&w| w == (Bank::One, NEW_REGISTER, 0x01))
+            .expect("NEW should be raised so the bank-1 key write is heard");
+        let key = writes
+            .iter()
+            .position(|&(bank, reg, _)| bank == Bank::One && reg == 0xB0)
+            .expect("the bank-1 key-on should land");
+        assert!(new_on < key, "NEW must rise before the bank-1 key write");
     }
 
     #[test]
