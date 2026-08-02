@@ -304,17 +304,21 @@ fn rename_in_place(from: &Path, to_name: &str) -> Result<(), String> {
     if dest == from {
         return Ok(());
     }
-    // A case-only rename ("01 intro" -> "01 Intro"): on NTFS `dest.exists()` is
-    // true (it *is* this file) and a direct rename won't update the stored case,
-    // so it must bounce through a temp name -- but it isn't a clobber.
-    let same_file_case_only = from
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case(to_name));
-    if same_file_case_only {
-        return rename_via_temp(from, &dest);
-    }
+    // The collision check is unconditional. If `dest` exists it is either the
+    // *same file* as `from` -- a case-only rename ("01 intro" -> "01 Intro") on a
+    // case-insensitive volume, which must bounce through a temp name so the stored
+    // case actually updates -- or a genuine clobber, which is refused (fs::rename
+    // would replace it silently on Windows). Telling the two apart by whether the
+    // paths resolve to the same object handles Unicode case folds an ASCII
+    // `eq_ignore_ascii_case` would have mistaken for a collision.
     if dest.exists() {
+        let same_file = fs::canonicalize(from)
+            .ok()
+            .zip(fs::canonicalize(&dest).ok())
+            .is_some_and(|(a, b)| a == b);
+        if same_file {
+            return rename_via_temp(from, &dest);
+        }
         return Err(format!("{to_name} already exists"));
     }
     fs::rename(from, &dest).map_err(|error| format!("{}: {error}", from.display()))
@@ -543,6 +547,27 @@ mod tests {
             "the on-disk name took the new case, got {names:?}"
         );
         assert_eq!(fs::read(dir.join("01 Intro.vgz")).unwrap(), b"song");
+    }
+
+    #[test]
+    fn a_unicode_case_only_rename_is_not_mistaken_for_a_clobber() {
+        // "café" -> "CAFÉ" differs only in Unicode case. An ASCII-only check would
+        // call this a distinct name and, on a case-insensitive volume, refuse the
+        // rename as a clobber. It must succeed.
+        let dir = temp_dir("rename-unicode-case");
+        let from = write_file(&dir, "café.vgz", b"song");
+        let mut service = NativeFileService::new();
+
+        service.rename(from, "CAFÉ.vgz".to_owned());
+        assert!(
+            service.poll_renamed().unwrap().is_ok(),
+            "a Unicode case-only rename must succeed"
+        );
+        assert_eq!(
+            fs::read(dir.join("CAFÉ.vgz")).unwrap(),
+            b"song",
+            "the file is reachable under the new case"
+        );
     }
 
     #[cfg(windows)]
