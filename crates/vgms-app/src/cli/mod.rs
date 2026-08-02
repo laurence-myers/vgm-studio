@@ -29,7 +29,7 @@ pub use console::attach_parent_console;
     // which is not what the user typed.
     name = "vgmstudio",
     version,
-    about = "Edit, play, render, split and optimise DRO and VGM songs.",
+    about = "Edit, play, render, split and optimize DRO and VGM songs.",
     after_help = "Run with no arguments (or with just a file) to open the GUI.",
     // `vgmstudio song.dro render` is a mistake, not a request to render; reject
     // it rather than half-parse it.

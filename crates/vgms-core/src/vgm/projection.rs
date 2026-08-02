@@ -436,7 +436,7 @@ mod tests {
     /// this, "optimise every chip" would quietly mean "optimise every chip
     /// differently".
     #[test]
-    fn the_generic_redundancy_engine_agrees_with_the_opl_optimiser() {
+    fn the_generic_redundancy_engine_agrees_with_the_opl_optimizer() {
         // A stream with repeats before and after a loop point, so both the
         // rule and the loop-reset are exercised.
         let commands: Vec<Vec<u8>> = vec![

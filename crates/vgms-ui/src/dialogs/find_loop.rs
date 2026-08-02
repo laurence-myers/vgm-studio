@@ -183,7 +183,7 @@ impl FindLoopDialog {
     fn on_search(&mut self, actions: &mut Vec<Action>) {
         self.candidates.clear();
         self.selected = None;
-        self.searching = true; // optimistic; the task service confirms it next frame
+        self.searching = true; // optimiztic; the task service confirms it next frame
         actions.push(Action::FindLoopSearch {
             min_len_commands: self.min_len_commands(),
         });
@@ -475,7 +475,7 @@ mod tests {
         );
         assert!(
             dialog.searching,
-            "the dialog shows the spinner optimistically"
+            "the dialog shows the spinner optimiztically"
         );
     }
 

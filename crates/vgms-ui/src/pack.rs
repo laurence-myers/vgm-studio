@@ -2635,7 +2635,7 @@ fn image_facts(
             .on_hover_text(crate::strings::PACK_RECOMPRESS_TIP)
             .clicked()
         {
-            actions.push(Action::OptimizeImage(index));
+            actions.push(Action::RecompressImage(index));
         }
         if bevel::button(ui, palette, "Replace\u{2026}")
             .on_hover_text(crate::strings::PACK_REPLACE_SCREENSHOT_TIP)
@@ -3391,7 +3391,7 @@ mod tests {
         let request = state.export_request();
         assert_eq!(request.zip_name, "Cool Game.zip");
         assert!(request.gzip_vgms);
-        assert!(request.optimize_vgms, "optimise-on-export defaults on");
+        assert!(request.optimize_vgms, "optimize-on-export defaults on");
         let names: Vec<&str> = request
             .entries
             .iter()

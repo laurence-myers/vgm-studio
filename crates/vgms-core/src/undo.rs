@@ -790,7 +790,7 @@ mod tests {
 
     /// A VGM with a redundant register write between two delays, so the optimiser
     /// has both a write to strip and a pair of delays to merge.
-    fn optimisable_vgm() -> Song {
+    fn optimizable_vgm() -> Song {
         use crate::vgm::VgmData;
         use crate::vgm::io::synthesise_header;
         let bytes = vec![
@@ -812,7 +812,7 @@ mod tests {
     #[test]
     fn optimize_vgm_applies_and_reverts_exactly() {
         use crate::optimize::optimize;
-        let original = optimisable_vgm();
+        let original = optimizable_vgm();
         let outcome = optimize(&original).expect("the fixture has a redundant write");
         let saved = outcome.bytes_saved;
         assert!(saved > 0);
@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn optimize_vgm_preserves_loop_markers_through_undo() {
         use crate::optimize::optimize;
-        let mut original = optimisable_vgm();
+        let mut original = optimizable_vgm();
         {
             let meta = original.vgm_meta_mut().unwrap();
             meta.loop_point = Some(0); // loop the whole song
@@ -864,7 +864,7 @@ mod tests {
     /// Every format, so the snapshot is exercised against a derived length (VGM)
     /// and a stored one (DRO), and against a v2's codemap.
     fn every_format() -> Vec<Song> {
-        vec![dro_song_v1(), dro_song_v2(), optimisable_vgm()]
+        vec![dro_song_v1(), dro_song_v2(), optimizable_vgm()]
     }
 
     #[test]
@@ -922,7 +922,7 @@ mod tests {
 
     #[test]
     fn replace_stream_restores_loop_markers() {
-        let mut original = optimisable_vgm();
+        let mut original = optimizable_vgm();
         original.vgm_meta_mut().unwrap().loop_point = Some(3);
         let outcome = crate::crop::delete_region(&original, 0, 2).expect("a real cut");
 

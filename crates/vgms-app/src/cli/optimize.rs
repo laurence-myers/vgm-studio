@@ -94,10 +94,10 @@ pub fn run(args: &Args) -> Result<()> {
         .extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("vgz"))
     {
-        let mut optimised = vgms_core::vgm::file::read(name, &result.bytes)
-            .context("re-reading the optimised song")?;
-        optimised.name = name.to_owned();
-        vgms_core::vgm::file::write_gzipped(&optimised).context("gzipping the optimised song")?
+        let mut optimized = vgms_core::vgm::file::read(name, &result.bytes)
+            .context("re-reading the optimized song")?;
+        optimized.name = name.to_owned();
+        vgms_core::vgm::file::write_gzipped(&optimized).context("gzipping the optimized song")?
     } else {
         result.bytes.clone()
     };
@@ -119,10 +119,10 @@ pub fn run(args: &Args) -> Result<()> {
 /// Per stage rather than one number, because "already optimal" and "that chip
 /// has no rules" and "the tool refused this file" are different answers and a
 /// single byte count cannot tell them apart.
-fn report(args: &Args, output: &Path, result: &vgms_vgmtools::Optimised, written: usize) {
+fn report(args: &Args, output: &Path, result: &vgms_vgmtools::Optimized, written: usize) {
     if result.changed() {
         println!(
-            "Optimised {} -> {}: {} -> {} bytes, {} saved ({written} bytes written)",
+            "Optimized {} -> {}: {} -> {} bytes, {} saved ({written} bytes written)",
             args.input.display(),
             output.display(),
             result.original_len,
@@ -163,7 +163,7 @@ fn report(args: &Args, output: &Path, result: &vgms_vgmtools::Optimised, written
 
 /// The chips in this file that `vgm_cmp` copies through untouched.
 fn passthrough_chips_in(bytes: &[u8]) -> Vec<&'static str> {
-    let Ok(file) = vgms_core::vgm::file::read("optimised.vgm", bytes) else {
+    let Ok(file) = vgms_core::vgm::file::read("optimized.vgm", bytes) else {
         return Vec::new();
     };
     file.header
@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn optimises_a_vgm_to_a_smaller_still_valid_file() {
+    fn optimizes_a_vgm_to_a_smaller_still_valid_file() {
         let input = temp_path("in.vgm");
         let output = temp_path("out.vgm");
         std::fs::write(&input, redundant_vgm_bytes()).unwrap();
@@ -225,13 +225,13 @@ mod tests {
 
         run(&args(&input, Some(output.clone()))).unwrap();
 
-        let optimised = std::fs::read(&output).unwrap();
+        let optimized = std::fs::read(&output).unwrap();
         assert!(
-            (optimised.len() as u64) < original_len,
-            "the optimised file should be smaller"
+            (optimized.len() as u64) < original_len,
+            "the optimized file should be smaller"
         );
         // Still a valid VGM, and now optimal (a second pass finds nothing).
-        let song = vgms_core::io::read_song("out.vgm", &optimised).unwrap();
+        let song = vgms_core::io::read_song("out.vgm", &optimized).unwrap();
         assert!(vgms_core::optimize::optimize(&song).is_none());
 
         std::fs::remove_file(&input).ok();

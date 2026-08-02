@@ -147,10 +147,10 @@ impl PackService for NativePackService {
         live.fetch_add(1, Ordering::Relaxed);
         thread::spawn(move || {
             let result = match oxipng::optimize_from_memory(&bytes, &png_options()) {
-                Ok(optimised) => Ok(OptimizedImage {
+                Ok(optimized) => Ok(OptimizedImage {
                     name,
                     original_len: bytes.len(),
-                    bytes: optimised,
+                    bytes: optimized,
                 }),
                 Err(error) => Err(format!("{name}: {error}")),
             };
@@ -267,7 +267,7 @@ mod tests {
             }
             assert!(
                 Instant::now() < deadline,
-                "timed out waiting for the optimiser"
+                "timed out waiting for the optimizer"
             );
             thread::sleep(Duration::from_millis(10));
         }

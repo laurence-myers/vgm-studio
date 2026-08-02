@@ -133,7 +133,7 @@ fn process_entry(
         // oxipng is native-only; the web keeps the PNG's bytes with a note.
         PackEntryKind::Image => {
             log.push(format!(
-                "{}: kept as-is (PNG optimisation is not available in this browser)",
+                "{}: kept as-is (PNG optimization is not available in this browser)",
                 entry.name
             ));
             (entry.name.clone(), entry.bytes.clone())
@@ -156,13 +156,13 @@ fn optimize_song(name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
     // gain -- in which case the original bytes (possibly a `.vgz`) pass through.
     match file.optimize() {
         Some(saved) => match vgms_core::vgm::file::write(&file) {
-            Ok(optimised) => {
+            Ok(optimized) => {
                 log.push(format!(
                     "{name}: {} -> {} bytes (optimized, {saved} saved)",
                     bytes.len(),
-                    optimised.len()
+                    optimized.len()
                 ));
-                optimised
+                optimized
             }
             Err(_) => {
                 log.push(format!("{name}: kept as-is (could not be written)"));
@@ -258,11 +258,11 @@ mod tests {
         assert_eq!(files[0].0, "01 Song.vgm");
         assert!(
             files[0].1.len() < original.len(),
-            "optimising should shrink the file"
+            "optimizing should shrink the file"
         );
         assert!(
             vgms_core::io::read_song("01 Song.vgm", &files[0].1).is_ok(),
-            "the optimised bytes are still a valid VGM"
+            "the optimized bytes are still a valid VGM"
         );
         assert!(
             output.log.iter().any(|line| line.contains("(optimized,")),
@@ -278,7 +278,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
-        assert_eq!(files[0].1, original, "optimise off means verbatim bytes");
+        assert_eq!(files[0].1, original, "optimize off means verbatim bytes");
     }
 
     #[test]

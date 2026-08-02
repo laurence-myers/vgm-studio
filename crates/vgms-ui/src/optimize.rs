@@ -22,7 +22,7 @@
 /// not shipped at all.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) const fn credit() -> &'static str {
-    "\nVGM optimisers (vgm_cmp, vgm_sro, optdac) from the vgmtools\n\
+    "\nVGM optimizers (vgm_cmp, vgm_sro, optdac) from the vgmtools\n\
      project, used under the GPL-2.0 and built into this binary.\n\
      Source: https://github.com/vgmrips/vgmtools\n"
 }
@@ -35,17 +35,17 @@ pub(crate) const fn credit() -> &'static str {
 
 /// The optimised file, or `None` when there was nothing to gain.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn optimised(bytes: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn optimized(bytes: &[u8]) -> Option<Vec<u8>> {
     let result = vgms_vgmtools::optimize_vgm(bytes, vgms_vgmtools::Options::default());
     for stage in &result.stages {
         match &stage.outcome {
             // Never fatal: the pass carried on from the bytes this stage was
             // handed, so the document is sound and the log is where this goes.
             vgms_vgmtools::StageOutcome::Failed(reason) => {
-                log::warn!("optimising: {} failed: {reason}", stage.name);
+                log::warn!("optimizing: {} failed: {reason}", stage.name);
             }
             vgms_vgmtools::StageOutcome::Skipped(reason) => {
-                log::debug!("optimising: {} skipped: {reason}", stage.name);
+                log::debug!("optimizing: {} skipped: {reason}", stage.name);
             }
             _ => {}
         }
@@ -55,8 +55,8 @@ pub(crate) fn optimised(bytes: &[u8]) -> Option<Vec<u8>> {
 
 /// The optimised file, or `None` when there was nothing to gain.
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn optimised(bytes: &[u8]) -> Option<Vec<u8>> {
-    let mut file = vgms_core::vgm::file::read("optimising.vgm", bytes).ok()?;
+pub(crate) fn optimized(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut file = vgms_core::vgm::file::read("optimizing.vgm", bytes).ok()?;
     file.optimize()?;
     vgms_core::vgm::file::write(&file).ok()
 }

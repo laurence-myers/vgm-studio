@@ -203,7 +203,7 @@ pub enum Action {
         delta: isize,
     },
     /// Losslessly recompress a screenshot and save it in place.
-    OptimizeImage(usize),
+    RecompressImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
     QuickEditSubmitted {
         original_name: String,

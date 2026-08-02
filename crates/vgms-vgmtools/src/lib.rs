@@ -96,7 +96,7 @@ impl ToolOutcome {
 // a child process on the desktop, a wasm module the host instantiates on the
 // web -- which is why [`optimize_vgm_with`] takes the runner as a parameter.
 pub use pipeline::{
-    Optimised, Options, Stage, StageOutcome, Tools, optimize_song_logged, optimize_vgm_with,
+    Optimized, Options, Stage, StageOutcome, Tools, optimize_song_logged, optimize_vgm_with,
     passthrough_chips,
 };
 
@@ -108,7 +108,7 @@ pub use pipeline::{
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn check_input(vgm: &[u8]) -> Result<(), String> {
     if vgm.len() >= 2 && vgm[0] == 0x1F && vgm[1] == 0x8B {
-        return Err("the bytes are gzip; unpack a .vgz before optimising it".to_owned());
+        return Err("the bytes are gzip; unpack a .vgz before optimizing it".to_owned());
     }
     check_output(vgm).map_err(|reason| format!("the bytes are {reason}"))
 }
@@ -141,7 +141,7 @@ mod native {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::exe::Tool;
-    use crate::{Optimised, Options, ToolOutcome, Tools, check_input, check_output, run};
+    use crate::{Optimized, Options, ToolOutcome, Tools, check_input, check_output, run};
 
     /// Drops chip writes that change nothing -- vgmtools' `vgm_cmp`.
     ///
@@ -197,7 +197,7 @@ mod native {
     /// [`optimize_vgm_with`](crate::optimize_vgm_with) with its own wasm-module
     /// runner instead.
     #[must_use]
-    pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimised {
+    pub fn optimize_vgm(vgm: &[u8], options: Options) -> Optimized {
         crate::optimize_vgm_with(vgm, options, &NativeTools)
     }
 

@@ -509,7 +509,7 @@ mod tests {
         let no_repeat = with_repeat(None);
         assert_eq!(
             repeated_key, no_repeat,
-            "a repeated key write re-attacked the note, so the optimiser is right to keep 0x28"
+            "a repeated key write re-attacked the note, so the optimizer is right to keep 0x28"
         );
 
         // The DAC port is a different matter: the chip is not in DAC mode here,

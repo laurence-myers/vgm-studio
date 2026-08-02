@@ -46,7 +46,7 @@ fn about_text() -> String {
     crate::strings::app_about_text(
         env!("CARGO_PKG_VERSION"),
         vgms_synth::credits_text(),
-        crate::optimise::credit(),
+        crate::optimize::credit(),
     )
 }
 
@@ -2082,7 +2082,7 @@ impl VgmStudioApp {
                 }
             }
             Action::PackMoveFocusedTrack { delta } => self.move_focused_pack_track(delta),
-            Action::OptimizeImage(index) => self.optimize_image(index),
+            Action::RecompressImage(index) => self.recompress_image(index),
             Action::QuickEditSubmitted {
                 original_name,
                 file_name,
@@ -3338,7 +3338,7 @@ impl VgmStudioApp {
     }
 
     /// Kicks off an explicit lossless recompression of a screenshot.
-    fn optimize_image(&mut self, index: usize) {
+    fn recompress_image(&mut self, index: usize) {
         if self.pack_busy() {
             return;
         }
@@ -3350,7 +3350,7 @@ impl VgmStudioApp {
         let Some(image) = image else {
             return;
         };
-        self.status = crate::strings::app_status_optimising(&image.name);
+        self.status = crate::strings::app_status_optimizing(&image.name);
         self.pack_service.optimize(image.name, image.bytes.to_vec());
     }
 
@@ -3373,13 +3373,13 @@ impl VgmStudioApp {
             self.status = crate::strings::app_status_no_path(&optimized.name);
             return;
         };
-        self.status = crate::strings::app_status_optimised_bytes(
+        self.status = crate::strings::app_status_optimized_bytes(
             &optimized.name,
             optimized.original_len,
             optimized.bytes.len(),
         );
         self.pending_pack_undo = Some(PackTransaction {
-            label: format!("Optimise {}", optimized.name),
+            label: format!("Optimize {}", optimized.name),
             forward: vec![PackMutation::Write {
                 path: path.clone(),
                 bytes: optimized.bytes.clone(),

@@ -154,7 +154,7 @@ pub struct Stage {
 
 /// The result of a whole pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Optimised {
+pub struct Optimized {
     /// The optimised file -- or the original bytes, unchanged, if no stage
     /// gained anything.
     pub bytes: Vec<u8>,
@@ -164,7 +164,7 @@ pub struct Optimised {
     pub original_len: usize,
 }
 
-impl Optimised {
+impl Optimized {
     /// Whether the file actually got smaller.
     #[must_use]
     pub fn changed(&self) -> bool {
@@ -202,7 +202,7 @@ impl Optimised {
 /// continues from the bytes it was handed, so the worst case is the original
 /// file back with an explanation.
 #[must_use]
-pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Optimised {
+pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Optimized {
     let original_len = vgm.len();
     let mut bytes = vgm.to_vec();
     let mut stages = Vec::new();
@@ -214,7 +214,7 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
         // see the module note.
         stages.push(Stage {
             name: "vgmtools",
-            outcome: StageOutcome::Skipped("an OPL file: the built-in optimiser covers it"),
+            outcome: StageOutcome::Skipped("an OPL file: the built-in optimizer covers it"),
         });
     } else {
         if options.dac_runs {
@@ -238,7 +238,7 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
 
     built_in(&mut bytes, &mut stages);
 
-    Optimised {
+    Optimized {
         bytes,
         stages,
         original_len,
@@ -312,7 +312,7 @@ pub fn optimize_song_logged(
         .collect();
     if !untouched.is_empty() {
         log.push(format!(
-            "{name}: {} not optimised yet -- their writes were all kept",
+            "{name}: {} not optimized yet -- their writes were all kept",
             untouched.join(", ")
         ));
     }
@@ -357,7 +357,7 @@ fn run_stage(
 /// delay re-encoder.
 fn built_in(bytes: &mut Vec<u8>, stages: &mut Vec<Stage>) {
     let before = bytes.len();
-    let outcome = match vgms_core::vgm::file::read("optimising.vgm", bytes) {
+    let outcome = match vgms_core::vgm::file::read("optimizing.vgm", bytes) {
         Err(error) => StageOutcome::Failed(format!("could not re-read the file: {error}")),
         Ok(mut file) => {
             if file.optimize().is_none() {
@@ -399,7 +399,7 @@ struct Facts {
 
 impl Facts {
     fn read(vgm: &[u8]) -> Self {
-        let Ok(file) = vgms_core::vgm::file::read("optimising.vgm", vgm) else {
+        let Ok(file) = vgms_core::vgm::file::read("optimizing.vgm", vgm) else {
             // Unreadable here does not mean unusable to the tools -- they have
             // their own reader. Let the stages try, but keep the hold-backs:
             // they exist to prevent a wrong answer, not to save work, and a

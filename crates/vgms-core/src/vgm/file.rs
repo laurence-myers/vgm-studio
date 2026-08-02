@@ -673,7 +673,7 @@ impl VgmFile {
     /// optimised yet" is a better answer than silence, and a much better one
     /// than a smaller file that plays wrong.
     #[must_use]
-    pub fn unoptimised_chips(&self) -> Vec<&'static str> {
+    pub fn unoptimized_chips(&self) -> Vec<&'static str> {
         self.header
             .chips()
             .iter()
@@ -1746,7 +1746,7 @@ mod tests {
     /// And when there *is* something to gain, both halves run: the repeated
     /// write goes, and the delays it separated are merged into one.
     #[test]
-    fn optimising_strips_a_write_and_merges_the_delays_it_separated() {
+    fn optimizing_strips_a_write_and_merges_the_delays_it_separated() {
         let mut bytes = vec![0u8; 0x100];
         bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
         put_u32(&mut bytes, offset::VERSION, 0x161);
@@ -1785,7 +1785,7 @@ mod tests {
     /// leaves adjacent preserves the play time, so the loop keeps its length
     /// rather than snapping to the full tail (sw-1, sw-1b).
     #[test]
-    fn optimising_preserves_a_deliberately_short_loop() {
+    fn optimizing_preserves_a_deliberately_short_loop() {
         let mut bytes = vec![0u8; 0x100];
         bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
         put_u32(&mut bytes, offset::VERSION, 0x161);

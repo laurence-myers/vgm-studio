@@ -3126,7 +3126,7 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
 
 /// A Mega Drive rip with a repeated write shrinks, undoably.
 #[test]
-fn a_non_opl_document_can_be_optimised() {
+fn a_non_opl_document_can_be_optimized() {
     use vgms_core::ChipKind;
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -3171,7 +3171,7 @@ fn a_non_opl_document_can_be_optimised() {
 /// thirty chips. This is the action reaching it.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn a_chip_the_built_in_pass_cannot_touch_is_optimised_in_the_editor() {
+fn a_chip_the_built_in_pass_cannot_touch_is_optimized_in_the_editor() {
     use vgms_core::ChipKind;
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -5625,7 +5625,7 @@ fn exporting_submits_a_job_and_saves_the_returned_zip() {
         let job = &pack.submitted[0];
         assert_eq!(job.zip_name, "Cool Game.zip");
         assert!(job.gzip_vgms);
-        assert!(job.optimize_vgms, "optimise-on-export defaults on");
+        assert!(job.optimize_vgms, "optimize-on-export defaults on");
         let names: Vec<&str> = job
             .entries
             .iter()
@@ -7233,7 +7233,7 @@ fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
     let state = harness.state();
     assert!(
         state.editor.len() < before,
-        "optimising should remove commands"
+        "optimizing should remove commands"
     );
     // The two redundant writes go, and the delays they separated merge into one.
     assert_eq!(state.editor.len(), before - 3);
@@ -7250,8 +7250,8 @@ fn optimize_undo_then_redo_restores_the_exact_bytes() {
     let original = harness.state().editor.song().unwrap().data().raw().to_vec();
 
     act(&mut harness, Action::OptimizeVgm);
-    let optimised = harness.state().editor.song().unwrap().data().raw().to_vec();
-    assert_ne!(optimised, original, "optimising should change the stream");
+    let optimized = harness.state().editor.song().unwrap().data().raw().to_vec();
+    assert_ne!(optimized, original, "optimizing should change the stream");
 
     act(&mut harness, Action::Undo);
     assert_eq!(
@@ -7263,8 +7263,8 @@ fn optimize_undo_then_redo_restores_the_exact_bytes() {
     act(&mut harness, Action::Redo);
     assert_eq!(
         harness.state().editor.song().unwrap().data().raw(),
-        optimised.as_slice(),
-        "redo must re-apply the optimisation exactly"
+        optimized.as_slice(),
+        "redo must re-apply the optimization exactly"
     );
 }
 
@@ -7322,7 +7322,7 @@ fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
         .vgm_meta()
         .unwrap()
         .loop_point
-        .expect("the loop survives optimisation");
+        .expect("the loop survives optimization");
     // The markers were re-derived from the song's remapped loop, so they agree.
     assert_eq!(state.editor.markers.start(), remapped);
     assert!(

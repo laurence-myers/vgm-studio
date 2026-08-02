@@ -583,8 +583,8 @@ impl Editor {
         let before_commands = file.len();
 
         let plain = vgms_core::vgm::file::write(file).ok()?;
-        let optimised = crate::optimise::optimised(&plain)?;
-        let mut edited = vgms_core::vgm::file::read(&file.name, &optimised).ok()?;
+        let optimized = crate::optimize::optimized(&plain)?;
+        let mut edited = vgms_core::vgm::file::read(&file.name, &optimized).ok()?;
         edited.name = file.name.clone();
 
         let saved = before_bytes.saturating_sub(edited.body.raw().len());

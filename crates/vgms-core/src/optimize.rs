@@ -544,7 +544,7 @@ mod tests {
     // -- the whole optimise pass -------------------------------------------
 
     #[test]
-    fn optimising_drops_a_redundant_write_and_merges_the_delays() {
+    fn optimizing_drops_a_redundant_write_and_merges_the_delays() {
         // write, delay 100, redundant write, delay 200, write.
         let bytes = [
             &low(0x20, 0x01)[..],
@@ -615,7 +615,7 @@ mod tests {
     }
 
     #[test]
-    fn optimising_is_idempotent() {
+    fn optimizing_is_idempotent() {
         let bytes = [
             &low(0x20, 0x01)[..],
             &[command::WAIT, 0x64, 0x00],
@@ -647,9 +647,9 @@ mod tests {
         .concat();
         let song = vgm(bytes, OplType::Opl2);
         let before = song.total_delay_samples();
-        let mut optimised = song.clone();
-        optimize(&song).unwrap().install(&mut optimised);
-        assert_eq!(optimised.total_delay_samples(), before);
+        let mut optimized = song.clone();
+        optimize(&song).unwrap().install(&mut optimized);
+        assert_eq!(optimized.total_delay_samples(), before);
     }
 
     // -- loop remapping ----------------------------------------------------
@@ -862,7 +862,7 @@ mod proptests {
         /// However the stream is stripped and merged, the total delay is conserved
         /// exactly and a second pass finds nothing left to do.
         #[test]
-        fn optimise_conserves_delay_and_is_idempotent(bytes in random_stream()) {
+        fn optimize_conserves_delay_and_is_idempotent(bytes in random_stream()) {
             let mut song = Song::vgm(
                 "t.vgm".to_owned(),
                 0x151,

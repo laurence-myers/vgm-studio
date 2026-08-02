@@ -52,7 +52,7 @@ pub(crate) const APP_ERR_READ_IMAGE_TITLE: &str = "Failed to read image";
 pub(crate) const APP_ERR_OPEN_FOLDER_TITLE: &str = "Failed to open folder";
 pub(crate) const APP_ERR_RENAME_TITLE: &str = "Rename failed";
 pub(crate) const APP_ERR_PACK_EXPORT_TITLE: &str = "Pack export failed";
-pub(crate) const APP_ERR_OPTIMISE_TITLE: &str = "Optimise failed";
+pub(crate) const APP_ERR_OPTIMISE_TITLE: &str = "Optimize failed";
 pub(crate) const APP_ERR_SAVE_FILE_TITLE: &str = "Failed to save file";
 pub(crate) const APP_ERR_LOAD_FILE_TITLE: &str = "Failed to load file";
 pub(crate) const APP_ERR_TRACK_OP_TITLE: &str = "Track operation failed";
@@ -62,7 +62,7 @@ pub(crate) const APP_ERR_NEED_GAME_NAME: &str =
 pub(crate) const APP_STATUS_RENAMED_TRACK: &str = "Renamed track; pack folder rescanned.";
 pub(crate) const APP_STATUS_PACK_ZIP_BUILT: &str = "Built the pack zip -- choose where to save it.";
 pub(crate) const APP_STATUS_PACK_EXPORT_FAILED: &str = "Pack export failed.";
-pub(crate) const APP_STATUS_SCREENSHOT_OPT_FAILED: &str = "Screenshot optimise failed.";
+pub(crate) const APP_STATUS_SCREENSHOT_OPT_FAILED: &str = "Screenshot optimize failed.";
 pub(crate) const APP_STATUS_WAV_RENDER_FAILED: &str = "The WAV render failed.";
 pub(crate) const APP_STATUS_MEASURING_VOLUME: &str = "Measuring volume...";
 pub(crate) const APP_STATUS_MEASURING_PEAK: &str = "Measuring peak...";
@@ -159,7 +159,7 @@ pub(crate) const APP_AUDIT_HEADER_OUTRO: &str = "\nCorrect them? The stream is t
 pub(crate) fn app_about_text(
     version: impl std::fmt::Display,
     credits: impl std::fmt::Display,
-    optimise_credit: impl std::fmt::Display,
+    optimize_credit: impl std::fmt::Display,
 ) -> String {
     format!(
         "VGM Studio v{}\n\
@@ -183,7 +183,7 @@ pub(crate) fn app_about_text(
          {}\n\
          RetroWave OPL3 output links the serialport crate, used under\n\
          the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
-        version, credits, optimise_credit,
+        version, credits, optimize_credit,
     )
 }
 
@@ -362,8 +362,8 @@ pub(crate) fn app_status_scanned_volumes(count: impl std::fmt::Display) -> Strin
     format!("Scanned {count} track volume(s).")
 }
 
-pub(crate) fn app_status_optimising(name: &str) -> String {
-    format!("Optimising {name}...")
+pub(crate) fn app_status_optimizing(name: &str) -> String {
+    format!("Optimizing {name}...")
 }
 
 pub(crate) fn app_status_already_optimal(name: &str, bytes: impl std::fmt::Display) -> String {
@@ -374,7 +374,7 @@ pub(crate) fn app_status_no_path(name: &str) -> String {
     format!("{name}: no file path to save to.")
 }
 
-pub(crate) fn app_status_optimised_bytes(
+pub(crate) fn app_status_optimized_bytes(
     name: &str,
     from: impl std::fmt::Display,
     to: impl std::fmt::Display,
@@ -487,7 +487,7 @@ pub(crate) const PACK_EXPORT_ZIP_TIP: &str =
     "Build the submission zip (songs, screenshot, description, playlist)";
 pub(crate) const PACK_SAVE_DOCS_TIP: &str = "Write Game Name.txt and Game Name.m3u into the folder";
 pub(crate) const PACK_SAVE_ARCHIVE_TIP: &str =
-    "Save this zip pack: re-export the archive (optimised, gzipped) back to a .zip";
+    "Save this zip pack: re-export the archive (optimized, gzipped) back to a .zip";
 pub(crate) const PACK_OPT_TIP: &str =
     "Strip redundant register writes from each VGM before packing (vgm_cmp-style)";
 pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export -- the VGMRips convention";

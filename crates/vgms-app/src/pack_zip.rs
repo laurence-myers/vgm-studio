@@ -96,14 +96,14 @@ fn process_entry(
             }
         }
         PackEntryKind::Image => match oxipng::optimize_from_memory(&entry.bytes, &png_options()) {
-            Ok(optimised) => {
+            Ok(optimized) => {
                 log.push(format!(
                     "{}: {} -> {} bytes (oxipng)",
                     entry.name,
                     entry.bytes.len(),
-                    optimised.len()
+                    optimized.len()
                 ));
-                Ok((entry.name.clone(), optimised))
+                Ok((entry.name.clone(), optimized))
             }
             Err(error) => {
                 log.push(format!(
@@ -230,11 +230,11 @@ mod tests {
         assert_eq!(files[0].0, "01 Song.vgm");
         assert!(
             files[0].1.len() < original.len(),
-            "optimising should shrink the file"
+            "optimizing should shrink the file"
         );
         assert!(
             vgms_core::io::read_song("01 Song.vgm", &files[0].1).is_ok(),
-            "the optimised bytes are still a valid VGM"
+            "the optimized bytes are still a valid VGM"
         );
         assert!(
             output.log.iter().any(|line| line.contains("(optimized,")),
@@ -259,7 +259,7 @@ mod tests {
     /// A Mega Drive rip with a repeated register write comes out smaller,
     /// through the chip-agnostic pass.
     #[test]
-    fn a_ym2612_vgm_is_optimised_like_any_other() {
+    fn a_ym2612_vgm_is_optimized_like_any_other() {
         let original = non_opl_vgm(
             0x2C,
             &[
@@ -288,7 +288,7 @@ mod tests {
     /// `vgm_cmp` has a table for the YMZ280B: a chip the app's own built-in pass
     /// cannot touch is still optimised through the bound tools.
     #[test]
-    fn a_chip_the_built_in_pass_cannot_touch_is_optimised_by_the_tools() {
+    fn a_chip_the_built_in_pass_cannot_touch_is_optimized_by_the_tools() {
         let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
         let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
             .unwrap()
@@ -319,7 +319,7 @@ mod tests {
             output
                 .log
                 .iter()
-                .any(|line| line.contains("K053260 not optimised yet")),
+                .any(|line| line.contains("K053260 not optimized yet")),
             "log: {:?}",
             output.log
         );
@@ -360,7 +360,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
-        assert_eq!(files[0].1, original, "optimise off means verbatim bytes");
+        assert_eq!(files[0].1, original, "optimize off means verbatim bytes");
     }
 
     #[test]
@@ -396,7 +396,7 @@ mod tests {
             .unwrap();
         assert!(
             decoded.len() < original.len(),
-            "the .vgz gunzips to the optimised VGM"
+            "the .vgz gunzips to the optimized VGM"
         );
         // Both steps are reported, on their own lines.
         assert!(output.log.iter().any(|line| line.contains("(optimized,")));
