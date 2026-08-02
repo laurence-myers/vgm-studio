@@ -73,6 +73,9 @@ pub struct Ym2151Lle {
     capture: [DacCapture; 2],
     /// The last decoded stereo pair, held between strobes.
     held: [i32; 2],
+    /// Whether this die is a YM2164 (OPP). It is an input *pin*, sampled on every
+    /// master clock, so it must be held on every pin set -- not just at reset.
+    ym2164: bool,
 }
 
 /// Taps the serial stream and cuts words at a strobe's falling edges.
@@ -130,6 +133,16 @@ impl Ym2151Lle {
             bus: Bus::Idle,
             capture: [DacCapture::default(); 2],
             held: [0; 2],
+            ym2164: false,
+        }
+    }
+
+    /// The idle pin state carrying this die's variant, the base every clock and
+    /// write starts from -- so the YM2164 pin is never dropped mid-run.
+    fn base_pins(&self) -> LlePins {
+        LlePins {
+            ym2164: self.ym2164,
+            ..LlePins::default()
         }
     }
 
@@ -149,8 +162,8 @@ impl Ym2151Lle {
                 }
             }
             Bus::Holding(left) => {
-                // Keep the byte presented; the pins were set on entry.
-                pins = LlePins::default();
+                // Release the byte, but keep the variant pin held.
+                pins = self.base_pins();
                 self.bus = if left > 1 {
                     Bus::Holding(left - 1)
                 } else {
@@ -194,13 +207,11 @@ impl ChipCore for Ym2151Lle {
         self.bus = Bus::Idle;
         self.capture = [DacCapture::default(); 2];
         self.held = [0; 2];
+        self.ym2164 = variant;
         self.rate = (clock / CLOCKS_PER_SAMPLE).max(1);
 
         self.chip.power_cycle();
-        let mut pins = LlePins {
-            ym2164: variant,
-            ..LlePins::default()
-        };
+        let mut pins = self.base_pins();
         // The electrical reset: IC low while the clock runs, then released.
         pins.ic = false;
         self.chip.set_pins(pins);
@@ -231,7 +242,7 @@ impl ChipCore for Ym2151Lle {
     fn render(&mut self, out: &mut [i32]) {
         for frame in out.chunks_exact_mut(2) {
             for _ in 0..CLOCKS_PER_SAMPLE {
-                self.master_clock(LlePins::default());
+                self.master_clock(self.base_pins());
             }
             // SH1 frames the right channel's word, SH2 the left's, as the
             // YM3012 datasheet wires them. Doubling matches Nuked-OPM's
@@ -293,6 +304,41 @@ mod tests {
             "pin-level write, die, serial DAC decode -- one of them failed: \
              loud={loud} quiet={quiet}"
         );
+    }
+
+    /// The YM2164 (OPP) decodes its register map differently from the YM2151, so
+    /// the same note renders differently. Asserting only that both make energy
+    /// (the Nuked mirror's shape) passes even with the variant pin dropped mid-run;
+    /// this proves the pin reaches the die on every clock, not just at reset (sw-8).
+    #[test]
+    fn the_ym2164_variant_changes_the_sound() {
+        // Registers 0x00-0x07 are valid write addresses only on the OPP -- the
+        // OPM ignores them (its register file starts at 0x20). Writing operator
+        // data there while a note sounds perturbs the OPP's state and leaves the
+        // OPM's untouched, so the two dies diverge. Identical output would mean the
+        // variant pin never reached the die past reset.
+        let render_note = |variant: bool| {
+            let mut chip = Ym2151Lle::new();
+            chip.reset(CLOCK, variant);
+            render(&mut chip, 512); // settle after reset
+            chip.write(0, 0x20, 0xC7); // channel 0: both outputs, alg 7
+            chip.write(0, 0x28, 0x4A); // octave 4, note A
+            chip.write(0, 0x80, 0x1F); // M1 attack: instant
+            chip.write(0, 0x60, 0x00); // M1 total level: loudest
+            chip.write(0, 0xE0, 0x00); // M1 release: slow, so it sustains
+            chip.write(0, 0x08, 0x78); // key on channel 0, all slots
+            // The OPP-only low-address writes: no-ops on the OPM.
+            for addr in 0x00..0x08u16 {
+                chip.write(0, addr, 0xFF);
+            }
+            render(&mut chip, 256); // let the slow bus writes land
+            render(&mut chip, 4096)
+        };
+        let opm = render_note(false);
+        let opp = render_note(true);
+        assert!(energy(&opm) > 10_000, "the YM2151 makes sound");
+        assert!(energy(&opp) > 10_000, "the YM2164 makes sound");
+        assert_ne!(opm, opp, "the two dies must not render identically");
     }
 
     /// `clock / 64`, the same rate Nuked-OPM declares -- the oracle and the
