@@ -112,6 +112,18 @@ sources. Needs a C compiler and libclang (`scoop install main/llvm`):
 cargo test -p vgms-synth --features c-parity
 ```
 
+### Continuous integration and releases
+
+CI is `.github/workflows/rust.yaml`: fmt, clippy and tests on Windows, plus a
+wasm-cleanliness job, the OPL C-parity gate, and the Playwright web e2e suite.
+The old Python `check.yaml` and `build.yaml` workflows were removed with the
+port.
+
+There is **deliberately no release workflow yet.** Automated releases are wanted
+but deferred; when added it is a tag-triggered job running `cargo build
+--release` on `windows-latest` plus `tools/build-web.ps1`, uploading both the
+executable and the web bundle. The gap is intentional, not rot.
+
 ## Pre-requisites
 
 On Windows, Microsoft Visual C++ 14.0 or greater is required.
