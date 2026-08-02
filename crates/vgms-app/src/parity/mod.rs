@@ -335,7 +335,9 @@ pub const THRESHOLDS: &[Threshold] = &[
         max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.904 observed (n=12) against a shared core; the LLE oracle puts          Nuked-OPN2 at 0.985 against the 2612 die, so the gap to VGMPlay          lives in the reference player's driver, not our emulation",
+            "0.904 observed (n=12) against a shared core; the LLE oracle puts \
+             Nuked-OPN2 at 0.985 against the 2612 die, so the gap to VGMPlay \
+             lives in the reference player's driver, not our emulation",
         ),
     },
     Threshold {
@@ -344,7 +346,8 @@ pub const THRESHOLDS: &[Threshold] = &[
         max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.977 observed (n=12) against a shared core; short of the 0.99              ideal, unexplained by the LFO or the resampler",
+            "0.977 observed (n=12) against a shared core; short of the 0.99 \
+             ideal, unexplained by the LFO or the resampler",
         ),
     },
     // Only shared-lineage rows remain: reference and core run the same upstream,

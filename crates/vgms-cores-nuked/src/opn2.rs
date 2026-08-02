@@ -114,13 +114,13 @@ impl Ym2612 {
 /// takes channel 6's slot, and the mask's DAC bit (6) governs it instead.
 const fn mute_bit_for_group(group: u32, dac_enabled: bool) -> u32 {
     match group {
-        0 => 1,                // channel 2
+        0 => 1, // channel 2
         1 if dac_enabled => 6, // the DAC, in channel 6's slot
-        1 => 5,                // channel 6
-        2 => 3,                // channel 4
-        3 => 0,                // channel 1
-        4 => 4,                // channel 5
-        _ => 2,                // channel 3
+        1 => 5, // channel 6
+        2 => 3, // channel 4
+        3 => 0, // channel 1
+        4 => 4, // channel 5
+        _ => 2, // channel 3
     }
 }
 
@@ -224,9 +224,9 @@ mod tests {
     fn key_on(chip: &mut Ym2612) {
         for (reg, value) in [
             (0x22u16, 0x00u16), // LFO off
-            (0x27, 0x00),       // normal timer mode
-            (0x28, 0x00),       // all channels keyed off to start
-            (0x30, 0x01),       // ch1 op1: detune 0, multiple 1
+            (0x27, 0x00), // normal timer mode
+            (0x28, 0x00), // all channels keyed off to start
+            (0x30, 0x01), // ch1 op1: detune 0, multiple 1
             (0x34, 0x01),
             (0x38, 0x01),
             (0x3C, 0x01),
@@ -279,7 +279,7 @@ mod tests {
 
         assert!(
             energy(&loud) > energy(&quiet) * 8,
-            "the C core linked, reset, latched its writes and generated -- or it did not:              loud={} idle={}",
+            "the C core linked, reset, latched its writes and generated -- or it did not: loud={} idle={}",
             energy(&loud),
             energy(&quiet)
         );
@@ -509,7 +509,7 @@ mod tests {
         let no_repeat = with_repeat(None);
         assert_eq!(
             repeated_key, no_repeat,
-            "a repeated key write re-attacked the note, so the optimiser is              right to keep 0x28"
+            "a repeated key write re-attacked the note, so the optimiser is right to keep 0x28"
         );
 
         // The DAC port is a different matter: the chip is not in DAC mode here,
@@ -540,11 +540,11 @@ mod tests {
         // order-of-magnitude slip and the floor pins the measured balance.
         assert!(
             full_chip > i32::from(i16::MAX) * 2,
-            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- the FM would sit far under the measured balance"
+            "one channel peaked at {one_channel}, so a whole chip would reach {full_chip} -- the FM would sit far under the measured balance"
         );
         assert!(
             full_chip < i32::from(i16::MAX) * 8,
-            "one channel peaked at {one_channel}, so a whole chip would reach              {full_chip} -- an order of magnitude past the measured balance"
+            "one channel peaked at {one_channel}, so a whole chip would reach {full_chip} -- an order of magnitude past the measured balance"
         );
     }
 }

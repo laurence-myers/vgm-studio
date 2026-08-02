@@ -2103,7 +2103,8 @@ fn other_chip_vgm_bytes(stream: &[u8], total: u32, loop_samples: u32) -> Vec<u8>
 
     assert!(
         !vgms_synth::registry::registry().can_build(ChipKind::Ym2610),
-        "the YM2610 now has a core, so this fixture no longer stands for a          document nothing can play -- pick a chip that still has none"
+        "the YM2610 now has a core, so this fixture no longer stands for a \
+         document nothing can play -- pick a chip that still has none"
     );
 
     let mut bytes = vec![0u8; 0x100];

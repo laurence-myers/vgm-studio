@@ -769,7 +769,8 @@ impl LibVgmChip {
         self.writers = unsafe { Writers::fetch(dev.dev_def, self.spec) };
         if !self.writers.serves(self.spec.write) {
             log::warn!(
-                "libvgm's {} has no writer for {:?}; its registers will be                  silently dropped",
+                "libvgm's {} has no writer for {:?}; its registers will be \
+                 silently dropped",
                 self.spec.kind.name(),
                 self.spec.write,
             );
