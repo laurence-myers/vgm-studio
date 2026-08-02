@@ -26,8 +26,21 @@ const ROW: usize = 9;
 
 /// Converts a pan byte (`0x00` left .. `0x80` centre .. `0xFF` right) to
 /// libvgm's `-0x100 ..= 0x100` position.
+///
+/// Anchored on `0x80`, with each side scaled independently (128 steps left, 127
+/// right) so both extremes reach full magnitude -- the same asymmetric mapping
+/// [`pan_knob::dot_angle`](super::pan_knob) and the R/L readout use. The old
+/// `(byte - 128) * 2` fell two short on the right (`0xFF` -> 254, so a channel
+/// the readout called "R100" was really at 98%).
 fn pan_to_i16(byte: u8) -> i16 {
-    (i16::from(byte) - 128) * 2
+    const CENTER: i16 = 0x80;
+    const FULL: i16 = 0x100;
+    let value = i16::from(byte);
+    match value.cmp(&CENTER) {
+        std::cmp::Ordering::Equal => 0,
+        std::cmp::Ordering::Less => -FULL * (CENTER - value) / CENTER,
+        std::cmp::Ordering::Greater => FULL * (value - CENTER) / (255 - CENTER),
+    }
 }
 
 /// One chip instance's channel controls.
@@ -358,6 +371,13 @@ mod tests {
         let pans = panel.pan_entry().expect("Custom reports pans");
         assert_eq!(pans.len(), 3, "one per AY channel");
         assert!(pans.iter().all(|&p| p == 0), "centred by default");
+    }
+
+    #[test]
+    fn the_pan_extremes_reach_full_left_and_full_right() {
+        assert_eq!(pan_to_i16(0x80), 0, "centre");
+        assert_eq!(pan_to_i16(0x00), -0x100, "hard left is full -0x100");
+        assert_eq!(pan_to_i16(0xFF), 0x100, "hard right is full +0x100, not 254");
     }
 
     #[test]
