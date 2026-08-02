@@ -1,7 +1,8 @@
 # Review remediation — decisions
 
-Date: 2026-08-02. Status: **ANSWERED by the owner**, except the five marked
-**OPEN** below. Branch: `review-2026-08`.
+Date: 2026-08-02. Status: **ALL ANSWERED.** The owner accepted the D5/D11/D21/D22
+recommendations on 2026-08-02, D4 resolved to option (i), and the projection
+question became PLAN.md's Stage K. Branch: `review-2026-08`.
 
 Companion to [PLAN.md](PLAN.md). This was a list of questions; it is now the
 record of what was decided and why. Five entries changed materially once
@@ -9,8 +10,19 @@ researched — three of them reversed the recommendation this document originall
 carried. Those are marked **↺ REVERSED** so nobody re-derives the old answer
 from the old reasoning.
 
-**Still open, needing one more word from the owner:** D5, D11, D21, D22, and the
-D4/D11 tension noted under D4.
+Final answers to the last five:
+
+| | Answer |
+|---|---|
+| **D4** | Option (i): keep the vendored shim byte-identical, add `web/wasi-host.js` owning argv/fds/`debug: false`, and repoint the smoke test at the shim so something notices if it breaks. Clarified: de-vendoring would never have shipped npm — it puts npm in the *build* path and still needs a copy step, i.e. vendoring at build time via a registry fetch; and our local modifications would become patches to re-apply on every update. The wrapper stops the modification set growing so de-vendoring can be revisited later. |
+| **D5** | **Keep the parity harness**; fix the three defects (sn-1/sn-2), delete the clean-room concept (dd-2b) and the stale narrative. One agent detail corrected on re-check: the pinned ini does not force NUKE everywhere (SN76496 = MAXM, YM2413/AY8910 = EMU per its own comment) — the load-bearing point, that cores are deliberately pinned so comparisons measure our engine, stands. |
+| **D11** | Option (D): move `web/e2e/` → `web-e2e/` so the copy manifest stops existing; CI calls `tools/build-web.ps1`. No Node build system. |
+| **D21** | (i) + (iii): cached `Arc<VgmFile>` rebuilt in `bump_revision`, one `Editor::doc_source()`, shared type in **`vgms-core`**. |
+| **D22** | Route Split Songs to the VGM stack (invert the match at `app.rs:4242`), fix `can_preview()` to `capabilities().renderable`. |
+
+**Follow-on accepted for consideration:** remove the projection concept entirely —
+scoped and sequenced as **Stage K** in [PLAN.md](PLAN.md), a separate programme
+gated on Stage I and the render-split/ChannelGate work.
 
 ---
 

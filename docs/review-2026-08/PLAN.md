@@ -3,9 +3,9 @@
 Date: 2026-08-02. Status: **PLANNED — nothing implemented.** Branch: `review-2026-08`
 (forked from `web-target` @ `df3d5cf`).
 
-**Revision 2** — the owner has answered 22 of the 27 decisions, and the research
-behind five of them changed the work. See [DECISIONS.md](DECISIONS.md) for the
-answers and §0b below for what moved.
+**Revision 3** — every decision is answered (see [DECISIONS.md](DECISIONS.md));
+§0b records where research changed the work's shape, and §12b scopes the
+owner-requested follow-on: retiring the projection concept entirely.
 
 Works through the 233 findings in [REVIEW.md](REVIEW.md). Anything the plan
 cannot decide on its own is in [DECISIONS.md](DECISIONS.md) rather than guessed
@@ -91,7 +91,9 @@ Steps carry a two-letter prefix and a number (`hf-3`, `sw-1`). Each is rated:
 - **mechanical** — an obvious edit with no design choice. Just do it.
 - **contained** — one module, with a micro-choice a competent implementer makes
   alone.
-- **needs-design** — blocked on [DECISIONS.md](DECISIONS.md), named inline.
+- **needs-design** — carries a real design step the implementer must work out
+  in place (all owner decisions are answered; see [DECISIONS.md](DECISIONS.md)).
+  Remaining: mg-3b's `compare_optimised` re-basing, and Stage K's k-3/k-6.
 
 Each step names the test that should fail before it and pass after. Where a step
 is genuinely untestable (docs, comments, CI config) it says `n/a` rather than
@@ -117,18 +119,23 @@ inventing a hook.
 Bug fixes and small refactors first, as asked. Two deliberate deviations are
 justified below the table.
 
-| | Stage | What it is | Status |
-|---|---|---|---|
-| **A** | `hf-` | Hostile files — the crash class | **ready** (D1 answered) |
-| **B** | `ci-` | Build and CI unblock | ready once **D11** option (D) is confirmed |
-| **C** | `sw-` | Silent wrongness in core, synth, ui, native | **ready** (D2, D3, D16 answered) |
-| **D** | `wb-` | Web and worklet correctness | needs B; **D4** option (i)/(ii) open |
-| **E** | `sn-` | Arm the safety nets | blocked on **D5** (keep or delete parity) |
-| **F** | `dd-` | Deletions and doc rot | **ready** (D7–D10 answered) |
-| **G** | `tm-` | Terminology, API hygiene, manifests | **ready** (D12, D13 answered) |
-| **H** | `fk-` | Unify the native/web forks | **ready** (D14, D15 answered) |
-| **I** | `mg-` | Finish the DRO→VGM migration | D20 answered; **D21, D22** open |
-| **J** | `st-` | Structural splits | **ready** (D17–D19 answered; D16 dropped st-1) |
+**Every decision is answered — all ten stages are ready.** The only ordering
+constraints left are the mechanical ones (B before D's test hooks, E before the
+byte-changing stages, st-4 last).
+
+| | Stage | What it is |
+|---|---|---|
+| **A** | `hf-` | Hostile files — the crash class |
+| **B** | `ci-` | Build and CI unblock (D11: `web/e2e/` moves out, CI calls the script) |
+| **C** | `sw-` | Silent wrongness in core, synth, ui, native |
+| **D** | `wb-` | Web and worklet correctness (D4: wrapper + smoke-test repoint; needs B) |
+| **E** | `sn-` | Arm the safety nets (D5: parity stays; fix it) |
+| **F** | `dd-` | Deletions and doc rot |
+| **G** | `tm-` | Terminology, API hygiene, manifests |
+| **H** | `fk-` | Unify the native/web forks |
+| **I** | `mg-` | Finish the DRO→VGM migration (D21, D22 accepted) |
+| **J** | `st-` | Structural splits |
+| **K** | — | *Follow-on, separate programme:* retire the projection (§12b) |
 
 **Why Stage J is last even though it is refactoring.** `app.rs` carries 46 of
 the 233 findings. Split it first and every one of those has to be re-anchored
@@ -193,7 +200,7 @@ About forty lines, all of it green.
 |---|---|---|
 | **ci-1** | Delete `.github/workflows/check.yaml` — it runs on every push and fails on every push. | mechanical |
 | **ci-2** | Delete `.github/workflows/build.yaml` (same dead Python pipeline, hidden by `workflow_dispatch`). Record in `DEVELOPMENT.md` whether the release gap is deliberate. | mechanical (**(c)**) |
-| **ci-3** | **Make the copy manifest stop existing** (D11 option D, pending confirmation). Move `web/e2e/` → `web-e2e/`, so `web/` means exactly "files the browser gets" and `Copy-Item web/*` is correct by construction. Then replace `rust.yaml:195-202`'s hand-copied block with a call to `tools/build-web.ps1` — proven feasible, since `rust.yaml:132` already runs `shell: pwsh` on Ubuntu for the sibling script. Requires normalising five Windows-separator paths in the script (lines 24, 25, 56, 61, 69) and adding `-SkipWasiTools`. Fixes the live bug: the CI copy omits `web/wasi-shim/`, which `pack_worker.js:18` imports at top level. | contained |
+| **ci-3** | **Make the copy manifest stop existing** (D11 option D, accepted). Move `web/e2e/` → `web-e2e/`, so `web/` means exactly "files the browser gets" and `Copy-Item web/*` is correct by construction. Then replace `rust.yaml:195-202`'s hand-copied block with a call to `tools/build-web.ps1` — proven feasible, since `rust.yaml:132` already runs `shell: pwsh` on Ubuntu for the sibling script. Requires normalising five Windows-separator paths in the script (lines 24, 25, 56, 61, 69) and adding `-SkipWasiTools`. Fixes the live bug: the CI copy omits `web/wasi-shim/`, which `pack_worker.js:18` imports at top level. | contained |
 | **ci-5** | *(optional, free win)* `wasm-bindgen-cli` does not run `wasm-opt`, so the app module ships at 12.7 MB. Four lines plus a binaryen prerequisite typically takes 20–40% off. | mechanical |
 | **ci-4** | Manifest hygiene (was tm-3): workspace-inherit the `zip`/`flate2` pins in `pack-archive/Cargo.toml:20-21` and `vgms-web/Cargo.toml:40-41`; inherit `vgms-synth-worklet` at `vgms-web/Cargo.toml:95`; add the missing SPDX header to `vgms-vgmtools/src/lib.rs`; replace its `[lints.rust]` opt-out with `[lints] workspace = true`; fix the `src/dt.ico` comment in the root manifest (the file is `src/vgmstudio.ico`). | contained |
 
@@ -272,7 +279,7 @@ Implement wb-1..wb-3 as **one pass over `load()`/`unload()`**, in this order:
 | **wb-8** | Same file, `:181` — return `Err` for a synchronous `ensure_context` failure instead of `last_error` + `Ok(())`. | mechanical |
 | **wb-4** | `web/services/task.rs:184` — the generation filter the native service has and this one does not. **Extract the bookkeeping into a natively-buildable struct** (the crate already does this for `codec`) so it can be unit-tested off-target. | contained |
 | **wb-5** | `task_worker.js:20` — a `finally` so an `init()` rejection cannot wedge the kind busy forever, plus `worker.set_onerror` on both services. Defer a `TaskResult::Failed` variant to whichever change fixes the native path too. | contained |
-| **wb-6** | The shim debug default — see §0 item 4. Add `web/wasi-host.js` owning argv, fds and `debug: false`, keeping the vendored files byte-identical. **And give the shim a test**: point `tools/web/vgmtools_smoke.mjs` at `web/wasi-shim/index.js` instead of `node:wasi`, so something would notice if it broke. Today nothing would — see D6. | contained (**D4** option open) |
+| **wb-6** | The shim debug default — see §0 item 4. Add `web/wasi-host.js` owning argv, fds and `debug: false`, keeping the vendored files byte-identical. **And give the shim a test**: point `tools/web/vgmtools_smoke.mjs` at `web/wasi-shim/index.js` instead of `node:wasi`, so something would notice if it broke. Today nothing would — see D6. | contained |
 | **wb-7** | `task_worker.js:27` and `pack_worker.js:99` — transfer directly instead of `slice()`-then-transfer under a comment claiming zero-copy. | mechanical |
 
 **Watch for.** `web/src/codec.rs` is the most-likely-forgotten file in the
@@ -299,7 +306,7 @@ means nothing.
 | Step | What | Rated |
 |---|---|---|
 | **sn-1** | `tests/reference_parity.rs:635` — a reference-player error must fail the scorecard, not `continue`; assert a minimum comparison count so a run that compared nothing cannot report PASS. | contained |
-| **sn-2** | `parity/reference.rs:266` — always re-copy the staged player (mechanical, land now); `:290` — the render cache key. | needs-design (**D5**) |
+| **sn-2** | `parity/reference.rs:266` — always re-copy the staged player (mechanical, land now); `:290` — the render cache key. | contained |
 | **sn-3** | `tests/cli_smoke.rs:95` — `an_unknown_subcommand_is_rejected` passes because its input file does not exist, not because the subcommand is unknown; create the input first, using the file's own `temp_dir`/`small_song_bytes` helpers. Same shape at `:181`. Widen `help_lists_every_subcommand` from three subcommands to five. | mechanical |
 | **sn-4** | `synth/tests/scratch_chip.rs:16` — cannot pass; `vgms-synth`'s own test binary installs no providers, so every core is `None` and the render is silence. Move it to `vgms-app` (with `install_cores()`) or delete it. | contained |
 | **sn-5** | `tests/engine_corpus.rs:25` — the `Counting` core's `render` is `out.fill(0)` and `writes` is never read, so the only whole-corpus `VgmEngine` walk cannot detect misrouting. Add the cheap non-ignored test first. | contained |
@@ -408,8 +415,8 @@ stage.
 | **mg-2b** | Delete `optimize::optimize` and the Song-side split/crop arms — **zero production callers today**; they survive only as differential oracles, which mg-0's goldens replace. | mechanical |
 | **mg-3b** | **Remove the wholly-OPL bypass** at `vgms-vgmtools/src/pipeline.rs:212` (D6). Two corrections: it is in the shared crate, not `vgms-web`; and it gates on `is_opl`, not `is_opl_only`, so a YM3526-only file already takes the tools path. Requires re-basing `compare_optimised`, which today asserts our optimiser equals the OPL one byte-for-byte over 3,933 files — feeding `vgm_cmp` output in first would make it measure the C tool instead. Also unblocks a real shim gate (sn-6). | needs-design |
 | **mg-4** | Rewrite `loop_end_index` over `wait_prefix` + `partition_point`. **Not a de-dup** — mg-2 deletes one of its two call sites. Needs a new `VgmStream` method; `wait_prefix` is private. | contained |
-| **mg-5** | One `Editor::doc_source()` returning a **cached `Arc<VgmFile>` rebuilt in `bump_revision`**, plus collapsing the three task-source enums and the five `Arc::new(file.clone())` sites. The shared type goes in **`vgms-core`** (not `vgms-ui`, which is GPL, and not a second type beside `AudioSource`); `can_preview` stays in the UI. Measured: a 4 MiB rip clones at 20 MiB / ~8 ms, twice per edit-then-play and once per keystroke while Delete is held. | **D21** open |
-| **mg-6** | **Route Split Songs to the VGM stack** — invert the match at `app.rs:4242` to ask `editor.vgm()` first, matching what Crop already does. This is a **bug fix**: the OPL path synthesises a v1.51 header with hard-coded clocks, so a rip with a non-canonical clock is split at the wrong pitch and tempo. `can_preview()` must become `capabilities().renderable` or OPL VGMs lose the Preview button. `opl_state.rs`/`state_patch.rs` stay — DRO v1 bank-switch emission has no VGM analogue. | **D22** open |
+| **mg-5** | One `Editor::doc_source()` returning a **cached `Arc<VgmFile>` rebuilt in `bump_revision`**, plus collapsing the three task-source enums and the five `Arc::new(file.clone())` sites. The shared type goes in **`vgms-core`** (not `vgms-ui`, which is GPL, and not a second type beside `AudioSource`); `can_preview` stays in the UI. Measured: a 4 MiB rip clones at 20 MiB / ~8 ms, twice per edit-then-play and once per keystroke while Delete is held. | contained |
+| **mg-6** | **Route Split Songs to the VGM stack** — invert the match at `app.rs:4242` to ask `editor.vgm()` first, matching what Crop already does. This is a **bug fix**: the OPL path synthesises a v1.51 header with hard-coded clocks, so a rip with a non-canonical clock is split at the wrong pitch and tempo. `can_preview()` must become `capabilities().renderable` or OPL VGMs lose the Preview button. `opl_state.rs`/`state_patch.rs` stay — DRO v1 bank-switch emission has no VGM analogue. | contained |
 | **mg-7** | Rename one of the two `redundant_indices`; stop re-exporting the OPL one bare at the crate root. **Rename, do not fold.** | contained |
 
 *(mg-3 moved to Stage C.)*
@@ -444,6 +451,72 @@ safe; the one real hole is handled by sw-5's drop gate in Stage C.)*
 **Acceptance criterion for every split:** `cargo test -p <crate> -- --list`
 returns an identical test-name set before and after, zero snapshot rewrites, and
 the diff contains no logic change beyond visibility keywords.
+
+---
+
+## 12b. Stage K — retire the projection (follow-on programme)
+
+**Requested by the owner: "consider how to remove the projection concept
+entirely."** Scoped here so the earlier stages can anticipate it; it is a
+**separate programme**, not part of this remediation's exit criteria, because it
+is gated on two other bodies of work finishing first.
+
+### What the projection is, and who leans on it
+
+`Editor` holds `projection: Option<Arc<Song>>` (`editor.rs:173`), rebuilt on
+every edit by `refresh_projection` — `VgmFile::to_song()`, ~22 ms on a 4 MiB OPL
+VGM. `song()` and `snapshot()` prefer it, so **for an OPL VGM every consumer of
+`Song` is really consuming the projection**: the OPL `PlayerEngine` (native
+audio via `Engine::Opl`, the worklet's OPL arm, `peak`/`wav`/`waveform`), the
+RetroWave hardware player (`player.rs:224` builds `PlayerEngine::with_chip`
+directly over the `Song`), the register analyser (`RegisterAnalyzer`,
+`RegisterUsage`, `initial_channel_pans` — all `&Song`-typed), the editor's OPL
+row rendering, the pack preview, and the six task sources.
+
+The end state: **an OPL VGM takes exactly the path every other VGM takes**
+(`VgmEngine` + the registered nuked-opl3 core), `Song` means "a DRO document"
+and nothing else, `SongData::Vgm` is deleted, and `PlayerEngine` shrinks to the
+DRO engine. This is the same destination the render-split plan names as its
+long-term goal ("no code that treats OPL songs differently from any other VGM").
+
+### Gates — why K cannot start yet
+
+1. **Stage I** must land first: one reader per format, `doc_source()` in place
+   (mg-5's `Opl` arm then shrinks to meaning "DRO", which is the shape K wants).
+2. **The ChannelGate programme** (`docs/render-split-2026-08/PLAN.md`) must land
+   first: OPL channel muting today is `Muting::gate` inside `PlayerEngine` —
+   drop muted channels' `0xB0..=0xB8`, mask `0xBD`, seek-replay rules. Routing
+   OPL VGMs through `VgmEngine` before an equivalent exists on that path loses
+   working mute/solo. ChannelGate *is* that equivalent, generalised.
+3. **An A/B render gate**: before any routing flips, a fixture-and-corpus test
+   rendering the same OPL VGM through both engines and comparing output. The
+   engines differ in write pacing (nuked's buffered writes vs `VgmEngine`'s
+   pacing), so the bar is "no audible difference" measured the way the parity
+   harness already measures, not byte equality. This gate is also what catches
+   volume-model differences (the OPL path today does not go through the
+   per-chip balance the VGM path applies — verify, and calibrate if needed).
+
+### The workstreams, once gated
+
+| Step | What | Size |
+|---|---|---|
+| **k-1** | Flip playback routing: `audio_source()` / the worklet's `source()` return `Vgm` for an OPL VGM. The worklet's own projection call (`player.rs:119-126`) is deleted. Gate: the A/B render test above. | contained |
+| **k-2** | **RetroWave**: the hardware player drives its serial chip from `PlayerEngine` over a `Song`. Either (a) the RetroWave service builds its own `Song` from the `VgmFile` at load — the projection becomes a private detail of one service, deleted from the editor; or (b) `VgmEngine` learns to host an external OPL chip. **(a) first** — it is ~10 lines, unblocks everything else, and (b) can follow whenever the render-split work touches that seam anyway. | contained |
+| **k-3** | **Analysis**: re-host `RegisterAnalyzer` / `RegisterUsage` / `initial_channel_pans` on `VgmStream`'s OPL writes instead of `&Song`. This is the largest genuinely new code in K — the OPL row rendering keeps its regdata-grade detail, so the analyser walks `VgmCommand::Write`s rather than `Instruction`s. The projection-vs-analysis behaviour must not change: pin current row text on a fixture before porting. | needs-design |
+| **k-4** | Editor: delete the `projection` field, `refresh_projection`, and the OPL branch of `snapshot()`; `song()` becomes DRO-only. Every `(snapshot, vgm)` consumer was already collapsed by mg-5. | contained |
+| **k-5** | Delete `SongData::Vgm` and the `Instruction` variants only VGM produced (`DelaySamples`, the VGM-only bank forms), narrowing `Song` to the DRO document. `OplProjection`/`to_song` go, or shrink to k-2(a)'s private helper. | contained, wide |
+| **k-6** | *(optional end state)* DRO playback through `VgmEngine` via `dro_to_vgm` at load — `PlayerEngine` deleted entirely, one engine in the codebase. Editing stays on `Song`; only the audio path converts. `dro_to_vgm` is already validated byte-for-byte against `dro2vgm`. Decide when k-1..k-5 are green; it is separable and the RetroWave question (k-2) resurfaces here. | needs-design |
+
+### What Stages A–J should do differently knowing K is coming
+
+- **mg-5** (doc_source): design the shared enum so the `Opl` arm's meaning can
+  narrow to "DRO" without another rename — name it by document kind, not chip.
+- **k-3 is why the analysis findings in REVIEW.md's appendix were left
+  unstaged** — do not "clean up" `analysis.rs` in Stage F/G beyond comments;
+  it is about to be re-hosted.
+- **dd-6/dd-8**: when fixing doc comments in `engine.rs`/`split.rs`, do not
+  entrench "the OPL engine" as permanent — phrase as "the DRO engine's" where
+  the comment survives K.
 
 ---
 
@@ -502,7 +575,9 @@ obvious candidate).
 - The `render-split-2026-08` ChannelGate programme is independent, but **it must
   rebase onto mg-5**, not the reverse, and it names `RecordingChip` as its test
   vehicle — so `RecordingChip` is not deletable (only its three false doc
-  comments get fixed, in dd-8's neighbourhood).
+  comments get fixed, in dd-8's neighbourhood). It is also now **a gate for
+  Stage K** (§12b): OPL VGMs cannot leave `PlayerEngine` until ChannelGate
+  replaces `Muting::gate` on the `VgmEngine` path.
 - `tests/make_screenshot.py` stays. It is unreferenced but it *generates*
   `tests/screenshot.png`, which five Rust sites embed; the fix is a provenance
   pointer in the consumers, not deletion.
