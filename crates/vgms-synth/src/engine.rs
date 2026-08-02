@@ -68,7 +68,7 @@ impl FrameClock {
     }
 }
 
-/// Which channels and percussion voices are audible, for `dro_split`'s channel
+/// Which channels and percussion voices are audible, for the channel splitter's channel
 /// isolation and the GUI channel panel's muting/soloing.
 ///
 /// A muted melodic channel's key-on writes (`0xB0..=0xB8`) are dropped; the
@@ -99,7 +99,7 @@ impl Muting {
     }
 
     /// Nothing melodic audible, and drums silenced but their control bits kept
-    /// (`0xE0`) -- the starting point `dro_split` builds a single isolated voice
+    /// (`0xE0`) -- the starting point the channel splitter builds a single isolated voice
     /// on top of.
     #[must_use]
     pub const fn silent() -> Self {

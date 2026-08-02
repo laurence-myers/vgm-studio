@@ -51,7 +51,7 @@ pub struct SplitOptions {
 }
 
 /// The five percussion voices of register `0xBD`, low bit first, with the drum
-/// names `dro_split` gives their files.
+/// names the channel splitter gives their files.
 const DRUMS: [(u8, &str); 5] = [
     (0x01, "HH"),
     (0x02, "CY"),
@@ -369,7 +369,7 @@ fn wav_peak(bytes: &[u8]) -> i32 {
         .unwrap_or(0)
 }
 
-/// The channels to consider, in `dro_split`'s order: melodic `0xB0..=0xB8` (bank
+/// The channels to consider, in the channel splitter's order: melodic `0xB0..=0xB8` (bank
 /// 0 then bank 1), then percussion `0xBD` (bank 0 then bank 1). OPL2 keeps only
 /// the low bank.
 fn channels_to_render(opl_type: OplType) -> Vec<u16> {

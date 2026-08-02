@@ -220,7 +220,7 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
 
 /// Which registers, and which percussion voices, a song writes.
 ///
-/// `dro_split` uses this to skip channels a song never touches. Keys are
+/// the channel splitter uses this to skip channels a song never touches. Keys are
 /// `(bank << 8) | reg`; the bank is tracked across DRO v1 bank switches and DRO
 /// v2 / VGM per-write banks.
 #[derive(Debug, Clone, Default)]
@@ -234,7 +234,7 @@ impl RegisterUsage {
     ///
     /// With `detailed_percussion`, also records which percussion bits were ever
     /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask` -- the map
-    /// `dro_split`'s `--isolate-percussion` needs. The count is what matters to
+    /// the splitter's `isolate_percussion` option needs. The count is what matters to
     /// the splitter (it only tests for zero), but it is kept exact so tests
     /// asserting a specific count still pin it.
     #[must_use]
