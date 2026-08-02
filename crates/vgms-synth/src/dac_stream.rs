@@ -97,6 +97,11 @@ pub struct PendingWrite {
     pub value: u8,
 }
 
+/// How many times the output rate a stream may exceed before its rate is
+/// clamped. A real DAC is at most a small multiple of 44.1 kHz; this leaves wide
+/// headroom while bounding a corrupt `0x92` to at most this many writes a frame.
+const STREAM_RATE_CEILING_FACTOR: u32 = 64;
+
 /// Every stream a file has defined, and the clock they run against.
 #[derive(Debug, Clone)]
 pub struct DacStreams {
@@ -177,8 +182,15 @@ impl DacStreams {
     }
 
     /// `0x92 ss dddddddd` — stream `id` plays `hz` bytes per second.
+    ///
+    /// A stream faster than the output legitimately emits several bytes a frame,
+    /// which the accumulator handles. A corrupt `0x92` claiming billions of hertz
+    /// would emit tens of thousands a frame and wedge the render, so the rate is
+    /// clamped to a generous multiple of the output rate -- far above any real
+    /// DAC, still O(1) work per frame.
     pub fn set_rate(&mut self, id: u8, hz: u32) {
-        self.streams[id as usize].hz = hz;
+        let ceiling = self.output_rate.saturating_mul(STREAM_RATE_CEILING_FACTOR);
+        self.streams[id as usize].hz = hz.min(ceiling);
     }
 
     /// The bank type stream `id` is bound to, so the caller can fetch its data.
@@ -307,6 +319,25 @@ mod tests {
         assert_eq!(run(&mut streams, 10), vec![30]);
         assert_eq!(run(&mut streams, 100), Vec::<u8>::new(), "and it stops");
         assert!(!streams.is_playing(0));
+    }
+
+    #[test]
+    fn an_absurd_stream_rate_does_not_run_the_frame_forever() {
+        let mut streams = DacStreams::new(44_100);
+        streams.setup(0, 0x02, 0, 0x2A);
+        streams.bind(0, 0x00, 1, 0);
+        streams.set_rate(0, u32::MAX);
+        // A tiny looping bank: unclamped, one frame would emit ~97k bytes and
+        // keep looping forever.
+        streams.start(0, &[0x11; 16], 0, 0x80, 0);
+
+        let mut due = Vec::new();
+        streams.advance_frame(&mut due);
+        assert!(
+            due.len() <= STREAM_RATE_CEILING_FACTOR as usize,
+            "one frame emitted {} bytes",
+            due.len()
+        );
     }
 
     #[test]
