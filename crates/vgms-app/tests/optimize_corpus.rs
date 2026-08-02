@@ -21,12 +21,14 @@
 //! oracle. The harness also reports the peak buffered-path difference to confirm
 //! it stays a local phase shift, not a state change.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use vgms_core::optimize::optimize;
 use vgms_core::util::VGM_SAMPLE_RATE;
 use vgms_core::{Bank, Instruction, Song};
 use vgms_synth::{FrameClock, NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, render_wav};
+
+mod common;
 
 /// Renders a VGM through the chip with *immediate* register writes (no write
 /// buffer), so a same-value strip is a true no-op and the render is a byte-exact
@@ -82,26 +84,6 @@ fn peak_diff(a: &[u8], b: &[u8]) -> i32 {
 const PARITY_STRIDE: usize = 3;
 const PARITY_MAX: usize = 60;
 
-fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_songs(&path, out);
-        } else if matches!(
-            path.extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("vgm") | Some("vgz")
-        ) {
-            out.push(path);
-        }
-    }
-}
-
 #[test]
 #[ignore = "needs the local corpus via VGMSTUDIO_VGMRIPS_CORPUS"]
 fn optimise_the_whole_corpus() {
@@ -109,9 +91,7 @@ fn optimise_the_whole_corpus() {
     // corpus is a setup mistake to report, not a reason to pass green.
     let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
         .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
-    let mut songs = Vec::new();
-    collect_songs(Path::new(&root), &mut songs);
-    songs.sort();
+    let songs = common::collect_songs(Path::new(&root));
     assert!(!songs.is_empty(), "no .vgm/.vgz files under {root}");
 
     let mut scanned = 0usize;

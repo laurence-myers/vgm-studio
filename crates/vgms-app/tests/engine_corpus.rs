@@ -15,12 +15,14 @@
 //! ```
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use vgms_core::vgm::ChipKind;
 use vgms_synth::chip::ChipCore;
 use vgms_synth::vgm_engine::VgmEngine;
+
+mod common;
 
 /// A core that renders a value derived from its writes, so a file whose
 /// commands never reach a chip is distinguishable from one whose do.
@@ -142,26 +144,6 @@ fn drain(engine: &mut VgmEngine, buffer: &mut [i16], want: u64) -> u64 {
     frames
 }
 
-fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_songs(&path, out);
-        } else if path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .is_some_and(|extension| {
-                extension.eq_ignore_ascii_case("vgm") || extension.eq_ignore_ascii_case("vgz")
-            })
-        {
-            out.push(path);
-        }
-    }
-}
-
 #[test]
 #[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
@@ -169,9 +151,7 @@ fn the_engine_plays_every_corpus_file_for_exactly_its_own_length() {
     // is a setup mistake to report, not a reason to pass green.
     let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
         .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
-    let mut songs = Vec::new();
-    collect_songs(Path::new(&root), &mut songs);
-    songs.sort();
+    let songs = common::collect_songs(Path::new(&root));
     assert!(!songs.is_empty(), "no .vgm/.vgz files under {root}");
 
     const OUTPUT_RATE: u32 = 44_100;

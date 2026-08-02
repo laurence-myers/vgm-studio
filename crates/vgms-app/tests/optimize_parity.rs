@@ -24,6 +24,8 @@ use std::sync::Arc;
 use vgms_synth::vgm_engine::VgmEngine;
 use vgms_vgmtools::{Options, optimize_vgm};
 
+mod common;
+
 /// The rate both sides render at. Parity is a comparison against ourselves, so
 /// the value only has to be the same on both sides.
 const OUTPUT_RATE: u32 = 44_100;
@@ -57,27 +59,6 @@ fn first_difference(before: &[i16], after: &[i16]) -> Option<usize> {
         .iter()
         .zip(after)
         .position(|(left, right)| left != right)
-}
-
-fn collect(root: &Path, limit: usize, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if out.len() >= limit {
-            return;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            collect(&path, limit, out);
-        } else if path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("vgm") || e.eq_ignore_ascii_case("vgz"))
-        {
-            out.push(path);
-        }
-    }
 }
 
 /// Reads `path` and hands back the plain bytes the optimisers take.
@@ -115,8 +96,7 @@ fn an_optimised_file_renders_to_the_same_samples() {
 
     vgms_app::install_cores();
 
-    let mut paths = Vec::new();
-    collect(&root, limit, &mut paths);
+    let paths = common::collect_songs_capped(&root, limit);
     assert!(!paths.is_empty(), "no VGM files under {}", root.display());
 
     let mut compared = 0usize;
@@ -213,8 +193,7 @@ fn which_chips_the_sample_rom_trim_is_safe_for() {
 
     vgms_app::install_cores();
 
-    let mut paths = Vec::new();
-    collect(&root, limit, &mut paths);
+    let paths = common::collect_songs_capped(&root, limit);
 
     // chip list -> (identical, differing)
     let mut tally: std::collections::BTreeMap<String, (usize, usize)> =
@@ -274,8 +253,7 @@ fn what_holding_the_saa1099_back_is_buying() {
     );
     vgms_app::install_cores();
 
-    let mut paths = Vec::new();
-    collect(&root, 400, &mut paths);
+    let paths = common::collect_songs_capped(&root, 400);
 
     let mut seen = 0usize;
     let mut identical = 0usize;

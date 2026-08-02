@@ -16,27 +16,9 @@
 //! It also reports the files the old reader rejected but the VGM model opens,
 //! broken down by why.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-fn collect_songs(root: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_songs(&path, out);
-        } else if matches!(
-            path.extension()
-                .and_then(|e| e.to_str())
-                .map(str::to_ascii_lowercase)
-                .as_deref(),
-            Some("vgm") | Some("vgz")
-        ) {
-            out.push(path);
-        }
-    }
-}
+mod common;
 
 #[test]
 #[ignore = "needs the local corpus via VGMSTUDIO_VGMRIPS_CORPUS"]
@@ -45,9 +27,7 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
     // is a setup mistake to report, not a reason to pass green.
     let root = std::env::var("VGMSTUDIO_VGMRIPS_CORPUS")
         .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test");
-    let mut songs = Vec::new();
-    collect_songs(Path::new(&root), &mut songs);
-    songs.sort();
+    let songs = common::collect_songs(Path::new(&root));
     assert!(!songs.is_empty(), "no .vgm/.vgz files under {root}");
 
     let mut scanned = 0usize;
