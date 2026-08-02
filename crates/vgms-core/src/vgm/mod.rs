@@ -4,6 +4,7 @@ pub mod audit;
 pub mod channels;
 pub mod data;
 pub mod file;
+pub(crate) mod gzip;
 pub mod header;
 pub mod io;
 pub mod projection;

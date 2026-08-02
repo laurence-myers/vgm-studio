@@ -6,10 +6,14 @@
 //! patched, so an unedited round trip reproduces the file exactly -- including
 //! chip clocks, `rate`, and any v1.70 extra header.
 
+#[cfg(test)]
 use std::io::{Read, Write};
 
+#[cfg(test)]
 use flate2::Compression;
+#[cfg(test)]
 use flate2::read::GzDecoder;
+#[cfg(test)]
 use flate2::write::GzEncoder;
 
 use crate::error::{Error, Result};
@@ -77,10 +81,7 @@ pub fn is_gzipped(bytes: &[u8]) -> bool {
 /// declared, or a command in the data stream is unrecognised.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
     if is_gzipped(bytes) {
-        let mut decoded = Vec::new();
-        GzDecoder::new(bytes)
-            .read_to_end(&mut decoded)
-            .map_err(|error| Error::file(format!("Could not decompress the VGZ file: {error}")))?;
+        let decoded = crate::vgm::gzip::gunzip(bytes)?;
         read_uncompressed(name, &decoded)
     } else {
         read_uncompressed(name, bytes)
@@ -168,11 +169,7 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
 /// As [`write`], plus any compression failure.
 pub fn write_gzipped(song: &Song) -> Result<Vec<u8>> {
     let plain = write(song)?;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(&plain)
-        .and_then(|()| encoder.finish())
-        .map_err(|error| Error::file(format!("Could not compress the VGZ file: {error}")))
+    crate::vgm::gzip::gzip(&plain)
 }
 
 /// The header a freshly converted song gets: v1.51, `rate` 1000, data at 0x80.

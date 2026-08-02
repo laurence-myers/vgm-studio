@@ -466,7 +466,7 @@ impl VgmHeader {
 
         let gd3_offset = match u32_at(header, offset::GD3) {
             0 => None,
-            relative => Some(offset::GD3 + relative as usize),
+            relative => Some(widen_offset(offset::GD3, relative)),
         };
 
         let chips = read_chips(header, version);
@@ -583,7 +583,7 @@ impl VgmHeader {
         if self.loop_offset == 0 {
             None
         } else {
-            Some(offset::LOOP_OFFSET + self.loop_offset as usize)
+            Some(widen_offset(offset::LOOP_OFFSET, self.loop_offset))
         }
     }
 
@@ -702,8 +702,19 @@ fn data_start(bytes: &[u8], version: u32) -> Result<usize> {
     reader.seek(offset::DATA_OFFSET)?;
     Ok(match reader.u32_le()? {
         0 => LEGACY_DATA_START,
-        relative => offset::DATA_OFFSET + relative as usize,
+        relative => widen_offset(offset::DATA_OFFSET, relative),
     })
+}
+
+/// Widens an untrusted relative pointer onto its base offset without wrapping.
+///
+/// `relative` is a `u32` straight from the file. On wasm32 a `usize` is also 32
+/// bits, so `base + relative` could wrap to a small in-range value that then
+/// reads the wrong bytes -- the same hazard `io/dro.rs` guards for its pair
+/// count. Saturating instead lands past any real offset, so the bounds check
+/// that always follows (a `.get()`, a `seek`, or a `> len`) rejects it cleanly.
+pub(crate) const fn widen_offset(base: usize, relative: u32) -> usize {
+    base.saturating_add(relative as usize)
 }
 
 /// A `u32` field, or zero if it falls outside the header.
@@ -794,7 +805,7 @@ fn read_extra_header(bytes: &[u8], header: &[u8], version: u32) -> Option<ExtraH
     if relative == 0 {
         return None;
     }
-    let at = offset::EXTRA_HEADER + relative as usize;
+    let at = widen_offset(offset::EXTRA_HEADER, relative);
     match parse_extra_header(bytes, at) {
         Ok(extra) => {
             if version < 0x0000_0170 {
@@ -826,7 +837,7 @@ fn parse_extra_header(bytes: &[u8], at: usize) -> Result<ExtraHeader> {
     // Each offset is relative to its own position: the clock field sits at
     // `at + 4`, the volume field at `at + 8`.
     if let Some(relative) = clocks_at.filter(|&relative| relative != 0) {
-        reader.seek(at + 4 + relative as usize)?;
+        reader.seek(widen_offset(at + 4, relative))?;
         let count = reader.u8()?;
         for _ in 0..count {
             extra.clocks.push(ExtraClock {
@@ -836,7 +847,7 @@ fn parse_extra_header(bytes: &[u8], at: usize) -> Result<ExtraHeader> {
         }
     }
     if let Some(relative) = volumes_at.filter(|&relative| relative != 0) {
-        reader.seek(at + 8 + relative as usize)?;
+        reader.seek(widen_offset(at + 8, relative))?;
         let count = reader.u8()?;
         for _ in 0..count {
             let chip_id = reader.u8()?;

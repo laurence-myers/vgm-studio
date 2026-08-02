@@ -141,6 +141,11 @@ pub enum VgmCommand {
 
 /// The version at which `0x40`-`0x4E` grew from one operand to two.
 const TWO_OPERAND_RESERVED_VERSION: u32 = 0x0000_0160;
+/// The most commands a stream may hold, a hostile-file bound rather than a real
+/// limit. The index costs twelve bytes a command, so this caps it near 768 MiB;
+/// no real rip approaches it (a busy hour of music is a few million commands).
+/// See [`VgmStream::parse`].
+const MAX_COMMANDS: usize = 64 * 1024 * 1024;
 /// `0x00`, which the spec defines as nothing at all -- so in a real file it is
 /// padding, and this reader steps over it. See [`command_size`].
 pub const PADDING: u8 = 0x00;
@@ -611,6 +616,16 @@ impl VgmStream {
             }
             if data[at] == END_OF_DATA {
                 break at;
+            }
+            // The 256 MiB gunzip ceiling bounds the body, but the index built
+            // here amplifies it: `offsets` costs 4 bytes a command and
+            // `wait_prefix` 8, and a `0x00` byte is a one-byte command, so a body
+            // of nothing but `0x00` would be a twelvefold blow-up -- ~3 GB of
+            // index on wasm32's 4 GiB. Cap the command count so that cannot land.
+            if offsets.len() >= MAX_COMMANDS {
+                return Err(Error::file(format!(
+                    "VGM data holds more than {MAX_COMMANDS} commands"
+                )));
             }
             let size = command_size(&data[at..], version)?;
             offsets

@@ -19,17 +19,21 @@
 //! GD3 *before* its data, which cannot round-trip because the rewritten tag
 //! goes at the end; see [`write`].
 
-use std::io::Read;
+#[cfg(test)]
+use std::io::{Read, Write};
 
+#[cfg(test)]
 use flate2::Compression;
+#[cfg(test)]
 use flate2::read::GzDecoder;
+#[cfg(test)]
 use flate2::write::GzEncoder;
 
 use crate::chip_state::{self, ChipState};
 use crate::error::{Error, Result};
 use crate::song::{OplType, Song, slide_index_past_deletion};
 use crate::vgm::data::{Gd3Tag, VgmMeta};
-use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset};
+use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset, widen_offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
 use crate::vgm::projection::{OplProjection, opl_type_of};
 use crate::vgm::stream::{END_OF_DATA, VgmStream};
@@ -695,10 +699,7 @@ impl VgmFile {
 /// malformed.
 pub fn read(name: &str, bytes: &[u8]) -> Result<VgmFile> {
     if is_gzipped(bytes) {
-        let mut decoded = Vec::new();
-        GzDecoder::new(bytes)
-            .read_to_end(&mut decoded)
-            .map_err(|error| Error::file(format!("Could not decompress the VGZ file: {error}")))?;
+        let decoded = crate::vgm::gzip::gunzip(bytes)?;
         read_uncompressed(name, &decoded)
     } else {
         read_uncompressed(name, bytes)
@@ -759,14 +760,8 @@ pub fn write(file: &VgmFile) -> Result<Vec<u8>> {
 /// # Errors
 /// As [`write`], plus any compression failure.
 pub fn write_gzipped(file: &VgmFile) -> Result<Vec<u8>> {
-    use std::io::Write;
-
     let plain = write(file)?;
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(&plain)
-        .and_then(|()| encoder.finish())
-        .map_err(|error| Error::file(format!("Could not compress the VGZ file: {error}")))
+    crate::vgm::gzip::gzip(&plain)
 }
 
 // ---------------------------------------------------------------------------
@@ -780,7 +775,7 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
     // its tags, and a file with junk appended should not swallow the junk.
     let declared_eof = match u32_at(bytes, offset::EOF) {
         0 => bytes.len(),
-        relative => offset::EOF + relative as usize,
+        relative => widen_offset(offset::EOF, relative),
     };
     if declared_eof > bytes.len() {
         log::warn!(
@@ -902,8 +897,14 @@ fn slide_pointer(header: &mut [u8], field: usize, cut: usize, removed: u32) {
     if relative == 0 {
         return;
     }
-    if field + relative as usize > cut {
-        put_u32(header, field, relative - removed);
+    // The target is `field + relative`; only pointers aimed past the cut move.
+    // Widen in `u64` so a corrupt pointer near 4 GiB cannot wrap the comparison
+    // on wasm32, and subtract saturating so one aimed *inside* the removed block
+    // clamps rather than panicking. Both are unreachable through `read`, which
+    // drops such a pointer, but a hand-built file could still carry one.
+    let target = field as u64 + u64::from(relative);
+    if target > cut as u64 {
+        put_u32(header, field, relative.saturating_sub(removed));
     }
 }
 
@@ -1100,8 +1101,6 @@ mod tests {
 
     #[test]
     fn a_vgz_reads_and_writes() {
-        use std::io::Write;
-
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&mega_drive(true)).unwrap();
         let compressed = encoder.finish().unwrap();
