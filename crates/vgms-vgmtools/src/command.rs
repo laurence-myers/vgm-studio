@@ -18,6 +18,12 @@ pub enum ToolId {
     SampleRom,
     /// `optdac` -- collapses long runs of identical YM2612 DAC writes.
     DacRuns,
+    /// `vgm_ptch` -- edits the header in place; used here to strip unwritten
+    /// chips. The odd one out: native-only (there is no web module for it), it
+    /// patches its file rather than writing a separate output, and it declines
+    /// nothing. Its runs are still read the same way, which is why it is a
+    /// `ToolId` at all.
+    Patch,
 }
 
 impl ToolId {
@@ -29,6 +35,7 @@ impl ToolId {
             Self::Compress => "vgm_cmp",
             Self::SampleRom => "vgm_sro",
             Self::DacRuns => "optdac",
+            Self::Patch => "vgm_ptch",
         }
     }
 
@@ -46,6 +53,23 @@ impl ToolId {
     pub const fn declines_with(self, code: i32) -> bool {
         matches!(self, Self::SampleRom) && matches!(code, 2 | 9)
     }
+}
+
+/// The last few lines of a tool's captured output, for a one-line failure
+/// message.
+///
+/// The whole log is worthless in an alert -- `vgm_sro`'s can run to thousands
+/// of region rows -- but its tail carries the error the tool actually reported.
+/// Native reads it from the log file and the web from the module's captured
+/// stdout; both trim it *here* so the two paths cannot show different amounts.
+#[must_use]
+pub fn tail(raw: &str) -> String {
+    let lines: Vec<&str> = raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let start = lines.len().saturating_sub(3);
+    lines[start..].join("; ")
 }
 
 /// Interprets one finished command run as a [`ToolOutcome`].
@@ -149,6 +173,42 @@ mod tests {
         };
         assert!(
             reason.contains("vgm_sro") && reason.contains("Error opening the file!"),
+            "{reason}"
+        );
+    }
+
+    #[test]
+    fn tail_keeps_the_last_three_non_empty_lines() {
+        // The single policy both hosts route through: at most three lines, blank
+        // ones dropped, joined so an alert reads on one line.
+        assert_eq!(tail("a\nb\nc\nd\ne"), "c; d; e");
+        assert_eq!(tail("one\n\ntwo\n \nthree"), "one; two; three");
+        assert_eq!(tail("only"), "only");
+        assert_eq!(tail(""), "");
+        assert_eq!(tail("\n\n   \n"), "");
+    }
+
+    #[test]
+    fn vgm_ptch_declines_nothing_and_reads_like_the_others() {
+        // The native strip path interprets vgm_ptch through this same enum.
+        assert_eq!(ToolId::Patch.name(), "vgm_ptch");
+        assert!(!ToolId::Patch.declines_with(1));
+        assert!(!ToolId::Patch.declines_with(2));
+
+        // Nothing written back (strip maps "patched in place, bytes unchanged" to
+        // no output) is "nothing to gain", not a fault.
+        assert_eq!(
+            command_outcome(ToolId::Patch, 0, None, ""),
+            ToolOutcome::Unchanged
+        );
+        // A non-zero exit is a failure with the tool's last words -- no decline.
+        let ToolOutcome::Failed(reason) =
+            command_outcome(ToolId::Patch, 3, None, "bad -Strip list")
+        else {
+            panic!("vgm_ptch has no decline codes");
+        };
+        assert!(
+            reason.contains("vgm_ptch") && reason.contains("bad -Strip list"),
             "{reason}"
         );
     }

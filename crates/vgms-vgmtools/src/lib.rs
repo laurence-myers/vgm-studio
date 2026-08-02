@@ -137,11 +137,11 @@ pub use strip::{strip_unused_chips, unused_chips};
 /// still reaches `crate::Workspace`, `crate::check_input` and friends.
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     use crate::exe::Tool;
-    use crate::{Optimized, Options, ToolOutcome, Tools, check_input, check_output, run};
+    use crate::{Optimized, Options, ToolOutcome, Tools, check_input, run};
 
     /// Drops chip writes that change nothing -- vgmtools' `vgm_cmp`.
     ///
@@ -219,65 +219,17 @@ mod native {
             return ToolOutcome::Failed(format!("could not stage the file: {error}"));
         }
 
-        match run::run(tool, &input, &output, &log) {
-            Err(reason) => ToolOutcome::Failed(reason),
-            Ok(run::Ended::TimedOut) => ToolOutcome::Failed(format!(
-                "{} did not finish within {}s and was stopped",
-                tool.name(),
-                run::TIMEOUT.as_secs()
-            )),
-            Ok(run::Ended::Exited(code)) => match code {
-                Some(0) => collect(tool, &output, &log),
-                // A refusal is an answer, not a fault: the file is untouched and
-                // still valid, and the reason belongs in the log rather than in
-                // front of the user.
-                Some(code) if tool.declines_with(code) => {
-                    log::debug!("{} left the file alone: {}", tool.name(), run::tail(&log));
-                    ToolOutcome::Unchanged
-                }
-                Some(code) => ToolOutcome::Failed(format!(
-                    "{} exited with {code}{}",
-                    tool.name(),
-                    suffix(&run::tail(&log))
-                )),
-                None => ToolOutcome::Failed(format!("{} was terminated", tool.name())),
-            },
-        }
-    }
-
-    /// Reads back what the tool wrote, if it wrote anything.
-    ///
-    /// No output file is not a failure: all three tools write only when the
-    /// result is smaller than the input, so silence means "nothing to gain".
-    fn collect(tool: Tool, output: &Path, log: &Path) -> ToolOutcome {
-        if !output.exists() {
-            return ToolOutcome::Unchanged;
-        }
-        match std::fs::read(output) {
-            Err(error) => {
+        let ended = run::run(tool, &input, &output, &log);
+        run::outcome(tool.id(), ended, &log, || {
+            // The three pipeline tools write `out.vgm` only when the result is
+            // smaller than the input, so no output file means "nothing to gain".
+            if !output.exists() {
+                return Ok(None);
+            }
+            std::fs::read(&output).map(Some).map_err(|error| {
                 ToolOutcome::Failed(format!("could not read {}'s output: {error}", tool.name()))
-            }
-            Ok(bytes) => {
-                // A tool that exits 0 having written something that is not a VGM
-                // has gone wrong in a way the caller must not propagate to disk.
-                if let Err(reason) = check_output(&bytes) {
-                    return ToolOutcome::Failed(format!(
-                        "{} wrote {reason}{}",
-                        tool.name(),
-                        suffix(&run::tail(log))
-                    ));
-                }
-                ToolOutcome::Smaller(bytes)
-            }
-        }
-    }
-
-    fn suffix(tail: &str) -> String {
-        if tail.is_empty() {
-            String::new()
-        } else {
-            format!(" ({tail})")
-        }
+            })
+        })
     }
 
     /// A private directory for one run, removed when the run ends.

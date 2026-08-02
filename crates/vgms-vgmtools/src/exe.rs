@@ -42,29 +42,24 @@ mod embedded {
 }
 
 impl Tool {
-    /// The name this tool is known by upstream -- also what it is called on
-    /// disk and in log lines.
-    pub(crate) const fn name(self) -> &'static str {
+    /// This tool's run-agnostic identity: the [`ToolId`](crate::command::ToolId)
+    /// the shared interpretation in [`command`](crate::command) is keyed on. The
+    /// two enums exist because a native `Tool` also knows how to *unpack and
+    /// spawn itself*, which a web module does not.
+    pub(crate) const fn id(self) -> crate::command::ToolId {
+        use crate::command::ToolId;
         match self {
-            Self::Compress => "vgm_cmp",
-            Self::SampleRom => "vgm_sro",
-            Self::DacRuns => "optdac",
-            Self::Patch => "vgm_ptch",
+            Self::Compress => ToolId::Compress,
+            Self::SampleRom => ToolId::SampleRom,
+            Self::DacRuns => ToolId::DacRuns,
+            Self::Patch => ToolId::Patch,
         }
     }
 
-    /// Whether `code` is this tool's way of saying "there is nothing here for
-    /// me", as opposed to "I broke" -- the shared rule in
-    /// [`ToolId::declines_with`](crate::command::ToolId::declines_with),
-    /// which the wasm hosts apply too. `vgm_ptch` is not a pipeline command
-    /// and declines nothing.
-    pub(crate) const fn declines_with(self, code: i32) -> bool {
-        match self {
-            Self::Compress => crate::command::ToolId::Compress.declines_with(code),
-            Self::SampleRom => crate::command::ToolId::SampleRom.declines_with(code),
-            Self::DacRuns => crate::command::ToolId::DacRuns.declines_with(code),
-            Self::Patch => false,
-        }
+    /// The name this tool is known by upstream -- also what it is called on
+    /// disk and in log lines.
+    pub(crate) const fn name(self) -> &'static str {
+        self.id().name()
     }
 
     const fn bytes(self) -> &'static [u8] {

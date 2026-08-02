@@ -13,8 +13,9 @@
 import { WASI, File, PreopenDirectory, ConsoleStdout } from "./wasi-shim/index.js";
 
 // Runs `module` as a process over `input` (the bytes of in.vgm). Returns
-// { code, output, tail }: the exit code, the bytes of out.vgm (null if the tool
-// wrote nothing), and the last non-empty line it printed (for error messages).
+// { code, output, log }: the exit code, the bytes of out.vgm (null if the tool
+// wrote nothing), and the recent lines it printed -- untrimmed, so the Rust side
+// (`command::tail`) can reduce them by the same policy as the native path.
 export function runTool(module, name, input) {
   const lines = [];
   const collect = ConsoleStdout.lineBuffered((line) => {
@@ -33,6 +34,6 @@ export function runTool(module, name, input) {
 
   const entry = preopen.dir.contents.get("out.vgm");
   const output = entry ? entry.data : null;
-  const tail = lines.filter((l) => l.trim().length > 0).pop() ?? "";
-  return { code, output, tail };
+  const log = lines.join("\n");
+  return { code, output, log };
 }

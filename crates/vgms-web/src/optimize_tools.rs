@@ -82,12 +82,14 @@ impl WebTools {
             .ok()
             .and_then(|v| v.dyn_into::<Uint8Array>().ok())
             .map(|bytes| bytes.to_vec());
-        let tail = Reflect::get(&result, &JsValue::from_str("tail"))
+        // The host hands back the recent lines untrimmed; the same `command::tail`
+        // the native path applies reduces them, so both show the same amount.
+        let log = Reflect::get(&result, &JsValue::from_str("log"))
             .ok()
-            .and_then(|v| v.as_string())
+            .and_then(|value| value.as_string())
             .unwrap_or_default();
 
-        command_outcome(tool, code, output, &tail)
+        command_outcome(tool, code, output, &vgms_vgmtools::command::tail(&log))
     }
 }
 

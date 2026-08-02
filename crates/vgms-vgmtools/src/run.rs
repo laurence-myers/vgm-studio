@@ -23,6 +23,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::ToolOutcome;
+use crate::command::{self, ToolId};
 use crate::exe::Tool;
 
 /// How long any one file gets before the run is treated as hung.
@@ -103,18 +105,49 @@ pub(crate) fn run_args(tool: Tool, args: &[&std::ffi::OsStr], log: &Path) -> Res
     }
 }
 
-/// The last few lines the tool printed, for a failure message.
-///
-/// The whole log is worthless in an alert -- `vgm_sro`'s can run to thousands
-/// of region rows -- but its tail carries the error the tool actually reported.
+/// The last few lines the tool printed, for a failure message -- read from the
+/// log file and trimmed by [`command::tail`], the same policy the web applies to
+/// its captured stdout.
 pub(crate) fn tail(log: &Path) -> String {
-    let Ok(text) = std::fs::read_to_string(log) else {
-        return String::new();
-    };
-    let lines: Vec<&str> = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    let start = lines.len().saturating_sub(3);
-    lines[start..].join("; ")
+    std::fs::read_to_string(log)
+        .map(|text| command::tail(&text))
+        .unwrap_or_default()
+}
+
+/// Turns a finished native run into a [`ToolOutcome`].
+///
+/// The harness-level endings -- a spawn error, the deadline, a killing signal --
+/// are native-only and decided here. The exit-code interpretation defers to
+/// [`command_outcome`](command::command_outcome), so the desktop path cannot
+/// drift from the wasm hosts on what a code means. `read_output` is called only
+/// for a clean exit and hands back the bytes the tool produced (`None` when it
+/// produced nothing, or nothing that differs), or a failure of its own reading.
+pub(crate) fn outcome(
+    id: ToolId,
+    ended: Result<Ended, String>,
+    log: &Path,
+    read_output: impl FnOnce() -> Result<Option<Vec<u8>>, ToolOutcome>,
+) -> ToolOutcome {
+    match ended {
+        Err(reason) => ToolOutcome::Failed(reason),
+        Ok(Ended::TimedOut) => ToolOutcome::Failed(format!(
+            "{} did not finish within {}s and was stopped",
+            id.name(),
+            TIMEOUT.as_secs()
+        )),
+        Ok(Ended::Exited(None)) => ToolOutcome::Failed(format!("{} was terminated", id.name())),
+        Ok(Ended::Exited(Some(0))) => match read_output() {
+            Ok(output) => command::command_outcome(id, 0, output, &tail(log)),
+            Err(failed) => failed,
+        },
+        Ok(Ended::Exited(Some(code))) => {
+            let tail = tail(log);
+            // A decline (the file left untouched and valid) is logged rather than
+            // shown; `command_outcome` turns it into `Unchanged`.
+            if id.declines_with(code) {
+                log::debug!("{} left the file alone: {tail}", id.name());
+            }
+            command::command_outcome(id, code, None, &tail)
+        }
+    }
 }

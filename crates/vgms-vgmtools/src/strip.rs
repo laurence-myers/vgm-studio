@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 
 use vgms_core::vgm::{ChipKind, VgmCommand};
 
+use crate::command::ToolId;
 use crate::exe::Tool;
 use crate::{ToolOutcome, Workspace, check_input, run};
 
@@ -154,27 +155,15 @@ pub fn strip_unused_chips(vgm: &[u8]) -> ToolOutcome {
         work.as_os_str(),
     ];
 
-    match run::run_args(Tool::Patch, &args, &log) {
-        Err(reason) => ToolOutcome::Failed(reason),
-        Ok(run::Ended::TimedOut) => ToolOutcome::Failed(format!(
-            "vgm_ptch did not finish within {}s and was stopped",
-            run::TIMEOUT.as_secs()
-        )),
-        Ok(run::Ended::Exited(Some(0))) => match std::fs::read(&work) {
-            Err(error) => ToolOutcome::Failed(format!("could not read vgm_ptch's output: {error}")),
-            Ok(bytes) => {
-                if bytes.len() == vgm.len() && bytes == vgm {
-                    ToolOutcome::Unchanged
-                } else if let Err(reason) = crate::check_output(&bytes) {
-                    ToolOutcome::Failed(format!("vgm_ptch wrote {reason}"))
-                } else {
-                    ToolOutcome::Smaller(bytes)
-                }
-            }
-        },
-        Ok(run::Ended::Exited(Some(code))) => {
-            ToolOutcome::Failed(format!("vgm_ptch exited with {code} ({})", run::tail(&log)))
-        }
-        Ok(run::Ended::Exited(None)) => ToolOutcome::Failed("vgm_ptch was terminated".to_owned()),
-    }
+    let ended = run::run_args(Tool::Patch, &args, &log);
+    run::outcome(ToolId::Patch, ended, &log, || {
+        // vgm_ptch patches in place, so `work` always exists; output identical to
+        // the input means it found nothing to strip, which reads back as "no
+        // gain" -- exactly what a missing output file means for the other tools.
+        std::fs::read(&work)
+            .map(|bytes| (bytes.as_slice() != vgm).then_some(bytes))
+            .map_err(|error| {
+                ToolOutcome::Failed(format!("could not read vgm_ptch's output: {error}"))
+            })
+    })
 }
