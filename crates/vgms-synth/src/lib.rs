@@ -11,6 +11,7 @@
 pub(crate) mod balance;
 pub mod banks;
 pub mod capture;
+pub mod channel_gate;
 pub mod chip;
 pub mod chip_mix;
 pub mod credits;
@@ -32,6 +33,7 @@ pub mod write_queue;
 
 pub use banks::{Banks, BlockKind};
 pub use capture::capture;
+pub use channel_gate::{ChannelGate, GateAction};
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_realtime, playability};
 pub use chip_mix::{ChipMuting, ChipPanning};
 pub use credits::{CoreCredit, credits, credits_text};
