@@ -196,6 +196,9 @@ fn every_split_channel_is_unchanged() {
                 bit_depth: BIT_DEPTH,
                 ..AudioConfig::default()
             },
+            panning: Panning::default(),
+            boost: 1.0,
+            skip_muted: None,
             core_choices: Default::default(),
         },
         &mut |_| {},

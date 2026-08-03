@@ -35,6 +35,11 @@ pub struct Args {
     /// This split only -- vgmstudio.ini is left untouched.
     #[arg(long = "core", value_name = "SLOT=NAME", value_parser = crate::cli::parse_core_choice)]
     pub core: Vec<(String, String)>,
+    /// Volume boost multiplier for each WAV stem, applied through the same
+    /// limiter a whole-song render uses. Ignored by `--song`. Without it the
+    /// stems are rendered at the un-boosted level.
+    #[arg(short = 'b', long = "boost")]
+    pub boost: Option<f32>,
 }
 
 /// Splits `args.input`, writing one file per used channel beside it.
@@ -46,7 +51,16 @@ pub fn run(args: &Args) -> Result<()> {
     let song = read_any_song_from_path(&args.input)?;
     println!("{}", song.pretty_string());
 
-    let config = load_config();
+    let mut config = load_config();
+    if let Some(boost) = args.boost {
+        config.audio.boost = boost;
+        // Reuse the config's 1..=16 range check for the CLI override.
+        config
+            .validate()
+            .with_context(|| format!("invalid --boost {boost}"))?;
+    }
+    // A split is faithful unless an explicit --boost is given, like `render`.
+    let boost = args.boost.unwrap_or(1.0);
     let frequency = config.audio.frequency;
     // Any `--core slot=name` picks apply to this split only, on this thread; an
     // empty map (no flag) renders exactly as the configured cores.
@@ -65,6 +79,11 @@ pub fn run(args: &Args) -> Result<()> {
                 },
                 isolate_percussion: args.isolate_percussion,
                 audio: config.audio,
+                // The CLI has no live mixer, so the pan/skip-muted opt-ins stay
+                // GUI-only (neutral here); boost rides `-b/--boost`.
+                panning: vgms_synth::Panning::default(),
+                boost,
+                skip_muted: None,
                 core_choices: choices,
             };
             vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
@@ -109,6 +128,9 @@ pub fn run(args: &Args) -> Result<()> {
                 format,
                 audio: config.audio,
                 resampling,
+                panning: vgms_synth::ChipPanning::new(),
+                boost,
+                skip_muted: None,
                 core_choices: choices,
             };
             vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {

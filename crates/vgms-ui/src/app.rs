@@ -4292,6 +4292,11 @@ impl VgmStudioApp {
                 format,
                 isolate_percussion,
                 audio: self.config.audio.clone(),
+                // The mix opt-ins default to neutral; the Split dialog wires them
+                // in a follow-up (rc-2b).
+                panning: Panning::default(),
+                boost: 1.0,
+                skip_muted: None,
                 core_choices,
             },
         });
@@ -4386,6 +4391,11 @@ impl VgmStudioApp {
                             format,
                             audio: self.config.audio.clone(),
                             resampling: self.resample_mode(),
+                            // Neutral until the Split dialog wires the opt-ins
+                            // (rc-2b).
+                            panning: ChipPanning::new(),
+                            boost: 1.0,
+                            skip_muted: None,
                             core_choices,
                         },
                     },

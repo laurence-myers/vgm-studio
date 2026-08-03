@@ -98,6 +98,9 @@ fn song_stem(file: &Arc<VgmFile>, channel: usize) -> Arc<VgmFile> {
         format: SplitFormat::Song,
         audio: AudioConfig::default(),
         resampling: ResampleMode::default(),
+        panning: vgms_synth::ChipPanning::new(),
+        boost: 1.0,
+        skip_muted: None,
         core_choices: CoreChoices::new(),
     };
     let outputs = split_vgm_cancellable(file, &options, &mut |_| {}, &mut |_, _| {}, &mut || true)

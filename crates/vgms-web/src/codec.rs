@@ -426,6 +426,15 @@ fn write_split_options(writer: &mut Writer, options: &SplitOptions) {
     });
     writer.bool(options.isolate_percussion);
     write_config(writer, &options.audio);
+    write_panning(writer, options.panning);
+    writer.f32(options.boost);
+    match options.skip_muted {
+        Some(muting) => {
+            writer.bool(true);
+            write_muting(writer, muting);
+        }
+        None => writer.bool(false),
+    }
     write_core_choices(writer, &options.core_choices);
 }
 
@@ -439,6 +448,13 @@ fn read_split_options(reader: &mut Reader) -> Result<SplitOptions> {
         format,
         isolate_percussion: reader.bool("split.isolate")?,
         audio: read_config(reader)?,
+        panning: read_panning(reader)?,
+        boost: reader.f32("split.boost")?,
+        skip_muted: if reader.bool("split.skip_muted")? {
+            Some(read_muting(reader)?)
+        } else {
+            None
+        },
         core_choices: read_core_choices(reader)?,
     })
 }
@@ -450,6 +466,15 @@ fn write_vgm_split_options(writer: &mut Writer, options: &VgmSplitOptions) {
     });
     write_config(writer, &options.audio);
     write_resample(writer, options.resampling);
+    write_chip_panning(writer, &options.panning);
+    writer.f32(options.boost);
+    match &options.skip_muted {
+        Some(muting) => {
+            writer.bool(true);
+            write_chip_muting(writer, muting);
+        }
+        None => writer.bool(false),
+    }
     write_core_choices(writer, &options.core_choices);
 }
 
@@ -463,6 +488,13 @@ fn read_vgm_split_options(reader: &mut Reader) -> Result<VgmSplitOptions> {
         format,
         audio: read_config(reader)?,
         resampling: read_resample(reader)?,
+        panning: read_chip_panning(reader)?,
+        boost: reader.f32("vgm-split.boost")?,
+        skip_muted: if reader.bool("vgm-split.skip_muted")? {
+            Some(read_chip_muting(reader)?)
+        } else {
+            None
+        },
         core_choices: read_core_choices(reader)?,
     })
 }
@@ -1158,6 +1190,11 @@ mod tests {
                         format: SplitFormat::Song,
                         isolate_percussion: true,
                         audio: sample_config(),
+                        // Non-neutral mix opt-ins, so their codec paths carry real
+                        // data across the wire.
+                        panning: Panning::default(),
+                        boost: 2.5,
+                        skip_muted: Some(Muting::silent()),
                         core_choices: sample_core_choices(),
                     },
                 },
@@ -1171,6 +1208,9 @@ mod tests {
                         format: SplitFormat::Song,
                         audio: sample_config(),
                         resampling: ResampleMode::Linear,
+                        panning: sample_vgm_mix().panning,
+                        boost: 3.0,
+                        skip_muted: Some(sample_vgm_mix().muting),
                         core_choices: CoreChoices::new(),
                     },
                 },
@@ -1258,6 +1298,9 @@ mod tests {
                     format: SplitFormat::Wav,
                     audio: original.clone(),
                     resampling: ResampleMode::Sinc,
+                    panning: ChipPanning::new(),
+                    boost: 1.0,
+                    skip_muted: None,
                     core_choices: CoreChoices::new(),
                 },
             },

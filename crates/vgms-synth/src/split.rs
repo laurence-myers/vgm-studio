@@ -16,7 +16,7 @@ use crate::channel_gate::ChannelGate;
 use crate::registry::{self, CoreRegistry};
 use crate::resample::ResampleMode;
 use crate::{
-    ChipMuting, CoreChoices, Muting, RenderMix, VgmRenderMix, capture,
+    ChipMuting, ChipPanning, CoreChoices, Muting, Panning, RenderMix, VgmRenderMix, capture,
     render_vgm_wav_mixed_cancellable, render_wav_cancellable,
 };
 
@@ -56,6 +56,19 @@ pub struct SplitOptions {
     pub format: SplitFormat,
     pub isolate_percussion: bool,
     pub audio: AudioConfig,
+    /// The panning applied to each rendered stem (`SplitFormat::Wav` only), so a
+    /// stem is placed exactly as its channel sits in the full mix. The song
+    /// format ignores it (a DRO/VGM stem carries raw registers; pan is
+    /// render-time).
+    pub panning: Panning,
+    /// The boost applied to each rendered stem (`SplitFormat::Wav` only), through
+    /// the same limiter a whole-song render uses. `1.0` is bit-transparent. The
+    /// song format ignores it.
+    pub boost: f32,
+    /// When `Some`, channels this muting silences are excluded from the output
+    /// set (decision 9): a live mute means "do not emit a stem for it", since the
+    /// split owns the per-channel solo masks. `None` splits every used channel.
+    pub skip_muted: Option<Muting>,
     /// The per-render core choices to build each channel's engine with (slot
     /// slug -> core short-name), seeded from Settings but never persisted. The
     /// split functions do not read it; the caller applies it with
@@ -122,6 +135,21 @@ pub fn split_cancellable(
         } else {
             Bank::Low
         };
+        // Skip a channel the user has muted (decision 9): a live mute excludes it
+        // from the output set. A percussion register is skipped only when *every*
+        // drum is muted -- a partly-muted one still splits (per drum, or whole).
+        if let Some(muting) = &options.skip_muted {
+            let reg = (channel & 0xFF) as u8;
+            let all_muted = if reg == 0xBD {
+                muting.percussion_raw()[usize::from(bank.index())] & 0x1F == 0
+            } else {
+                !muting.is_channel_audible(bank, reg)
+            };
+            if all_muted {
+                on_skip(channel);
+                continue;
+            }
+        }
         let bank_num = channel >> 8;
         let channel_num = (channel & 0xFF) - 0xAF; // 0xB0 -> 1, 0xB8 -> 9, 0xBD -> 14
 
@@ -177,6 +205,14 @@ fn split_percussion(
         if !usage.percussion_used(key) {
             continue;
         }
+        // Skip a drum the user has muted, like the melodic skip above.
+        if options
+            .skip_muted
+            .as_ref()
+            .is_some_and(|m| m.percussion_raw()[usize::from(bank.index())] & mask == 0)
+        {
+            continue;
+        }
         let mut muting = Muting::silent();
         muting.set_percussion(bank, 0xE0 | mask); // keep control bits, one drum
         let base = format!("{}.{}.14.{}", song.name, bank_num, name);
@@ -201,9 +237,11 @@ fn render_one(
 ) -> Result<Option<SplitOutput>> {
     Ok(match options.format {
         SplitFormat::Wav => {
+            // Pan and boost apply to the stem as to a whole-song render.
             let mix = RenderMix {
                 muting,
-                ..RenderMix::default()
+                panning: options.panning,
+                boost: options.boost,
             };
             let rendered = render_wav_cancellable(
                 song,
@@ -244,6 +282,20 @@ pub struct VgmSplitOptions {
     pub format: SplitFormat,
     pub audio: AudioConfig,
     pub resampling: ResampleMode,
+    /// The panning applied to each rendered stem (`SplitFormat::Wav` only), so a
+    /// stem is placed exactly as its channel sits in the full mix. Neutral by
+    /// default -- the split owns the mute mask, not the pan. Ignored by the song
+    /// format (a VGM stem carries raw commands; pan is render-time).
+    pub panning: ChipPanning,
+    /// The boost applied to each rendered stem (`SplitFormat::Wav` only), through
+    /// the same limiter a whole-song render uses. `1.0` is bit-transparent.
+    /// Ignored by the song format.
+    pub boost: f32,
+    /// When `Some`, channels muted in this mask are excluded from the output set
+    /// (decision 9): the split owns the per-channel *solo* masks, so a "mute" for
+    /// a split means "do not emit a stem for it". `None` splits every channel.
+    /// Applies to both formats.
+    pub skip_muted: Option<ChipMuting>,
     /// As on [`SplitOptions`]: the per-render core choices, seeded from Settings
     /// and never persisted. Applied by the caller with
     /// [`with_render_choices`](crate::with_render_choices), so an empty map
@@ -344,6 +396,17 @@ pub fn split_vgm_cancellable(
                     on_skip(&name);
                     continue;
                 }
+                // The user muted this channel: exclude it from the output set
+                // (decision 9). The split owns the per-channel solo masks, so a
+                // live mute means "do not emit a stem", not "silence within one".
+                if options
+                    .skip_muted
+                    .as_ref()
+                    .is_some_and(|m| m.mask_for(chip.kind, instance) & (1u32 << index) != 0)
+                {
+                    on_skip(&name);
+                    continue;
+                }
                 if !keep_going() {
                     return Ok(None);
                 }
@@ -416,9 +479,11 @@ fn render_channel_wav(
     }
     muting.set(kind, instance, !(1u32 << index));
 
+    // Pan and boost apply to the stem exactly as to a whole-song render.
     let mix = VgmRenderMix {
         muting,
-        ..VgmRenderMix::default()
+        panning: options.panning.clone(),
+        boost: options.boost,
     };
     render_vgm_wav_mixed_cancellable(
         Arc::clone(file),
@@ -538,6 +603,9 @@ mod vgm_split_tests {
             format: SplitFormat::Wav,
             audio: AudioConfig::default(),
             resampling: ResampleMode::default(),
+            panning: ChipPanning::new(),
+            boost: 1.0,
+            skip_muted: None,
             core_choices: CoreChoices::new(),
         }
     }
@@ -887,6 +955,41 @@ mod vgm_split_tests {
         );
     }
 
+    /// A channel the user has live-muted is excluded from the output set
+    /// (decision 9): the split does not emit a stem for it.
+    #[test]
+    fn a_song_split_skips_muted_channels() {
+        let file = mega_ish_vgm();
+        let mut skip = ChipMuting::new();
+        skip.set(ChipKind::Sn76489, 0, 1 << 0); // mute SN tone 1
+        let options = VgmSplitOptions {
+            skip_muted: Some(skip),
+            ..song_options()
+        };
+        let mut skipped = Vec::new();
+        let outputs = split_vgm_cancellable(
+            &file,
+            &options,
+            &mut |name| skipped.push(name.to_owned()),
+            &mut |_, _| {},
+            &mut || true,
+        )
+        .unwrap()
+        .expect("not cancelled");
+
+        // SN tone 1 is excluded; the other three SN channels and seven YM2612
+        // channels remain.
+        assert_eq!(outputs.len(), 10, "one fewer than the unmuted 11");
+        assert!(
+            !outputs.iter().any(|o| o.name.contains("sn76489.00-")),
+            "the muted SN tone 1 has no stem"
+        );
+        assert!(
+            skipped.iter().any(|n| n.contains("sn76489.00-")),
+            "and it is reported as skipped: {skipped:?}"
+        );
+    }
+
     #[test]
     fn a_song_split_carries_the_loop() {
         let mut file = (*mega_ish_vgm()).clone();
@@ -938,8 +1041,44 @@ mod tests {
             format,
             isolate_percussion,
             audio: AudioConfig::default(),
+            panning: Panning::default(),
+            boost: 1.0,
+            skip_muted: None,
             core_choices: CoreChoices::new(),
         }
+    }
+
+    /// A live-muted OPL channel is excluded from the split's output set
+    /// (decision 9), and reported as skipped.
+    #[test]
+    fn an_opl_split_skips_a_muted_channel() {
+        let song = small_song();
+        let mut skip = Muting::all();
+        skip.mute_channel(Bank::Low, 0xB0); // mute channel 0
+        let options = SplitOptions {
+            skip_muted: Some(skip),
+            ..options(SplitFormat::Song, false)
+        };
+        let mut skipped = Vec::new();
+        let outputs = split_cancellable(
+            &song,
+            &options,
+            &mut |channel| skipped.push(channel),
+            &mut |_, _| {},
+            &mut || true,
+        )
+        .unwrap()
+        .expect("not cancelled");
+
+        assert!(
+            !outputs.iter().any(|o| o.name.contains(".0.01.")),
+            "the muted channel 0 has no stem"
+        );
+        assert!(
+            outputs.iter().any(|o| o.name.contains(".0.02.")),
+            "channel 1 still splits"
+        );
+        assert!(skipped.contains(&0xB0), "channel 0 is reported skipped");
     }
 
     #[test]

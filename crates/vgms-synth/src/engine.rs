@@ -203,6 +203,15 @@ impl Muting {
     fn channel_allowed(&self, bank: Bank, channel: u8) -> bool {
         self.channels & Self::channel_bit(bank, channel) != 0
     }
+
+    /// Whether channel register `channel` (`0xB0..=0xB8`) on `bank` is audible.
+    ///
+    /// What the channel splitter asks to exclude a channel the user has muted
+    /// from a split's output set (decision 9).
+    #[must_use]
+    pub fn is_channel_audible(&self, bank: Bank, channel: u8) -> bool {
+        self.channel_allowed(bank, channel)
+    }
 }
 
 impl Default for Muting {
