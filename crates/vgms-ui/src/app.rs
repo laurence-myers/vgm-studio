@@ -3763,16 +3763,10 @@ impl VgmStudioApp {
     /// cancel-on-resubmit means clicking Search again just restarts it.
     fn start_loop_search(&mut self, min_len_commands: usize) {
         // Either representation: a loop is a repeated block, which is not an
-        // OPL idea.
-        let source = match (self.editor.snapshot(), self.editor.vgm()) {
-            (Some(song), _) => crate::tasks::LoopSearchSource::Opl(song),
-            (None, Some(file)) => {
-                crate::tasks::LoopSearchSource::Vgm(std::sync::Arc::new(file.clone()))
-            }
-            (None, None) => {
-                self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
-                return;
-            }
+        // OPL idea. The cached doc source hands over the file without a clone.
+        let Some(source) = self.editor.doc_source() else {
+            self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
+            return;
         };
         self.tasks.submit(
             TaskRequest::LoopSearch {
@@ -4186,13 +4180,9 @@ impl VgmStudioApp {
     /// Each option is opt-in, so with none of them this is exactly what
     /// `vgmstudio render` writes.
     fn render_to_wav(&mut self, use_toggles: bool, use_panning: bool, boost: f32) {
-        let source = match (self.editor.snapshot(), self.editor.vgm()) {
-            (Some(song), _) => crate::tasks::WavSource::Opl(song),
-            (None, Some(file)) => crate::tasks::WavSource::Vgm(std::sync::Arc::new(file.clone())),
-            (None, None) => {
-                self.require_document();
-                return;
-            }
+        let Some(source) = self.editor.doc_source() else {
+            self.require_document();
+            return;
         };
         // One render at a time: a second would finish into the same save queue,
         // and the first's dialog is already in the user's way.
@@ -4255,10 +4245,8 @@ impl VgmStudioApp {
         // non-canonical clock would split at the wrong pitch and tempo. The VGM
         // stack keeps the source header verbatim. A DRO has no `vgm()` and falls
         // through to the OPL path.
-        match (self.editor.vgm(), self.editor.snapshot()) {
-            (Some(file), _) => Some(crate::tasks::SplitSource::Vgm(std::sync::Arc::new(
-                file.clone(),
-            ))),
+        match (self.editor.vgm_arc(), self.editor.snapshot()) {
+            (Some(file), _) => Some(crate::tasks::SplitSource::Vgm(file)),
             (_, Some(song)) => Some(crate::tasks::SplitSource::Opl(song)),
             (None, None) => None,
         }
@@ -4319,17 +4307,18 @@ impl VgmStudioApp {
             PendingSplit::Channels { options } => {
                 // An OPL document splits per OPL channel with its chosen format;
                 // any other VGM splits per chip channel to WAV.
-                let source = match (self.editor.snapshot(), self.editor.vgm()) {
-                    (Some(song), _) => Some(crate::tasks::SplitTaskSource::Opl { song, options }),
-                    (None, Some(file)) => Some(crate::tasks::SplitTaskSource::Vgm {
-                        file: std::sync::Arc::new(file.clone()),
+                let source = self.editor.doc_source().map(|doc| match doc {
+                    crate::tasks::SplitSource::Opl(song) => {
+                        crate::tasks::SplitTaskSource::Opl { song, options }
+                    }
+                    crate::tasks::SplitSource::Vgm(file) => crate::tasks::SplitTaskSource::Vgm {
+                        file,
                         options: vgms_synth::VgmSplitOptions {
                             audio: self.config.audio.clone(),
                             resampling: self.resample_mode(),
                         },
-                    }),
-                    (None, None) => None,
-                };
+                    },
+                });
                 source.map(|source| {
                     (
                         TaskRequest::Split { source },
@@ -4495,13 +4484,9 @@ impl VgmStudioApp {
     }
 
     fn audio_source(&self) -> Option<vgms_synth::AudioSource> {
-        match (self.editor.snapshot(), self.editor.vgm()) {
-            (Some(song), _) => Some(vgms_synth::AudioSource::Opl(song)),
-            (None, Some(file)) => Some(vgms_synth::AudioSource::Vgm(std::sync::Arc::new(
-                file.clone(),
-            ))),
-            (None, None) => None,
-        }
+        // `AudioSource` is `DocSource`; the OPL-first doc source is exactly what
+        // this built by hand, now without cloning the file.
+        self.editor.doc_source()
     }
 
     /// Loads the current song into the audio output if it is not already

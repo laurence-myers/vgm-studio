@@ -54,7 +54,7 @@ impl SplitSongsDialog {
     #[must_use]
     pub fn new(source: SplitSource) -> Self {
         let rate = source.rate();
-        let can_preview = source.can_preview();
+        let can_preview = crate::tasks::can_preview(&source);
         let mut dialog = Self {
             source,
             rate,

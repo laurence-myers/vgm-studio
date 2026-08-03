@@ -171,6 +171,12 @@ pub struct Editor {
     /// `None` for a VGM whose chips are not OPL, which is exactly what makes
     /// the OPL-only features absent for one.
     projection: Option<Arc<Song>>,
+    /// The loaded VGM shared by value, rebuilt with the projection on every edit
+    /// (see [`Self::refresh_vgm_views`]). A `VgmFile` clone copies its command
+    /// index too -- 20 MiB / ~8 ms for a command-dense 4 MiB rip -- so caching it
+    /// once per edit is what lets [`Self::doc_source`] hand it to a background job
+    /// as a reference-count bump rather than a fresh clone every time.
+    vgm_source: Option<Arc<VgmFile>>,
     /// Where the song was loaded from or last saved to. `None` on the web, and
     /// after Convert to VGM -- the converted song has no file yet, so Save
     /// falls through to Save As rather than writing VGM bytes over the
@@ -235,6 +241,30 @@ impl Editor {
     #[must_use]
     pub fn vgm(&self) -> Option<&VgmFile> {
         self.vgm.as_ref()
+    }
+
+    /// The loaded document as a [`DocSource`] -- the one handle every background
+    /// job and the audio backend take, instead of five `match (snapshot, vgm)`
+    /// triads each cloning the file.
+    ///
+    /// OPL-first: a DRO, or an OPL VGM through its projection, hands out its
+    /// `Song` (still what the OPL engine plays); only a non-OPL VGM hands out its
+    /// file. Split and Crop want the file *first*, to keep its header -- they ask
+    /// [`Self::vgm_arc`]. `None` with nothing loaded. The `Vgm` arm is the cached
+    /// `Arc` ([`Self::refresh_vgm_views`]), so either arm is a cheap clone.
+    #[must_use]
+    pub fn doc_source(&self) -> Option<vgms_core::DocSource> {
+        self.snapshot()
+            .map(vgms_core::DocSource::Opl)
+            .or_else(|| self.vgm_source.clone().map(vgms_core::DocSource::Vgm))
+    }
+
+    /// The loaded VGM as the cached `Arc<VgmFile>`, a reference-count bump rather
+    /// than a clone. `None` for a DRO (or nothing). What Split and Crop reach for
+    /// to prefer the file's own header over the OPL projection.
+    #[must_use]
+    pub fn vgm_arc(&self) -> Option<Arc<VgmFile>> {
+        self.vgm_source.clone()
     }
 
     /// The timeline the waveform and the transport read from: the OPL song's
@@ -351,7 +381,7 @@ impl Editor {
     /// behind what the table, the analyser and the synth are reading.
     fn bump_revision(&mut self) {
         self.revision += 1;
-        self.refresh_projection();
+        self.refresh_vgm_views();
         // Rows moved, so what the cache holds against each index is stale. The
         // DRO paths invalidate it themselves as well; doing it here is what
         // covers the edits made through the file.
@@ -368,10 +398,14 @@ impl Editor {
         };
     }
 
-    /// Rebuilds the OPL view of the loaded VGM. Called after every edit that
-    /// touches the stream, and after a load.
-    fn refresh_projection(&mut self) {
+    /// Rebuilds both derived views of the loaded VGM -- the OPL projection and
+    /// the by-value `Arc<VgmFile>` [`Self::doc_source`] hands out -- so neither
+    /// can be one edit behind the file. Called after every edit that touches the
+    /// stream or its metadata, and after a load; both are `None` when no VGM is
+    /// held.
+    fn refresh_vgm_views(&mut self) {
         self.projection = self.vgm.as_ref().and_then(VgmFile::to_song).map(Arc::new);
+        self.vgm_source = self.vgm.as_ref().cloned().map(Arc::new);
     }
 
     // -- loading and saving --------------------------------------------------
@@ -458,7 +492,7 @@ impl Editor {
         self.undo.reset();
         self.markers = RangeMarkers::from_vgm(&file);
         self.vgm = Some(file);
-        self.refresh_projection();
+        self.refresh_vgm_views();
         self.vgm_undo.reset();
         self.path = path;
         self.selection.clear();
@@ -517,20 +551,27 @@ impl Editor {
     /// -- the serialised bytes predate the rename, so the caller must re-save
     /// to get the compression the name promises.
     pub fn record_saved(&mut self, name: String, path: Option<PathBuf>) -> bool {
-        if let Some(file) = self.vgm.as_mut() {
-            let was_vgz = file.name.to_ascii_lowercase().ends_with(".vgz");
-            let is_vgz = name.to_ascii_lowercase().ends_with(".vgz");
-            file.name = name;
+        let is_vgz = name.to_ascii_lowercase().ends_with(".vgz");
+        if self.vgm.is_some() {
+            let was_vgz = {
+                let file = self.vgm.as_mut().expect("just checked is_some");
+                let was = file.name.to_ascii_lowercase().ends_with(".vgz");
+                file.name = name;
+                was
+            };
             if path.is_some() {
                 self.path = path;
             }
+            // The projection and cached handle hold the old name; a rename does
+            // not go through an edit, so refresh them here rather than leaving
+            // `doc_source` to report the pre-Save-As name.
+            self.refresh_vgm_views();
             return was_vgz != is_vgz;
         }
         let Some(song) = self.dro.as_mut() else {
             return false;
         };
         let was_vgz = song.name.to_ascii_lowercase().ends_with(".vgz");
-        let is_vgz = name.to_ascii_lowercase().ends_with(".vgz");
         song.name = name;
         if path.is_some() {
             self.path = path;
@@ -893,7 +934,7 @@ impl Editor {
         file.tag = Some(tag);
         // Not a revision bump: a tag changes nothing the audio or the waveform
         // is rendered from, and bumping would reload both.
-        self.refresh_projection();
+        self.refresh_vgm_views();
         self.metadata_dirty = true;
     }
 
@@ -940,7 +981,7 @@ impl Editor {
         let changed = fields(file) != before;
 
         self.markers = RangeMarkers::from_vgm(file);
-        self.refresh_projection();
+        self.refresh_vgm_views();
         self.metadata_dirty |= changed;
         dropped
     }
@@ -970,7 +1011,7 @@ impl Editor {
         // first of them. Leaving the markers where the user put them would leave
         // the "unapplied" cue lit on a loop that just was.
         self.reset_markers();
-        self.refresh_projection();
+        self.refresh_vgm_views();
         true
     }
 
@@ -1301,6 +1342,40 @@ mod tests {
         let song = editor.song().expect("and it projects to OPL");
         assert_eq!(song.len(), editor.len());
         assert!(editor.capabilities().playable);
+    }
+
+    /// The point of the cache: `doc_source`/`vgm_arc` hand out the same file
+    /// across calls (no clone per call), and a fresh one once an edit rebuilds
+    /// the views -- so a background job can never read one edit behind.
+    #[test]
+    fn the_cached_doc_source_is_shared_and_rebuilt_on_an_edit() {
+        let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
+        let (mut editor, _) = loaded(&vgm);
+
+        let first = editor.vgm_arc().expect("a VGM is loaded");
+        assert!(
+            Arc::ptr_eq(&first, &editor.vgm_arc().unwrap()),
+            "two reads share the cached file, not a fresh clone each"
+        );
+
+        editor.selection.select_only(0);
+        assert!(editor.delete_selection());
+        assert!(
+            !Arc::ptr_eq(&first, &editor.vgm_arc().unwrap()),
+            "an edit rebuilds the cache"
+        );
+    }
+
+    /// A Save As renames the file without going through an edit, so
+    /// `record_saved` must refresh the cached views itself or `doc_source` would
+    /// keep reporting the pre-rename name.
+    #[test]
+    fn a_rename_reaches_the_cached_doc_source() {
+        let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
+        let (mut editor, _) = loaded(&vgm);
+        editor.record_saved("renamed.vgm".to_owned(), None);
+        assert_eq!(editor.doc_source().unwrap().name(), "renamed.vgm");
+        assert_eq!(editor.vgm_arc().unwrap().name, "renamed.vgm");
     }
 
     /// A documented chip's rows get the changed-field description and the

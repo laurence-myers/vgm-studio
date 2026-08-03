@@ -12,9 +12,7 @@ use vgms_core::Song;
 use vgms_core::io::write_song;
 use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::track_file_name;
-use vgms_core::split_songs::{
-    detect_segments, detect_segments_in_vgm, materialise, materialise_vgm,
-};
+use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
     AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmSplitOptions, WaveformBucket,
     measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
@@ -105,37 +103,17 @@ pub enum TaskRequest {
     },
 }
 
-/// What a loop search runs over.
-///
-/// A loop is a block of commands that recurs, and what those commands *mean*
-/// never enters into it -- so the search serves either representation, and only
-/// the key-building differs.
-#[derive(Debug, Clone)]
-pub enum LoopSearchSource {
-    Opl(Arc<Song>),
-    Vgm(Arc<vgms_core::VgmFile>),
-}
+/// What a loop search runs over: the loaded document, either shape. A loop is a
+/// block of commands that recurs, and what those commands *mean* never enters
+/// into it -- so the search serves either representation, and only the
+/// key-building differs.
+pub type LoopSearchSource = vgms_core::DocSource;
 
-/// What a WAV render runs over.
-///
-/// The two engines take different mixes -- an OPL render can mute and pan, a
-/// generic one has no register policy to do it with -- so the choice is made
-/// here rather than inside the renderer.
-#[derive(Debug, Clone)]
-pub enum WavSource {
-    Opl(Arc<Song>),
-    Vgm(Arc<vgms_core::VgmFile>),
-}
-
-impl WavSource {
-    /// The file name the render is offered under.
-    fn name(&self) -> &str {
-        match self {
-            Self::Opl(song) => &song.name,
-            Self::Vgm(file) => &file.name,
-        }
-    }
-}
+/// What a WAV render runs over: the loaded document, either shape. The two
+/// engines take different mixes -- an OPL render can mute and pan, a generic one
+/// has no register policy to do it with -- so the choice is made here rather than
+/// inside the renderer.
+pub type WavSource = vgms_core::DocSource;
 
 /// What a channel split runs over.
 ///
@@ -155,71 +133,34 @@ pub enum SplitTaskSource {
     },
 }
 
-/// What a song split runs over.
+/// What a song split runs over: the loaded document, either shape. Where a
+/// capture goes silent is not an OPL question either, so this serves both. The
+/// dialog holds one too: it re-runs detection on every slider move, and the
+/// export re-runs it once more so the flags line up with what was shown.
 ///
-/// Where a capture goes silent is not an OPL question either, so this serves
-/// both representations. The dialog holds one of these too: it re-runs detection
-/// on every slider move, and the export re-runs it once more so the flags line
-/// up with what was shown.
-#[derive(Debug, Clone)]
-pub enum SplitSource {
-    Opl(Arc<Song>),
-    Vgm(Arc<vgms_core::VgmFile>),
-}
+/// `rate`, `detect` and `stem_and_extension` are on [`vgms_core::DocSource`];
+/// `can_preview` stays here (below), being UI policy about what a core can play.
+pub type SplitSource = vgms_core::DocSource;
 
-impl SplitSource {
-    /// Delay units per second in this capture's native unit: 44100 for a VGM
-    /// (samples), 1000 for a DRO (milliseconds).
-    #[must_use]
-    pub fn rate(&self) -> u32 {
-        match self {
-            Self::Opl(song) => vgms_core::split_songs::native_rate(song),
-            Self::Vgm(_) => vgms_core::util::VGM_SAMPLE_RATE,
-        }
-    }
-
-    /// The songs in the capture at `threshold` native units.
-    #[must_use]
-    pub fn detect(&self, threshold: u32) -> Vec<vgms_core::Segment> {
-        match self {
-            Self::Opl(song) => detect_segments(song, threshold),
-            Self::Vgm(file) => detect_segments_in_vgm(file, threshold),
-        }
-    }
-
-    /// Whether a piece can be auditioned before exporting. Previewing seeks
-    /// playback, which needs something this app can render -- so this tracks
-    /// renderability, not OPL-ness, mirroring `Editor::renderable` exactly (now
-    /// that Split routes OPL VGMs down the `Vgm` arm too). A VGM renders if it
-    /// projects to an OPL stream *or* its chips have a core; an OPL projection
-    /// always plays. Called once at dialog construction, so the projection here
-    /// is not a per-frame cost.
-    #[must_use]
-    pub fn can_preview(&self) -> bool {
-        match self {
-            Self::Opl(_) => true,
-            Self::Vgm(file) => {
-                file.to_song().is_some() || {
-                    let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-                    vgms_synth::playability(&chips).can_play()
-                }
+/// Whether a split piece can be auditioned before exporting. Previewing seeks
+/// playback, which needs something this app can render -- so this tracks
+/// renderability, not OPL-ness, mirroring `Editor::renderable` exactly (Split
+/// routes OPL VGMs down the `Vgm` arm too). A VGM renders if it projects to an
+/// OPL stream *or* its chips have a core; an OPL projection always plays. It is a
+/// free function, not a `DocSource` method, because it needs `vgms-synth` -- core
+/// policy stays in `vgms-core`, UI policy here. Called once at dialog
+/// construction, so the projection it may do is not a per-frame cost.
+#[must_use]
+pub(crate) fn can_preview(source: &vgms_core::DocSource) -> bool {
+    use vgms_core::DocSource;
+    match source {
+        DocSource::Opl(_) => true,
+        DocSource::Vgm(file) => {
+            file.to_song().is_some() || {
+                let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+                vgms_synth::playability(&chips).can_play()
             }
         }
-    }
-
-    /// The file name each piece is numbered against, and its extension.
-    fn stem_and_extension(&self) -> (&str, &'static str) {
-        let (name, extension) = match self {
-            Self::Opl(song) => (
-                song.name.as_str(),
-                if song.is_vgm() { "vgm" } else { "dro" },
-            ),
-            Self::Vgm(file) => (file.name.as_str(), "vgm"),
-        };
-        let stem = name
-            .rsplit_once('.')
-            .map_or(name, |(stem, _extension)| stem);
-        (stem, extension)
     }
 }
 
