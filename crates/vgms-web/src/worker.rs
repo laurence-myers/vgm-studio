@@ -90,9 +90,9 @@ pub fn vgms_web_run_pack_job(
             .ok()
     });
     let optimize: Option<&dyn SongOptimizer> = match &pipeline {
-        None => None,                             // optimise off
-        Some(Some(web)) => Some(web),             // the full vgmtools pipeline
-        Some(None) => Some(&built_in),            // modules failed: built-in pass
+        None => None,                  // optimise off
+        Some(Some(web)) => Some(web),  // the full vgmtools pipeline
+        Some(None) => Some(&built_in), // modules failed: built-in pass
     };
 
     let never_cancelled = || false;

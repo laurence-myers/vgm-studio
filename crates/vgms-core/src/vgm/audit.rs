@@ -157,9 +157,12 @@ pub fn fix(file: &mut VgmFile) -> Vec<HeaderFinding> {
     let fixes_total = findings
         .iter()
         .any(|f| matches!(f, HeaderFinding::TotalSamples { .. }));
-    let fixes_loop = findings
-        .iter()
-        .any(|f| matches!(f, HeaderFinding::LoopSamples { .. } | HeaderFinding::LoopAdrift));
+    let fixes_loop = findings.iter().any(|f| {
+        matches!(
+            f,
+            HeaderFinding::LoopSamples { .. } | HeaderFinding::LoopAdrift
+        )
+    });
     let fixes_version = findings
         .iter()
         .any(|f| matches!(f, HeaderFinding::VersionUnderclaimed { .. }));
@@ -185,9 +188,7 @@ pub fn fix(file: &mut VgmFile) -> Vec<HeaderFinding> {
     // The version last, computed from the file as it now stands: a structural
     // fix can remove the very command that was holding the version up. Only
     // ever raised -- lowering one is a tidy-up nobody asked for here.
-    if fixes_version
-        && let Some(stream) = file.stream()
-    {
+    if fixes_version && let Some(stream) = file.stream() {
         let needed = crate::vgm::version::content_version(&file.header, Some(stream));
         if file.header.version() < needed {
             file.header.set_version(needed);
@@ -328,7 +329,11 @@ mod tests {
         );
 
         fix(&mut file);
-        assert_eq!(file.header.total_samples(), 10_735, "the flagged total is fixed");
+        assert_eq!(
+            file.header.total_samples(),
+            10_735,
+            "the flagged total is fixed"
+        );
         assert_eq!(
             file.header.loop_samples(),
             Some(10_000),

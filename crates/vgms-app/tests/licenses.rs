@@ -59,7 +59,9 @@ fn every_crate_is_named_in_the_licence_split() {
             .unwrap_or_else(|| panic!("{name}/Cargo.toml declares no license field"));
         let documented = documented_license(&name);
         if declared != documented {
-            mismatched.push(format!("{name}: manifest {declared:?}, split says {documented:?}"));
+            mismatched.push(format!(
+                "{name}: manifest {declared:?}, split says {documented:?}"
+            ));
         }
     }
     missing.sort();

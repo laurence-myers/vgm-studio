@@ -369,8 +369,7 @@ impl VgmFile {
 
         let moved =
             loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
-        let moved_end =
-            loop_end.and_then(|end| slide_index_past_deletion(end, &sorted, surviving));
+        let moved_end = loop_end.and_then(|end| slide_index_past_deletion(end, &sorted, surviving));
         // Deleting the entire loop body leaves `moved == moved_end` -- a
         // zero-sample loop, which `repatch_header` clears.
         self.repatch_header(moved, moved_end, total);

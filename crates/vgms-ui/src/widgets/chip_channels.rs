@@ -377,7 +377,11 @@ mod tests {
     fn the_pan_extremes_reach_full_left_and_full_right() {
         assert_eq!(pan_to_i16(0x80), 0, "centre");
         assert_eq!(pan_to_i16(0x00), -0x100, "hard left is full -0x100");
-        assert_eq!(pan_to_i16(0xFF), 0x100, "hard right is full +0x100, not 254");
+        assert_eq!(
+            pan_to_i16(0xFF),
+            0x100,
+            "hard right is full +0x100, not 254"
+        );
     }
 
     #[test]

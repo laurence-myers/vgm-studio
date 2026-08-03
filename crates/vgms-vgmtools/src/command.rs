@@ -64,10 +64,7 @@ impl ToolId {
 /// stdout; both trim it *here* so the two paths cannot show different amounts.
 #[must_use]
 pub fn tail(raw: &str) -> String {
-    let lines: Vec<&str> = raw
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
+    let lines: Vec<&str> = raw.lines().filter(|line| !line.trim().is_empty()).collect();
     let start = lines.len().saturating_sub(3);
     lines[start..].join("; ")
 }
@@ -97,15 +94,17 @@ pub fn command_outcome(
             None => ToolOutcome::Unchanged,
             Some(bytes) => match crate::check_output(&bytes) {
                 Ok(()) => ToolOutcome::Smaller(bytes),
-                Err(reason) => ToolOutcome::Failed(format!(
-                    "{} wrote {reason}{}",
-                    tool.name(),
-                    suffix(tail)
-                )),
+                Err(reason) => {
+                    ToolOutcome::Failed(format!("{} wrote {reason}{}", tool.name(), suffix(tail)))
+                }
             },
         },
         code if tool.declines_with(code) => ToolOutcome::Unchanged,
-        code => ToolOutcome::Failed(format!("{} exited with {code}{}", tool.name(), suffix(tail))),
+        code => ToolOutcome::Failed(format!(
+            "{} exited with {code}{}",
+            tool.name(),
+            suffix(tail)
+        )),
     }
 }
 
@@ -145,7 +144,10 @@ mod tests {
         let ToolOutcome::Failed(reason) = outcome else {
             panic!("garbage must not come back as Smaller");
         };
-        assert!(reason.contains("optdac") && reason.contains("oops"), "{reason}");
+        assert!(
+            reason.contains("optdac") && reason.contains("oops"),
+            "{reason}"
+        );
     }
 
     #[test]
@@ -167,7 +169,8 @@ mod tests {
 
     #[test]
     fn a_failure_quotes_the_tools_last_words() {
-        let ToolOutcome::Failed(reason) = command_outcome(ToolId::SampleRom, 1, None, "Error opening the file!")
+        let ToolOutcome::Failed(reason) =
+            command_outcome(ToolId::SampleRom, 1, None, "Error opening the file!")
         else {
             panic!("exit 1 is a failure");
         };

@@ -17,6 +17,7 @@
 use std::collections::BTreeMap;
 
 use vgms_core::config::AudioConfig;
+use vgms_core::config::OptimizerChoice;
 use vgms_core::loopfind::Candidate;
 use vgms_core::{Song, VgmFile};
 use vgms_synth::resample::ResampleMode;
@@ -24,7 +25,6 @@ use vgms_synth::{
     AudioSource, Muting, Panning, Peak, RenderMix, SplitFormat, SplitOptions, VgmSplitOptions,
     WaveformBucket,
 };
-use vgms_core::config::OptimizerChoice;
 use vgms_ui::tasks::{
     LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
 };

@@ -249,9 +249,13 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
         // Before vgm_cmp, on the wiki's order: the trim reads the ROM out of
         // the write history, and that history should be the file's own.
         if options.sample_roms {
-            run_stage("vgm_sro", facts.rom_trim_denied, &mut bytes, &mut stages, |b| {
-                tools.trim_sample_roms(b)
-            });
+            run_stage(
+                "vgm_sro",
+                facts.rom_trim_denied,
+                &mut bytes,
+                &mut stages,
+                |b| tools.trim_sample_roms(b),
+            );
         }
         let skip = facts.has_saa1099.then_some(SAA1099_HELD_BACK);
         run_stage("vgm_cmp", skip, &mut bytes, &mut stages, |b| {

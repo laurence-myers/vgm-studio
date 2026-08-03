@@ -210,7 +210,11 @@ fn the_builtin_optimizer_never_changes_audio() {
     println!("\n-- built-in parity by chip ({checked} files) --");
     let mut bad_chips = 0usize;
     for (chip, (n, changed)) in &per_chip {
-        let mark = if *changed > 0 { " <-- CHANGES AUDIO" } else { "" };
+        let mark = if *changed > 0 {
+            " <-- CHANGES AUDIO"
+        } else {
+            ""
+        };
         if *changed > 0 {
             bad_chips += 1;
         }
@@ -345,14 +349,23 @@ fn vgm_cmp_vs_builtin_over_the_corpus() {
         }
     };
 
-    println!("\n================ vgm_cmp vs built-in ({} files) ================", paths.len());
+    println!(
+        "\n================ vgm_cmp vs built-in ({} files) ================",
+        paths.len()
+    );
     println!("scanned {scanned}, rendered {rendered}");
     println!(
         "\n-- size (over files each shrank) --\n\
          built-in: shrank {} files, {} -> {} ({:.1}%)\n\
          vgm_cmp:  shrank {} files, {} -> {} ({:.1}%)",
-        b.shrank, b.before, b.after, pct(b.before, b.after),
-        c.shrank, c.before, c.after, pct(c.before, c.after),
+        b.shrank,
+        b.before,
+        b.after,
+        pct(b.before, b.after),
+        c.shrank,
+        c.before,
+        c.after,
+        pct(c.before, c.after),
     );
 
     println!("\n-- AUDIO CHANGES vs the original render --");
@@ -362,9 +375,7 @@ fn vgm_cmp_vs_builtin_over_the_corpus() {
         "vgm_cmp on an ALREADY-OPTIMISED (built-in) file changed audio  <-- hypothesis",
         &cb.changed,
     );
-    println!(
-        "\nvgm_cmp NOT idempotent (twice != once): {cc_not_idempotent} file(s)"
-    );
+    println!("\nvgm_cmp NOT idempotent (twice != once): {cc_not_idempotent} file(s)");
     for line in cc_examples.iter().take(25) {
         println!("    {line}");
     }
@@ -408,13 +419,20 @@ fn render_determinism() {
 
     let plain = vgms_core::vgm::file::write(&file).unwrap();
     let (opt, shrank) = built_in(&plain);
-    println!("built-in optimize shrank: {shrank} ({} -> {} bytes)", plain.len(), opt.len());
+    println!(
+        "built-in optimize shrank: {shrank} ({} -> {} bytes)",
+        plain.len(),
+        opt.len()
+    );
     if let Some(r) = render_bytes(&name, &opt) {
         println!("original vs built-in-optimized: {:?}", difference(&a, &r));
     }
     // And is `plain` (the uncompressed round-trip, no optimise) itself faithful?
     if let Some(r) = render_bytes(&name, &plain) {
-        println!("original vs plain round-trip (no optimize): {:?}", difference(&a, &r));
+        println!(
+            "original vs plain round-trip (no optimize): {:?}",
+            difference(&a, &r)
+        );
     }
 }
 
@@ -446,7 +464,11 @@ fn dump_dropped_writes() {
 
     let dropped = vgms_core::chip_state::redundant_indices(stream, file.loop_index());
     println!("\n== {name} [{}] ==", file.chip_list());
-    println!("stream commands: {}, built-in drops: {}", stream.len(), dropped.len());
+    println!(
+        "stream commands: {}, built-in drops: {}",
+        stream.len(),
+        dropped.len()
+    );
 
     // Histogram of dropped writes by (chip, port, register-high-nibble-ish).
     let mut by_reg: BTreeMap<String, usize> = BTreeMap::new();

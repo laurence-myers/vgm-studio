@@ -73,7 +73,8 @@ pub(crate) const APP_STATUS_PACKAGE_SAVED: &str = "Saved the package .txt and .m
 pub(crate) const APP_MSG_SAVE_CANCELLED: &str = "The save was cancelled.";
 pub(crate) const APP_STATUS_EXPORT_CANCELLED: &str = "Export cancelled; the zip was not saved.";
 pub(crate) const APP_STATUS_DROP_SINGLE: &str = "Drop a single file at a time.";
-pub(crate) const APP_STATUS_DROP_DIALOG_OPEN: &str = "Close the open dialog before dropping a file.";
+pub(crate) const APP_STATUS_DROP_DIALOG_OPEN: &str =
+    "Close the open dialog before dropping a file.";
 pub(crate) const APP_STATUS_ALREADY_SPLITTING_CHANNELS: &str = "Already splitting channels.";
 pub(crate) const APP_STATUS_ALREADY_SPLITTING: &str = "Already splitting.";
 pub(crate) const APP_STATUS_NOTHING_TO_UNDO: &str = "Nothing to undo.";
@@ -808,7 +809,8 @@ pub(crate) fn channels_percussion_hover(hover: &str) -> String {
 pub(crate) const CHIP_CHANNELS_CUSTOM: &str =
     "Custom: the pan knobs drive the output. Original: the chip's own image.";
 pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning is left alone)";
-pub(crate) const CHIP_CHANNELS_RESET: &str = "Reset panning to centred (Original mode: the chip's own image)";
+pub(crate) const CHIP_CHANNELS_RESET: &str =
+    "Reset panning to centred (Original mode: the chip's own image)";
 
 pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
 

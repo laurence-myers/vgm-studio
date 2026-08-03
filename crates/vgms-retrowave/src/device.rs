@@ -323,8 +323,8 @@ mod tests {
 
     #[test]
     fn a_dead_port_surfaces_its_error_rather_than_pretending() {
-        let error = Device::with_io(Box::new(DeadIo))
-            .expect_err("bring-up must fail on a dead port");
+        let error =
+            Device::with_io(Box::new(DeadIo)).expect_err("bring-up must fail on a dead port");
         assert!(matches!(error, Error::Write(_)));
     }
 

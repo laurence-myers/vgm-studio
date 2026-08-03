@@ -139,7 +139,12 @@ pub(crate) fn show(
 /// `label` names it for accessibility and the headless tests. Always live -- a
 /// drag engages Custom panning in the caller. Returns the [`Response`];
 /// `response.changed()` is true on the frames the spread moved.
-pub(crate) fn show_spread(ui: &mut Ui, palette: &Palette, spread: &mut f32, label: &str) -> Response {
+pub(crate) fn show_spread(
+    ui: &mut Ui,
+    palette: &Palette,
+    spread: &mut f32,
+    label: &str,
+) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
 
     // A continuous raw value in per-widget memory, so the snap-to-mono detent can

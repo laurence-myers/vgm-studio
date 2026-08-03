@@ -2302,12 +2302,23 @@ fn a_generic_chips_pan_knobs_are_shown_before_custom_and_go_live_with_it() {
     drag_by(&mut harness, knob, egui::vec2(-200.0, 0.0));
 
     let audio = handles.audio.borrow();
-    let last = audio.chip_pannings.last().expect("a chip panning was pushed");
+    let last = audio
+        .chip_pannings
+        .last()
+        .expect("a chip panning was pushed");
     let pans = last
         .pans_for(vgms_core::ChipKind::Sn76489, 0)
         .expect("the chip's pans");
-    assert_eq!(pans[0], vgms_synth::chip_mix::PAN_LEFT, "Tone 1 dragged hard left");
-    assert_eq!(pans[1], vgms_synth::chip_mix::PAN_CENTER, "Tone 2 stays centred");
+    assert_eq!(
+        pans[0],
+        vgms_synth::chip_mix::PAN_LEFT,
+        "Tone 1 dragged hard left"
+    );
+    assert_eq!(
+        pans[1],
+        vgms_synth::chip_mix::PAN_CENTER,
+        "Tone 2 stays centred"
+    );
 }
 
 /// The Spread knob and Reset button work on a generic chip exactly as they do
@@ -2322,12 +2333,21 @@ fn spread_and_reset_pan_a_generic_chip_like_the_opl_panel() {
     drag_by(&mut harness, spread, egui::vec2(200.0, 0.0));
     {
         let audio = handles.audio.borrow();
-        let last = audio.chip_pannings.last().expect("a chip panning was pushed");
+        let last = audio
+            .chip_pannings
+            .last()
+            .expect("a chip panning was pushed");
         let pans = last
             .pans_for(vgms_core::ChipKind::Sn76489, 0)
             .expect("the spread engaged Custom");
-        assert!(pans[0] < vgms_synth::chip_mix::PAN_CENTER, "Tone 1 leans left");
-        assert!(pans[1] > vgms_synth::chip_mix::PAN_CENTER, "Tone 2 leans right");
+        assert!(
+            pans[0] < vgms_synth::chip_mix::PAN_CENTER,
+            "Tone 1 leans left"
+        );
+        assert!(
+            pans[1] > vgms_synth::chip_mix::PAN_CENTER,
+            "Tone 2 leans right"
+        );
     }
 
     harness.get_by_label("Reset").click();

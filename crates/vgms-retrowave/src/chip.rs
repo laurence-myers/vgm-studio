@@ -149,8 +149,7 @@ impl SerialOpl3Chip {
         // registers included, since the chip ignores the whole array while NEW
         // is clear, even a key-on. (The earlier `!is_key_register` term left a
         // note living only in bank 1 deaf after a seek.)
-        let needs_bank_one =
-            (0..=u8::MAX).any(|reg| reg != NEW_REGISTER && self.differs(1, reg));
+        let needs_bank_one = (0..=u8::MAX).any(|reg| reg != NEW_REGISTER && self.differs(1, reg));
         if needs_bank_one && self.hw[1][usize::from(NEW_REGISTER)] != Some(0x01) {
             self.emit(1, NEW_REGISTER, 0x01);
         }

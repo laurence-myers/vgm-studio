@@ -181,7 +181,6 @@ impl std::fmt::Debug for VgmEngine {
     }
 }
 
-
 impl VgmEngine {
     /// Builds an engine for `file`, rendering at `output_rate` Hz.
     ///

@@ -158,9 +158,15 @@ mod tests {
                 0x66,
             ],
         );
-        let output = build_pack_zip(&[song("01 MD.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &[song("01 MD.vgm", &original)],
+            false,
+            true,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert!(files[0].1.len() < original.len(), "it shrank");
         assert!(
@@ -177,9 +183,15 @@ mod tests {
     #[test]
     fn a_chip_the_built_in_pass_cannot_touch_is_optimized_by_the_tools() {
         let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
-        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &[song("01 Arcade.vgm", &original)],
+            false,
+            true,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert!(
             files[0].1.len() < original.len(),
@@ -196,9 +208,15 @@ mod tests {
         // A K053260: `vgm_cmp` has a handler for it, but it is commented out
         // (`chip_cmp.c:10` still lists it as a TODO), so every write is kept.
         let original = non_opl_vgm(0xAC, &[0xBA, 0x01, 0x40, 0xBA, 0x01, 0x40, 0x66]);
-        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &[song("01 Arcade.vgm", &original)],
+            false,
+            true,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].1, original, "byte for byte");
         assert!(
@@ -210,7 +228,10 @@ mod tests {
             output.log
         );
         assert!(
-            !output.log.iter().any(|line| line.contains("could not read")),
+            !output
+                .log
+                .iter()
+                .any(|line| line.contains("could not read")),
             "and it is not unreadable: {:?}",
             output.log
         );
@@ -219,9 +240,15 @@ mod tests {
     #[test]
     fn an_already_optimal_vgm_passes_through_the_tools_unchanged() {
         const CLEAN: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
-        let output = build_pack_zip(&[song("01 Clean.vgm", CLEAN)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &[song("01 Clean.vgm", CLEAN)],
+            false,
+            true,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(
             files[0].1, CLEAN,
@@ -246,9 +273,15 @@ mod tests {
                 kind: PackEntryKind::Image,
             },
         ];
-        let output = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &entries,
+            true,
+            false,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["01 First.vgz", "Game.txt", "Game.png"]);
@@ -270,9 +303,15 @@ mod tests {
             bytes: b"not really a png".to_vec(),
             kind: PackEntryKind::Image,
         }];
-        let output = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let output = build_pack_zip(
+            &entries,
+            true,
+            false,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].1, b"not really a png");
         assert!(output.log.iter().any(|line| line.contains("kept as-is")));
@@ -293,9 +332,15 @@ mod tests {
                 kind: PackEntryKind::Doc,
             },
         ];
-        let via_wrapper = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
-            .unwrap()
-            .unwrap();
+        let via_wrapper = build_pack_zip(
+            &entries,
+            true,
+            false,
+            vgms_core::config::OptimizerChoice::Auto,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
         let via_shared =
             vgms_pack_archive::build_pack_zip(&entries, true, None, None, &never(), &|| {})
                 .unwrap()

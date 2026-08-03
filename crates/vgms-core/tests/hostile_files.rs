@@ -53,7 +53,11 @@ fn with_field(field: usize, value: u32) -> Vec<u8> {
 fn no_hostile_file_crashes_either_reader() {
     let corpus: Vec<(&str, Vec<u8>, Expect)> = vec![
         ("empty", Vec::new(), Expect::Rejected),
-        ("junk magic", b"XXXX not a vgm at all".to_vec(), Expect::Rejected),
+        (
+            "junk magic",
+            b"XXXX not a vgm at all".to_vec(),
+            Expect::Rejected,
+        ),
         (
             "gzip magic then garbage",
             vec![0x1F, 0x8B, 0x08, 0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0x00],

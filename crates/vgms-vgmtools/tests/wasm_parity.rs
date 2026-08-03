@@ -82,10 +82,8 @@ impl Scratch {
     fn new() -> std::io::Result<Self> {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let serial = NEXT.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "vgms-wasi-parity-{}-{serial}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("vgms-wasi-parity-{}-{serial}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         Ok(Self { dir })
     }
@@ -167,9 +165,10 @@ fn collect_dir(root: &Path, limit: usize, out: &mut Vec<(String, Vec<u8>)>) {
                 stack.push(path);
                 continue;
             }
-            let is_vgm = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                e.eq_ignore_ascii_case("vgm") || e.eq_ignore_ascii_case("vgz")
-            });
+            let is_vgm = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("vgm") || e.eq_ignore_ascii_case("vgz"));
             if !is_vgm {
                 continue;
             }
@@ -178,8 +177,11 @@ fn collect_dir(root: &Path, limit: usize, out: &mut Vec<(String, Vec<u8>)>) {
             };
             let bytes = if raw.len() >= 2 && raw[0] == 0x1F && raw[1] == 0x8B {
                 let mut decoded = Vec::new();
-                if std::io::copy(&mut flate2::read::GzDecoder::new(raw.as_slice()), &mut decoded)
-                    .is_err()
+                if std::io::copy(
+                    &mut flate2::read::GzDecoder::new(raw.as_slice()),
+                    &mut decoded,
+                )
+                .is_err()
                 {
                     continue;
                 }

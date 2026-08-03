@@ -510,7 +510,11 @@ mod tests {
         bytes[..4].copy_from_slice(b"Vgm ");
         put_u32(&mut bytes, 0x08, 0x161);
         put_u32(&mut bytes, 0x34, 0x100 - 0x34);
-        put_u32(&mut bytes, crate::vgm::ChipKind::Ym3812.clock_offset(), clock);
+        put_u32(
+            &mut bytes,
+            crate::vgm::ChipKind::Ym3812.clock_offset(),
+            clock,
+        );
         bytes.extend_from_slice(&stream);
         let eof = bytes.len();
         put_u32(&mut bytes, 0x04, (eof - 4) as u32);

@@ -106,9 +106,13 @@ fn rearm_watchdog(running: &Rc<RefCell<Option<RunningJob>>>, on_timeout: &Timeou
         return;
     };
     job.clear_timer();
-    let (Some(window), Some(callback)) = (web_sys::window(), on_timeout.borrow().as_ref().map(
-        |closure| closure.as_ref().unchecked_ref::<js_sys::Function>().clone(),
-    )) else {
+    let (Some(window), Some(callback)) = (
+        web_sys::window(),
+        on_timeout
+            .borrow()
+            .as_ref()
+            .map(|closure| closure.as_ref().unchecked_ref::<js_sys::Function>().clone()),
+    ) else {
         return;
     };
     job.timer = window

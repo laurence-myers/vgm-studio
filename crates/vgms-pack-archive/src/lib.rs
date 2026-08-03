@@ -108,8 +108,7 @@ impl PackArchive {
                 continue;
             }
             let mut bytes = Vec::new();
-            if file.take(budget + 1).read_to_end(&mut bytes).is_err()
-                || bytes.len() as u64 > budget
+            if file.take(budget + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > budget
             {
                 // Skip an unreadable or oversize entry, as the native scan skips
                 // an unreadable file, rather than failing the whole open.
@@ -450,7 +449,11 @@ mod tests {
         let big = vec![0u8; 8192];
         let zip = build_zip(&[("01 A.vgm", b"ok"), ("02 Big.vgm", &big)]);
         let archive = PackArchive::open_capped(&zip, 1024, u64::MAX).unwrap();
-        assert_eq!(names(&archive), ["01 A.vgm"], "the oversize entry was dropped");
+        assert_eq!(
+            names(&archive),
+            ["01 A.vgm"],
+            "the oversize entry was dropped"
+        );
     }
 
     #[test]
@@ -478,17 +481,22 @@ mod tests {
     fn rename_case_only_fails_rather_than_clobbering_a_distinct_entry() {
         // A case-sensitive map can hold both; a case-only rename must not
         // silently overwrite the distinct lowercase entry.
-        let mut archive =
-            PackArchive::open(&build_zip(&[("Song.vgm", b"upper"), ("song.vgm", b"lower")]))
-                .unwrap();
+        let mut archive = PackArchive::open(&build_zip(&[
+            ("Song.vgm", b"upper"),
+            ("song.vgm", b"lower"),
+        ]))
+        .unwrap();
         let error = archive.rename("Song.vgm", "song.vgm").unwrap_err();
         assert!(error.contains("already exists"), "{error}");
         // Both entries survive, untouched.
         assert_eq!(archive.len(), 2);
-        assert_eq!(archive.files(), [
-            ("Song.vgm".to_owned(), b"upper".to_vec()),
-            ("song.vgm".to_owned(), b"lower".to_vec()),
-        ]);
+        assert_eq!(
+            archive.files(),
+            [
+                ("Song.vgm".to_owned(), b"upper".to_vec()),
+                ("song.vgm".to_owned(), b"lower".to_vec()),
+            ]
+        );
     }
 
     #[test]
@@ -656,10 +664,16 @@ mod pack_zip_tests {
     #[test]
     fn optimize_off_leaves_the_song_verbatim() {
         let original = optimizable_vgm_bytes();
-        let output =
-            build_pack_zip(&[song("01 Song.vgm", &original)], false, None, None, &never(), &|| {})
-                .unwrap()
-                .unwrap();
+        let output = build_pack_zip(
+            &[song("01 Song.vgm", &original)],
+            false,
+            None,
+            None,
+            &never(),
+            &|| {},
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].1, original, "optimize off means verbatim bytes");
     }
@@ -702,7 +716,12 @@ mod pack_zip_tests {
             .unwrap();
         assert!(decoded.len() < original.len(), "the .vgz gunzips smaller");
         assert!(output.log.iter().any(|line| line.contains("(optimized,")));
-        assert!(output.log.iter().any(|line| line.contains("-> 01 Song.vgz")));
+        assert!(
+            output
+                .log
+                .iter()
+                .any(|line| line.contains("-> 01 Song.vgz"))
+        );
     }
 
     #[test]
@@ -763,16 +782,26 @@ mod pack_zip_tests {
             .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].1, b"pretend png");
-        assert!(output.log.is_empty(), "no optimizer, no note: {:?}", output.log);
+        assert!(
+            output.log.is_empty(),
+            "no optimizer, no note: {:?}",
+            output.log
+        );
     }
 
     #[test]
     fn an_already_gzipped_vgm_is_renamed_but_not_recompressed() {
         let gzipped = gzip(b"already compressed");
-        let output =
-            build_pack_zip(&[song("01 First.vgm", &gzipped)], true, None, None, &never(), &|| {})
-                .unwrap()
-                .unwrap();
+        let output = build_pack_zip(
+            &[song("01 First.vgm", &gzipped)],
+            true,
+            None,
+            None,
+            &never(),
+            &|| {},
+        )
+        .unwrap()
+        .unwrap();
         let files = read_zip(&output.bytes);
         assert_eq!(files[0].0, "01 First.vgz");
         assert_eq!(files[0].1, gzipped, "the bytes are untouched");
@@ -792,9 +821,15 @@ mod pack_zip_tests {
 
     #[test]
     fn cancellation_yields_none() {
-        let output =
-            build_pack_zip(&[song("01 First.vgm", b"raw")], true, None, None, &|| true, &|| {})
-                .unwrap();
+        let output = build_pack_zip(
+            &[song("01 First.vgm", b"raw")],
+            true,
+            None,
+            None,
+            &|| true,
+            &|| {},
+        )
+        .unwrap();
         assert!(output.is_none());
     }
 }

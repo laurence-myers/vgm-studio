@@ -114,13 +114,13 @@ impl Ym2612 {
 /// takes channel 6's slot, and the mask's DAC bit (6) governs it instead.
 const fn mute_bit_for_group(group: u32, dac_enabled: bool) -> u32 {
     match group {
-        0 => 1, // channel 2
+        0 => 1,                // channel 2
         1 if dac_enabled => 6, // the DAC, in channel 6's slot
-        1 => 5, // channel 6
-        2 => 3, // channel 4
-        3 => 0, // channel 1
-        4 => 4, // channel 5
-        _ => 2, // channel 3
+        1 => 5,                // channel 6
+        2 => 3,                // channel 4
+        3 => 0,                // channel 1
+        4 => 4,                // channel 5
+        _ => 2,                // channel 3
     }
 }
 
@@ -224,9 +224,9 @@ mod tests {
     fn key_on(chip: &mut Ym2612) {
         for (reg, value) in [
             (0x22u16, 0x00u16), // LFO off
-            (0x27, 0x00), // normal timer mode
-            (0x28, 0x00), // all channels keyed off to start
-            (0x30, 0x01), // ch1 op1: detune 0, multiple 1
+            (0x27, 0x00),       // normal timer mode
+            (0x28, 0x00),       // all channels keyed off to start
+            (0x30, 0x01),       // ch1 op1: detune 0, multiple 1
             (0x34, 0x01),
             (0x38, 0x01),
             (0x3C, 0x01),

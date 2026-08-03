@@ -158,4 +158,3 @@ fn exe_name(name: &str) -> String {
         name.to_owned()
     }
 }
-
