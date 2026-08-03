@@ -176,6 +176,11 @@ impl WorkerTaskService {
     /// kind's generation so any result it already queued is dropped by `poll`.
     fn terminate(&mut self, kind: TaskKind) {
         if let Some(slot) = self.workers.remove(&kind) {
+            // Unhook before terminating: a message the worker posted just before
+            // may already be queued on this thread, and it must find no handler
+            // rather than the glue of the closures dropped with the slot.
+            slot.worker.set_onmessage(None);
+            slot.worker.set_onerror(None);
             slot.worker.terminate();
         }
         self.generations.borrow_mut().bump(kind);

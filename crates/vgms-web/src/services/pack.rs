@@ -65,6 +65,12 @@ impl RunningJob {
 
     fn terminate(mut self) {
         self.clear_timer();
+        // Unhook before terminating: an event the worker already queued on this
+        // thread must find no handler rather than a dropped closure's glue --
+        // and a stale `onerror` would report a spurious failure for a job the
+        // user just cancelled.
+        self.worker.set_onmessage(None);
+        self.worker.set_onerror(None);
         self.worker.terminate();
     }
 }
@@ -132,6 +138,7 @@ impl WebPackService {
             job.terminate();
         }
         self._on_message = None;
+        self._on_error = None;
         *self._on_timeout.borrow_mut() = None;
         self.busy.set(false);
     }

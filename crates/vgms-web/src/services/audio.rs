@@ -123,22 +123,31 @@ impl WebAudioService {
     }
 }
 
-/// Tears the current node down: dispose the processor so it stops rendering,
-/// unhook its port handler so a late message cannot fire a dropped closure
-/// (~43/s throw storm otherwise), and disconnect it from the graph.
+/// Disposes one node outright: tell the processor to stop rendering, unhook
+/// the port handler so a late message cannot fire a dropped closure (~43/s
+/// throw storm otherwise), and disconnect it from the graph. Used wherever a
+/// node leaves the service -- teardown, a superseded setup, and setup's own
+/// error paths, where the processor is already live but never got installed.
+fn dispose_node(node: &web_sys::AudioWorkletNode) {
+    if let Ok(port) = node.port() {
+        let _ = port.post_message(&command("dispose", &[]));
+        port.set_onmessage(None);
+    }
+    let _ = node.disconnect();
+}
+
+/// Tears the current node down via [`dispose_node`] and drops its handler.
 fn teardown_node(inner: &mut Inner) {
     if let Some(node) = inner.node.take() {
-        if let Ok(port) = node.port() {
-            let _ = port.post_message(&command("dispose", &[]));
-            port.set_onmessage(None);
-        }
-        let _ = node.disconnect();
+        dispose_node(&node);
     }
     inner._on_message = None;
 }
 
 /// Tears the node down and resets the playback state, bumping the epoch so an
-/// in-flight setup knows it has been superseded.
+/// in-flight setup knows it has been superseded. Queued commands go too: they
+/// were meant for the song being torn down, and flushing them into the next
+/// song's node would carry its predecessor's play/seek intent across.
 fn reset(inner: &mut Inner) {
     teardown_node(inner);
     inner.ready = false;
@@ -146,6 +155,7 @@ fn reset(inner: &mut Inner) {
     inner.state = StateSnapshot::default();
     inner.accum_peak = [0.0, 0.0];
     inner.limited = false;
+    inner.pending.clear();
     inner.epoch = inner.epoch.wrapping_add(1);
 }
 
@@ -232,9 +242,7 @@ impl AudioService for WebAudioService {
     }
 
     fn unload(&mut self) {
-        let mut inner = self.inner.borrow_mut();
-        reset(&mut inner);
-        inner.pending.clear();
+        reset(&mut self.inner.borrow_mut());
     }
 
     fn play(&mut self) -> Result<(), String> {
@@ -444,27 +452,37 @@ async fn setup(
     );
     let node = web_sys::AudioWorkletNode::new_with_options(&context, "vgms-engine", &options)
         .map_err(|_| "could not create the audio node".to_owned())?;
+    // From here the processor is live -- it renders and posts state whether or
+    // not it is connected -- so every exit that does not install the node must
+    // dispose it, or it leaks and its late messages hit a dropped handler.
+    let port = match node.port() {
+        Ok(port) => port,
+        Err(_) => {
+            dispose_node(&node);
+            return Err("the audio node has no port".to_owned());
+        }
+    };
 
     let notify = Rc::clone(&inner.borrow().notify);
     let on_message = Closure::<dyn FnMut(web_sys::MessageEvent)>::new({
         let inner = Rc::clone(inner);
         move |event: web_sys::MessageEvent| handle_message(&inner, &event)
     });
-    let port = node
-        .port()
-        .map_err(|_| "the audio node has no port".to_owned())?;
     port.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-    node.connect_with_audio_node(&context.destination())
-        .map_err(|_| "could not connect the audio node".to_owned())?;
+    if node
+        .connect_with_audio_node(&context.destination())
+        .is_err()
+    {
+        dispose_node(&node);
+        return Err("could not connect the audio node".to_owned());
+    }
 
     {
         let mut inner = inner.borrow_mut();
         // A newer load may have superseded this one while the node was being
         // built. If so, dispose the node we just made and install nothing.
         if inner.epoch != epoch {
-            let _ = port.post_message(&command("dispose", &[]));
-            port.set_onmessage(None);
-            let _ = node.disconnect();
+            dispose_node(&node);
             return Ok(());
         }
         inner.output_rate = Some(context.sample_rate() as u32);
