@@ -612,6 +612,12 @@ impl VgmStream {
     /// # Errors
     /// If a command has no defined length or runs past the end of the stream.
     pub fn parse(data: Vec<u8>, version: u32) -> Result<Self> {
+        Self::parse_capped(data, version, MAX_COMMANDS)
+    }
+
+    /// [`parse`](Self::parse) with an explicit command-count ceiling, so a test
+    /// can prove the guard without a body of sixty-four million commands.
+    fn parse_capped(data: Vec<u8>, version: u32, cap: usize) -> Result<Self> {
         let mut offsets = Vec::new();
         let mut at = 0usize;
         let tail = loop {
@@ -627,9 +633,9 @@ impl VgmStream {
             // `wait_prefix` 8, and a `0x00` byte is a one-byte command, so a body
             // of nothing but `0x00` would be a twelvefold blow-up -- ~3 GB of
             // index on wasm32's 4 GiB. Cap the command count so that cannot land.
-            if offsets.len() >= MAX_COMMANDS {
+            if offsets.len() >= cap {
                 return Err(Error::file(format!(
-                    "VGM data holds more than {MAX_COMMANDS} commands"
+                    "VGM data holds more than {cap} commands"
                 )));
             }
             let size = command_size(&data[at..], version)?;
@@ -1691,5 +1697,24 @@ mod proptests {
             // Either it parses (the cut landed on a boundary) or it errors.
             let _ = VgmStream::parse(bytes, 0x172);
         }
+    }
+
+    /// The command-count ceiling fires rather than letting the twelvefold
+    /// index blow-up land. `0x62` is a one-byte command, the worst case per
+    /// body byte; proven through the injectable cap like the other bomb
+    /// guards, so no sixty-four-million-command body is needed.
+    #[test]
+    fn a_body_of_more_commands_than_the_cap_is_refused() {
+        let mut body = vec![0x62u8; 10];
+        body.push(END_OF_DATA);
+
+        let error = VgmStream::parse_capped(body.clone(), 0x161, 9).unwrap_err();
+        assert!(
+            error.to_string().contains("more than 9 commands"),
+            "{error}"
+        );
+        // At the cap exactly, the same body parses.
+        let stream = VgmStream::parse_capped(body, 0x161, 10).unwrap();
+        assert_eq!(stream.len(), 10);
     }
 }
