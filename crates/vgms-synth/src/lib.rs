@@ -70,32 +70,12 @@ pub use write_queue::WriteQueue;
 /// policy (muting, panning, the buffered-write spacing), [`VgmEngine`] carries
 /// none at all -- so an audio backend has to know which it has. This is that
 /// question, asked once and answered where the backend can see it.
-#[derive(Debug, Clone)]
-pub enum AudioSource {
-    Opl(std::sync::Arc<vgms_core::Song>),
-    Vgm(std::sync::Arc<vgms_core::VgmFile>),
-}
-
-impl AudioSource {
-    /// The file's name, for logs and errors.
-    #[must_use]
-    pub fn name(&self) -> &str {
-        match self {
-            Self::Opl(song) => &song.name,
-            Self::Vgm(file) => &file.name,
-        }
-    }
-
-    /// The OPL stream, when there is one. A backend that can only play OPL --
-    /// the RetroWave hardware -- asks this and refuses when the answer is `None`.
-    #[must_use]
-    pub fn opl(&self) -> Option<&std::sync::Arc<vgms_core::Song>> {
-        match self {
-            Self::Opl(song) => Some(song),
-            Self::Vgm(_) => None,
-        }
-    }
-}
+///
+/// It is [`vgms_core::DocSource`] under the name the synth's public API has
+/// always used. The type lives in the core so the UI's loop-search, WAV and
+/// split sources are the same type, not four copies of it, and so `vgms-synth`
+/// can take it by value without either crate re-declaring the pair.
+pub use vgms_core::DocSource as AudioSource;
 
 /// The OPL3's native sample rate. Rendering here avoids the chip's resampler.
 pub const NATIVE_SAMPLE_RATE: u32 = 49_716;
