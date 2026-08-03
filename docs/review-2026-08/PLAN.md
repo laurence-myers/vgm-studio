@@ -407,9 +407,9 @@ stage.
 
 | Step | What | Rated |
 |---|---|---|
-| **mg-0** | *(from the pressure-test)* Convert the parity assertions to golden-bytes / golden-`Song` comparisons against checked-in fixtures **before** any delegation. Without this the gate evaporates the moment mg-1 lands. Non-negotiable, and its own commit. | contained |
-| **mg-0b** | *(new)* Record a **breakdown by cause** of the 12,533 files the VGM reader opens that the OPL reader does not (old version / non-OPL chip / unsupported command). Closes the "the widening is invisible to the gate" hole, since newly-openable files count as success. | contained |
-| **mg-1** | Delegate `vgm::io::read` to `file::read` + `to_song` **with the old gates re-imposed** (v1.51 floor, wholly-OPL check, no-OPL rejection), so the first commit changes nothing observable. Then remove each gate in a **separate, individually revertable** commit with mg-0b as evidence. | contained |
+| **mg-0** | **✓ DONE (`4b3f63b`).** Reground the reader-parity assertions on checked-in goldens under `tests/golden/projection_*.opl.vgm` (each = `io::write(io::read(input))`, frozen while both readers exist; a `UPDATE_GOLDENS=1` regenerator re-derives them and proves parity at capture). `assert_projects_to_golden` compares the projection's `io::write` to the golden -- lossless, so it subsumes the old per-field checks and survives mg-1 + mg-2. Proptest keeps only its redundancy half; corpus `compare()` reader-parity link dropped. | contained |
+| **mg-0b** | **✓ DONE (`7bfef5a`).** By-cause tally added to the corpus harness + a guard test; baseline captured over the canonical corpus (72,481 files) into `mg1-baseline-projection-corpus.txt`: **4,541 OPL, all agreeing; 67,922 newly openable** (15,547 old version, 51,979 non-OPL chip, 396 unsupported command); 18 unreadable by both. (Headline was ~12,533; the real figure is 67,922.) | contained |
+| **mg-1** | **✓ DONE (`beaf7e3`), single commit.** Delegate `vgm::io::read` to `file::read` + `to_song`; delete the dead old path (`read_uncompressed`, `resolve_loop_point`/`resolve_loop_end`, the private `opl_type_of`, `VgmData::read_from_stream`); keep `io::write`. ✏️ **REVERSAL — the staged gate removals do not exist.** `io::read` returns the OPL projection, and `to_song` is `None` for anything not a wholly-OPL, OPL-clock file; a pre-v1.51 file has **no OPL clock field at all** (verified: forcing v1.50 on the fixture makes `to_song` None). So the v1.51 / OPL-chip / wholly-OPL checks are each **redundant with `to_song`** -- removing them opens **zero** new files, only changes the error message. They stay as faithful messages until mg-2 deletes the wrapper. The 67,922-file widening is through `file::read` (the editor path, mg-1b), not this projection wrapper. | contained |
 | **mg-1b** | **✓ DONE (`0400628`).** Delete the unreachable VGM fallback in `editor.rs::load` (route non-VGM straight to `io::dro::read`) ((e)). Verified unreachable: both readers share `VgmHeader::parse`, after which `file::read` accepts a strict superset. | mechanical |
 | **mg-2** | Make `read_song` DRO-only; delete `vgm::io::read`, `read_uncompressed`, `VgmData::read_from_stream`, `resolve_loop_point`, `resolve_loop_end`, and the private `opl_type_of` duplicate (at `io.rs:258`, not `:261`). **KEEP `io::write` and the whole write side** — ✏️ the original "delete `io::read`/`write`" was wrong: D20/(i-b) keeps `SongData::Vgm` a *writable* projection carrier (REVIEW.md:312). `read_song`'s many VGM callers must be re-routed to `file::read` first. **After sw-1 (done) and mg-1.** | contained |
 | **mg-2b** | **⊘ CANCELLED.** Owner directive (2026-08-03): keep `optimize::optimize` (it may still serve as a `vgm_cmp` alternative). The map also found the premise false — the Song-side crop/split arms are *live* paths (not zero-caller: DRO crop/split use them, and VGM split used them until mg-6), and `merge_stream_delays` is a live `VgmFile::optimize` dependency, so `optimize.rs` cannot be deleted wholesale. Nothing safe to delete; dropped. | — |
@@ -421,11 +421,13 @@ stage.
 
 *(mg-3 moved to Stage C. mg-1b/mg-4/mg-6/mg-7 landed 2026-08-03 on `stage-i-migration`, which also carries the optimizer-investigation merge. mg-2b and mg-3b are retired above. Remaining: mg-5, then the delegation spine mg-0 → mg-0b → mg-1 → mg-2.)*
 
-**Evidence required before mg-1 is considered done:** paste the corpus run's
-printed line into this document — scanned, OPL files both readers accept,
-agreed, newly openable, split pieces checked — with `agreed == opl` and `opl` in
-the thousands. Expect new `optimize_corpus` failures from v1.00–1.50 files that
-were never readable before; those are new coverage, not regressions.
+**Evidence (mg-0b, ✓ captured 2026-08-03):** `scanned 72,481; OPL both readers
+4,541, agreed 4,541 (== opl, in the thousands ✓); newly openable 67,922; split
+pieces checked 12,791; unreadable by both 18` — full run in
+`mg1-baseline-projection-corpus.txt`. Zero disagreements, so the projection is a
+faithful replacement. Note the widening is realised through `file::read` (the
+editor, mg-1b), which is what these newly-openable files open through; `io::read`
+itself stays OPL-only (see the mg-1 reversal above).
 
 ---
 
