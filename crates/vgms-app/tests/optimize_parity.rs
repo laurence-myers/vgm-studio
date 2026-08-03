@@ -14,7 +14,8 @@
 //! Ignored by default:
 //!
 //! ```text
-//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM cargo test -p vgms-app --release \
+//! VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+//!     cargo test -p vgms-app --release \
 //!     --test optimize_parity -- --ignored --nocapture
 //! ```
 

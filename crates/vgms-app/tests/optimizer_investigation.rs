@@ -11,7 +11,7 @@
 //! and tallies, per chip, where each variant changes what the file plays, plus
 //! the size each achieves. Prints a report; run with --nocapture.
 //!
-//!   $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:/GameMusic/VGM'
+//!   $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17'
 //!   $env:VGMSTUDIO_CORPUS_LIMIT = '400'
 //!   cargo test -p vgms-app --release --test optimizer_investigation -- --ignored --nocapture
 
