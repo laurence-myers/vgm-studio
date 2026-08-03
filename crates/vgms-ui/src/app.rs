@@ -4249,11 +4249,17 @@ impl VgmStudioApp {
     /// The loaded document as something a song split can run over, of either
     /// kind. `None` with nothing open.
     fn split_source(&self) -> Option<crate::tasks::SplitSource> {
-        match (self.editor.snapshot(), self.editor.vgm()) {
-            (Some(song), _) => Some(crate::tasks::SplitSource::Opl(song)),
-            (None, Some(file)) => Some(crate::tasks::SplitSource::Vgm(std::sync::Arc::new(
+        // Ask the VGM slot first, like Crop's `replace_stream`. An OPL VGM has
+        // a Some projection too, but splitting it through the OPL path
+        // re-synthesises a v1.51 header with hard-coded clocks -- so a rip at a
+        // non-canonical clock would split at the wrong pitch and tempo. The VGM
+        // stack keeps the source header verbatim. A DRO has no `vgm()` and falls
+        // through to the OPL path.
+        match (self.editor.vgm(), self.editor.snapshot()) {
+            (Some(file), _) => Some(crate::tasks::SplitSource::Vgm(std::sync::Arc::new(
                 file.clone(),
             ))),
+            (_, Some(song)) => Some(crate::tasks::SplitSource::Opl(song)),
             (None, None) => None,
         }
     }

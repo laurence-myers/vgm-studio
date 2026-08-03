@@ -490,6 +490,62 @@ mod tests {
         assert_eq!(with_tail.header.total_samples(), 1000 + 30_000);
     }
 
+    /// An OPL2 capture whose YM3812 clock is deliberately non-canonical. Two
+    /// songs parted by `gap_samples` of silence, each a single OPL2 write.
+    fn opl2_capture_with_clock(clock: u32, gap_samples: u16) -> VgmFile {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let song = |reg: u8, value: u8| {
+            let mut bytes = write(reg, value);
+            bytes.extend(wait(1000));
+            bytes
+        };
+        let mut stream = song(0x20, 0x01);
+        stream.extend(wait(gap_samples));
+        stream.extend(song(0x20, 0x02));
+        stream.push(0x66);
+
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x161);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        put_u32(&mut bytes, crate::vgm::ChipKind::Ym3812.clock_offset(), clock);
+        bytes.extend_from_slice(&stream);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        crate::vgm::file::read("capture.vgm", &bytes).expect("a walkable OPL2 capture")
+    }
+
+    /// The bug mg-6 fixes, at its root: splitting through the VGM stack keeps
+    /// the source header verbatim, so a non-canonical chip clock survives. The
+    /// OPL split path re-synthesised a v1.51 header from hard-coded clocks
+    /// (OPL2 = 3_579_545), which would have moved this rip's pitch and tempo;
+    /// `materialise_vgm` -> `extract_region` clones the header instead.
+    #[test]
+    fn splitting_a_vgm_preserves_a_non_canonical_clock() {
+        const ODD_CLOCK: u32 = 4_000_000; // canonical OPL2 is 3_579_545
+        let ym3812_clock = |file: &VgmFile| {
+            file.header
+                .chips()
+                .iter()
+                .find(|chip| chip.kind == crate::vgm::ChipKind::Ym3812)
+                .map(|chip| chip.clock)
+        };
+
+        let file = opl2_capture_with_clock(ODD_CLOCK, 30_000);
+        assert_eq!(ym3812_clock(&file), Some(ODD_CLOCK), "the source clock");
+
+        let songs = detect_segments_in_vgm(&file, 20_000);
+        assert_eq!(songs.len(), 2);
+        let piece = materialise_vgm(&file, &songs[1], true, 0).expect("the second song");
+        assert_eq!(
+            ym3812_clock(&piece),
+            Some(ODD_CLOCK),
+            "the split piece keeps the source clock, not the canonical 3_579_545"
+        );
+    }
+
     /// A low-bank OPL2 write, `0x5A reg value`.
     fn write(reg: u8, value: u8) -> Vec<u8> {
         vec![command::YM3812, reg, value]

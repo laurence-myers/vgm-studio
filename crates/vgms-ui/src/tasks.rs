@@ -188,10 +188,23 @@ impl SplitSource {
     }
 
     /// Whether a piece can be auditioned before exporting. Previewing seeks
-    /// playback, which needs a chip this app can actually render.
+    /// playback, which needs something this app can render -- so this tracks
+    /// renderability, not OPL-ness, mirroring `Editor::renderable` exactly (now
+    /// that Split routes OPL VGMs down the `Vgm` arm too). A VGM renders if it
+    /// projects to an OPL stream *or* its chips have a core; an OPL projection
+    /// always plays. Called once at dialog construction, so the projection here
+    /// is not a per-frame cost.
     #[must_use]
     pub fn can_preview(&self) -> bool {
-        matches!(self, Self::Opl(_))
+        match self {
+            Self::Opl(_) => true,
+            Self::Vgm(file) => {
+                file.to_song().is_some() || {
+                    let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+                    vgms_synth::playability(&chips).can_play()
+                }
+            }
+        }
     }
 
     /// The file name each piece is numbered against, and its extension.

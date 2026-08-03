@@ -36,6 +36,9 @@ pub struct SplitSongsDialog {
     /// Native delay units per second: 44100 for a VGM, 1000 for a DRO. Cached so
     /// the seconds/native conversions do not keep re-deriving it.
     rate: u32,
+    /// Whether a piece can be auditioned -- the source's renderability, computed
+    /// once (it can project a VGM, which is not a per-frame cost to pay).
+    can_preview: bool,
     /// The gap threshold the slider edits, in seconds.
     threshold_secs: f32,
     /// The decay tail to keep after each piece, in seconds.
@@ -51,9 +54,11 @@ impl SplitSongsDialog {
     #[must_use]
     pub fn new(source: SplitSource) -> Self {
         let rate = source.rate();
+        let can_preview = source.can_preview();
         let mut dialog = Self {
             source,
             rate,
+            can_preview,
             threshold_secs: DEFAULT_THRESHOLD_SECS,
             tail_secs: 0.0,
             segments: Vec::new(),
@@ -196,7 +201,7 @@ impl SplitSongsDialog {
         let included = &mut self.included;
         let rate = self.rate;
         // Auditioning a piece plays it, which needs a chip we can render.
-        let can_preview = self.source.can_preview();
+        let can_preview = self.can_preview;
         let output = egui::ScrollArea::vertical()
             .max_height(220.0)
             .show(ui, |ui| {
