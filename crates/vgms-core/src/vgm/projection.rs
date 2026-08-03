@@ -454,7 +454,7 @@ mod tests {
             let file = crate::vgm::file::read("p.vgm", &bytes).unwrap();
             assert_eq!(
                 crate::chip_state::redundant_indices(file.stream().unwrap(), file.loop_index()),
-                crate::optimize::redundant_indices(&song),
+                crate::optimize::redundant_write_indices(&song),
                 "loop at {loop_at:?}"
             );
         }
@@ -509,7 +509,7 @@ mod tests {
         let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
         assert_eq!(
             crate::chip_state::redundant_indices(file.stream().unwrap(), file.loop_index()),
-            crate::optimize::redundant_indices(&song)
+            crate::optimize::redundant_write_indices(&song)
         );
     }
 
@@ -595,7 +595,7 @@ mod proptests {
                     file.stream().unwrap(),
                     file.loop_index()
                 ),
-                crate::optimize::redundant_indices(&by_opl_reader)
+                crate::optimize::redundant_write_indices(&by_opl_reader)
             );
         }
     }

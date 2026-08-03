@@ -107,7 +107,7 @@ pub fn optimize(song: &Song) -> Option<OptimizeOutcome> {
 
     // Phase 1: drop redundant register writes, letting `delete_instructions` slide
     // the loop markers past them exactly as a manual trim would.
-    let redundant = redundant_indices(song);
+    let redundant = redundant_write_indices(song);
     let mut work = song.clone();
     work.delete_instructions(&redundant);
 
@@ -146,7 +146,7 @@ pub fn optimize(song: &Song) -> Option<OptimizeOutcome> {
 /// Returns an empty vector for a DRO song. See the module docs for the rule and
 /// the loop-safety argument.
 #[must_use]
-pub fn redundant_indices(song: &Song) -> Vec<usize> {
+pub fn redundant_write_indices(song: &Song) -> Vec<usize> {
     let Some(meta) = song.vgm_meta() else {
         return Vec::new();
     };
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn the_first_write_to_a_register_is_kept() {
         let song = vgm([low(0x20, 0x01), low(0x21, 0x02)].concat(), OplType::Opl2);
-        assert_eq!(redundant_indices(&song), Vec::<usize>::new());
+        assert_eq!(redundant_write_indices(&song), Vec::<usize>::new());
     }
 
     #[test]
@@ -477,7 +477,7 @@ mod tests {
             [low(0x20, 0x01), low(0x21, 0x02), low(0x20, 0x01)].concat(),
             OplType::Opl2,
         );
-        assert_eq!(redundant_indices(&song), vec![2]);
+        assert_eq!(redundant_write_indices(&song), vec![2]);
     }
 
     #[test]
@@ -487,7 +487,7 @@ mod tests {
             [low(0x20, 0x01), low(0x20, 0x02), low(0x20, 0x02)].concat(),
             OplType::Opl2,
         );
-        assert_eq!(redundant_indices(&song), vec![2]);
+        assert_eq!(redundant_write_indices(&song), vec![2]);
     }
 
     #[test]
@@ -502,7 +502,7 @@ mod tests {
         ]
         .concat();
         let song = vgm(bytes, OplType::DualOpl2);
-        assert_eq!(redundant_indices(&song), vec![2, 3]);
+        assert_eq!(redundant_write_indices(&song), vec![2, 3]);
     }
 
     #[test]
@@ -515,7 +515,7 @@ mod tests {
         ]
         .concat();
         let song = vgm(bytes, OplType::Opl3);
-        assert_eq!(redundant_indices(&song), vec![2, 3]);
+        assert_eq!(redundant_write_indices(&song), vec![2, 3]);
     }
 
     #[test]
@@ -526,7 +526,7 @@ mod tests {
         let bytes = [low(0x40, 0x10), low(0x40, 0x10), low(0x40, 0x10)].concat();
         let song = looping_vgm(bytes, OplType::Opl2, 1, None);
         assert_eq!(
-            redundant_indices(&song),
+            redundant_write_indices(&song),
             vec![2],
             "the loop-point write must survive; only the third is redundant"
         );
@@ -538,11 +538,11 @@ mod tests {
         // redundant. This is the control for the loop-reset test.
         let bytes = [low(0x40, 0x10), low(0x40, 0x10), low(0x40, 0x10)].concat();
         let song = vgm(bytes, OplType::Opl2);
-        assert_eq!(redundant_indices(&song), vec![1, 2]);
+        assert_eq!(redundant_write_indices(&song), vec![1, 2]);
     }
 
     #[test]
-    fn a_dro_song_has_no_redundant_indices() {
+    fn a_dro_song_has_no_redundant_write_indices() {
         use crate::song::DroDataV1;
         let dro = Song::dro_v1(
             "t.dro".to_owned(),
@@ -550,7 +550,7 @@ mod tests {
             0,
             OplType::Opl2,
         );
-        assert_eq!(redundant_indices(&dro), Vec::<usize>::new());
+        assert_eq!(redundant_write_indices(&dro), Vec::<usize>::new());
         assert!(optimize(&dro).is_none());
     }
 
@@ -756,7 +756,7 @@ mod tests {
         ]
         .concat();
         let song = looping_vgm(bytes, OplType::Opl2, 1, Some(5));
-        assert_eq!(redundant_indices(&song), vec![3]);
+        assert_eq!(redundant_write_indices(&song), vec![3]);
 
         let outcome = optimize(&song).expect("index 3 is redundant");
         // Surviving: write, write(loop point), delay300 (merged), write(loop end),

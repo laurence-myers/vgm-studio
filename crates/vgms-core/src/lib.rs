@@ -34,7 +34,7 @@ pub use crop::{CropOutcome, crop_to_region, delete_region};
 pub use error::{Error, Result};
 pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
 pub use opl_state::OplState;
-pub use optimize::{OptimizeOutcome, optimize, redundant_indices};
+pub use optimize::{OptimizeOutcome, optimize};
 pub use pack::{PackMeta, TrackEntry};
 pub use song::{
     Bank, DelayKind, DroDataV1, DroDataV2, FindTarget, Instruction, OplType, Song, SongData,
