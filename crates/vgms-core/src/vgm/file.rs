@@ -380,14 +380,8 @@ impl VgmFile {
             loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
         let moved_end =
             loop_end.and_then(|end| slide_index_past_deletion(end, &sorted, surviving));
-        // The entire loop body went with the deletion: both markers converge on
-        // one row, a zero-sample loop, which is no loop at all. Clear it rather
-        // than let the empty pair fall through as "no end" and widen to the tail
-        // -- the loop shortens by what was removed, and all of it was removed.
-        let (moved, moved_end) = match (moved, moved_end) {
-            (Some(start), Some(end)) if start == end => (None, None),
-            markers => markers,
-        };
+        // Deleting the entire loop body leaves `moved == moved_end` -- a
+        // zero-sample loop, which `repatch_header` clears.
         self.repatch_header(moved, moved_end, total);
         self.refresh_opl();
         true
@@ -413,16 +407,37 @@ impl VgmFile {
         let (mut bytes, prelude_len, report) = region_bytes(stream, start, end, true);
         bytes.push(END_OF_DATA);
 
-        // A loop inside the kept region moves with it; one outside it is gone.
-        let loop_at = self.loop_index().filter(|&at| (start..end).contains(&at));
+        // A loop inside the kept region moves with it; one starting in the
+        // discarded head clamps to the first kept row -- *after* the prelude,
+        // so a wrap replays the kept loop content but never the state replay
+        // (whose data blocks a repeat must not reload). The loop shortens by
+        // exactly the in-loop samples the crop discarded. One starting at or
+        // past the crop's end is gone with the tail it pointed into.
         let base = stream.byte_offset(start).unwrap_or(0);
-        let new_loop = loop_at.map(|at| prelude_len + stream.byte_offset(at).unwrap_or(0) - base);
+        let new_loop = self.loop_index().and_then(|at| {
+            if at < start {
+                Some(prelude_len)
+            } else if at < end {
+                Some(prelude_len + stream.byte_offset(at).unwrap_or(0) - base)
+            } else {
+                None
+            }
+        });
         // A deliberately-short loop end inside the kept region moves with it too;
         // an end at or past the crop lets the loop run to the new tail instead.
-        let new_loop_end = self
-            .loop_end_index()
-            .filter(|&e| loop_at.is_some() && e <= end)
-            .map(|e| prelude_len + stream.byte_offset(e).unwrap_or(0) - base);
+        // An end at or before the crop's start means no loop content survived:
+        // it clamps onto the clamped start, and `repatch_header` clears the
+        // degenerate pair.
+        let new_loop_end = self.loop_end_index().and_then(|e| {
+            new_loop?;
+            if e <= start {
+                Some(prelude_len)
+            } else if e <= end {
+                Some(prelude_len + stream.byte_offset(e).unwrap_or(0) - base)
+            } else {
+                None
+            }
+        });
         self.rebuild(bytes, new_loop, new_loop_end);
         Some(report)
     }
@@ -497,14 +512,19 @@ impl VgmFile {
         bytes.push(END_OF_DATA);
 
         // A loop before the cut keeps its offset; one after it slides to the
-        // new tail; one *inside* it has gone with the region it pointed into.
+        // new tail; one *inside* it clamps to the seam -- the first surviving
+        // row *after* the bridge writes, so a wrap replays the surviving loop
+        // content but never the seam's synthetic patch (which can hold data
+        // blocks a repeat must not reload). The loop shortens by exactly the
+        // in-loop samples the cut removed. If its end went with the same cut,
+        // the clamped pair is degenerate and `repatch_header` clears it.
         let new_loop = self.loop_index().and_then(|at| {
             if at < start {
                 stream.byte_offset(at)
             } else if at >= end {
                 Some(tail_at + stream.byte_offset(at)? - stream.byte_offset(end)?)
             } else {
-                None
+                Some(tail_at)
             }
         });
         // The deliberately-short loop end moves the same way. Its end is
@@ -739,6 +759,15 @@ impl VgmFile {
         loop_end: Option<usize>,
         total_samples: u64,
     ) {
+        // An edit that removed the whole loop body leaves the two markers
+        // converged (or, clamped from opposite sides of a cut, inverted): a
+        // zero-row span, which is no loop at all. Clear it here, in the one
+        // place every edit funnels through, rather than let the degenerate pair
+        // fall through the `end > index` filter below and widen to the tail.
+        let loop_index = match (loop_index, loop_end) {
+            (Some(index), Some(end)) if end <= index => None,
+            _ => loop_index,
+        };
         let data_start = self.header.data_start();
         let (absolute, loop_samples) = match (loop_index, self.body.stream()) {
             (Some(index), Some(stream)) => {
@@ -1638,7 +1667,10 @@ mod tests {
     }
 
     #[test]
-    fn a_loop_outside_a_cropped_region_is_dropped() {
+    fn a_loop_starting_in_the_cropped_head_clamps_to_the_kept_region() {
+        // A full-tail loop from row 0. Cropping to rows 4..8 removes the
+        // 10000-sample head from *inside* the loop, so the start clamps to the
+        // first kept row and the loop shortens by exactly what was discarded.
         let mut bytes = configured();
         let source = read("md.vgm", &bytes).unwrap();
         let at = source.header.data_start() + source.stream().unwrap().byte_offset(0).unwrap();
@@ -1651,7 +1683,45 @@ mod tests {
 
         let mut file = read("md.vgm", &bytes).unwrap();
         file.crop_to_region(4, 8).unwrap();
-        assert_eq!(file.loop_index(), None, "it pointed into what was cut");
+        assert!(file.loop_index().is_some(), "the loop start clamped");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(20_735),
+            "shortened by the 10000-sample head the crop removed from inside it"
+        );
+    }
+
+    /// A loop pointing wholly *past* the kept region has nothing left to clamp
+    /// to -- every one of its samples was discarded -- so it clears.
+    #[test]
+    fn a_loop_wholly_past_a_cropped_region_is_dropped() {
+        let mut bytes = configured();
+        let source = read("md.vgm", &bytes).unwrap();
+        let at = source.header.data_start() + source.stream().unwrap().byte_offset(6).unwrap();
+        put_u32(
+            &mut bytes,
+            offset::LOOP_OFFSET,
+            (at - offset::LOOP_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, offset::LOOP_NUM_SAMPLES, 735);
+
+        let mut file = read("md.vgm", &bytes).unwrap();
+        file.crop_to_region(0, 4).unwrap();
+        assert_eq!(file.loop_index(), None, "it pointed into the cut tail");
+        assert_eq!(file.header.loop_offset(), None);
+    }
+
+    /// A short loop wholly inside the *discarded head*: its clamped start and
+    /// clamped end converge on the first kept row, and the degenerate pair
+    /// clears rather than surviving as a zero-sample (or widened) loop.
+    #[test]
+    fn a_loop_wholly_in_the_cropped_head_is_dropped() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(3), Some(5)); // 10000 samples, all in rows 3..5
+        assert_eq!(file.header.loop_samples(), Some(10_000));
+
+        file.crop_to_region(5, 8).unwrap();
+        assert_eq!(file.loop_index(), None, "none of the loop survived");
         assert_eq!(file.header.loop_offset(), None);
     }
 
@@ -2047,6 +2117,45 @@ mod tests {
             file.loop_end_index().is_some(),
             "and the clamped end sits on a real row, so later edits keep it"
         );
+    }
+
+    /// The mirror case: a region delete that swallows the loop's *start* clamps
+    /// it to the seam -- the first surviving row after the bridge writes, so a
+    /// wrap replays the surviving loop content but never the bridge (whose data
+    /// blocks a repeat must not reload).
+    #[test]
+    fn a_region_delete_over_the_loop_start_clamps_it_to_the_seam() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        // Loop rows 3..6: wait 10000, a write, wait 20000 -- 30000 samples.
+        file.set_loop_rows(Some(3), Some(6));
+        assert_eq!(file.header.loop_samples(), Some(30_000));
+
+        // Cut rows 2..5: a pre-loop write, then the loop's first 10000 samples.
+        file.delete_region(2, 5).expect("a valid region");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(20_000),
+            "the loop shortened by exactly the 10000 in-loop samples the cut \
+             removed; the pre-loop row it also removed cost the loop nothing"
+        );
+        assert!(
+            file.loop_end_index().is_some(),
+            "the surviving end still bounds it"
+        );
+    }
+
+    /// And when the cut swallows the *whole* loop, the clamped start (after the
+    /// seam) and clamped end (before it) come back inverted -- a degenerate
+    /// pair `repatch_header` clears rather than letting it widen to the tail.
+    #[test]
+    fn a_region_delete_over_the_whole_loop_clears_it() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(3), Some(6)); // 30000 samples, all in rows 3..6
+        assert_eq!(file.header.loop_samples(), Some(30_000));
+
+        file.delete_region(2, 7).expect("a valid region");
+        assert_eq!(file.loop_index(), None, "none of the loop survived");
+        assert_eq!(file.header.loop_offset(), None);
     }
 
     #[test]
