@@ -175,6 +175,23 @@ impl<'a> BitReader<'a> {
 /// rather than failing: a truncated bank is a quieter fault than a refused file,
 /// and the sample count is what the caller has to trust anyway.
 pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<Vec<u8>> {
+    decompress_capped(payload, table, MAX_DECOMPRESSED)
+}
+
+/// The most a single compressed block may decompress to: 128 MiB. Real sample
+/// banks top out in the tens of MiB; the cap is the absolute ceiling the
+/// feasible-yield reservation below lacks on its own -- bit-packing can expand
+/// its input up to 32x (1 bit in, 4 bytes out), so a large hostile block could
+/// otherwise inflate to gigabytes while every reservation stays "feasible".
+const MAX_DECOMPRESSED: usize = 128 * 1024 * 1024;
+
+/// [`decompress`] with an explicit output ceiling, so a test can prove the cap
+/// without a hundred-megabyte payload.
+fn decompress_capped(
+    payload: &[u8],
+    table: Option<&DecompressionTable>,
+    cap: usize,
+) -> Result<Vec<u8>> {
     // `{u8 type, u32 uncompressed_size, u8 bits_decompressed,
     //   u8 bits_compressed, u8 sub_type, u16 add_or_start}`
     const HEADER: usize = 10;
@@ -213,6 +230,14 @@ pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<
             "a compressed data block declares a value wider than 32 bits".to_owned(),
         ));
     }
+    // The same bound on the packed side. `BitReader::read` already refuses more
+    // than 32 bits, but silently -- the block would decompress to nothing. A
+    // width no `u32` can hold is unambiguously malformed; say so like `bits_out`.
+    if bits_in > 32 {
+        return Err(Error::file(
+            "a compressed data block declares packed values wider than 32 bits".to_owned(),
+        ));
+    }
     let count = uncompressed_size / width;
     let mask = if bits_out >= 32 {
         u32::MAX
@@ -227,6 +252,16 @@ pub fn decompress(payload: &[u8], table: Option<&DecompressionTable>) -> Result<
     // handful of bytes cannot turn into a gigabyte reservation.
     let max_values = data.len().saturating_mul(8) / usize::from(bits_in);
     let capacity = uncompressed_size.min(max_values.saturating_mul(width));
+    // `capacity` is also exactly what the loop can emit (count x width and the
+    // reader's supply both bound it), so this one check caps the real output,
+    // not just the reservation. Feasibility alone is not a ceiling: bit-packing
+    // expands up to 32x, so a large block must be refused outright.
+    if capacity > cap {
+        return Err(Error::file(format!(
+            "a compressed data block would decompress to {capacity} bytes; \
+             the cap is {cap}"
+        )));
+    }
     let mut reader = BitReader::new(data);
     let mut out = Vec::with_capacity(capacity);
     let mut running = operand;
@@ -383,6 +418,33 @@ mod tests {
         assert_eq!(out, vec![0x77]);
         // The reservation followed the input, not the four-gigabyte claim.
         assert!(out.capacity() <= 16, "reserved {} bytes", out.capacity());
+    }
+
+    #[test]
+    fn packed_values_wider_than_thirty_two_bits_are_refused_not_emptied() {
+        // `bits_in` of 40: `BitReader::read` would refuse every read, so before
+        // this check the block silently decompressed to nothing. Malformed is
+        // malformed -- say so, symmetrically with `bits_out`.
+        let payload = packed(0x00, 8, 8, 40, 0, 0, &[]);
+        let error = decompress(&payload, None).unwrap_err();
+        assert!(error.to_string().contains("packed values wider"), "{error}");
+    }
+
+    #[test]
+    fn a_block_that_would_decompress_past_the_cap_is_refused() {
+        // 1-bit packed values inflating to 4-byte ones: 32x amplification, the
+        // worst the format allows. Five packed bytes can feasibly yield 160
+        // bytes; with the ceiling below that, the block is refused outright --
+        // the declared size is honest, the input is really there, and the
+        // output would still be too big.
+        let values: Vec<u32> = vec![1; 40];
+        let payload = packed(0x00, 160, 32, 1, 0, 0, &values);
+        let error = decompress_capped(&payload, None, 100).unwrap_err();
+        assert!(error.to_string().contains("the cap is 100"), "{error}");
+
+        // The same block against a big enough ceiling decompresses fine.
+        let out = decompress_capped(&payload, None, 160).unwrap();
+        assert_eq!(out.len(), 160);
     }
 
     #[test]
