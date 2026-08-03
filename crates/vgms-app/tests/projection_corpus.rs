@@ -54,14 +54,19 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
         match (by_opl_reader, by_model) {
             (Ok(expected), Ok(file)) => {
                 opl += 1;
-                let Some(projected) = file.to_song() else {
+                if file.to_song().is_none() {
                     failures.push(format!(
                         "{name}: the OPL reader accepted it, the model did not"
                     ));
                     continue;
-                };
-                let checked = compare(&expected, &projected)
-                    .and_then(|()| compare_optimised(&name, &bytes, &expected))
+                }
+                // The reader-parity `compare(expected, projected)` link was
+                // dropped: once mg-1 delegates `io::read` to `file::read`,
+                // `expected` and the projection are the same code, so it would
+                // pass vacuously. The unit goldens in `projection.rs` hold the
+                // frozen reader reference; the optimiser and splitter oracles
+                // below still bite.
+                let checked = compare_optimised(&name, &bytes, &expected)
                     .and_then(|()| compare_split(&file, &expected, &mut split_pieces));
                 if let Err(why) = checked {
                     failures.push(format!("{name}: {why}"));
@@ -104,49 +109,6 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
         failures.len(),
         failures.join("\n")
     );
-}
-
-/// Every way the two paths could differ, in the order that localises a fault
-/// fastest: shape first, then rows, then derived totals, then the bytes.
-fn compare(expected: &vgms_core::Song, projected: &vgms_core::Song) -> Result<(), String> {
-    if projected.opl_type != expected.opl_type {
-        return Err(format!(
-            "chip {:?} != {:?}",
-            projected.opl_type, expected.opl_type
-        ));
-    }
-    if projected.len() != expected.len() {
-        return Err(format!("{} rows != {}", projected.len(), expected.len()));
-    }
-    for index in 0..expected.len() {
-        if projected.instruction(index) != expected.instruction(index) {
-            return Err(format!(
-                "row {index}: {:?} != {:?}",
-                projected.instruction(index),
-                expected.instruction(index)
-            ));
-        }
-    }
-    if projected.total_delay_samples() != expected.total_delay_samples() {
-        return Err(format!(
-            "{} samples != {}",
-            projected.total_delay_samples(),
-            expected.total_delay_samples()
-        ));
-    }
-    if projected.vgm_meta() != expected.vgm_meta() {
-        return Err("metadata differs".to_owned());
-    }
-    let written = vgms_core::vgm::io::write(projected).map_err(|e| e.to_string())?;
-    let reference = vgms_core::vgm::io::write(expected).map_err(|e| e.to_string())?;
-    if written != reference {
-        return Err(format!(
-            "written bytes differ ({} vs {})",
-            written.len(),
-            reference.len()
-        ));
-    }
-    Ok(())
 }
 
 /// The chip-agnostic optimiser against the OPL one it will replace, on the same

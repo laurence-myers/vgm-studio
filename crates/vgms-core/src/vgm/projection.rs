@@ -383,52 +383,102 @@ mod tests {
 
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up.vgm");
 
-    /// Asserts the OPL reader and the projection agree about `bytes`, field for
-    /// field and byte for byte.
-    fn assert_parity(name: &str, bytes: &[u8]) {
-        let by_opl_reader = crate::vgm::io::read(name, bytes).expect("the OPL reader accepts it");
-        let file = crate::vgm::file::read(name, bytes).expect("so does the VGM model");
-        let projected = file.to_song().expect("and it is an OPL file");
+    // The OPL reader's own output, frozen. Each is `io::write(io::read(input))`
+    // captured while both readers still existed; `regenerate_projection_goldens`
+    // re-derives them (and proves the projection matched at capture). The parity
+    // tests compare the projection to these files rather than to a live
+    // `io::read` -- which mg-1 makes the very same code, so the live comparison
+    // would go vacuous.
+    const GOLDEN_BASE: &[u8] = include_bytes!("../../../../tests/golden/projection_base.opl.vgm");
+    const GOLDEN_LOOPING: &[u8] =
+        include_bytes!("../../../../tests/golden/projection_looping.opl.vgm");
+    const GOLDEN_EARLY_LOOP: &[u8] =
+        include_bytes!("../../../../tests/golden/projection_early_loop.opl.vgm");
 
-        assert_eq!(projected.opl_type, by_opl_reader.opl_type, "{name}: chip");
+    /// Asserts the projection of `bytes` writes back to the frozen `golden` --
+    /// the OPL reader's own output. This is the "one that matters most" of the
+    /// old field-by-field check: `io::write` is lossless, so equal bytes mean an
+    /// equal document, and freezing the reference is what survives `io::read`
+    /// being delegated to `file::read` (mg-1) and deleted (mg-2).
+    fn assert_projects_to_golden(name: &str, bytes: &[u8], golden: &[u8]) {
+        let file = crate::vgm::file::read(name, bytes).expect("the VGM model accepts it");
+        let projected = file.to_song().expect("and it is an OPL file");
+        let written = crate::vgm::io::write(&projected).expect("the projection writes back");
         assert_eq!(
-            projected.file_version, by_opl_reader.file_version,
-            "{name}: version"
-        );
-        assert_eq!(projected.len(), by_opl_reader.len(), "{name}: row count");
-        for index in 0..by_opl_reader.len() {
-            assert_eq!(
-                projected.instruction(index),
-                by_opl_reader.instruction(index),
-                "{name}: row {index}"
-            );
-        }
-        assert_eq!(
-            projected.total_delay_samples(),
-            by_opl_reader.total_delay_samples(),
-            "{name}: duration"
-        );
-        assert_eq!(
-            projected.loop_num_samples(),
-            by_opl_reader.loop_num_samples(),
-            "{name}: loop length"
-        );
-        assert_eq!(
-            projected.vgm_meta(),
-            by_opl_reader.vgm_meta(),
-            "{name}: metadata"
-        );
-        // The one that matters most: writing either produces the same file.
-        assert_eq!(
-            crate::vgm::io::write(&projected).unwrap(),
-            crate::vgm::io::write(&by_opl_reader).unwrap(),
-            "{name}: written bytes"
+            written, golden,
+            "{name}: the projection no longer matches the frozen OPL-reader output \
+             (re-run with UPDATE_GOLDENS=1 only if this change is intended)"
         );
     }
 
+    /// `VGM_FIXTURE` patched to loop from command 3 to the end -- the loop
+    /// machinery is where the two paths could most easily diverge (the OPL
+    /// reader resolves the loop against its own stream index, the projection
+    /// against the generic one). Built with `file::read`, which outlives mg-2.
+    fn looping_input() -> Vec<u8> {
+        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
+        let stream = file.stream().unwrap();
+        let at = file.header.data_start() + stream.byte_offset(3).unwrap();
+        let mut bytes = VGM_FIXTURE.to_vec();
+        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
+        bytes[0x20..0x24].copy_from_slice(&(stream.samples_from(3) as u32).to_le_bytes());
+        bytes
+    }
+
+    /// `VGM_FIXTURE` patched to a loop that stops short of the end -- the shape
+    /// `VgmMeta::loop_end` exists for. Returns the bytes and the `(start, end)`
+    /// command indices the loop should resolve to.
+    fn early_loop_input() -> (Vec<u8>, usize, usize) {
+        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
+        let stream = file.stream().unwrap();
+        let start = 1;
+        let from_start = stream.samples_from(start);
+        let end = (start + 1..stream.len())
+            .find(|&index| stream.samples_from(index) < from_start)
+            .expect("the capture has delays");
+        let mut bytes = VGM_FIXTURE.to_vec();
+        let at = file.header.data_start() + stream.byte_offset(start).unwrap();
+        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
+        let region = from_start - stream.samples_from(end);
+        bytes[0x20..0x24].copy_from_slice(&(region as u32).to_le_bytes());
+        (bytes, start, end)
+    }
+
+    /// Regenerates the checked-in projection goldens (run under `UPDATE_GOLDENS=1`,
+    /// the pattern the snapshot baselines use). Each golden is the OPL reader's
+    /// own `io::write` output; this asserts, at capture time, that the projection
+    /// already reproduces it -- so freezing the bytes is faithful, and a later
+    /// parity failure means the projection drifted, not that the golden is stale.
     #[test]
-    fn the_real_capture_projects_identically_to_the_opl_reader() {
-        assert_parity("lsl3_score_up.vgm", VGM_FIXTURE);
+    fn regenerate_projection_goldens() {
+        if std::env::var_os("UPDATE_GOLDENS").is_none() {
+            return;
+        }
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/golden");
+        let (early, _, _) = early_loop_input();
+        for (file_name, input) in [
+            ("projection_base.opl.vgm", VGM_FIXTURE.to_vec()),
+            ("projection_looping.opl.vgm", looping_input()),
+            ("projection_early_loop.opl.vgm", early),
+        ] {
+            let by_opl_reader = crate::vgm::io::read("golden.vgm", &input).unwrap();
+            let projected = crate::vgm::file::read("golden.vgm", &input)
+                .unwrap()
+                .to_song()
+                .unwrap();
+            let golden = crate::vgm::io::write(&by_opl_reader).unwrap();
+            assert_eq!(
+                crate::vgm::io::write(&projected).unwrap(),
+                golden,
+                "{file_name}: parity must hold at capture time"
+            );
+            std::fs::write(format!("{dir}/{file_name}"), &golden).unwrap();
+        }
+    }
+
+    #[test]
+    fn the_real_capture_projects_to_the_frozen_opl_output() {
+        assert_projects_to_golden("lsl3_score_up.vgm", VGM_FIXTURE, GOLDEN_BASE);
     }
 
     /// The generic redundancy engine must reach the same verdict as the OPL
@@ -515,37 +565,16 @@ mod tests {
 
     #[test]
     fn a_looping_file_projects_identically() {
-        // The loop machinery is where the two paths could most easily diverge:
-        // the OPL reader resolves the loop against its own stream index, the
-        // projection against the generic one.
-        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
-        let stream = file.stream().unwrap();
-        let at = file.header.data_start() + stream.byte_offset(3).unwrap();
-
-        let mut bytes = VGM_FIXTURE.to_vec();
-        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
-        bytes[0x20..0x24].copy_from_slice(&(stream.samples_from(3) as u32).to_le_bytes());
-        assert_parity("looping.vgm", &bytes);
+        let bytes = looping_input();
+        assert_projects_to_golden("looping.vgm", &bytes, GOLDEN_LOOPING);
     }
 
     /// A loop that stops short of the end -- the shape `VgmMeta::loop_end`
     /// exists for, and the one most likely to drift between the two readers.
     #[test]
     fn a_loop_that_ends_early_projects_identically() {
-        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
-        let stream = file.stream().unwrap();
-        let start = 1;
-        let from_start = stream.samples_from(start);
-        let end = (start + 1..stream.len())
-            .find(|&index| stream.samples_from(index) < from_start)
-            .expect("the capture has delays");
-
-        let mut bytes = VGM_FIXTURE.to_vec();
-        let at = file.header.data_start() + stream.byte_offset(start).unwrap();
-        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
-        let region = from_start - stream.samples_from(end);
-        bytes[0x20..0x24].copy_from_slice(&(region as u32).to_le_bytes());
-        assert_parity("early-loop.vgm", &bytes);
+        let (bytes, start, end) = early_loop_input();
+        assert_projects_to_golden("early-loop.vgm", &bytes, GOLDEN_EARLY_LOOP);
 
         // And the shortened loop really was materialised, not silently widened.
         let file = crate::vgm::file::read("early-loop.vgm", &bytes).unwrap();
@@ -560,42 +589,27 @@ mod proptests {
     use proptest::prelude::*;
 
     proptest! {
-        /// Over any OPL stream the old reader would accept, the two paths agree
-        /// about every row, every derived total, and the bytes they write back.
+        /// Over any OPL stream, the two redundancy engines agree about what is
+        /// droppable -- the chip-generic one (on the VGM stream) and the OPL
+        /// optimiser (on the projection). The field-and-byte reader-parity this
+        /// test also carried moved onto checked-in goldens (`assert_projects_to_golden`),
+        /// because once `io::read` delegates to `file::read` it would compare the
+        /// projection to itself; a proptest cannot freeze a golden per random case.
         #[test]
-        fn any_opl_file_projects_identically_to_the_opl_reader(
+        fn the_redundancy_engines_agree_over_any_opl_stream(
             commands in prop::collection::vec(any_opl_command(), 0..40),
             opl3 in any::<bool>(),
             loop_at in prop::option::of(0usize..40),
         ) {
             let bytes = synthetic_opl_vgm(&commands, opl3, loop_at);
-            let by_opl_reader = crate::vgm::io::read("p.vgm", &bytes)?;
             let file = crate::vgm::file::read("p.vgm", &bytes)?;
             let projected = file.to_song().expect("an OPL file");
-
-            prop_assert_eq!(projected.len(), by_opl_reader.len());
-            for index in 0..by_opl_reader.len() {
-                prop_assert_eq!(
-                    projected.instruction(index),
-                    by_opl_reader.instruction(index)
-                );
-            }
-            prop_assert_eq!(
-                projected.total_delay_samples(),
-                by_opl_reader.total_delay_samples()
-            );
-            prop_assert_eq!(projected.vgm_meta(), by_opl_reader.vgm_meta());
-            prop_assert_eq!(
-                crate::vgm::io::write(&projected)?,
-                crate::vgm::io::write(&by_opl_reader)?
-            );
-            // And the two redundancy engines agree about what is droppable.
             prop_assert_eq!(
                 crate::chip_state::redundant_indices(
                     file.stream().unwrap(),
                     file.loop_index()
                 ),
-                crate::optimize::redundant_write_indices(&by_opl_reader)
+                crate::optimize::redundant_write_indices(&projected)
             );
         }
     }
