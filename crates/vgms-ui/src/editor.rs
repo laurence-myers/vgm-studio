@@ -406,10 +406,18 @@ impl Editor {
                         .map(Path::to_path_buf),
                 });
             }
+            // Not a VGM this app can read at all, so by elimination it is a DRO
+            // (or unreadable): hand it straight to the DRO reader below.
             Err(_) => {}
         }
 
-        let mut song = match io::read_song(&file.name, &file.bytes) {
+        // DRO only. `file::read` above is the sole VGM path, and it accepts a
+        // strict superset of what the old VGM reader did (both parse the same
+        // header, then `file::read` keeps even an unwalkable stream), so a `.vgm`
+        // that reached here could never have loaded through `read_song`'s VGM
+        // branch either -- routing straight to `io::dro::read` drops that dead
+        // fallback and leaves DRO opened by exactly one path, VGM by another.
+        let mut song = match io::dro::read(&file.name, &file.bytes) {
             Ok(song) => song,
             Err(error) => return Err(LoadFailure::Unreadable(error.to_string())),
         };
@@ -1238,6 +1246,28 @@ mod tests {
         );
         assert_eq!(editor.len(), 14, "the old song survives a failed load");
         assert!(editor.path.is_some());
+    }
+
+    /// A file *named* `.vgm` whose bytes are not a VGM is Unreadable, never a
+    /// held document. This pins the invariant mg-1b's edit rests on: there is no
+    /// VGM fallback below `file::read`, so a `.vgm` name cannot smuggle a file
+    /// past it into the (DRO-only) reader and back out as a document.
+    #[test]
+    fn a_dot_vgm_that_is_not_a_vgm_is_unreadable_not_held() {
+        let (mut editor, _) = loaded(&dro_song_v2());
+        let error = editor
+            .load(PickedFile {
+                name: "broken.vgm".to_owned(),
+                path: Some(PathBuf::from("C:/rips/broken.vgm")),
+                bytes: vec![0u8; 8],
+            })
+            .unwrap_err();
+        assert!(
+            matches!(error, LoadFailure::Unreadable(message) if !message.is_empty()),
+            "a malformed .vgm is unreadable, not held"
+        );
+        assert!(editor.vgm().is_none(), "and is never held as a VGM");
+        assert_eq!(editor.len(), 14, "the old song survives");
     }
 
     /// A VGM whose chips are not OPL is not a broken file. It opens like any
