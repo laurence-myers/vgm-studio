@@ -477,6 +477,13 @@ depend on it. Scope:
   key-on / level write (identical to OPL today; slightly different from
   native-mute unmute, which resumes instantly). Whole-chip mute/unmute is
   identical to today by the stand-down rule (§1.1).
+- **Song-format stems rely on the player resetting chips to silence** (rs-2).
+  A stem silences the non-soloed chips by *dropping* their writes and keeps the
+  soloed chip's never-written channels at their power-up state; both are silent
+  on VGMPlay, libvgm and this app's engine (all reset to silence), but a
+  hardware-accurate core whose chip powers up loud and never gets the driver's
+  own silencing burst could sound a muted chip. The same assumption every trim
+  and crop in the codebase makes.
 
 ## 4. Validation
 

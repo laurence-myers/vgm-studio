@@ -27,6 +27,15 @@
 //! [`ChannelGate::exists`](crate::channel_gate::ChannelGate::exists) gates the
 //! caller. Every *other* chip in the file is silenced wholesale by dropping its
 //! writes, which needs no gate table at all.
+//!
+//! Both the dropped chips and a soloed chip's never-written channels rely on the
+//! player resetting every chip to silence at load -- the same assumption every
+//! trim, crop and edit in this codebase makes, and one VGMPlay, libvgm and this
+//! app's own engine all honour. A hardware-accurate core whose chip powers up in
+//! an undefined (possibly loud) state and never receives the driver's own
+//! silencing burst (dropped here) is the one place a stem could sound a chip it
+//! means to mute; that is an accepted limitation (plan §3), not a defect in the
+//! rewrite.
 
 use vgms_core::Result;
 use vgms_core::vgm::stream::END_OF_DATA;
