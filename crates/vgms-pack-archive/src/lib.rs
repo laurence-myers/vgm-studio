@@ -51,6 +51,13 @@ pub struct PackEntry {
 /// exhaust memory.
 const MAX_ENTRY_SIZE: u64 = 128 * 1024 * 1024;
 
+/// The most a whole pack may decompress to: 512 MiB. The per-entry cap alone
+/// does not bound the archive -- deflate runs to ~1000:1, so a few-MiB zip
+/// holding many at-cap entries would still inflate to gigabytes held live.
+/// A real pack is a handful of songs, a screenshot and a text file, far below
+/// this; entries past the budget are skipped like any other bad entry.
+const MAX_TOTAL_SIZE: u64 = 512 * 1024 * 1024;
+
 /// A pack's files, held in memory and mutated in place until saved.
 #[derive(Debug, Clone, Default)]
 pub struct PackArchive {
@@ -66,17 +73,21 @@ impl PackArchive {
     /// # Errors
     /// Only when the bytes are not a readable zip at all.
     pub fn open(zip_bytes: &[u8]) -> Result<Self, String> {
-        Self::open_capped(zip_bytes, MAX_ENTRY_SIZE)
+        Self::open_capped(zip_bytes, MAX_ENTRY_SIZE, MAX_TOTAL_SIZE)
     }
 
-    /// [`open`](Self::open) with an explicit per-entry ceiling, so a test can
-    /// prove the bomb guard without a 128 MiB entry.
-    fn open_capped(zip_bytes: &[u8], cap: u64) -> Result<Self, String> {
+    /// [`open`](Self::open) with explicit per-entry and whole-archive ceilings,
+    /// so a test can prove both bomb guards without a 128 MiB entry.
+    fn open_capped(zip_bytes: &[u8], cap: u64, total_cap: u64) -> Result<Self, String> {
         // `Cursor<&[u8]>` is `Read + Seek`, so the zip reader needs no owned copy.
         let mut archive = zip::ZipArchive::new(Cursor::new(zip_bytes))
             .map_err(|error| format!("not a readable zip: {error}"))?;
 
         let mut entries = BTreeMap::new();
+        // The running total of bytes kept live. The per-entry cap alone is not a
+        // bound on the archive: many at-cap entries would still add up, so each
+        // entry also has to fit in what is left of the whole-archive budget.
+        let mut total: u64 = 0;
         for index in 0..archive.len() {
             let Ok(file) = archive.by_index(index) else {
                 continue;
@@ -89,19 +100,27 @@ impl PackArchive {
             if name.is_empty() || !has_pack_extension(&name) {
                 continue;
             }
-            // Skip an entry that declares more than the ceiling, and still read
-            // through `take` in case the header lied -- so neither the declared
-            // size nor the real inflated size can beat the cap.
-            if file.size() > cap {
+            // Skip an entry that declares more than either ceiling, and still
+            // read through `take` in case the header lied -- so neither the
+            // declared size nor the real inflated size can beat the caps.
+            let budget = cap.min(total_cap - total);
+            if file.size() > budget {
                 continue;
             }
             let mut bytes = Vec::new();
-            if file.take(cap + 1).read_to_end(&mut bytes).is_err() || bytes.len() as u64 > cap {
+            if file.take(budget + 1).read_to_end(&mut bytes).is_err()
+                || bytes.len() as u64 > budget
+            {
                 // Skip an unreadable or oversize entry, as the native scan skips
                 // an unreadable file, rather than failing the whole open.
                 continue;
             }
-            entries.insert(name, bytes);
+            // An overwrite (duplicate name in the zip) releases the old bytes, so
+            // the total tracks what is actually held.
+            total += bytes.len() as u64;
+            if let Some(replaced) = entries.insert(name, bytes) {
+                total -= replaced.len() as u64;
+            }
         }
         Ok(Self { entries })
     }
@@ -430,8 +449,29 @@ mod tests {
         // One small entry and one that inflates past a deliberately small cap.
         let big = vec![0u8; 8192];
         let zip = build_zip(&[("01 A.vgm", b"ok"), ("02 Big.vgm", &big)]);
-        let archive = PackArchive::open_capped(&zip, 1024).unwrap();
+        let archive = PackArchive::open_capped(&zip, 1024, u64::MAX).unwrap();
         assert_eq!(names(&archive), ["01 A.vgm"], "the oversize entry was dropped");
+    }
+
+    #[test]
+    fn many_under_cap_entries_cannot_beat_the_whole_archive_budget() {
+        // The multi-entry bomb: every entry is under the per-entry cap, but
+        // together they pass the whole-archive budget. Entries are admitted in
+        // zip order until the budget is spent; the rest are skipped, and a
+        // later entry small enough for the remainder still fits.
+        let chunk = vec![0u8; 1000];
+        let zip = build_zip(&[
+            ("01 A.vgm", chunk.as_slice()), // 1000 -> total 1000
+            ("02 B.vgm", chunk.as_slice()), // 1000 -> total 2000
+            ("03 C.vgm", chunk.as_slice()), // over the 2500 budget: skipped
+            ("04 D.vgm", b"tail"),          // 4 fits the remaining 500
+        ]);
+        let archive = PackArchive::open_capped(&zip, 1024, 2500).unwrap();
+        assert_eq!(
+            names(&archive),
+            ["01 A.vgm", "02 B.vgm", "04 D.vgm"],
+            "the entry that would pass the budget is dropped, not the pack"
+        );
     }
 
     #[test]
