@@ -12,6 +12,8 @@ use vgms_core::config::AudioConfig;
 use vgms_core::vgm::{ChipKind, VgmCommand, VgmFile, channels_of};
 use vgms_core::{Bank, Error, OplType, RegisterUsage, Result, Song};
 
+use crate::channel_gate::ChannelGate;
+use crate::registry::{self, CoreRegistry};
 use crate::resample::ResampleMode;
 use crate::{
     ChipMuting, CoreChoices, Muting, RenderMix, VgmRenderMix, capture,
@@ -280,11 +282,26 @@ pub fn split_vgm_cancellable(
     for chip in file.header.chips() {
         let instances = if chip.dual { 2 } else { 1 };
         let channels = channels_of(chip.kind, chip.variant);
+        // A core that can neither mute natively nor be write-gated renders the
+        // same full mix for every "solo", so every channel would come out
+        // identical and the silence filter would keep N copies. Warn once and
+        // skip the whole chip rather than write them. The offline choice is what
+        // the render below resolves (honouring any per-render override).
+        let choice =
+            registry::render_override(chip.kind).or_else(|| registry::core_choice(chip.kind));
+        let identical = renders_identical_files(registry::registry(), chip.kind, choice.as_deref());
         for instance in 0..instances {
             let ever_written = written.contains(&(chip.kind, instance));
+            if ever_written && identical {
+                log::warn!(
+                    "channel split: {}'s core cannot isolate channels (no native mute, \
+                     no write-gate); skipping rather than writing identical files",
+                    chip.kind.name()
+                );
+            }
             for (index, channel) in channels.iter().enumerate() {
                 let name = channel_file_name(&file.name, chip.kind, instance, index, channel.short);
-                if !ever_written {
+                if !ever_written || identical {
                     on_skip(&name);
                     continue;
                 }
@@ -333,6 +350,22 @@ pub fn split_vgm_cancellable(
         }
     }
     Ok(Some(outputs))
+}
+
+/// Whether the channel split would write N identical files for `kind`.
+///
+/// True only when the chip's chosen offline core produces sound
+/// ([`can_build`](CoreRegistry::can_build)) but can neither mute natively nor be
+/// write-gated -- then every soloed render is the same full mix. A gated chip, a
+/// native-mute core, and a chip with no core at all (which renders silence the
+/// filter already drops) are all fine, so none of them is flagged.
+fn renders_identical_files(registry: &CoreRegistry, kind: ChipKind, choice: Option<&str>) -> bool {
+    if ChannelGate::exists(kind) || !registry.can_build(kind) {
+        return false;
+    }
+    !registry
+        .resolve_choice(kind, choice)
+        .is_some_and(|info| info.channel_mute)
 }
 
 /// The chip instances a stream writes at least once, so the split can skip a
@@ -783,5 +816,63 @@ mod tests {
         let opl3 = channels_to_render(OplType::Opl3);
         assert!(opl3.contains(&0x1B0));
         assert!(opl3.contains(&0x1BD));
+    }
+
+    /// The guard against writing N identical files: a chip that can be soloed
+    /// (gated, or natively muteable) is fine; a buildable chip that can be
+    /// neither is flagged; a chip with no core (which renders silence) is not.
+    #[test]
+    fn the_identical_file_guard_flags_only_the_unmuteable() {
+        use crate::{ChipCore, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY};
+
+        #[derive(Debug)]
+        struct Dummy;
+        impl ChipCore for Dummy {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+        fn core(id: &'static str, chip: ChipKind, native_mute: bool) -> CoreInfo {
+            CoreInfo {
+                id,
+                chip,
+                label: "dummy",
+                authors: "test",
+                license: "MIT",
+                upstream: "",
+                realtime: true,
+                channel_pan: false,
+                channel_mute: native_mute,
+                level: LEVEL_UNITY,
+                make: CoreMaker::Generic(|| Box::new(Dummy)),
+            }
+        }
+
+        let mut reg = CoreRegistry::new();
+        reg.register(core("sn76489.nuked", ChipKind::Sn76489, false)); // gated
+        reg.register(core("c352.lle", ChipKind::C352, false)); // no gate, no native mute
+        reg.register(core("c140.libvgm", ChipKind::C140, true)); // native mute
+
+        assert!(
+            !renders_identical_files(&reg, ChipKind::Sn76489, None),
+            "the gate covers the SN76489, so it can be soloed"
+        );
+        assert!(
+            renders_identical_files(&reg, ChipKind::C352, None),
+            "no gate table and no native mute: every solo is the same full mix"
+        );
+        assert!(
+            !renders_identical_files(&reg, ChipKind::C140, None),
+            "a native-mute core solos fine"
+        );
+        assert!(
+            !renders_identical_files(&reg, ChipKind::Ymz280b, None),
+            "no core at all renders silence, which the filter drops -- not identical files"
+        );
     }
 }
