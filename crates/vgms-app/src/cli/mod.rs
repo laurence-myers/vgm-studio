@@ -51,7 +51,7 @@ pub enum Command {
     Render(render::Args),
     /// Split a song into one file per channel used.
     Split(split::Args),
-    /// Optimise a VGM: strip redundant writes and merge the delays left behind.
+    /// Optimize a VGM: strip redundant writes and merge the delays left behind.
     Optimize(optimize::Args),
     /// List RetroWave OPL3 hardware and play a test chord on it.
     #[command(name = "retrowave-probe")]

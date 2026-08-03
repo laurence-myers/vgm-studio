@@ -53,7 +53,7 @@ cargo test --workspace                                       # unit + integratio
 cargo fmt --all                                              # format
 cargo clippy --workspace --all-targets -- -D warnings        # lint
 # wasm stays clean -- every wasm-facing crate, matching rust.yaml's job
-cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet -p vgms-pack-archive -p vgms-retrowave
+cargo check --target wasm32-unknown-unknown -p vgms-core -p vgms-synth -p vgms-ui -p vgms-web -p vgms-synth-worklet -p vgms-cores -p vgms-pack-archive -p vgms-retrowave
 ```
 
 ### The `vgmstudio` command line

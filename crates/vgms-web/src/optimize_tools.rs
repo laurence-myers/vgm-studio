@@ -29,7 +29,7 @@ use crate::pack_zip::SongOptimizer;
 #[wasm_bindgen]
 extern "C" {
     /// `pack_worker.js`'s tool host (the `__vgms_pick_dir` pattern): runs one
-    /// wasip1 module over `input` and returns `{ code, output, tail }`.
+    /// wasip1 module over `input` and returns `{ code, output, log }`.
     #[wasm_bindgen(catch, js_name = "__vgms_run_tool")]
     fn vgms_run_tool(
         module: &WebAssembly::Module,

@@ -16,7 +16,7 @@ use vgms_vgmtools::{Options, StageOutcome};
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
-    /// The VGM or VGZ file to optimise.
+    /// The VGM or VGZ file to optimize.
     pub input: PathBuf,
     /// Where to write the result. Defaults to overwriting the input, as
     /// `vgm_cmp` does. The extension chooses the container: `.vgz` gzips.

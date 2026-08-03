@@ -33,7 +33,7 @@ use vgms_ui::platform::{OptimizedImage, PackJobOutcome, PackJobRequest, PackServ
 const WORKER_URL: &str = "./pack_worker.js";
 
 /// The message the standalone PNG-optimise action answers with on the web.
-const NO_PNG_OPTIMISE: &str = "PNG optimisation is not available in this browser.";
+const NO_PNG_OPTIMIZE: &str = "PNG optimization is not available in this browser.";
 
 /// How long the export may go without a heartbeat before it is presumed hung.
 ///
@@ -276,7 +276,7 @@ impl PackService for WebPackService {
     fn optimize(&mut self, _name: String, _bytes: Vec<u8>) {
         self.optimized
             .borrow_mut()
-            .push_back(Err(NO_PNG_OPTIMISE.to_owned()));
+            .push_back(Err(NO_PNG_OPTIMIZE.to_owned()));
     }
 
     fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>> {

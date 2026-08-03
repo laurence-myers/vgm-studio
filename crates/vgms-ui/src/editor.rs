@@ -572,7 +572,7 @@ impl Editor {
     ///
     /// Goes out through whole-file bytes rather than editing in place, because
     /// the desktop route hands them to the vgmtools optimisers as a file (see
-    /// [`crate::optimise`]). Reading the result back is cheap next to what the
+    /// `crate::optimize`). Reading the result back is cheap next to what the
     /// tools just did, and it keeps both arms to one shape.
     ///
     /// Whatever route ran, it drops only what its per-chip rules call safe and

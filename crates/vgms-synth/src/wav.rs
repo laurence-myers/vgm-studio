@@ -340,7 +340,7 @@ fn write_render(
         let (frames, rendered) = pull(&mut buffer);
         // Boost and limit exactly as the live audio callback does, so a boosted
         // render matches boosted playback. Bit-transparent when boost is 1.0, so
-        // the faithful `render_wav` / `render_wav_muted` paths are unchanged.
+        // the faithful unboosted `render_wav` path is unchanged.
         limiter.process(&mut buffer[..frames * 2]);
         for &sample in &buffer[..frames * 2] {
             if bit_depth == 8 {
