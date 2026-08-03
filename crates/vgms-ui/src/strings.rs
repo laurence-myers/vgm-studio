@@ -582,6 +582,11 @@ pub(crate) const SPLIT_ISOLATE_PERCUSSION_HOVER: &str =
     "Splits the percussion channel per drum, not as one";
 pub(crate) const SPLIT_SKIPPED_NOTE: &str =
     "Silent channels are skipped; existing files are overwritten.";
+pub(crate) const SPLIT_MIX_APPLY: &str = "Apply to each stem:";
+pub(crate) const SPLIT_SKIP_MUTED_HOVER: &str =
+    "Leave out the channels you have muted, splitting only the rest";
+pub(crate) const SPLIT_PANNING_HOVER: &str = "Place each stem where its channel's pan knob is set";
+pub(crate) const SPLIT_BOOST_HOVER: &str = "Drive each stem through the peak limiter";
 pub(crate) const SPLIT_CORE: &str = "Core for this split:";
 pub(crate) const SPLIT_CORE_HOVER: &str = "The core to render each channel with, starting from your Settings choice. This split \
      only -- playback and your saved settings are untouched.";

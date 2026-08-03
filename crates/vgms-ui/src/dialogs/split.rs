@@ -10,6 +10,10 @@ use crate::action::Action;
 use crate::theme::{Palette, bevel};
 use crate::widgets::chip_output;
 
+/// The boost range the audio config accepts. A stem at 1.0 is bit-transparent.
+const MIN_BOOST: f32 = 1.0;
+const MAX_BOOST: f32 = 16.0;
+
 #[derive(Debug)]
 pub struct SplitDialog {
     format: SplitFormat,
@@ -22,6 +26,16 @@ pub struct SplitDialog {
     /// Whether this is an OPL document, so the percussion ("each drum its own
     /// file") option -- an OPL idea -- is offered.
     is_opl: bool,
+    /// Skip the channels the mixer has muted (decision 9): a live mute leaves a
+    /// channel out of the output set. Applies to both formats.
+    use_skip_muted: bool,
+    /// Apply the mixer's pan knobs to each rendered stem. WAV renders only.
+    use_panning: bool,
+    /// Whether [`Self::boost`] is applied at all. WAV renders only.
+    use_boost: bool,
+    /// Held as text so a half-typed value is not clamped out from under the
+    /// user; parsed and range-checked on Split.
+    boost: String,
     /// The document's chip slots, for the core picker rows.
     chips: Vec<ChipKind>,
     /// The core chosen per chip slot for this split, seeded from Settings and
@@ -36,6 +50,10 @@ impl Default for SplitDialog {
             isolate_percussion: false,
             song_capable: true,
             is_opl: true,
+            use_skip_muted: false,
+            use_panning: false,
+            use_boost: false,
+            boost: format_boost(1.0),
             chips: Vec::new(),
             cores: BTreeMap::new(),
         }
@@ -45,19 +63,22 @@ impl Default for SplitDialog {
 impl SplitDialog {
     /// The dialog for the loaded document. `is_opl` decides the OPL-only
     /// percussion option; the Song format is offered for an OPL document or a
-    /// VGM whose chips a write-gate covers. `chips` are the document's chip slots
-    /// and `settings_cores` the current Settings core map; together they seed the
+    /// VGM whose chips a write-gate covers. `current_boost` seeds the boost
+    /// field from live playback. `chips` are the document's chip slots and
+    /// `settings_cores` the current Settings core map; together they seed the
     /// per-render core picker (session-sticky, never written to vgmstudio.ini).
     #[must_use]
     pub fn new(
         is_opl: bool,
         chips: Vec<ChipKind>,
         settings_cores: BTreeMap<String, String>,
+        current_boost: f32,
     ) -> Self {
         let song_capable = is_opl || chips.iter().any(|&kind| ChannelGate::exists(kind));
         Self {
             song_capable,
             is_opl,
+            boost: format_boost(current_boost),
             chips,
             cores: settings_cores,
             ..Self::default()
@@ -119,6 +140,41 @@ impl SplitDialog {
                     });
                 }
 
+                // The mix opt-ins, all off = the faithful split. Skipping muted
+                // channels applies to both formats; panning and boost are
+                // render-time, so they are offered only for a WAV split.
+                ui.add_space(8.0);
+                ui.label(crate::strings::SPLIT_MIX_APPLY);
+                ui.add_space(4.0);
+                option_row(
+                    ui,
+                    "Skip muted channels",
+                    crate::strings::SPLIT_SKIP_MUTED_HOVER,
+                    &mut self.use_skip_muted,
+                );
+                if self.format == SplitFormat::Wav {
+                    option_row(
+                        ui,
+                        "Channel panning",
+                        crate::strings::SPLIT_PANNING_HOVER,
+                        &mut self.use_panning,
+                    );
+                    ui.horizontal(|ui| {
+                        option_row(
+                            ui,
+                            "Boost",
+                            crate::strings::SPLIT_BOOST_HOVER,
+                            &mut self.use_boost,
+                        );
+                        ui.add_enabled_ui(self.use_boost, |ui| {
+                            super::text_field(ui, palette, &mut self.boost, 44.0).on_hover_text(
+                                crate::strings::render_wav_boost_range(MIN_BOOST, MAX_BOOST),
+                            );
+                            ui.label("x");
+                        });
+                    });
+                }
+
                 core_picker(ui, palette, &self.chips, &mut self.cores);
 
                 ui.add_space(8.0);
@@ -135,20 +191,40 @@ impl SplitDialog {
                 });
             },
         );
-        if split_clicked.get() {
-            self.save(actions);
-        }
-        open && !(close.get() || split_clicked.get())
+        // Only a clicked Split with a valid boost runs the save; a refused one
+        // leaves the dialog open (like the Render dialog).
+        let split_done = split_clicked.get() && self.save(actions);
+        open && !(close.get() || split_done)
     }
 
-    /// Emits the split request. Nothing to validate: both options are choices,
-    /// not typed values, and where to put the files is asked next.
-    fn save(&self, actions: &mut Vec<Action>) {
+    /// Emits the split request, or queues an error box and stays open when the
+    /// boost field is enabled but out of range. Pan and boost are dropped for a
+    /// song split, which cannot render them.
+    fn save(&mut self, actions: &mut Vec<Action>) -> bool {
+        let is_wav = self.format == SplitFormat::Wav;
+        let boost = if self.use_boost && is_wav {
+            match self.boost.trim().parse::<f32>() {
+                Ok(boost) if (MIN_BOOST..=MAX_BOOST).contains(&boost) => boost,
+                _ => {
+                    actions.push(Action::Alert {
+                        title: crate::strings::RENDER_WAV_INVALID_TITLE.to_owned(),
+                        message: crate::strings::render_wav_boost_message(MIN_BOOST, MAX_BOOST),
+                    });
+                    return false;
+                }
+            }
+        } else {
+            1.0
+        };
         actions.push(Action::SplitSubmitted {
             format: self.format,
             isolate_percussion: self.isolate_percussion,
+            use_skip_muted: self.use_skip_muted,
+            use_panning: self.use_panning && is_wav,
+            boost,
             core_choices: self.cores.clone(),
         });
+        true
     }
 }
 
@@ -189,6 +265,30 @@ fn core_picker(
         });
 }
 
+/// A checkbox whose caption toggles it, as the Render dialog's rows do.
+fn option_row(ui: &mut egui::Ui, caption: &str, hover: &str, value: &mut bool) {
+    ui.horizontal(|ui| {
+        ui.checkbox(value, "");
+        if ui
+            .add(egui::Label::new(caption).sense(egui::Sense::click()))
+            .on_hover_text(hover)
+            .clicked()
+        {
+            *value = !*value;
+        }
+    });
+}
+
+/// Shows a whole-number boost without a pointless `.0`.
+fn format_boost(boost: f32) -> String {
+    let clamped = boost.clamp(MIN_BOOST, MAX_BOOST);
+    if clamped.fract() == 0.0 {
+        format!("{clamped:.0}")
+    } else {
+        format!("{clamped}")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,7 +296,7 @@ mod tests {
     /// An OPL dialog with no core-picker seed -- the format/percussion options
     /// under test do not touch the picker, which is exercised on its own below.
     fn dialog(is_opl: bool) -> SplitDialog {
-        SplitDialog::new(is_opl, Vec::new(), BTreeMap::new())
+        SplitDialog::new(is_opl, Vec::new(), BTreeMap::new(), 1.0)
     }
 
     /// A WAV split of the whole percussion channel: what `vgmstudio split` does
@@ -206,17 +306,21 @@ mod tests {
         let dialog = dialog(true);
         assert_eq!(dialog.format, SplitFormat::Wav);
         assert!(!dialog.isolate_percussion);
+        assert!(!dialog.use_skip_muted && !dialog.use_panning && !dialog.use_boost);
     }
 
     #[test]
     fn the_defaults_are_what_a_bare_split_requests() {
         let mut actions = Vec::new();
-        dialog(true).save(&mut actions);
+        assert!(dialog(true).save(&mut actions));
         assert_eq!(
             actions,
             [Action::SplitSubmitted {
                 format: SplitFormat::Wav,
                 isolate_percussion: false,
+                use_skip_muted: false,
+                use_panning: false,
+                boost: 1.0,
                 core_choices: BTreeMap::new(),
             }]
         );
@@ -227,17 +331,85 @@ mod tests {
         let mut dialog = dialog(true);
         dialog.format = SplitFormat::Song;
         dialog.isolate_percussion = true;
+        dialog.use_skip_muted = true;
 
         let mut actions = Vec::new();
-        dialog.save(&mut actions);
+        assert!(dialog.save(&mut actions));
         assert_eq!(
             actions,
             [Action::SplitSubmitted {
                 format: SplitFormat::Song,
                 isolate_percussion: true,
+                use_skip_muted: true,
+                // Pan/boost are dropped for a song split, which cannot render.
+                use_panning: false,
+                boost: 1.0,
                 core_choices: BTreeMap::new(),
             }]
         );
+    }
+
+    /// The pan and boost opt-ins reach a WAV split's request.
+    #[test]
+    fn the_wav_mix_opt_ins_reach_the_request() {
+        let mut dialog = dialog(true);
+        dialog.use_panning = true;
+        dialog.use_boost = true;
+        dialog.boost = "2.5".to_owned();
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let [
+            Action::SplitSubmitted {
+                use_panning, boost, ..
+            },
+        ] = actions[..]
+        else {
+            panic!("expected a split request, got {actions:?}")
+        };
+        assert!(use_panning);
+        assert_eq!(boost, 2.5);
+    }
+
+    /// Pan and boost are dropped when the song format is chosen -- even if the
+    /// (now-hidden) toggles were left on.
+    #[test]
+    fn a_song_split_drops_pan_and_boost() {
+        let mut dialog = dialog(true);
+        dialog.format = SplitFormat::Song;
+        dialog.use_panning = true;
+        dialog.use_boost = true;
+        dialog.boost = "not a number".to_owned(); // must not block the split
+
+        let mut actions = Vec::new();
+        assert!(
+            dialog.save(&mut actions),
+            "a song split ignores the boost field"
+        );
+        let [
+            Action::SplitSubmitted {
+                use_panning, boost, ..
+            },
+        ] = actions[..]
+        else {
+            panic!("expected a split request, got {actions:?}")
+        };
+        assert!(!use_panning);
+        assert_eq!(boost, 1.0);
+    }
+
+    /// An enabled but out-of-range boost is refused with an alert (WAV only).
+    #[test]
+    fn an_invalid_boost_is_refused() {
+        for typed in ["", "nope", "0", "17"] {
+            let mut dialog = dialog(true);
+            dialog.use_boost = true;
+            dialog.boost = typed.to_owned();
+
+            let mut actions = Vec::new();
+            assert!(!dialog.save(&mut actions), "{typed:?} should be refused");
+            assert!(matches!(actions[0], Action::Alert { .. }));
+        }
     }
 
     /// An OPL document offers the Song format; so does a VGM with a gate-covered
@@ -246,11 +418,11 @@ mod tests {
     fn the_song_format_is_offered_when_a_channel_can_be_rewritten() {
         assert!(dialog(true).song_capable, "an OPL document is captured");
         assert!(
-            SplitDialog::new(false, vec![ChipKind::Sn76489], BTreeMap::new()).song_capable,
+            SplitDialog::new(false, vec![ChipKind::Sn76489], BTreeMap::new(), 1.0).song_capable,
             "a gated chip can be rewritten to song data"
         );
         assert!(
-            !SplitDialog::new(false, vec![ChipKind::C352], BTreeMap::new()).song_capable,
+            !SplitDialog::new(false, vec![ChipKind::C352], BTreeMap::new(), 1.0).song_capable,
             "an ungated chip is WAV-only"
         );
         // A mix offers the format -- the split refuses the ungated chip per-chip.
@@ -258,7 +430,8 @@ mod tests {
             SplitDialog::new(
                 false,
                 vec![ChipKind::C352, ChipKind::Ym2612],
-                BTreeMap::new()
+                BTreeMap::new(),
+                1.0,
             )
             .song_capable
         );
@@ -268,18 +441,18 @@ mod tests {
     #[test]
     fn percussion_is_offered_for_opl_documents_only() {
         assert!(dialog(true).is_opl);
-        assert!(!SplitDialog::new(false, vec![ChipKind::Ym2612], BTreeMap::new()).is_opl);
+        assert!(!SplitDialog::new(false, vec![ChipKind::Ym2612], BTreeMap::new(), 1.0).is_opl);
     }
 
     /// The picker's chosen core rides the split request, seeded from Settings
     /// and carried without ever touching the saved config.
     #[test]
     fn the_picker_core_reaches_the_request() {
-        let mut dialog = SplitDialog::new(true, Vec::new(), BTreeMap::new());
+        let mut dialog = SplitDialog::new(true, Vec::new(), BTreeMap::new(), 1.0);
         dialog.cores.insert("opl3".to_owned(), "cqm".to_owned());
 
         let mut actions = Vec::new();
-        dialog.save(&mut actions);
+        assert!(dialog.save(&mut actions));
         let [Action::SplitSubmitted { core_choices, .. }] = &actions[..] else {
             panic!("expected a split request, got {actions:?}")
         };

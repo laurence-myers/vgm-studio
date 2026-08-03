@@ -42,6 +42,13 @@ pub enum Action {
     SplitSubmitted {
         format: vgms_synth::SplitFormat,
         isolate_percussion: bool,
+        /// Exclude the channels the mixer has muted from the output set
+        /// (decision 9).
+        use_skip_muted: bool,
+        /// Apply the mixer's pan knobs to each rendered stem (WAV only).
+        use_panning: bool,
+        /// The boost applied to each rendered WAV stem; `1.0` when off.
+        boost: f32,
         /// The per-render core choices the dialog's picker settled on, seeded
         /// from Settings and never persisted. Empty means the configured cores.
         core_choices: std::collections::BTreeMap<String, String>,
