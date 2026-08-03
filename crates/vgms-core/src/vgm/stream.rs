@@ -781,8 +781,7 @@ impl VgmStream {
     /// everything sounding before that instant, and writing it back reproduces
     /// the same length, so a re-read normalises to this same index. `samples`
     /// that falls strictly inside a delay, or `0` (which would point at `start`
-    /// itself), yields `None`. Mirrors `io::resolve_loop_end`'s rule over
-    /// [`Song::delay_samples_prefix`], so the two loop-end paths agree.
+    /// itself), yields `None` -- the same rule `seek_index_for_samples` applies.
     #[must_use]
     pub fn boundary_after(&self, start: usize, samples: u64) -> Option<usize> {
         let target = self.samples_before(start).checked_add(samples)?;

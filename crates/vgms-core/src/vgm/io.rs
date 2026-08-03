@@ -19,8 +19,8 @@ use flate2::write::GzEncoder;
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
 use crate::song::{OplType, Song, SongData};
-use crate::vgm::data::{GD3_FIELD_COUNT, Gd3Tag, VgmData, VgmMeta, command};
-use crate::vgm::header::{ChipKind, VgmHeader, offset};
+use crate::vgm::data::{GD3_FIELD_COUNT, Gd3Tag, command};
+use crate::vgm::header::offset;
 
 /// `Vgm `.
 pub const MAGIC: &[u8; 4] = b"Vgm ";
@@ -80,11 +80,49 @@ pub fn is_gzipped(bytes: &[u8]) -> bool {
 /// If the gzip stream is corrupt, the magic or version is wrong, no OPL chip is
 /// declared, or a command in the data stream is unrecognised.
 pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
-    if is_gzipped(bytes) {
-        let decoded = crate::vgm::gzip::gunzip(bytes)?;
-        read_uncompressed(name, &decoded)
-    } else {
-        read_uncompressed(name, bytes)
+    // One reader now: the general VGM model, projected to the OPL song this path
+    // returns. `file::read` gunzips internally and resolves the loop the same way
+    // (the projection matches the old hand-written reader byte-for-byte -- see the
+    // goldens in `vgm::projection` and the corpus gate).
+    //
+    // The version, OPL-chip and wholly-OPL checks below reproduce the old
+    // reader's errors exactly, so nothing observable changes. They cannot be
+    // "lifted to widen this path", though, and the plan was wrong to expect it:
+    // `to_song` is `None` for anything that is not a wholly-OPL, OPL-clock file,
+    // and a pre-v1.51 file has no OPL clock field at all -- so every file these
+    // checks turn away, `to_song` turns away too. They only make the *message*
+    // specific. The widening the migration is for happens through `file::read`
+    // (the editor path, mg-1b); this wrapper stays OPL-only until mg-2 deletes it.
+    let file = crate::vgm::file::read(name, bytes)?;
+    if file.header.version() < MINIMUM_SUPPORTED_VERSION {
+        return Err(Error::file(
+            "Unsupported VGM version, v1.51 is the minimum supported version.".to_owned(),
+        ));
+    }
+    match file.to_song() {
+        Some(song) => Ok(song),
+        // No OPL chip declared at all.
+        None if crate::vgm::projection::opl_type_of(&file.header).is_none() => {
+            Err(Error::file("No OPL2 or OPL3 data detected.".to_owned()))
+        }
+        // An OPL chip is declared, but the stream is not wholly OPL: name the
+        // first command that does not project, exactly as the old reader did.
+        None => {
+            let opcode = file
+                .stream()
+                .and_then(|stream| {
+                    (0..stream.len()).find_map(|index| {
+                        let command = stream.raw_command(index)?;
+                        crate::vgm::projection::project(command)
+                            .is_none()
+                            .then(|| command[0])
+                    })
+                })
+                .unwrap_or_default();
+            Err(Error::file(format!(
+                "Unsupported VGM command: {opcode:#04x}"
+            )))
+        }
     }
 }
 
@@ -190,154 +228,6 @@ pub fn synthesise_header() -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-
-fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<Song> {
-    // The header model does the field reading: the header ends at the data, so
-    // a minimal rip putting its data at 0x60 has its OPL clock inside a 0x60-byte
-    // header and is perfectly readable.
-    let parsed = VgmHeader::parse(bytes)?;
-    if parsed.version() < MINIMUM_SUPPORTED_VERSION {
-        return Err(Error::file(
-            "Unsupported VGM version, v1.51 is the minimum supported version.".to_owned(),
-        ));
-    }
-
-    let opl_type = opl_type_of(&parsed)?;
-    let data_offset = parsed.data_start();
-    let header = parsed.raw().to_vec();
-    let header_total_samples = parsed.total_samples();
-    let loop_num_samples = parsed.loop_samples().unwrap_or(0);
-
-    let data = VgmData::read_from_stream(&bytes[data_offset..])?;
-    let loop_point = resolve_loop_point(parsed.loop_offset(), data_offset, &data);
-
-    let tag = parsed
-        .gd3_offset()
-        .map(|offset| parse_gd3_tag(bytes, offset))
-        .transpose()?;
-
-    let mut song = Song::vgm(
-        name.to_owned(),
-        parsed.version(),
-        data,
-        opl_type,
-        VgmMeta {
-            loop_point,
-            // Resolved below: it needs the assembled song's delay prefix.
-            loop_end: None,
-            loop_base: parsed.loop_base(),
-            loop_modifier: parsed.loop_modifier(),
-            volume_modifier: parsed.volume_modifier(),
-            tag,
-            header,
-        },
-    );
-
-    if song.total_delay_samples() != header_total_samples {
-        log::warn!(
-            "VGM header claims {header_total_samples} samples, but the command stream sums to \
-             {}; trusting the stream",
-            song.total_delay_samples()
-        );
-    }
-    if let Some(loop_point) = loop_point
-        && let Some(end) = resolve_loop_end(&song, loop_point, loop_num_samples)
-    {
-        song.vgm_meta_mut()
-            .expect("the loop point came from this song's own VGM metadata")
-            .loop_end = Some(end);
-    }
-    Ok(song)
-}
-
-/// Which OPL a header's chip clocks declare.
-///
-/// The dual-OPL2 marker is the second-chip bit on the YM3812 clock, which
-/// `dro2vgm` writes alongside a meaningless bit 31 -- the header model reads the
-/// two apart, so only the one that means something is consulted here.
-fn opl_type_of(header: &VgmHeader) -> Result<OplType> {
-    let chip = |kind| header.chips().iter().find(|chip| chip.kind == kind);
-    match (chip(ChipKind::Ym3812), chip(ChipKind::Ymf262)) {
-        (Some(ym3812), _) if ym3812.dual => Ok(OplType::DualOpl2),
-        (Some(_), _) => Ok(OplType::Opl2),
-        (None, Some(_)) => Ok(OplType::Opl3),
-        (None, None) => Err(Error::file("No OPL2 or OPL3 data detected.")),
-    }
-}
-
-/// Turns the header's loop offset into the index of the command it points at.
-///
-/// No offset means "no loop", per the spec. Anything that lands inside the
-/// header, past the stream, or in the middle of a command is a corrupt loop
-/// pointer: warn and drop the loop rather than write it back to point somewhere
-/// meaningless.
-fn resolve_loop_point(
-    absolute: Option<usize>,
-    data_offset: usize,
-    data: &VgmData,
-) -> Option<usize> {
-    let absolute = absolute?;
-    let Some(byte_in_stream) = absolute.checked_sub(data_offset) else {
-        log::warn!(
-            "VGM loop point at {absolute:#X} is inside the header (data starts at \
-             {data_offset:#X}); ignoring the loop"
-        );
-        return None;
-    };
-    match data.index_at_byte_offset(byte_in_stream) {
-        Some(index) => Some(index),
-        None => {
-            log::warn!(
-                "VGM loop point at {absolute:#X} does not fall on a command boundary; \
-                 ignoring the loop"
-            );
-            None
-        }
-    }
-}
-
-/// Turns the header's `loop # samples` field into an exclusive end index, or
-/// `None` for "the loop runs to the end of the song".
-///
-/// The spec defines the field as the wait total from the loop point to the end of
-/// the file, and that is what a `None` writes back. A *shorter* value landing
-/// exactly on a command boundary is how this editor records a loop that stops
-/// short of the tail ([`VgmMeta::loop_end`]), so it is materialised rather than
-/// discarded -- without this, re-saving such a file would silently widen its loop
-/// to the whole tail. Anything else (longer than what actually follows the loop
-/// point, or falling inside a delay) is a stale or corrupt header: warn, and let
-/// the derived to-the-end length stand.
-fn resolve_loop_end(song: &Song, loop_point: usize, header_samples: u32) -> Option<usize> {
-    let prefix = song.delay_samples_prefix();
-    let start = prefix[loop_point];
-    let to_end = prefix[song.len()].saturating_sub(start);
-    if header_samples == to_end {
-        return None;
-    }
-    if header_samples > to_end {
-        log::warn!(
-            "VGM header claims a loop of {header_samples} samples, but only {to_end} follow the \
-             loop point; trusting the stream"
-        );
-        return None;
-    }
-
-    // Strictly shorter: find the command starting exactly `header_samples` after
-    // the loop point. Zero-delay commands share a timestamp, so this lands on the
-    // first of them -- the loop then covers everything sounding before that
-    // instant, and writing it back produces the same length, so a re-read
-    // normalises to this same index.
-    let target = start + header_samples;
-    let end = loop_point + prefix[loop_point..].partition_point(|&samples| samples < target);
-    if end <= loop_point || prefix.get(end) != Some(&target) {
-        log::warn!(
-            "VGM header's {header_samples}-sample loop does not end on a command boundary; \
-             looping to the end of the stream instead"
-        );
-        return None;
-    }
-    Some(end)
-}
 
 pub(crate) fn parse_gd3_tag(bytes: &[u8], offset: usize) -> Result<Gd3Tag> {
     let mut reader = ByteReader::new(bytes);
