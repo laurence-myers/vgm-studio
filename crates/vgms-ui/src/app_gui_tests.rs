@@ -3482,6 +3482,15 @@ fn snapshot_split_dialog() {
     settled_snapshot(&mut harness, "split_dialog");
 }
 
+/// The Split dialog for a generic VGM whose chips a write-gate covers now offers
+/// the WAV/Song format radio -- but not the OPL-only percussion option.
+#[test]
+fn snapshot_split_dialog_vgm() {
+    let (mut harness, _handles) = build(Some(mega_drive_vgm_file()), false, true);
+    open_split_dialog(&mut harness);
+    settled_snapshot(&mut harness, "split_dialog_vgm");
+}
+
 #[test]
 fn snapshot_split_songs_dialog() {
     let (mut harness, _handles) = build(Some(picked(&multi_song_capture())), false, true);

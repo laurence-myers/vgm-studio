@@ -1782,12 +1782,14 @@ impl VgmStudioApp {
                     self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
                     return;
                 }
-                // A generic VGM splits to WAV only, per chip channel; an OPL
-                // document keeps the format and percussion options. Either way
-                // the split gets the per-render core picker, seeded from Settings.
+                // An OPL document keeps the format and percussion options; a
+                // generic VGM offers the Song format when a gate-covered chip
+                // lets a channel be rewritten (percussion stays OPL-only). Either
+                // way the split gets the per-render core picker, seeded from
+                // Settings.
                 let chips = self.document_chips();
                 self.dialogs.split = Some(SplitDialog::new(
-                    !self.editor.has_song(),
+                    self.editor.has_song(),
                     chips,
                     self.config.audio.cores.clone(),
                 ));
