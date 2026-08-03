@@ -1,6 +1,9 @@
 # Pseudo-muting + render split — implementation plan
 
-Date: 2026-08-02. Status: PLANNED (nothing implemented). Branch context: `web-target`.
+Date: 2026-08-02, updated 2026-08-03. Status: **Stages 0–3 unimplemented; Stage 4
+(= Stage K) begun.** Branch context: rebases onto `stage-i-migration` (Stage I is
+complete — mg-5's `DocSource`/`doc_source()` is the seam Stage 4 needs; the plan
+must rebase onto it, not the reverse).
 
 The request: render each chip channel to its own WAV ("render split"), built on a
 "pseudo-muting" mechanism — send every instruction to a core *except* those that
@@ -10,6 +13,29 @@ code that treats OPL songs differently from any other VGM.
 
 This plan was produced from a six-way recon of the codebase plus an adversarial
 three-way critique of the draft; the findings of both are folded in below.
+
+**2026-08-03 update — Stage 4 is Stage K, and it has begun.** The projection
+retirement in `docs/review-2026-08/PLAN.md` §12b (`k-1..k-6`) is this plan's
+Stage 4 (`ou-1..ou-4`) under another name — one body of work, tracked from two
+docs. Stage I finishing met Stage 4's prerequisites, and two pieces are now done
+(details in Stage 4 below):
+
+- **The OPL A/B render harness is BUILT** — `crates/vgms-app/tests/opl_ab_parity.rs`
+  (commit `68214bc`), the OPL shape of pm-5 / Stage K's "gate #3". `#[ignore]`d
+  until ou-1's adapter exists; it is that adapter's acceptance gate. Running it
+  **empirically confirmed the ou-1 premise**: `VgmEngine` renders an OPL VGM as
+  **silence** (correlation 0.0000), because `CoreInfo::build()` returns `None` for
+  `CoreMaker::Opl` (`registry.rs:152`) — there is no OPL `ChipCore` to host.
+- **k-2a (RetroWave self-projection) is DONE** — commit `b9c5a6d`; see ou-2's
+  RetroWave bullet.
+
+**Type-name note (mg-5):** the task-source enums collapsed. `AudioSource`,
+`WavSource`, `LoopSearchSource` and `SplitSource` are now all aliases of
+`vgms_core::DocSource` (the `Opl`/`Vgm` arms are unchanged), and the five
+`match (snapshot, vgm)` construction sites became `Editor::doc_source()`
+(OPL-first) / `Editor::vgm_arc()` (the vgm-first handle Split and Crop take).
+Where this plan names those types below, read `DocSource`; the routing questions
+are unchanged, only the type names moved.
 
 ---
 
@@ -296,7 +322,9 @@ All three steps are independent of the gate and land first.
   (gating changes state evolution; native mute only masks output) — compare
   RMS/peak with tolerances, not bytes. This harness is the only meaningful
   validation the exotic tables get (§1.3) and is a prerequisite for rs-2's
-  table build-out.
+  table build-out. (A working precedent for the shape now exists:
+  `crates/vgms-app/tests/opl_ab_parity.rs`, the Stage 4 / gate #3 OPL harness,
+  builds two renders and compares them through the same `parity::compare`.)
   Byte-parity guard: neutral mask ⇒ byte-identical render (render_regression
   fixtures unchanged in this stage).
 
@@ -338,14 +366,21 @@ All three steps are independent of the gate and land first.
 
 ### Stage 4 — OPL joins the generic path (ou-1..ou-4) — follow-up programme
 
+**This IS Stage K (`docs/review-2026-08/PLAN.md` §12b): `ou-1..ou-4` ≡ `k-1..k-5`.**
+Status (2026-08-03): the A/B render gate (gate #3, `opl_ab_parity.rs`, `#[ignore]`d)
+and k-2a (RetroWave) are done; ou-1's adapter is the go/no-go decision and nothing
+of it is built. The gate empirically settled the premise below.
+
 The goal "no code that treats OPL songs differently" cannot be reached by
-flag-flipping: `AudioSource::Opl` routes DROs and all-OPL VGMs to
-`PlayerEngine`; `core_for` returns `None` for OPL by design (pinned by
-`listed_and_buildable_are_different_questions`, registry.rs:619, plus prose in
-three doc sites); both audio backends' `Engine` enums cross-no-op the two
-muting vocabularies; DROs exist only as `Song`. The critique establishes this
-stage is substantially larger than first drafted — it is its own programme
-with a go/no-go decision, and stages 0-3 do not depend on it. Scope:
+flag-flipping: `DocSource::Opl` (formerly `AudioSource::Opl`) routes DROs and
+all-OPL VGMs to `PlayerEngine`; `core_for` returns `None` for OPL by design
+(pinned by `listed_and_buildable_are_different_questions`, registry.rs:619, plus
+prose in three doc sites) — **now empirically confirmed by the A/B gate: an OPL
+VGM through `VgmEngine` today is silence, correlation 0.0000**; both audio
+backends' `Engine` enums cross-no-op the two muting vocabularies; DROs exist only
+as `Song`. The critique establishes this stage is substantially larger than first
+drafted — it is its own programme with a go/no-go decision, and stages 0-3 do not
+depend on it. Scope:
 
 - **ou-1 — `OplCoreAdapter: ChipCore`** wrapping `Box<dyn OplChip>`:
   - **Rate plumbing is a registry API change**: `CoreMaker::Generic` is
@@ -387,11 +422,18 @@ with a go/no-go decision, and stages 0-3 do not depend on it. Scope:
     Map the 18-bit mask + percussion AND-masks onto the 23-entry
     `channels_of(Ymf262)` roster (and both WAV-render task arms, and the
     worklet's OPL messages).
-  - **RetroWave is a permanent, deliberate exemption**: SwitchingAudioService
-    and the hardware service key on `source.opl()`, and the pump needs
-    Song + SerialOpl3Chip. Something must still produce `AudioSource::Opl`
-    when the hardware backend is configured; the OPL `Muting` type survives
-    for it. Say so in the code.
+  - **RetroWave is a permanent, deliberate exemption** (half addressed by k-2a):
+    SwitchingAudioService and the hardware service key on `source.opl()`, and the
+    pump needs Song + SerialOpl3Chip. **✓ k-2a (`b9c5a6d`)** made the *hardware
+    service* robust to either arm: `RetroWaveAudioService::load` now builds its own
+    Song from a `DocSource::Vgm(file)` via `file.to_song()` (falling back to the
+    `Opl` arm), so it keeps working once an OPL VGM arrives on the `Vgm` arm — the
+    projection is now its private detail. **Still open (ou-2 proper):** the
+    *routing* decision — `SwitchingAudioService` chooses the hardware backend by
+    `source.opl().is_some()`, which is `None` for an OPL VGM on the `Vgm` arm, so
+    it would route to the emulator instead of the hardware. That gate must learn
+    to send an OPL-projectable `Vgm` arm to the hardware too. The OPL `Muting` type
+    survives for the pump. Say so in the code.
   - **Enumerate every PlayerEngine consumer and assign a fate**: waveform.rs
     and peak.rs OPL arms (reroute via projection), `render_wav_*` +
     `WavSource::Opl` (retire or reroute), CLI play emulated arm (reroute),
@@ -399,8 +441,11 @@ with a go/no-go decision, and stages 0-3 do not depend on it. Scope:
     only as the hardware pump" was false as first drafted.
 - **ou-3 — parity + timing verification**: OPL renders now flow through
   VgmEngine — re-bless render_regression fixtures once, deliberately, in this
-  stage only. Verify the Nuked retrigger test still holds through the adapter
-  and add a post-seek parity check (the replay-path change above).
+  stage only. The correlation check already exists: the A/B render gate
+  (`opl_ab_parity.rs`, built in gate #3) is the acceptance test — it goes green
+  when the ou-1 adapter makes both engines agree; run it with `--ignored`. Verify
+  the Nuked retrigger test still holds through the adapter and add a post-seek
+  parity check (the replay-path change above).
 - **ou-4 — split arm retirement (was rs-3)**: delete the OPL split arm; OPL
   goes through the generic splitter. **User-visible migration to state in the
   changelog**: output names change (`{name}.{bank}.{NN}.wav` →
