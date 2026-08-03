@@ -4368,8 +4368,12 @@ impl VgmStudioApp {
                 // builds its own options and needs the same map, so lift it out
                 // before `options` moves into whichever arm runs.
                 let core_choices = options.core_choices.clone();
-                // An OPL document splits per OPL channel with its chosen format;
-                // any other VGM splits per chip channel to WAV.
+                // The format sits on the OPL options too; the VGM arm honours the
+                // same choice (song-format works for gate-covered chips), so lift
+                // it out before `options` moves into whichever arm runs.
+                let format = options.format;
+                // An OPL document splits per OPL channel; any other VGM splits per
+                // chip channel, both in the chosen format.
                 let source = self.editor.doc_source().map(|doc| match doc {
                     crate::tasks::SplitSource::Opl(song) => {
                         crate::tasks::SplitTaskSource::Opl { song, options }
@@ -4377,6 +4381,7 @@ impl VgmStudioApp {
                     crate::tasks::SplitSource::Vgm(file) => crate::tasks::SplitTaskSource::Vgm {
                         file,
                         options: vgms_synth::VgmSplitOptions {
+                            format,
                             audio: self.config.audio.clone(),
                             resampling: self.resample_mode(),
                             core_choices,

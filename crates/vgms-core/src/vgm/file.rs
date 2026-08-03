@@ -537,6 +537,28 @@ impl VgmFile {
         Some(report)
     }
 
+    /// A standalone file built from a filtered command-stream `body`: this
+    /// file's header and tag, the new `body` (which must end with the `0x66`
+    /// marker), and the loop moved to `loop_at`/`loop_end_at` -- byte offsets
+    /// into `body`, or `None` for "no loop" / "runs to the end".
+    ///
+    /// The song-format channel splitter's seam: it filters the stream in
+    /// `vgms-synth` (which cannot reach [`rebuild`](Self::rebuild)), so it hands
+    /// the rebuilt bytes and the loop's new offsets here. Timing is the caller's
+    /// to preserve; the header's sample total and loop are repatched from the
+    /// body as it now stands, exactly as an in-place edit would.
+    #[must_use]
+    pub fn with_filtered_body(
+        &self,
+        body: Vec<u8>,
+        loop_at: Option<usize>,
+        loop_end_at: Option<usize>,
+    ) -> Self {
+        let mut file = self.clone();
+        file.rebuild(body, loop_at, loop_end_at);
+        file
+    }
+
     /// Installs rebuilt stream bytes, leaving the header alone.
     ///
     /// For the structural half of a header fix, which repatches the derived

@@ -363,6 +363,26 @@ impl ChannelGate {
         self.mask = mask;
     }
 
+    /// The channel a DAC stream (`0x90`-`0x95`) writing `register` on `port`
+    /// drives, if this chip has a stream-fed channel there.
+    ///
+    /// The song-format splitter uses it to tell whether a stream is bound to a
+    /// muted channel: it must drop the *start* of such a stream, because the
+    /// stream's samples are synthesised at render time and would otherwise sound
+    /// on a channel this stem means to silence. Among the gated chips only the
+    /// YM2612's DAC (register `0x2A` → channel 6) is stream-fed; everything else
+    /// answers `None`, and the splitter keeps the stream (silencing a real voice
+    /// is worse than leaving one it does not model).
+    #[must_use]
+    pub fn stream_channel(&self, port: u8, register: u8) -> Option<u8> {
+        match &self.inner {
+            GateInner::Opn(opn) => opn
+                .dac
+                .filter(|_| port == 0 && u16::from(register) == YM2612_DAC_DATA),
+            _ => None,
+        }
+    }
+
     /// The action for one write, updating any shadow state the chip keeps
     /// (latches, levels) whether or not the channel is muted.
     pub fn filter(&mut self, port: u8, addr: u16, data: u16) -> GateAction {

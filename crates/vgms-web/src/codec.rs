@@ -444,13 +444,23 @@ fn read_split_options(reader: &mut Reader) -> Result<SplitOptions> {
 }
 
 fn write_vgm_split_options(writer: &mut Writer, options: &VgmSplitOptions) {
+    writer.u8(match options.format {
+        SplitFormat::Wav => 0,
+        SplitFormat::Song => 1,
+    });
     write_config(writer, &options.audio);
     write_resample(writer, options.resampling);
     write_core_choices(writer, &options.core_choices);
 }
 
 fn read_vgm_split_options(reader: &mut Reader) -> Result<VgmSplitOptions> {
+    let format = match reader.u8("vgm-split.format")? {
+        0 => SplitFormat::Wav,
+        1 => SplitFormat::Song,
+        other => return Err(CodecError::Tag("vgm-split.format", other)),
+    };
     Ok(VgmSplitOptions {
+        format,
         audio: read_config(reader)?,
         resampling: read_resample(reader)?,
         core_choices: read_core_choices(reader)?,
@@ -1156,6 +1166,9 @@ mod tests {
                 source: SplitTaskSource::Vgm {
                     file: sample_vgm(),
                     options: VgmSplitOptions {
+                        // A song-format VGM split, so the format byte round-trips
+                        // as a non-default value.
+                        format: SplitFormat::Song,
                         audio: sample_config(),
                         resampling: ResampleMode::Linear,
                         core_choices: CoreChoices::new(),
@@ -1242,6 +1255,7 @@ mod tests {
             source: SplitTaskSource::Vgm {
                 file: sample_vgm(),
                 options: VgmSplitOptions {
+                    format: SplitFormat::Wav,
                     audio: original.clone(),
                     resampling: ResampleMode::Sinc,
                     core_choices: CoreChoices::new(),

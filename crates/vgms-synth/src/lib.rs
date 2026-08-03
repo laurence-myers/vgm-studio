@@ -23,6 +23,7 @@ pub mod opl;
 pub mod peak;
 pub mod registry;
 pub mod resample;
+mod song_gate;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod testing;

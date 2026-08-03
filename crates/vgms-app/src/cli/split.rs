@@ -82,27 +82,31 @@ pub fn run(args: &Args) -> Result<()> {
             })?
         }
         LoadedSong::Vgm(file) => {
-            // A per-channel song output needs per-chip write gating that only
-            // the OPL path has; a generic VGM splits to WAV.
-            if args.song {
-                anyhow::bail!(
-                    "--song split is OPL-only; {} splits to WAV",
-                    args.input.display()
-                );
+            // A song-format split rewrites the command stream per channel, which
+            // works for every chip a write-gate covers (and skips the rest, with
+            // a warning, per chip -- not the whole file). A WAV split renders, so
+            // it needs a core per chip; the rewrite does not.
+            let format = if args.song {
+                SplitFormat::Song
+            } else {
+                SplitFormat::Wav
+            };
+            if format == SplitFormat::Wav {
+                crate::warn_missing_cores(
+                    &file
+                        .header
+                        .chips()
+                        .iter()
+                        .map(|chip| chip.kind)
+                        .collect::<Vec<_>>(),
+                    "there is nothing to split",
+                )?;
             }
-            crate::warn_missing_cores(
-                &file
-                    .header
-                    .chips()
-                    .iter()
-                    .map(|chip| chip.kind)
-                    .collect::<Vec<_>>(),
-                "there is nothing to split",
-            )?;
             let resampling =
                 vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
                     .unwrap_or_default();
             let options = VgmSplitOptions {
+                format,
                 audio: config.audio,
                 resampling,
                 core_choices: choices,
@@ -140,6 +144,7 @@ fn write_outputs(input: &Path, outputs: Vec<SplitOutput>) -> Result<()> {
         let bytes = match output.data {
             SplitData::Wav(bytes) => bytes,
             SplitData::Song(song) => write_song(&song)?,
+            SplitData::Vgm(vgm) => vgms_core::vgm::file::write(&vgm)?,
         };
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;
         println!("Wrote {}", path.display());
