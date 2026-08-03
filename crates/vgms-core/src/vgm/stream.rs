@@ -772,6 +772,27 @@ impl VgmStream {
         self.total_samples() - self.samples_before(index)
     }
 
+    /// The command that starts exactly `samples` after command `start`, or
+    /// `None` when nothing lands on that instant.
+    ///
+    /// This is how a loop-end index is resolved: `start` is the loop point and
+    /// `samples` the header's loop length. Zero-delay commands share a
+    /// timestamp, so a hit lands on the *first* of them -- the loop then covers
+    /// everything sounding before that instant, and writing it back reproduces
+    /// the same length, so a re-read normalises to this same index. `samples`
+    /// that falls strictly inside a delay, or `0` (which would point at `start`
+    /// itself), yields `None`. Mirrors `io::resolve_loop_end`'s rule over
+    /// [`Song::delay_samples_prefix`], so the two loop-end paths agree.
+    #[must_use]
+    pub fn boundary_after(&self, start: usize, samples: u64) -> Option<usize> {
+        let target = self.samples_before(start).checked_add(samples)?;
+        let end = start + self.wait_prefix[start..].partition_point(|&elapsed| elapsed < target);
+        if end <= start || self.wait_prefix.get(end) != Some(&target) {
+            return None;
+        }
+        Some(end)
+    }
+
     /// The command a seek to `target` samples lands on.
     ///
     /// Playback resumes *before* the target when the target falls inside a
@@ -1453,6 +1474,24 @@ mod tests {
         assert_eq!(stream.seek_index_for_samples(150), 3);
         assert_eq!(stream.seek_index_for_samples(300), 4, "the end is len()");
         assert_eq!(stream.seek_index_for_samples(999), 4, "clamped to the end");
+    }
+
+    /// The loop-end boundary rule `loop_end_index` drives: a hit lands on the
+    /// first command at exactly `samples` past the start; anything inside a
+    /// delay, past the end, or at the start itself is no boundary.
+    #[test]
+    fn boundary_after_lands_on_the_first_command_at_the_instant() {
+        // prefix [0, 0, 100, 100, 300]: writes at 0 and 2, delays at 1 and 3.
+        let stream = two_delay_stream();
+        // 100 samples past index 0 is the write at index 2 -- and index 3 shares
+        // that instant, so the boundary is the first of the two, not the last.
+        assert_eq!(stream.boundary_after(0, 100), Some(2));
+        // A target strictly inside the first delay has no command boundary.
+        assert_eq!(stream.boundary_after(0, 50), None);
+        // Zero length would point at the start itself, which does not count.
+        assert_eq!(stream.boundary_after(0, 0), None);
+        // A target past the end of the stream has no boundary.
+        assert_eq!(stream.boundary_after(0, 999), None);
     }
 
     /// The waveform contract: the returned samples always equal

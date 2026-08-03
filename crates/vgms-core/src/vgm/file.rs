@@ -296,22 +296,13 @@ impl VgmFile {
         let stream = self.stream()?;
         let start = self.loop_index()?;
         let declared = u64::from(self.header.loop_samples()?);
-        let to_end = stream.samples_from(start);
-        if declared >= to_end {
+        if declared >= stream.samples_from(start) {
             // Equal is the ordinary "loops to the end"; longer is a stale
             // header the stream disagrees with. Neither bounds a region.
             return None;
         }
         // The first row at exactly `declared` samples past the loop point.
-        // Zero-wait rows share a timestamp, so this lands on the first of them.
-        let mut elapsed = 0u64;
-        for index in start..stream.len() {
-            if elapsed == declared && index > start {
-                return Some(index);
-            }
-            elapsed += u64::from(stream.wait_samples(index));
-        }
-        None
+        stream.boundary_after(start, declared)
     }
 
     /// The parsed command stream, or `None` if it would not walk.
