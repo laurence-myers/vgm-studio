@@ -640,13 +640,21 @@ impl CoreRegistry {
     }
 
     /// Whether the core the transport would build for `chip` honours per-channel
-    /// muting. Mirrors [`pan_capable`](Self::pan_capable): the resolved realtime
-    /// core is the one whose mute toggles the UI would draw. `false` for a chip
-    /// with no core at all.
+    /// muting -- either natively, or through the write-gate the build wraps it in.
+    ///
+    /// Mirrors [`pan_capable`](Self::pan_capable): the resolved realtime core is
+    /// the one whose mute toggles the UI would draw. A generic core with no native
+    /// mute is muteable all the same when the gate covers its chip, because
+    /// [`CoreInfo::build`] wraps it in a [`ChannelGate`] -- so the UI enables the
+    /// toggles for exactly the cores [`build`](CoreInfo::build) makes muteable.
+    /// `false` for a chip with no core at all.
     #[must_use]
     pub fn mute_capable(&self, chip: ChipKind) -> bool {
         self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
-            .is_some_and(|info| info.channel_mute)
+            .is_some_and(|info| {
+                info.channel_mute
+                    || (ChannelGate::exists(chip) && matches!(info.make, CoreMaker::Generic(_)))
+            })
     }
 }
 
@@ -1406,6 +1414,41 @@ mod tests {
         assert!(
             muted_channel(ChipKind::Scsp, false).is_empty(),
             "an ungated chip is left honestly un-muteable"
+        );
+    }
+
+    /// `mute_capable` counts a generic core the gate covers, even with no native
+    /// mute -- so the UI enables the toggles for exactly the cores `build` makes
+    /// muteable (natively or through the gate).
+    #[test]
+    fn mute_capable_counts_a_gated_generic_core() {
+        fn core(id: &'static str, chip: ChipKind, native_mute: bool) -> CoreInfo {
+            CoreInfo {
+                chip,
+                channel_mute: native_mute,
+                ..tone_info(id, LEVEL_UNITY)
+            }
+        }
+        let mut registry = CoreRegistry::new();
+        registry.register(core("ym2151.nuked", ChipKind::Ym2151, false)); // gated, no native mute
+        registry.register(core("scsp.libvgm", ChipKind::Scsp, false)); // ungated, no native mute
+        registry.register(core("ym2612.libvgm", ChipKind::Ym2612, true)); // native mute
+
+        assert!(
+            registry.mute_capable(ChipKind::Ym2151),
+            "OPM has no native mute, but the gate covers it"
+        );
+        assert!(
+            !registry.mute_capable(ChipKind::Scsp),
+            "no native mute and no gate table -> not muteable"
+        );
+        assert!(
+            registry.mute_capable(ChipKind::Ym2612),
+            "a native-mute core is muteable as before"
+        );
+        assert!(
+            !registry.mute_capable(ChipKind::C352),
+            "a chip with no core at all is not muteable"
         );
     }
 }
