@@ -14,8 +14,8 @@ use vgms_core::{Bank, Error, OplType, RegisterUsage, Result, Song};
 
 use crate::resample::ResampleMode;
 use crate::{
-    ChipMuting, Muting, RenderMix, VgmRenderMix, capture, render_vgm_wav_mixed_cancellable,
-    render_wav_cancellable,
+    ChipMuting, CoreChoices, Muting, RenderMix, VgmRenderMix, capture,
+    render_vgm_wav_mixed_cancellable, render_wav_cancellable,
 };
 
 /// Output format for a split.
@@ -48,6 +48,12 @@ pub struct SplitOptions {
     pub format: SplitFormat,
     pub isolate_percussion: bool,
     pub audio: AudioConfig,
+    /// The per-render core choices to build each channel's engine with (slot
+    /// slug -> core short-name), seeded from Settings but never persisted. The
+    /// split functions do not read it; the caller applies it with
+    /// [`with_render_choices`](crate::with_render_choices) around the split, so
+    /// an empty map renders exactly as the configured cores would.
+    pub core_choices: CoreChoices,
 }
 
 /// The five percussion voices of register `0xBD`, low bit first, with the drum
@@ -225,6 +231,11 @@ fn render_one(
 pub struct VgmSplitOptions {
     pub audio: AudioConfig,
     pub resampling: ResampleMode,
+    /// As on [`SplitOptions`]: the per-render core choices, seeded from Settings
+    /// and never persisted. Applied by the caller with
+    /// [`with_render_choices`](crate::with_render_choices), so an empty map
+    /// renders exactly as the configured cores would.
+    pub core_choices: CoreChoices,
 }
 
 /// A peak at or below this fraction of full scale is treated as silence: a
@@ -409,6 +420,7 @@ mod vgm_split_tests {
         VgmSplitOptions {
             audio: AudioConfig::default(),
             resampling: ResampleMode::default(),
+            core_choices: CoreChoices::new(),
         }
     }
 
@@ -495,6 +507,7 @@ mod tests {
             format,
             isolate_percussion,
             audio: AudioConfig::default(),
+            core_choices: CoreChoices::new(),
         }
     }
 

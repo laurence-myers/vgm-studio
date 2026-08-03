@@ -1612,6 +1612,7 @@ fn split_names(song: &Song) -> Vec<String> {
             format: vgms_synth::SplitFormat::Wav,
             isolate_percussion: false,
             audio: vgms_core::config::AudioConfig::default(),
+            core_choices: Default::default(),
         },
         &mut |_| {},
         &mut |_, _| {},
@@ -2889,6 +2890,7 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
+            core_choices: Default::default(),
         },
     );
     harness.run();
@@ -2933,6 +2935,7 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
+            core_choices: Default::default(),
         },
     );
     harness.run();
@@ -2950,6 +2953,7 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
             use_toggles: true,
             use_panning: true,
             boost: 1.0,
+            core_choices: Default::default(),
         },
     );
     harness.run();

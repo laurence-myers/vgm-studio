@@ -30,6 +30,11 @@ pub struct Args {
     /// Render each drum on the percussion channel to its own file.
     #[arg(short = 'i', long = "isolate-percussion")]
     pub isolate_percussion: bool,
+    /// Render a chip through a specific core, as `slot=name` (e.g.
+    /// `--core opl3=nuked`). Repeatable; unnamed slots use the configured core.
+    /// This split only -- vgmstudio.ini is left untouched.
+    #[arg(long = "core", value_name = "SLOT=NAME", value_parser = crate::cli::parse_core_choice)]
+    pub core: Vec<(String, String)>,
 }
 
 /// Splits `args.input`, writing one file per used channel beside it.
@@ -43,6 +48,9 @@ pub fn run(args: &Args) -> Result<()> {
 
     let config = load_config();
     let frequency = config.audio.frequency;
+    // Any `--core slot=name` picks apply to this split only, on this thread; an
+    // empty map (no flag) renders exactly as the configured cores.
+    let choices = crate::cli::core_choices(&args.core);
     // Report skipped channels and a live per-file render line. Both callbacks
     // share one printer through a RefCell so a skip can close an open progress
     // line before printing over it.
@@ -57,18 +65,21 @@ pub fn run(args: &Args) -> Result<()> {
                 },
                 isolate_percussion: args.isolate_percussion,
                 audio: config.audio,
+                core_choices: choices,
             };
-            split(
-                &song,
-                &options,
-                &mut |channel| {
-                    progress.borrow_mut().finish_line();
-                    let bank = channel >> 8;
-                    let channel_num = (channel & 0xFF) - 0xAF;
-                    println!("Skipping bank {bank}, channel {channel_num:02} (unused)");
-                },
-                &mut |base, frames| progress.borrow_mut().update(base, frames),
-            )?
+            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+                split(
+                    &song,
+                    &options,
+                    &mut |channel| {
+                        progress.borrow_mut().finish_line();
+                        let bank = channel >> 8;
+                        let channel_num = (channel & 0xFF) - 0xAF;
+                        println!("Skipping bank {bank}, channel {channel_num:02} (unused)");
+                    },
+                    &mut |base, frames| progress.borrow_mut().update(base, frames),
+                )
+            })?
         }
         LoadedSong::Vgm(file) => {
             // A per-channel song output needs per-chip write gating that only
@@ -94,17 +105,20 @@ pub fn run(args: &Args) -> Result<()> {
             let options = VgmSplitOptions {
                 audio: config.audio,
                 resampling,
+                core_choices: choices,
             };
-            split_vgm_cancellable(
-                &Arc::new(*file),
-                &options,
-                &mut |name| {
-                    progress.borrow_mut().finish_line();
-                    println!("Skipping {name} (silent)");
-                },
-                &mut |base, frames| progress.borrow_mut().update(base, frames),
-                &mut || true,
-            )?
+            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+                split_vgm_cancellable(
+                    &Arc::new(*file),
+                    &options,
+                    &mut |name| {
+                        progress.borrow_mut().finish_line();
+                        println!("Skipping {name} (silent)");
+                    },
+                    &mut |base, frames| progress.borrow_mut().update(base, frames),
+                    &mut || true,
+                )
+            })?
             .unwrap_or_default()
         }
     };

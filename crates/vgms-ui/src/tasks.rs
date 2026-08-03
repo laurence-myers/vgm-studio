@@ -14,9 +14,9 @@ use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
-    AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmRenderMix, VgmSplitOptions,
-    WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
-    render_waveform_progressive, split_cancellable, split_vgm_cancellable,
+    AudioSource, CoreChoices, Peak, RenderMix, SplitData, SplitOptions, VgmRenderMix,
+    VgmSplitOptions, WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable,
+    render_wav_cancellable, render_waveform_progressive, split_cancellable, split_vgm_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -61,6 +61,12 @@ pub enum TaskRequest {
         /// As on [`TaskRequest::RenderWaveform`]: the export honours the same
         /// resampling choice playback does.
         resampling: vgms_synth::resample::ResampleMode,
+        /// The per-render core choices (slot slug -> core short-name), seeded
+        /// from Settings but never persisted: the render is wrapped in
+        /// [`with_render_choices`](vgms_synth::with_render_choices) so a picked
+        /// core is used without disturbing playback. Empty means the configured
+        /// cores, keeping the default render byte-identical.
+        core_choices: CoreChoices,
     },
     Split {
         source: SplitTaskSource,
@@ -332,36 +338,45 @@ pub fn run_task(
             sample_rate,
             bit_depth,
             resampling,
+            core_choices,
         } => {
             // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render`
             // writes -- so the same song exported both ways lands in one place.
             let name = format!("{}.wav", source.name());
-            let rendered = match (source, mix) {
-                (WavSource::Opl(song), RenderWavMix::Opl(mix)) => render_wav_cancellable(
-                    Arc::clone(song),
-                    *mix,
-                    *sample_rate,
-                    *bit_depth,
-                    &mut |_| {},
-                    &mut || !is_cancelled(),
-                ),
-                (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
-                    vgms_synth::render_vgm_wav_mixed_cancellable(
-                        Arc::clone(file),
+            // The chosen cores are active for this render only, on this thread
+            // only (renders run off the UI thread), so playback and Settings are
+            // untouched. An empty map behaves exactly as the configured cores.
+            let rendered = vgms_synth::with_render_choices(Some(core_choices.clone()), || {
+                match (source, mix) {
+                    (WavSource::Opl(song), RenderWavMix::Opl(mix)) => Some(render_wav_cancellable(
+                        Arc::clone(song),
+                        *mix,
                         *sample_rate,
                         *bit_depth,
-                        mix,
-                        *resampling,
                         &mut |_| {},
                         &mut || !is_cancelled(),
-                    )
+                    )),
+                    (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
+                        Some(vgms_synth::render_vgm_wav_mixed_cancellable(
+                            Arc::clone(file),
+                            *sample_rate,
+                            *bit_depth,
+                            mix,
+                            *resampling,
+                            &mut |_| {},
+                            &mut || !is_cancelled(),
+                        ))
+                    }
+                    // Source and mix are built as a matched pair (and the codec
+                    // pairs them by their shared source tag), so a mismatch is
+                    // unrepresentable; render nothing rather than panic in a
+                    // worker.
+                    _ => None,
                 }
-                // Source and mix are built as a matched pair (and the codec
-                // pairs them by their shared source tag), so a mismatch is
-                // unrepresentable; render nothing rather than panic in a worker.
-                _ => return,
-            }
-            .map_err(crate::strings::tasks_render_wav_failed);
+            });
+            // A mismatched source/mix pair renders nothing at all.
+            let Some(rendered) = rendered else { return };
+            let rendered = rendered.map_err(crate::strings::tasks_render_wav_failed);
             // A cancelled render emits nothing at all, like the waveform's.
             match rendered {
                 Ok(None) => {}
@@ -519,21 +534,33 @@ fn split_songs_to_bytes(
 /// Splits `song` and serialises each output, so what comes back is ready to
 /// write wherever the user chose. `None` if the split was cancelled part-way.
 fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> Option<SplitFiles> {
+    // Each arm's per-render core choices ride its options; wrapping the whole
+    // split in `with_render_choices` makes every channel's render honour them,
+    // on this thread only, without touching playback or Settings. An empty map
+    // renders exactly as the configured cores would.
     let outputs = match source {
-        SplitTaskSource::Opl { song, options } => split_cancellable(
-            song,
-            options,
-            &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
-            &mut |_, _| {},
-            &mut || !is_cancelled(),
-        ),
-        SplitTaskSource::Vgm { file, options } => split_vgm_cancellable(
-            file,
-            options,
-            &mut |name| log::info!("split: skipping silent channel {name}"),
-            &mut |_, _| {},
-            &mut || !is_cancelled(),
-        ),
+        SplitTaskSource::Opl { song, options } => {
+            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+                split_cancellable(
+                    song,
+                    options,
+                    &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
+                    &mut |_, _| {},
+                    &mut || !is_cancelled(),
+                )
+            })
+        }
+        SplitTaskSource::Vgm { file, options } => {
+            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+                split_vgm_cancellable(
+                    file,
+                    options,
+                    &mut |name| log::info!("split: skipping silent channel {name}"),
+                    &mut |_, _| {},
+                    &mut || !is_cancelled(),
+                )
+            })
+        }
     };
     let outputs = match outputs {
         Ok(Some(outputs)) => outputs,
@@ -758,6 +785,7 @@ mod tests {
             sample_rate: 48_000,
             bit_depth: 16,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
+            core_choices: CoreChoices::new(),
         };
         assert!(collect(&wav, || true).is_empty());
 
@@ -768,6 +796,7 @@ mod tests {
                     format: vgms_synth::SplitFormat::Wav,
                     isolate_percussion: false,
                     audio: vgms_core::config::AudioConfig::default(),
+                    core_choices: CoreChoices::new(),
                 },
             },
         };
@@ -786,6 +815,7 @@ mod tests {
                 sample_rate: 48_000,
                 bit_depth: 16,
                 resampling: vgms_synth::resample::ResampleMode::Sinc,
+                core_choices: CoreChoices::new(),
             },
             || false,
         );

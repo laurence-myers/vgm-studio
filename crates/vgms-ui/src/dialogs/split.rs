@@ -1,10 +1,14 @@
 //! The Split Channels dialog: one file per channel the song actually uses, as
 //! `vgmstudio split` writes them.
 
+use std::collections::BTreeMap;
+
+use vgms_core::vgm::ChipKind;
 use vgms_synth::SplitFormat;
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
+use crate::widgets::chip_output;
 
 #[derive(Debug)]
 pub struct SplitDialog {
@@ -13,6 +17,11 @@ pub struct SplitDialog {
     /// A generic VGM splits to WAV per chip channel; the format and percussion
     /// choices are OPL-only, so they are hidden for one.
     wav_only: bool,
+    /// The document's chip slots, for the core picker rows.
+    chips: Vec<ChipKind>,
+    /// The core chosen per chip slot for this split, seeded from Settings and
+    /// edited in place by the picker. Rides the request; never persisted.
+    cores: BTreeMap<String, String>,
 }
 
 impl Default for SplitDialog {
@@ -21,16 +30,27 @@ impl Default for SplitDialog {
             format: SplitFormat::Wav,
             isolate_percussion: false,
             wav_only: false,
+            chips: Vec::new(),
+            cores: BTreeMap::new(),
         }
     }
 }
 
 impl SplitDialog {
     /// The dialog for an OPL document, with the format and percussion options.
+    /// `chips` are the document's chip slots and `settings_cores` the current
+    /// Settings core map; together they seed the per-render core picker
+    /// (session-sticky, never written to vgmstudio.ini).
     #[must_use]
-    pub fn new(wav_only: bool) -> Self {
+    pub fn new(
+        wav_only: bool,
+        chips: Vec<ChipKind>,
+        settings_cores: BTreeMap<String, String>,
+    ) -> Self {
         Self {
             wav_only,
+            chips,
+            cores: settings_cores,
             ..Self::default()
         }
     }
@@ -84,6 +104,8 @@ impl SplitDialog {
                     });
                 }
 
+                core_picker(ui, palette, &self.chips, &mut self.cores);
+
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(crate::strings::SPLIT_SKIPPED_NOTE).small());
             },
@@ -110,19 +132,63 @@ impl SplitDialog {
         actions.push(Action::SplitSubmitted {
             format: self.format,
             isolate_percussion: self.isolate_percussion,
+            core_choices: self.cores.clone(),
         });
     }
+}
+
+/// Draws the per-render core picker: one row per document chip slot that offers
+/// a choice, seeded from Settings. A document whose chips each have a single core
+/// draws nothing, so the dialog looks exactly as it did before.
+fn core_picker(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    chips: &[ChipKind],
+    cores: &mut BTreeMap<String, String>,
+) {
+    let plan = chip_output::plan(chips);
+    let choosable: Vec<&chip_output::SongChipRow> = plan
+        .song
+        .iter()
+        .filter(|entry| {
+            entry
+                .row
+                .as_ref()
+                .is_some_and(chip_output::ChipOutputRow::is_choice)
+        })
+        .collect();
+    if choosable.is_empty() {
+        return;
+    }
+    ui.add_space(8.0);
+    ui.label(crate::strings::SPLIT_CORE)
+        .on_hover_text(crate::strings::SPLIT_CORE_HOVER);
+    ui.add_space(4.0);
+    egui::Grid::new("split-core-grid")
+        .num_columns(2)
+        .spacing([10.0, 6.0])
+        .show(ui, |ui| {
+            for entry in choosable {
+                chip_output::song_chip_row(ui, palette, "split", cores, entry);
+            }
+        });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A dialog with no core-picker seed -- the format/percussion options under
+    /// test do not touch the picker, which is exercised on its own below.
+    fn dialog(wav_only: bool) -> SplitDialog {
+        SplitDialog::new(wav_only, Vec::new(), BTreeMap::new())
+    }
+
     /// A WAV split of the whole percussion channel: what `vgmstudio split` does
     /// with no flags.
     #[test]
     fn the_defaults_match_the_bare_cli_command() {
-        let dialog = SplitDialog::new(false);
+        let dialog = dialog(false);
         assert_eq!(dialog.format, SplitFormat::Wav);
         assert!(!dialog.isolate_percussion);
     }
@@ -130,19 +196,20 @@ mod tests {
     #[test]
     fn the_defaults_are_what_a_bare_split_requests() {
         let mut actions = Vec::new();
-        SplitDialog::new(false).save(&mut actions);
+        dialog(false).save(&mut actions);
         assert_eq!(
             actions,
             [Action::SplitSubmitted {
                 format: SplitFormat::Wav,
                 isolate_percussion: false,
+                core_choices: BTreeMap::new(),
             }]
         );
     }
 
     #[test]
     fn the_chosen_options_reach_the_request() {
-        let mut dialog = SplitDialog::new(false);
+        let mut dialog = dialog(false);
         dialog.format = SplitFormat::Song;
         dialog.isolate_percussion = true;
 
@@ -153,7 +220,23 @@ mod tests {
             [Action::SplitSubmitted {
                 format: SplitFormat::Song,
                 isolate_percussion: true,
+                core_choices: BTreeMap::new(),
             }]
         );
+    }
+
+    /// The picker's chosen core rides the split request, seeded from Settings
+    /// and carried without ever touching the saved config.
+    #[test]
+    fn the_picker_core_reaches_the_request() {
+        let mut dialog = SplitDialog::new(false, Vec::new(), BTreeMap::new());
+        dialog.cores.insert("opl3".to_owned(), "cqm".to_owned());
+
+        let mut actions = Vec::new();
+        dialog.save(&mut actions);
+        let [Action::SplitSubmitted { core_choices, .. }] = &actions[..] else {
+            panic!("expected a split request, got {actions:?}")
+        };
+        assert_eq!(core_choices.get("opl3").map(String::as_str), Some("cqm"));
     }
 }

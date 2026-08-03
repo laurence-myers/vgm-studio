@@ -582,6 +582,9 @@ pub(crate) const SPLIT_ISOLATE_PERCUSSION_HOVER: &str =
     "Splits the percussion channel per drum, not as one";
 pub(crate) const SPLIT_SKIPPED_NOTE: &str =
     "Silent channels are skipped; existing files are overwritten.";
+pub(crate) const SPLIT_CORE: &str = "Core for this split:";
+pub(crate) const SPLIT_CORE_HOVER: &str = "The core to render each channel with, starting from your Settings choice. This split \
+     only -- playback and your saved settings are untouched.";
 
 // ============================================================================
 // dialogs/split_songs.rs
@@ -631,6 +634,9 @@ pub(crate) const RENDER_WAV_PANNING_HOVER: &str = "Place each channel where its 
 pub(crate) const RENDER_WAV_BOOST_HOVER: &str = "Drive the signal through the peak limiter";
 pub(crate) const RENDER_WAV_FREQ_NOTE: &str = "Frequency and bit depth: see Settings.";
 pub(crate) const RENDER_WAV_INVALID_TITLE: &str = "Invalid boost";
+pub(crate) const RENDER_WAV_CORE: &str = "Core for this render:";
+pub(crate) const RENDER_WAV_CORE_HOVER: &str = "The core to render with, starting from your Settings choice. This render only -- \
+     playback and your saved settings are untouched.";
 
 pub(crate) fn render_wav_boost_range(min: f32, max: f32) -> String {
     format!("{min}x to {max}x")

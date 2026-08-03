@@ -23,8 +23,8 @@ use vgms_core::vgm::ChipKind;
 use vgms_core::{Song, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
-    AudioSource, ChipMuting, ChipPanning, Muting, Panning, Peak, RenderMix, SplitFormat,
-    SplitOptions, VgmRenderMix, VgmSplitOptions, WaveformBucket,
+    AudioSource, ChipMuting, ChipPanning, CoreChoices, Muting, Panning, Peak, RenderMix,
+    SplitFormat, SplitOptions, VgmRenderMix, VgmSplitOptions, WaveformBucket,
 };
 use vgms_ui::tasks::{
     LoopSearchSource, RenderWavMix, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
@@ -253,6 +253,29 @@ fn read_config(reader: &mut Reader) -> Result<AudioConfig> {
     })
 }
 
+/// Serialises a per-render [`CoreChoices`] map (slot slug -> core short-name) as
+/// `u32 len` then `str slot, str name` per entry -- the exact shape
+/// [`write_config`] gives `AudioConfig::cores`, so an unknown slot reads back as
+/// an ordinary entry rather than failing.
+fn write_core_choices(writer: &mut Writer, choices: &CoreChoices) {
+    writer.u32(choices.len() as u32);
+    for (slot, name) in choices {
+        writer.str(slot);
+        writer.str(name);
+    }
+}
+
+fn read_core_choices(reader: &mut Reader) -> Result<CoreChoices> {
+    let count = reader.u32("core-choices.len")? as usize;
+    let mut choices = CoreChoices::new();
+    for _ in 0..count {
+        let slot = reader.str("core-choices.slot")?;
+        let name = reader.str("core-choices.name")?;
+        choices.insert(slot, name);
+    }
+    Ok(choices)
+}
+
 fn write_resample(writer: &mut Writer, mode: ResampleMode) {
     writer.u8(match mode {
         ResampleMode::Sinc => 0,
@@ -403,6 +426,7 @@ fn write_split_options(writer: &mut Writer, options: &SplitOptions) {
     });
     writer.bool(options.isolate_percussion);
     write_config(writer, &options.audio);
+    write_core_choices(writer, &options.core_choices);
 }
 
 fn read_split_options(reader: &mut Reader) -> Result<SplitOptions> {
@@ -415,18 +439,21 @@ fn read_split_options(reader: &mut Reader) -> Result<SplitOptions> {
         format,
         isolate_percussion: reader.bool("split.isolate")?,
         audio: read_config(reader)?,
+        core_choices: read_core_choices(reader)?,
     })
 }
 
 fn write_vgm_split_options(writer: &mut Writer, options: &VgmSplitOptions) {
     write_config(writer, &options.audio);
     write_resample(writer, options.resampling);
+    write_core_choices(writer, &options.core_choices);
 }
 
 fn read_vgm_split_options(reader: &mut Reader) -> Result<VgmSplitOptions> {
     Ok(VgmSplitOptions {
         audio: read_config(reader)?,
         resampling: read_resample(reader)?,
+        core_choices: read_core_choices(reader)?,
     })
 }
 
@@ -477,6 +504,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             sample_rate,
             bit_depth,
             resampling,
+            core_choices,
         } => {
             writer.u8(1);
             // Source and mix share one arm tag: the OPL arm carries a `RenderMix`,
@@ -502,6 +530,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             writer.u32(*sample_rate);
             writer.u16(*bit_depth);
             write_resample(&mut writer, *resampling);
+            write_core_choices(&mut writer, core_choices);
         }
         TaskRequest::Split { source } => {
             writer.u8(2);
@@ -629,6 +658,7 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
                 sample_rate: reader.u32("sample_rate")?,
                 bit_depth: reader.u16("bit_depth")?,
                 resampling: read_resample(&mut reader)?,
+                core_choices: read_core_choices(&mut reader)?,
             }
         }
         2 => {
@@ -999,6 +1029,15 @@ mod tests {
         Arc::new(vgms_core::vgm::file::read("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses"))
     }
 
+    /// A non-empty per-render core map, so the render/split codec paths carry
+    /// real choices across the wire.
+    fn sample_core_choices() -> CoreChoices {
+        CoreChoices::from([
+            ("opl3".to_owned(), "cqm".to_owned()),
+            ("ym2612".to_owned(), "nuked".to_owned()),
+        ])
+    }
+
     /// A config with every field pushed off its default, so a dropped or
     /// mis-ordered field in the codec shows up.
     fn sample_config() -> AudioConfig {
@@ -1083,12 +1122,15 @@ mod tests {
                 sample_rate: 44_100,
                 resampling: ResampleMode::Linear,
             },
+            // A non-empty core map on this RenderWav case, empty on the next, so
+            // both branches of the core-choices codec are exercised.
             TaskRequest::RenderWav {
                 source: WavSource::Opl(sample_song()),
                 mix: RenderWavMix::Opl(sample_mix()),
                 sample_rate: 49_716,
                 bit_depth: 24,
                 resampling: ResampleMode::Sinc,
+                core_choices: sample_core_choices(),
             },
             TaskRequest::RenderWav {
                 source: WavSource::Vgm(sample_vgm()),
@@ -1096,7 +1138,9 @@ mod tests {
                 sample_rate: 44_100,
                 bit_depth: 16,
                 resampling: ResampleMode::Linear,
+                core_choices: CoreChoices::new(),
             },
+            // A non-empty core map on the OPL split, empty on the VGM split.
             TaskRequest::Split {
                 source: SplitTaskSource::Opl {
                     song: sample_song(),
@@ -1104,6 +1148,7 @@ mod tests {
                         format: SplitFormat::Song,
                         isolate_percussion: true,
                         audio: sample_config(),
+                        core_choices: sample_core_choices(),
                     },
                 },
             },
@@ -1113,6 +1158,7 @@ mod tests {
                     options: VgmSplitOptions {
                         audio: sample_config(),
                         resampling: ResampleMode::Linear,
+                        core_choices: CoreChoices::new(),
                     },
                 },
             },
@@ -1198,6 +1244,7 @@ mod tests {
                 options: VgmSplitOptions {
                     audio: original.clone(),
                     resampling: ResampleMode::Sinc,
+                    core_choices: CoreChoices::new(),
                 },
             },
         })

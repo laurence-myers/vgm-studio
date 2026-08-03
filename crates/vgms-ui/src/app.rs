@@ -1757,14 +1757,23 @@ impl VgmStudioApp {
             Action::ConfirmCloseFile => self.close_song(),
             Action::OpenRenderWav => {
                 if self.require_renderable() {
-                    self.dialogs.render_wav = Some(RenderWavDialog::new(self.config.audio.boost));
+                    // Seed the per-render core picker from the document's chips
+                    // and the current Settings choices; the dialog edits its own
+                    // copy and never writes vgmstudio.ini.
+                    let chips = self.document_chips();
+                    self.dialogs.render_wav = Some(RenderWavDialog::new(
+                        self.config.audio.boost,
+                        chips,
+                        self.config.audio.cores.clone(),
+                    ));
                 }
             }
             Action::RenderWavSubmitted {
                 use_toggles,
                 use_panning,
                 boost,
-            } => self.render_to_wav(use_toggles, use_panning, boost),
+                core_choices,
+            } => self.render_to_wav(use_toggles, use_panning, boost, core_choices),
             Action::OpenSplit => {
                 if !self.require_splittable() {
                     return;
@@ -1774,13 +1783,20 @@ impl VgmStudioApp {
                     return;
                 }
                 // A generic VGM splits to WAV only, per chip channel; an OPL
-                // document keeps the format and percussion options.
-                self.dialogs.split = Some(SplitDialog::new(!self.editor.has_song()));
+                // document keeps the format and percussion options. Either way
+                // the split gets the per-render core picker, seeded from Settings.
+                let chips = self.document_chips();
+                self.dialogs.split = Some(SplitDialog::new(
+                    !self.editor.has_song(),
+                    chips,
+                    self.config.audio.cores.clone(),
+                ));
             }
             Action::SplitSubmitted {
                 format,
                 isolate_percussion,
-            } => self.start_split(format, isolate_percussion),
+                core_choices,
+            } => self.start_split(format, isolate_percussion, core_choices),
             Action::OpenSplitSongs => {
                 if !self.require_document() {
                     return;
@@ -4177,7 +4193,26 @@ impl VgmStudioApp {
     ///
     /// Each option is opt-in, so with none of them this is exactly what
     /// `vgmstudio render` writes.
-    fn render_to_wav(&mut self, use_toggles: bool, use_panning: bool, boost: f32) {
+    /// The chip slots the loaded document occupies, for a render/split dialog's
+    /// core picker. An OPL document is the one OPL slot; a generic VGM is its
+    /// header chips. Empty with nothing loaded.
+    fn document_chips(&self) -> Vec<vgms_core::vgm::ChipKind> {
+        match self.editor.doc_source() {
+            Some(vgms_core::DocSource::Opl(_)) => vec![vgms_core::vgm::ChipKind::Ymf262],
+            Some(vgms_core::DocSource::Vgm(file)) => {
+                file.header.chips().iter().map(|chip| chip.kind).collect()
+            }
+            None => Vec::new(),
+        }
+    }
+
+    fn render_to_wav(
+        &mut self,
+        use_toggles: bool,
+        use_panning: bool,
+        boost: f32,
+        core_choices: std::collections::BTreeMap<String, String>,
+    ) {
         let Some(source) = self.editor.doc_source() else {
             self.require_document();
             return;
@@ -4227,6 +4262,7 @@ impl VgmStudioApp {
                 sample_rate: self.config.audio.frequency,
                 bit_depth: self.config.audio.bit_depth,
                 resampling: self.resample_mode(),
+                core_choices,
             },
             None,
         );
@@ -4243,12 +4279,18 @@ impl VgmStudioApp {
 
     /// Asks where the channel split's files should go. The split itself starts
     /// once the answer arrives in `poll_services`.
-    fn start_split(&mut self, format: SplitFormat, isolate_percussion: bool) {
+    fn start_split(
+        &mut self,
+        format: SplitFormat,
+        isolate_percussion: bool,
+        core_choices: std::collections::BTreeMap<String, String>,
+    ) {
         self.begin_split(PendingSplit::Channels {
             options: SplitOptions {
                 format,
                 isolate_percussion,
                 audio: self.config.audio.clone(),
+                core_choices,
             },
         });
     }
@@ -4322,6 +4364,10 @@ impl VgmStudioApp {
         let songs = pending.is_songs();
         let request = match pending {
             PendingSplit::Channels { options } => {
+                // The per-render core choices sit on the OPL options; the VGM arm
+                // builds its own options and needs the same map, so lift it out
+                // before `options` moves into whichever arm runs.
+                let core_choices = options.core_choices.clone();
                 // An OPL document splits per OPL channel with its chosen format;
                 // any other VGM splits per chip channel to WAV.
                 let source = self.editor.doc_source().map(|doc| match doc {
@@ -4333,6 +4379,7 @@ impl VgmStudioApp {
                         options: vgms_synth::VgmSplitOptions {
                             audio: self.config.audio.clone(),
                             resampling: self.resample_mode(),
+                            core_choices,
                         },
                     },
                 });

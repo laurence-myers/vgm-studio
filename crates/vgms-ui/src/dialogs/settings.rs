@@ -294,7 +294,7 @@ impl SettingsDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for entry in &plan.song {
-                        chip_output::song_chip_row(ui, palette, &mut self.cores, entry);
+                        chip_output::song_chip_row(ui, palette, "settings", &mut self.cores, entry);
                     }
                 });
             ui.add_space(8.0);
@@ -338,7 +338,7 @@ impl SettingsDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for row in &plan.all {
-                        chip_output::chip_row(ui, palette, &mut self.cores, row);
+                        chip_output::chip_row(ui, palette, "settings", &mut self.cores, row);
                     }
                 });
         }

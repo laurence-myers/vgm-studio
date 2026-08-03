@@ -21,6 +21,11 @@ pub struct Args {
     /// clipping. Without it the WAV is rendered at the un-boosted level.
     #[arg(short = 'b', long = "boost")]
     pub boost: Option<f32>,
+    /// Render a chip through a specific core, as `slot=name` (e.g.
+    /// `--core opl3=nuked`). Repeatable; unnamed slots use the configured core.
+    /// This render only -- vgmstudio.ini is left untouched.
+    #[arg(long = "core", value_name = "SLOT=NAME", value_parser = crate::cli::parse_core_choice)]
+    pub core: Vec<(String, String)>,
 }
 
 /// Renders `args.input` to `<input>.wav`.
@@ -61,34 +66,39 @@ pub fn run(args: &Args) -> Result<()> {
             let _ = std::io::stdout().flush();
         }
     };
-    let wav = match song {
-        LoadedSong::Opl(song) => vgms_synth::render_wav_boosted_with_progress(
-            &song,
-            freq,
-            config.audio.bit_depth,
-            boost,
-            &mut on_progress,
-        )?,
-        LoadedSong::Vgm(file) => {
-            let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-            crate::warn_missing_cores(&chips, "the render would be silence")?;
-            // The render honours the config's resampling choice, exactly as
-            // playback does -- an export sounds like what the user hears.
-            let resampling =
-                vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
-                    .unwrap_or_default();
-            vgms_synth::render_vgm_wav_cancellable(
-                Arc::new(*file),
+    // Any `--core slot=name` picks are active for this render only, on this
+    // thread; an empty map (no flag) renders exactly as the configured cores.
+    let choices = crate::cli::core_choices(&args.core);
+    let wav = vgms_synth::with_render_choices(Some(choices), || -> Result<Vec<u8>> {
+        Ok(match song {
+            LoadedSong::Opl(song) => vgms_synth::render_wav_boosted_with_progress(
+                &song,
                 freq,
                 config.audio.bit_depth,
                 boost,
-                resampling,
                 &mut on_progress,
-                &mut || true,
-            )?
-            .expect("a render that is never cancelled always completes")
-        }
-    };
+            )?,
+            LoadedSong::Vgm(file) => {
+                let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+                crate::warn_missing_cores(&chips, "the render would be silence")?;
+                // The render honours the config's resampling choice, exactly as
+                // playback does -- an export sounds like what the user hears.
+                let resampling =
+                    vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
+                        .unwrap_or_default();
+                vgms_synth::render_vgm_wav_cancellable(
+                    Arc::new(*file),
+                    freq,
+                    config.audio.bit_depth,
+                    boost,
+                    resampling,
+                    &mut on_progress,
+                    &mut || true,
+                )?
+                .expect("a render that is never cancelled always completes")
+            }
+        })
+    })?;
     println!(); // end the progress line
 
     let output = append_extension(&args.input, "wav");

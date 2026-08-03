@@ -58,6 +58,24 @@ pub enum Command {
     RetrowaveProbe(retrowave::Args),
 }
 
+/// Parses a `--core slot=name` pair (e.g. `opl3=nuked`) for `render` and
+/// `split`. Both halves must be non-empty; the split is at the first `=`, so a
+/// core id itself may contain none. Shared by both subcommands' `Args`.
+pub(crate) fn parse_core_choice(pair: &str) -> std::result::Result<(String, String), String> {
+    match pair.split_once('=') {
+        Some((slot, name)) if !slot.is_empty() && !name.is_empty() => {
+            Ok((slot.to_owned(), name.to_owned()))
+        }
+        _ => Err(format!("expected slot=name, got `{pair}`")),
+    }
+}
+
+/// Collects repeated `--core` pairs into a per-render [`CoreChoices`] map. A
+/// later pair for the same slot wins, matching how clap stacks repeated flags.
+pub(crate) fn core_choices(pairs: &[(String, String)]) -> vgms_synth::CoreChoices {
+    pairs.iter().cloned().collect()
+}
+
 /// Runs a subcommand.
 ///
 /// # Errors

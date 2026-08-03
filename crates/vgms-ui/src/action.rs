@@ -42,6 +42,9 @@ pub enum Action {
     SplitSubmitted {
         format: vgms_synth::SplitFormat,
         isolate_percussion: bool,
+        /// The per-render core choices the dialog's picker settled on, seeded
+        /// from Settings and never persisted. Empty means the configured cores.
+        core_choices: std::collections::BTreeMap<String, String>,
     },
     /// Open the Split Songs dialog (a long capture into its per-song files).
     OpenSplitSongs,
@@ -66,6 +69,9 @@ pub enum Action {
         use_toggles: bool,
         use_panning: bool,
         boost: f32,
+        /// The per-render core choices the dialog's picker settled on, seeded
+        /// from Settings and never persisted. Empty means the configured cores.
+        core_choices: std::collections::BTreeMap<String, String>,
     },
     /// Close the loaded song (prompts first if it has unsaved edits).
     CloseFile,

@@ -191,14 +191,19 @@ pub(crate) fn plan(song_chips: &[ChipKind]) -> OutputPlan {
 
 /// Draws one "Current" section entry: the chip's core row when it has one, or
 /// the chip named with a muted "no core yet" when this build plays it silent.
+///
+/// `salt_prefix` disambiguates this row's `ComboBox` from the same slot's row in
+/// another dialog open at the same time (Settings vs. a render dialog); pass a
+/// stable per-dialog string like `"settings"` or `"render"`.
 pub(crate) fn song_chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
+    salt_prefix: &str,
     cores: &mut std::collections::BTreeMap<String, String>,
     entry: &SongChipRow,
 ) {
     match &entry.row {
-        Some(row) => chip_row(ui, palette, cores, row),
+        Some(row) => chip_row(ui, palette, salt_prefix, cores, row),
         None => {
             ui.label(entry.kind.name());
             ui.colored_label(palette.muted, crate::strings::CHIP_OUTPUT_NO_CORE);
@@ -210,9 +215,14 @@ pub(crate) fn song_chip_row(
 /// Draws one roster row into an open two-column grid: the chip's name, then
 /// either a core chooser (when it has alternatives) or the muted name of the one
 /// core that plays it. Editing the chooser writes the choice into `cores`.
+///
+/// `salt_prefix` scopes the `ComboBox` id so two dialogs showing the same slot
+/// (Settings and a render/split dialog) do not collide -- pass `"settings"`,
+/// `"render"`, or `"split"`.
 pub(crate) fn chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
+    salt_prefix: &str,
     cores: &mut std::collections::BTreeMap<String, String>,
     row: &ChipOutputRow,
 ) {
@@ -222,7 +232,7 @@ pub(crate) fn chip_row(
         ui.scope(|ui| {
             crate::theme::style_dropdown(ui, palette);
             let mut choice = selected.clone();
-            egui::ComboBox::from_id_salt(format!("settings-core-{}", row.slot))
+            egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
                 .selected_text(label_for(row, &choice))
                 .show_ui(ui, |ui| {
                     for core in &row.cores {
