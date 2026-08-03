@@ -617,19 +617,29 @@ impl VgmFile {
             work.delete_commands(&redundant);
         }
 
-        // Phase 2: the delays those left adjacent. The loop is a merge barrier,
-        // so it stays on a command boundary and comes back as an offset into
-        // the stream -- which is what `rebuild` wants; it does the data-start
-        // arithmetic itself.
+        // Phase 2: the delays those left adjacent. The loop point *and* the
+        // deliberately-short loop end are merge barriers, so both stay on
+        // command boundaries and come back as offsets into the stream -- which
+        // is what `rebuild` wants; it does the data-start arithmetic itself.
+        // Without the end barrier the boundary row could vanish into a merged
+        // wait, and the next edit's `loop_end_index` would find nothing and
+        // widen the loop to the tail.
+        let loop_end = work.loop_end_index();
         let stream = work.stream()?;
-        let (bytes, loop_at) = crate::optimize::merge_stream_delays(stream, work.loop_index());
-        work.rebuild(bytes, loop_at, None);
+        let (bytes, loop_at, loop_end_at) =
+            crate::optimize::merge_stream_delays(stream, work.loop_index(), loop_end);
+        work.rebuild(bytes, loop_at, loop_end_at);
 
-        // Post-condition (sw-1b): merging delays must preserve total play time, so
-        // the loop plays for exactly as long as before. Restore the length
-        // `rebuild` widened, and assert the play time really did survive rather
-        // than trusting it.
-        if let (Some(absolute), Some(samples)) = (work.header.loop_offset(), loop_samples_before) {
+        // Post-condition (sw-1b): merging delays must preserve total play time,
+        // so the loop plays for exactly as long as before. When the end sits on
+        // a row, threading it through `rebuild` re-derives the same length; when
+        // it does not (a boundary mid-wait, or a stale header), `rebuild` widened
+        // to the tail, so restore the declared length. Either way, assert the
+        // play time really did survive rather than trusting it.
+        if loop_end.is_none()
+            && let (Some(absolute), Some(samples)) =
+                (work.header.loop_offset(), loop_samples_before)
+        {
             work.header.set_loop(Some(absolute), samples);
         }
         debug_assert_eq!(
@@ -1821,6 +1831,62 @@ mod tests {
             "the loop keeps its length, not widened to the 31280-sample tail"
         );
         assert_eq!(file.loop_index(), Some(0), "and still starts where it did");
+    }
+
+    /// The harder shape: the loop's exclusive end sits *on* the redundant write,
+    /// with waits on both sides. Phase 1 deletes the write and the end slides
+    /// onto the second wait; without the loop-end merge barrier, phase 2 would
+    /// fold the two waits into one, the boundary row would vanish, and -- with
+    /// the header still numerically right -- the *next* edit's `loop_end_index`
+    /// would find no row and widen the loop to the tail.
+    #[test]
+    fn optimizing_keeps_the_short_loops_end_on_a_row_boundary() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(crate::vgm::io::MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x161);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x100 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        bytes.extend_from_slice(&[
+            0x52, 0x22, 0x08, // 0: write A          (loop start)
+            0x61, 0x10, 0x27, // 1: wait 10000
+            0x52, 0x22, 0x08, // 2: write A again -- redundant (loop end, exclusive)
+            0x61, 0x20, 0x4E, // 3: wait 20000
+            0x52, 0x23, 0x09, // 4: write B
+            0x61, 0x00, 0x05, // 5: wait 1280
+            0x66,
+        ]);
+        let eof = bytes.len();
+        put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
+
+        let mut file = read("x.vgm", &bytes).unwrap();
+        file.set_loop_rows(Some(0), Some(2));
+        assert_eq!(file.header.loop_samples(), Some(10_000), "a short loop");
+
+        assert!(file.optimize().is_some(), "the redundant write goes");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(10_000),
+            "the loop keeps its length through the optimize"
+        );
+        assert_eq!(
+            file.loop_end_index(),
+            Some(2),
+            "and its end still sits on a row: the two waits it landed between \
+             were not merged across it"
+        );
+
+        // The real proof: a later, unrelated edit re-derives the loop end from
+        // that row. Delete write B (outside the loop); the loop must not widen.
+        file.delete_commands(&[3]);
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(10_000),
+            "the next edit still sees the boundary -- the loop did not widen"
+        );
     }
 
     /// Find Loop, for a chip with no OPL anywhere in it: a body that recurs is

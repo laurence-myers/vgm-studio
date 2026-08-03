@@ -246,8 +246,12 @@ fn merge_delays(
 /// other, and two waits in a row cost more bytes than one wait of their sum.
 ///
 /// Returns the rebuilt bytes (end marker included) and where the loop point
-/// landed in them. The loop is a merge barrier -- a run never spans it -- so it
-/// stays on a command boundary.
+/// and the deliberately-short loop end landed in them. Both are merge barriers
+/// -- a run never spans either -- so each stays on a command boundary, exactly
+/// as in [`merge_delays`]. Without the end barrier the boundary could vanish
+/// into a merged wait: the header's sample count would survive, but the *row*
+/// it re-derives from would not, and the next edit's `loop_end_index` would
+/// find nothing and widen the loop to the tail.
 ///
 /// A `0x8n` DAC write is *not* a wait for this purpose even though it waits:
 /// it writes a sample first, so folding it into a neighbouring run would drop
@@ -259,9 +263,11 @@ fn merge_delays(
 pub(crate) fn merge_stream_delays(
     stream: &VgmStream,
     loop_at: Option<usize>,
-) -> (Vec<u8>, Option<usize>) {
+    loop_end: Option<usize>,
+) -> (Vec<u8>, Option<usize>, Option<usize>) {
     let mut out: Vec<u8> = Vec::with_capacity(stream.raw().len());
     let mut new_loop = None;
+    let mut new_loop_end = None;
     let mut run: Vec<usize> = Vec::new();
 
     let flush = |run: &mut Vec<usize>, out: &mut Vec<u8>| {
@@ -295,6 +301,10 @@ pub(crate) fn merge_stream_delays(
             flush(&mut run, &mut out);
             new_loop = Some(out.len());
         }
+        if loop_end == Some(index) {
+            flush(&mut run, &mut out);
+            new_loop_end = Some(out.len());
+        }
         if matches!(stream.get(index), Some(VgmCommand::Wait(_))) {
             run.push(index);
         } else {
@@ -306,9 +316,12 @@ pub(crate) fn merge_stream_delays(
     if loop_at == Some(stream.len()) {
         new_loop = Some(out.len());
     }
+    if loop_end == Some(stream.len()) {
+        new_loop_end = Some(out.len());
+    }
 
     out.push(command::END);
-    (out, new_loop)
+    (out, new_loop, new_loop_end)
 }
 
 /// Emits the pending delay run and clears it.
