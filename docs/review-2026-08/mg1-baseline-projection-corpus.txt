@@ -1,0 +1,154 @@
+projection_corpus baseline — the pre-mg-1 state of the DRO->VGM migration
+==========================================================================
+
+Captured on 2026-08-03, branch stage-i-migration at mg-0 (4b3f63b), with the
+OLD three-gate vgm::io::read still in place -- so this is the baseline mg-1's
+staged gate removals are measured against. Corpus:
+F:\GameMusic\VGM\VGMRips_all_of_them_2025-10-17 (72,481 .vgm/.vgz files).
+
+Run: VGMSTUDIO_VGMRIPS_CORPUS=<above> \
+     cargo test -p vgms-app --release --test projection_corpus -- --ignored --nocapture
+Result: ok (822.69s). Every OPL file both readers accept agreed byte-for-byte
+(agreed == opl == 4541), so the projection is a faithful replacement; the
+newly-openable files are new coverage, the point of the migration.
+
+The "by cause" tally is the evidence each mg-1 gate removal cites -- how many
+files the OPL reader turned away for each reason, and thus how many that gate,
+once removed, lets in:
+  - old version (< v1.51):  15,547   (the v1.51-floor gate)
+  - non-OPL chip:           51,979   (the OPL-chip gate)
+  - unsupported command:       396   (the wholly-OPL / command gate)
+
+--- projection corpus ---
+scanned:            72481
+OPL (both readers): 4541, agreed: 4541
+  of those, carrying non-OPL commands: 0
+split pieces checked: 12791
+newly openable:     67922
+  by cause the OPL reader turned them away (first gate tripped):
+    51979  non-OPL chip
+    15547  old version (< v1.51)
+      396  unsupported command
+  by chip:
+     2617  AY8910
+      217  AY8910 x2
+       28  AY8910 x2, OKIM6295
+      231  AY8910, K051649
+      178  AY8910, K052539
+       20  AY8910, NES APU
+       24  AY8910, OKIM6295
+      227  C140
+     1271  C352
+      145  ES5503
+     3826  Game Boy DMG
+        1  Game Boy DMG x2
+     4178  HuC6280
+       47  K051649
+       21  K052539
+        9  K053260
+      244  K054539
+      518  K054539 x2
+      187  MultiPCM
+       37  MultiPCM x2
+     6857  NES APU
+      273  NES APU + FDS
+       10  NES APU x2
+       12  OKIM6258
+      431  OKIM6295
+       61  OKIM6295 x2
+       35  OKIM6295, K051649
+       16  POKEY
+       14  POKEY x2
+        7  PWM
+     1698  QSound
+      186  RF5C164
+       32  RF5C68
+       18  SAA1099
+       98  SAA1099 x2
+      868  SN76489
+      397  SN76489 x2
+       18  SN76489 x2, AY8910
+       19  SN76489, AY8910
+        1  SN76489, YM2413
+     9684  SN76489, YM2612
+        4  SN76489, YM2612, AY8910
+      164  SN76489, YM2612, PWM
+      156  SN76489, YM2612, RF5C164
+       26  SN76489, YM2612, uPD7759
+       40  SN76489, YM3438
+       23  SN76489, YM3438, uPD7759
+        1  SN76489, YM3812
+       49  SN76489, uPD7759
+       23  Sega PCM, YM2203
+      395  T6W28
+      353  VSU
+      266  WonderSwan
+      214  X1-010
+      171  Y8950
+       30  Y8950, AY8910
+     3403  YM2151
+        5  YM2151 x2
+       11  YM2151 x2, AY8910
+      233  YM2151, AY8910
+      412  YM2151, C140
+      136  YM2151, GA20
+      343  YM2151, K053260
+      110  YM2151, K054539
+     2888  YM2151, OKIM6258
+     2020  YM2151, OKIM6295
+       90  YM2151, OKIM6295 x2
+      192  YM2151, Sega PCM
+       28  YM2151, YM2203, OKIM6295
+      103  YM2151, uPD7759
+     5717  YM2203
+      559  YM2203 x2
+       15  YM2203 x2, AY8910 x2
+       75  YM2203 x2, OKIM6295
+        2  YM2203, AY8910
+       54  YM2203, AY8910 x2
+      339  YM2203, OKIM6295
+       77  YM2203, OKIM6295 x2
+       25  YM2203, YM3526
+       61  YM2203, YM3812
+       31  YM2203, YM3812, OKIM6295
+       12  YM2203, uPD7759
+      652  YM2413
+      516  YM2413, AY8910
+       31  YM2413, NES APU
+       31  YM2413, OKIM6295
+       44  YM2413, Y8950
+        9  YM2413, Y8950, AY8910
+     2408  YM2608
+     3887  YM2610
+      562  YM2610B
+     3373  YM2612
+       11  YM2612 x2
+      179  YM2612 x2, RF5C68
+        1  YM2612 x2, YM3812
+        6  YM2612, PWM
+       77  YM2612, RF5C164
+       53  YM2612, RF5C68
+       44  YM2612, YM2151
+       44  YM2612, YM2151, OKIM6295
+        7  YM2612, YM2151, PWM
+       77  YM2612, YM3812
+        1  YM2612, uPD7759
+      173  YM3438
+      234  YM3438 x2, RF5C68
+       23  YM3438, OKIM6295
+      207  YM3438, RF5C68
+       15  YM3438, X1-010
+      222  YM3526
+       11  YM3812
+        2  YM3812, AY8910
+       14  YM3812, K053260
+      127  YM3812, OKIM6295
+       14  YM3812, Y8950
+       20  YM3812, uPD7759
+       37  YMF262, YMZ280B
+      376  YMF271
+      494  YMF278B
+      316  YMZ280B
+        1  YMZ280B, QSound
+        6  uPD7759
+unreadable by both: 18

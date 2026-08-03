@@ -9,7 +9,7 @@
 //! Needs the local corpus via `VGMSTUDIO_VGMRIPS_CORPUS`:
 //!
 //! ```powershell
-//! $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:\GameMusic\VGM'
+//! $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:\GameMusic\VGM\VGMRips_all_of_them_2025-10-17'
 //! cargo test -p vgms-app --release --test projection_corpus -- --ignored --nocapture
 //! ```
 //!
@@ -38,6 +38,10 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
     let mut with_blocks = 0usize;
     let mut split_pieces = 0usize;
     let mut chips_seen: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    // Why the OPL reader turned each newly-openable file away, so mg-1 can cite
+    // how many files each gate it removes actually opens.
+    let mut by_cause: std::collections::BTreeMap<&'static str, usize> =
         std::collections::BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
 
@@ -80,10 +84,11 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
                     with_blocks += 1;
                 }
             }
-            (Err(_), Ok(file)) => {
+            (Err(why), Ok(file)) => {
                 // The files this feature exists for: openable now, not before.
                 newly_openable += 1;
                 *chips_seen.entry(file.chip_list()).or_default() += 1;
+                *by_cause.entry(cause_label(&why.to_string())).or_default() += 1;
             }
             (Err(_), Err(_)) => unreadable_by_both += 1,
             (Ok(_), Err(why)) => {
@@ -98,6 +103,11 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
     eprintln!("  of those, carrying non-OPL commands: {with_blocks}");
     eprintln!("split pieces checked: {split_pieces}");
     eprintln!("newly openable:     {newly_openable}");
+    eprintln!("  by cause the OPL reader turned them away (first gate tripped):");
+    for (cause, count) in &by_cause {
+        eprintln!("    {count:>5}  {cause}");
+    }
+    eprintln!("  by chip:");
     for (chips, count) in &chips_seen {
         eprintln!("    {count:>5}  {chips}");
     }
@@ -108,6 +118,45 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
         "{} file(s) disagreed:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+}
+
+/// Which gate `io::read` tripped first, from its error message -- the faithful
+/// "first cause", since the reader short-circuits: version, then OPL chip, then
+/// an unsupported command in the stream, then a bad GD3. Ephemeral scaffolding:
+/// it breaks the newly-openable count down for mg-1's evidence, and goes with
+/// the `io::read` arm at mg-2.
+fn cause_label(why: &str) -> &'static str {
+    if why.contains("Unsupported VGM version") {
+        "old version (< v1.51)"
+    } else if why.contains("No OPL2 or OPL3") {
+        "non-OPL chip"
+    } else if why.contains("Unsupported VGM command") {
+        "unsupported command"
+    } else {
+        "other (GD3 / parse)"
+    }
+}
+
+/// Guards the classifier against a wording drift in `io::read`, using the exact
+/// strings it produces (this runs even though the corpus sweep is `#[ignore]`).
+#[test]
+fn cause_label_buckets_by_the_first_gate() {
+    assert_eq!(
+        cause_label("Unsupported VGM version, v1.51 is the minimum supported version."),
+        "old version (< v1.51)"
+    );
+    assert_eq!(
+        cause_label("No OPL2 or OPL3 data detected."),
+        "non-OPL chip"
+    );
+    assert_eq!(
+        cause_label("Unsupported VGM command: 0x50"),
+        "unsupported command"
+    );
+    assert_eq!(
+        cause_label("Does not appear to be a GD3 tag (invalid header)."),
+        "other (GD3 / parse)"
     );
 }
 
