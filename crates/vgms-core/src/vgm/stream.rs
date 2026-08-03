@@ -782,10 +782,13 @@ impl VgmStream {
     /// the same length, so a re-read normalises to this same index. `samples`
     /// that falls strictly inside a delay, or `0` (which would point at `start`
     /// itself), yields `None` -- the same rule `seek_index_for_samples` applies.
+    /// A `start` past the stream yields `None` too, like the other timing
+    /// accessors, rather than panicking on the prefix slice.
     #[must_use]
     pub fn boundary_after(&self, start: usize, samples: u64) -> Option<usize> {
         let target = self.samples_before(start).checked_add(samples)?;
-        let end = start + self.wait_prefix[start..].partition_point(|&elapsed| elapsed < target);
+        let tail = self.wait_prefix.get(start..)?;
+        let end = start + tail.partition_point(|&elapsed| elapsed < target);
         if end <= start || self.wait_prefix.get(end) != Some(&target) {
             return None;
         }
@@ -1491,6 +1494,8 @@ mod tests {
         assert_eq!(stream.boundary_after(0, 0), None);
         // A target past the end of the stream has no boundary.
         assert_eq!(stream.boundary_after(0, 999), None);
+        // A start past the stream is no boundary either, never a panic.
+        assert_eq!(stream.boundary_after(99, 100), None);
     }
 
     /// The waveform contract: the returned samples always equal

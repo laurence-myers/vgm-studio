@@ -105,18 +105,23 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
         None if crate::vgm::projection::opl_type_of(&file.header).is_none() => {
             Err(Error::file("No OPL2 or OPL3 data detected.".to_owned()))
         }
-        // An OPL chip is declared, but the stream is not wholly OPL: name the
-        // first command that does not project, exactly as the old reader did.
+        // An OPL chip is declared, but there is no projection. Two ways that
+        // happens, told apart so the error names the real problem: the stream
+        // did not walk at all (`file::read` kept it opaque -- truncated or
+        // corrupt data), or it walks but carries a command that does not
+        // project, which is named exactly as the old reader named it.
         None => {
-            let opcode = file
-                .stream()
-                .and_then(|stream| {
-                    (0..stream.len()).find_map(|index| {
-                        let command = stream.raw_command(index)?;
-                        crate::vgm::projection::project(command)
-                            .is_none()
-                            .then(|| command[0])
-                    })
+            let Some(stream) = file.stream() else {
+                return Err(Error::file(
+                    "The VGM's command stream does not walk (truncated or corrupt data).",
+                ));
+            };
+            let opcode = (0..stream.len())
+                .find_map(|index| {
+                    let command = stream.raw_command(index)?;
+                    crate::vgm::projection::project(command)
+                        .is_none()
+                        .then(|| command[0])
                 })
                 .unwrap_or_default();
             Err(Error::file(format!(
@@ -1039,9 +1044,32 @@ mod tests {
     #[test]
     fn rejects_an_unsupported_command() {
         let mut bytes = VGM_FIXTURE.to_vec();
-        bytes[0x80] = 0x50; // a PSG write, which this app cannot re-encode
+        // A complete 2-byte PSG write, then the end marker: the stream still
+        // walks, so the rejection comes from the command not projecting -- and
+        // names it. (Patching the opcode alone de-framed the bytes after it,
+        // which is the *unwalkable* rejection, not this one.)
+        bytes[0x80..0x83].copy_from_slice(&[0x50, 0x9F, 0x66]);
         let error = read("f.vgm", &bytes).unwrap_err().to_string();
-        assert!(error.contains("Unsupported VGM command"), "{error}");
+        assert!(error.contains("Unsupported VGM command: 0x50"), "{error}");
+    }
+
+    /// A declared-OPL file whose stream will not walk is named as such, not as a
+    /// phantom "Unsupported VGM command: 0x00" -- the fallback opcode the
+    /// non-OPL-command scan would invent when there is no stream to scan.
+    #[test]
+    fn an_unwalkable_opl_stream_is_named_as_such() {
+        let mut bytes = vec![0u8; 0x60];
+        bytes[..4].copy_from_slice(MAGIC);
+        put_u32(&mut bytes, offset::VERSION, 0x151);
+        put_u32(
+            &mut bytes,
+            offset::DATA_OFFSET,
+            (0x60 - offset::DATA_OFFSET) as u32,
+        );
+        put_u32(&mut bytes, 0x50, clock::OPL2); // a YM3812 is declared
+        bytes.extend_from_slice(&[0x61, 0x10]); // a wait cut off mid-operands
+        let error = read("truncated.vgm", &bytes).unwrap_err().to_string();
+        assert!(error.contains("does not walk"), "{error}");
     }
 
     #[test]

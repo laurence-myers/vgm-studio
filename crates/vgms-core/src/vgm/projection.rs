@@ -384,11 +384,13 @@ mod tests {
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up.vgm");
 
     // The OPL reader's own output, frozen. Each is `io::write(io::read(input))`
-    // captured while both readers still existed; `regenerate_projection_goldens`
-    // re-derives them (and proves the projection matched at capture). The parity
-    // tests compare the projection to these files rather than to a live
-    // `io::read` -- which mg-1 makes the very same code, so the live comparison
-    // would go vacuous.
+    // captured at mg-0 (4b3f63b), while the old hand-written reader still
+    // existed -- so the bytes are an *independent* reference the projection is
+    // held to. The parity tests compare the projection to these files rather
+    // than to a live `io::read`, which mg-1 made the very same code, so a live
+    // comparison would be vacuous. That also means regenerating them
+    // (`regenerate_projection_goldens`) no longer captures independence: it
+    // re-blesses whatever the projection currently produces.
     const GOLDEN_BASE: &[u8] = include_bytes!("../../../../tests/golden/projection_base.opl.vgm");
     const GOLDEN_LOOPING: &[u8] =
         include_bytes!("../../../../tests/golden/projection_looping.opl.vgm");
@@ -445,10 +447,16 @@ mod tests {
     }
 
     /// Regenerates the checked-in projection goldens (run under `UPDATE_GOLDENS=1`,
-    /// the pattern the snapshot baselines use). Each golden is the OPL reader's
-    /// own `io::write` output; this asserts, at capture time, that the projection
-    /// already reproduces it -- so freezing the bytes is faithful, and a later
-    /// parity failure means the projection drifted, not that the golden is stale.
+    /// the pattern the snapshot baselines use).
+    ///
+    /// **Regenerating is re-blessing, not re-verifying.** The committed goldens
+    /// were captured at mg-0 from the independent hand-written OPL reader; since
+    /// mg-1 delegated `io::read` to the projection, that reader is gone, so this
+    /// can only freeze what the projection *currently* writes. (An earlier
+    /// version asserted "parity at capture" here -- post-mg-1 that compared the
+    /// projection to itself and could never fail, so it was removed rather than
+    /// left implying a check that no longer exists.) Run it only when a golden
+    /// mismatch is an intended change, and review the byte diff it commits.
     #[test]
     fn regenerate_projection_goldens() {
         if std::env::var_os("UPDATE_GOLDENS").is_none() {
@@ -461,17 +469,11 @@ mod tests {
             ("projection_looping.opl.vgm", looping_input()),
             ("projection_early_loop.opl.vgm", early),
         ] {
-            let by_opl_reader = crate::vgm::io::read("golden.vgm", &input).unwrap();
             let projected = crate::vgm::file::read("golden.vgm", &input)
                 .unwrap()
                 .to_song()
                 .unwrap();
-            let golden = crate::vgm::io::write(&by_opl_reader).unwrap();
-            assert_eq!(
-                crate::vgm::io::write(&projected).unwrap(),
-                golden,
-                "{file_name}: parity must hold at capture time"
-            );
+            let golden = crate::vgm::io::write(&projected).unwrap();
             std::fs::write(format!("{dir}/{file_name}"), &golden).unwrap();
         }
     }
