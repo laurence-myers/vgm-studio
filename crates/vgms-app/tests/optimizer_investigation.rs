@@ -150,6 +150,10 @@ fn the_builtin_optimizer_never_changes_audio() {
     let mut per_chip: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
     let mut checked = 0usize;
+    // Files the built-in changed, but whose chip core renders non-deterministically
+    // (some libvgm cores power on to unreset state), so a render diff cannot be
+    // blamed on the optimiser -- reported, not failed.
+    let mut nondeterministic = 0usize;
 
     for path in candidates {
         if checked >= limit {
@@ -175,8 +179,24 @@ fn the_builtin_optimizer_never_changes_audio() {
         let entry = per_chip.entry(chips.clone()).or_default();
         entry.0 += 1;
 
-        let original = render_file(&file);
         let (optimized, _) = built_in(&plain);
+        // The built-in changed nothing: the bytes are the plain round-trip, so no
+        // audio change is possible. (This is where a chip with no rule lands --
+        // it drops no writes -- so non-deterministic cores never reach the render
+        // comparison below.)
+        if optimized == plain {
+            continue;
+        }
+        // The built-in changed the file. Establish the determinism baseline first:
+        // render the original twice. A core that renders differently each time
+        // cannot be judged by a render diff, so skip it rather than blame the
+        // optimiser for the core's own noise.
+        let original = render_file(&file);
+        if difference(&original, &render_file(&file)).is_some() {
+            nondeterministic += 1;
+            continue;
+        }
+        // Deterministic: any difference now is the built-in's doing.
         if let Some(rendered) = render_bytes(&name, &optimized)
             && let Some((first, peak)) = difference(&original, &rendered)
         {
@@ -196,6 +216,10 @@ fn the_builtin_optimizer_never_changes_audio() {
         }
         println!("  {chip}: {n} checked, {changed} changed{mark}");
     }
+    println!(
+        "skipped {nondeterministic} file(s) the built-in changed but whose chip core \
+         renders non-deterministically (cannot be judged by a render diff)"
+    );
     if !failures.is_empty() {
         println!("\nexamples:");
         for line in &failures {
@@ -360,6 +384,38 @@ fn vgm_cmp_vs_builtin_over_the_corpus() {
 
     // This test never fails -- it reports. The verdict is read from the output.
     println!("\n(investigation complete)\n");
+}
+
+/// Is a render deterministic, and does the built-in change it? Distinguishes a
+/// real optimise corruption from render non-determinism (a chip core with
+/// unreset/rng state would make the gate flag a file the optimiser never
+/// touched). Set VGMSTUDIO_INSPECT_FILE.
+#[test]
+#[ignore = "diagnostic; needs VGMSTUDIO_INSPECT_FILE"]
+fn render_determinism() {
+    let path = PathBuf::from(
+        std::env::var_os("VGMSTUDIO_INSPECT_FILE").expect("set VGMSTUDIO_INSPECT_FILE"),
+    );
+    vgms_app::install_cores();
+    let raw = std::fs::read(&path).unwrap();
+    let name = path.file_name().unwrap().to_string_lossy().to_string();
+    let file = vgms_core::vgm::file::read(&name, &raw).unwrap();
+
+    let a = render_file(&file);
+    let b = render_file(&file);
+    println!("\n== {name} [{}] ==", file.chip_list());
+    println!("render twice, same engine build: {:?}", difference(&a, &b));
+
+    let plain = vgms_core::vgm::file::write(&file).unwrap();
+    let (opt, shrank) = built_in(&plain);
+    println!("built-in optimize shrank: {shrank} ({} -> {} bytes)", plain.len(), opt.len());
+    if let Some(r) = render_bytes(&name, &opt) {
+        println!("original vs built-in-optimized: {:?}", difference(&a, &r));
+    }
+    // And is `plain` (the uncompressed round-trip, no optimise) itself faithful?
+    if let Some(r) = render_bytes(&name, &plain) {
+        println!("original vs plain round-trip (no optimize): {:?}", difference(&a, &r));
+    }
 }
 
 fn report(title: &str, changed: &[String]) {
