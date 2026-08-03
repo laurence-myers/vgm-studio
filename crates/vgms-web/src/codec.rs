@@ -19,14 +19,15 @@ use std::collections::BTreeMap;
 use vgms_core::config::AudioConfig;
 use vgms_core::config::OptimizerChoice;
 use vgms_core::loopfind::Candidate;
+use vgms_core::vgm::ChipKind;
 use vgms_core::{Song, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
-    AudioSource, Muting, Panning, Peak, RenderMix, SplitFormat, SplitOptions, VgmSplitOptions,
-    WaveformBucket,
+    AudioSource, ChipMuting, ChipPanning, Muting, Panning, Peak, RenderMix, SplitFormat,
+    SplitOptions, VgmRenderMix, VgmSplitOptions, WaveformBucket,
 };
 use vgms_ui::tasks::{
-    LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
+    LoopSearchSource, RenderWavMix, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
 };
 use vgms_ui::{PackEntry, PackEntryKind, PackJobOutcome, PackJobRequest, TaskRequest};
 
@@ -321,6 +322,80 @@ fn read_mix(reader: &mut Reader) -> Result<RenderMix> {
     })
 }
 
+/// A chip is identified on the wire by its slug -- the same stable string the
+/// config's core map and the worklet ABI use -- so an entry for a chip a future
+/// build drops decodes as "skip", not a hard error.
+fn write_chip_muting(writer: &mut Writer, muting: &ChipMuting) {
+    let entries: Vec<_> = muting.entries().collect();
+    writer.u32(entries.len() as u32);
+    for (kind, instance, mask) in entries {
+        writer.str(kind.slug());
+        writer.u8(instance);
+        writer.u32(mask);
+    }
+}
+
+fn read_chip_muting(reader: &mut Reader) -> Result<ChipMuting> {
+    let count = reader.u32("chip-muting.len")?;
+    let mut muting = ChipMuting::new();
+    for _ in 0..count {
+        let slug = reader.str("chip-muting.slug")?;
+        let instance = reader.u8("chip-muting.instance")?;
+        let mask = reader.u32("chip-muting.mask")?;
+        if let Some(kind) = ChipKind::from_slug(&slug) {
+            muting.set(kind, instance, mask);
+        }
+    }
+    Ok(muting)
+}
+
+fn write_chip_panning(writer: &mut Writer, panning: &ChipPanning) {
+    let entries: Vec<_> = panning.entries().collect();
+    writer.u32(entries.len() as u32);
+    for (kind, instance, pans) in entries {
+        writer.str(kind.slug());
+        writer.u8(instance);
+        writer.u32(pans.len() as u32);
+        for pan in pans {
+            writer.i16(*pan);
+        }
+    }
+}
+
+fn read_chip_panning(reader: &mut Reader) -> Result<ChipPanning> {
+    let count = reader.u32("chip-panning.len")?;
+    let mut panning = ChipPanning::new();
+    for _ in 0..count {
+        let slug = reader.str("chip-panning.slug")?;
+        let instance = reader.u8("chip-panning.instance")?;
+        let pan_count = reader.u32("chip-panning.pans.len")? as usize;
+        let mut pans = Vec::with_capacity(pan_count);
+        for _ in 0..pan_count {
+            pans.push(reader.i16("chip-panning.pan")?);
+        }
+        // An unknown slug's entry is read past (to keep the stream aligned) but
+        // dropped, exactly as `read_chip_muting` does.
+        if let Some(kind) = ChipKind::from_slug(&slug) {
+            panning.set(kind, instance, pans);
+        }
+    }
+    Ok(panning)
+}
+
+fn write_vgm_mix(writer: &mut Writer, mix: &VgmRenderMix) {
+    write_chip_muting(writer, &mix.muting);
+    write_chip_panning(writer, &mix.panning);
+    writer.f32(mix.boost);
+}
+
+fn read_vgm_mix(reader: &mut Reader) -> Result<VgmRenderMix> {
+    Ok(VgmRenderMix {
+        muting: read_chip_muting(reader)?,
+        panning: read_chip_panning(reader)?,
+        boost: reader.f32("vgm-mix.boost")?,
+    })
+}
+
 fn write_split_options(writer: &mut Writer, options: &SplitOptions) {
     writer.u8(match options.format {
         SplitFormat::Wav => 0,
@@ -404,17 +479,26 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             resampling,
         } => {
             writer.u8(1);
-            match source {
-                WavSource::Opl(song) => {
+            // Source and mix share one arm tag: the OPL arm carries a `RenderMix`,
+            // the generic arm a `VgmRenderMix`, so the pair cannot desync on the
+            // wire (they are always built together app-side).
+            match (source, mix) {
+                (WavSource::Opl(song), RenderWavMix::Opl(mix)) => {
                     writer.u8(0);
                     write_song(&mut writer, song)?;
+                    write_mix(&mut writer, *mix);
                 }
-                WavSource::Vgm(file) => {
+                (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
                     writer.u8(1);
                     write_vgm(&mut writer, file)?;
+                    write_vgm_mix(&mut writer, mix);
+                }
+                _ => {
+                    return Err(CodecError::Document(
+                        "render mix did not match its source".to_owned(),
+                    ));
                 }
             }
-            write_mix(&mut writer, *mix);
             writer.u32(*sample_rate);
             writer.u16(*bit_depth);
             write_resample(&mut writer, *resampling);
@@ -526,14 +610,22 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
             resampling: read_resample(&mut reader)?,
         },
         1 => {
-            let source = match reader.u8("wav-source")? {
-                0 => WavSource::Opl(std::sync::Arc::new(read_song(&mut reader)?)),
-                1 => WavSource::Vgm(std::sync::Arc::new(read_vgm(&mut reader)?)),
+            let (source, mix) = match reader.u8("wav-source")? {
+                0 => {
+                    let song = std::sync::Arc::new(read_song(&mut reader)?);
+                    let mix = RenderWavMix::Opl(read_mix(&mut reader)?);
+                    (WavSource::Opl(song), mix)
+                }
+                1 => {
+                    let file = std::sync::Arc::new(read_vgm(&mut reader)?);
+                    let mix = RenderWavMix::Vgm(read_vgm_mix(&mut reader)?);
+                    (WavSource::Vgm(file), mix)
+                }
                 other => return Err(CodecError::Tag("wav-source", other)),
             };
             TaskRequest::RenderWav {
                 source,
-                mix: read_mix(&mut reader)?,
+                mix,
                 sample_rate: reader.u32("sample_rate")?,
                 bit_depth: reader.u16("bit_depth")?,
                 resampling: read_resample(&mut reader)?,
@@ -941,6 +1033,23 @@ mod tests {
         }
     }
 
+    /// A non-neutral generic mix, so the chip-muting/chip-panning codec paths
+    /// carry real per-chip data across two instances -- including the
+    /// out-of-roster `u32::MAX` mask the channel split deliberately sets, and a
+    /// variable-length pan array.
+    fn sample_vgm_mix() -> VgmRenderMix {
+        let mut muting = ChipMuting::new();
+        muting.set(ChipKind::Ym2612, 0, 0b0000_0010);
+        muting.set(ChipKind::Sn76489, 1, u32::MAX);
+        let mut panning = ChipPanning::new();
+        panning.set(ChipKind::Ym2612, 0, vec![-256, 0, 256]);
+        VgmRenderMix {
+            muting,
+            panning,
+            boost: 1.5,
+        }
+    }
+
     /// Every request variant round-trips: encoding what a decode produced yields
     /// the identical bytes, so no field is dropped, reordered, or misread.
     #[track_caller]
@@ -976,14 +1085,14 @@ mod tests {
             },
             TaskRequest::RenderWav {
                 source: WavSource::Opl(sample_song()),
-                mix: sample_mix(),
+                mix: RenderWavMix::Opl(sample_mix()),
                 sample_rate: 49_716,
                 bit_depth: 24,
                 resampling: ResampleMode::Sinc,
             },
             TaskRequest::RenderWav {
                 source: WavSource::Vgm(sample_vgm()),
-                mix: RenderMix::default(),
+                mix: RenderWavMix::Vgm(sample_vgm_mix()),
                 sample_rate: 44_100,
                 bit_depth: 16,
                 resampling: ResampleMode::Linear,

@@ -10,7 +10,10 @@ use egui::Key;
 use vgms_core::config::{AppConfig, ConfigStore, SurfaceChoice, ThemeChoice};
 use vgms_core::song::{DRO_FILE_V2, SongFileType};
 use vgms_core::{FindTarget, Gd3Tag};
-use vgms_synth::{LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat, SplitOptions};
+use vgms_synth::{
+    ChipMuting, ChipPanning, LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat,
+    SplitOptions, VgmRenderMix,
+};
 
 use crate::action::{Action, AppTab};
 use crate::alert::{self, Alert};
@@ -27,7 +30,7 @@ use crate::platform::{
     AudioService, FileService, OptimizedImage, PackJobOutcome, PackService, PickedFile,
     PickedFolder, SaveOutcome, SaveRequest,
 };
-use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
+use crate::tasks::{RenderWavMix, TaskKind, TaskRequest, TaskResult, TaskService, WavSource};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
@@ -1754,12 +1757,7 @@ impl VgmStudioApp {
             Action::ConfirmCloseFile => self.close_song(),
             Action::OpenRenderWav => {
                 if self.require_renderable() {
-                    // A generic VGM's dialog hides the OPL-only channel options,
-                    // as the split dialog hides its format options.
-                    self.dialogs.render_wav = Some(RenderWavDialog::new(
-                        self.config.audio.boost,
-                        !self.editor.has_song(),
-                    ));
+                    self.dialogs.render_wav = Some(RenderWavDialog::new(self.config.audio.boost));
                 }
             }
             Action::RenderWavSubmitted {
@@ -4190,18 +4188,37 @@ impl VgmStudioApp {
             self.status = crate::strings::APP_STATUS_ALREADY_RENDERING.to_owned();
             return;
         }
-        let mix = RenderMix {
-            muting: if use_toggles {
-                self.channels.muting()
-            } else {
-                Muting::all()
-            },
-            panning: if use_panning {
-                self.channels.panning()
-            } else {
-                Panning::Original
-            },
-            boost,
+        // The mix speaks the source's vocabulary: an OPL document mutes and pans
+        // by register policy, a generic VGM by the per-chip masks its panels
+        // describe. Each opt-in off means that dimension's neutral value, so the
+        // all-off render stays byte-identical to `vgmstudio render`.
+        let mix = match &source {
+            WavSource::Opl(_) => RenderWavMix::Opl(RenderMix {
+                muting: if use_toggles {
+                    self.channels.muting()
+                } else {
+                    Muting::all()
+                },
+                panning: if use_panning {
+                    self.channels.panning()
+                } else {
+                    Panning::Original
+                },
+                boost,
+            }),
+            WavSource::Vgm(_) => RenderWavMix::Vgm(VgmRenderMix {
+                muting: if use_toggles {
+                    self.channels.chip_muting()
+                } else {
+                    ChipMuting::new()
+                },
+                panning: if use_panning {
+                    self.channels.chip_panning()
+                } else {
+                    ChipPanning::new()
+                },
+                boost,
+            }),
         };
         self.tasks.submit(
             TaskRequest::RenderWav {

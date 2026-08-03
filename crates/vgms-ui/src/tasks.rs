@@ -14,8 +14,8 @@ use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
-    AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmSplitOptions, WaveformBucket,
-    measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
+    AudioSource, Peak, RenderMix, SplitData, SplitOptions, VgmRenderMix, VgmSplitOptions,
+    WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
     render_waveform_progressive, split_cancellable, split_vgm_cancellable,
 };
 
@@ -52,9 +52,10 @@ pub enum TaskRequest {
     },
     RenderWav {
         source: WavSource,
-        /// Muting and panning are OPL ideas, so they only reach an OPL source;
-        /// the boost applies to either.
-        mix: RenderMix,
+        /// The mix to bake in, in the vocabulary of the source: an OPL render
+        /// mutes and pans by register policy, a generic one by per-chip masks.
+        /// The arm is built to match `source`'s arm (see [`RenderWavMix`]).
+        mix: RenderWavMix,
         sample_rate: u32,
         bit_depth: u16,
         /// As on [`TaskRequest::RenderWaveform`]: the export honours the same
@@ -110,10 +111,23 @@ pub enum TaskRequest {
 pub type LoopSearchSource = vgms_core::DocSource;
 
 /// What a WAV render runs over: the loaded document, either shape. The two
-/// engines take different mixes -- an OPL render can mute and pan, a generic one
-/// has no register policy to do it with -- so the choice is made here rather than
-/// inside the renderer.
+/// engines take different mixes -- an OPL render mutes and pans by register
+/// policy, a generic one by per-chip masks the cores apply -- so the choice is
+/// made here rather than inside the renderer.
 pub type WavSource = vgms_core::DocSource;
+
+/// The mix a WAV render bakes in, in the vocabulary of its source.
+///
+/// An OPL render mutes and pans through the register gate ([`RenderMix`]); a
+/// generic VGM render carries per-chip channel masks and pans the cores apply
+/// ([`VgmRenderMix`]). The arm always matches the [`WavSource`] arm it is
+/// submitted with -- they are built together, in `render_to_wav` and the web
+/// codec -- so a job can pair them by their common source without a second tag.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RenderWavMix {
+    Opl(RenderMix),
+    Vgm(VgmRenderMix),
+}
 
 /// What a channel split runs over.
 ///
@@ -322,8 +336,8 @@ pub fn run_task(
             // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render`
             // writes -- so the same song exported both ways lands in one place.
             let name = format!("{}.wav", source.name());
-            let rendered = match source {
-                WavSource::Opl(song) => render_wav_cancellable(
+            let rendered = match (source, mix) {
+                (WavSource::Opl(song), RenderWavMix::Opl(mix)) => render_wav_cancellable(
                     Arc::clone(song),
                     *mix,
                     *sample_rate,
@@ -331,15 +345,21 @@ pub fn run_task(
                     &mut |_| {},
                     &mut || !is_cancelled(),
                 ),
-                WavSource::Vgm(file) => vgms_synth::render_vgm_wav_cancellable(
-                    Arc::clone(file),
-                    *sample_rate,
-                    *bit_depth,
-                    mix.boost,
-                    *resampling,
-                    &mut |_| {},
-                    &mut || !is_cancelled(),
-                ),
+                (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
+                    vgms_synth::render_vgm_wav_mixed_cancellable(
+                        Arc::clone(file),
+                        *sample_rate,
+                        *bit_depth,
+                        mix,
+                        *resampling,
+                        &mut |_| {},
+                        &mut || !is_cancelled(),
+                    )
+                }
+                // Source and mix are built as a matched pair (and the codec
+                // pairs them by their shared source tag), so a mismatch is
+                // unrepresentable; render nothing rather than panic in a worker.
+                _ => return,
             }
             .map_err(crate::strings::tasks_render_wav_failed);
             // A cancelled render emits nothing at all, like the waveform's.
@@ -734,7 +754,7 @@ mod tests {
     fn a_cancelled_export_emits_nothing() {
         let wav = TaskRequest::RenderWav {
             source: WavSource::Opl(Arc::new(tone_song())),
-            mix: RenderMix::default(),
+            mix: RenderWavMix::Opl(RenderMix::default()),
             sample_rate: 48_000,
             bit_depth: 16,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
@@ -762,7 +782,7 @@ mod tests {
         let results = collect(
             &TaskRequest::RenderWav {
                 source: WavSource::Opl(Arc::new(song)),
-                mix: RenderMix::default(),
+                mix: RenderWavMix::Opl(RenderMix::default()),
                 sample_rate: 48_000,
                 bit_depth: 16,
                 resampling: vgms_synth::resample::ResampleMode::Sinc,

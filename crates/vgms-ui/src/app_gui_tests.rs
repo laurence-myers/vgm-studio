@@ -2917,11 +2917,61 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     assert!(peak > 1000, "and it is audible: peak {peak}");
 }
 
-/// The Render to WAV *dialog* opens for a non-OPL VGM. It was gated on
-/// require_song() while its menu item and its worker both handle any renderable
-/// document -- so clicking it refused with "This needs an OPL song." The
-/// existing render test above side-stepped the dialog by dispatching
-/// RenderWavSubmitted directly, which is why the gate went unnoticed.
+/// The generic render carries a per-chip mix, not just a boost. With the mix
+/// opt-ins on but nothing muted or panned, the app must still build a
+/// `RenderWavMix::Vgm`: `run_task` pairs source and mix by arm, so an OPL mix on
+/// a VGM source would emit no WAV at all. A neutral mix renders byte-identically
+/// to the faithful export. (Whether a *muted* channel is actually silenced
+/// depends on the core's mute support -- that is pm-3's concern, not rs-0's.)
+#[test]
+fn a_generic_render_with_neutral_mix_options_stays_faithful() {
+    let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+
+    act(
+        &mut harness,
+        Action::RenderWavSubmitted {
+            use_toggles: false,
+            use_panning: false,
+            boost: 1.0,
+        },
+    );
+    harness.run();
+    let faithful = {
+        let files = handles.files.borrow();
+        let Some(SaveRequest::Dialog { bytes, .. }) = files.save_requests.last() else {
+            panic!("expected a faithful render, got {:?}", files.save_requests)
+        };
+        bytes.clone()
+    };
+
+    act(
+        &mut harness,
+        Action::RenderWavSubmitted {
+            use_toggles: true,
+            use_panning: true,
+            boost: 1.0,
+        },
+    );
+    harness.run();
+    let with_options = {
+        let files = handles.files.borrow();
+        let Some(SaveRequest::Dialog { bytes, .. }) = files.save_requests.last() else {
+            panic!("the generic render dropped the per-chip mix arm (no WAV saved)")
+        };
+        bytes.clone()
+    };
+
+    assert_eq!(
+        with_options, faithful,
+        "a neutral per-chip mix renders byte-identically to the faithful export"
+    );
+}
+
+/// The Render to WAV *dialog* opens for a non-OPL VGM, and offers the full mix.
+/// It was once gated on require_song(); and even after it opened, the channel
+/// toggle/pan rows were hidden for a generic VGM because that render dropped
+/// them. rs-0 carries a per-chip mix through the generic render, so every option
+/// is offered for any renderable document.
 #[test]
 fn render_to_wav_dialog_opens_for_a_non_opl_vgm() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
@@ -2934,11 +2984,15 @@ fn render_to_wav_dialog_opens_for_a_non_opl_vgm() {
     );
 
     harness.run();
-    // The OPL-only channel options are hidden for a generic VGM; only Boost is
-    // offered, since the generic render carries neither toggles nor pans.
+    // The channel toggle/pan mix now applies to a generic VGM too, so both rows
+    // are offered alongside Boost.
     assert!(
-        harness.query_by_label_contains("Channel toggles").is_none(),
-        "the OPL-only channel option is hidden"
+        harness.query_by_label_contains("Channel toggles").is_some(),
+        "the channel-toggle option is offered for a generic VGM"
+    );
+    assert!(
+        harness.query_by_label_contains("Channel panning").is_some(),
+        "the channel-panning option is offered for a generic VGM"
     );
     assert!(
         harness.query_by_label_contains("Boost").is_some(),

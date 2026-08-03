@@ -24,24 +24,21 @@ pub struct RenderWavDialog {
     /// Held as text so a half-typed value is not clamped out from under the
     /// user; parsed and range-checked on Render.
     boost: String,
-    /// A document with no OPL stream. The channel-toggle and panning options are
-    /// OPL-only -- the generic VGM render ignores both -- so they are hidden and
-    /// only Boost is offered, as the split dialog hides its format options.
-    generic: bool,
 }
 
 impl RenderWavDialog {
     /// `current_boost` seeds the boost field from live playback, so ticking all
-    /// three options renders what the user is currently hearing. `generic` hides
-    /// the OPL-only channel options for a VGM whose chips are not OPL.
+    /// three options renders what the user is currently hearing. The channel
+    /// toggle and panning options apply to every document now -- an OPL render
+    /// gates registers, a generic one carries per-chip masks -- so they are
+    /// always offered.
     #[must_use]
-    pub fn new(current_boost: f32, generic: bool) -> Self {
+    pub fn new(current_boost: f32) -> Self {
         Self {
             use_toggles: false,
             use_panning: false,
             use_boost: false,
             boost: format_boost(current_boost),
-            generic,
         }
     }
 
@@ -65,22 +62,20 @@ impl RenderWavDialog {
                 ui.label(crate::strings::RENDER_WAV_APPLY);
                 ui.add_space(4.0);
 
-                // The channel toggle/pan mix is an OPL idea; the generic VGM
-                // render carries neither, so those rows are hidden for one.
-                if !self.generic {
-                    option_row(
-                        ui,
-                        "Channel toggles",
-                        crate::strings::RENDER_WAV_TOGGLES_HOVER,
-                        &mut self.use_toggles,
-                    );
-                    option_row(
-                        ui,
-                        "Channel panning",
-                        crate::strings::RENDER_WAV_PANNING_HOVER,
-                        &mut self.use_panning,
-                    );
-                }
+                // The channel toggle/pan mix applies to either document: an OPL
+                // render gates registers, a generic one carries per-chip masks.
+                option_row(
+                    ui,
+                    "Channel toggles",
+                    crate::strings::RENDER_WAV_TOGGLES_HOVER,
+                    &mut self.use_toggles,
+                );
+                option_row(
+                    ui,
+                    "Channel panning",
+                    crate::strings::RENDER_WAV_PANNING_HOVER,
+                    &mut self.use_panning,
+                );
 
                 ui.horizontal(|ui| {
                     option_row(
@@ -182,7 +177,7 @@ mod tests {
     /// The default is the faithful render `vgmstudio render` produces.
     #[test]
     fn nothing_is_applied_by_default() {
-        let mut dialog = RenderWavDialog::new(3.0, false);
+        let mut dialog = RenderWavDialog::new(3.0);
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         assert_eq!(
@@ -197,15 +192,15 @@ mod tests {
 
     #[test]
     fn the_boost_field_starts_at_the_playback_boost() {
-        assert_eq!(RenderWavDialog::new(3.0, false).boost, "3");
-        assert_eq!(RenderWavDialog::new(1.0, false).boost, "1");
+        assert_eq!(RenderWavDialog::new(3.0).boost, "3");
+        assert_eq!(RenderWavDialog::new(1.0).boost, "1");
         // Out-of-range values from a hand-edited ini are pulled into range.
-        assert_eq!(RenderWavDialog::new(99.0, false).boost, "16");
+        assert_eq!(RenderWavDialog::new(99.0).boost, "16");
     }
 
     #[test]
     fn each_option_reaches_the_request() {
-        let mut dialog = RenderWavDialog::new(1.0, false);
+        let mut dialog = RenderWavDialog::new(1.0);
         dialog.use_toggles = true;
         dialog.use_panning = true;
         dialog.use_boost = true;
@@ -226,7 +221,7 @@ mod tests {
     #[test]
     fn a_boost_left_switched_off_renders_unboosted() {
         // Even with a value typed in: the checkbox is what decides.
-        let mut dialog = RenderWavDialog::new(1.0, false);
+        let mut dialog = RenderWavDialog::new(1.0);
         dialog.boost = "8".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
@@ -239,7 +234,7 @@ mod tests {
     /// A disabled field cannot be a reason to refuse the render.
     #[test]
     fn nonsense_in_a_disabled_boost_field_is_ignored() {
-        let mut dialog = RenderWavDialog::new(1.0, false);
+        let mut dialog = RenderWavDialog::new(1.0);
         dialog.boost = "not a number".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
@@ -249,7 +244,7 @@ mod tests {
     #[test]
     fn an_invalid_boost_is_refused_with_an_alert() {
         for typed in ["", "nope", "0", "17", "-3"] {
-            let mut dialog = RenderWavDialog::new(1.0, false);
+            let mut dialog = RenderWavDialog::new(1.0);
             dialog.use_boost = true;
             dialog.boost = typed.to_owned();
 
