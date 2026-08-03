@@ -114,6 +114,20 @@ Two corrections to where the bypass lives and what it does:
   corpus files. Feeding `vgm_cmp` output in first would make that assertion
   measure the C tool instead.
 
+**↺ SUPERSEDED (2026-08-03) — the bypass was *generalized*, not removed.** The
+optimizer-investigation branch (merged into `stage-i-migration`) replaced the
+wholly-OPL bypass with a `built_in_covers_all` routing behind a user-facing
+`OptimizerChoice` (Auto / Built-in only / External tools), stored in
+`[optimize].optimizer`. Removing that branch now would undo a shipped feature.
+The removal's original goal — give the WASI shim real coverage (sn-6) — is met
+another way: **`OptimizerChoice::Tools` routes the tools unconditionally** and
+is already exercised (`optimize_parity.rs`, `tools.rs`), so a non-OPL fixture or
+`Tools` reaches `__vgms_run_tool` without touching the routing. And
+`compare_optimised` never called the pipeline — it diffs `VgmFile::optimize()`
+against `optimize::optimize` directly — so there is **nothing to re-base**. **mg-3b
+is therefore retired with no code change**; any residual browser-gate work
+belongs to sn-6, reached via `Tools`.
+
 ### D7 — trimming the permissive crates' API · **ANSWERED: yes, trim**
 
 This repo is the only consumer, so "no in-tree caller" is "no caller". Covers
