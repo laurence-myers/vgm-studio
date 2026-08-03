@@ -342,6 +342,8 @@ fn turning_a_stage_off_keeps_it_out_of_the_pass() {
     let options = Options {
         sample_roms: false,
         dac_runs: false,
+        // Force the tools so the stage list is the tools', not the built-in path.
+        optimizer: vgms_core::config::OptimizerChoice::Tools,
     };
     let names: Vec<&str> = stage_names(&bytes, options)
         .into_iter()

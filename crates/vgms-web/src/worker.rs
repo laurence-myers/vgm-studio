@@ -80,7 +80,7 @@ pub fn vgms_web_run_pack_job(
     let built_in = BuiltInOptimizer;
     let pipeline = request.optimize_vgms.then(|| {
         crate::optimize_tools::WebTools::new(tool_vgm_cmp, tool_vgm_sro, tool_optdac)
-            .map(crate::optimize_tools::WebPipelineOptimizer::new)
+            .map(|tools| crate::optimize_tools::WebPipelineOptimizer::new(tools, request.optimizer))
             .map_err(|error| {
                 web_sys::console::warn_1(&JsValue::from_str(&format!(
                     "vgms-web: the optimiser modules did not load ({error}); \

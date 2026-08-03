@@ -538,6 +538,9 @@ pub struct PackJobRequest {
     /// Whether to strip redundant register writes from each VGM before packing
     /// it (the `vgm_cmp` step of the VGMRips pipeline).
     pub optimize_vgms: bool,
+    /// Which optimiser to run when `optimize_vgms`: the built-in pass, the
+    /// external tools, or the routing between them (the Settings choice).
+    pub optimizer: vgms_core::config::OptimizerChoice,
 }
 
 /// What became of a [`PackJobRequest`].

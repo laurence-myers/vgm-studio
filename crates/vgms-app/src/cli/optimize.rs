@@ -68,6 +68,9 @@ pub fn run(args: &Args) -> Result<()> {
     let options = Options {
         sample_roms: !args.no_rom_trim,
         dac_runs: !args.no_dac_clean,
+        // The CLI takes the routing default (built-in where it covers the file,
+        // the tools as fallback). The GUI's Settings choice is a GUI concern.
+        optimizer: vgms_core::config::OptimizerChoice::Auto,
     };
     let mut result = vgms_vgmtools::optimize_vgm(&plain, options);
 

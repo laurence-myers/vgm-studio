@@ -577,13 +577,16 @@ impl Editor {
     ///
     /// Whatever route ran, it drops only what its per-chip rules call safe and
     /// drops nothing at all from a chip it has no rules for.
-    fn optimize_vgm_document(&mut self) -> Option<(usize, usize)> {
+    fn optimize_vgm_document(
+        &mut self,
+        optimizer: vgms_core::config::OptimizerChoice,
+    ) -> Option<(usize, usize)> {
         let file = self.vgm.as_mut()?;
         let before_bytes = file.body.raw().len();
         let before_commands = file.len();
 
         let plain = vgms_core::vgm::file::write(file).ok()?;
-        let optimized = crate::optimize::optimized(&plain)?;
+        let optimized = crate::optimize::optimized(&plain, optimizer)?;
         let mut edited = vgms_core::vgm::file::read(&file.name, &optimized).ok()?;
         edited.name = file.name.clone();
 
@@ -633,8 +636,11 @@ impl Editor {
     /// The stream is rebuilt wholesale (delay runs re-encode), so the selection
     /// is cleared and the loop markers are re-derived from the song's remapped
     /// loop metadata, exactly as a fresh load or conversion would.
-    pub fn optimize_vgm(&mut self) -> Option<(usize, usize)> {
-        self.optimize_vgm_document()
+    pub fn optimize_vgm(
+        &mut self,
+        optimizer: vgms_core::config::OptimizerChoice,
+    ) -> Option<(usize, usize)> {
+        self.optimize_vgm_document(optimizer)
     }
 
     /// Crops the song to the marked region, deleting everything outside it.

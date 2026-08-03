@@ -11,8 +11,11 @@ use vgms_pack_archive::{ImageOptimizer, PackEntry, SongOptimizer};
 
 pub use vgms_pack_archive::PackZipOutput;
 
-/// The desktop song pass: the full vgmtools pipeline over child processes.
-struct NativeSongOptimizer;
+/// The desktop song pass: the full vgmtools pipeline over child processes,
+/// routed by the Settings optimiser choice.
+struct NativeSongOptimizer {
+    optimizer: vgms_core::config::OptimizerChoice,
+}
 
 impl SongOptimizer for NativeSongOptimizer {
     fn optimize(&self, name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
@@ -23,7 +26,10 @@ impl SongOptimizer for NativeSongOptimizer {
         vgms_vgmtools::optimize_song_logged(
             name,
             bytes,
-            vgms_vgmtools::Options::default(),
+            vgms_vgmtools::Options {
+                optimizer: self.optimizer,
+                ..Default::default()
+            },
             &vgms_vgmtools::NativeTools,
             log,
         )
@@ -63,9 +69,10 @@ pub fn build_pack_zip(
     entries: &[PackEntry],
     gzip_vgms: bool,
     optimize_vgms: bool,
+    optimizer: vgms_core::config::OptimizerChoice,
     is_cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<Option<PackZipOutput>> {
-    let native_song = NativeSongOptimizer;
+    let native_song = NativeSongOptimizer { optimizer };
     let song: Option<&dyn SongOptimizer> = optimize_vgms.then_some(&native_song);
     vgms_pack_archive::build_pack_zip(
         entries,
@@ -151,7 +158,7 @@ mod tests {
                 0x66,
             ],
         );
-        let output = build_pack_zip(&[song("01 MD.vgm", &original)], false, true, &never())
+        let output = build_pack_zip(&[song("01 MD.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -170,7 +177,7 @@ mod tests {
     #[test]
     fn a_chip_the_built_in_pass_cannot_touch_is_optimized_by_the_tools() {
         let original = non_opl_vgm(0x68, &[0x5D, 0x01, 0x40, 0x5D, 0x01, 0x40, 0x66]);
-        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
+        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -189,7 +196,7 @@ mod tests {
         // A K053260: `vgm_cmp` has a handler for it, but it is commented out
         // (`chip_cmp.c:10` still lists it as a TODO), so every write is kept.
         let original = non_opl_vgm(0xAC, &[0xBA, 0x01, 0x40, 0xBA, 0x01, 0x40, 0x66]);
-        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, &never())
+        let output = build_pack_zip(&[song("01 Arcade.vgm", &original)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -212,7 +219,7 @@ mod tests {
     #[test]
     fn an_already_optimal_vgm_passes_through_the_tools_unchanged() {
         const CLEAN: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
-        let output = build_pack_zip(&[song("01 Clean.vgm", CLEAN)], false, true, &never())
+        let output = build_pack_zip(&[song("01 Clean.vgm", CLEAN)], false, true, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -239,7 +246,7 @@ mod tests {
                 kind: PackEntryKind::Image,
             },
         ];
-        let output = build_pack_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -263,7 +270,7 @@ mod tests {
             bytes: b"not really a png".to_vec(),
             kind: PackEntryKind::Image,
         }];
-        let output = build_pack_zip(&entries, true, false, &never())
+        let output = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let files = read_zip(&output.bytes);
@@ -286,7 +293,7 @@ mod tests {
                 kind: PackEntryKind::Doc,
             },
         ];
-        let via_wrapper = build_pack_zip(&entries, true, false, &never())
+        let via_wrapper = build_pack_zip(&entries, true, false, vgms_core::config::OptimizerChoice::Auto, &never())
             .unwrap()
             .unwrap();
         let via_shared =

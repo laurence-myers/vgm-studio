@@ -87,6 +87,8 @@ fn an_optimised_file_renders_to_the_same_samples() {
     let options = Options {
         sample_roms: std::env::var_os("VGMSTUDIO_NO_ROM_TRIM").is_none(),
         dac_runs: std::env::var_os("VGMSTUDIO_NO_DAC_CLEAN").is_none(),
+        // Force the tools so this measures them, not the built-in routing.
+        optimizer: vgms_core::config::OptimizerChoice::Tools,
     };
     println!(
         "stages: vgm_cmp always; vgm_sro {}; optdac {}",

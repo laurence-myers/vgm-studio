@@ -24,6 +24,7 @@ use vgms_synth::{
     AudioSource, Muting, Panning, Peak, RenderMix, SplitFormat, SplitOptions, VgmSplitOptions,
     WaveformBucket,
 };
+use vgms_core::config::OptimizerChoice;
 use vgms_ui::tasks::{
     LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
 };
@@ -795,6 +796,11 @@ pub fn encode_pack_job(request: &PackJobRequest) -> Vec<u8> {
     }
     writer.bool(request.gzip_vgms);
     writer.bool(request.optimize_vgms);
+    writer.u8(match request.optimizer {
+        OptimizerChoice::Auto => 0,
+        OptimizerChoice::BuiltInOnly => 1,
+        OptimizerChoice::Tools => 2,
+    });
     writer.out
 }
 
@@ -817,11 +823,18 @@ pub fn decode_pack_job(input: &[u8]) -> Result<PackJobRequest> {
     }
     let gzip_vgms = reader.bool("pack.gzip")?;
     let optimize_vgms = reader.bool("pack.optimize")?;
+    let optimizer = match reader.u8("pack.optimizer")? {
+        0 => OptimizerChoice::Auto,
+        1 => OptimizerChoice::BuiltInOnly,
+        2 => OptimizerChoice::Tools,
+        other => return Err(CodecError::Tag("pack optimizer", other)),
+    };
     Ok(PackJobRequest {
         zip_name,
         entries,
         gzip_vgms,
         optimize_vgms,
+        optimizer,
     })
 }
 
@@ -1210,11 +1223,15 @@ mod tests {
             ],
             gzip_vgms: true,
             optimize_vgms: false,
+            // A non-default value, so a dropped field would fail the round trip
+            // (Auto is 0, which would survive even an unwritten byte).
+            optimizer: OptimizerChoice::BuiltInOnly,
         };
         let decoded = decode_pack_job(&encode_pack_job(&request)).expect("round trips");
         assert_eq!(decoded.zip_name, request.zip_name);
         assert_eq!(decoded.gzip_vgms, request.gzip_vgms);
         assert_eq!(decoded.optimize_vgms, request.optimize_vgms);
+        assert_eq!(decoded.optimizer, request.optimizer);
         assert_eq!(decoded.entries.len(), 3);
         assert_eq!(decoded.entries[0].name, "01 Intro.vgm");
         assert!(matches!(decoded.entries[0].kind, PackEntryKind::Song));

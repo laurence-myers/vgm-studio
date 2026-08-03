@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use vgms_core::config::{AppConfig, OutputBackend, SurfaceChoice, ThemeChoice};
+use vgms_core::config::{AppConfig, OptimizerChoice, OutputBackend, SurfaceChoice, ThemeChoice};
 use vgms_core::vgm::ChipKind;
 
 use crate::action::Action;
@@ -72,6 +72,8 @@ pub struct SettingsDialog {
     /// previewed once rather than re-emitted every frame -- the cores' analogue
     /// of the skin preview. Starts at the config's own map.
     previewed_cores: BTreeMap<String, String>,
+    /// Which optimiser compresses a VGM on pack export and Edit > Optimize.
+    optimizer: OptimizerChoice,
     /// How non-OPL chips reach the output rate: the `sinc`/`linear` slug,
     /// kept as the config spells it.
     resampling: String,
@@ -111,6 +113,7 @@ impl SettingsDialog {
             deck_style: config.ui.deck_style.for_deck(),
             cores: config.audio.cores.clone(),
             previewed_cores: config.audio.cores.clone(),
+            optimizer: config.optimizer,
             resampling: config.audio.resampling.clone(),
             previewed_resampling: config.audio.resampling.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
@@ -398,6 +401,23 @@ impl SettingsDialog {
                         });
                 });
                 ui.end_row();
+
+                // Which optimiser rewrites a VGM on Edit > Optimize and pack
+                // export. Not a live preview -- it only bites when a file is
+                // optimised -- so it saves with the rest rather than auditioning.
+                ui.label("Optimizer")
+                    .on_hover_text(crate::strings::SETTINGS_OPTIMIZER_HOVER);
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-optimizer")
+                        .selected_text(self.optimizer.label())
+                        .show_ui(ui, |ui| {
+                            for choice in OptimizerChoice::ALL {
+                                ui.selectable_value(&mut self.optimizer, choice, choice.label());
+                            }
+                        });
+                });
+                ui.end_row();
             });
     }
 
@@ -588,6 +608,7 @@ impl SettingsDialog {
         config.audio.bit_depth = self.bit_depth;
         config.audio.cores = self.cores.clone();
         config.audio.resampling = self.resampling.clone();
+        config.optimizer = self.optimizer;
         let port = self.retrowave_port.trim();
         config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
         config.ui.tail_length = tail_length;

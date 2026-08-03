@@ -33,10 +33,18 @@ pub(crate) const fn credit() -> &'static str {
     ""
 }
 
-/// The optimised file, or `None` when there was nothing to gain.
+/// The optimised file, or `None` when there was nothing to gain. `optimizer` is
+/// the Settings choice -- built-in, the external tools, or the routing between.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn optimized(bytes: &[u8]) -> Option<Vec<u8>> {
-    let result = vgms_vgmtools::optimize_vgm(bytes, vgms_vgmtools::Options::default());
+pub(crate) fn optimized(
+    bytes: &[u8],
+    optimizer: vgms_core::config::OptimizerChoice,
+) -> Option<Vec<u8>> {
+    let options = vgms_vgmtools::Options {
+        optimizer,
+        ..Default::default()
+    };
+    let result = vgms_vgmtools::optimize_vgm(bytes, options);
     for stage in &result.stages {
         match &stage.outcome {
             // Never fatal: the pass carried on from the bytes this stage was
@@ -53,9 +61,14 @@ pub(crate) fn optimized(bytes: &[u8]) -> Option<Vec<u8>> {
     result.changed().then_some(result.bytes)
 }
 
-/// The optimised file, or `None` when there was nothing to gain.
+/// The optimised file, or `None` when there was nothing to gain. The web editor
+/// optimise is always the built-in (the wasm tool modules are the pack worker's,
+/// not the editor's), so the Settings choice does not bite here.
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn optimized(bytes: &[u8]) -> Option<Vec<u8>> {
+pub(crate) fn optimized(
+    bytes: &[u8],
+    _optimizer: vgms_core::config::OptimizerChoice,
+) -> Option<Vec<u8>> {
     let mut file = vgms_core::vgm::file::read("optimizing.vgm", bytes).ok()?;
     file.optimize()?;
     vgms_core::vgm::file::write(&file).ok()

@@ -553,6 +553,10 @@ pub(crate) const SETTINGS_DEVICE_HOVER: &str =
     "The board's serial port. Recognised boards are matched by USB ID.";
 pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Band-limited is accurate; linear is \
      aliased but crunchy, like VGMPlay.";
+pub(crate) const SETTINGS_OPTIMIZER_HOVER: &str = "Which optimiser shrinks a VGM on Edit > Optimize and pack export. \
+     Automatic uses the built-in pass where it covers every chip and the \
+     external vgmtools otherwise; built-in only never spawns them; tools \
+     always does.";
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
 pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str = "Frames per audio callback. Smaller seeks and mutes sooner; larger \
      avoids dropouts.";

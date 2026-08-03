@@ -285,6 +285,66 @@ impl core::str::FromStr for ThemeChoice {
     }
 }
 
+/// Which optimiser compresses a VGM on pack export and Edit > Optimize. Stored
+/// as `optimizer=` in `[optimize]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OptimizerChoice {
+    /// The built-in optimiser for a file whose every chip it covers, the
+    /// external vgmtools (`vgm_cmp`, `vgm_sro`, `optdac`) as the fallback for
+    /// the rest. The recommended default.
+    #[default]
+    Auto,
+    /// The built-in optimiser only -- never spawn the external tools. A chip the
+    /// built-in has no rules for gets only its (safe) delay-merge, not the
+    /// tools' redundancy pass. What the web build uses, and a minimal-dependency
+    /// desktop option.
+    BuiltInOnly,
+    /// The external vgmtools always, whatever the file -- the original behaviour,
+    /// kept as an A/B control against the built-in.
+    Tools,
+}
+
+impl OptimizerChoice {
+    /// Every option, in dropdown order.
+    pub const ALL: [Self; 3] = [Self::Auto, Self::BuiltInOnly, Self::Tools];
+
+    /// The label the Settings dropdown shows.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Automatic (built-in, tools as fallback)",
+            Self::BuiltInOnly => "Built-in only",
+            Self::Tools => "External tools (vgmtools)",
+        }
+    }
+}
+
+impl core::fmt::Display for OptimizerChoice {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match self {
+            Self::Auto => "auto",
+            Self::BuiltInOnly => "built-in",
+            Self::Tools => "tools",
+        })
+    }
+}
+
+impl core::str::FromStr for OptimizerChoice {
+    type Err = ();
+
+    /// Accepts hyphen or underscore, case-insensitively, like the other choices.
+    fn from_str(value: &str) -> core::result::Result<Self, Self::Err> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "auto" => Ok(Self::Auto),
+            "built-in" | "built_in" | "builtin" | "built-in-only" | "builtinonly" => {
+                Ok(Self::BuiltInOnly)
+            }
+            "tools" | "vgmtools" | "external" => Ok(Self::Tools),
+            _ => Err(()),
+        }
+    }
+}
+
 /// How the buttons (pads) or the panel they sit on (the deck) are coloured,
 /// overriding what the chosen theme asks for. `ThemeDefault` leaves the theme's
 /// own choice alone; the rest force a fixed treatment on any theme.
@@ -397,6 +457,8 @@ impl Default for UiConfig {
 pub struct AppConfig {
     pub audio: AudioConfig,
     pub ui: UiConfig,
+    /// Which optimiser pack export and Edit > Optimize use. `[optimize]`.
+    pub optimizer: OptimizerChoice,
 }
 
 impl AppConfig {
@@ -544,6 +606,9 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "ui", "deck_style") {
             self.ui.deck_style = parse(value, "ui.deck_style")?;
         }
+        if let Some(value) = lookup(&ini, "optimize", "optimizer") {
+            self.optimizer = parse(value, "optimize.optimizer")?;
+        }
         Ok(())
     }
 
@@ -600,7 +665,14 @@ impl AppConfig {
              # Override the theme's keycap / control-panel treatment:\n\
              # default (leave the theme alone), light, dark, grey or tint.\n\
              pad_style={pad_style}\n\
-             deck_style={deck_style}\n",
+             deck_style={deck_style}\n\
+             \n\
+             [optimize]\n\
+             # Which optimiser compresses a VGM on pack export and Edit >\n\
+             # Optimize: \"auto\" (built-in where it covers every chip, the\n\
+             # vgmtools as a fallback -- the default), \"built-in\" (built-in\n\
+             # only, no external tools), or \"tools\" (the vgmtools always).\n\
+             optimizer={optimizer}\n",
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
@@ -622,6 +694,7 @@ impl AppConfig {
             theme = self.ui.theme,
             pad_style = self.ui.pad_style,
             deck_style = self.ui.deck_style,
+            optimizer = self.optimizer,
         )
     }
 }
@@ -1023,6 +1096,8 @@ mod tests {
                 pad_style: SurfaceChoice::Light,
                 deck_style: SurfaceChoice::Dark,
             },
+            // Non-default, so the round-trip carries it.
+            optimizer: OptimizerChoice::Tools,
         };
         let rendered = config.to_ini_string();
         assert_eq!(AppConfig::from_ini_sources(&[&rendered]), config);

@@ -126,12 +126,14 @@ fn describe(error: &JsValue) -> String {
 #[derive(Debug)]
 pub struct WebPipelineOptimizer {
     tools: WebTools,
+    optimizer: vgms_core::config::OptimizerChoice,
 }
 
 impl WebPipelineOptimizer {
-    /// Builds the optimiser from the three tool modules.
-    pub fn new(tools: WebTools) -> Self {
-        Self { tools }
+    /// Builds the optimiser from the three tool modules, routed by the Settings
+    /// optimiser choice.
+    pub fn new(tools: WebTools, optimizer: vgms_core::config::OptimizerChoice) -> Self {
+        Self { tools, optimizer }
     }
 }
 
@@ -139,6 +141,15 @@ impl SongOptimizer for WebPipelineOptimizer {
     fn optimize(&self, name: &str, bytes: &[u8], log: &mut Vec<String>) -> Vec<u8> {
         // The pass and its narration are `optimize_song_logged` -- the one copy
         // shared with the desktop pack -- driven by the wasm tool runner.
-        vgms_vgmtools::optimize_song_logged(name, bytes, Options::default(), &self.tools, log)
+        vgms_vgmtools::optimize_song_logged(
+            name,
+            bytes,
+            Options {
+                optimizer: self.optimizer,
+                ..Default::default()
+            },
+            &self.tools,
+            log,
+        )
     }
 }

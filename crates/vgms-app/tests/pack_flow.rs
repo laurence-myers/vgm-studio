@@ -53,6 +53,7 @@ fn scan_build_and_reopen_a_release_zip() {
         &request.entries,
         request.gzip_vgms,
         request.optimize_vgms,
+        request.optimizer,
         &|| false,
     )
     .unwrap()

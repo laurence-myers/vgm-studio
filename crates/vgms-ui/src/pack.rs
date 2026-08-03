@@ -977,6 +977,10 @@ impl PackState {
             entries,
             gzip_vgms: self.gzip_on_export,
             optimize_vgms: self.optimize_on_export,
+            // The pack state does not carry the Settings choice; the app fills it
+            // in from `config.optimizer` before the request is submitted. `Auto`
+            // is the safe default for any caller that does not (the tests).
+            optimizer: vgms_core::config::OptimizerChoice::Auto,
         }
     }
 }

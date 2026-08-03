@@ -1995,7 +1995,7 @@ impl VgmStudioApp {
                     self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
                     return;
                 }
-                match self.editor.optimize_vgm() {
+                match self.editor.optimize_vgm(self.config.optimizer) {
                     Some((commands, bytes)) => {
                         self.status = crate::strings::app_status_optimized(commands, bytes);
                         self.scroll_to = Some(table::ScrollTo::centered(0));
@@ -2807,7 +2807,8 @@ impl VgmStudioApp {
             return;
         };
         let validations = pack.validations();
-        let request = pack.export_request();
+        let mut request = pack.export_request();
+        request.optimizer = self.config.optimizer;
         // The `pack` borrow ends here (validations and request are owned).
         if !validations.errors.is_empty() {
             self.alerts
@@ -2862,6 +2863,7 @@ impl VgmStudioApp {
             return;
         }
         let mut request = pack.export_request();
+        request.optimizer = self.config.optimizer;
         // Save back under the pack's own name, not the game-name-derived one.
         request.zip_name = format!("{}.zip", pack.folder_name);
         self.pack_saving_archive = true;

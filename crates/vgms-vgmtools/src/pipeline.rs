@@ -123,6 +123,10 @@ pub struct Options {
     pub sample_roms: bool,
     /// Run `optdac`, collapsing long runs of identical YM2612 DAC writes.
     pub dac_runs: bool,
+    /// Which optimiser to use: the built-in, the external tools, or the
+    /// per-file routing between them. The `sample_roms`/`dac_runs` flags only
+    /// bite when the tools run.
+    pub optimizer: vgms_core::config::OptimizerChoice,
 }
 
 impl Default for Options {
@@ -130,6 +134,7 @@ impl Default for Options {
         Self {
             sample_roms: true,
             dac_runs: true,
+            optimizer: vgms_core::config::OptimizerChoice::Auto,
         }
     }
 }
@@ -212,13 +217,27 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
 
     let facts = Facts::read(vgm);
 
-    if facts.built_in_covers_all {
-        // Every chip is one the built-in optimiser covers, so the tools would
-        // add nothing (and, for the chips it covers, running them risks a tool
-        // bug the built-in avoids). The built-in pass below does the whole job.
+    use vgms_core::config::OptimizerChoice;
+    let run_tools = match options.optimizer {
+        // The built-in only: never spawn the tools, whatever the chips.
+        OptimizerChoice::BuiltInOnly => false,
+        // The tools always: the A/B control, re-spelling even covered files.
+        OptimizerChoice::Tools => true,
+        // The routing: tools only for a file the built-in does not cover.
+        OptimizerChoice::Auto => !facts.built_in_covers_all,
+    };
+
+    if !run_tools {
+        // The built-in pass below does the whole job. Either every chip is one
+        // it covers (Auto), or the caller asked for the built-in only -- for the
+        // chips it covers, running the tools also risks a tool bug it avoids.
+        let why = match options.optimizer {
+            OptimizerChoice::BuiltInOnly => "built-in optimizer selected in Settings",
+            _ => "the built-in optimizer covers every chip here",
+        };
         stages.push(Stage {
             name: "vgmtools",
-            outcome: StageOutcome::Skipped("the built-in optimizer covers every chip here"),
+            outcome: StageOutcome::Skipped(why),
         });
     } else {
         if options.dac_runs {
