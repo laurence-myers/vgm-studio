@@ -140,10 +140,12 @@ impl Playability {
 /// Builds a core for `kind`, or `None` when this build has none for it.
 ///
 /// Delegates to the [registry](crate::registry), which is where cores are
-/// actually declared, honouring the process-wide per-chip choice the app
-/// installed with [`set_core_choices`](crate::registry::set_core_choices) --
-/// so the WAV render, the waveform and the peak scan all build the core the
-/// user picked in Settings, not merely the registry's default.
+/// actually declared, honouring the per-chip choice: a one-shot per-render
+/// override ([`with_render_choices`](crate::registry::with_render_choices)) when
+/// one is active on this thread, else the process-wide choice the app installed
+/// with [`set_core_choices`](crate::registry::set_core_choices) -- so the WAV
+/// render, the waveform and the peak scan all build the core the user picked (in
+/// a render dialog, or in Settings), not merely the registry's default.
 ///
 /// OPL returns `None` on purpose, and not by oversight: an OPL file plays
 /// through `PlayerEngine`, which carries the muting and panning policy this
@@ -152,9 +154,9 @@ impl Playability {
 #[must_use]
 pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
     let registry = crate::registry::registry();
-    registry
-        .resolve_choice(kind, crate::registry::core_choice(kind).as_deref())?
-        .build()
+    let choice =
+        crate::registry::render_override(kind).or_else(|| crate::registry::core_choice(kind));
+    registry.resolve_choice(kind, choice.as_deref())?.build()
 }
 
 /// As [`core_for`], but never a core that cannot keep up with playback.

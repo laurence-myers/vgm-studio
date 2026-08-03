@@ -446,6 +446,27 @@ impl CoreRegistry {
         self.resolve(chip, id)?.build()
     }
 
+    /// Builds the generic core for `kind` honouring an explicit per-render
+    /// [`CoreChoices`] map, resolved *offline* -- a non-realtime LLE core is a
+    /// legitimate render pick even though the transport could not play it, which
+    /// is the whole point of a per-render override.
+    ///
+    /// A slot the map does not name falls back to the registry default, so an
+    /// empty map builds exactly the registry's defaults. `None` for a chip with
+    /// no generic core or a routed one -- the same contract as
+    /// [`build`](Self::build). Goes through [`CoreInfo::build`], so `Leveled`
+    /// (and, later, the channel gate) apply exactly as on any other path.
+    ///
+    /// The A/B harness and the split's ungated-chip guard pin a specific core
+    /// this way; the live render/split honour the map through
+    /// [`with_render_choices`] instead, so a whole render tree agrees without
+    /// threading the map through every signature.
+    #[must_use]
+    pub fn build_with(&self, choices: &CoreChoices, kind: ChipKind) -> Option<Box<dyn ChipCore>> {
+        self.resolve_choice(kind, choices.get(slot_slug(kind)).map(String::as_str))?
+            .build()
+    }
+
     /// As [`resolve_choice`](Self::resolve_choice), but never a core that
     /// cannot keep up with playback.
     ///
@@ -532,6 +553,18 @@ pub fn slot_slug(chip: ChipKind) -> &'static str {
     }
 }
 
+/// A per-render set of core choices, `slot slug -> short name` -- the same key
+/// space as [`set_core_choices`]'s map and `AudioConfig.cores`, so one is seeded
+/// from the other with a plain clone.
+///
+/// Where [`set_core_choices`] sets the *process-wide* choice all of playback,
+/// the render, the waveform and the peak scan read, a `CoreChoices` is a
+/// *one-shot* override a single render or split carries -- picked in a dialog,
+/// never written to `vgmstudio.ini`, and gone when the job ends. Applied through
+/// [`with_render_choices`] (the whole render) or [`CoreRegistry::build_with`] (a
+/// pinned single core).
+pub type CoreChoices = std::collections::BTreeMap<String, String>;
+
 /// The process-wide registry, installed once at startup.
 static INSTALLED: std::sync::OnceLock<CoreRegistry> = std::sync::OnceLock::new();
 
@@ -564,6 +597,54 @@ pub fn core_choice(chip: ChipKind) -> Option<String> {
         .expect("not poisoned")
         .get(slot_slug(chip))
         .cloned()
+}
+
+thread_local! {
+    /// A render's one-shot core override, active only for the thread the render
+    /// runs on. Renders run on their own thread (native) or Web Worker (web), so
+    /// this never leaks into playback, which reads the process-wide [`CHOICES`]
+    /// on its own thread.
+    static RENDER_OVERRIDE: std::cell::RefCell<Option<CoreChoices>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with `choices` overriding the process-wide core choices, for the
+/// current thread only, then restores whatever was there before (even on a
+/// panic).
+///
+/// This is how a render or split honours a per-render [`CoreChoices`] pick
+/// without disturbing what playback reads: [`core_for`](crate::chip::core_for)
+/// (and thus the VGM render) and the OPL render's chip selection consult
+/// [`render_override`] while `f` runs. `None` restores the plain behaviour, so a
+/// caller with no override can wrap unconditionally.
+pub fn with_render_choices<R>(choices: Option<CoreChoices>, f: impl FnOnce() -> R) -> R {
+    /// Restores the previous override on drop, so an early return or a panic in
+    /// `f` cannot leave the override set for the next job on this thread.
+    struct Restore(Option<CoreChoices>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RENDER_OVERRIDE.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+
+    let _restore = Restore(RENDER_OVERRIDE.with(|slot| slot.replace(choices)));
+    f()
+}
+
+/// The per-render override for `chip`'s slot, set by [`with_render_choices`] on
+/// this thread, or `None` when no render override is active.
+///
+/// The OPL render reads *this* (never the process-wide choice) to decide whether
+/// to build a non-default chip, so a plain render stays byte-for-byte what it
+/// always was; the generic render layers it over [`core_choice`] inside
+/// [`core_for`](crate::chip::core_for).
+#[must_use]
+pub fn render_override(chip: ChipKind) -> Option<String> {
+    RENDER_OVERRIDE.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .and_then(|choices| choices.get(slot_slug(chip)).cloned())
+    })
 }
 
 /// Installs the registry the whole program reads.
@@ -931,5 +1012,81 @@ mod tests {
 
     fn info(id: &'static str) -> CoreInfo {
         tone_info(id, LEVEL_UNITY)
+    }
+
+    fn render8(core: Option<Box<dyn ChipCore>>) -> Vec<i32> {
+        let mut core = core.expect("a generic core builds");
+        let mut out = vec![0i32; 8];
+        core.render(&mut out);
+        out
+    }
+
+    /// `build_with` resolves a chip's core from an explicit per-render map:
+    /// naming a core picks it, an unnamed slot takes the registry default, and
+    /// the level wrapper is applied on the way -- so a per-render core is
+    /// indistinguishable from a settings-chosen one below the registry.
+    #[test]
+    fn build_with_honours_the_render_choices_map() {
+        let mut registry = CoreRegistry::new();
+        // Registered first, so the default; renders at unity.
+        registry.register(tone_info("sn76489.plain", LEVEL_UNITY));
+        // A louder alternative, so which core built is visible in the output.
+        registry.register(tone_info("sn76489.loud", 494));
+
+        // An empty map builds the registry default.
+        assert_eq!(
+            render8(registry.build_with(&CoreChoices::new(), ChipKind::Sn76489)),
+            [1000; 8],
+            "an unnamed slot takes the default"
+        );
+
+        // Naming the alternative builds it -- keyed by the slot slug, the same
+        // key space Settings uses.
+        let choices = CoreChoices::from([("sn76489".to_owned(), "loud".to_owned())]);
+        assert_eq!(
+            render8(registry.build_with(&choices, ChipKind::Sn76489)),
+            [1929; 8],
+            "the named core is built, and its level applied"
+        );
+
+        // A chip with no generic core is still None, like `build`.
+        assert!(
+            registry
+                .build_with(&CoreChoices::new(), ChipKind::Ym2612)
+                .is_none()
+        );
+    }
+
+    /// A render override is visible only inside its closure, on its own thread,
+    /// and nesting restores the outer one -- so a render honours its pick without
+    /// leaking it into the next job on the same worker thread.
+    #[test]
+    fn a_render_override_is_scoped_and_restored() {
+        assert_eq!(render_override(ChipKind::Sn76489), None, "none to start");
+
+        let choices = CoreChoices::from([("sn76489".to_owned(), "loud".to_owned())]);
+        let seen = with_render_choices(Some(choices), || render_override(ChipKind::Sn76489));
+        assert_eq!(seen.as_deref(), Some("loud"), "seen inside the closure");
+        assert_eq!(
+            render_override(ChipKind::Sn76489),
+            None,
+            "and gone once it returns"
+        );
+
+        // A nested override restores the outer one, not the empty state.
+        let outer = CoreChoices::from([("sn76489".to_owned(), "outer".to_owned())]);
+        with_render_choices(Some(outer), || {
+            assert_eq!(render_override(ChipKind::Sn76489).as_deref(), Some("outer"));
+            let inner = CoreChoices::from([("sn76489".to_owned(), "inner".to_owned())]);
+            with_render_choices(Some(inner), || {
+                assert_eq!(render_override(ChipKind::Sn76489).as_deref(), Some("inner"));
+            });
+            assert_eq!(
+                render_override(ChipKind::Sn76489).as_deref(),
+                Some("outer"),
+                "outer override restored after the inner one"
+            );
+        });
+        assert_eq!(render_override(ChipKind::Sn76489), None);
     }
 }

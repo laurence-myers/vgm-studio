@@ -16,10 +16,12 @@ use vgms_core::Song;
 
 use crate::chip_mix::{ChipMuting, ChipPanning};
 use crate::engine::{Muting, Panning, PlayerEngine};
+use crate::opl::{DefaultOplChip, OplChip};
 use crate::resample::ResampleMode;
 use std::sync::Arc;
 
 use vgms_core::VgmFile;
+use vgms_core::vgm::ChipKind;
 
 use crate::limiter::BoostLimiter;
 use crate::vgm_engine::VgmEngine;
@@ -161,7 +163,47 @@ fn render_wav_impl<B: Borrow<Song>>(
         bits_per_sample: bit_depth,
         sample_format: SampleFormat::Int,
     };
-    let mut engine = PlayerEngine::new(song, sample_rate);
+    // A per-render OPL core override (a render dialog's pick) builds that chip;
+    // otherwise the engine's own default chip, byte-for-byte the render it always
+    // was. Only the render *override* is consulted, never the process-wide
+    // choice, so a plain render is unchanged even when Settings names another OPL
+    // core -- matching how the render has always ignored it.
+    match crate::registry::render_override(ChipKind::Ymf262) {
+        Some(choice) => {
+            let chip = crate::registry::registry()
+                .build_opl(Some(&choice), sample_rate)
+                .unwrap_or_else(|| Box::new(DefaultOplChip::new(sample_rate)));
+            run_player(
+                PlayerEngine::with_chip(song, chip, sample_rate),
+                mix,
+                spec,
+                bit_depth,
+                on_progress,
+                keep_going,
+            )
+        }
+        None => run_player(
+            PlayerEngine::new(song, sample_rate),
+            mix,
+            spec,
+            bit_depth,
+            on_progress,
+            keep_going,
+        ),
+    }
+}
+
+/// The muting/panning setup and render loop shared by the OPL render's default
+/// and per-render-core paths, generic over the chip type so a boxed chosen chip
+/// and the engine's own default chip go through one body.
+fn run_player<B: Borrow<Song>, C: OplChip>(
+    mut engine: PlayerEngine<B, C>,
+    mix: RenderMix,
+    spec: WavSpec,
+    bit_depth: u16,
+    on_progress: &mut dyn FnMut(u64),
+    keep_going: &mut dyn FnMut() -> bool,
+) -> Result<Option<Vec<u8>>, hound::Error> {
     engine.set_muting(mix.muting);
     // Only when it differs from the engine's own starting state: `set_panning`
     // is a chip write, and `Original` would replay the whole `0xC0` shadow for
@@ -367,7 +409,7 @@ mod tests {
     use vgms_core::{DroDataV1, OplType};
 
     /// A VGM declaring `chips` with `stream` as its body.
-    fn vgm_file(chips: &[(vgms_core::ChipKind, u32)], stream: &[u8]) -> Arc<VgmFile> {
+    fn vgm_file(chips: &[(ChipKind, u32)], stream: &[u8]) -> Arc<VgmFile> {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -387,7 +429,7 @@ mod tests {
     /// A Master System rip: a tone at full volume for a second.
     fn sms_vgm() -> Arc<VgmFile> {
         vgm_file(
-            &[(vgms_core::ChipKind::Sn76489, 3_579_545)],
+            &[(ChipKind::Sn76489, 3_579_545)],
             &[
                 0x50, 0x8E, 0x50, 0x0F, // tone 0, period 254
                 0x50, 0x90, // full volume
@@ -430,7 +472,7 @@ mod tests {
         // A YM2612 rip: readable, playable in the sense that it renders, and
         // silent because there is no core. Better than a refusal.
         let file = vgm_file(
-            &[(vgms_core::ChipKind::Ym2612, 7_670_454)],
+            &[(ChipKind::Ym2612, 7_670_454)],
             &[0x52, 0x28, 0xF0, 0x62, 0x66],
         );
         let bytes =
