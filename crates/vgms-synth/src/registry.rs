@@ -288,6 +288,11 @@ struct GatedCore {
     /// silence takes over, so un-muting resumes held notes like a native-mute
     /// chip. The next partial mask re-asserts from a clean baseline.
     standing_down: bool,
+    /// Whether the mute mask is also forwarded to the inner core. True in the
+    /// build path; the A/B harness ([`gate_without_forwarding`]) sets it false so
+    /// a native-mute core underneath does not mute too, letting the gate's own
+    /// isolation be measured against that native mute.
+    forward_mask: bool,
 }
 
 impl core::fmt::Debug for GatedCore {
@@ -309,10 +314,35 @@ impl GatedCore {
                 inner,
                 gate,
                 standing_down: false,
+                forward_mask: true,
             }),
             None => inner,
         }
     }
+}
+
+/// Wraps `inner` in the channel gate for `chip` *without* forwarding the mute
+/// mask to the inner core, so only the gate's write-filtering silences a channel.
+///
+/// The A/B harness's tool, not part of the app's build path (`build` always
+/// forwards). It lets a test compare the gate's isolation against the *same*
+/// core's native mute: a normally-built gate forwards the mask too, so a
+/// native-mute core underneath would mute natively and the comparison would be
+/// vacuous. `None` for a chip the gate does not cover.
+#[doc(hidden)]
+#[must_use]
+pub fn gate_without_forwarding(
+    inner: Box<dyn ChipCore>,
+    chip: ChipKind,
+) -> Option<Box<dyn ChipCore>> {
+    ChannelGate::new(chip).map(|gate| {
+        Box::new(GatedCore {
+            inner,
+            gate,
+            standing_down: false,
+            forward_mask: false,
+        }) as Box<dyn ChipCore>
+    })
 }
 
 impl ChipCore for GatedCore {
@@ -371,8 +401,11 @@ impl ChipCore for GatedCore {
             self.inner.write(port, addr, data);
         }
         // Forward the mask too: a no-op on the cores we wrap (they do not mute),
-        // but correct if a future gated core also has native mute.
-        self.inner.set_channel_mutes(muted);
+        // but correct if a future gated core also has native mute. The A/B
+        // harness turns this off to isolate the gate's own effect.
+        if self.forward_mask {
+            self.inner.set_channel_mutes(muted);
+        }
     }
 
     fn set_channel_pans(&mut self, pans: &[i16]) {

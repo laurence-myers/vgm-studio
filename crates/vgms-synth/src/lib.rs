@@ -50,8 +50,8 @@ pub use peak::{
     Peak, measure_peak, measure_peak_cancellable, measure_vgm_peak, measure_vgm_peak_cancellable,
 };
 pub use registry::{
-    CoreChoices, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, install, registry,
-    with_render_choices,
+    CoreChoices, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, gate_without_forwarding, install,
+    registry, with_render_choices,
 };
 pub use split::{
     SplitData, SplitFormat, SplitOptions, SplitOutput, VgmSplitOptions, split, split_cancellable,
