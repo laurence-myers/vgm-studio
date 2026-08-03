@@ -380,6 +380,14 @@ impl VgmFile {
             loop_index.and_then(|index| slide_index_past_deletion(index, &sorted, surviving));
         let moved_end =
             loop_end.and_then(|end| slide_index_past_deletion(end, &sorted, surviving));
+        // The entire loop body went with the deletion: both markers converge on
+        // one row, a zero-sample loop, which is no loop at all. Clear it rather
+        // than let the empty pair fall through as "no end" and widen to the tail
+        // -- the loop shortens by what was removed, and all of it was removed.
+        let (moved, moved_end) = match (moved, moved_end) {
+            (Some(start), Some(end)) if start == end => (None, None),
+            markers => markers,
+        };
         self.repatch_header(moved, moved_end, total);
         self.refresh_opl();
         true
@@ -507,7 +515,12 @@ impl VgmFile {
             } else if e >= end {
                 Some(tail_at + stream.byte_offset(e)? - stream.byte_offset(end)?)
             } else {
-                None // the loop end was inside the deleted span
+                // The end sat inside the deleted span: the loop's own tail went
+                // with the cut, so the end clamps to the seam. The loop shortens
+                // by exactly the in-loop samples removed (the bridge writes at
+                // the seam are zero-wait) -- it must not fall through as "no
+                // end" and silently widen to the new tail.
+                stream.byte_offset(start)
             }
         });
         self.rebuild(bytes, new_loop, new_loop_end);
@@ -1987,6 +2000,52 @@ mod tests {
             file.header.loop_samples(),
             Some(20_000),
             "the short loop is preserved, not widened to the full tail"
+        );
+    }
+
+    /// The rule an edit follows is "the loop shortens by the samples removed
+    /// from inside it" -- so removing *all* of them leaves a zero-sample loop,
+    /// which is no loop at all. It must clear, not fall through as "no end"
+    /// and widen to the tail.
+    #[test]
+    fn deleting_the_entire_loop_body_clears_the_loop() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        file.set_loop_rows(Some(4), Some(6)); // a 20000-sample loop, stops early
+        assert_eq!(file.header.loop_samples(), Some(20_000));
+
+        // Both loop rows go; the two markers converge on the same survivor.
+        assert!(file.delete_commands(&[4, 5]));
+        assert_eq!(
+            file.header.loop_offset(),
+            None,
+            "an emptied loop clears rather than widening to the tail"
+        );
+        assert_eq!(file.header.loop_samples(), None);
+    }
+
+    /// A region delete that swallows the loop's *end* clamps the end to the
+    /// seam: the loop shortens by exactly the in-loop samples the cut removed,
+    /// and must not widen to the new tail just because its end row is gone.
+    #[test]
+    fn a_region_delete_over_the_loop_end_clamps_it_to_the_seam() {
+        let mut file = read("md.vgm", &configured()).unwrap();
+        // Loop rows 3..6: wait 10000, a write, wait 20000 -- 30000 samples.
+        file.set_loop_rows(Some(3), Some(6));
+        assert_eq!(file.header.loop_samples(), Some(30_000));
+
+        // Cut rows 5..7: the 20000-sample wait inside the loop and the write
+        // after it. The loop end (row 6) sits inside the cut.
+        file.delete_region(5, 7).expect("a valid region");
+        assert_eq!(file.loop_index(), Some(3), "the start is untouched");
+        assert_eq!(
+            file.header.loop_samples(),
+            Some(10_000),
+            "the loop shortened by exactly the 20000 samples the cut removed \
+             from inside it, instead of widening to the tail"
+        );
+        assert!(
+            file.loop_end_index().is_some(),
+            "and the clamped end sits on a real row, so later edits keep it"
         );
     }
 
