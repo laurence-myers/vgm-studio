@@ -28,6 +28,7 @@
 
 use vgms_core::vgm::ChipKind;
 
+use crate::channel_gate::{ChannelGate, GateAction};
 use crate::chip::ChipCore;
 use crate::opl::OplChip;
 
@@ -148,7 +149,21 @@ impl CoreInfo {
     #[must_use]
     pub fn build(&self) -> Option<Box<dyn ChipCore>> {
         match self.make {
-            CoreMaker::Generic(make) => Some(Leveled::wrap(make(), self.level)),
+            CoreMaker::Generic(make) => {
+                // A core with no native mute gets the write-gating wrapper, so
+                // per-channel muting works on it too (Nuked-OPM, the LLE tier).
+                // A core that mutes natively keeps that path -- output-masking
+                // isolates better -- and a chip with no gate table yet is left
+                // honestly un-muteable. The gate goes *inside* the level wrapper
+                // so both the Settings path and a per-render pick get it for free.
+                let core = make();
+                let core = if !self.channel_mute && ChannelGate::exists(self.chip) {
+                    GatedCore::wrap(core, self.chip)
+                } else {
+                    core
+                };
+                Some(Leveled::wrap(core, self.level))
+            }
             CoreMaker::Opl(_) | CoreMaker::Routed => None,
         }
     }
@@ -253,6 +268,123 @@ impl ChipCore for Leveled {
             let scaled = (i64::from(*sample) * level) >> 8;
             *sample = scaled.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
         }
+    }
+}
+
+/// A core given per-channel muting by write-gating, for a core whose emulator
+/// has none of its own.
+///
+/// The decorator sibling of [`Leveled`]: it runs every write through a
+/// [`ChannelGate`] and applies the gate's verdict against the inner core, and
+/// turns a mute mask into the synthesised writes that carry it. Only interposed
+/// for a `channel_mute: false` row whose chip the gate covers (see
+/// [`CoreInfo::build`]); everything else it forwards verbatim, exactly as
+/// `Leveled` does.
+struct GatedCore {
+    inner: Box<dyn ChipCore>,
+    gate: ChannelGate,
+    /// The whole chip is muted right now: the gate stands down (passing every
+    /// write, keeping its shadows current) and the engine's own whole-chip
+    /// silence takes over, so un-muting resumes held notes like a native-mute
+    /// chip. The next partial mask re-asserts from a clean baseline.
+    standing_down: bool,
+}
+
+impl core::fmt::Debug for GatedCore {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GatedCore")
+            .field("gate", &self.gate)
+            .field("standing_down", &self.standing_down)
+            .finish_non_exhaustive()
+    }
+}
+
+impl GatedCore {
+    /// Wraps `inner` in the gate for `chip`, or returns it bare when the chip has
+    /// no gate table (which [`CoreInfo::build`] has already checked, so this is a
+    /// safety net rather than a path taken).
+    fn wrap(inner: Box<dyn ChipCore>, chip: ChipKind) -> Box<dyn ChipCore> {
+        match ChannelGate::new(chip) {
+            Some(gate) => Box::new(Self {
+                inner,
+                gate,
+                standing_down: false,
+            }),
+            None => inner,
+        }
+    }
+}
+
+impl ChipCore for GatedCore {
+    fn reset(&mut self, clock: u32, variant: bool) {
+        self.gate.reset(clock, variant);
+        self.standing_down = false;
+        self.inner.reset(clock, variant);
+    }
+
+    fn configure(&mut self, settings: &vgms_core::vgm::ChipSettings) {
+        self.gate.configure(settings);
+        self.inner.configure(settings);
+    }
+
+    fn native_rate(&self) -> u32 {
+        self.inner.native_rate()
+    }
+
+    fn write(&mut self, port: u8, addr: u16, data: u16) {
+        match self.gate.filter(port, addr, data) {
+            GateAction::Pass => self.inner.write(port, addr, data),
+            GateAction::Drop => {}
+            GateAction::Replace(value) => self.inner.write(port, addr, value),
+        }
+    }
+
+    fn load_rom(&mut self, block_type: u8, total_size: u32, start: u32, data: &[u8]) {
+        self.inner.load_rom(block_type, total_size, start, data);
+    }
+
+    fn write_ram(&mut self, offset: u32, data: &[u8]) {
+        self.inner.write_ram(offset, data);
+    }
+
+    fn write_ram_absolute(&mut self, address: u32, data: &[u8]) {
+        self.inner.write_ram_absolute(address, data);
+    }
+
+    fn set_channel_mutes(&mut self, muted: u32) {
+        let mut writes = Vec::new();
+        if self.gate.is_full(muted) {
+            // Whole chip muted: stand the gate down and let the engine's own
+            // silence take over. Restating a full mask (every seek does) is
+            // idempotent.
+            self.gate.stand_down();
+            self.standing_down = true;
+        } else if self.standing_down {
+            // Leaving the stand-down: the gate passed writes untouched while it
+            // stood down, so re-assert every channel rather than diff.
+            self.gate.reassert_mask(muted, &mut writes);
+            self.standing_down = false;
+        } else {
+            self.gate.set_mask(muted, &mut writes);
+        }
+        for (port, addr, data) in writes {
+            self.inner.write(port, addr, data);
+        }
+        // Forward the mask too: a no-op on the cores we wrap (they do not mute),
+        // but correct if a future gated core also has native mute.
+        self.inner.set_channel_mutes(muted);
+    }
+
+    fn set_channel_pans(&mut self, pans: &[i16]) {
+        self.inner.set_channel_pans(pans);
+    }
+
+    fn supports_pan(&self) -> bool {
+        self.inner.supports_pan()
+    }
+
+    fn render(&mut self, out: &mut [i32]) {
+        self.inner.render(out);
     }
 }
 
@@ -1088,5 +1220,192 @@ mod tests {
             );
         });
         assert_eq!(render_override(ChipKind::Sn76489), None);
+    }
+
+    // -- GatedCore (pm-3) ----------------------------------------------------
+
+    /// A test core that records what reached it through a shared handle, so a
+    /// test can see what the gate wrapper let through, dropped or synthesised.
+    #[derive(Default)]
+    struct Recorder {
+        writes: Vec<(u8, u16, u16)>,
+        mutes: Vec<u32>,
+        resets: usize,
+    }
+
+    #[derive(Clone, Default)]
+    struct Shared(std::sync::Arc<std::sync::Mutex<Recorder>>);
+
+    impl ChipCore for Shared {
+        fn reset(&mut self, _clock: u32, _variant: bool) {
+            self.0.lock().expect("not poisoned").resets += 1;
+        }
+        fn native_rate(&self) -> u32 {
+            44_100
+        }
+        fn write(&mut self, port: u8, addr: u16, data: u16) {
+            self.0
+                .lock()
+                .expect("not poisoned")
+                .writes
+                .push((port, addr, data));
+        }
+        fn render(&mut self, out: &mut [i32]) {
+            out.fill(0);
+        }
+        fn set_channel_mutes(&mut self, muted: u32) {
+            self.0.lock().expect("not poisoned").mutes.push(muted);
+        }
+    }
+
+    /// The gate's verdict reaches the inner core: a muted channel's key-on is
+    /// dropped, an audible one's passes, and muting emits the edge key-off and
+    /// still forwards the mask to the inner core.
+    #[test]
+    fn gated_core_applies_the_gates_verdict() {
+        let shared = Shared::default();
+        let handle = shared.0.clone();
+        let mut core = GatedCore::wrap(Box::new(shared), ChipKind::Ym2151);
+
+        core.set_channel_mutes(0b0000_0100); // mute channel 2
+        core.write(0, 0x08, 0x78 | 0x02); // channel 2 key-on -> dropped
+        core.write(0, 0x08, 0x78 | 0x03); // channel 3 key-on -> passed
+
+        let recorder = handle.lock().expect("not poisoned");
+        assert_eq!(
+            recorder.writes,
+            [(0, 0x08, 0x02), (0, 0x08, 0x78 | 0x03)],
+            "the mute-edge key-off, then only channel 3's key-on"
+        );
+        assert_eq!(recorder.mutes, [0b0000_0100], "the mask is forwarded too");
+    }
+
+    /// A whole-chip mute stands the gate down: no writes are synthesised (the
+    /// engine's own silence takes over) and later writes pass untouched. Leaving
+    /// the stand-down re-asserts, so a channel still muted is keyed off.
+    #[test]
+    fn gated_core_stands_down_for_a_whole_chip_mute() {
+        let shared = Shared::default();
+        let handle = shared.0.clone();
+        let mut core = GatedCore::wrap(Box::new(shared), ChipKind::Ym2151); // 8 channels
+
+        core.set_channel_mutes(0xFF); // whole chip
+        core.write(0, 0x08, 0x78 | 0x02); // passes untouched while standing down
+        {
+            let recorder = handle.lock().expect("not poisoned");
+            assert_eq!(
+                recorder.writes,
+                [(0, 0x08, 0x78 | 0x02)],
+                "no synthesised writes; the song's write passes through"
+            );
+        }
+
+        // Leaving the stand-down to a partial mask re-asserts: channel 2 (still
+        // muted) is keyed off again.
+        core.set_channel_mutes(0b0000_0100);
+        let recorder = handle.lock().expect("not poisoned");
+        assert!(
+            recorder.writes.contains(&(0, 0x08, 0x02)),
+            "leaving stand-down re-keys off the still-muted channel: {:?}",
+            recorder.writes
+        );
+    }
+
+    /// The rest of the trait forwards, and `reset` reaches both the gate and the
+    /// inner core.
+    #[test]
+    fn gated_core_forwards_the_rest_of_the_trait() {
+        let shared = Shared::default();
+        let handle = shared.0.clone();
+        let mut core = GatedCore::wrap(Box::new(shared), ChipKind::Sn76489);
+
+        assert_eq!(
+            core.native_rate(),
+            44_100,
+            "native_rate is the inner core's"
+        );
+        core.reset(3_579_545, false);
+        let mut out = [1, 2, 3, 4];
+        core.render(&mut out);
+        assert_eq!(
+            out,
+            [0, 0, 0, 0],
+            "render forwards to the (silent) inner core"
+        );
+        assert_eq!(
+            handle.lock().expect("not poisoned").resets,
+            1,
+            "reset reached the inner core"
+        );
+    }
+
+    // A thread-local write sink, so the `build` path (whose maker is a bare
+    // `fn` pointer that cannot capture a handle) can still be observed.
+    thread_local! {
+        static BUILD_WRITES: std::cell::RefCell<Vec<(u8, u16, u16)>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    #[derive(Debug)]
+    struct ThreadTap;
+    impl ChipCore for ThreadTap {
+        fn reset(&mut self, _clock: u32, _variant: bool) {}
+        fn native_rate(&self) -> u32 {
+            44_100
+        }
+        fn write(&mut self, port: u8, addr: u16, data: u16) {
+            BUILD_WRITES.with(|w| w.borrow_mut().push((port, addr, data)));
+        }
+        fn render(&mut self, out: &mut [i32]) {
+            out.fill(0);
+        }
+    }
+
+    fn tap_info(chip: ChipKind, channel_mute: bool) -> CoreInfo {
+        CoreInfo {
+            id: "tap.core",
+            chip,
+            label: "tap",
+            authors: "test",
+            license: "MIT",
+            upstream: "",
+            realtime: true,
+            channel_pan: false,
+            channel_mute,
+            level: LEVEL_UNITY,
+            make: CoreMaker::Generic(|| Box::new(ThreadTap)),
+        }
+    }
+
+    /// `CoreInfo::build` engages the gate exactly for a `channel_mute: false` row
+    /// whose chip the gate covers: a native-mute row and a chip with no table are
+    /// left bare (muting them synthesises nothing).
+    #[test]
+    fn build_gates_only_a_covered_chip_without_native_mute() {
+        let muted_channel = |chip, channel_mute| {
+            BUILD_WRITES.with(|w| w.borrow_mut().clear());
+            let mut core = tap_info(chip, channel_mute)
+                .build()
+                .expect("a generic core builds");
+            core.set_channel_mutes(0b0000_0100); // mute channel 2
+            BUILD_WRITES.with(|w| w.borrow().clone())
+        };
+
+        // Gated chip, no native mute -> wrapped: muting synthesises a key-off.
+        assert_eq!(
+            muted_channel(ChipKind::Ym2151, false),
+            [(0, 0x08, 0x02)],
+            "the gate is engaged"
+        );
+        // Same chip, but the row claims native mute -> not wrapped.
+        assert!(
+            muted_channel(ChipKind::Ym2151, true).is_empty(),
+            "a native-mute row keeps its own path"
+        );
+        // A chip with no gate table -> not wrapped even without native mute.
+        assert!(
+            muted_channel(ChipKind::Scsp, false).is_empty(),
+            "an ungated chip is left honestly un-muteable"
+        );
     }
 }

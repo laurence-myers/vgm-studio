@@ -317,6 +317,27 @@ impl ChannelGate {
         self.apply_mask(mask, 0, true, out);
     }
 
+    /// Whether `mask` mutes every channel this chip has -- a whole-chip mute.
+    ///
+    /// The host stands the gate down for one of these (see
+    /// [`stand_down`](Self::stand_down)): the engine's own whole-chip silence
+    /// (`Voice::silenced`) already zeroes the output, and letting the chip state
+    /// evolve untouched is what makes un-muting resume held notes, exactly as a
+    /// native-mute chip does.
+    #[must_use]
+    pub fn is_full(&self, mask: u32) -> bool {
+        let roster = self.roster_mask();
+        mask & roster == roster
+    }
+
+    /// Enters the whole-chip stand-down: forgets the mute mask, so
+    /// [`filter`](Self::filter) passes every write and keeps the shadows current,
+    /// while emitting nothing. [`reassert_mask`](Self::reassert_mask) then
+    /// re-establishes per-channel state when the chip is partly un-muted again.
+    pub fn stand_down(&mut self) {
+        self.mask = 0;
+    }
+
     fn apply_mask(&mut self, mask: u32, old: u32, reassert: bool, out: &mut Vec<(u8, u16, u16)>) {
         let mask = mask & self.roster_mask();
         let channels = self.channels;
