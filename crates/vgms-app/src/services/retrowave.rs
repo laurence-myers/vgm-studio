@@ -66,13 +66,25 @@ impl RetroWaveAudioService {
 impl AudioService for RetroWaveAudioService {
     fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
         self.unload();
-        // The hardware is an OPL3. A VGM for other chips has nothing to send it,
-        // and saying so beats sending silence.
-        let Some(song) = source.opl().cloned() else {
-            return Err(format!(
-                "{} is not an OPL song, and the RetroWave output is an OPL3.",
-                source.name()
-            ));
+        // The hardware is an OPL3, and it drives its serial chip from an OPL
+        // `Song`. Build that Song here from whichever arm the source is -- an OPL
+        // `Song` directly, or an OPL VGM projected -- so this service owns its
+        // projection rather than depending on the editor handing it one. A VGM
+        // for other chips has nothing to send an OPL3, and saying so beats
+        // silence. (Today the `Vgm` arm only ever carries non-OPL files, whose
+        // projection is `None`, so this refuses exactly as before; it is what
+        // keeps RetroWave working once OPL VGMs route through the `Vgm` arm.)
+        let song = match &source {
+            AudioSource::Opl(song) => std::sync::Arc::clone(song),
+            AudioSource::Vgm(file) => match file.to_song() {
+                Some(song) => std::sync::Arc::new(song),
+                None => {
+                    return Err(format!(
+                        "{} is not an OPL song, and the RetroWave output is an OPL3.",
+                        source.name()
+                    ));
+                }
+            },
         };
         let device = self.acquire_device(config)?;
         self.audio = Some(RetroWaveAudio::new(device, song));
@@ -514,6 +526,36 @@ mod tests {
             .expect_err("an OPL3 cannot play a YM2612");
         assert!(error.contains("md.vgm"), "{error}");
         assert!(error.contains("OPL"), "{error}");
+    }
+
+    /// k-2a: an OPL VGM handed on the `Vgm` arm is projected here rather than
+    /// refused -- so RetroWave keeps working once OPL VGMs route through that arm
+    /// (Stage K). It must get past the "not an OPL song" refusal to the device
+    /// acquire, which fails only for want of hardware on a test machine -- a
+    /// machine fact, not a routing one.
+    #[test]
+    fn the_hardware_service_projects_an_opl_vgm_on_the_vgm_arm() {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        bytes[0x08..0x0C].copy_from_slice(&0x151u32.to_le_bytes());
+        bytes[0x34..0x38].copy_from_slice(&(0x100u32 - 0x34).to_le_bytes());
+        bytes[vgms_core::ChipKind::Ym3812.clock_offset()..][..4]
+            .copy_from_slice(&3_579_545u32.to_le_bytes());
+        bytes.extend_from_slice(&[0x5A, 0x20, 0x01, 0x66]); // a YM3812 write, then end
+        let eof = bytes.len();
+        bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+        let file = Arc::new(vgms_core::vgm::file::read("opl.vgm", &bytes).expect("walks"));
+        assert!(file.to_song().is_some(), "the fixture projects to OPL");
+
+        let mut service = RetroWaveAudioService::new();
+        // Any error must be the missing device, not a refusal: the projection
+        // succeeded, so the source was accepted.
+        if let Err(error) = service.load(AudioSource::Vgm(file), &AudioConfig::default()) {
+            assert!(
+                !error.contains("is not an OPL song"),
+                "an OPL VGM on the Vgm arm must project, not be refused: {error}"
+            );
+        }
     }
 
     #[test]
