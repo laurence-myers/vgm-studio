@@ -1848,11 +1848,13 @@ mod tests {
             offset::DATA_OFFSET,
             (0x100 - offset::DATA_OFFSET) as u32,
         );
-        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        // OPL2: a chip the built-in still optimises (the YM2612 falls back to
+        // the tools for now -- see chip_state::latch_rule).
+        put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), 3_579_545);
         bytes.extend_from_slice(&[
-            0x52, 0x22, 0x08, // 0: a write
+            0x5A, 0x20, 0x08, // 0: a write
             0x61, 0x10, 0x27, // 1: wait 10000
-            0x52, 0x22, 0x08, // 2: the same value again -- droppable
+            0x5A, 0x20, 0x08, // 2: the same value again -- droppable
             0x61, 0x20, 0x4E, // 3: wait 20000
             0x66,
         ]);
@@ -1887,13 +1889,14 @@ mod tests {
             offset::DATA_OFFSET,
             (0x100 - offset::DATA_OFFSET) as u32,
         );
-        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        // OPL2, which the built-in still optimises (YM2612 falls back to tools).
+        put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), 3_579_545);
         bytes.extend_from_slice(&[
-            0x52, 0x22, 0x08, // 0: write A          (loop start)
+            0x5A, 0x20, 0x08, // 0: write A          (loop start)
             0x61, 0x10, 0x27, // 1: wait 10000
-            0x52, 0x22, 0x08, // 2: write A again -- redundant, dropped
+            0x5A, 0x20, 0x08, // 2: write A again -- redundant, dropped
             0x61, 0x20, 0x4E, // 3: wait 20000
-            0x52, 0x23, 0x09, // 4: write B          (loop end, exclusive)
+            0x5A, 0x21, 0x09, // 4: write B          (loop end, exclusive)
             0x61, 0x00, 0x05, // 5: wait 1280
             0x66,
         ]);
@@ -1932,13 +1935,14 @@ mod tests {
             offset::DATA_OFFSET,
             (0x100 - offset::DATA_OFFSET) as u32,
         );
-        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+        // OPL2, which the built-in still optimises (YM2612 falls back to tools).
+        put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), 3_579_545);
         bytes.extend_from_slice(&[
-            0x52, 0x22, 0x08, // 0: write A          (loop start)
+            0x5A, 0x20, 0x08, // 0: write A          (loop start)
             0x61, 0x10, 0x27, // 1: wait 10000
-            0x52, 0x22, 0x08, // 2: write A again -- redundant (loop end, exclusive)
+            0x5A, 0x20, 0x08, // 2: write A again -- redundant (loop end, exclusive)
             0x61, 0x20, 0x4E, // 3: wait 20000
-            0x52, 0x23, 0x09, // 4: write B
+            0x5A, 0x21, 0x09, // 4: write B
             0x61, 0x00, 0x05, // 5: wait 1280
             0x66,
         ]);

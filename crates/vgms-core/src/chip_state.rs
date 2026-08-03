@@ -223,18 +223,21 @@ fn latch_rule(chip: crate::vgm::ChipKind) -> Option<fn(u16) -> bool> {
         // The OPL family latches everything, key-on included: `0xB0`'s key bit
         // is level-sensitive, so re-writing it does not re-attack.
         K::Ym3812 | K::Ymf262 | K::Ym3526 | K::Y8950 => Some(|_| true),
-        // The YM2612 latches too, with two exceptions.
+        // The YM2612 is disabled for now, and falls back to `vgm_cmp`.
         //
-        // `0x2A` is the DAC's sample port, excluded both on the reference's
-        // authority (vgmtools' `chip_cmp` bypasses it) and because on real files
-        // those writes arrive as `0x8n` opcodes carrying their own wait, so the
-        // write cannot be dropped without dropping time with it.
+        // Its `0xA4`-`0xA6` write latches the block + F-Number high bits; the
+        // *following* `0xA0`-`0xA2` low-byte write is what commits both to the
+        // channel. So a low-byte write whose value is unchanged is NOT redundant
+        // when the high byte was re-latched since -- dropping it leaves the
+        // channel at the wrong pitch. The per-address model here cannot see that
+        // commit pairing (each register is its own cell), so it dropped those
+        // commits and corrupted 25/500 corpus files, all YM2612, audibly -- the
+        // parity gate `the_builtin_optimizer_never_changes_audio` catches it.
         //
-        // `0x28` is the key register. A value-identical repeat is measurably
-        // inaudible (Nuked-OPN2 produces identical samples), so it could be
-        // dropped -- but it is kept excluded regardless, because lifting an
-        // exclusion only buys compression while a wrong answer here is silent.
-        K::Ym2612 => Some(|addr| !matches!(addr, 0x2A | 0x28)),
+        // Modelling the OPN commit latch (the way `vgm_cmp`'s A0/A4 look-ahead
+        // does) is part 3a; until then the tools do YM2612 redundant-write
+        // removal. See `docs/optimizer-2026-08/PLAN.md`.
+        K::Ym2612 => None,
         // The YM2413's `0x20`-`0x28` carry the key-on bits.
         K::Ym2413 => Some(|addr| !(0x20..=0x28).contains(&addr)),
         _ => None,
@@ -582,31 +585,27 @@ mod tests {
     }
 
     /// Registers that trigger on write rather than latching are never dropped,
-    /// even on a chip that has rules.
+    /// even on a chip that has rules. The YM2413's `0x20`-`0x28` carry the key
+    /// bit, so a value-identical repeat re-attacks and is kept; an ordinary
+    /// latch (`0x30`, instrument + volume) is dropped on repeat.
     #[test]
     fn a_trigger_register_is_never_dropped() {
         let s = stream(vec![
-            0x52,
-            0x2A,
-            0x80, // YM2612 DAC sample
-            0x52,
-            0x2A,
-            0x80, // the same sample again -- still a sample
-            0x52,
-            0x28,
-            0xF0, // key
-            0x52,
-            0x28,
-            0xF0, //
-            0x52,
-            0x22,
-            0x08, // an ordinary latch
-            0x52,
-            0x22,
-            0x08, //
+            0x51,
+            0x20,
+            0x30, // YM2413 block + key
+            0x51,
+            0x20,
+            0x30, // the same value again -- a trigger, kept
+            0x51,
+            0x30,
+            0x0F, // an ordinary latch
+            0x51,
+            0x30,
+            0x0F, // its repeat -- dropped
             END_OF_DATA,
         ]);
-        assert_eq!(redundant_indices(&s, None), [5], "only the latch repeat");
+        assert_eq!(redundant_indices(&s, None), [3], "only the latch repeat");
     }
 
     /// Everything is forgotten at the loop point, so the loop body carries its

@@ -3166,9 +3166,10 @@ fn a_non_opl_document_can_be_optimized() {
 /// A chip `vgms_core` has no optimise rules for, which the editor optimises
 /// anyway via `vgm_cmp`.
 ///
-/// The built-in `latch_rule` covers the OPL family, the YM2612 and the YM2413,
-/// and nothing else; the YMZ280B here needs `vgm_cmp`, whose table covers about
-/// thirty chips. This is the action reaching it.
+/// The built-in `latch_rule` covers the OPL family and the YM2413, and nothing
+/// else for now (the YM2612 is deferred to part 3a); the YMZ280B here needs
+/// `vgm_cmp`, whose table covers about thirty chips. This is the action
+/// reaching it -- the fallback the built-in leans on for uncovered chips.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn a_chip_the_built_in_pass_cannot_touch_is_optimized_in_the_editor() {
