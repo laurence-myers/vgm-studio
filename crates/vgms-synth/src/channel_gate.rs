@@ -432,11 +432,14 @@ fn sn76489_set_mask(
             synthesised = true;
         }
     }
-    // A synthesised volume latch re-pointed the chip's latch. If the song's last
-    // latch was a tone register, a data byte may still be coming for it, so
-    // re-point the latch to where the song left it. A volume latch needs no data
-    // byte, so it needs no re-point.
-    if synthesised && last_latch & 0x80 != 0 && last_latch & 0x10 == 0 {
+    // A synthesised volume latch re-pointed the chip's latch. Re-point it to the
+    // song's last latch *only* if that was a tone register (channels 0-2, type
+    // bit clear): a data byte may still be coming for its high frequency bits.
+    // A volume latch is self-contained (no data byte follows), and the noise
+    // register (channel 3) likewise takes no data byte -- and re-emitting it
+    // would reset the noise LFSR to its seed -- so neither is re-pointed.
+    let cc = (last_latch >> 5) & 0x03;
+    if synthesised && last_latch & 0x80 != 0 && last_latch & 0x10 == 0 && cc != 3 {
         out.push((0, 0, u16::from(last_latch)));
     }
 }
@@ -738,6 +741,22 @@ mod tests {
             out,
             [(0, 0, 0x9F)],
             "no spurious re-point after a volume latch"
+        );
+    }
+
+    #[test]
+    fn psg_does_not_re_point_after_a_noise_control_latch() {
+        // The noise register (channel 3, 0xE0) is self-contained -- no data byte
+        // follows it -- and re-emitting it would reset the noise LFSR. So a mute
+        // edge must not re-point to it, even though its type bit is clear.
+        let mut gate = make(ChipKind::Sn76489);
+        assert_eq!(gate.filter(0, 0, 0xE0), GateAction::Pass); // latch the noise control
+        let mut out = Vec::new();
+        gate.set_mask(0b0000_0001, &mut out); // mute tone 0
+        assert_eq!(
+            out,
+            [(0, 0, 0x9F)],
+            "no re-point to the noise register: it would reset the LFSR"
         );
     }
 
