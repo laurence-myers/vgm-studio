@@ -16,10 +16,13 @@
 //!    subsumed by `vgm_cmp`, but its delay re-encoder is provably byte-minimal
 //!    where `vgm_cmp`'s writer is not, so it reliably shaves a little more.
 //!
-//! **A wholly-OPL file skips the tools entirely.** `vgms_core` covers the OPL
-//! family and its output is pinned byte-for-byte against the corpus; the
-//! bypass keeps those pins meaningful rather than re-spelling every OPL file
-//! through a second implementation.
+//! **A file every chip of which the built-in covers skips the tools entirely.**
+//! `vgms_core` is the primary optimiser; the tools are the fallback for a file
+//! carrying a chip it does not yet have redundancy rules for. When the built-in
+//! covers the whole file its output is what ships -- pinned byte-for-byte
+//! against the corpus for OPL, and gated on a render-parity check for every
+//! chip -- so the tools' per-chip bugs never touch a file the built-in can do
+//! itself. See `docs/optimizer-2026-08/PLAN.md`.
 
 use vgms_core::vgm::{ChipKind, VgmCommand};
 
@@ -209,12 +212,13 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
 
     let facts = Facts::read(vgm);
 
-    if facts.is_opl {
-        // The one case where running the tools would be a step backwards --
-        // see the module note.
+    if facts.built_in_covers_all {
+        // Every chip is one the built-in optimiser covers, so the tools would
+        // add nothing (and, for the chips it covers, running them risks a tool
+        // bug the built-in avoids). The built-in pass below does the whole job.
         stages.push(Stage {
             name: "vgmtools",
-            outcome: StageOutcome::Skipped("an OPL file: the built-in optimizer covers it"),
+            outcome: StageOutcome::Skipped("the built-in optimizer covers every chip here"),
         });
     } else {
         if options.dac_runs {
@@ -390,7 +394,12 @@ fn built_in(bytes: &mut Vec<u8>, stages: &mut Vec<Stage>) {
 /// What the header says, for the decisions the pass has to make before it runs
 /// anything.
 struct Facts {
-    is_opl: bool,
+    /// Every chip the file declares has a built-in redundancy rule, so the
+    /// built-in optimiser covers the whole file and the tools add nothing. The
+    /// generalisation of the OPL bypass: the built-in is the primary path, and
+    /// the external tools are the fallback for a file carrying any chip it does
+    /// not yet cover. See `docs/optimizer-2026-08/PLAN.md`.
+    built_in_covers_all: bool,
     has_ym2612: bool,
     has_saa1099: bool,
     /// Why the sample-ROM trim must not run, if it must not.
@@ -405,15 +414,19 @@ impl Facts {
             // they exist to prevent a wrong answer, not to save work, and a
             // file we cannot read is the last one to take a chance on.
             return Self {
-                is_opl: false,
+                built_in_covers_all: false,
                 has_ym2612: true,
                 has_saa1099: true,
                 rom_trim_denied: Some("the header could not be read, so its chips are unknown"),
             };
         };
         let declares = |kind| file.header.chips().iter().any(|chip| chip.kind == kind);
+        let chips = file.header.chips();
         Self {
-            is_opl: file.is_opl(),
+            built_in_covers_all: !chips.is_empty()
+                && chips
+                    .iter()
+                    .all(|chip| vgms_core::chip_state::has_latch_rules(chip.kind)),
             has_ym2612: declares(ChipKind::Ym2612),
             has_saa1099: declares(ChipKind::Saa1099),
             // The bottomless-ROM guard takes precedence: it prevents a hang, not
@@ -512,12 +525,20 @@ mod tests {
     }
 
     #[test]
-    fn a_readable_synthetic_segapcm_file_is_not_opl() {
-        // Guards the fixture itself: if this file stopped being readable, the
-        // two guard tests below would pass for the wrong reason (the unreadable
-        // fallback also denies the trim).
+    fn a_readable_synthetic_segapcm_file_falls_back_to_the_tools() {
+        // Guards the fixture itself: a readable SegaPCM declares no YM2612, so
+        // `has_ym2612` is false -- the unreadable fallback would set it true (and
+        // deny the trim) for the wrong reason, which the ROM tests below rely on
+        // not happening. And SegaPCM has no built-in rule, so it takes the tools.
         let facts = Facts::read(&segapcm_vgm(0x0006_0000));
-        assert!(!facts.is_opl, "a SegaPCM file must not read as OPL");
+        assert!(
+            !facts.has_ym2612,
+            "the fixture must be readable, not the fallback"
+        );
+        assert!(
+            !facts.built_in_covers_all,
+            "SegaPCM has no built-in rule, so the tools are the fallback"
+        );
     }
 
     #[test]
