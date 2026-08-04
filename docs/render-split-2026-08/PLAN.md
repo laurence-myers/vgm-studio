@@ -389,8 +389,16 @@ deliberate deviation from the draft below:
   (`opl_chip_mix.rs`), covering Opl2/Opl3/DualOpl2 topology, called in the `Engine`
   wrapper.
 - **Consumers left as-is** (render_wav/waveform/peak/CLI/capture/analyser): correct
-  OPL output on PlayerEngine; retiring them is ou-4 / k-3..k-5. **ou-3 (re-bless
-  fixtures) and ou-4 (retire the OPL split arm) remain.**
+  OPL output on PlayerEngine; retiring them is k-3..k-5.
+
+**ou-4a DONE (`2c5b917`): OPL splitting rerouted to the generic splitter.** DROs
+project (`opl_song_to_vgm_file`); OPL VGMs split from their own file (clocks
+verbatim, fixing a latent re-projection bug); the OPL mixer translates via
+`opl_chip_muting/panning`. `-i/--isolate-percussion` retired; stem names are the
+roster form; drums are 5 channels. Rerouted across GUI/CLI/web; `SplitTaskSource`
+collapsed to `Vgm`. **ou-4b remains (task): DELETE synth's now-unwired OPL split
+code (`split`/`SplitOptions`/`SplitData::Song`/`capture`) and re-bless the
+`render_regression` WAV fixtures (this is ou-3, the deliberate re-bless).**
 
 Original scope (2026-08-03), kept for reference — the A/B render gate (gate #3,
 `opl_ab_parity.rs`, `#[ignore]`d) and k-2a (RetroWave) were done; ou-1's adapter was
