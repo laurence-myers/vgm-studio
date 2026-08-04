@@ -21,23 +21,33 @@
 //!
 //! ## Writes
 //!
-//! Register writes take the [buffered path](OplChip::write_reg_buffered) — the
+//! A live write takes the [buffered path](OplChip::write_reg_buffered) — the
 //! same one `PlayerEngine` uses for live playback — so a back-to-back key
 //! off/on with no samples between still retriggers the note, matching real
-//! hardware. (A seek's bulk replay wants the immediate path instead, since only
-//! the final register *values* matter; giving the adapter that distinction is a
-//! follow-up — `ChipCore` has no live-vs-replay signal today, and the ou-1
-//! acceptance gate renders from the start, never seeking.)
+//! hardware. A seek's bulk replay takes the immediate path
+//! ([`replay_write`](ChipCore::replay_write)) instead: only the final register
+//! *values* matter there, so applying the burst at once avoids it trickling out
+//! through Nuked's spaced write buffer over the samples after the seek.
 //!
 //! ## Muting and panning
 //!
 //! Per-channel muting is the [`ChannelGate`](crate::channel_gate)'s job: the OPL
 //! rows are already built, and [`CoreInfo::build`](crate::CoreInfo) wraps a
 //! gate-covered, non-native-mute core in a `GatedCore` that filters the writes.
-//! So the adapter itself keeps the trait's no-op mute. Per-channel panning (the
-//! OPL stereo-ext register policy `PlayerEngine` owns) is not ported here yet —
-//! a follow-up — so the adapter reports [`supports_pan`](ChipCore::supports_pan)
-//! false and passes the song's own `0xC0`-`0xC8` stereo bits straight through.
+//! So the adapter itself keeps the trait's no-op mute.
+//!
+//! Per-channel panning is the OPL stereo-ext register policy `PlayerEngine`
+//! owns, ported here behind [`set_channel_pans`](ChipCore::set_channel_pans):
+//! engaging it forces `0x105`'s stereo-ext bit on (shadowing the song's `newm`
+//! bit), writes the panpots (`0x0D0`-`0x0D8` low bank, `0x1D0`-`0x1D8` high), and
+//! thereafter suppresses the song's own `0xD0`-`0xD8` writes so they cannot
+//! clobber the applied pan. Un-panned, the song's own `0xC0`-`0xC8` stereo bits
+//! pass straight through. **One limitation:** the `ChipCore` pan API has no
+//! "return to the song's own stereo" call (a channel is a position, not a mode),
+//! so once engaged the adapter stays engaged until [`reset`](ChipCore::reset);
+//! disengaging mid-playback (the OPL panel's Original-vs-Custom that
+//! `PlayerEngine` resyncs through a `0xC0` shadow) is left to ou-2, when OPL
+//! documents route here and that vocabulary arrives.
 
 use crate::NATIVE_SAMPLE_RATE;
 use crate::chip::ChipCore;
@@ -50,6 +60,13 @@ pub struct OplCoreAdapter {
     /// A reused `i16` staging buffer: the OPL chip renders `i16`, the engine
     /// wants `i32`.
     scratch: Vec<i16>,
+    /// Custom per-channel panning is engaged (the stereo-ext panpots). While it
+    /// is, the song's own `0xD0`-`0xD8` writes are suppressed and the enable bit
+    /// forced on -- the same register policy `PlayerEngine` owns.
+    panned: bool,
+    /// The song's OPL3 `newm` bit (`0x105` bit 0), shadowed so forcing the
+    /// stereo-ext enable (bit 1) never disturbs OPL3 mode.
+    newm: u8,
 }
 
 impl OplCoreAdapter {
@@ -59,15 +76,68 @@ impl OplCoreAdapter {
         Self {
             opl,
             scratch: Vec::new(),
+            panned: false,
+            newm: 0,
+        }
+    }
+
+    /// One register write, buffered (live) or immediate (a seek replay), with the
+    /// stereo-ext register policy applied.
+    fn routed_write(&mut self, port: u8, addr: u16, data: u16, immediate: bool) {
+        let reg = reg_of(port, addr);
+        // The engine owns the stereo-ext enable (`0x105` bit 1): force it to match
+        // whether custom panning is engaged, and shadow the song's `newm` bit
+        // (bit 0) so toggling the enable never flips OPL3 mode. On the replay path
+        // too, so a seek never leaves the chip's mode diverged.
+        if reg == STEREO_EXT_REG {
+            self.newm = (data as u8) & 0x01;
+            let value = self.newm | if self.panned { STEREO_EXT_ENABLE } else { 0 };
+            self.emit(reg, value, immediate);
+            return;
+        }
+        // While panned, the chip repurposes `0xD0`-`0xD8` as the panpots, so a
+        // song's own writes there (no-ops on a real OPL3 when disengaged) would
+        // clobber the applied pan -- drop them.
+        if self.panned && is_panpot(reg) {
+            return;
+        }
+        self.emit(reg, data as u8, immediate);
+    }
+
+    fn emit(&mut self, reg: u16, value: u8, immediate: bool) {
+        if immediate {
+            self.opl.write_reg(reg, value);
+        } else {
+            self.opl.write_reg_buffered(reg, value);
         }
     }
 }
+
+/// OPL3 register `0x105` (high-bank `0x05`): bit 0 is `newm` (OPL3 mode), bit 1
+/// the stereo-ext panpot enable this adapter owns.
+const STEREO_EXT_REG: u16 = 0x105;
+const STEREO_EXT_ENABLE: u8 = 0x02;
+/// The five rhythm voices at the tail of every OPL roster; they pan with melodic
+/// channels 6-8, so only the melodic channels take a panpot.
+const RHYTHM_VOICES: usize = 5;
 
 /// The OPL register a `(port, addr)` write addresses: OPL3's two register banks
 /// are the write's port -- port 0 the low bank, port 1 the high bank (bit 8 of
 /// the chip's 9-bit register address).
 fn reg_of(port: u8, addr: u16) -> u16 {
     (u16::from(port) << 8) | addr
+}
+
+/// Whether `reg` is a stereo-ext panpot (`0x0D0`-`0x0D8` low, `0x1D0`-`0x1D8`
+/// high).
+fn is_panpot(reg: u16) -> bool {
+    (0x0D0..=0x0D8).contains(&reg) || (0x1D0..=0x1D8).contains(&reg)
+}
+
+/// The stereo-ext panpot for a [`chip_mix`](crate::chip_mix) pan: `-0x100` hard
+/// left through `0` centre (`0x80`) to `0x100` hard right (`0xFF`).
+fn to_panpot(pan: i16) -> u8 {
+    (0x80 + i32::from(pan) / 2).clamp(0, 0xFF) as u8
 }
 
 impl core::fmt::Debug for OplCoreAdapter {
@@ -85,6 +155,10 @@ impl ChipCore for OplCoreAdapter {
         // header clock is not used -- Nuked assumes the standard YMF262 clock,
         // exactly as `PlayerEngine` does.
         self.opl.reset(NATIVE_SAMPLE_RATE);
+        // A fresh chip is un-panned; the engine restates the pans afterward (its
+        // `apply_mix`), so a loop's rewind keeps custom panning.
+        self.panned = false;
+        self.newm = 0;
     }
 
     fn native_rate(&self) -> u32 {
@@ -92,14 +166,14 @@ impl ChipCore for OplCoreAdapter {
     }
 
     fn write(&mut self, port: u8, addr: u16, data: u16) {
-        self.opl.write_reg_buffered(reg_of(port, addr), data as u8);
+        self.routed_write(port, addr, data, false);
     }
 
     fn replay_write(&mut self, port: u8, addr: u16, data: u16) {
         // A seek's replay wants the immediate path: only the final register
         // values matter, and a burst through the spaced buffer would trickle out
         // over the samples after the seek (a stuck/late note).
-        self.opl.write_reg(reg_of(port, addr), data as u8);
+        self.routed_write(port, addr, data, true);
     }
 
     fn render(&mut self, out: &mut [i32]) {
@@ -108,6 +182,30 @@ impl ChipCore for OplCoreAdapter {
         for (slot, &sample) in out.iter_mut().zip(&self.scratch) {
             *slot = i32::from(sample);
         }
+    }
+
+    fn set_channel_pans(&mut self, pans: &[i16]) {
+        self.panned = true;
+        // Enable stereo-ext first -- `0xD0` writes are inert until it lands --
+        // keeping the song's `newm` bit.
+        self.opl
+            .write_reg(STEREO_EXT_REG, self.newm | STEREO_EXT_ENABLE);
+        // Only the melodic channels take a panpot; the roster's last five are the
+        // rhythm voices (they pan with channels 6-8). Low bank `0x0D0`-`0x0D8`,
+        // high bank `0x1D0`-`0x1D8`.
+        let melodic = pans.len().saturating_sub(RHYTHM_VOICES).min(18);
+        for (channel, &pan) in pans.iter().take(melodic).enumerate() {
+            let reg = if channel < 9 {
+                0x0D0 + channel as u16
+            } else {
+                0x1D0 + (channel - 9) as u16
+            };
+            self.opl.write_reg(reg, to_panpot(pan));
+        }
+    }
+
+    fn supports_pan(&self) -> bool {
+        true
     }
 }
 
@@ -200,6 +298,70 @@ mod tests {
             buffered > immediate * 4,
             "write must buffer (retrigger), replay_write must not: \
              buffered={buffered} immediate={immediate}"
+        );
+    }
+
+    /// A spy chip logging every register write (immediate or buffered), so the
+    /// pan register policy can be inspected without an emulator.
+    #[derive(Debug, Clone, Default)]
+    struct SpyOpl {
+        log: std::sync::Arc<std::sync::Mutex<Vec<(u16, u8)>>>,
+    }
+
+    impl OplChip for SpyOpl {
+        fn reset(&mut self, _sample_rate: u32) {}
+        fn write_reg(&mut self, reg: u16, value: u8) {
+            self.log.lock().unwrap().push((reg, value));
+        }
+        fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+            self.log.lock().unwrap().push((reg, value));
+        }
+        fn generate_samples(&mut self, buffer: &mut [i16]) {
+            buffer.fill(0);
+        }
+    }
+
+    #[test]
+    fn panning_engages_stereo_ext_and_suppresses_song_panpots() {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut core = OplCoreAdapter::new(Box::new(SpyOpl {
+            log: std::sync::Arc::clone(&log),
+        }));
+        assert!(core.supports_pan());
+
+        // The song enables OPL3 mode (0x105 = newm), which the adapter passes with
+        // the stereo-ext bit forced off (un-panned).
+        core.write(1, 0x05, 0x01);
+        assert!(log.lock().unwrap().contains(&(0x105, 0x01)));
+
+        // Engage custom panning: channel 0 hard left, channel 1 hard right.
+        let mut pans = vec![0i16; 14]; // an OPL2 roster: 9 melodic + 5 rhythm
+        pans[0] = -0x100;
+        pans[1] = 0x100;
+        core.set_channel_pans(&pans);
+
+        let writes = log.lock().unwrap().clone();
+        assert!(
+            writes.contains(&(0x105, 0x03)),
+            "stereo-ext enabled, newm kept: {writes:02X?}"
+        );
+        assert!(
+            writes.contains(&(0x0D0, 0x00)),
+            "channel 0 panned hard left"
+        );
+        assert!(
+            writes.contains(&(0x0D1, 0xFF)),
+            "channel 1 panned hard right"
+        );
+        assert!(writes.contains(&(0x0D2, 0x80)), "channel 2 centred");
+
+        // While panned, the song's own 0xD0 write is dropped so it cannot clobber
+        // the applied pan.
+        log.lock().unwrap().clear();
+        core.write(0, 0xD0, 0x42);
+        assert!(
+            log.lock().unwrap().is_empty(),
+            "a song panpot write is suppressed while panned"
         );
     }
 
