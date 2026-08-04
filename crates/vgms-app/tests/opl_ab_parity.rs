@@ -92,6 +92,71 @@ fn opl_fixtures() -> [(&'static str, &'static [u8]); 4] {
     ]
 }
 
+/// The reroute ou-2 makes: a DRO, today played through `PlayerEngine`, projected
+/// to a `VgmFile` ([`convert::opl_song_to_vgm_file`]) and played through
+/// `VgmEngine` -- the path the transport takes once OPL documents route to the
+/// generic engine. Proves that round trip is audio-clean before any transport
+/// flips onto it.
+///
+/// Unlike the OPL-VGM gate above (which scores 1.0000, both sides sharing the
+/// exact same VGM byte stream), the DRO path re-quantizes its delays: a DRO's
+/// native timing is **milliseconds**, and `PlayerEngine` renders those straight
+/// to output frames (one rounding), whereas the projection expands them to VGM
+/// **sample** delays at 44100 (`dro_to_vgm`) and the engine then rounds those to
+/// output frames -- two roundings through an intermediate rate the direct path
+/// never touches. VGM delays are 44100 by format definition, so every VGM (native
+/// or projected) carries this quantization; a DRO joining the VGM path inherits
+/// it. The result is sub-millisecond jitter in note onsets with **identical
+/// energy** -- musically lossless, and the very conversion the shipping
+/// "Convert to VGM" feature already produces.
+///
+/// So the bar is not the VGM case's 0.99: the strict guarantee is on the level
+/// (`rms_ratio`, which a dropped or mis-levelled channel would move), and the
+/// correlation is held only above the requantization floor to still catch a real
+/// divergence (a wrong or missing voice tanks both).
+#[test]
+fn a_dro_sounds_the_same_projected_through_the_vgm_engine() {
+    vgms_app::install_cores();
+    let bytes = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
+    let dro = vgms_core::io::read_song("lsl3_score_up_dro2.dro", &bytes[..]).expect("the DRO reads");
+
+    // Today's path: the DRO through PlayerEngine (what render_wav drives).
+    let wav = vgms_synth::render_wav(&dro, RATE, 16).expect("the DRO renders");
+    let (samples, wav_rate) = parity::reference::read_wav(&wav).expect("a valid WAV");
+    let wanted = RATE as usize * MAX_SECONDS * 2;
+    let player = Render::from_interleaved_i16(&samples[..samples.len().min(wanted)], wav_rate);
+
+    // ou-2's path: the DRO projected to a VgmFile, through VgmEngine.
+    let file = vgms_core::convert::opl_song_to_vgm_file(&dro).expect("the DRO projects to a VgmFile");
+    let vgm_engine = drain(VgmEngine::new(Arc::new(file), RATE));
+
+    let score = parity::compare(&player, &vgm_engine, Settings::default());
+    let correlation = score.worst_correlation();
+    let rms_lo = score.channels[0].rms_ratio.min(score.channels[1].rms_ratio);
+    let rms_hi = score.channels[0].rms_ratio.max(score.channels[1].rms_ratio);
+    eprintln!(
+        "dro projection: correlation {correlation:.4}, rms_ratio {rms_lo:.3}..{rms_hi:.3}, \
+         {} frames",
+        score.frames
+    );
+    // The real guarantee: energy is preserved to a fraction of a percent. A
+    // dropped channel or a volume-model error would move this well outside the
+    // band; the measured value is 0.999.
+    assert!(
+        (0.99..1.01).contains(&rms_lo) && (0.99..1.01).contains(&rms_hi),
+        "the DRO projection differs in level (rms_ratio {rms_lo:.3}..{rms_hi:.3}) -- \
+         a channel or the volume model diverged, not just delay quantization"
+    );
+    // Above the ms->sample->frame requantization floor (measured ~0.977): high
+    // enough that a wrong/missing voice (which tanks correlation) still fails,
+    // loose enough to tolerate the inaudible onset jitter the projection adds.
+    assert!(
+        correlation >= 0.95,
+        "the DRO diverges more than delay requantization explains (correlation \
+         {correlation:.4}, want >= 0.95) -- likely a real defect in the projection"
+    );
+}
+
 #[test]
 fn an_opl_vgm_sounds_the_same_through_both_engines() {
     // `install_cores()` registers opl3.nuked as a `CoreMaker::Opl`; since ou-1,

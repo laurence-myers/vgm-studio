@@ -1,13 +1,15 @@
 //! Format conversions: DRO -> VGM, DRO v2 -> v1, and filtering a VGM's register
 //! writes ([`filter_vgm`], which shares the VGM emitter with the DRO conversion).
 
+use std::borrow::Cow;
+
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
 use crate::song::{Bank, DelayKind, DroDataV1, Instruction, OplType, Song, SongData};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
 use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
-use crate::vgm::{VgmData, VgmMeta};
+use crate::vgm::{VgmData, VgmFile, VgmMeta};
 
 /// The longest wait a single `0x61` command can express. Only the test that a
 /// long delay spans several commands names it now; the chunking itself lives in
@@ -128,6 +130,29 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
         song.opl_type,
         VgmMeta::new(header),
     ))
+}
+
+/// Projects an OPL document to a playable [`VgmFile`], for routing OPL playback
+/// through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine) (ou-2).
+///
+/// A DRO is expanded to a VGM command stream first ([`dro_to_vgm`]); a
+/// VGM-flavoured `Song` -- an OPL VGM's editor projection -- is taken as is.
+/// Either way it is serialised and re-read, so the result is a real `VgmFile`
+/// whose header the generic engine builds voices from. This is the same round
+/// trip [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time
+/// rather than on a user's explicit convert.
+///
+/// # Errors
+/// If the song is a DRO that will not convert, or the serialised VGM does not
+/// read back.
+pub fn opl_song_to_vgm_file(song: &Song) -> Result<VgmFile> {
+    let vgm = if matches!(song.data(), SongData::Vgm(_)) {
+        Cow::Borrowed(song)
+    } else {
+        Cow::Owned(dro_to_vgm(song)?)
+    };
+    let bytes = crate::io::write_song(&vgm)?;
+    crate::vgm::file::read(&vgm.name, &bytes)
 }
 
 /// Rewrites a VGM's register writes through `gate`, keeping everything else.
