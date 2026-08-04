@@ -1604,22 +1604,29 @@ fn open_split_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
     harness.run();
 }
 
-/// The names a WAV split of `dual_tone_song` writes, in order.
+/// The names a WAV split of `dual_tone_song` writes, in order -- computed the way
+/// the app does now (ou-4): the OPL document projects to a VGM and splits through
+/// the generic splitter, so the stems carry the chip's roster names.
 fn split_names(song: &Song) -> Vec<String> {
-    vgms_synth::split(
-        song,
-        &vgms_synth::SplitOptions {
+    let file = std::sync::Arc::new(
+        vgms_core::convert::opl_song_to_vgm_file(song).expect("the OPL song projects"),
+    );
+    vgms_synth::split_vgm_cancellable(
+        &file,
+        &vgms_synth::VgmSplitOptions {
             format: vgms_synth::SplitFormat::Wav,
-            isolate_percussion: false,
             audio: vgms_core::config::AudioConfig::default(),
-            panning: vgms_synth::Panning::default(),
+            resampling: vgms_synth::resample::ResampleMode::default(),
+            panning: vgms_synth::ChipPanning::new(),
             boost: 1.0,
             skip_muted: None,
             core_choices: Default::default(),
         },
         &mut |_| {},
         &mut |_, _| {},
+        &mut || true,
     )
+    .unwrap()
     .unwrap()
     .into_iter()
     .map(|output| output.name)

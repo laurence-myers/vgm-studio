@@ -12,7 +12,7 @@ use vgms_core::song::{DRO_FILE_V2, SongFileType};
 use vgms_core::{FindTarget, Gd3Tag};
 use vgms_synth::{
     ChipMuting, ChipPanning, LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat,
-    SplitOptions, VgmRenderMix,
+    VgmRenderMix, VgmSplitOptions,
 };
 
 use crate::action::{Action, AppTab};
@@ -162,7 +162,9 @@ enum SplitFlow {
 #[derive(Debug, Clone)]
 enum PendingSplit {
     Channels {
-        options: SplitOptions,
+        format: SplitFormat,
+        boost: f32,
+        core_choices: std::collections::BTreeMap<String, String>,
         /// Apply the mixer's pans to each stem -- resolved against the live
         /// mixer once the document kind is known (`split_into`).
         use_panning: bool,
@@ -1802,19 +1804,11 @@ impl VgmStudioApp {
             }
             Action::SplitSubmitted {
                 format,
-                isolate_percussion,
                 use_skip_muted,
                 use_panning,
                 boost,
                 core_choices,
-            } => self.start_split(
-                format,
-                isolate_percussion,
-                use_skip_muted,
-                use_panning,
-                boost,
-                core_choices,
-            ),
+            } => self.start_split(format, use_skip_muted, use_panning, boost, core_choices),
             Action::OpenSplitSongs => {
                 if !self.require_document() {
                     return;
@@ -4324,24 +4318,17 @@ impl VgmStudioApp {
     fn start_split(
         &mut self,
         format: SplitFormat,
-        isolate_percussion: bool,
         use_skip_muted: bool,
         use_panning: bool,
         boost: f32,
         core_choices: std::collections::BTreeMap<String, String>,
     ) {
+        // Pan and skip-muted are resolved against the live mixer in `split_into`,
+        // once the document kind is known; format, boost and cores ride here.
         self.begin_split(PendingSplit::Channels {
-            options: SplitOptions {
-                format,
-                isolate_percussion,
-                audio: self.config.audio.clone(),
-                // Panning and skip-muted are filled in per document kind in
-                // `split_into`; boost is a plain value.
-                panning: Panning::default(),
-                boost,
-                skip_muted: None,
-                core_choices,
-            },
+            format,
+            boost,
+            core_choices,
             use_panning,
             use_skip_muted,
         });
@@ -4416,54 +4403,86 @@ impl VgmStudioApp {
         let songs = pending.is_songs();
         let request = match pending {
             PendingSplit::Channels {
-                mut options,
+                format,
+                boost,
+                core_choices,
                 use_panning,
                 use_skip_muted,
             } => {
-                // The core choices, format and boost sit on the OPL options; the
-                // VGM arm honours the same, so lift them out before `options`
-                // moves into whichever arm runs.
-                let core_choices = options.core_choices.clone();
-                let format = options.format;
-                let boost = options.boost;
-                // Resolve the pan/skip-muted opt-ins against the live mixer in
-                // each document's own vocabulary (the mixer is stable across the
-                // folder picker), then fill the OPL options and carry the generic
-                // ones into the VGM arm.
-                options.panning = if use_panning {
-                    self.channels.panning()
-                } else {
-                    Panning::default()
-                };
-                options.skip_muted = use_skip_muted.then(|| self.channels.muting());
-                let vgm_panning = if use_panning {
-                    self.channels.chip_panning()
-                } else {
-                    ChipPanning::new()
-                };
-                let vgm_skip = use_skip_muted.then(|| self.channels.chip_muting());
-                // An OPL document splits per OPL channel; any other VGM splits per
-                // chip channel, both in the chosen format.
-                let source = self.editor.doc_source().map(|doc| match doc {
-                    crate::tasks::SplitSource::Opl(song) => {
-                        crate::tasks::SplitTaskSource::Opl { song, options }
-                    }
-                    crate::tasks::SplitSource::Vgm(file) => crate::tasks::SplitTaskSource::Vgm {
-                        file,
-                        options: vgms_synth::VgmSplitOptions {
+                // Every split runs through the generic splitter now (ou-4): a
+                // multichip VGM directly, an OPL document over a VGM of its
+                // register stream. The mixer is stable across the folder picker,
+                // so its pan/skip-muted opt-ins resolve here, translated into the
+                // generic vocabulary for an OPL document.
+                let audio = self.config.audio.clone();
+                let resampling = self.resample_mode();
+                let built: Option<(std::sync::Arc<vgms_core::VgmFile>, VgmSplitOptions)> =
+                    if let Some(song) = self.editor.snapshot() {
+                        // An OPL document: the OPL panel speaks Muting/Panning, so
+                        // translate to the generic mutes/pans keyed on the chips
+                        // its type projects to.
+                        let opl_type = song.opl_type;
+                        let panning = if use_panning {
+                            vgms_synth::opl_chip_panning(&self.channels.panning(), opl_type)
+                        } else {
+                            ChipPanning::new()
+                        };
+                        let skip_muted = use_skip_muted.then(|| {
+                            vgms_synth::opl_chip_muting(&self.channels.muting(), opl_type)
+                        });
+                        let options = VgmSplitOptions {
                             format,
-                            audio: self.config.audio.clone(),
-                            resampling: self.resample_mode(),
-                            panning: vgm_panning,
+                            audio,
+                            resampling,
+                            panning,
                             boost,
-                            skip_muted: vgm_skip,
+                            skip_muted,
                             core_choices,
-                        },
-                    },
-                });
-                source.map(|source| {
+                        };
+                        // An OPL VGM splits from its own file so the header's
+                        // clocks stay verbatim; a DRO has none, so it projects to
+                        // a canonical-clock VGM.
+                        match self.editor.vgm_arc() {
+                            Some(file) => Some((file, options)),
+                            None => match vgms_core::convert::opl_song_to_vgm_file(&song) {
+                                Ok(file) => Some((std::sync::Arc::new(file), options)),
+                                Err(error) => {
+                                    self.alerts.push_back(Alert::error(format!(
+                                        "Could not prepare the split: {error}"
+                                    )));
+                                    None
+                                }
+                            },
+                        }
+                    } else if let Some(file) = self.editor.vgm_arc() {
+                        // A generic VGM: the chip mixer already speaks the generic
+                        // vocabulary.
+                        let panning = if use_panning {
+                            self.channels.chip_panning()
+                        } else {
+                            ChipPanning::new()
+                        };
+                        let skip_muted = use_skip_muted.then(|| self.channels.chip_muting());
+                        Some((
+                            file,
+                            VgmSplitOptions {
+                                format,
+                                audio,
+                                resampling,
+                                panning,
+                                boost,
+                                skip_muted,
+                                core_choices,
+                            },
+                        ))
+                    } else {
+                        None
+                    };
+                built.map(|(file, options)| {
                     (
-                        TaskRequest::Split { source },
+                        TaskRequest::Split {
+                            source: crate::tasks::SplitTaskSource::Vgm { file, options },
+                        },
                         crate::strings::APP_STATUS_SPLITTING_CHANNELS,
                     )
                 })

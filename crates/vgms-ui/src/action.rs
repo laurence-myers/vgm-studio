@@ -41,7 +41,6 @@ pub enum Action {
     /// Split the song into one file per channel used, once a folder is chosen.
     SplitSubmitted {
         format: vgms_synth::SplitFormat,
-        isolate_percussion: bool,
         /// Exclude the channels the mixer has muted from the output set
         /// (decision 9).
         use_skip_muted: bool,

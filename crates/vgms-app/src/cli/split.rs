@@ -1,7 +1,8 @@
 //! `vgmstudio split`: split a song into one file per channel.
 //!
-//! The splitting logic is [`vgms_synth::split`], tested there; this parses
-//! arguments, loads the config, and writes the outputs next to the input.
+//! The splitting logic is [`vgms_synth::split_vgm_cancellable`], tested there;
+//! this parses arguments, projects an OPL document to a VGM (ou-4), loads the
+//! config, and writes the outputs next to the input.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -13,8 +14,7 @@ use anyhow::{Context, Result};
 use vgms_core::io::write_song;
 use vgms_core::util::ms_to_timestr;
 use vgms_synth::{
-    Position, SplitData, SplitFormat, SplitOptions, SplitOutput, VgmSplitOptions, split,
-    split_vgm_cancellable,
+    Position, SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable,
 };
 
 use crate::{LoadedSong, load_config, read_any_song_from_path};
@@ -27,9 +27,6 @@ pub struct Args {
     // `-d`/`--dro` is this flag's earlier name, kept working as a hidden alias.
     #[arg(short = 's', long = "song", visible_alias = "dro", short_alias = 'd')]
     pub song: bool,
-    /// Render each drum on the percussion channel to its own file.
-    #[arg(short = 'i', long = "isolate-percussion")]
-    pub isolate_percussion: bool,
     /// Render a chip through a specific core, as `slot=name` (e.g.
     /// `--core opl3=nuked`). Repeatable; unnamed slots use the configured core.
     /// This split only -- vgmstudio.ini is left untouched.
@@ -69,85 +66,61 @@ pub fn run(args: &Args) -> Result<()> {
     // share one printer through a RefCell so a skip can close an open progress
     // line before printing over it.
     let progress = RefCell::new(RenderProgress::new(frequency));
-    let outputs = match song {
-        LoadedSong::Opl(song) => {
-            let options = SplitOptions {
-                format: if args.song {
-                    SplitFormat::Song
-                } else {
-                    SplitFormat::Wav
-                },
-                isolate_percussion: args.isolate_percussion,
-                audio: config.audio,
-                // The CLI has no live mixer, so the pan/skip-muted opt-ins stay
-                // GUI-only (neutral here); boost rides `-b/--boost`.
-                panning: vgms_synth::Panning::default(),
-                boost,
-                skip_muted: None,
-                core_choices: choices,
-            };
-            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
-                split(
-                    &song,
-                    &options,
-                    &mut |channel| {
-                        progress.borrow_mut().finish_line();
-                        let bank = channel >> 8;
-                        let channel_num = (channel & 0xFF) - 0xAF;
-                        println!("Skipping bank {bank}, channel {channel_num:02} (unused)");
-                    },
-                    &mut |base, frames| progress.borrow_mut().update(base, frames),
-                )
-            })?
-        }
-        LoadedSong::Vgm(file) => {
-            // A song-format split rewrites the command stream per channel, which
-            // works for every chip a write-gate covers (and skips the rest, with
-            // a warning, per chip -- not the whole file). A WAV split renders, so
-            // it needs a core per chip; the rewrite does not.
-            let format = if args.song {
-                SplitFormat::Song
-            } else {
-                SplitFormat::Wav
-            };
-            if format == SplitFormat::Wav {
-                crate::warn_missing_cores(
-                    &file
-                        .header
-                        .chips()
-                        .iter()
-                        .map(|chip| chip.kind)
-                        .collect::<Vec<_>>(),
-                    "there is nothing to split",
-                )?;
-            }
-            let resampling =
-                vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
-                    .unwrap_or_default();
-            let options = VgmSplitOptions {
-                format,
-                audio: config.audio,
-                resampling,
-                panning: vgms_synth::ChipPanning::new(),
-                boost,
-                skip_muted: None,
-                core_choices: choices,
-            };
-            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
-                split_vgm_cancellable(
-                    &Arc::new(*file),
-                    &options,
-                    &mut |name| {
-                        progress.borrow_mut().finish_line();
-                        println!("Skipping {name} (silent)");
-                    },
-                    &mut |base, frames| progress.borrow_mut().update(base, frames),
-                    &mut || true,
-                )
-            })?
-            .unwrap_or_default()
-        }
+    // Every split goes through the generic splitter now (ou-4): a multichip VGM
+    // directly, an OPL document over a VGM of its register stream. A DRO projects
+    // to a canonical-clock VGM; a VGM (OPL or not) keeps its own header.
+    let file = match song {
+        LoadedSong::Opl(song) => Arc::new(
+            vgms_core::convert::opl_song_to_vgm_file(&song)
+                .context("projecting the OPL document for splitting")?,
+        ),
+        LoadedSong::Vgm(file) => Arc::new(*file),
     };
+    let format = if args.song {
+        SplitFormat::Song
+    } else {
+        SplitFormat::Wav
+    };
+    // A song-format split rewrites the command stream per channel (every chip a
+    // write-gate covers; the rest are skipped per chip with a warning). A WAV
+    // split renders, so it needs a core per chip.
+    if format == SplitFormat::Wav {
+        crate::warn_missing_cores(
+            &file
+                .header
+                .chips()
+                .iter()
+                .map(|chip| chip.kind)
+                .collect::<Vec<_>>(),
+            "there is nothing to split",
+        )?;
+    }
+    let resampling =
+        vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling).unwrap_or_default();
+    let options = VgmSplitOptions {
+        format,
+        audio: config.audio,
+        resampling,
+        // The CLI has no live mixer, so the pan/skip-muted opt-ins stay GUI-only
+        // (neutral here); boost rides `-b/--boost`.
+        panning: vgms_synth::ChipPanning::new(),
+        boost,
+        skip_muted: None,
+        core_choices: choices,
+    };
+    let outputs = vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+        split_vgm_cancellable(
+            &file,
+            &options,
+            &mut |name| {
+                progress.borrow_mut().finish_line();
+                println!("Skipping {name} (silent)");
+            },
+            &mut |base, frames| progress.borrow_mut().update(base, frames),
+            &mut || true,
+        )
+    })?
+    .unwrap_or_default();
     progress.borrow_mut().finish_line();
 
     write_outputs(&args.input, outputs)

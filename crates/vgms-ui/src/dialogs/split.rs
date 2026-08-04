@@ -17,14 +17,13 @@ const MAX_BOOST: f32 = 16.0;
 #[derive(Debug)]
 pub struct SplitDialog {
     format: SplitFormat,
-    isolate_percussion: bool,
     /// Whether the Song format is offered: an OPL document always is (it is
     /// captured), and a generic VGM is when at least one of its chips has a
     /// write-gate table (see [`ChannelGate::exists`]). When false, the split is
     /// WAV-only and the format radio is replaced by a static note.
     song_capable: bool,
-    /// Whether this is an OPL document, so the percussion ("each drum its own
-    /// file") option -- an OPL idea -- is offered.
+    /// Whether this is an OPL document, so the Song-format radio names both DRO
+    /// and VGM output rather than VGM alone.
     is_opl: bool,
     /// Skip the channels the mixer has muted (decision 9): a live mute leaves a
     /// channel out of the output set. Applies to both formats.
@@ -47,7 +46,6 @@ impl Default for SplitDialog {
     fn default() -> Self {
         Self {
             format: SplitFormat::Wav,
-            isolate_percussion: false,
             song_capable: true,
             is_opl: true,
             use_skip_muted: false,
@@ -61,9 +59,9 @@ impl Default for SplitDialog {
 }
 
 impl SplitDialog {
-    /// The dialog for the loaded document. `is_opl` decides the OPL-only
-    /// percussion option; the Song format is offered for an OPL document or a
-    /// VGM whose chips a write-gate covers. `current_boost` seeds the boost
+    /// The dialog for the loaded document. `is_opl` names the Song-format output
+    /// (DRO or VGM, vs VGM alone); the Song format is offered for an OPL document
+    /// or a VGM whose chips a write-gate covers. `current_boost` seeds the boost
     /// field from live playback. `chips` are the document's chip slots and
     /// `settings_cores` the current Settings core map; together they seed the
     /// per-render core picker (session-sticky, never written to vgmstudio.ini).
@@ -119,25 +117,6 @@ impl SplitDialog {
                         .on_hover_text(crate::strings::SPLIT_SONG_HOVER);
                 } else {
                     ui.label(crate::strings::SPLIT_WAV_ONLY);
-                }
-
-                // Percussion isolation is an OPL idea (the five rhythm voices of
-                // register 0xBD), so it is offered for OPL documents only.
-                if self.is_opl {
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.isolate_percussion, "");
-                        if ui
-                            .add(
-                                egui::Label::new("Give each drum its own file")
-                                    .sense(egui::Sense::click()),
-                            )
-                            .on_hover_text(crate::strings::SPLIT_ISOLATE_PERCUSSION_HOVER)
-                            .clicked()
-                        {
-                            self.isolate_percussion = !self.isolate_percussion;
-                        }
-                    });
                 }
 
                 // The mix opt-ins, all off = the faithful split. Skipping muted
@@ -218,7 +197,6 @@ impl SplitDialog {
         };
         actions.push(Action::SplitSubmitted {
             format: self.format,
-            isolate_percussion: self.isolate_percussion,
             use_skip_muted: self.use_skip_muted,
             use_panning: self.use_panning && is_wav,
             boost,
@@ -299,13 +277,11 @@ mod tests {
         SplitDialog::new(is_opl, Vec::new(), BTreeMap::new(), 1.0)
     }
 
-    /// A WAV split of the whole percussion channel: what `vgmstudio split` does
-    /// with no flags.
+    /// A WAV split with no opt-ins: what `vgmstudio split` does with no flags.
     #[test]
     fn the_defaults_match_the_bare_cli_command() {
         let dialog = dialog(true);
         assert_eq!(dialog.format, SplitFormat::Wav);
-        assert!(!dialog.isolate_percussion);
         assert!(!dialog.use_skip_muted && !dialog.use_panning && !dialog.use_boost);
     }
 
@@ -317,7 +293,6 @@ mod tests {
             actions,
             [Action::SplitSubmitted {
                 format: SplitFormat::Wav,
-                isolate_percussion: false,
                 use_skip_muted: false,
                 use_panning: false,
                 boost: 1.0,
@@ -330,7 +305,6 @@ mod tests {
     fn the_chosen_options_reach_the_request() {
         let mut dialog = dialog(true);
         dialog.format = SplitFormat::Song;
-        dialog.isolate_percussion = true;
         dialog.use_skip_muted = true;
 
         let mut actions = Vec::new();
@@ -339,7 +313,6 @@ mod tests {
             actions,
             [Action::SplitSubmitted {
                 format: SplitFormat::Song,
-                isolate_percussion: true,
                 use_skip_muted: true,
                 // Pan/boost are dropped for a song split, which cannot render.
                 use_panning: false,

@@ -8,15 +8,16 @@
 use core::time::Duration;
 use std::sync::Arc;
 
+#[cfg(test)]
 use vgms_core::Song;
 use vgms_core::io::write_song;
 use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
-    AudioSource, CoreChoices, Peak, RenderMix, SplitData, SplitOptions, VgmRenderMix,
-    VgmSplitOptions, WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable,
-    render_wav_cancellable, render_waveform_progressive, split_cancellable, split_vgm_cancellable,
+    AudioSource, CoreChoices, Peak, RenderMix, SplitData, VgmRenderMix, VgmSplitOptions,
+    WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
+    render_waveform_progressive, split_vgm_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -137,16 +138,12 @@ pub enum RenderWavMix {
 
 /// What a channel split runs over.
 ///
-/// An OPL song splits per OPL channel (to WAV or captured song), reading the
-/// register usage to skip untouched channels; a generic VGM splits per chip
-/// channel to WAV, soloing each and keeping what sounds. The two take different
-/// options, so the choice is made here.
+/// A split runs over a VGM: a multichip rip directly, or an OPL document over a
+/// VGM projection of its register stream (ou-4). The app resolves an OPL
+/// document to its file -- an OPL VGM keeps its own header, a DRO projects -- and
+/// translates the OPL mixer's mutes/pans before this point.
 #[derive(Debug, Clone)]
 pub enum SplitTaskSource {
-    Opl {
-        song: Arc<Song>,
-        options: SplitOptions,
-    },
     Vgm {
         file: Arc<vgms_core::VgmFile>,
         options: VgmSplitOptions,
@@ -538,30 +535,16 @@ fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> 
     // split in `with_render_choices` makes every channel's render honour them,
     // on this thread only, without touching playback or Settings. An empty map
     // renders exactly as the configured cores would.
-    let outputs = match source {
-        SplitTaskSource::Opl { song, options } => {
-            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
-                split_cancellable(
-                    song,
-                    options,
-                    &mut |channel| log::info!("split: skipping unused channel {channel:#05X}"),
-                    &mut |_, _| {},
-                    &mut || !is_cancelled(),
-                )
-            })
-        }
-        SplitTaskSource::Vgm { file, options } => {
-            vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
-                split_vgm_cancellable(
-                    file,
-                    options,
-                    &mut |name| log::info!("split: skipping silent channel {name}"),
-                    &mut |_, _| {},
-                    &mut || !is_cancelled(),
-                )
-            })
-        }
-    };
+    let SplitTaskSource::Vgm { file, options } = source;
+    let outputs = vgms_synth::with_render_choices(Some(options.core_choices.clone()), || {
+        split_vgm_cancellable(
+            file,
+            options,
+            &mut |name| log::info!("split: skipping silent channel {name}"),
+            &mut |_, _| {},
+            &mut || !is_cancelled(),
+        )
+    });
     let outputs = match outputs {
         Ok(Some(outputs)) => outputs,
         Ok(None) => return None,
@@ -792,14 +775,15 @@ mod tests {
         };
         assert!(collect(&wav, || true).is_empty());
 
+        let file = vgms_core::convert::opl_song_to_vgm_file(&tone_song()).unwrap();
         let split = TaskRequest::Split {
-            source: SplitTaskSource::Opl {
-                song: Arc::new(tone_song()),
-                options: SplitOptions {
+            source: SplitTaskSource::Vgm {
+                file: Arc::new(file),
+                options: VgmSplitOptions {
                     format: vgms_synth::SplitFormat::Wav,
-                    isolate_percussion: false,
                     audio: vgms_core::config::AudioConfig::default(),
-                    panning: vgms_synth::Panning::default(),
+                    resampling: vgms_synth::resample::ResampleMode::Sinc,
+                    panning: vgms_synth::ChipPanning::new(),
                     boost: 1.0,
                     skip_muted: None,
                     core_choices: CoreChoices::new(),

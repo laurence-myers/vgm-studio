@@ -118,7 +118,8 @@ fn opl_fixtures() -> [(&'static str, &'static [u8]); 4] {
 fn a_dro_sounds_the_same_projected_through_the_vgm_engine() {
     vgms_app::install_cores();
     let bytes = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
-    let dro = vgms_core::io::read_song("lsl3_score_up_dro2.dro", &bytes[..]).expect("the DRO reads");
+    let dro =
+        vgms_core::io::read_song("lsl3_score_up_dro2.dro", &bytes[..]).expect("the DRO reads");
 
     // Today's path: the DRO through PlayerEngine (what render_wav drives).
     let wav = vgms_synth::render_wav(&dro, RATE, 16).expect("the DRO renders");
@@ -127,7 +128,8 @@ fn a_dro_sounds_the_same_projected_through_the_vgm_engine() {
     let player = Render::from_interleaved_i16(&samples[..samples.len().min(wanted)], wav_rate);
 
     // ou-2's path: the DRO projected to a VgmFile, through VgmEngine.
-    let file = vgms_core::convert::opl_song_to_vgm_file(&dro).expect("the DRO projects to a VgmFile");
+    let file =
+        vgms_core::convert::opl_song_to_vgm_file(&dro).expect("the DRO projects to a VgmFile");
     let vgm_engine = drain(VgmEngine::new(Arc::new(file), RATE));
 
     let score = parity::compare(&player, &vgm_engine, Settings::default());

@@ -24,7 +24,7 @@ use vgms_core::{Song, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
     AudioSource, ChipMuting, ChipPanning, CoreChoices, Muting, Panning, Peak, RenderMix,
-    SplitFormat, SplitOptions, VgmRenderMix, VgmSplitOptions, WaveformBucket,
+    SplitFormat, VgmRenderMix, VgmSplitOptions, WaveformBucket,
 };
 use vgms_ui::tasks::{
     LoopSearchSource, RenderWavMix, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
@@ -419,46 +419,6 @@ fn read_vgm_mix(reader: &mut Reader) -> Result<VgmRenderMix> {
     })
 }
 
-fn write_split_options(writer: &mut Writer, options: &SplitOptions) {
-    writer.u8(match options.format {
-        SplitFormat::Wav => 0,
-        SplitFormat::Song => 1,
-    });
-    writer.bool(options.isolate_percussion);
-    write_config(writer, &options.audio);
-    write_panning(writer, options.panning);
-    writer.f32(options.boost);
-    match options.skip_muted {
-        Some(muting) => {
-            writer.bool(true);
-            write_muting(writer, muting);
-        }
-        None => writer.bool(false),
-    }
-    write_core_choices(writer, &options.core_choices);
-}
-
-fn read_split_options(reader: &mut Reader) -> Result<SplitOptions> {
-    let format = match reader.u8("split.format")? {
-        0 => SplitFormat::Wav,
-        1 => SplitFormat::Song,
-        other => return Err(CodecError::Tag("split.format", other)),
-    };
-    Ok(SplitOptions {
-        format,
-        isolate_percussion: reader.bool("split.isolate")?,
-        audio: read_config(reader)?,
-        panning: read_panning(reader)?,
-        boost: reader.f32("split.boost")?,
-        skip_muted: if reader.bool("split.skip_muted")? {
-            Some(read_muting(reader)?)
-        } else {
-            None
-        },
-        core_choices: read_core_choices(reader)?,
-    })
-}
-
 fn write_vgm_split_options(writer: &mut Writer, options: &VgmSplitOptions) {
     writer.u8(match options.format {
         SplitFormat::Wav => 0,
@@ -576,18 +536,11 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
         }
         TaskRequest::Split { source } => {
             writer.u8(2);
-            match source {
-                SplitTaskSource::Opl { song, options } => {
-                    writer.u8(0);
-                    write_song(&mut writer, song)?;
-                    write_split_options(&mut writer, options);
-                }
-                SplitTaskSource::Vgm { file, options } => {
-                    writer.u8(1);
-                    write_vgm(&mut writer, file)?;
-                    write_vgm_split_options(&mut writer, options);
-                }
-            }
+            // Every split runs over a VGM now (ou-4): an OPL document is resolved
+            // to its file before it reaches the task.
+            let SplitTaskSource::Vgm { file, options } = source;
+            write_vgm(&mut writer, file)?;
+            write_vgm_split_options(&mut writer, options);
         }
         TaskRequest::SplitSongs {
             source,
@@ -704,16 +657,9 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
             }
         }
         2 => {
-            let source = match reader.u8("split-task-source")? {
-                0 => SplitTaskSource::Opl {
-                    song: std::sync::Arc::new(read_song(&mut reader)?),
-                    options: read_split_options(&mut reader)?,
-                },
-                1 => SplitTaskSource::Vgm {
-                    file: std::sync::Arc::new(read_vgm(&mut reader)?),
-                    options: read_vgm_split_options(&mut reader)?,
-                },
-                other => return Err(CodecError::Tag("split-task-source", other)),
+            let source = SplitTaskSource::Vgm {
+                file: std::sync::Arc::new(read_vgm(&mut reader)?),
+                options: read_vgm_split_options(&mut reader)?,
             };
             TaskRequest::Split { source }
         }
@@ -1056,7 +1002,7 @@ pub fn decode_pack_outcome(input: &[u8]) -> Result<PackJobOutcome> {
 mod tests {
     use std::sync::Arc;
 
-    use vgms_synth::{SplitFormat, SplitOptions, VgmSplitOptions};
+    use vgms_synth::{SplitFormat, VgmSplitOptions};
     use vgms_ui::tasks::{LoopSearchSource, SplitSource, SplitTaskSource, WavSource};
 
     use super::*;
@@ -1181,23 +1127,6 @@ mod tests {
                 bit_depth: 16,
                 resampling: ResampleMode::Linear,
                 core_choices: CoreChoices::new(),
-            },
-            // A non-empty core map on the OPL split, empty on the VGM split.
-            TaskRequest::Split {
-                source: SplitTaskSource::Opl {
-                    song: sample_song(),
-                    options: SplitOptions {
-                        format: SplitFormat::Song,
-                        isolate_percussion: true,
-                        audio: sample_config(),
-                        // Non-neutral mix opt-ins, so their codec paths carry real
-                        // data across the wire.
-                        panning: Panning::default(),
-                        boost: 2.5,
-                        skip_muted: Some(Muting::silent()),
-                        core_choices: sample_core_choices(),
-                    },
-                },
             },
             TaskRequest::Split {
                 source: SplitTaskSource::Vgm {

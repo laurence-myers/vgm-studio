@@ -31,9 +31,19 @@ fn small_song_bytes() -> Vec<u8> {
     let song = Song::dro_v1(
         "small.dro".to_owned(),
         DroDataV1::new(vec![
-            0x20, 0x01, 0xA0, 0x98, 0xB0, 0x31, // channel 0: operator, freq, key on
-            0x21, 0x01, 0xA1, 0x98, 0xB1, 0x31, // channel 1
-            0xBD, 0x31, // percussion: mode + BD + HH
+            // Two sustained FM notes, each a modulator + carrier with a fast
+            // attack (0x60=0xF0) and the sustain-hold bit (EGT, 0x20 bit 5), so
+            // the notes actually sound -- the channel split keeps only channels
+            // that come out above silence, so a fixture with no envelope would
+            // (correctly) split to nothing.
+            // Channel 0: modulator (slot 0), then carrier (slot 3).
+            0x20, 0x21, 0x40, 0x00, 0x60, 0xF0, 0x80, 0x00, //
+            0x23, 0x21, 0x43, 0x00, 0x63, 0xF0, 0x83, 0x00, //
+            0xA0, 0x98, 0xB0, 0x31, // freq + key on
+            // Channel 1: modulator (slot 1), then carrier (slot 4).
+            0x21, 0x21, 0x41, 0x00, 0x61, 0xF0, 0x81, 0x00, //
+            0x24, 0x21, 0x44, 0x00, 0x64, 0xF0, 0x84, 0x00, //
+            0xA1, 0x98, 0xB1, 0x31, //
             0x00, 0x63, // 100 ms
         ])
         .unwrap(),
@@ -132,15 +142,23 @@ fn split_writes_one_wav_per_used_channel() {
         .into_iter()
         .filter(|name| name.ends_with(".wav"))
         .collect();
-    // Channels 0 and 1 and the percussion register were written; the other seven
-    // melodic channels were not.
-    assert_eq!(wavs.len(), 3, "{wavs:?}");
-    assert!(wavs.iter().any(|name| name.contains(".0.01.")), "{wavs:?}");
-    assert!(stdout_of(&output).contains("Done -- 3 file(s)."));
+    // The two sounding FM channels, named per the chip's roster
+    // (`{stem}.{slug}.{index}-{short}.wav`); the other seven never keyed, so the
+    // audibility filter drops them.
+    assert_eq!(wavs.len(), 2, "{wavs:?}");
+    assert!(
+        wavs.contains(&"small.ym3812.00-01.wav".to_owned()),
+        "{wavs:?}"
+    );
+    assert!(
+        wavs.contains(&"small.ym3812.01-02.wav".to_owned()),
+        "{wavs:?}"
+    );
+    assert!(stdout_of(&output).contains("Done -- 2 file(s)."));
 }
 
 #[test]
-fn split_song_writes_dro_files_for_a_dro_input() {
+fn split_song_writes_vgm_files_for_a_dro_input() {
     let dir = temp_dir("split-song");
     let input = dir.join("small.dro");
     std::fs::write(&input, small_song_bytes()).unwrap();
@@ -148,11 +166,25 @@ fn split_song_writes_dro_files_for_a_dro_input() {
     let output = run(&["split", "--song", input.to_str().unwrap()]);
     assert!(output.status.success(), "split --song failed: {output:?}");
 
-    let dros: Vec<String> = file_names(&dir)
+    // A DRO splits through the generic splitter now (ou-4): its OPL stream
+    // projects to a YM3812 VGM, so `--song` rewrites the stream into one VGM per
+    // channel of that chip (a rewrite has no render to judge silence by, so every
+    // channel of a written chip gets a stem).
+    let vgms: Vec<String> = file_names(&dir)
         .into_iter()
-        .filter(|name| name.ends_with(".out.dro"))
+        .filter(|name| name.starts_with("small.ym3812."))
         .collect();
-    assert_eq!(dros.len(), 3, "{dros:?}");
+    assert_eq!(vgms.len(), 14, "{vgms:?}");
+    assert!(
+        vgms.contains(&"small.ym3812.00-01.vgm".to_owned()),
+        "{vgms:?}"
+    );
+    assert!(
+        std::fs::read(dir.join("small.ym3812.00-01.vgm"))
+            .unwrap()
+            .starts_with(b"Vgm "),
+        "the stem is not a VGM file"
+    );
 }
 
 #[test]
@@ -168,11 +200,13 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
     let output = run(&["split", "--song", input.to_str().unwrap()]);
     assert!(output.status.success(), "split --song failed: {output:?}");
 
+    // One VGM stem per channel of the written YM3812; the input `small.vgm` is
+    // filtered out by the roster-named prefix.
     let vgms: Vec<String> = file_names(&dir)
         .into_iter()
-        .filter(|name| name.ends_with(".out.vgm"))
+        .filter(|name| name.starts_with("small.ym3812."))
         .collect();
-    assert_eq!(vgms.len(), 3, "{vgms:?}");
+    assert_eq!(vgms.len(), 14, "{vgms:?}");
     assert!(
         std::fs::read(dir.join(&vgms[0]))
             .unwrap()
