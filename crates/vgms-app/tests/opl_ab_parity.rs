@@ -13,20 +13,15 @@
 //! (`rms_ratio`), which is where a per-chip balance the VGM path applies but the
 //! OPL path does not would show (the volume-model concern PLAN.md 12b raises).
 //!
-//! **`#[ignore]` -- it cannot pass yet, and that is the point.** Running it
-//! measured the real state of the gate: `VgmEngine` renders an OPL VGM as
-//! **silence** (correlation 0.0000, rms_ratio 0.000). The cause is
-//! architectural, not a bug -- `CoreInfo::build()` returns `None` for
-//! `CoreMaker::Opl` (`registry.rs:152`), because OPL cores answer to
-//! `PlayerEngine` (as `Box<dyn OplChip>` via `build_opl`), not to `VgmEngine`
-//! (which pulls samples from a `Box<dyn ChipCore>`). So the first thing k-1
-//! needs is not the channel gate but an `OplChip`->`ChipCore` adapter that lets
-//! `VgmEngine` host an OPL chip at all; this test is that adapter's acceptance
-//! gate. Run it once the adapter lands:
-//!
-//! ```text
-//! cargo test -p vgms-app --test opl_ab_parity -- --ignored --nocapture
-//! ```
+//! **ou-1 landed, and this now passes** -- perfectly: all four fixtures score
+//! correlation 1.0000, rms_ratio 1.000. Both paths drive the same Nuked OPL3 at
+//! its native rate with the same buffered writes in the same order, so the
+//! [`OplCoreAdapter`](vgms_synth::OplCoreAdapter) that `CoreInfo::build` now
+//! wraps a `CoreMaker::Opl` in reproduces `PlayerEngine` 1:1. When it measured
+//! silence (correlation 0.0000) it was because `CoreInfo::build()` returned
+//! `None` for `CoreMaker::Opl` -- OPL cores answered only to `PlayerEngine` (as
+//! `Box<dyn OplChip>` via `build_opl`), not to `VgmEngine` (which pulls samples
+//! from a `Box<dyn ChipCore>`). The adapter closed that gap.
 
 use std::sync::Arc;
 
@@ -92,12 +87,10 @@ fn opl_fixtures() -> [(&'static str, &'static [u8]); 4] {
 }
 
 #[test]
-#[ignore = "k-1 not built: VgmEngine has no OPL ChipCore, so it renders OPL as silence (see module doc)"]
 fn an_opl_vgm_sounds_the_same_through_both_engines() {
-    // `install_cores()` registers opl3.nuked, but only as a `CoreMaker::Opl`
-    // (an `OplChip` for `PlayerEngine`); `CoreInfo::build()` returns `None` for
-    // it, so `VgmEngine` still cannot host it. This call is here for when the
-    // k-1 adapter makes the OPL core buildable as a `ChipCore`.
+    // `install_cores()` registers opl3.nuked as a `CoreMaker::Opl`; since ou-1,
+    // `CoreInfo::build()` wraps that in an `OplCoreAdapter`, so `VgmEngine` hosts
+    // it as a `ChipCore` -- which is what makes this gate pass.
     vgms_app::install_cores();
 
     for (name, bytes) in opl_fixtures() {

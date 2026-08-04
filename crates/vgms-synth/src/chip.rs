@@ -147,10 +147,11 @@ impl Playability {
 /// render, the waveform and the peak scan all build the core the user picked (in
 /// a render dialog, or in Settings), not merely the registry's default.
 ///
-/// OPL returns `None` on purpose, and not by oversight: an OPL file plays
-/// through `PlayerEngine`, which carries the muting and panning policy this
-/// trait has no place for. The registry still *lists* OPL cores, so
-/// [`playability`] and the Settings picker see them.
+/// OPL now builds too, through the [`OplCoreAdapter`](crate::opl_adapter) (Stage
+/// K / ou-1): `VgmEngine` can host the OPL family like any other chip. `None`
+/// remains for a chip with no core, and for a [`Routed`](crate::CoreMaker::Routed)
+/// one (RetroWave hardware) -- listed and selectable, but a whole audio service
+/// rather than something the engine pulls samples from.
 #[must_use]
 pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
     let registry = crate::registry::registry();
@@ -176,13 +177,16 @@ pub fn core_for_realtime(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
 /// What playing a file with these chips through [`VgmEngine`] would sound like.
 ///
 /// Asks whether a core can be *built*, not merely whether one is listed, and
-/// the difference is load-bearing: the registry lists OPL cores so the Settings
-/// picker and the About credits can see them, but `VgmEngine` cannot drive one.
-/// Every caller here has already routed its OPL documents to `PlayerEngine`, so
-/// counting a listed-but-routed OPL core as playable would send an OPL file
-/// that failed to decode into the generic engine and render silence.
+/// the difference is load-bearing: the registry lists a [`Routed`] core
+/// (RetroWave hardware) so the Settings picker and the About credits can see it,
+/// but `VgmEngine` cannot pull samples from a whole audio service. Counting such
+/// a listed-but-routed core as playable would report a file playable that would
+/// render silence through the generic engine. OPL is no longer in that camp --
+/// the ou-1 adapter makes it buildable -- so a VGM's OPL chip now counts as
+/// played, not missing.
 ///
 /// [`VgmEngine`]: crate::vgm_engine::VgmEngine
+/// [`Routed`]: crate::CoreMaker::Routed
 #[must_use]
 pub fn playability(chips: &[ChipKind]) -> Playability {
     let registry = crate::registry::registry();

@@ -31,20 +31,23 @@ use vgms_core::vgm::ChipKind;
 use crate::channel_gate::{ChannelGate, GateAction};
 use crate::chip::ChipCore;
 use crate::opl::OplChip;
+use crate::opl_adapter::OplCoreAdapter;
 
 /// How a registered core is brought into being.
 ///
-/// Not every entry builds a [`ChipCore`]: the OPL family plays through
-/// `PlayerEngine`, which carries register policy (muting, panning, the buffered
-/// write spacing) that the generic trait has no place for, and RetroWave output
-/// is a whole audio service in a native-only crate. Those entries exist to be
-/// *named and chosen*; the app routes on their id.
+/// Only a [`Routed`](Self::Routed) entry builds no [`ChipCore`]: RetroWave
+/// output is a whole audio service in a native-only crate, chosen by id rather
+/// than pulled for samples. The OPL entries build both ways -- an [`OplChip`]
+/// for `PlayerEngine`, and, since ou-1, a `ChipCore` for `VgmEngine` through the
+/// [`OplCoreAdapter`].
 pub enum CoreMaker {
     /// Built here and driven by `VgmEngine`.
     Generic(fn() -> Box<dyn ChipCore>),
-    /// Built here and driven by `PlayerEngine`, which carries the OPL register
-    /// policy the generic trait has no place for. Takes the sample rate,
-    /// because an OPL core resamples to it rather than declaring its own.
+    /// An OPL core. Built as an [`OplChip`] for `PlayerEngine`
+    /// ([`build_opl`](CoreInfo::build_opl)) and, wrapped in an
+    /// [`OplCoreAdapter`], as a `ChipCore` for `VgmEngine`
+    /// ([`build`](CoreInfo::build)). Takes the sample rate, because an OPL core
+    /// resamples to it rather than declaring its own.
     Opl(fn(u32) -> Box<dyn OplChip>),
     /// Registered so it can be listed and selected, but not constructed here:
     /// the app knows what its id means. RetroWave hardware is one -- choosing
@@ -146,26 +149,34 @@ impl CoreInfo {
     /// than to each provider: a core stays raw, and the row that describes it
     /// says how loud it is. At [`LEVEL_UNITY`] there is no wrapper at all, so
     /// every core that has not been measured pays nothing for the mechanism.
+    ///
+    /// An OPL core is hosted through an [`OplCoreAdapter`], so `VgmEngine` can
+    /// drive the OPL family like any other chip (Stage K / ou-1); only a
+    /// [`Routed`](CoreMaker::Routed) core (RetroWave) genuinely has no
+    /// [`ChipCore`] to build.
     #[must_use]
     pub fn build(&self) -> Option<Box<dyn ChipCore>> {
-        match self.make {
-            CoreMaker::Generic(make) => {
-                // A core with no native mute gets the write-gating wrapper, so
-                // per-channel muting works on it too (Nuked-OPM, the LLE tier).
-                // A core that mutes natively keeps that path -- output-masking
-                // isolates better -- and a chip with no gate table yet is left
-                // honestly un-muteable. The gate goes *inside* the level wrapper
-                // so both the Settings path and a per-render pick get it for free.
-                let core = make();
-                let core = if !self.channel_mute && ChannelGate::exists(self.chip) {
-                    GatedCore::wrap(core, self.chip)
-                } else {
-                    core
-                };
-                Some(Leveled::wrap(core, self.level))
-            }
-            CoreMaker::Opl(_) | CoreMaker::Routed => None,
-        }
+        let core: Box<dyn ChipCore> = match self.make {
+            CoreMaker::Generic(make) => make(),
+            // An OPL core answers to `PlayerEngine` as an `OplChip`; the adapter
+            // presents it as a `ChipCore` so `VgmEngine` can host it too. It runs
+            // the chip at its native rate and lets the engine's Voice resampler
+            // convert to the output rate, so no output rate need reach here.
+            CoreMaker::Opl(make) => Box::new(OplCoreAdapter::new(make(crate::NATIVE_SAMPLE_RATE))),
+            CoreMaker::Routed => return None,
+        };
+        // A core with no native mute gets the write-gating wrapper, so
+        // per-channel muting works on it too (Nuked-OPM, the LLE tier, and the
+        // OPL rows). A core that mutes natively keeps that path -- output-masking
+        // isolates better -- and a chip with no gate table yet is left honestly
+        // un-muteable. The gate goes *inside* the level wrapper so both the
+        // Settings path and a per-render pick get it for free.
+        let core = if !self.channel_mute && ChannelGate::exists(self.chip) {
+            GatedCore::wrap(core, self.chip)
+        } else {
+            core
+        };
+        Some(Leveled::wrap(core, self.level))
     }
 
     /// Builds this core as an OPL chip, or `None` when it is not one.
@@ -566,15 +577,17 @@ impl CoreRegistry {
 
     /// Whether `VgmEngine` can be handed a core for `chip`.
     ///
-    /// Stricter than [`has_core`](Self::has_core), and deliberately so: the OPL
-    /// family is listed but [`Routed`](CoreMaker::Routed), because OPL plays
-    /// through `PlayerEngine` and its register policy. Treating "listed" as
-    /// "playable here" would route an OPL file into the generic engine, which
-    /// would render silence rather than fail.
+    /// Stricter than [`has_core`](Self::has_core), and deliberately so: a
+    /// [`Routed`](CoreMaker::Routed) core (RetroWave hardware) is listed and
+    /// selectable but is a whole audio *service*, not a [`ChipCore`] the engine
+    /// pulls samples from -- treating "listed" as "playable here" would report a
+    /// file playable that would render silence. OPL *is* playable here since
+    /// ou-1: [`CoreInfo::build`] hosts a [`CoreMaker::Opl`] through the
+    /// [`OplCoreAdapter`], so every non-routed maker counts.
     #[must_use]
     pub fn can_build(&self, chip: ChipKind) -> bool {
         self.for_chip(chip)
-            .any(|info| matches!(info.make, CoreMaker::Generic(_)))
+            .any(|info| !matches!(info.make, CoreMaker::Routed))
     }
 
     /// The core for `chip` given what the config stores: the short name, not
@@ -858,18 +871,20 @@ mod tests {
             "OPL is listed, not built"
         );
         // Every generic core comes from a provider crate; the builtins carry
-        // only the OPL entry the app routes.
+        // only the OPL entry.
         assert!(!registry.has_core(ChipKind::Sn76489), "providers only");
         assert!(!registry.has_core(ChipKind::Ym2612), "providers only");
-        assert!(registry.build(ChipKind::Ymf262, None).is_none());
+        // OPL now builds as a ChipCore too (ou-1): the adapter lets VgmEngine
+        // host it.
+        assert!(registry.build(ChipKind::Ymf262, None).is_some());
     }
 
-    /// The distinction that would be a silent bug if it blurred: the OPL family
-    /// is listed for the Settings picker but is *not* something `VgmEngine` can
-    /// be handed, because OPL plays through `PlayerEngine`. Every caller of
-    /// `playability` has already routed its OPL documents elsewhere, so an OPL
-    /// chip counted as buildable would mean an OPL file rendering silence
-    /// through the generic engine rather than failing visibly.
+    /// The distinction that used to catch OPL now catches the genuinely-routed
+    /// cores: a [`CoreMaker::Routed`] entry (RetroWave hardware) is *listed* for
+    /// the Settings picker but is not a [`ChipCore`] `VgmEngine` can be handed,
+    /// because it is a whole audio *service*, not something the engine pulls
+    /// samples from. OPL, once in that camp, is now buildable through the ou-1
+    /// adapter -- so it must answer `can_build` like any played chip.
     #[cfg(feature = "nuked-opl")]
     #[test]
     fn listed_and_buildable_are_different_questions() {
@@ -880,13 +895,13 @@ mod tests {
         for chip in OPL_CHIPS {
             assert!(registry.has_core(chip), "{} is listed", chip.name());
             assert!(
-                !registry.can_build(chip),
-                "{} must not reach VgmEngine",
+                registry.can_build(chip),
+                "{} now reaches VgmEngine through the OPL adapter",
                 chip.name()
             );
         }
         assert!(registry.can_build(ChipKind::Sn76489));
-        assert!(!registry.can_build(ChipKind::Ym2612));
+        assert!(!registry.can_build(ChipKind::Ym2612), "no core registered");
     }
 
     #[cfg(feature = "nuked-opl")]
