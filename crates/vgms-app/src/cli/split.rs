@@ -1,8 +1,9 @@
 //! `vgmstudio split`: split a song into one file per channel.
 //!
 //! The splitting logic is [`vgms_synth::split_vgm_cancellable`], tested there;
-//! this parses arguments, projects an OPL document to a VGM (ou-4), loads the
-//! config, and writes the outputs next to the input.
+//! this parses arguments, resolves the input to a VGM (a DRO projects; a VGM
+//! file is read as is), loads the config, and writes the outputs next to the
+//! input.
 
 use std::cell::RefCell;
 use std::io::Write;
@@ -41,7 +42,7 @@ pub struct Args {
 /// Splits `args.input`, writing one file per used channel beside it.
 ///
 /// # Errors
-/// If the song cannot be read, a channel cannot be rendered or captured, or an
+/// If the song cannot be read, a channel cannot be rendered or rewritten, or an
 /// output cannot be written.
 pub fn run(args: &Args) -> Result<()> {
     let song = read_any_song_from_path(&args.input)?;
@@ -65,15 +66,33 @@ pub fn run(args: &Args) -> Result<()> {
     // share one printer through a RefCell so a skip can close an open progress
     // line before printing over it.
     let progress = RefCell::new(RenderProgress::new(frequency));
-    // Every split goes through the generic splitter now (ou-4): a multichip VGM
-    // directly, an OPL document over a VGM of its register stream. A DRO projects
-    // to a canonical-clock VGM; a VGM (OPL or not) keeps its own header.
+    // Every split goes through the generic splitter now (ou-4). A VGM file --
+    // OPL or not -- splits from its own bytes so its header (and any non-standard
+    // chip clock) stays verbatim, matching the GUI, which splits an OPL VGM from
+    // its cached file rather than the projection. Only a DRO, which carries no
+    // clock of its own, projects to a canonical-clock VGM.
     let file = match song {
+        LoadedSong::Vgm(file) => Arc::new(*file),
+        LoadedSong::Opl(song) if song.is_vgm() => {
+            // An OPL VGM reached us as its OPL projection; re-read the file so its
+            // own header survives (opl_song_to_vgm_file would re-synthesise the
+            // OPL clock to the canonical value for its type).
+            let bytes = std::fs::read(&args.input)
+                .with_context(|| format!("re-reading {}", args.input.display()))?;
+            let name = args
+                .input
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("split");
+            Arc::new(
+                vgms_core::vgm::file::read(name, &bytes)
+                    .context("re-reading the VGM for splitting")?,
+            )
+        }
         LoadedSong::Opl(song) => Arc::new(
             vgms_core::convert::opl_song_to_vgm_file(&song)
-                .context("projecting the OPL document for splitting")?,
+                .context("projecting the DRO for splitting")?,
         ),
-        LoadedSong::Vgm(file) => Arc::new(*file),
     };
     let format = if args.song {
         SplitFormat::Song
@@ -128,7 +147,7 @@ pub fn run(args: &Args) -> Result<()> {
 /// Writes each split output beside `input`, reporting each and the total.
 ///
 /// # Errors
-/// If a captured song cannot be serialised, or a file cannot be written.
+/// If a per-channel VGM cannot be serialised, or a file cannot be written.
 fn write_outputs(input: &Path, outputs: Vec<SplitOutput>) -> Result<()> {
     let dir = input.parent().unwrap_or_else(|| Path::new("."));
     let count = outputs.len();

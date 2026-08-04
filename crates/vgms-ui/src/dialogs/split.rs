@@ -17,14 +17,12 @@ const MAX_BOOST: f32 = 16.0;
 #[derive(Debug)]
 pub struct SplitDialog {
     format: SplitFormat,
-    /// Whether the Song format is offered: an OPL document always is (it is
-    /// captured), and a generic VGM is when at least one of its chips has a
-    /// write-gate table (see [`ChannelGate::exists`]). When false, the split is
-    /// WAV-only and the format radio is replaced by a static note.
+    /// Whether the Song format is offered: an OPL document always is (its
+    /// projection splits to a per-channel VGM), and a generic VGM is when at
+    /// least one of its chips has a write-gate table (see [`ChannelGate::exists`]).
+    /// When false, the split is WAV-only and the format radio is replaced by a
+    /// static note.
     song_capable: bool,
-    /// Whether this is an OPL document, so the Song-format radio names both DRO
-    /// and VGM output rather than VGM alone.
-    is_opl: bool,
     /// Skip the channels the mixer has muted (decision 9): a live mute leaves a
     /// channel out of the output set. Applies to both formats.
     use_skip_muted: bool,
@@ -47,7 +45,6 @@ impl Default for SplitDialog {
         Self {
             format: SplitFormat::Wav,
             song_capable: true,
-            is_opl: true,
             use_skip_muted: false,
             use_panning: false,
             use_boost: false,
@@ -59,12 +56,12 @@ impl Default for SplitDialog {
 }
 
 impl SplitDialog {
-    /// The dialog for the loaded document. `is_opl` names the Song-format output
-    /// (DRO or VGM, vs VGM alone); the Song format is offered for an OPL document
-    /// or a VGM whose chips a write-gate covers. `current_boost` seeds the boost
-    /// field from live playback. `chips` are the document's chip slots and
-    /// `settings_cores` the current Settings core map; together they seed the
-    /// per-render core picker (session-sticky, never written to vgmstudio.ini).
+    /// The dialog for the loaded document. `is_opl` marks an OPL document, which
+    /// is always Song-capable; the Song format is otherwise offered for a VGM
+    /// whose chips a write-gate covers. `current_boost` seeds the boost field from
+    /// live playback. `chips` are the document's chip slots and `settings_cores`
+    /// the current Settings core map; together they seed the per-render core
+    /// picker (session-sticky, never written to vgmstudio.ini).
     #[must_use]
     pub fn new(
         is_opl: bool,
@@ -75,7 +72,6 @@ impl SplitDialog {
         let song_capable = is_opl || chips.iter().any(|&kind| ChannelGate::exists(kind));
         Self {
             song_capable,
-            is_opl,
             boost: format_boost(current_boost),
             chips,
             cores: settings_cores,
@@ -108,12 +104,9 @@ impl SplitDialog {
                     ui.add_space(4.0);
                     ui.radio_value(&mut self.format, SplitFormat::Wav, "Audio (WAV)")
                         .on_hover_text(crate::strings::SPLIT_AUDIO_HOVER);
-                    let song_label = if self.is_opl {
-                        "Song data (DRO or VGM)"
-                    } else {
-                        "Song data (VGM)"
-                    };
-                    ui.radio_value(&mut self.format, SplitFormat::Song, song_label)
+                    // Every song-format stem is a VGM now (ou-4): a DRO projects,
+                    // an OPL/multichip VGM keeps its own format, which is a VGM.
+                    ui.radio_value(&mut self.format, SplitFormat::Song, "Song data (VGM)")
                         .on_hover_text(crate::strings::SPLIT_SONG_HOVER);
                 } else {
                     ui.label(crate::strings::SPLIT_WAV_ONLY);
@@ -271,8 +264,8 @@ fn format_boost(boost: f32) -> String {
 mod tests {
     use super::*;
 
-    /// An OPL dialog with no core-picker seed -- the format/percussion options
-    /// under test do not touch the picker, which is exercised on its own below.
+    /// An OPL dialog with no core-picker seed -- the format and mix options under
+    /// test do not touch the picker, which is exercised on its own below.
     fn dialog(is_opl: bool) -> SplitDialog {
         SplitDialog::new(is_opl, Vec::new(), BTreeMap::new(), 1.0)
     }
@@ -410,11 +403,12 @@ mod tests {
         );
     }
 
-    /// The percussion option is OPL-only, whatever the VGM's chips.
+    /// An OPL document is always Song-capable (its projection splits to a
+    /// per-channel VGM); a non-OPL document with no gate-covered chip is WAV-only.
     #[test]
-    fn percussion_is_offered_for_opl_documents_only() {
-        assert!(dialog(true).is_opl);
-        assert!(!SplitDialog::new(false, vec![ChipKind::Ym2612], BTreeMap::new(), 1.0).is_opl);
+    fn an_opl_document_is_song_capable() {
+        assert!(dialog(true).song_capable);
+        assert!(!SplitDialog::new(false, Vec::new(), BTreeMap::new(), 1.0).song_capable);
     }
 
     /// The picker's chosen core rides the split request, seeded from Settings

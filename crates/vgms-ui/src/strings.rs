@@ -577,7 +577,7 @@ pub(crate) const SETTINGS_INVALID_NUMBERS: &str = "Check that the entered values
 pub(crate) const SPLIT_WAV_ONLY: &str = "Each chip channel is rendered to its own WAV.";
 pub(crate) const SPLIT_WRITE_EACH_AS: &str = "Write each channel as:";
 pub(crate) const SPLIT_AUDIO_HOVER: &str = "Render each channel on its own";
-pub(crate) const SPLIT_SONG_HOVER: &str = "Re-record each channel in the song's own format";
+pub(crate) const SPLIT_SONG_HOVER: &str = "Rewrite each channel into its own VGM";
 pub(crate) const SPLIT_SKIPPED_NOTE: &str =
     "Silent channels are skipped; existing files are overwritten.";
 pub(crate) const SPLIT_MIX_APPLY: &str = "Apply to each stem:";

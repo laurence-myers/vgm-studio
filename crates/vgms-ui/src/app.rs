@@ -1789,11 +1789,10 @@ impl VgmStudioApp {
                     self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
                     return;
                 }
-                // An OPL document keeps the format and percussion options; a
-                // generic VGM offers the Song format when a gate-covered chip
-                // lets a channel be rewritten (percussion stays OPL-only). Either
-                // way the split gets the per-render core picker, seeded from
-                // Settings.
+                // An OPL document always offers the Song format; a generic VGM
+                // offers it when a gate-covered chip lets a channel be rewritten.
+                // Either way the split gets the per-render core picker, seeded
+                // from Settings.
                 let chips = self.document_chips();
                 self.dialogs.split = Some(SplitDialog::new(
                     self.editor.has_song(),

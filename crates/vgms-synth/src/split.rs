@@ -85,9 +85,13 @@ const SILENCE_DIVISOR: i32 = 1000;
 /// Splits a VGM into one file per channel, in the chosen format.
 ///
 /// For [`SplitFormat::Wav`] it *renders* each channel soloed and keeps only the
-/// ones that come out above silence. For [`SplitFormat::Song`] it *rewrites* the
-/// command stream into a per-channel VGM (see [`song_gate`](crate::song_gate)),
-/// which needs no render but only works for a chip a [`ChannelGate`] covers.
+/// ones that come out above silence. Being chip-agnostic, it has no per-channel
+/// usage analysis, so it renders *every* channel of a written chip instance and
+/// drops the silent renders afterward -- more render work than a chip-specific
+/// pre-filter, but a channel split is an offline operation and the output set is
+/// the same. For [`SplitFormat::Song`] it *rewrites* the command stream into a
+/// per-channel VGM (see [`song_gate`](crate::song_gate)), which needs no render
+/// but only works for a chip a [`ChannelGate`] covers.
 ///
 /// A whole chip instance the stream never writes is skipped without work (the
 /// pre-filter). A chip that cannot be isolated in the chosen format -- a WAV core

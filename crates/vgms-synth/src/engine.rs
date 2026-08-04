@@ -68,8 +68,9 @@ impl FrameClock {
     }
 }
 
-/// Which channels and percussion voices are audible, for the channel splitter's channel
-/// isolation and the GUI channel panel's muting/soloing.
+/// Which channels and percussion voices are audible: the OPL playback engine's
+/// muting, the GUI channel panel's muting/soloing, and the source the
+/// OPL->generic translation ([`opl_chip_muting`](crate::opl_chip_muting)) reads.
 ///
 /// A muted melodic channel's key-on writes (`0xB0..=0xB8`) are dropped; the
 /// percussion register (`0xBD`) is AND-masked per bank. Every other register --
@@ -99,8 +100,8 @@ impl Muting {
     }
 
     /// Nothing melodic audible, and drums silenced but their control bits kept
-    /// (`0xE0`) -- the starting point the channel splitter builds a single isolated voice
-    /// on top of.
+    /// (`0xE0`) -- a fully-muted OPL device, the base a single voice can be
+    /// allowed back on top of.
     #[must_use]
     pub const fn silent() -> Self {
         Self {
@@ -206,8 +207,8 @@ impl Muting {
 
     /// Whether channel register `channel` (`0xB0..=0xB8`) on `bank` is audible.
     ///
-    /// What the channel splitter asks to exclude a channel the user has muted
-    /// from a split's output set (decision 9).
+    /// What [`opl_chip_muting`](crate::opl_chip_muting) reads to translate this
+    /// OPL muting into the generic per-channel mute mask.
     #[must_use]
     pub fn is_channel_audible(&self, bank: Bank, channel: u8) -> bool {
         self.channel_allowed(bank, channel)

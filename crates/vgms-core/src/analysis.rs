@@ -220,7 +220,7 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
 
 /// Which registers, and which percussion voices, a song writes.
 ///
-/// the channel splitter uses this to skip channels a song never touches. Keys are
+/// The register analyser reads this to report a song's used voices. Keys are
 /// `(bank << 8) | reg`; the bank is tracked across DRO v1 bank switches and DRO
 /// v2 / VGM per-write banks.
 #[derive(Debug, Clone, Default)]

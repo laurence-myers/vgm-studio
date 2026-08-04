@@ -216,6 +216,46 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
     );
 }
 
+/// Splitting a VGM must keep its own chip clock, not re-synthesise the canonical
+/// one: an OPL VGM reaches the CLI as its OPL projection, so it must be split from
+/// the file's own bytes (ou-4b review fix), the way the GUI splits it from its
+/// cached file.
+#[test]
+fn split_song_keeps_a_vgms_own_chip_clock() {
+    use vgms_core::vgm::ChipKind;
+
+    let dir = temp_dir("split-clock");
+    let input = dir.join("odd.vgm");
+    // An OPL2 VGM whose YM3812 clock is deliberately non-standard.
+    let dro = vgms_core::io::read_song("odd.dro", &small_song_bytes()).unwrap();
+    let vgm = vgms_core::convert::dro_to_vgm(&dro).unwrap();
+    let mut bytes = write_song(&vgm).unwrap();
+    const ODD_CLOCK: u32 = 4_000_000; // not the canonical YM3812 3_579_545
+    let offset = ChipKind::Ym3812.clock_offset();
+    bytes[offset..offset + 4].copy_from_slice(&ODD_CLOCK.to_le_bytes());
+    std::fs::write(&input, &bytes).unwrap();
+
+    let output = run(&["split", "--song", input.to_str().unwrap()]);
+    assert!(output.status.success(), "split --song failed: {output:?}");
+
+    // A stem must declare the file's odd clock; re-projection would canonicalise it.
+    let stem = dir.join("odd.ym3812.00-01.vgm");
+    let file = vgms_core::vgm::file::read("odd.ym3812.00-01.vgm", &std::fs::read(&stem).unwrap())
+        .expect("the stem reads");
+    let clock = file
+        .header
+        .chips()
+        .iter()
+        .find(|chip| chip.kind == ChipKind::Ym3812)
+        .expect("the stem has a YM3812")
+        .clock
+        & 0x3FFF_FFFF; // mask the dual/variant flag bits
+    assert_eq!(
+        clock, ODD_CLOCK,
+        "the split stem re-synthesised the clock instead of keeping the file's"
+    );
+}
+
 #[test]
 fn a_file_argument_is_not_mistaken_for_a_subcommand() {
     // `vgmstudio <file> <subcommand>` is a mistake, and must be reported as one

@@ -396,9 +396,21 @@ project (`opl_song_to_vgm_file`); OPL VGMs split from their own file (clocks
 verbatim, fixing a latent re-projection bug); the OPL mixer translates via
 `opl_chip_muting/panning`. `-i/--isolate-percussion` retired; stem names are the
 roster form; drums are 5 channels. Rerouted across GUI/CLI/web; `SplitTaskSource`
-collapsed to `Vgm`. **ou-4b remains (task): DELETE synth's now-unwired OPL split
-code (`split`/`SplitOptions`/`SplitData::Song`/`capture`) and re-bless the
-`render_regression` WAV fixtures (this is ou-3, the deliberate re-bless).**
+collapsed to `Vgm`.
+
+**ou-4b DONE (`61c1895`): deleted synth's now-unwired OPL split code**
+(`split`/`split_cancellable`/`split_percussion`/`render_one`/`channels_to_render`/
+`DRUMS`/`SplitOptions`/`SplitData::Song`, −610 lines) and `capture.rs`. On ou-3:
+`render_regression::every_split_channel_is_unchanged` and its `split.0.*` fixtures
+were DELETED, not re-blessed -- a split stem takes the whole-song render path
+(still pinned) and the generic split is covered by song_split_parity + cli_smoke +
+the OPL A/B gates. A post-change adversarial-review workflow (`8a5f...` commit)
+then cleaned up stale rustdoc/test-names and fixed two substantive gaps it caught:
+the CLI now reads an OPL VGM raw (clock verbatim, matching the GUI) instead of
+re-projecting to a canonical clock, and the Split dialog no longer advertises DRO
+output for a DRO (song-format is always VGM now). **Stage K's remaining work is
+k-3..k-5: re-host the register analyser off the OPL projection, then delete the
+projection field + `SongData::Vgm`.**
 
 Original scope (2026-08-03), kept for reference — the A/B render gate (gate #3,
 `opl_ab_parity.rs`, `#[ignore]`d) and k-2a (RetroWave) were done; ou-1's adapter was
