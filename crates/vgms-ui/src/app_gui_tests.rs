@@ -2005,8 +2005,9 @@ fn previewing_a_song_seeks_to_its_start_and_plays() {
     let audio = handles.audio.borrow();
     assert!(audio.play_calls >= 1, "preview should start playback");
     assert!(
-        audio.seeks_pos.contains(&0),
-        "preview should seek to the song's first instruction"
+        audio.seeks_ms.contains(&0),
+        "preview should seek to the segment's start time (ou-2: playback seeks by \
+         time, not row index)"
     );
 }
 
