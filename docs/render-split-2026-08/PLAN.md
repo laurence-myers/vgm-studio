@@ -367,9 +367,35 @@ All three steps are independent of the gate and land first.
 ### Stage 4 — OPL joins the generic path (ou-1..ou-4) — follow-up programme
 
 **This IS Stage K (`docs/review-2026-08/PLAN.md` §12b): `ou-1..ou-4` ≡ `k-1..k-5`.**
-Status (2026-08-03): the A/B render gate (gate #3, `opl_ab_parity.rs`, `#[ignore]`d)
-and k-2a (RetroWave) are done; ou-1's adapter is the go/no-go decision and nothing
-of it is built. The gate empirically settled the premise below.
+**Status (2026-08-04): ou-1 and ou-2 are DONE; live OPL playback now runs through
+`VgmEngine` on both transports.** ou-1 (`9990089`,`ad313e9`,`90a9c74`,`b40a55e`):
+the `OplCoreAdapter`, built WITHOUT the rate-plumbing API change the draft below
+assumed — it runs the OPL chip at its native rate and lets the Voice resampler
+convert, so `CoreInfo::build` needs no rate param; the A/B gate is un-ignored and
+green. ou-2 (`0025ee2`,`21ed82e`,`3034695`,`035a042`) reroutes via **Design 1**, a
+deliberate deviation from the draft below:
+- **Kept OPL as an `Opl` AudioSource; rerouted INSIDE the backend.** `doc_source()`
+  is untouched; the native + worklet `Engine` collapsed to
+  `struct { VgmEngine, opl: Option<OplType> }`, the Opl arm projecting Song→VgmFile
+  (`convert::opl_song_to_vgm_file`) and building a `VgmEngine`. Chosen over "flip
+  doc_source to Vgm" so **the RetroWave routing gate needs NO change** —
+  `source.opl().is_some()` is still true for OPL docs, so the "still open (ou-2
+  proper)" routing concern below is MOOT and the hardware path is byte-for-byte
+  unaffected. PlayerEngine is no longer used by either live transport.
+- **The row-index map was UNNEEDED**: there is no playing-row highlight, so the 4
+  `seek_pos(row)` sites became `seek_ms(ms_offset_at(row))` (ou-2c) — both engines
+  agree on ms.
+- **Vocabulary translation** shipped as `vgms_synth::opl_chip_muting/panning`
+  (`opl_chip_mix.rs`), covering Opl2/Opl3/DualOpl2 topology, called in the `Engine`
+  wrapper.
+- **Consumers left as-is** (render_wav/waveform/peak/CLI/capture/analyser): correct
+  OPL output on PlayerEngine; retiring them is ou-4 / k-3..k-5. **ou-3 (re-bless
+  fixtures) and ou-4 (retire the OPL split arm) remain.**
+
+Original scope (2026-08-03), kept for reference — the A/B render gate (gate #3,
+`opl_ab_parity.rs`, `#[ignore]`d) and k-2a (RetroWave) were done; ou-1's adapter was
+the go/no-go decision and nothing of it was built. The gate empirically settled the
+premise below.
 
 The goal "no code that treats OPL songs differently" cannot be reached by
 flag-flipping: `DocSource::Opl` (formerly `AudioSource::Opl`) routes DROs and
