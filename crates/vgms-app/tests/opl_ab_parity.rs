@@ -26,7 +26,9 @@
 use std::sync::Arc;
 
 use vgms_app::parity::{self, Render, Settings};
+use vgms_core::Bank;
 use vgms_synth::vgm_engine::VgmEngine;
+use vgms_synth::{ChipMuting, Muting, RenderMix, render_wav_mixed};
 
 /// Render both engines at the OPL core's native rate, so neither side's
 /// resampler enters the measurement -- both drive the same Nuked OPL3 core 1:1.
@@ -45,10 +47,8 @@ fn render_projection(name: &str, bytes: &[u8]) -> Render {
     Render::from_interleaved_i16(&samples[..samples.len().min(wanted)], wav_rate)
 }
 
-/// The generic path: `file` -> `VgmEngine` over the registered nuked-opl3 core.
-fn render_vgm_engine(name: &str, bytes: &[u8]) -> Render {
-    let file = vgms_core::vgm::file::read(name, bytes).expect("the fixture reads");
-    let mut engine = VgmEngine::new(Arc::new(file), RATE);
+/// Runs a `VgmEngine` for up to [`MAX_SECONDS`] into a [`Render`].
+fn drain(mut engine: VgmEngine) -> Render {
     let wanted = RATE as usize * MAX_SECONDS * 2;
     let mut samples = Vec::with_capacity(wanted);
     let mut buffer = vec![0i16; 4096 * 2];
@@ -60,6 +60,12 @@ fn render_vgm_engine(name: &str, bytes: &[u8]) -> Render {
         samples.extend_from_slice(&buffer[..rendered * 2]);
     }
     Render::from_interleaved_i16(&samples, RATE)
+}
+
+/// The generic path: `file` -> `VgmEngine` over the registered nuked-opl3 core.
+fn render_vgm_engine(name: &str, bytes: &[u8]) -> Render {
+    let file = vgms_core::vgm::file::read(name, bytes).expect("the fixture reads");
+    drain(VgmEngine::new(Arc::new(file), RATE))
 }
 
 /// The OPL fixtures embedded in the tree: the real single-chip capture, and the
@@ -122,4 +128,88 @@ fn an_opl_vgm_sounds_the_same_through_both_engines() {
             "{name}: the engines differ in level (rms_ratio {rms_lo:.3}..{rms_hi:.3})"
         );
     }
+}
+
+/// Soloing an OPL channel through `VgmEngine`'s write gate (the OPL
+/// `ChannelGate` rows, engaged now that the OPL row is `channel_mute: false`)
+/// isolates the **same channel at the same level** as `PlayerEngine`'s own
+/// register gating -- the validation the OPL gate rows had not yet had.
+///
+/// It is not a byte-parity check: the gate keeps a muted channel's frequency and
+/// clears only its key bit (so a seek replays like live play), where PlayerEngine
+/// drops the whole write, and those extra key-cleared writes interleave with
+/// Nuked's spaced write buffer differently -- phase-shifting the soloed channel.
+/// So the isolation itself is checked (which channel, how loud, to a tight peak
+/// ratio) plus a positive correlation confirming it *is* that channel and not a
+/// leak or the wrong one -- a mis-mapped gate row would isolate a different
+/// channel and fail the peak match.
+#[test]
+fn muting_an_opl_channel_matches_the_projection() {
+    vgms_app::install_cores();
+    let (name, bytes) = (
+        "lsl3_score_up.vgm",
+        include_bytes!("../../../tests/lsl3_score_up.vgm"),
+    );
+    let file = Arc::new(vgms_core::vgm::file::read(name, &bytes[..]).expect("the fixture reads"));
+    let song = file.to_song().expect("an OPL VGM projects");
+    // The fixture's actual OPL chip (lsl3 is a YM3812 / OPL2, not an OPL3), so the
+    // VgmEngine mask targets the voice that exists.
+    let kind = file.header.chips()[0].kind;
+
+    let mut compared = 0;
+    // Solo each low-bank melodic channel: `channels_of(Ymf262)` index `ch` is the
+    // low-bank channel `0xB0 + ch`, so the two vocabularies line up.
+    for ch in 0u8..9 {
+        // PlayerEngine: mute everything, allow only channel `ch`.
+        let mut muting = Muting::silent();
+        muting.allow_channel(Bank::Low, 0xB0 + ch);
+        let wav = render_wav_mixed(
+            &song,
+            RenderMix {
+                muting,
+                ..RenderMix::default()
+            },
+            RATE,
+            16,
+        )
+        .expect("the projection renders");
+        let (samples, wav_rate) = parity::reference::read_wav(&wav).expect("a valid WAV");
+        let wanted = RATE as usize * MAX_SECONDS * 2;
+        let projection =
+            Render::from_interleaved_i16(&samples[..samples.len().min(wanted)], wav_rate);
+
+        // A channel the song never sounds makes the comparison vacuous.
+        let peak = projection.channels()[0]
+            .iter()
+            .fold(0.0f64, |m, s| m.max(s.abs()));
+        if peak < 0.02 {
+            continue;
+        }
+
+        // VgmEngine: solo the same channel through the gate.
+        let mut engine = VgmEngine::new(Arc::clone(&file), RATE);
+        let mut muting = ChipMuting::new();
+        muting.set(kind, 0, !(1u32 << u32::from(ch)));
+        engine.set_muting(muting);
+        let gated = drain(engine);
+
+        let gate_peak = gated.channels()[0]
+            .iter()
+            .fold(0.0f64, |m, s| m.max(s.abs()));
+        let ratio = gate_peak / peak;
+        assert!(
+            (0.9..1.1).contains(&ratio),
+            "channel {ch}: the gate isolated a different level than PlayerEngine \
+             (peak ratio {ratio:.3}) -- the gate row may map the wrong channel"
+        );
+        let correlation =
+            parity::compare(&projection, &gated, Settings::default()).worst_correlation();
+        assert!(
+            correlation >= 0.5,
+            "channel {ch}: the gate solo does not track PlayerEngine's channel \
+             (correlation {correlation:.4}) -- likely a leak or the wrong channel"
+        );
+        compared += 1;
+    }
+    assert!(compared > 0, "no channel sounded, so nothing was validated");
 }

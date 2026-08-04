@@ -479,8 +479,11 @@ impl CoreRegistry {
                 // `PlayerEngine` drives (not the `ChipCore` mute/pan API); CQM
                 // and the RetroWave board cannot, and keep `false`.
                 channel_pan: true,
-                // OPL muting is register-gated by `PlayerEngine`, always works.
-                channel_mute: true,
+                // On the VgmEngine path the OPL adapter mutes through the write
+                // gate (the OPL `ChannelGate` rows), so `build` wraps it in a
+                // `GatedCore` -- `false` engages that. OPL *documents* still mute
+                // through `PlayerEngine`'s own register gating, untouched by this.
+                channel_mute: false,
                 level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
             });
