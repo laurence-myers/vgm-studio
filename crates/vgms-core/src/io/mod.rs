@@ -137,6 +137,37 @@ mod tests {
         }
     }
 
+    /// The editor's Load then Save is `read_song` then `write_song`: a DRO of
+    /// either version comes back byte-for-byte and in its own format. v2 is the
+    /// real capture; v1 is that same music as a canonical v1 file (the standard
+    /// NEW version pair and four-byte OPL type). This pins the guarantee at the
+    /// public boundary the Open/Save actions use, not just the `dro` module.
+    #[test]
+    fn a_dro_round_trips_byte_for_byte_through_load_and_save() {
+        use crate::song::{DRO_FILE_V1, DRO_FILE_V2};
+
+        // v2: the real fixture saves back byte-for-byte, still a v2 file.
+        let v2 = read_song("song.dro", DRO_V2_FIXTURE).unwrap();
+        assert_eq!(v2.file_version, DRO_FILE_V2);
+        assert_eq!(
+            write_song(&v2).unwrap(),
+            DRO_V2_FIXTURE,
+            "a v2 DRO must save byte-for-byte"
+        );
+
+        // v1: the same music as a canonical v1 DRO. Save it once to get the
+        // canonical bytes, then confirm a fresh Load + Save reproduces them.
+        let v1 = crate::convert::dro2_to_dro1(&v2).unwrap();
+        let saved = write_song(&v1).unwrap();
+        let reloaded = read_song("song.dro", &saved).unwrap();
+        assert_eq!(reloaded.file_version, DRO_FILE_V1, "a v1 DRO stays v1");
+        assert_eq!(
+            write_song(&reloaded).unwrap(),
+            saved,
+            "a v1 DRO must save byte-for-byte"
+        );
+    }
+
     #[test]
     fn write_song_compresses_a_vgz_by_name() {
         let mut song = read_song("a.vgm", VGM_FIXTURE).unwrap();
