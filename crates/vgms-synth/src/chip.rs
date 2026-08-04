@@ -54,6 +54,20 @@ pub trait ChipCore: Send {
     /// registers per port.
     fn write(&mut self, port: u8, addr: u16, data: u16);
 
+    /// Writes `data` to register `addr` on `port` as part of a **seek's bulk
+    /// replay** -- the burst of writes the engine folds a discarded head into to
+    /// rebuild the chip's state, with no samples rendered between them.
+    ///
+    /// Only the final register *values* matter there, not their spacing, so a
+    /// core with a hardware-style write buffer (the OPL adapter over Nuked's
+    /// spaced writes) applies these immediately rather than letting a
+    /// hundred-write burst trickle out over the samples after the seek. The
+    /// default is an ordinary [`write`](Self::write); most cores have no buffer
+    /// to bypass.
+    fn replay_write(&mut self, port: u8, addr: u16, data: u16) {
+        self.write(port, addr, data);
+    }
+
     /// Hands the core a ROM image, or the part of one it has been given so far.
     ///
     /// `total_size` is the full image's size, which arrives with the first

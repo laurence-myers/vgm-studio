@@ -63,6 +63,13 @@ impl OplCoreAdapter {
     }
 }
 
+/// The OPL register a `(port, addr)` write addresses: OPL3's two register banks
+/// are the write's port -- port 0 the low bank, port 1 the high bank (bit 8 of
+/// the chip's 9-bit register address).
+fn reg_of(port: u8, addr: u16) -> u16 {
+    (u16::from(port) << 8) | addr
+}
+
 impl core::fmt::Debug for OplCoreAdapter {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("OplCoreAdapter")
@@ -85,10 +92,14 @@ impl ChipCore for OplCoreAdapter {
     }
 
     fn write(&mut self, port: u8, addr: u16, data: u16) {
-        // OPL3's two register banks are the write's port: port 0 is the low
-        // bank, port 1 the high bank (bit 8 of the chip's register address).
-        let reg = (u16::from(port) << 8) | addr;
-        self.opl.write_reg_buffered(reg, data as u8);
+        self.opl.write_reg_buffered(reg_of(port, addr), data as u8);
+    }
+
+    fn replay_write(&mut self, port: u8, addr: u16, data: u16) {
+        // A seek's replay wants the immediate path: only the final register
+        // values matter, and a burst through the spaced buffer would trickle out
+        // over the samples after the seek (a stuck/late note).
+        self.opl.write_reg(reg_of(port, addr), data as u8);
     }
 
     fn render(&mut self, out: &mut [i32]) {
@@ -147,6 +158,49 @@ mod tests {
         let mut out = vec![0i32; 4096 * 2];
         core.render(&mut out);
         assert!(out.iter().any(|&s| s != 0), "the note should sound");
+    }
+
+    /// `write` takes Nuked's buffered path (so a back-to-back key off/on
+    /// retriggers), `replay_write` the immediate one (so a seek's burst collapses
+    /// to its net state). Measured through the retrigger energy, as the OPL chip
+    /// test does.
+    #[test]
+    fn replay_write_is_immediate_and_write_is_buffered() {
+        const SETUP: [(u16, u16); 8] = [
+            (0x20, 0x01),
+            (0x40, 0x00),
+            (0x60, 0xFA),
+            (0x80, 0x0F),
+            (0x23, 0x01),
+            (0x43, 0x00),
+            (0x63, 0xFA),
+            (0x83, 0x0F),
+        ];
+        fn retrigger_energy(via_replay: bool) -> u64 {
+            let mut core = adapter();
+            for (addr, data) in SETUP {
+                core.write(0, addr, data);
+            }
+            core.write(0, 0xB0, 0x31); // key on
+            core.render(&mut vec![0i32; 16_000 * 2]); // decay to near silence
+            if via_replay {
+                core.replay_write(0, 0xB0, 0x11); // key off
+                core.replay_write(0, 0xB0, 0x31); // key on again
+            } else {
+                core.write(0, 0xB0, 0x11);
+                core.write(0, 0xB0, 0x31);
+            }
+            let mut segment = vec![0i32; 2000 * 2];
+            core.render(&mut segment);
+            segment.iter().map(|&s| u64::from(s.unsigned_abs())).sum()
+        }
+        let buffered = retrigger_energy(false);
+        let immediate = retrigger_energy(true);
+        assert!(
+            buffered > immediate * 4,
+            "write must buffer (retrigger), replay_write must not: \
+             buffered={buffered} immediate={immediate}"
+        );
     }
 
     #[test]

@@ -241,6 +241,10 @@ impl ChipCore for Leveled {
         self.inner.write(port, addr, data);
     }
 
+    fn replay_write(&mut self, port: u8, addr: u16, data: u16) {
+        self.inner.replay_write(port, addr, data);
+    }
+
     fn load_rom(&mut self, block_type: u8, total_size: u32, start: u32, data: &[u8]) {
         self.inner.load_rom(block_type, total_size, start, data);
     }
@@ -377,6 +381,17 @@ impl ChipCore for GatedCore {
             GateAction::Pass => self.inner.write(port, addr, data),
             GateAction::Drop => {}
             GateAction::Replace(value) => self.inner.write(port, addr, value),
+        }
+    }
+
+    fn replay_write(&mut self, port: u8, addr: u16, data: u16) {
+        // Gate a replayed write exactly as a live one -- the muted channels'
+        // keys must stay cleared through a seek too -- but hand it to the inner
+        // core's immediate path.
+        match self.gate.filter(port, addr, data) {
+            GateAction::Pass => self.inner.replay_write(port, addr, data),
+            GateAction::Drop => {}
+            GateAction::Replace(value) => self.inner.replay_write(port, addr, value),
         }
     }
 

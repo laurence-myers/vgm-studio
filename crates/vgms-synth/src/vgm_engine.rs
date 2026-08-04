@@ -390,8 +390,9 @@ impl VgmEngine {
         for restore in state.restore_indices() {
             if let Some(command) = stream.get(restore) {
                 // The return is a wait length, and a restore never waits: the
-                // fold keeps writes and blocks, not the time between them.
-                self.execute(stream, restore, command);
+                // fold keeps writes and blocks, not the time between them. A
+                // restore is a replay, so a buffered core applies it immediately.
+                self.execute(stream, restore, command, true);
             }
         }
 
@@ -546,7 +547,7 @@ impl VgmEngine {
             let Some(command) = stream.get(index) else {
                 continue;
             };
-            let samples = self.execute(stream, index, command);
+            let samples = self.execute(stream, index, command, false);
             if samples > 0 {
                 self.pending = self.clock.frames_for(samples);
             }
@@ -557,10 +558,16 @@ impl VgmEngine {
     }
 
     /// Performs one command, returning how many VGM samples it waits for.
-    fn execute(&mut self, stream: &VgmStream, index: usize, command: VgmCommand) -> u32 {
+    fn execute(
+        &mut self,
+        stream: &VgmStream,
+        index: usize,
+        command: VgmCommand,
+        replay: bool,
+    ) -> u32 {
         match command {
             VgmCommand::Write { target, addr, data } => {
-                self.write(target, addr, data);
+                self.write(target, addr, data, replay);
                 0
             }
             VgmCommand::Wait(samples) => samples,
@@ -579,6 +586,7 @@ impl VgmEngine {
                         },
                         0x2A,
                         u16::from(byte),
+                        replay,
                     );
                 }
                 self.pcm_pos = self.pcm_pos.saturating_add(1);
@@ -668,10 +676,14 @@ impl VgmEngine {
     }
 
     /// Routes a register write to the core that owns it.
-    fn write(&mut self, target: ChipTarget, addr: u16, data: u16) {
+    fn write(&mut self, target: ChipTarget, addr: u16, data: u16, replay: bool) {
         for voice in &mut self.voices {
             if voice.accepts(target) {
-                voice.core.write(target.port, addr, data);
+                if replay {
+                    voice.core.replay_write(target.port, addr, data);
+                } else {
+                    voice.core.write(target.port, addr, data);
+                }
                 return;
             }
         }
@@ -823,6 +835,7 @@ impl VgmEngine {
                     },
                     u16::from(write.target.register),
                     u16::from(write.value),
+                    false,
                 );
             }
 
