@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-//! Native audio output: a cpal stream driven by the pull-based [`PlayerEngine`].
+//! Native audio output: a cpal stream driven by the pull-based [`VgmEngine`].
 //!
-//! The engine lives *inside* the cpal callback -- OPL emulation is far faster
+//! The engine lives *inside* the cpal callback -- chip emulation is far faster
 //! than real time, so there is no separate render thread and no ring buffer of
 //! PCM to underrun. Control (seek, mute, rewind) reaches the callback through a
 //! lock-free SPSC queue drained at the top of each callback, and the playback
 //! position flows back through atomics. Nothing locks in the audio path.
 //!
+//! Every document plays through [`VgmEngine`]: a multichip VGM directly, and an
+//! OPL document over a VGM projection of its register stream (ou-2), so OPL
+//! muting, panning and splitting ride the same per-chip path every other chip
+//! does. The OPL panel still speaks its own [`Muting`]/[`Panning`] vocabulary;
+//! [`Engine`] translates it to the generic [`ChipMuting`]/[`ChipPanning`] for an
+//! OPL document (see [`vgms_synth::opl_chip_muting`]).
+//!
 //! Native only: `cpal` cannot target `wasm32-unknown-unknown`. The web build
 //! plays through an `AudioWorkletProcessor` instead, calling the same
-//! `PlayerEngine::render`.
+//! `VgmEngine::render`.
 
 use std::fmt;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
@@ -18,12 +25,12 @@ use std::sync::{Arc, Mutex};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{SampleFormat, StreamConfig};
 
-use vgms_core::Song;
+use vgms_core::OplType;
 use vgms_core::config::AudioConfig;
 use vgms_synth::vgm_engine::VgmEngine;
 use vgms_synth::{
-    AudioSource, BoostLimiter, ChipMuting, ChipPanning, LoopConfig, Muting, OplChip, Panning,
-    PlayerEngine, Position,
+    AudioSource, BoostLimiter, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position,
+    opl_chip_muting, opl_chip_panning,
 };
 
 /// What can go wrong opening or driving the audio device.
@@ -35,6 +42,8 @@ pub enum AudioError {
     UnsupportedFormat(String),
     #[error("audio device error: {0}")]
     Cpal(#[from] cpal::Error),
+    #[error("could not project the OPL document for playback: {0}")]
+    Projection(String),
 }
 
 /// A control message posted from the UI thread into the audio callback.
@@ -171,46 +180,42 @@ impl NativeAudio {
         config: &AudioConfig,
         buffer_size: cpal::BufferSize,
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
+        // Realtime cores only: a chosen offline-tier core (the LLE die sims)
+        // would underrun the callback, so the transport substitutes the chip's
+        // realtime default. The OPL core choice rides the same registry choice --
+        // the app seeds it from the config at startup -- so the Settings OPL
+        // picker still applies. The WAV render keeps a chosen offline core as
+        // made; it has all the time in the world.
+        let build_vgm = |file: Arc<vgms_core::VgmFile>| {
+            let mut engine =
+                VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for_realtime);
+            // The config's slug, with an unknown spelling falling back to the
+            // accurate default -- same policy as an unknown core name.
+            engine.set_resample_mode(
+                vgms_synth::resample::ResampleMode::from_slug(&config.resampling)
+                    .unwrap_or_default(),
+            );
+            engine
+        };
         let engine = match source {
             AudioSource::Opl(song) => {
-                // The chosen core, or the registry's default if this build
-                // lacks it (a config naming `retrowave` reaches here when the
-                // board could not be opened; falling back beats refusing to
-                // play). The registry-side choice is asked first, since it runs
-                // ahead of the config while the Settings picker auditions a core.
-                let registry_choice =
-                    vgms_synth::registry::core_choice(vgms_core::vgm::ChipKind::Ymf262);
-                let chip = vgms_synth::registry::registry()
-                    .build_opl(
-                        registry_choice
-                            .as_deref()
-                            .or_else(|| config.core(vgms_core::config::OPL_SLOT)),
-                        sample_rate,
-                    )
-                    .unwrap_or_else(|| Box::new(vgms_synth::DefaultOplChip::new(sample_rate)));
-                Engine::Opl(Box::new(PlayerEngine::with_chip(
-                    Arc::clone(song),
-                    chip,
-                    sample_rate,
-                )))
+                // ou-2: an OPL document plays through the generic engine, over a
+                // VGM projection of its register stream, so its muting, panning
+                // and split ride the same per-chip path every other chip does.
+                // The projection (a serialise + re-read, as `convert_to_vgm`
+                // makes) is built here, off the audio thread. `opl` carries the
+                // document's OPL type so the panel's `Muting`/`Panning` translate.
+                let file = vgms_core::convert::opl_song_to_vgm_file(song)
+                    .map_err(|error| AudioError::Projection(error.to_string()))?;
+                Engine {
+                    inner: Box::new(build_vgm(Arc::new(file))),
+                    opl: Some(song.opl_type),
+                }
             }
-            AudioSource::Vgm(file) => {
-                // Realtime cores only: a chosen offline-tier core (the LLE
-                // die sims) would underrun the callback, so the transport
-                // substitutes the chip's realtime default. The WAV render
-                // keeps the choice as made -- it has all the time in the
-                // world.
-                let mut engine = VgmEngine::with_cores(Arc::clone(file), sample_rate, |kind| {
-                    vgms_synth::core_for_realtime(kind)
-                });
-                // The config's slug, with an unknown spelling falling back to
-                // the accurate default -- same policy as an unknown core name.
-                engine.set_resample_mode(
-                    vgms_synth::resample::ResampleMode::from_slug(&config.resampling)
-                        .unwrap_or_default(),
-                );
-                Engine::Vgm(Box::new(engine))
-            }
+            AudioSource::Vgm(file) => Engine {
+                inner: Box::new(build_vgm(Arc::clone(file))),
+                opl: None,
+            },
         };
         // Boost rides the existing `&AudioConfig`, and the limiter's release is
         // derived from the *actual* negotiated rate, not the configured one.
@@ -395,97 +400,78 @@ impl fmt::Debug for NativeAudio {
     }
 }
 
-/// Whichever engine the callback is driving.
+/// The [`VgmEngine`] the callback is driving, with the vocabulary bridge an OPL
+/// document needs.
 ///
-/// The callback needs six things from it -- render, seek, rewind, loop, where it
-/// is, and whether it has finished -- and everything else it can be told is OPL
-/// register policy, which only one of them has. Those are no-ops on the other
-/// rather than an error: a mute command arriving for a Mega Drive rip means the
-/// UI has not caught up, not that anything is wrong.
-enum Engine {
-    /// Boxed `dyn OplChip` rather than a concrete core: which OPL emulator plays
-    /// is the user's choice, made in Settings and resolved from the registry at
-    /// `load()`. A core swap applies to the next load, never to a running stream.
-    Opl(Box<PlayerEngine<Arc<Song>, Box<dyn OplChip>>>),
-    Vgm(Box<VgmEngine>),
+/// Every document plays through `VgmEngine` now (ou-2): a multichip VGM directly,
+/// an OPL document over its VGM projection. `opl` is `Some(type)` for the latter,
+/// which is the only thing that still differs -- the OPL panel speaks
+/// [`Muting`]/[`Panning`], so those are translated to the generic mutes/pans
+/// (keyed on the OPL type's projected chips) before reaching the engine, and the
+/// any-chip [`set_chip_muting`](Self::set_chip_muting) command is ignored. For a
+/// plain VGM it is the reverse: the OPL commands are the no-ops. A command for
+/// the wrong vocabulary means the UI has not caught up, not that anything is
+/// wrong.
+struct Engine {
+    inner: Box<VgmEngine>,
+    opl: Option<OplType>,
 }
 
 impl Engine {
     fn render(&mut self, out: &mut [i16]) {
-        match self {
-            Self::Opl(engine) => {
-                engine.render(out);
-            }
-            Self::Vgm(engine) => {
-                engine.render(out);
-            }
-        }
+        self.inner.render(out);
     }
 
     fn seek_to_ms(&mut self, ms: u32) {
-        match self {
-            Self::Opl(engine) => engine.seek_to_ms(ms),
-            Self::Vgm(engine) => engine.seek_to_ms(ms),
-        }
+        self.inner.seek_to_ms(ms);
     }
 
     fn seek_to_pos(&mut self, pos: usize) {
-        match self {
-            Self::Opl(engine) => engine.seek_to_pos(pos),
-            Self::Vgm(engine) => engine.seek_to_row(pos),
-        }
+        // A row index addresses a VGM command. It is 1:1 for a real VGM (and an
+        // OPL VGM's projection); for a DRO the projected command indices differ,
+        // so the UI seeks OPL documents by time instead (ou-2) and this stays
+        // exact for the VGM callers that still use it.
+        self.inner.seek_to_row(pos);
     }
 
     fn rewind(&mut self) {
-        match self {
-            Self::Opl(engine) => engine.rewind(),
-            Self::Vgm(engine) => engine.rewind(),
-        }
+        self.inner.rewind();
     }
 
     fn set_muting(&mut self, muting: Muting) {
-        if let Self::Opl(engine) = self {
-            engine.set_muting(muting);
+        if let Some(opl_type) = self.opl {
+            self.inner.set_muting(opl_chip_muting(&muting, opl_type));
         }
     }
 
     fn set_panning(&mut self, panning: Panning) {
-        if let Self::Opl(engine) = self {
-            engine.set_panning(panning);
+        if let Some(opl_type) = self.opl {
+            self.inner.set_panning(opl_chip_panning(&panning, opl_type));
         }
     }
 
     fn set_chip_muting(&mut self, muting: ChipMuting) {
-        if let Self::Vgm(engine) = self {
-            engine.set_muting(muting);
+        if self.opl.is_none() {
+            self.inner.set_muting(muting);
         }
     }
 
     fn set_chip_panning(&mut self, panning: ChipPanning) {
-        if let Self::Vgm(engine) = self {
-            engine.set_panning(panning);
+        if self.opl.is_none() {
+            self.inner.set_panning(panning);
         }
     }
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {
-        match self {
-            Self::Opl(engine) => engine.set_loop(config),
-            Self::Vgm(engine) => engine.set_loop(config),
-        }
+        self.inner.set_loop(config);
     }
 
     fn position(&self) -> Position {
-        match self {
-            Self::Opl(engine) => engine.position(),
-            Self::Vgm(engine) => engine.position(),
-        }
+        self.inner.position()
     }
 
     fn is_finished(&self) -> bool {
-        match self {
-            Self::Opl(engine) => engine.is_finished(),
-            Self::Vgm(engine) => engine.is_finished(),
-        }
+        self.inner.is_finished()
     }
 }
 
@@ -699,9 +685,9 @@ mod tests {
         );
     }
 
-    /// The `Engine::Vgm` arm forwards chip muting to its voices; the wrapper's
-    /// job is only to pick the arm, but that pick is what the callback relies
-    /// on.
+    /// A plain-VGM `Engine` (`opl: None`) forwards chip muting to its voices and
+    /// treats the OPL-only command as a no-op; the wrapper's job is only to route
+    /// by vocabulary, but that routing is what the callback relies on.
     #[test]
     fn the_vgm_arm_forwards_chip_muting() {
         let mutes: Arc<Mutex<Vec<u32>>> = Arc::new(Mutex::new(Vec::new()));
@@ -725,7 +711,10 @@ mod tests {
         let engine = VgmEngine::with_cores(sn_vgm(), 44_100, move |_| {
             Some(Box::new(Tap(Arc::clone(&mutes_for_factory))))
         });
-        let mut engine = Engine::Vgm(Box::new(engine));
+        let mut engine = Engine {
+            inner: Box::new(engine),
+            opl: None,
+        };
 
         let mut muting = ChipMuting::new();
         muting.set(ChipKind::Sn76489, 0, 0b0010);

@@ -2,22 +2,23 @@
 //! The safe playback core behind the worklet ABI.
 //!
 //! [`WebPlayer`] is the exact analogue of `vgms-audio-native`'s cpal callback,
-//! minus the device: it owns whichever engine (`PlayerEngine` for an OPL stream,
-//! `VgmEngine` for anything else), the [`BoostLimiter`], and the running peak /
-//! limiter state, and renders one buffer per call. The `abi` module is a thin
+//! minus the device: it owns a [`VgmEngine`] (every document plays through it --
+//! a multichip VGM directly, an OPL document over a VGM projection of its
+//! register stream, ou-2), the [`BoostLimiter`], and the running peak / limiter
+//! state, and renders one buffer per call. The `abi` module is a thin
 //! `extern "C"` skin over the process-global instance of it; these methods are
 //! plain Rust so the native test suite drives the whole thing without a browser.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use vgms_core::Song;
+use vgms_core::OplType;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::vgm_engine::VgmEngine;
 use vgms_synth::{
-    AudioSource, BoostLimiter, ChipMuting, ChipPanning, CoreRegistry, DefaultOplChip, LoopConfig,
-    LoopCount, Muting, OplChip, Panning, PlayerEngine, Position,
+    AudioSource, BoostLimiter, ChipMuting, ChipPanning, CoreRegistry, LoopConfig, LoopCount,
+    Muting, Panning, Position, opl_chip_muting, opl_chip_panning,
 };
 
 /// The process-wide player the ABI drives. `None` until the first successful
@@ -94,7 +95,7 @@ pub(crate) fn load(
     resample: ResampleMode,
 ) -> Result<(), String> {
     let source = read_source(name, bytes)?;
-    let player = WebPlayer::new(source, sample_rate.max(1), resample);
+    let player = WebPlayer::new(source, sample_rate.max(1), resample)?;
     *PLAYER.lock().expect("player mutex not poisoned") = Some(player);
     *LAST_ERROR.lock().expect("error mutex not poisoned") = String::new();
     Ok(())
@@ -219,9 +220,13 @@ pub(crate) struct WebPlayer {
 }
 
 impl WebPlayer {
-    pub(crate) fn new(source: AudioSource, sample_rate: u32, resample: ResampleMode) -> Self {
-        Self {
-            engine: Engine::build(&source, sample_rate, resample),
+    pub(crate) fn new(
+        source: AudioSource,
+        sample_rate: u32,
+        resample: ResampleMode,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            engine: Engine::build(&source, sample_rate, resample)?,
             // Boost starts at unity; the host flushes the configured boost right
             // after load, exactly as the native service flushes it on play.
             limiter: BoostLimiter::new(sample_rate, 1.0),
@@ -232,7 +237,7 @@ impl WebPlayer {
             min_engaged_boost: 0.0,
             chip_muting: ChipMuting::new(),
             chip_panning: ChipPanning::new(),
-        }
+        })
     }
 
     /// Renders one quantum into the planar `left`/`right` output buffers the
@@ -308,114 +313,103 @@ fn channel_peaks(frames: &[i16]) -> (u16, u16) {
     (left, right)
 }
 
-/// Whichever engine is driving playback -- the worklet's counterpart of
-/// `vgms-audio-native`'s private `Engine`. The six things the render loop needs
-/// (render, seek, rewind, loop, position, finished) are answered by both; the
-/// register-policy methods are no-ops on the engine that has no such policy.
-enum Engine {
-    Opl(Box<PlayerEngine<Arc<Song>, Box<dyn OplChip>>>),
-    Vgm(Box<VgmEngine>),
+/// The [`VgmEngine`] driving playback -- the worklet's counterpart of
+/// `vgms-audio-native`'s private `Engine`. Every document plays through it now
+/// (ou-2): a multichip VGM directly, an OPL document over its VGM projection.
+/// `opl` is `Some(type)` for the latter, so the OPL panel's [`Muting`]/[`Panning`]
+/// translate to the generic mutes/pans keyed on the projected chips; the any-chip
+/// commands are the no-ops there, and the reverse for a plain VGM.
+struct Engine {
+    inner: Box<VgmEngine>,
+    opl: Option<OplType>,
 }
 
 impl Engine {
-    fn build(source: &AudioSource, sample_rate: u32, resample: ResampleMode) -> Self {
-        match source {
+    fn build(
+        source: &AudioSource,
+        sample_rate: u32,
+        resample: ResampleMode,
+    ) -> Result<Self, String> {
+        // Realtime cores only, as the native transport does -- an offline LLE
+        // die-sim would underrun the audio thread. The OPL core choice rides the
+        // same registry choice the native builder consults.
+        let build_vgm = |file: Arc<vgms_core::VgmFile>| {
+            let mut engine =
+                VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for_realtime);
+            engine.set_resample_mode(resample);
+            engine
+        };
+        Ok(match source {
             AudioSource::Opl(song) => {
-                // The chosen OPL core, or the registry default when this build
-                // lacks it. The registry-side choice runs ahead of any config,
-                // exactly as the native builder consults it.
-                let choice = vgms_synth::registry::core_choice(ChipKind::Ymf262);
-                let chip = vgms_synth::registry()
-                    .build_opl(choice.as_deref(), sample_rate)
-                    .unwrap_or_else(|| Box::new(DefaultOplChip::new(sample_rate)));
-                Self::Opl(Box::new(PlayerEngine::with_chip(
-                    Arc::clone(song),
-                    chip,
-                    sample_rate,
-                )))
+                // ou-2: an OPL document plays through the generic engine over a
+                // VGM projection of its register stream. `opl` carries the type
+                // so the panel's Muting/Panning translate to the generic path.
+                let file = vgms_core::convert::opl_song_to_vgm_file(song)
+                    .map_err(|error| error.to_string())?;
+                Self {
+                    inner: Box::new(build_vgm(Arc::new(file))),
+                    opl: Some(song.opl_type),
+                }
             }
-            AudioSource::Vgm(file) => {
-                // Realtime cores only, as the native transport does -- an offline
-                // LLE die-sim would underrun the audio thread.
-                let mut engine = VgmEngine::with_cores(Arc::clone(file), sample_rate, |kind| {
-                    vgms_synth::core_for_realtime(kind)
-                });
-                engine.set_resample_mode(resample);
-                Self::Vgm(Box::new(engine))
-            }
-        }
+            AudioSource::Vgm(file) => Self {
+                inner: Box::new(build_vgm(Arc::clone(file))),
+                opl: None,
+            },
+        })
     }
 
     fn render(&mut self, out: &mut [i16]) -> usize {
-        match self {
-            Self::Opl(engine) => engine.render(out),
-            Self::Vgm(engine) => engine.render(out),
-        }
+        self.inner.render(out)
     }
 
     fn seek_to_ms(&mut self, ms: u32) {
-        match self {
-            Self::Opl(engine) => engine.seek_to_ms(ms),
-            Self::Vgm(engine) => engine.seek_to_ms(ms),
-        }
+        self.inner.seek_to_ms(ms);
     }
 
     fn seek_to_pos(&mut self, pos: usize) {
-        match self {
-            Self::Opl(engine) => engine.seek_to_pos(pos),
-            Self::Vgm(engine) => engine.seek_to_row(pos),
-        }
+        // 1:1 for a real VGM (and an OPL VGM's projection); a DRO's projected
+        // command indices differ, so the host seeks OPL documents by time (ou-2)
+        // and this stays exact for the VGM callers still using it.
+        self.inner.seek_to_row(pos);
     }
 
     fn rewind(&mut self) {
-        match self {
-            Self::Opl(engine) => engine.rewind(),
-            Self::Vgm(engine) => engine.rewind(),
-        }
+        self.inner.rewind();
     }
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {
-        match self {
-            Self::Opl(engine) => engine.set_loop(config),
-            Self::Vgm(engine) => engine.set_loop(config),
-        }
+        self.inner.set_loop(config);
     }
 
     fn position(&self) -> Position {
-        match self {
-            Self::Opl(engine) => engine.position(),
-            Self::Vgm(engine) => engine.position(),
-        }
+        self.inner.position()
     }
 
     fn is_finished(&self) -> bool {
-        match self {
-            Self::Opl(engine) => engine.is_finished(),
-            Self::Vgm(engine) => engine.is_finished(),
-        }
+        self.inner.is_finished()
     }
 
     fn set_muting(&mut self, muting: Muting) {
-        if let Self::Opl(engine) = self {
-            engine.set_muting(muting);
+        if let Some(opl_type) = self.opl {
+            self.inner.set_muting(opl_chip_muting(&muting, opl_type));
         }
     }
 
     fn set_panning(&mut self, panning: Panning) {
-        if let Self::Opl(engine) = self {
-            engine.set_panning(panning);
+        if let Some(opl_type) = self.opl {
+            self.inner.set_panning(opl_chip_panning(&panning, opl_type));
         }
     }
 
     fn set_chip_muting(&mut self, muting: ChipMuting) {
-        if let Self::Vgm(engine) = self {
-            engine.set_muting(muting);
+        if self.opl.is_none() {
+            self.inner.set_muting(muting);
         }
     }
 
     fn set_chip_panning(&mut self, panning: ChipPanning) {
-        if let Self::Vgm(engine) = self {
-            engine.set_panning(panning);
+        if self.opl.is_none() {
+            self.inner.set_panning(panning);
         }
     }
 }
@@ -491,7 +485,8 @@ mod tests {
         install_once();
         let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
         assert!(matches!(source, AudioSource::Opl(_)), "projects to OPL");
-        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+            .expect("the fixture builds a player");
         assert!(
             render_peak(&mut player, 48_000) > 0.01,
             "the OPL engine sounds"
@@ -507,7 +502,8 @@ mod tests {
             matches!(source, AudioSource::Vgm(_)),
             "a bare SN76489 is generic"
         );
-        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+            .expect("the fixture builds a player");
         assert!(
             render_peak(&mut player, 24_000) > 0.01,
             "the generic engine sounds through a real core"
@@ -518,7 +514,8 @@ mod tests {
     fn seek_and_finish_track_the_song() {
         install_once();
         let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
-        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+            .expect("the fixture builds a player");
 
         // A fresh song is not finished; rendering well past its end finishes it.
         assert!(!player.engine.is_finished());
@@ -541,7 +538,8 @@ mod tests {
     fn the_peak_meter_reads_once_then_resets() {
         install_once();
         let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
-        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+        let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+            .expect("the fixture builds a player");
         let mut left = [0.0f32; 128];
         let mut right = [0.0f32; 128];
         // Render until at least one channel has some energy.
@@ -567,12 +565,14 @@ mod tests {
         // fully-muted pass is a small fraction of the loud one.
         let loud = {
             let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
-            let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+            let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+                .expect("the fixture builds a player");
             render_peak(&mut player, 48_000)
         };
         let muted = {
             let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
-            let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc);
+            let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
+                .expect("the fixture builds a player");
             player.engine.set_muting(Muting::from_raw(0, [0xE0, 0xE0]));
             render_peak(&mut player, 48_000)
         };
