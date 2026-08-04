@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use vgms_core::io::write_song;
 use vgms_core::util::ms_to_timestr;
 use vgms_synth::{
     Position, SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable,
@@ -138,7 +137,6 @@ fn write_outputs(input: &Path, outputs: Vec<SplitOutput>) -> Result<()> {
         let path = dir.join(&output.name);
         let bytes = match output.data {
             SplitData::Wav(bytes) => bytes,
-            SplitData::Song(song) => write_song(&song)?,
             SplitData::Vgm(vgm) => vgms_core::vgm::file::write(&vgm)?,
         };
         std::fs::write(&path, bytes).with_context(|| format!("writing {}", path.display()))?;

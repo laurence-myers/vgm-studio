@@ -19,12 +19,8 @@
 
 use std::path::PathBuf;
 
-use vgms_core::config::AudioConfig;
 use vgms_core::{Bank, DroDataV1, OplType, Song};
-use vgms_synth::{
-    Muting, Panning, RenderMix, SplitData, SplitFormat, SplitOptions, render_wav, render_wav_mixed,
-    split,
-};
+use vgms_synth::{Muting, Panning, RenderMix, render_wav, render_wav_mixed};
 
 /// The render every fixture uses: the app's own defaults.
 const SAMPLE_RATE: u32 = 48_000;
@@ -182,54 +178,11 @@ fn a_fully_mixed_render_is_unchanged() {
     assert_matches_fixture("combined.wav", &wav);
 }
 
-/// The split renders one file per used channel, each through the same muted
-/// render path -- so each output is pinned too.
-#[test]
-fn every_split_channel_is_unchanged() {
-    let outputs = split(
-        &regression_song(),
-        &SplitOptions {
-            format: SplitFormat::Wav,
-            isolate_percussion: false,
-            audio: AudioConfig {
-                frequency: SAMPLE_RATE,
-                bit_depth: BIT_DEPTH,
-                ..AudioConfig::default()
-            },
-            panning: Panning::default(),
-            boost: 1.0,
-            skip_muted: None,
-            core_choices: Default::default(),
-        },
-        &mut |_| {},
-        &mut |_, _| {},
-    )
-    .unwrap();
-
-    // Channels 0 and 1 and the percussion register: three files, no more.
-    let names: Vec<&str> = outputs.iter().map(|o| o.name.as_str()).collect();
-    assert_eq!(
-        names,
-        [
-            "regress.dro.0.01.wav",
-            "regress.dro.0.02.wav",
-            "regress.dro.0.14.wav"
-        ],
-        "the split's outputs changed"
-    );
-
-    for output in &outputs {
-        let SplitData::Wav(bytes) = &output.data else {
-            panic!("{} is not a WAV", output.name)
-        };
-        // Fixtures drop the song-name prefix: split.0.01.wav and friends.
-        let channel = output
-            .name
-            .strip_prefix("regress.dro.")
-            .expect("the split names its outputs after the song");
-        assert_matches_fixture(&format!("split.{channel}"), bytes);
-    }
-}
+// The OPL-specific channel split (`vgms_synth::split`) was retired in ou-4:
+// splitting now runs through the generic `split_vgm_cancellable`, covered by
+// `song_split_parity`, `cli_smoke`, and the OPL A/B parity gates. Its exact-byte
+// regression (and the `split.0.*` fixtures) went with it -- the render path a
+// split stem takes is the whole-song render path, still pinned above.
 
 /// Each scenario must actually differ from the others, or the fixtures above
 /// would pass while testing nothing.

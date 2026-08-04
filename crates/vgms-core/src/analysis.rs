@@ -233,10 +233,9 @@ impl RegisterUsage {
     /// Counts every register write, keyed by `(bank << 8) | reg`.
     ///
     /// With `detailed_percussion`, also records which percussion bits were ever
-    /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask` -- the map
-    /// the splitter's `isolate_percussion` option needs. The count is what matters to
-    /// the splitter (it only tests for zero), but it is kept exact so tests
-    /// asserting a specific count still pin it.
+    /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask`. The count is
+    /// kept exact, not just zero/non-zero, so tests asserting a specific count
+    /// still pin it.
     #[must_use]
     pub fn analyze(song: &Song, detailed_percussion: bool) -> Self {
         let mut usage = Self::default();

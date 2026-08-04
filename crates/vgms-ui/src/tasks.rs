@@ -557,7 +557,6 @@ fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> 
             .map(|output| {
                 let bytes = match output.data {
                     SplitData::Wav(bytes) => bytes,
-                    SplitData::Song(song) => write_song(&song).map_err(|e| e.to_string())?,
                     SplitData::Vgm(file) => {
                         vgms_core::vgm::file::write(&file).map_err(|e| e.to_string())?
                     }
