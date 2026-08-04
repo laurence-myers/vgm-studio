@@ -21,6 +21,7 @@ pub mod engine;
 pub mod limiter;
 pub mod opl;
 pub mod opl_adapter;
+pub mod opl_chip_mix;
 pub mod peak;
 pub mod registry;
 pub mod resample;
@@ -49,6 +50,7 @@ pub use opl::CReferenceOpl3;
 pub use opl::NukedOpl3;
 pub use opl::{DefaultOplChip, OplChip, SilentOpl};
 pub use opl_adapter::OplCoreAdapter;
+pub use opl_chip_mix::{opl_chip_muting, opl_chip_panning, opl_projection_kind};
 pub use peak::{
     Peak, measure_peak, measure_peak_cancellable, measure_vgm_peak, measure_vgm_peak_cancellable,
 };
