@@ -2162,7 +2162,9 @@ impl VgmStudioApp {
                 // is what centring would spend half the view on.
                 self.scroll_to = Some(table::ScrollTo::to_top(index));
                 if self.audio.is_playing() {
-                    self.audio.seek_pos(index);
+                    // The click already carries the row's time; seek by it (the
+                    // engine addresses ms, not row index -- ou-2).
+                    self.audio.seek_ms(ms);
                 }
                 self.position.set_position_ms(ms);
             }
@@ -2173,7 +2175,7 @@ impl VgmStudioApp {
                 self.waveform.cursor_ms = 0;
                 self.editor.selection.select_only(0);
                 if self.audio.is_playing() {
-                    self.audio.seek_pos(0);
+                    self.audio.seek_ms(0);
                 }
                 self.position.set_position_ms(0);
             }
@@ -3655,6 +3657,23 @@ impl VgmStudioApp {
         self.dialogs.screenshot_rename = None;
     }
 
+    /// Seeks live playback to instruction `index`, addressed by time.
+    ///
+    /// Playback locates a position in milliseconds, not by row index: an OPL
+    /// document plays through the generic engine over a projected VGM whose
+    /// command indices need not line up with the document's rows (ou-2), so a
+    /// row is found by the instant it plays at -- which both engines agree on --
+    /// rather than by index. A row past the end (or a document with no timeline)
+    /// falls back to the start.
+    fn seek_to_row(&mut self, index: usize) {
+        let ms = self
+            .editor
+            .timeline()
+            .and_then(|timeline| timeline.ms_offset_at(index))
+            .unwrap_or(0);
+        self.audio.seek_ms(ms);
+    }
+
     fn do_play(&mut self) {
         if !self.require_playable() {
             return;
@@ -3665,7 +3684,7 @@ impl VgmStudioApp {
         }
         self.audio.rewind();
         if let Some(first) = self.editor.selection.first() {
-            self.audio.seek_pos(first);
+            self.seek_to_row(first);
         }
         if let Err(message) = self.audio.play() {
             self.alerts.push_back(Alert::error(message));
@@ -4577,7 +4596,7 @@ impl VgmStudioApp {
             return;
         }
         self.audio.rewind();
-        self.audio.seek_pos(start_index);
+        self.seek_to_row(start_index);
         if let Err(message) = self.audio.play() {
             self.alerts.push_back(Alert::error(message));
         }
