@@ -329,6 +329,20 @@ impl ChipUse {
         matches!(self.kind, ChipKind::Sn76489) && self.variant && self.dual
     }
 
+    /// Whether this is a `dro2vgm` dual-OPL2 with the SB Pro stereo image: two
+    /// YM3812s with the (spec-meaningless-for-OPL) bit-31 flag `dro2vgm` sets
+    /// alongside the dual bit, meaning chip 1 plays hard left and chip 2 hard
+    /// right. The player owes that image itself -- an OPL2 has no pan of its own
+    /// -- so the VGM engine reads this to hard-pan the two instances. `libvgm`
+    /// keys the same behaviour on the same bit.
+    ///
+    /// The 27 genuine twin-YM3812 arcade boards carry the dual bit *without* bit
+    /// 31 (one mono speaker), so they correctly answer `false` and stay centred.
+    #[must_use]
+    pub const fn is_dual_opl2_stereo(&self) -> bool {
+        matches!(self.kind, ChipKind::Ym3812) && self.variant && self.dual
+    }
+
     /// How to name this chip in a description or a UI, e.g. `"YM3438"`,
     /// `"YMF262 x2"`.
     ///
@@ -1137,6 +1151,36 @@ mod tests {
         let parsed = VgmHeader::parse(&bytes).unwrap();
         assert_eq!(parsed.chip_list(), "YM3812 x2");
         assert!(parsed.is_opl_only());
+    }
+
+    /// The same bit-31 marker the player reads to hard-pan a dual OPL2: two
+    /// YM3812s with it ask for the SB Pro stereo image; a mono twin (bit 30
+    /// only), a lone chip, and an OPL3 never do.
+    #[test]
+    fn a_dual_opl2_with_bit_31_asks_for_stereo() {
+        let ym3812 = |clock: u32| {
+            let mut bytes = header(0x151, 0x80);
+            put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), clock);
+            VgmHeader::parse(&file(bytes)).unwrap().chips()[0].is_dual_opl2_stereo()
+        };
+        assert!(
+            ym3812(3_579_545 | VARIANT_FLAG | DUAL_CHIP_FLAG),
+            "the dro2vgm stereo pair"
+        );
+        assert!(
+            !ym3812(3_579_545 | DUAL_CHIP_FLAG),
+            "a mono arcade twin, bit 30 only"
+        );
+        assert!(!ym3812(3_579_545), "a lone YM3812");
+
+        // An OPL3 with both bits is a different chip, never this.
+        let mut bytes = header(0x151, 0x80);
+        put_u32(
+            &mut bytes,
+            ChipKind::Ymf262.clock_offset(),
+            14_318_180 | VARIANT_FLAG | DUAL_CHIP_FLAG,
+        );
+        assert!(!VgmHeader::parse(&file(bytes)).unwrap().chips()[0].is_dual_opl2_stereo());
     }
 
     #[test]

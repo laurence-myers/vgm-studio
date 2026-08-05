@@ -52,6 +52,14 @@ struct Voice {
     /// ratio. Applied per frame *before* the voices are summed, so the
     /// headroom exists before the mix clamps to 16 bits.
     balance: u32,
+    /// A whole-chip stereo placement, `[left, right]` in the same 8.8 fixed point
+    /// as `balance` ([`balance::GAIN_UNITY`] = 1.0). Unity on both sides for every
+    /// ordinary voice; a `dro2vgm` dual-OPL2 (bit 31) instead hard-pans its two
+    /// YM3812 instances -- instance 0 to `[2.0, 0]`, instance 1 to `[0, 2.0]` --
+    /// the SB Pro image an OPL2 cannot make itself. Applied per side in
+    /// [`Self::next_frame`] *after* `balance`; the doubled surviving side undoes
+    /// the dual-declaration halving `balance` already applied, matching libvgm.
+    stereo: [u32; 2],
     /// How many channels this chip has, so [`apply_mix`](VgmEngine::apply_mix)
     /// can tell "every channel muted" from a partial mask.
     channel_count: u32,
@@ -83,6 +91,7 @@ impl Voice {
             output_rate,
             resampler: Resampler::new(native, output_rate),
             balance,
+            stereo: [crate::balance::GAIN_UNITY; 2],
             channel_count: vgms_core::vgm::channels_of(chip.kind, chip.variant).len() as u32,
             silenced: false,
         }
@@ -117,11 +126,21 @@ impl Voice {
         if self.silenced {
             return [0, 0];
         }
-        if self.balance == crate::balance::GAIN_UNITY {
+        // Unity on every axis is the overwhelming common case (a single, centred
+        // chip): hand the core's frame straight back untouched. The stereo check
+        // is load-bearing -- a hard-panned voice whose balance happens to be
+        // unity must not skip its pan.
+        if self.balance == crate::balance::GAIN_UNITY
+            && self.stereo == [crate::balance::GAIN_UNITY; 2]
+        {
             return frame;
         }
-        let scale = |sample: i32| ((i64::from(sample) * i64::from(self.balance)) >> 8) as i32;
-        [scale(frame[0]), scale(frame[1])]
+        // Cross-chip balance (mono) first, then the whole-chip stereo placement.
+        let scale = |sample: i32, gain: u32| ((i64::from(sample) * i64::from(gain)) >> 8) as i32;
+        [
+            scale(scale(frame[0], self.balance), self.stereo[0]),
+            scale(scale(frame[1], self.balance), self.stereo[1]),
+        ]
     }
 }
 
@@ -226,14 +245,23 @@ impl VgmEngine {
                         instance,
                         file.header.extra(),
                     );
-                    voices.push(Voice::new(
+                    let mut voice = Voice::new(
                         target,
                         core,
                         chip,
                         file.header.settings(),
                         output_rate,
                         balance,
-                    ));
+                    );
+                    // A dro2vgm dual-OPL2 plays its two YM3812s hard left and
+                    // hard right (the SB Pro image) -- a whole-chip pan an OPL2
+                    // cannot make itself. Double the surviving side, as libvgm
+                    // does, to undo the dual-declaration halving `balance` applied.
+                    if chip.is_dual_opl2_stereo() {
+                        let live = crate::balance::GAIN_UNITY * 2;
+                        voice.stereo = if instance == 0 { [live, 0] } else { [0, live] };
+                    }
+                    voices.push(voice);
                 }
             }
         }
@@ -1153,6 +1181,69 @@ mod tests {
         assert!(
             !after_resets.contains(&(1, "pan", 4)),
             "instance 2 has no pan image set: {events:?}"
+        );
+    }
+
+    /// A dro2vgm dual-OPL2 (clock bits 30+31) hard-pans its two YM3812s: chip 1
+    /// left, chip 2 right, the SB Pro image an OPL2 cannot make itself, with each
+    /// surviving side doubled to undo the dual-declaration balance halving. The
+    /// same two chips with only the dual bit (a genuine mono arcade twin) stay
+    /// centred.
+    #[test]
+    fn dual_opl2_bit31_hard_pans_the_two_instances() {
+        // Instance 0 renders a constant of 1000 on both channels; instance 1
+        // renders 2000 -- distinct so each side can be traced to one chip.
+        struct Const(i32);
+        impl ChipCore for Const {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(self.0);
+            }
+        }
+
+        // A steady-state frame (past any resampler warmup) of a one-second render.
+        let steady = |clock: u32| -> (i64, i64) {
+            let file = vgm(&[(ChipKind::Ym3812, clock)], &[0x61, 0x44, 0xAC, 0x66]);
+            let consts = [1000i32, 2000i32];
+            let counter = Arc::new(Mutex::new(0usize));
+            let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+                let mut at = counter.lock().expect("not poisoned");
+                let value = consts[*at];
+                *at += 1;
+                Some(Box::new(Const(value)) as Box<dyn ChipCore>)
+            });
+            assert_eq!(engine.voiced_chips().len(), 2, "a dual chip is two voices");
+            let mut out = vec![0i16; 400];
+            engine.render(&mut out);
+            (i64::from(out[200]), i64::from(out[201])) // frame 100
+        };
+
+        const DUAL: u32 = 3_579_545 | 0x4000_0000; // bit 30 only -- mono twin
+        const DUAL_STEREO: u32 = 3_579_545 | 0xC000_0000; // bits 30 + 31 -- SB Pro
+
+        let (mono_l, mono_r) = steady(DUAL);
+        assert!(mono_l > 0, "the mono twin is audible");
+        assert_eq!(mono_l, mono_r, "without bit 31 the two chips stay centred");
+
+        let (left, right) = steady(DUAL_STEREO);
+        assert_ne!(left, right, "bit 31 splits the two chips across the image");
+        assert!(left > 0 && right > 0, "both sides carry a chip");
+        // Left is instance 0 (the 1000 chip), right is instance 1 (the 2000 chip);
+        // the ratio is theirs, proving each side carries exactly one chip (a bleed
+        // would pull the ratio toward 1). Small tolerance for the 8.8 truncation.
+        assert!(
+            (right - 2 * left).abs() <= 2,
+            "right/left tracks 2000/1000: {left} {right}"
+        );
+        // The doubled surviving side restores full level: the stereo pair sums to
+        // twice the centred per-side level, not the halved one.
+        assert!(
+            (left + right - 2 * mono_l).abs() <= 2,
+            "doubling restores the pre-halving level: {left}+{right} vs 2*{mono_l}"
         );
     }
 
