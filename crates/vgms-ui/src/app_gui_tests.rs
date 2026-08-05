@@ -4099,10 +4099,12 @@ fn previewing_a_track_plays_it_and_stop_halts_it() {
 
 #[test]
 fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
-    // Editor song is dual-OPL2, so its panning is the fixed hard-L/R chip image;
-    // the pack track is a mono OPL2 song, whose panning is Original. Previewing the
-    // track must use the track's own panning -- leaking the editor's hard-L/R
-    // image onto a mono track plays it hard left (the reported bug).
+    // Editor song is a dual-OPL2 DRO, so its panning is the fixed hard-L/R chip
+    // image; the pack track is a mono OPL2 VGM. Previewing the track must use the
+    // track's own image, not the editor's -- leaking the editor's hard-L/R onto a
+    // mono track plays it hard left (the reported bug). An OPL VGM track previews
+    // through the generic VgmEngine path now (Stage K), so isolation shows as the
+    // chip mixer reset to neutral rather than an OPL Panning::Original.
     let (mut harness, handles) = build_sized(
         Some(picked(&dual_tone_song())),
         false,
@@ -4127,15 +4129,18 @@ fn previewing_a_track_uses_its_own_panning_not_the_editor_songs() {
     harness.get_by_label("Preview").click();
     harness.run_steps(3);
 
+    // The preview resets the chip mixer to neutral, so the track plays its own
+    // image (an OPL core reproduces the file's own 0xC0 writes) rather than
+    // inheriting the editor's leaked panning/mutes.
     let audio = handles.audio.borrow();
     assert_eq!(
-        audio.pannings.last(),
-        Some(&vgms_synth::Panning::Original),
-        "preview uses the mono track's own Original panning, not the editor's hard-L/R"
+        audio.chip_pannings.last(),
+        Some(&vgms_synth::ChipPanning::new()),
+        "preview resets to the track's own image, not the editor's hard-L/R"
     );
     assert_eq!(
-        audio.mutings.last(),
-        Some(&vgms_synth::Muting::all()),
+        audio.chip_mutings.last(),
+        Some(&vgms_synth::ChipMuting::new()),
         "preview clears channel mutes"
     );
 }

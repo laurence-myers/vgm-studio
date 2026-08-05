@@ -61,12 +61,13 @@ pub fn read_song_from_path(path: &Path) -> Result<Song> {
     Ok(read_song(name, &bytes)?)
 }
 
-/// A song a subcommand opened: the OPL stream when there is one (a DRO, or an
-/// OPL VGM through its projection), else the whole VGM.
+/// A song a subcommand opened: a DRO as its editable OPL [`Song`], or any VGM --
+/// OPL or not -- as its whole file.
 ///
 /// The two arms go to different engines, exactly as the GUI's
 /// [`vgms_synth::AudioSource`] splits them; this is that split made at the
-/// reading step, where the CLI can still print format-appropriate detail.
+/// reading step, where the CLI can still print format-appropriate detail. An OPL
+/// VGM takes the `Vgm` arm like every other VGM (Stage K retired the projection).
 #[derive(Debug)]
 pub enum LoadedSong {
     Opl(Song),
@@ -158,13 +159,12 @@ fn chip_names(chips: &[ChipKind]) -> String {
         .join(", ")
 }
 
-/// Reads the song at `path` whatever its chips, keeping the OPL arm exactly
-/// what [`read_song_from_path`] produces.
+/// Reads the song at `path` whatever its chips.
 ///
-/// A VGM goes through the multichip reader; when its every command projects to
-/// OPL it comes back as a [`Song`], instruction-for-instruction what the OPL
-/// reader made of it (the projection corpus pins that parity), so the OPL
-/// subcommand paths behave as they always have. Anything else comes back whole.
+/// A VGM goes through the multichip reader and comes back whole as a [`VgmFile`],
+/// OPL or not -- the engine plays, renders and splits an OPL VGM straight from
+/// its own stream now, so there is no projected `Song` to hand back. A DRO comes
+/// back as the OPL [`Song`] it is.
 ///
 /// # Errors
 /// If the file cannot be read, or is not a song `vgms_core` can parse.
@@ -177,10 +177,12 @@ pub fn read_any_song_from_path(path: &Path) -> Result<LoadedSong> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".vgm") || lower.ends_with(".vgz") {
         let file = vgms_core::vgm::file::read(name, &bytes)?;
-        return Ok(match file.to_song() {
-            Some(song) => LoadedSong::Opl(song),
-            None => LoadedSong::Vgm(Box::new(file)),
-        });
+        // Every VGM comes back whole, OPL or not: an OPL VGM plays, renders and
+        // splits through the same VgmEngine path as any other now (Stage K), so
+        // there is no reason to hand the CLI a projected `Song` it would only
+        // route back to the engine. Only a DRO -- which has no VGM container --
+        // is an `Opl` song.
+        return Ok(LoadedSong::Vgm(Box::new(file)));
     }
     Ok(LoadedSong::Opl(read_song(name, &bytes)?))
 }
@@ -242,24 +244,17 @@ mod loaded_song_tests {
     }
 
     /// The OPL arm must be what `read_song_from_path` always produced -- the
-    /// projection corpus pins the deep parity; this pins the routing.
+    /// An OPL VGM now loads whole, as its own file (Stage K): the CLI routes it
+    /// through the same VgmEngine path as any VGM rather than a projected `Song`.
     #[test]
-    fn an_opl_vgm_still_loads_as_the_song_it_always_was() {
+    fn an_opl_vgm_loads_whole_as_its_own_file() {
         let path = temp_path("opl.vgm");
         std::fs::write(&path, OPL_VGM).unwrap();
-        let old = read_song_from_path(&path).unwrap();
-        let LoadedSong::Opl(new) = read_any_song_from_path(&path).unwrap() else {
-            panic!("an OPL VGM should load through its projection");
+        let LoadedSong::Vgm(file) = read_any_song_from_path(&path).unwrap() else {
+            panic!("an OPL VGM should load as its whole VGM file");
         };
-        assert_eq!(new.opl_type, old.opl_type);
-        assert_eq!(new.len(), old.len());
-        for index in 0..old.len() {
-            assert_eq!(
-                new.instruction(index),
-                old.instruction(index),
-                "row {index}"
-            );
-        }
+        assert!(file.is_opl(), "and it is recognised as OPL");
+        assert!(file.stream().is_some(), "with a walkable stream");
         std::fs::remove_file(&path).ok();
     }
 }

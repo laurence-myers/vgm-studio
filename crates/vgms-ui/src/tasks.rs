@@ -173,10 +173,10 @@ pub(crate) fn can_preview(source: &vgms_core::DocSource) -> bool {
     match source {
         DocSource::Opl(_) => true,
         DocSource::Vgm(file) => {
-            file.to_song().is_some() || {
-                let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-                vgms_synth::playability(&chips).can_play()
-            }
+            // An OPL VGM plays through the same VgmEngine path as any VGM now, so
+            // its chips answer `playability` like the rest -- no projection probe.
+            let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+            vgms_synth::playability(&chips).can_play()
         }
     }
 }

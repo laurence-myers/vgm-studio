@@ -2914,8 +2914,10 @@ impl VgmStudioApp {
         // editor's channel panel is for a different song, and its stored
         // panning/muting would otherwise leak into the preview (e.g. a dual-OPL2
         // editor song's fixed hard-L/R image applied to a mono track plays it
-        // hard left). Panning is an OPL idea, so a track for other chips has
-        // none to set.
+        // hard left). A DRO track carries an OPL image; every other track -- an
+        // OPL VGM included, now that it plays the generic path -- resets the chip
+        // mixer instead. Both are sent below; the service applies whichever the
+        // source speaks and ignores the other, exactly as the editor's load does.
         let preview_panning = source
             .opl()
             .map(|song| ChannelPanel::for_song(song).panning());
@@ -2950,9 +2952,11 @@ impl VgmStudioApp {
             return;
         }
         self.audio.set_muting(Muting::all());
+        self.audio.set_chip_muting(ChipMuting::new());
         if let Some(panning) = preview_panning {
             self.audio.set_panning(panning);
         }
+        self.audio.set_chip_panning(ChipPanning::new());
         if let Err(message) = self.audio.play() {
             // Load succeeded but playback won't start: drop the half-started
             // preview so the service isn't left holding it (and the editor's

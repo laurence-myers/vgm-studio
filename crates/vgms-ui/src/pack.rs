@@ -140,16 +140,14 @@ impl PackTrack {
     /// The track as something an engine can play, or `None` when nothing would
     /// be heard.
     ///
-    /// An OPL track goes to the OPL player, which is what gives the preview its
-    /// per-channel panning; anything else goes to the generic engine. A track
-    /// whose chips all lack cores is not offered, because a preview button that
-    /// plays silence is worse than one that is not there.
+    /// The track as something an engine can play -- always its whole VGM file
+    /// now, OPL or not (Stage K): an OPL track plays through the same VgmEngine
+    /// path as any other, its per-channel panning coming from the OPL core. A
+    /// track whose chips all lack cores is not offered, because a preview button
+    /// that plays silence is worse than one that is not there.
     #[must_use]
     pub fn preview_source(&self) -> Option<AudioSource> {
         let file = self.vgm()?;
-        if let Some(song) = file.to_song() {
-            return Some(AudioSource::Opl(Arc::new(song)));
-        }
         vgms_synth::playability(&chip_kinds(file))
             .can_play()
             .then(|| AudioSource::Vgm(Arc::clone(file)))

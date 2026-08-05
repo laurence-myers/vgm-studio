@@ -50,13 +50,19 @@ pub fn run(args: &Args) -> Result<()> {
     let total_ms = song.total_ms();
     match &args.retrowave {
         Some(port) => {
-            // The board is an OPL3; only an OPL stream can drive it. Same
-            // refusal the GUI's hardware output makes.
-            let LoadedSong::Opl(song) = song else {
-                anyhow::bail!(
+            // The board is an OPL3; only an OPL stream can drive it. A DRO is one
+            // directly; an OPL VGM projects to one (the same Song the hardware
+            // service builds). Same refusal the GUI's hardware output makes for a
+            // VGM of other chips.
+            let song = match song {
+                LoadedSong::Opl(song) => song,
+                LoadedSong::Vgm(file) if file.is_opl() => {
+                    file.to_song().expect("an OPL VGM projects to an OPL song")
+                }
+                LoadedSong::Vgm(_) => anyhow::bail!(
                     "{} is not an OPL song, and the RetroWave output is an OPL3.",
                     args.input.display()
-                );
+                ),
             };
             play_on_hardware(song, port.as_str(), total_ms)
         }

@@ -73,22 +73,6 @@ pub fn run(args: &Args) -> Result<()> {
     // clock of its own, projects to a canonical-clock VGM.
     let file = match song {
         LoadedSong::Vgm(file) => Arc::new(*file),
-        LoadedSong::Opl(song) if song.is_vgm() => {
-            // An OPL VGM reached us as its OPL projection; re-read the file so its
-            // own header survives (opl_song_to_vgm_file would re-synthesise the
-            // OPL clock to the canonical value for its type).
-            let bytes = std::fs::read(&args.input)
-                .with_context(|| format!("re-reading {}", args.input.display()))?;
-            let name = args
-                .input
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("split");
-            Arc::new(
-                vgms_core::vgm::file::read(name, &bytes)
-                    .context("re-reading the VGM for splitting")?,
-            )
-        }
         LoadedSong::Opl(song) => Arc::new(
             vgms_core::convert::opl_song_to_vgm_file(&song)
                 .context("projecting the DRO for splitting")?,
