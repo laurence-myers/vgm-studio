@@ -613,25 +613,26 @@ mod pack_zip_tests {
     }
 
     /// A real VGM carrying a redundant write between two delays, so the built-in
-    /// optimiser has something to strip and merge.
+    /// optimiser has something to strip and merge. Assembled as a `VgmFile`: a
+    /// synthesised v1.51 header with the YM3812 clock (offset 0x50, spec-stable),
+    /// the stream, an end marker, then canonicalised through the reader/writer.
     fn optimizable_vgm_bytes() -> Vec<u8> {
         use vgms_core::vgm::io::synthesise_header;
-        use vgms_core::{OplType, Song, VgmData, VgmMeta};
-        let stream = vec![
+        let stream = [
             0x5A, 0x20, 0x01, // write
             0x61, 0x64, 0x00, // wait 100
             0x5A, 0x20, 0x01, // redundant write
             0x61, 0xC8, 0x00, // wait 200
             0x5A, 0x21, 0x02, // write
         ];
-        let song = Song::vgm(
-            "x.vgm".to_owned(),
-            0x151,
-            VgmData::new(stream).unwrap(),
-            OplType::Opl2,
-            VgmMeta::new(synthesise_header()),
-        );
-        vgms_core::io::write_song(&song).unwrap()
+        let mut bytes = synthesise_header();
+        bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
+        bytes.extend_from_slice(&stream);
+        bytes.push(0x66); // end marker
+        let eof = (bytes.len() - 0x04) as u32;
+        bytes[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+        let file = vgms_core::vgm::file::read("x.vgm", &bytes).unwrap();
+        vgms_core::vgm::file::write(&file).unwrap()
     }
 
     #[test]
@@ -651,7 +652,7 @@ mod pack_zip_tests {
         assert_eq!(files[0].0, "01 Song.vgm");
         assert!(files[0].1.len() < original.len(), "optimizing shrinks it");
         assert!(
-            vgms_core::io::read_song("01 Song.vgm", &files[0].1).is_ok(),
+            vgms_core::vgm::file::read("01 Song.vgm", &files[0].1).is_ok(),
             "the optimized bytes are still a valid VGM"
         );
         assert!(

@@ -28,8 +28,8 @@ use crate::platform::{
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{
-    bogus_leading_delay_song, dro_song_v2, dual_tone_song, looping_vgm, multi_song_capture,
-    multi_song_capture_dro, paced_song, redundant_vgm_song, tone_song,
+    bogus_leading_delay_song, dro_song_v2, dual_tone_song, looping_vgm, looping_vgm_bytes,
+    multi_song_capture, multi_song_capture_dro, paced_song, redundant_vgm_file, tone_song,
 };
 use crate::test_support::{
     AudioLog, FakeAudioService, FakeFileService, FakePackService, FileLog, InlineTaskService,
@@ -52,6 +52,15 @@ fn picked(song: &Song) -> PickedFile {
         name: song.name.clone(),
         path: Some(PathBuf::from(format!("C:/songs/{}", song.name))),
         bytes: vgms_core::io::write_song(song).unwrap(),
+    }
+}
+
+/// The same, for a document held as a VGM ([`vgms_core::VgmFile`]).
+fn picked_vgm(file: &vgms_core::VgmFile) -> PickedFile {
+    PickedFile {
+        name: file.name.clone(),
+        path: Some(PathBuf::from(format!("C:/songs/{}", file.name))),
+        bytes: vgms_core::vgm::file::write(file).unwrap(),
     }
 }
 
@@ -134,6 +143,10 @@ fn empty_harness() -> (Harness<'static, VgmStudioApp>, Handles) {
 /// Interaction harness with `song` already loaded (via the first-frame open).
 fn harness_with_song(song: &Song) -> (Harness<'static, VgmStudioApp>, Handles) {
     build(Some(picked(song)), false, false)
+}
+
+fn harness_with_vgm(file: &vgms_core::VgmFile) -> (Harness<'static, VgmStudioApp>, Handles) {
+    build(Some(picked_vgm(file)), false, false)
 }
 
 // -- interaction tests -------------------------------------------------------
@@ -847,19 +860,21 @@ fn a_locked_volume_change_is_persisted() {
     assert!(last.audio.lock_boost, "and the lock state is saved with it");
 }
 
-/// The VGM fixture with its header volume modifier set to `modifier`.
-fn vgm_with_modifier(modifier: u8) -> Song {
-    let mut song = vgms_core::io::read_song("m.vgm", VGM_FIXTURE).unwrap();
-    song.vgm_meta_mut().unwrap().volume_modifier = modifier;
-    song
+/// The VGM fixture with its header volume modifier set to `modifier`. Patches the
+/// Volume Modifier header byte (spec offset 0x7C) directly, since a VGM document
+/// is a [`vgms_core::VgmFile`].
+fn vgm_with_modifier(modifier: u8) -> vgms_core::VgmFile {
+    let mut bytes = VGM_FIXTURE.to_vec();
+    bytes[0x7C] = modifier;
+    vgms_core::vgm::file::read("m.vgm", &bytes).unwrap()
 }
 
 #[test]
 fn opening_a_song_sets_the_volume_from_its_header_modifier_when_unlocked() {
     // The header asks for a 2x volume (modifier 0x20); unlocked, opening it sets
     // the playback volume to match, so the boost never carries over stale.
-    let song = vgm_with_modifier(0x20);
-    let (harness, _handles) = build(Some(picked(&song)), false, false);
+    let file = vgm_with_modifier(0x20);
+    let (harness, _handles) = build(Some(picked_vgm(&file)), false, false);
     assert!(
         (harness.state().config.audio.boost - 2.0).abs() < 1e-4,
         "the volume follows the header modifier: {}",
@@ -882,7 +897,7 @@ fn a_locked_volume_ignores_the_songs_modifier_on_open() {
     // Opening a song whose modifier asks for 2x must not disturb the locked 4x.
     harness
         .state_mut()
-        .load_file(picked(&vgm_with_modifier(0x20)));
+        .load_file(picked_vgm(&vgm_with_modifier(0x20)));
     harness.run();
     assert_eq!(
         harness.state().config.audio.boost,
@@ -925,7 +940,7 @@ fn a_non_opl_vgms_header_modifier_sets_the_load_volume() {
 #[test]
 fn unlocking_snaps_the_volume_to_the_current_songs_modifier() {
     // Locked at 4x over a song whose modifier asks for 2x.
-    let (mut harness, _handles) = build(Some(picked(&vgm_with_modifier(0x20))), false, false);
+    let (mut harness, _handles) = build(Some(picked_vgm(&vgm_with_modifier(0x20))), false, false);
     act(&mut harness, Action::SetLockBoost(true));
     act(
         &mut harness,
@@ -1859,7 +1874,7 @@ fn open_split_songs_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
 #[test]
 fn split_songs_is_offered_for_vgm_and_dro() {
     // A VGM capture opens the dialog with its detected songs.
-    let (mut harness, _handles) = harness_with_song(&multi_song_capture());
+    let (mut harness, _handles) = harness_with_vgm(&multi_song_capture());
     open_split_songs_dialog(&mut harness);
     assert!(harness.state().dialogs.split_songs.is_some());
     assert!(harness.query_by_label_contains("song(s) found").is_some());
@@ -1906,7 +1921,7 @@ fn exporting_a_dro_capture_writes_numbered_dro_files() {
 
 #[test]
 fn exporting_songs_writes_a_numbered_file_per_song() {
-    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    let (mut harness, handles) = build(Some(picked_vgm(&multi_song_capture())), true, false);
     let dir = PathBuf::from("C:/out");
     handles
         .files
@@ -1940,7 +1955,7 @@ fn exporting_songs_writes_a_numbered_file_per_song() {
 
 #[test]
 fn the_song_split_offers_to_open_the_folder_as_a_pack_project() {
-    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    let (mut harness, handles) = build(Some(picked_vgm(&multi_song_capture())), true, false);
     let dir = PathBuf::from("C:/out");
     handles
         .files
@@ -1985,7 +2000,7 @@ fn the_song_split_offers_to_open_the_folder_as_a_pack_project() {
 
 #[test]
 fn dismissing_the_folder_picker_cancels_the_song_split() {
-    let (mut harness, handles) = build(Some(picked(&multi_song_capture())), true, false);
+    let (mut harness, handles) = build(Some(picked_vgm(&multi_song_capture())), true, false);
     handles.files.borrow_mut().output_folders.push_back(None);
 
     open_split_songs_dialog(&mut harness);
@@ -2003,7 +2018,7 @@ fn dismissing_the_folder_picker_cancels_the_song_split() {
 #[test]
 fn previewing_a_song_seeks_to_its_start_and_plays() {
     // A single-song VGM: one segment, so its lone Preview button is unambiguous.
-    let (mut harness, handles) = build(Some(picked(&redundant_vgm_song())), false, false);
+    let (mut harness, handles) = build(Some(picked_vgm(&redundant_vgm_file())), false, false);
     open_split_songs_dialog(&mut harness);
 
     harness.get_by_label_contains("Preview").click();
@@ -2811,7 +2826,7 @@ fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
 fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     // A real OPL VGM, with its declared length falsified so a canonicalising
     // writer would visibly "fix" it.
-    let mut bytes = vgms_core::io::write_song(&looping_vgm()).unwrap();
+    let mut bytes = looping_vgm_bytes();
     bytes[0x18..0x1C].copy_from_slice(&999_999u32.to_le_bytes());
 
     let file = PickedFile {
@@ -3512,7 +3527,7 @@ fn snapshot_split_dialog_vgm() {
 
 #[test]
 fn snapshot_split_songs_dialog() {
-    let (mut harness, _handles) = build(Some(picked(&multi_song_capture())), false, true);
+    let (mut harness, _handles) = build(Some(picked_vgm(&multi_song_capture())), false, true);
     open_split_songs_dialog(&mut harness);
     settled_snapshot(&mut harness, "split_songs_dialog");
 }
@@ -3642,19 +3657,17 @@ const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 /// A VGM fixture re-serialised with a file name and GD3 tag, wrapped as a picked
 /// file for a pack folder.
 fn tagged_vgm(name: &str, game: &str, author: &str, creator: &str) -> PickedFile {
-    let mut song = vgms_core::io::read_song(name, VGM_FIXTURE).unwrap();
-    if let Some(meta) = song.vgm_meta_mut() {
-        meta.tag = Some(vgms_core::Gd3Tag {
-            game_name_en: game.to_owned(),
-            track_author_en: author.to_owned(),
-            creator: creator.to_owned(),
-            ..vgms_core::Gd3Tag::default()
-        });
-    }
+    let mut file = vgms_core::vgm::file::read(name, VGM_FIXTURE).unwrap();
+    file.tag = Some(vgms_core::Gd3Tag {
+        game_name_en: game.to_owned(),
+        track_author_en: author.to_owned(),
+        creator: creator.to_owned(),
+        ..vgms_core::Gd3Tag::default()
+    });
     PickedFile {
         name: name.to_owned(),
         path: Some(PathBuf::from(format!("C:/pack/{name}"))),
-        bytes: vgms_core::io::write_song(&song).unwrap(),
+        bytes: vgms_core::vgm::file::write(&file).unwrap(),
     }
 }
 
@@ -3780,7 +3793,7 @@ fn a_pack_preview_starts_at_the_tracks_modifier_volume() {
     let track = PickedFile {
         name: "01 Loud.vgm".to_owned(),
         path: Some(PathBuf::from("C:/pack/01 Loud.vgm")),
-        bytes: vgms_core::io::write_song(&vgm_with_modifier(0x20)).unwrap(),
+        bytes: vgms_core::vgm::file::write(&vgm_with_modifier(0x20)).unwrap(),
     };
     open_folder(
         &mut harness,
@@ -4698,7 +4711,7 @@ fn quick_edit_opens_a_dialog_and_saves_a_rewrite() {
         SaveRequest::InPlace { path, bytes } => {
             assert!(path.to_string_lossy().ends_with("01 Intro.vgz"));
             assert!(
-                vgms_core::io::read_song("01 Intro.vgz", bytes).is_ok(),
+                vgms_core::vgm::file::read("01 Intro.vgz", bytes).is_ok(),
                 "the rewritten bytes are a valid VGZ"
             );
         }
@@ -4830,9 +4843,7 @@ fn overlay_writing(index: usize, value: &str) -> crate::pack::BulkTagOverlay {
 
 /// Reads back a written VGM/VGZ and returns its GD3 tag.
 fn tag_of(name: &str, bytes: &[u8]) -> vgms_core::Gd3Tag {
-    vgms_core::io::read_song(name, bytes)
-        .unwrap()
-        .vgm_meta()
+    vgms_core::vgm::file::read(name, bytes)
         .unwrap()
         .tag
         .clone()
@@ -4973,14 +4984,12 @@ const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 /// The png is a real (decodable) image so the inline preview renders.
 /// A VGM fixture re-serialised under `name` carrying `tag`.
 fn vgm_with_tag(name: &str, tag: vgms_core::Gd3Tag) -> PickedFile {
-    let mut song = vgms_core::io::read_song(name, VGM_FIXTURE).unwrap();
-    if let Some(meta) = song.vgm_meta_mut() {
-        meta.tag = Some(tag);
-    }
+    let mut file = vgms_core::vgm::file::read(name, VGM_FIXTURE).unwrap();
+    file.tag = Some(tag);
     PickedFile {
         name: name.to_owned(),
         path: Some(PathBuf::from(format!("C:/pack/{name}"))),
-        bytes: vgms_core::io::write_song(&song).unwrap(),
+        bytes: vgms_core::vgm::file::write(&file).unwrap(),
     }
 }
 
@@ -7110,8 +7119,9 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
 fn find_loop_is_offered_for_both_dro_and_vgm() {
     // A DRO has nowhere to store a loop, but marking and auditioning one still
     // work, so the search is offered -- only the dialog's Apply is VGM-gated.
-    for (song, what) in [(tone_song(), "DRO"), (looping_vgm(), "VGM")] {
-        let (mut harness, _handles) = harness_with_song(&song);
+    let dro = harness_with_song(&tone_song());
+    let vgm = harness_with_vgm(&looping_vgm());
+    for (mut harness, _handles, what) in [(dro.0, dro.1, "DRO"), (vgm.0, vgm.1, "VGM")] {
         harness.get_by_label("Edit").click();
         harness.run();
         harness.get_by_label_contains("Find").click(); // the Find submenu
@@ -7126,7 +7136,7 @@ fn find_loop_is_offered_for_both_dro_and_vgm() {
 #[test]
 fn searching_finds_a_loop_and_applying_writes_it() {
     // Inline tasks so the background search runs synchronously on submit.
-    let (mut harness, _handles) = build(Some(picked(&looping_vgm())), true, false);
+    let (mut harness, _handles) = build(Some(picked_vgm(&looping_vgm())), true, false);
     act(&mut harness, Action::OpenFindLoop);
     assert!(harness.state().dialogs.find_loop.is_some());
 
@@ -7177,7 +7187,7 @@ fn searching_finds_a_loop_and_applying_writes_it() {
 
 #[test]
 fn cancelling_a_search_stops_it() {
-    let (mut harness, handles) = build(Some(picked(&looping_vgm())), false, false);
+    let (mut harness, handles) = build(Some(picked_vgm(&looping_vgm())), false, false);
     act(&mut harness, Action::OpenFindLoop);
     act(&mut harness, Action::CancelLoopSearch);
     assert!(
@@ -7193,7 +7203,7 @@ fn cancelling_a_search_stops_it() {
 #[test]
 fn snapshot_find_loop_dialog() {
     // Inline tasks render a real result; wgpu renders the pixels.
-    let (mut harness, _handles) = build(Some(picked(&looping_vgm())), true, true);
+    let (mut harness, _handles) = build(Some(picked_vgm(&looping_vgm())), true, true);
     act(&mut harness, Action::OpenFindLoop);
     act(
         &mut harness,
@@ -7332,7 +7342,7 @@ fn with_no_song_no_format_specific_items_show() {
 
 #[test]
 fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
-    let (mut harness, _handles) = harness_with_song(&redundant_vgm_song());
+    let (mut harness, _handles) = harness_with_vgm(&redundant_vgm_file());
     let before = harness.state().editor.len();
 
     act(&mut harness, Action::OptimizeVgm);
@@ -7353,7 +7363,7 @@ fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
 
 #[test]
 fn optimize_undo_then_redo_restores_the_exact_bytes() {
-    let (mut harness, _handles) = harness_with_song(&redundant_vgm_song());
+    let (mut harness, _handles) = harness_with_vgm(&redundant_vgm_file());
     let stream_bytes = |h: &Harness<'static, VgmStudioApp>| {
         h.state()
             .editor
@@ -7420,9 +7430,9 @@ fn optimizing_an_already_optimal_vgm_reports_nothing() {
 fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
     // Loop point at the key-off write (index 7); stripping the two redundant
     // writes before it slides and re-indexes it.
-    let mut song = redundant_vgm_song();
-    song.vgm_meta_mut().unwrap().loop_point = Some(7);
-    let (mut harness, _handles) = harness_with_song(&song);
+    let mut file = redundant_vgm_file();
+    file.set_loop_rows(Some(7), None);
+    let (mut harness, _handles) = harness_with_vgm(&file);
     assert_eq!(
         harness.state().editor.markers.start(),
         7,

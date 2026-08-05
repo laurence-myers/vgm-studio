@@ -35,12 +35,8 @@ impl RangeMarkers {
     /// special-casing downstream.
     #[must_use]
     pub fn from_song(song: &Song) -> Self {
-        let meta = song.vgm_meta();
-        Self::from_loop(
-            song.len(),
-            meta.and_then(|meta| meta.loop_point),
-            meta.and_then(|meta| meta.loop_end),
-        )
+        // A DRO stores no loop, so it opens marked end to end.
+        Self::full(song.len())
     }
 
     /// The same, for a document held as a VGM: the loop it stores, or the whole

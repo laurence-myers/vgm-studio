@@ -55,7 +55,8 @@ impl LoopSearchDoc {
                 .collect(),
             total_commands: song.data().iter().filter(|i| !i.is_delay()).count(),
             total_secs: song.total_delay_ms() as f32 / 1000.0,
-            can_store_loop: song.is_vgm(),
+            // A DRO header has nowhere to store a loop; only a VGM (`from_vgm`) can.
+            can_store_loop: false,
         }
     }
 
@@ -417,8 +418,13 @@ fn quality_help(candidate: Candidate) -> String {
 mod tests {
     use super::*;
     use crate::test_song::{looping_vgm, tone_song};
+    use vgms_core::VgmFile;
 
-    fn dialog(song: Song) -> FindLoopDialog {
+    fn dialog(file: VgmFile) -> FindLoopDialog {
+        FindLoopDialog::new(LoopSearchDoc::from_vgm(&file))
+    }
+
+    fn dialog_dro(song: Song) -> FindLoopDialog {
         FindLoopDialog::new(LoopSearchDoc::from_song(&song))
     }
 
@@ -543,7 +549,7 @@ mod tests {
     #[test]
     fn a_dro_song_is_not_apply_capable() {
         // Apply is VGM-only; the dialog still opens and searches for a DRO.
-        let dialog = dialog(tone_song());
+        let dialog = dialog_dro(tone_song());
         assert!(!dialog.is_vgm);
     }
 

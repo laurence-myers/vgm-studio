@@ -182,7 +182,7 @@ mod tests {
     use super::*;
     use vgms_core::io::write_song;
     use vgms_core::vgm::io::synthesise_header;
-    use vgms_core::{DroDataV1, OplType, Song, VgmData, VgmMeta};
+    use vgms_core::{DroDataV1, OplType, Song};
 
     /// A distinct temp path per test, namespaced by the process so parallel runs
     /// of the binary cannot collide.
@@ -200,23 +200,27 @@ mod tests {
         }
     }
 
-    /// A VGM with a redundant write between two delays.
+    /// A wholly-OPL2 VGM with a redundant write between two delays, assembled as a
+    /// `VgmFile` (a synthesised v1.51 header with the YM3812 clock, the stream, an
+    /// end marker) and canonicalised through the reader/writer.
     fn redundant_vgm_bytes() -> Vec<u8> {
-        let stream = vec![
+        let stream = [
             0x5A, 0x20, 0x01, // write
             0x61, 0x64, 0x00, // wait 100
             0x5A, 0x20, 0x01, // redundant write
             0x61, 0xC8, 0x00, // wait 200
             0x5A, 0x21, 0x02, // write
         ];
-        let song = Song::vgm(
-            "x.vgm".to_owned(),
-            0x151,
-            VgmData::new(stream).unwrap(),
-            OplType::Opl2,
-            VgmMeta::new(synthesise_header()),
-        );
-        write_song(&song).unwrap()
+        let mut bytes = synthesise_header();
+        // The YM3812 clock (offset 0x50, spec-stable) makes it a wholly-OPL2 file,
+        // so the optimiser takes the built-in path.
+        bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
+        bytes.extend_from_slice(&stream);
+        bytes.push(0x66); // end marker
+        let eof = (bytes.len() - 0x04) as u32;
+        bytes[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+        let file = vgms_core::vgm::file::read("x.vgm", &bytes).unwrap();
+        vgms_core::vgm::file::write(&file).unwrap()
     }
 
     #[test]

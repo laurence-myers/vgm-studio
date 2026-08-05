@@ -554,18 +554,20 @@ mod tests {
 
     #[test]
     fn sample_delays_are_described_in_smp() {
-        let song = io::read_song("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
-        let rows = RegisterAnalyzer::analyze_all(&song);
-        let (index, samples) = (0..song.len())
-            .find_map(|i| match song.instruction(i).unwrap() {
+        // Sample delays come from the OPL VGM projection (`project`), read straight
+        // from the file's command stream (k-3's `row_vgm`).
+        let file = crate::vgm::file::read("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
+        let stream = file.stream().expect("the OPL VGM walks");
+        let (index, samples) = (0..stream.len())
+            .find_map(|i| match project(stream.raw_command(i)?)? {
                 Instruction::DelaySamples { samples, .. } => Some((i, samples)),
                 _ => None,
             })
             .expect("the VGM fixture contains sample delays");
-        assert_eq!(
-            &*rows[index].description,
-            format!("Delay: {samples} smp").as_str()
-        );
+        let row = RegisterAnalyzer::new()
+            .row_vgm(stream, index)
+            .expect("row in range");
+        assert_eq!(&*row.description, format!("Delay: {samples} smp").as_str());
     }
 
     #[test]
@@ -576,45 +578,36 @@ mod tests {
     }
 
     /// The load-bearing k-3 guarantee: walking an OPL VGM's own command stream
-    /// describes every row identically to walking its projection `Song`, in every
-    /// query order -- which is what lets the editor drop the projection without
-    /// the table's text moving. Row `i` is command `i`, so the two cursors stay in
-    /// lock-step.
+    /// describes every row the same whatever order the rows are queried in. The
+    /// amortised forward cursor and the reset-and-replay backward path must each
+    /// agree with a fresh analyser of the same row -- which is what lets the editor
+    /// read the table straight from the stream now that the projection is gone.
     #[test]
-    fn row_vgm_matches_the_projection_row_for_row() {
+    fn row_vgm_is_independent_of_query_order() {
         let file = crate::vgm::file::read("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
         let stream = file.stream().expect("the fixture has a stream");
-        let projection = file.to_song().expect("and it is an OPL file");
-        let len = projection.len();
-        assert_eq!(stream.len(), len, "row i is command i");
+        let len = stream.len();
 
-        // (a) forward -- the amortised O(1) path.
-        let mut proj = RegisterAnalyzer::new();
+        // (a) forward with a reused cursor -- the amortised O(1) path -- equals a
+        // fresh analyser per row.
         let mut strm = RegisterAnalyzer::new();
         for index in 0..len {
             assert_eq!(
                 strm.row_vgm(stream, index),
-                proj.row(&projection, index),
+                RegisterAnalyzer::new().row_vgm(stream, index),
                 "forward {index}"
             );
         }
         // (b) strictly backwards -- a reset and replay on every single row.
-        let mut proj = RegisterAnalyzer::new();
         let mut strm = RegisterAnalyzer::new();
         for index in (0..len).rev() {
             assert_eq!(
                 strm.row_vgm(stream, index),
-                proj.row(&projection, index),
+                RegisterAnalyzer::new().row_vgm(stream, index),
                 "backward {index}"
             );
         }
-        // (c) a fresh cursor for one deep row equals a full scan's answer, and
-        // out-of-range is None on the stream arm too.
-        let deep = len - 1;
-        assert_eq!(
-            RegisterAnalyzer::new().row_vgm(stream, deep),
-            RegisterAnalyzer::new().row(&projection, deep),
-        );
+        // (c) out-of-range is None on the stream arm too.
         assert!(RegisterAnalyzer::new().row_vgm(stream, len).is_none());
     }
 
@@ -738,11 +731,6 @@ mod tests {
             from_stream,
             initial_channel_pans(&dro),
             "the stream reproduces the source DRO's pan seed"
-        );
-        assert_eq!(
-            from_stream,
-            initial_channel_pans(&file.to_song().expect("an OPL file")),
-            "and matches the projection of the same file"
         );
         assert_eq!(from_stream[0], 0x00, "ch0 left");
         assert_eq!(from_stream[1], 0xFF, "ch1 right");

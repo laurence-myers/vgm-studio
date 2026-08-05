@@ -14,7 +14,7 @@ pub mod version;
 pub use crate::util::VGM_SAMPLE_RATE;
 pub use audit::HeaderFinding;
 pub use channels::{ChannelInfo, channels_of};
-pub use data::{Gd3Tag, VgmData, VgmMeta};
+pub use data::{Gd3Tag, VgmMeta};
 pub use file::{RegionReport, VgmBody, VgmFile};
 pub use header::{ChipKind, ChipSettings, ChipUse, ExtraHeader, ExtraVolume, VgmHeader};
 pub use projection::{OplProjection, opl_type_of};

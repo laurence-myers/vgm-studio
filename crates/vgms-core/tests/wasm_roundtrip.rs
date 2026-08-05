@@ -29,22 +29,20 @@ fn dro_v2_round_trips_byte_for_byte() {
 
 #[wasm_bindgen_test]
 fn vgm_round_trips_byte_for_byte() {
-    let song = read_song("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
-    assert_eq!(song.len(), 299);
-    assert_eq!(song.total_delay_samples(), 118_320);
-    assert_eq!(write_song(&song).unwrap(), VGM_FIXTURE);
+    let file = vgms_core::vgm::file::read("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
+    assert_eq!(file.header.total_samples(), 118_320);
+    assert_eq!(vgms_core::vgm::file::write(&file).unwrap(), VGM_FIXTURE);
 }
 
 /// `flate2`'s `rust_backend` is pure Rust, so VGZ works on wasm with no C.
 #[wasm_bindgen_test]
 fn vgz_round_trips() {
-    let song = read_song("f.vgm", VGM_FIXTURE).unwrap();
-    let compressed = vgm_io::write_gzipped(&song).unwrap();
+    let file = vgms_core::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
+    let compressed = vgms_core::vgm::file::write_gzipped(&file).unwrap();
     assert!(vgm_io::is_gzipped(&compressed));
 
-    let reread = read_song("f.vgz", &compressed).unwrap();
-    assert_eq!(reread.data(), song.data());
-    assert_eq!(vgm_io::write(&reread).unwrap(), VGM_FIXTURE);
+    let reread = vgms_core::vgm::file::read("f.vgz", &compressed).unwrap();
+    assert_eq!(vgms_core::vgm::file::write(&reread).unwrap(), VGM_FIXTURE);
 }
 
 /// The whole-file conversion, on wasm. If the sample clock's integer arithmetic

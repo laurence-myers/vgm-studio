@@ -667,9 +667,10 @@ mod tests {
         assert!(collect(&scan, || true).is_empty());
     }
 
-    /// Two copies of one loop body, as a VGM, so the search has a repeat to find.
-    fn looping_vgm() -> Song {
-        use vgms_core::{OplType, VgmData, VgmMeta};
+    /// Two copies of one loop body, as an OPL VGM `VgmFile`, so the search has a
+    /// repeat to find.
+    fn looping_vgm() -> vgms_core::VgmFile {
+        use vgms_core::vgm::io::synthesise_header;
         let mut stream = Vec::new();
         for _ in 0..2 {
             for (reg, value) in [(0xA0u8, 0x11u8), (0xB0, 0x22), (0xA0, 0x33), (0xC0, 0x44)] {
@@ -677,20 +678,19 @@ mod tests {
                 stream.extend_from_slice(&[0x61, 0x20, 0x00]); // wait 32 samples
             }
         }
-        let data = VgmData::new(stream).expect("valid VGM stream");
-        Song::vgm(
-            "loop.vgm".to_owned(),
-            0x151,
-            data,
-            OplType::Opl2,
-            VgmMeta::new(Vec::new()),
-        )
+        let mut bytes = synthesise_header();
+        bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
+        bytes.extend_from_slice(&stream);
+        bytes.push(0x66);
+        let eof = (bytes.len() - 0x04) as u32;
+        bytes[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+        vgms_core::vgm::file::read("loop.vgm", &bytes).expect("a walkable OPL VGM")
     }
 
     #[test]
     fn the_loop_search_streams_ranked_candidates() {
         let search = TaskRequest::LoopSearch {
-            source: LoopSearchSource::Opl(Arc::new(looping_vgm())),
+            source: LoopSearchSource::Vgm(Arc::new(looping_vgm())),
             min_len_commands: 4,
         };
         let results = collect(&search, || false);
@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn a_cancelled_loop_search_emits_nothing() {
         let search = TaskRequest::LoopSearch {
-            source: LoopSearchSource::Opl(Arc::new(looping_vgm())),
+            source: LoopSearchSource::Vgm(Arc::new(looping_vgm())),
             min_len_commands: 4,
         };
         assert!(collect(&search, || true).is_empty());
@@ -714,13 +714,14 @@ mod tests {
     /// holds every candidate a direct, un-throttled search finds (sw-11).
     #[test]
     fn the_final_loop_snapshot_holds_every_candidate() {
-        let song = looping_vgm();
+        let file = looping_vgm();
+        let stream = file.stream().expect("a walkable OPL VGM");
         let mut expected = Vec::new();
-        find_loops(&song, 4, &mut |c| expected.push(c), &|| false);
+        vgms_core::loopfind::find_loops_in_stream(stream, 4, &mut |c| expected.push(c), &|| false);
         assert!(!expected.is_empty(), "the fixture has candidates to lose");
 
         let search = TaskRequest::LoopSearch {
-            source: LoopSearchSource::Opl(Arc::new(song)),
+            source: LoopSearchSource::Vgm(Arc::new(file)),
             min_len_commands: 4,
         };
         let results = collect(&search, || false);
@@ -822,7 +823,7 @@ mod tests {
     fn a_song_split_names_a_numbered_vgm_per_song() {
         let song = crate::test_song::multi_song_capture();
         let files = split_songs_to_bytes(
-            &SplitSource::Opl(Arc::new(song.clone())),
+            &SplitSource::Vgm(Arc::new(song.clone())),
             33_075,
             &[true, true, true],
             0,
@@ -837,8 +838,10 @@ mod tests {
         );
         // Each piece reads back as a VGM.
         for (name, bytes) in &files {
-            let piece = vgms_core::io::read_song(name, bytes).unwrap();
-            assert!(piece.is_vgm(), "{name} should be a VGM");
+            assert!(
+                vgms_core::vgm::file::read(name, bytes).is_ok(),
+                "{name} should be a VGM"
+            );
         }
     }
 
@@ -847,7 +850,7 @@ mod tests {
         let song = crate::test_song::multi_song_capture();
         // Drop the middle song; the numbering must stay contiguous.
         let files = split_songs_to_bytes(
-            &SplitSource::Opl(Arc::new(song.clone())),
+            &SplitSource::Vgm(Arc::new(song.clone())),
             33_075,
             &[true, false, true],
             0,
@@ -877,16 +880,17 @@ mod tests {
             names,
             ["01 capture.dro", "02 capture.dro", "03 capture.dro"]
         );
+        // `read_song` accepts only DROs, so a piece reading back at all is the proof.
         for (name, bytes) in &files {
-            let piece = vgms_core::io::read_song(name, bytes).unwrap();
-            assert!(!piece.is_vgm(), "{name} should be a DRO");
+            vgms_core::io::read_song(name, bytes)
+                .unwrap_or_else(|e| panic!("{name} should be a DRO: {e}"));
         }
     }
 
     #[test]
     fn a_cancelled_song_split_emits_nothing() {
         let split = TaskRequest::SplitSongs {
-            source: SplitSource::Opl(Arc::new(crate::test_song::multi_song_capture())),
+            source: SplitSource::Vgm(Arc::new(crate::test_song::multi_song_capture())),
             threshold_native: 33_075,
             included: vec![true, true, true],
             trailing_tail: 0,

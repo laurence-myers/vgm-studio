@@ -568,12 +568,13 @@ impl Editor {
         let Some(song) = self.dro.as_mut() else {
             return false;
         };
-        let was_vgz = song.name.to_ascii_lowercase().ends_with(".vgz");
         song.name = name;
         if path.is_some() {
             self.path = path;
         }
-        song.is_vgm() && was_vgz != is_vgz
+        // A DRO is never a VGZ, so renaming one never flips the compression that
+        // the VGM branch above reports.
+        false
     }
 
     /// Marks the current state as saved, clearing both halves of the dirty flag
@@ -1380,11 +1381,18 @@ mod tests {
         let (mut editor, _) = loaded_vgm(&vgm);
         assert_eq!(editor.column_titles()[1], "Bank", "OPL rows, not chip rows");
 
-        // The oracle: the analyser over the file's own projection. Every row's
-        // Bank and Description column must match what the stream-fed cache produced.
-        let file = editor.vgm().expect("held as a VGM");
-        let reference =
-            vgms_core::RegisterAnalyzer::analyze_all(&file.to_song().expect("an OPL file"));
+        // The oracle: the analyser reading the file's own command stream (k-3's
+        // `row_vgm`). Every row's Bank and Description column the editor paints
+        // must match what the analyser produces for the same row -- two different
+        // rendering paths over the one decoded instruction.
+        let reference: Vec<_> = {
+            let file = editor.vgm().expect("held as a VGM");
+            let stream = file.stream().expect("an OPL VGM has a stream");
+            let mut analyzer = vgms_core::RegisterAnalyzer::new();
+            (0..stream.len())
+                .map(|index| analyzer.row_vgm(stream, index).expect("row in range"))
+                .collect()
+        };
         assert_eq!(reference.len(), editor.len());
         for (index, expected) in reference.iter().enumerate() {
             let cells = editor.row_cells(index);

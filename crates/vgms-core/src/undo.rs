@@ -153,9 +153,6 @@ pub struct DeleteInstructions {
     deleted: Vec<InsertEntry>,
     /// The song's header length before the delete, restored verbatim on revert.
     previous_ms_length: u32,
-    /// A VGM's loop markers before the delete, likewise restored verbatim.
-    previous_loop_point: Option<usize>,
-    previous_loop_end: Option<usize>,
 }
 
 impl DeleteInstructions {
@@ -168,8 +165,6 @@ impl DeleteInstructions {
             indices,
             deleted: Vec::new(),
             previous_ms_length: 0,
-            previous_loop_point: None,
-            previous_loop_end: None,
         }
     }
 
@@ -188,8 +183,6 @@ impl UndoableCommand<Song> for DeleteInstructions {
     fn apply(&mut self, song: &mut Song) {
         self.indices.retain(|&index| index < song.len());
         self.previous_ms_length = song.ms_length;
-        self.previous_loop_point = song.vgm_meta().and_then(|meta| meta.loop_point);
-        self.previous_loop_end = song.vgm_meta().and_then(|meta| meta.loop_end);
 
         let mut removed_ms = 0u32;
         let mut deleted = Vec::with_capacity(self.indices.len());
@@ -208,12 +201,8 @@ impl UndoableCommand<Song> for DeleteInstructions {
 
         song.delete_instructions(&self.indices);
 
-        // A VGM's `ms_length` is derived from its sample delays, and
-        // `delete_instructions` has already refreshed it. A DRO's is a header
-        // field, adjusted by what we removed.
-        if !song.is_vgm() {
-            song.ms_length = self.previous_ms_length.saturating_sub(removed_ms);
-        }
+        // A DRO's `ms_length` is a header field, adjusted by what we removed.
+        song.ms_length = self.previous_ms_length.saturating_sub(removed_ms);
     }
 
     fn revert(&mut self, song: &mut Song) {
@@ -221,10 +210,6 @@ impl UndoableCommand<Song> for DeleteInstructions {
         // Restore the header verbatim rather than adding the delay back: exact,
         // and it survives a `saturating_sub` that clamped at zero.
         song.ms_length = self.previous_ms_length;
-        if let Some(meta) = song.vgm_meta_mut() {
-            meta.loop_point = self.previous_loop_point;
-            meta.loop_end = self.previous_loop_end;
-        }
     }
 }
 
@@ -785,35 +770,12 @@ mod tests {
         assert_eq!(song, original);
     }
 
-    // -- ReplaceStream, driven by the optimiser -----------------------------
-
-    /// A VGM with a redundant register write between two delays, so the optimiser
-    /// has both a write to strip and a pair of delays to merge.
-    fn optimizable_vgm() -> Song {
-        use crate::vgm::VgmData;
-        use crate::vgm::io::synthesise_header;
-        let bytes = vec![
-            0x5A, 0x20, 0x01, // write
-            0x61, 0x64, 0x00, // wait 100
-            0x5A, 0x20, 0x01, // redundant write
-            0x61, 0xC8, 0x00, // wait 200
-            0x5A, 0x21, 0x02, // write
-        ];
-        Song::vgm(
-            "t.vgm".to_owned(),
-            0x151,
-            VgmData::new(bytes).unwrap(),
-            OplType::Opl2,
-            crate::vgm::VgmMeta::new(synthesise_header()),
-        )
-    }
-
     // -- ReplaceStream, driven by the crop edits ----------------------------
 
-    /// Every format, so the snapshot is exercised against a derived length (VGM)
-    /// and a stored one (DRO), and against a v2's codemap.
+    /// Both DRO formats, so the snapshot is exercised against a stored header
+    /// length and a v2's codemap.
     fn every_format() -> Vec<Song> {
-        vec![dro_song_v1(), dro_song_v2(), optimizable_vgm()]
+        vec![dro_song_v1(), dro_song_v2()]
     }
 
     #[test]
@@ -866,27 +828,6 @@ mod tests {
 
         undo.undo(&mut song);
         assert_eq!(song.ms_length, before);
-        assert_eq!(song, original);
-    }
-
-    #[test]
-    fn replace_stream_restores_loop_markers() {
-        let mut original = optimizable_vgm();
-        original.vgm_meta_mut().unwrap().loop_point = Some(3);
-        let outcome = crate::crop::delete_region(&original, 0, 2).expect("a real cut");
-
-        let mut song = original.clone();
-        let mut undo = UndoController::new();
-        undo.execute(
-            Box::new(ReplaceStream::new("Delete Marked Region", outcome)),
-            &mut song,
-        );
-        // The loop moved with the edit...
-        assert_ne!(song.vgm_meta().unwrap().loop_point, Some(3));
-
-        // ...and comes back exactly where it was.
-        undo.undo(&mut song);
-        assert_eq!(song.vgm_meta().unwrap().loop_point, Some(3));
         assert_eq!(song, original);
     }
 

@@ -12,12 +12,12 @@ use vgms_synth::registry::{CoreChoices, with_render_choices};
 /// The OPL core's native rate, so no resampler enters the comparison.
 const RATE: u32 = vgms_synth::NATIVE_SAMPLE_RATE;
 
-/// A real single-chip OPL capture, as its projected OPL song -- what the WAV
-/// render renders for an OPL document.
+/// A real single-chip OPL capture as a DRO song -- what the WAV render renders
+/// for an OPL document through `PlayerEngine` (the per-render core override the
+/// rc-1 feature scopes applies on this path).
 fn opl_song() -> vgms_core::Song {
-    let bytes = include_bytes!("../../../tests/lsl3_score_up.vgm");
-    let file = vgms_core::vgm::file::read("lsl3_score_up.vgm", bytes).expect("the fixture reads");
-    file.to_song().expect("an OPL VGM projects to an OPL song")
+    let bytes = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
+    vgms_core::io::read_song("lsl3_score_up_dro2.dro", bytes).expect("the DRO reads")
 }
 
 fn render(song: &vgms_core::Song, choices: Option<CoreChoices>) -> Vec<u8> {

@@ -1,14 +1,13 @@
-//! Format conversions: DRO -> VGM, DRO v2 -> v1, and filtering a VGM's register
-//! writes ([`filter_vgm`], which shares the VGM emitter with the DRO conversion).
+//! Format conversions: DRO -> VGM and DRO v2 -> v1.
 
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
 use crate::song::{Bank, DelayKind, DroDataV1, Instruction, OplType, Song, SongData};
 use crate::util::VGM_SAMPLE_RATE;
+use crate::vgm::VgmFile;
 use crate::vgm::data::command;
 use crate::vgm::header::offset;
 use crate::vgm::io::{put_chip_clocks, synthesise_header};
-use crate::vgm::VgmFile;
 
 /// The longest wait a single `0x61` command can express. Only the test that a
 /// long delay spans several commands names it now; the chunking itself lives in
@@ -42,14 +41,13 @@ impl SampleClock {
 /// Accumulates a VGM command stream: register writes for one chip, and waits
 /// chunked to fit `0x61`'s 16-bit operand.
 ///
-/// Shared by [`dro_to_vgm`], whose millisecond delays arrive through a
-/// [`SampleClock`], and [`filter_vgm`], whose delays are already in samples.
+/// Used by [`dro_to_vgm`], whose millisecond delays arrive through a
+/// [`SampleClock`].
 #[derive(Debug)]
 struct VgmStream {
     opl_type: OplType,
     out: Vec<u8>,
-    /// Commands emitted so far. A VGM instruction index, which is what
-    /// [`filter_vgm`] remaps loop points onto.
+    /// Commands emitted so far, a VGM instruction count.
     count: usize,
 }
 
@@ -106,10 +104,6 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// If `song` is already a VGM, or the synthesised header cannot hold the OPL
 /// clocks, or the assembled bytes do not read back.
 pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
-    if song.is_vgm() {
-        return Err(Error::file("Tried to convert a VGM song to VGM"));
-    }
-
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
@@ -161,31 +155,20 @@ pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
     crate::vgm::file::read(&replace_extension(&song.name, "vgm"), &out)
 }
 
-/// Projects an OPL document to a playable [`VgmFile`], for routing OPL playback
-/// through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine) (ou-2).
+/// Projects an OPL document (a DRO) to a playable [`VgmFile`], for routing OPL
+/// playback through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine)
+/// (ou-2).
 ///
-/// A DRO is expanded to a VGM command stream first ([`dro_to_vgm`]); a
-/// VGM-flavoured `Song` -- an OPL VGM's editor projection -- is taken as is.
-/// Either way it is serialised and re-read, so the result is a real `VgmFile`
-/// whose header the generic engine builds voices from. This is the same round
-/// trip [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time
-/// rather than on a user's explicit convert.
+/// A `Song` is always a DRO now, so this is [`dro_to_vgm`]: the register writes
+/// and millisecond delays become a real `VgmFile` whose header the generic engine
+/// builds voices from. This is the same round trip
+/// [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time rather than
+/// on a user's explicit convert.
 ///
 /// # Errors
-/// If the song is a DRO that will not convert, or the serialised VGM does not
-/// read back.
+/// If the song will not convert, or the assembled VGM does not read back.
 pub fn opl_song_to_vgm_file(song: &Song) -> Result<VgmFile> {
-    match song.data() {
-        // A VGM-flavoured `Song` (the web worklet still projects an OPL VGM to
-        // one via `to_song`): serialise and re-read it. This branch retires with
-        // that projection.
-        SongData::Vgm(_) => {
-            let bytes = crate::io::write_song(song)?;
-            crate::vgm::file::read(&song.name, &bytes)
-        }
-        // A DRO converts straight to a `VgmFile`, no `Song::vgm` in between.
-        _ => dro_to_vgm(song),
-    }
+    dro_to_vgm(song)
 }
 
 /// The VGM opcode that writes an OPL register on the given chip and bank.
@@ -303,7 +286,6 @@ fn replace_extension(name: &str, extension: &str) -> String {
 mod tests {
     use super::*;
     use crate::io::dro;
-    use crate::vgm::io as vgm_io;
 
     const DRO_V2_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
     const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
@@ -443,12 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn converting_a_vgm_is_rejected() {
-        let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
-        assert!(dro_to_vgm(&vgm).is_err());
-    }
-
-    #[test]
     fn the_v1_name_suffixes_the_stem() {
         assert_eq!(dro1_default_name("song.dro"), "song_1.dro");
         assert_eq!(dro1_default_name("song.DRO"), "song_1.DRO");
@@ -550,10 +526,8 @@ mod tests {
     }
 
     #[test]
-    fn dro2_to_dro1_rejects_a_v1_song_or_a_vgm() {
+    fn dro2_to_dro1_rejects_a_v1_song() {
         let v1 = build_dro_v1(&[0x20, 0x01]);
         assert!(dro2_to_dro1(&v1).is_err());
-        let vgm = vgm_io::read("f.vgm", VGM_FIXTURE).unwrap();
-        assert!(dro2_to_dro1(&vgm).is_err());
     }
 }

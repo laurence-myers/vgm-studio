@@ -90,7 +90,10 @@ impl AudioService for RetroWaveAudioService {
             AudioSource::Opl(song) => (
                 Arc::new(
                     vgms_core::convert::opl_song_to_vgm_file(song).map_err(|error| {
-                        format!("{} could not be projected for the OPL3: {error}", source.name())
+                        format!(
+                            "{} could not be projected for the OPL3: {error}",
+                            source.name()
+                        )
                     })?,
                 ),
                 Some(song.opl_type),
@@ -580,7 +583,7 @@ mod tests {
         let eof = bytes.len();
         bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
         let file = Arc::new(vgms_core::vgm::file::read("opl.vgm", &bytes).expect("walks"));
-        assert!(file.to_song().is_some(), "the fixture projects to OPL");
+        assert!(file.is_opl(), "the fixture is OPL");
 
         let mut service = RetroWaveAudioService::new();
         // Any error must be the missing device, not a refusal: the projection

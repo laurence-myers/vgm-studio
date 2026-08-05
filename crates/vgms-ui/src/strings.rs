@@ -84,7 +84,6 @@ pub(crate) const APP_STATUS_DRO_INFO_VGM: &str =
     "DRO Info applies to DRO files; use Edit VGM Metadata.";
 pub(crate) const APP_STATUS_ONLY_VGM_TAG: &str = "Only VGMs support tag editing";
 pub(crate) const APP_STATUS_NOT_VGM: &str = "Song is not a VGM";
-pub(crate) const APP_STATUS_ALREADY_VGM: &str = "File is already in VGM format";
 pub(crate) const APP_STATUS_CONVERTED_VGM: &str = "Successfully converted to VGM";
 pub(crate) const APP_STATUS_CONVERTED_DRO1: &str = "Successfully converted to DRO v1";
 pub(crate) const APP_STATUS_HEADER_AGREES: &str = "The header already agrees with the stream.";

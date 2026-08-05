@@ -2,7 +2,23 @@
 //! (`vgms-core`'s own fixtures are `pub(crate)` to it).
 
 use vgms_core::vgm::io::synthesise_header;
-use vgms_core::{DroDataV1, DroDataV2, OplType, Song, VgmData, VgmMeta};
+use vgms_core::{DroDataV1, DroDataV2, OplType, Song, VgmFile};
+
+/// Wraps an OPL2 command stream in a real VGM container: a synthesised v1.51
+/// header with the YM3812 clock (offset 0x50, spec-stable), the stream, an end
+/// marker, then canonicalised through the reader/writer. VGM documents are held
+/// as [`VgmFile`]s now, so the OPL test fixtures assemble bytes rather than a
+/// VGM-flavoured `Song`.
+fn assemble_opl2_vgm(name: &str, stream: &[u8]) -> Vec<u8> {
+    let mut bytes = synthesise_header();
+    bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
+    bytes.extend_from_slice(stream);
+    bytes.push(0x66); // end marker
+    let eof = (bytes.len() - 0x04) as u32;
+    bytes[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+    let file = vgms_core::vgm::file::read(name, &bytes).expect("a walkable OPL VGM");
+    vgms_core::vgm::file::write(&file).expect("the OPL VGM writes back")
+}
 
 /// A 300 ms OPL2 tone: instruments, key-on, 200 ms of sound, key-off, 100 ms of
 /// silence. Same stream as `vgms-synth`'s waveform test song.
@@ -95,27 +111,27 @@ pub(crate) fn dro_song_v2() -> Song {
 
 /// A small OPL2 VGM carrying redundant register writes between its delays, so
 /// the optimiser has both writes to strip (indices 4 and 5 repeat the values set
-/// at 1 and 2) and the delays they separate to merge. Named `*.vgm` so it
-/// round-trips through the VGM writer when a test opens it.
-pub(crate) fn redundant_vgm_song() -> Song {
-    let bytes = vec![
-        0x5A, 0x20, 0x01, // 0: write
-        0x5A, 0x40, 0x10, // 1: write (operator level)
-        0x5A, 0xB0, 0x31, // 2: key on
-        0x61, 0x64, 0x00, // 3: wait 100
-        0x5A, 0x40, 0x10, // 4: redundant -- same operator level
-        0x5A, 0xB0, 0x31, // 5: redundant -- key already on
-        0x61, 0xC8, 0x00, // 6: wait 200
-        0x5A, 0xB0, 0x11, // 7: key off
-        0x61, 0x64, 0x00, // 8: wait 100
-    ];
-    Song::vgm(
-        "redundant.vgm".to_owned(),
-        0x151,
-        VgmData::new(bytes).unwrap(),
-        OplType::Opl2,
-        VgmMeta::new(synthesise_header()),
+/// at 1 and 2) and the delays they separate to merge.
+pub(crate) fn redundant_vgm_bytes() -> Vec<u8> {
+    assemble_opl2_vgm(
+        "redundant.vgm",
+        &[
+            0x5A, 0x20, 0x01, // write
+            0x5A, 0x40, 0x10, // write (operator level)
+            0x5A, 0xB0, 0x31, // key on
+            0x61, 0x64, 0x00, // wait 100
+            0x5A, 0x40, 0x10, // redundant -- same operator level
+            0x5A, 0xB0, 0x31, // redundant -- key already on
+            0x61, 0xC8, 0x00, // wait 200
+            0x5A, 0xB0, 0x11, // key off
+            0x61, 0x64, 0x00, // wait 100
+        ],
     )
+}
+
+/// [`redundant_vgm_bytes`] read as a [`VgmFile`], the way the editor holds it.
+pub(crate) fn redundant_vgm_file() -> VgmFile {
+    vgms_core::vgm::file::read("redundant.vgm", &redundant_vgm_bytes()).unwrap()
 }
 
 /// An OPL2 VGM standing in for a whole sound-test session logged in one file:
@@ -123,33 +139,32 @@ pub(crate) fn redundant_vgm_song() -> Song {
 /// over the 0.75 s default split threshold. Each song sets a distinct register
 /// before its note, so a later piece's state-replay prelude has earlier writes to
 /// restore. Named `*.vgm` so it round-trips through the VGM writer.
-pub(crate) fn multi_song_capture() -> Song {
+pub(crate) fn multi_song_capture_bytes() -> Vec<u8> {
     // 44100 samples = 0xAC44 (one second); 4410 = 0x113A (a tenth).
     let gap = [0x61, 0x44, 0xAC];
     let short = [0x61, 0x3A, 0x11];
-    let mut bytes = Vec::new();
+    let mut stream = Vec::new();
     // song 1
-    bytes.extend_from_slice(&[0x5A, 0x20, 0x01, 0x5A, 0x40, 0x10, 0x5A, 0xB0, 0x31]);
-    bytes.extend_from_slice(&short);
-    bytes.extend_from_slice(&[0x5A, 0xB0, 0x11]);
-    bytes.extend_from_slice(&gap);
+    stream.extend_from_slice(&[0x5A, 0x20, 0x01, 0x5A, 0x40, 0x10, 0x5A, 0xB0, 0x31]);
+    stream.extend_from_slice(&short);
+    stream.extend_from_slice(&[0x5A, 0xB0, 0x11]);
+    stream.extend_from_slice(&gap);
     // song 2
-    bytes.extend_from_slice(&[0x5A, 0x21, 0x02, 0x5A, 0xB1, 0x32]);
-    bytes.extend_from_slice(&short);
-    bytes.extend_from_slice(&[0x5A, 0xB1, 0x12]);
-    bytes.extend_from_slice(&gap);
+    stream.extend_from_slice(&[0x5A, 0x21, 0x02, 0x5A, 0xB1, 0x32]);
+    stream.extend_from_slice(&short);
+    stream.extend_from_slice(&[0x5A, 0xB1, 0x12]);
+    stream.extend_from_slice(&gap);
     // song 3
-    bytes.extend_from_slice(&[0x5A, 0x22, 0x03, 0x5A, 0xB2, 0x33]);
-    bytes.extend_from_slice(&short);
-    bytes.extend_from_slice(&[0x5A, 0xB2, 0x13]);
+    stream.extend_from_slice(&[0x5A, 0x22, 0x03, 0x5A, 0xB2, 0x33]);
+    stream.extend_from_slice(&short);
+    stream.extend_from_slice(&[0x5A, 0xB2, 0x13]);
 
-    Song::vgm(
-        "capture.vgm".to_owned(),
-        0x151,
-        VgmData::new(bytes).unwrap(),
-        OplType::Opl2,
-        VgmMeta::new(synthesise_header()),
-    )
+    assemble_opl2_vgm("capture.vgm", &stream)
+}
+
+/// [`multi_song_capture_bytes`] read as a [`VgmFile`], the way the editor holds it.
+pub(crate) fn multi_song_capture() -> VgmFile {
+    vgms_core::vgm::file::read("capture.vgm", &multi_song_capture_bytes()).unwrap()
 }
 
 /// A DRO v2 stand-in for a sound-test session: three short songs parted by two
@@ -182,32 +197,31 @@ pub(crate) fn multi_song_capture_dro() -> Song {
 /// so the loop finder has a clean repeat to discover. The body's registers are
 /// distinct, so only the whole-body repeat matches: the search reports one loop
 /// running from the body's first write (instruction 3) to the repeat's (9).
-pub(crate) fn looping_vgm() -> Song {
+pub(crate) fn looping_vgm_bytes() -> Vec<u8> {
     fn write(bytes: &mut Vec<u8>, reg: u8, value: u8) {
         bytes.extend_from_slice(&[0x5A, reg, value]);
     }
-    let mut bytes = Vec::new();
+    let mut stream = Vec::new();
     // intro: two writes and a half-second delay (22050 samples)
-    write(&mut bytes, 0x20, 0x01);
-    write(&mut bytes, 0x40, 0x10);
-    bytes.extend_from_slice(&[0x61, 0x22, 0x56]);
+    write(&mut stream, 0x20, 0x01);
+    write(&mut stream, 0x40, 0x10);
+    stream.extend_from_slice(&[0x61, 0x22, 0x56]);
     // body, twice: distinct writes parted by quarter-second delays (11025 samples),
     // so one loop body spans half a second.
     for _ in 0..2 {
-        write(&mut bytes, 0xA0, 0x11);
-        bytes.extend_from_slice(&[0x61, 0x11, 0x2B]);
-        write(&mut bytes, 0xB0, 0x22);
-        write(&mut bytes, 0xA3, 0x33);
-        bytes.extend_from_slice(&[0x61, 0x11, 0x2B]);
-        write(&mut bytes, 0xC0, 0x44);
+        write(&mut stream, 0xA0, 0x11);
+        stream.extend_from_slice(&[0x61, 0x11, 0x2B]);
+        write(&mut stream, 0xB0, 0x22);
+        write(&mut stream, 0xA3, 0x33);
+        stream.extend_from_slice(&[0x61, 0x11, 0x2B]);
+        write(&mut stream, 0xC0, 0x44);
     }
-    Song::vgm(
-        "looping.vgm".to_owned(),
-        0x151,
-        VgmData::new(bytes).unwrap(),
-        OplType::Opl2,
-        VgmMeta::new(synthesise_header()),
-    )
+    assemble_opl2_vgm("looping.vgm", &stream)
+}
+
+/// [`looping_vgm_bytes`] read as a [`VgmFile`], the way the editor holds it.
+pub(crate) fn looping_vgm() -> VgmFile {
+    vgms_core::vgm::file::read("looping.vgm", &looping_vgm_bytes()).unwrap()
 }
 
 /// A DRO v2 song whose first instruction is a delay and whose header length

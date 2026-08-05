@@ -22,9 +22,9 @@
 //! `Instruction` having to grow an arm for something no OPL consumer could
 //! act on.
 
+use crate::song::OplType;
 use crate::song::instruction::{Bank, DelayKind, Instruction};
-use crate::song::{OplType, Song};
-use crate::vgm::data::{VgmData, VgmMeta, command};
+use crate::vgm::data::command;
 use crate::vgm::header::{ChipKind, VgmHeader};
 use crate::vgm::stream::VgmStream;
 
@@ -97,23 +97,6 @@ impl<'a> OplProjection<'a> {
     pub fn instruction(&self, index: usize) -> Option<Instruction> {
         let bytes = self.stream.raw_command(index)?;
         project(bytes)
-    }
-
-    /// Materialises a [`Song`] over the same stream, for the paths that consume
-    /// one: the synth, the waveform render, the analyser.
-    ///
-    /// This is a snapshot, not a second copy of the document. Nothing edits it;
-    /// it is rebuilt whenever the stream it came from changes, exactly as the
-    /// audio snapshot always has been.
-    #[must_use]
-    pub fn to_song(&self, name: String, version: u32, meta: VgmMeta) -> Song {
-        Song::vgm(
-            name,
-            version,
-            VgmData::from_stream(self.stream),
-            self.opl_type,
-            meta,
-        )
     }
 }
 
@@ -373,132 +356,5 @@ mod tests {
     fn the_opl_cousins_are_not_claimed() {
         assert_eq!(opl_type_of(&header(&[(ChipKind::Ym3526, 3_579_545)])), None);
         assert_eq!(opl_type_of(&header(&[(ChipKind::Y8950, 3_579_545)])), None);
-    }
-
-    // -- the parity gate ------------------------------------------------------
-    //
-    // The net under the whole unification: for any file the OPL reader accepts,
-    // the one VGM model must produce the same song. Nothing switches over to
-    // the projection until this holds.
-
-    const VGM_FIXTURE: &[u8] = include_bytes!("../../../../tests/lsl3_score_up.vgm");
-
-    // The OPL reader's own output, frozen. Each is `io::write(io::read(input))`
-    // captured at mg-0 (4b3f63b), while the old hand-written reader still
-    // existed -- so the bytes are an *independent* reference the projection is
-    // held to. The parity tests compare the projection to these files rather
-    // than to a live `io::read`, which mg-1 made the very same code, so a live
-    // comparison would be vacuous. That also means regenerating them
-    // (`regenerate_projection_goldens`) no longer captures independence: it
-    // re-blesses whatever the projection currently produces.
-    const GOLDEN_BASE: &[u8] = include_bytes!("../../../../tests/golden/projection_base.opl.vgm");
-    const GOLDEN_LOOPING: &[u8] =
-        include_bytes!("../../../../tests/golden/projection_looping.opl.vgm");
-    const GOLDEN_EARLY_LOOP: &[u8] =
-        include_bytes!("../../../../tests/golden/projection_early_loop.opl.vgm");
-
-    /// Asserts the projection of `bytes` writes back to the frozen `golden` --
-    /// the OPL reader's own output. This is the "one that matters most" of the
-    /// old field-by-field check: `io::write` is lossless, so equal bytes mean an
-    /// equal document, and freezing the reference is what survives `io::read`
-    /// being delegated to `file::read` (mg-1) and deleted (mg-2).
-    fn assert_projects_to_golden(name: &str, bytes: &[u8], golden: &[u8]) {
-        let file = crate::vgm::file::read(name, bytes).expect("the VGM model accepts it");
-        let projected = file.to_song().expect("and it is an OPL file");
-        let written = crate::vgm::io::write(&projected).expect("the projection writes back");
-        assert_eq!(
-            written, golden,
-            "{name}: the projection no longer matches the frozen OPL-reader output \
-             (re-run with UPDATE_GOLDENS=1 only if this change is intended)"
-        );
-    }
-
-    /// `VGM_FIXTURE` patched to loop from command 3 to the end -- the loop
-    /// machinery is where the two paths could most easily diverge (the OPL
-    /// reader resolves the loop against its own stream index, the projection
-    /// against the generic one). Built with `file::read`, which outlives mg-2.
-    fn looping_input() -> Vec<u8> {
-        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
-        let stream = file.stream().unwrap();
-        let at = file.header.data_start() + stream.byte_offset(3).unwrap();
-        let mut bytes = VGM_FIXTURE.to_vec();
-        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
-        bytes[0x20..0x24].copy_from_slice(&(stream.samples_from(3) as u32).to_le_bytes());
-        bytes
-    }
-
-    /// `VGM_FIXTURE` patched to a loop that stops short of the end -- the shape
-    /// `VgmMeta::loop_end` exists for. Returns the bytes and the `(start, end)`
-    /// command indices the loop should resolve to.
-    fn early_loop_input() -> (Vec<u8>, usize, usize) {
-        let file = crate::vgm::file::read("f.vgm", VGM_FIXTURE).unwrap();
-        let stream = file.stream().unwrap();
-        let start = 1;
-        let from_start = stream.samples_from(start);
-        let end = (start + 1..stream.len())
-            .find(|&index| stream.samples_from(index) < from_start)
-            .expect("the capture has delays");
-        let mut bytes = VGM_FIXTURE.to_vec();
-        let at = file.header.data_start() + stream.byte_offset(start).unwrap();
-        bytes[0x1C..0x20].copy_from_slice(&((at - 0x1C) as u32).to_le_bytes());
-        let region = from_start - stream.samples_from(end);
-        bytes[0x20..0x24].copy_from_slice(&(region as u32).to_le_bytes());
-        (bytes, start, end)
-    }
-
-    /// Regenerates the checked-in projection goldens (run under `UPDATE_GOLDENS=1`,
-    /// the pattern the snapshot baselines use).
-    ///
-    /// **Regenerating is re-blessing, not re-verifying.** The committed goldens
-    /// were captured at mg-0 from the independent hand-written OPL reader; since
-    /// mg-1 delegated `io::read` to the projection, that reader is gone, so this
-    /// can only freeze what the projection *currently* writes. (An earlier
-    /// version asserted "parity at capture" here -- post-mg-1 that compared the
-    /// projection to itself and could never fail, so it was removed rather than
-    /// left implying a check that no longer exists.) Run it only when a golden
-    /// mismatch is an intended change, and review the byte diff it commits.
-    #[test]
-    fn regenerate_projection_goldens() {
-        if std::env::var_os("UPDATE_GOLDENS").is_none() {
-            return;
-        }
-        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../tests/golden");
-        let (early, _, _) = early_loop_input();
-        for (file_name, input) in [
-            ("projection_base.opl.vgm", VGM_FIXTURE.to_vec()),
-            ("projection_looping.opl.vgm", looping_input()),
-            ("projection_early_loop.opl.vgm", early),
-        ] {
-            let projected = crate::vgm::file::read("golden.vgm", &input)
-                .unwrap()
-                .to_song()
-                .unwrap();
-            let golden = crate::vgm::io::write(&projected).unwrap();
-            std::fs::write(format!("{dir}/{file_name}"), &golden).unwrap();
-        }
-    }
-
-    #[test]
-    fn the_real_capture_projects_to_the_frozen_opl_output() {
-        assert_projects_to_golden("lsl3_score_up.vgm", VGM_FIXTURE, GOLDEN_BASE);
-    }
-
-    #[test]
-    fn a_looping_file_projects_identically() {
-        let bytes = looping_input();
-        assert_projects_to_golden("looping.vgm", &bytes, GOLDEN_LOOPING);
-    }
-
-    /// A loop that stops short of the end -- the shape `VgmMeta::loop_end`
-    /// exists for, and the one most likely to drift between the two readers.
-    #[test]
-    fn a_loop_that_ends_early_projects_identically() {
-        let (bytes, start, end) = early_loop_input();
-        assert_projects_to_golden("early-loop.vgm", &bytes, GOLDEN_EARLY_LOOP);
-
-        // And the shortened loop really was materialised, not silently widened.
-        let file = crate::vgm::file::read("early-loop.vgm", &bytes).unwrap();
-        assert_eq!(file.loop_index(), Some(start));
-        assert_eq!(file.loop_end_index(), Some(end));
     }
 }

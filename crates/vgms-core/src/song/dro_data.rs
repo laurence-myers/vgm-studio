@@ -583,7 +583,6 @@ mod tests {
             let span = match data {
                 SongData::V1(v1) => v1.byte_offset(index)..v1.byte_offset(index + 1),
                 SongData::V2(_) => DroDataV2::byte_offset(index)..DroDataV2::byte_offset(index + 1),
-                SongData::Vgm(vgm) => vgm.byte_offset(index)..vgm.byte_offset(index + 1),
             };
             raw.drain(span);
         }

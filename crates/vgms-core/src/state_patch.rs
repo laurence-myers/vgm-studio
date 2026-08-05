@@ -186,28 +186,6 @@ pub(crate) fn state_after_writes(song: &Song, n: usize) -> Vec<(Bank, u8, u8)> {
 mod tests {
     use super::*;
     use crate::song::OplType;
-    use crate::vgm::io::synthesise_header;
-    use crate::vgm::{VgmData, VgmMeta};
-
-    /// A low-bank OPL2 write, `0x5A reg value`.
-    fn write(reg: u8, value: u8) -> Vec<u8> {
-        vec![crate::vgm::data::command::YM3812, reg, value]
-    }
-
-    /// A high-bank write, `0xAA reg value`.
-    fn write_hi(reg: u8, value: u8) -> Vec<u8> {
-        vec![crate::vgm::data::command::YM3812_CHIP_2, reg, value]
-    }
-
-    fn vgm_of(chunks: &[Vec<u8>]) -> Song {
-        Song::vgm(
-            "t.vgm".to_owned(),
-            0x151,
-            VgmData::new(chunks.concat()).unwrap(),
-            OplType::DualOpl2,
-            VgmMeta::new(synthesise_header()),
-        )
-    }
 
     /// The patch bytes carrying `song` from state-at-`from` to state-at-`to`,
     /// and the instruction count reported.
@@ -220,64 +198,6 @@ mod tests {
             &StateFold::over(song, to),
         );
         (bytes, count)
-    }
-
-    #[test]
-    fn a_patch_from_blank_replays_every_touched_register() {
-        let song = vgm_of(&[write(0x20, 0x11), write_hi(0x40, 0x22), write(0x60, 0x33)]);
-        let (bytes, count) = patch_between(&song, 0, 3);
-        assert_eq!(count, 3, "one write per touched register");
-        // Low file ascending (0x20, 0x60), then the high file (0x40).
-        assert_eq!(
-            bytes,
-            [write(0x20, 0x11), write(0x60, 0x33), write_hi(0x40, 0x22)].concat()
-        );
-    }
-
-    #[test]
-    fn only_the_last_value_of_a_rewritten_register_is_emitted() {
-        let song = vgm_of(&[write(0x20, 0x11), write(0x20, 0x99)]);
-        let (bytes, count) = patch_between(&song, 0, 2);
-        assert_eq!(count, 1);
-        assert_eq!(bytes, write(0x20, 0x99), "the latch holds the last write");
-    }
-
-    #[test]
-    fn a_register_both_states_agree_on_is_not_rewritten() {
-        // 0x20 is set before the `from` point and never changed after it, so the
-        // patch must leave it alone -- rewriting a key-on would retrigger a note.
-        let song = vgm_of(&[write(0x20, 0x11), write(0x40, 0x22), write(0x60, 0x33)]);
-        let (bytes, count) = patch_between(&song, 1, 3);
-        assert_eq!(count, 2, "only 0x40 and 0x60 changed");
-        assert_eq!(bytes, [write(0x40, 0x22), write(0x60, 0x33)].concat());
-    }
-
-    #[test]
-    fn a_register_rewritten_to_the_same_value_is_not_emitted() {
-        // The stream writes 0x20 again between the two points, but to the value
-        // it already held: the states agree, so nothing is emitted.
-        let song = vgm_of(&[write(0x20, 0x11), write(0x20, 0x11), write(0x40, 0x22)]);
-        let (bytes, count) = patch_between(&song, 1, 3);
-        assert_eq!(count, 1);
-        assert_eq!(bytes, write(0x40, 0x22));
-    }
-
-    #[test]
-    fn an_empty_diff_emits_nothing() {
-        let song = vgm_of(&[write(0x20, 0x11), write(0x40, 0x22)]);
-        let (bytes, count) = patch_between(&song, 2, 2);
-        assert!(bytes.is_empty());
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn the_two_files_are_diffed_independently() {
-        // Same register number, different files, different values: the high
-        // file's write must not be masked by the low file's.
-        let song = vgm_of(&[write(0x20, 0x11), write_hi(0x20, 0x11)]);
-        let (bytes, count) = patch_between(&song, 1, 2);
-        assert_eq!(count, 1);
-        assert_eq!(bytes, write_hi(0x20, 0x11));
     }
 
     // -- DRO v1 bank tracking -------------------------------------------------
@@ -381,14 +301,5 @@ mod tests {
         let count = append_patch(&mut bytes, &song, &fold, &fold);
         assert!(bytes.is_empty());
         assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn a_non_v1_patch_never_emits_bank_switches() {
-        // A VGM carries the bank in every write, so the high-file write needs no
-        // switch around it.
-        let song = vgm_of(&[write(0x20, 0x11), write_hi(0x40, 0x22)]);
-        let (bytes, _) = patch_between(&song, 0, 2);
-        assert_eq!(bytes, [write(0x20, 0x11), write_hi(0x40, 0x22)].concat());
     }
 }

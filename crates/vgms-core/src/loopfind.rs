@@ -298,28 +298,25 @@ pub fn find_loops_ranked(song: &Song, min_len_commands: usize) -> Vec<Candidate>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song::OplType;
-    use crate::vgm::{VgmData, VgmMeta};
+    use crate::song::{DroDataV1, OplType};
 
-    /// A YM3812 (OPL2) register write, `0x5A reg value`.
-    fn reg(register: u8, value: u8) -> [u8; 3] {
-        [0x5A, register, value]
+    /// A DRO v1 register write, `reg value` (registers are all >= 0x20 here, so
+    /// none collides with a v1 delay/bank opcode).
+    fn reg(register: u8, value: u8) -> [u8; 2] {
+        [register, value]
     }
 
-    /// A long wait of `samples` samples, `0x61 lo hi`.
-    fn wait(samples: u16) -> [u8; 3] {
-        [0x61, samples as u8, (samples >> 8) as u8]
+    /// A DRO v1 long delay of `ms` milliseconds, `0x01 lo hi` (waits `word + 1`).
+    /// The exact value never matters -- the search strips delays -- so this only
+    /// has to be one instruction, like the register writes it sits between.
+    fn wait(ms: u16) -> [u8; 3] {
+        let word = ms.saturating_sub(1);
+        [0x01, word as u8, (word >> 8) as u8]
     }
 
-    fn vgm_song(stream: Vec<u8>) -> Song {
-        let data = VgmData::new(stream).expect("valid VGM stream");
-        Song::vgm(
-            "loop.vgm".to_owned(),
-            0x151,
-            data,
-            OplType::Opl2,
-            VgmMeta::new(Vec::new()),
-        )
+    fn dro_song(stream: Vec<u8>) -> Song {
+        let data = DroDataV1::new(stream).expect("valid DRO v1 stream");
+        Song::dro_v1("loop.dro".to_owned(), data, 0, OplType::Opl2)
     }
 
     /// Four distinct register writes with delays between them: one loop body.
@@ -344,7 +341,7 @@ mod tests {
         stream.extend_from_slice(&reg(0x40, 0x10));
         stream.extend_from_slice(&body(50, 70));
         stream.extend_from_slice(&body(50, 70));
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
 
         let candidates = find_loops_ranked(&song, 4);
         assert_eq!(
@@ -376,7 +373,7 @@ mod tests {
         stream.extend_from_slice(&reg(0x40, 0x10));
         stream.extend_from_slice(&body(50, 70));
         stream.extend_from_slice(&body(9000, 3));
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
 
         let candidates = find_loops_ranked(&song, 4);
         assert_eq!(candidates.len(), 1);
@@ -393,7 +390,7 @@ mod tests {
         stream.extend_from_slice(&reg(0x40, 0x10));
         stream.extend_from_slice(&body(50, 70));
         stream.extend_from_slice(&body(50, 70));
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
 
         assert!(find_loops_ranked(&song, 5).is_empty());
     }
@@ -405,7 +402,7 @@ mod tests {
             stream.extend_from_slice(&reg(0x20 + n, n));
             stream.extend_from_slice(&wait(10));
         }
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
         assert!(find_loops_ranked(&song, 3).is_empty());
     }
 
@@ -418,7 +415,7 @@ mod tests {
         for _ in 0..3 {
             stream.extend_from_slice(&body(50, 70));
         }
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
 
         let candidates = find_loops_ranked(&song, 4);
         assert_eq!(candidates.len(), 2, "no per-offset duplicates");
@@ -443,7 +440,7 @@ mod tests {
         let mut stream = Vec::new();
         stream.extend_from_slice(&body(50, 70));
         stream.extend_from_slice(&body(50, 70));
-        let song = vgm_song(stream);
+        let song = dro_song(stream);
 
         let mut emitted = Vec::new();
         find_loops(&song, 4, &mut |c| emitted.push(c), &|| true);

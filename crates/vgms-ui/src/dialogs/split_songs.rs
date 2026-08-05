@@ -278,7 +278,7 @@ mod tests {
     use std::sync::Arc;
 
     fn dialog() -> SplitSongsDialog {
-        SplitSongsDialog::new(SplitSource::Opl(Arc::new(multi_song_capture())))
+        SplitSongsDialog::new(SplitSource::Vgm(Arc::new(multi_song_capture())))
     }
 
     #[test]

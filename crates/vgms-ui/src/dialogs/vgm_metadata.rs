@@ -6,8 +6,6 @@
 //!   displayed read-only rather than edited.
 //! - Save applies the metadata, and invalid input gets an error box.
 
-use vgms_core::Song;
-
 use crate::action::Action;
 use crate::theme::{Palette, bevel};
 
@@ -35,23 +33,9 @@ pub struct VgmMetadataDialog {
 }
 
 impl VgmMetadataDialog {
-    /// `None` if `song` is not a VGM.
-    #[must_use]
-    pub fn new(song: &Song) -> Option<Self> {
-        let meta = song.vgm_meta()?;
-        Some(Self::from_fields(
-            meta.loop_point,
-            meta.loop_end,
-            meta.loop_base,
-            meta.loop_modifier,
-            meta.volume_modifier,
-            song.len(),
-            song.delay_samples_prefix(),
-        ))
-    }
-
-    /// The same dialog for a document held as a VGM, whose fields are in the
-    /// header itself and whose row times come from its own waits.
+    /// The dialog for a document held as a VGM, whose fields are in the header
+    /// itself and whose row times come from its own waits. (A DRO carries no VGM
+    /// metadata, so there is no `Song`-based constructor.)
     #[must_use]
     pub fn for_vgm(file: &vgms_core::VgmFile) -> Option<Self> {
         let stream = file.stream()?;

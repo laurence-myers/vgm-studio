@@ -1112,13 +1112,12 @@ impl VgmStudioApp {
         }
     }
 
-    /// The playback volume `song`'s header volume modifier asks for: unity for a
-    /// DRO (no modifier) or a VGM whose modifier is `0`. What an unlocked song
-    /// starts at, in the editor and in a pack preview.
-    fn modifier_boost(song: &vgms_core::Song) -> f32 {
-        song.vgm_meta().map_or(1.0, |meta| {
-            vgms_core::volume_modifier_factor(meta.volume_modifier)
-        })
+    /// The playback volume `song`'s header volume modifier asks for: always unity
+    /// for a DRO, which carries no modifier. What an unlocked song starts at, in
+    /// the editor and in a pack preview. (A VGM's own modifier is applied on the
+    /// `VgmFile` path.)
+    fn modifier_boost(_song: &vgms_core::Song) -> f32 {
+        1.0
     }
 
     /// The volume a freshly opened *editor* song should start at when the volume
@@ -1938,37 +1937,29 @@ impl VgmStudioApp {
                 }
                 // The document itself, not its OPL projection: the tag lives
                 // in the file, and the projection is only a view of the stream.
-                match (self.editor.vgm(), self.editor.song()) {
-                    (Some(file), _) => {
+                match self.editor.vgm() {
+                    // The tag lives in the file; a DRO has none.
+                    Some(file) => {
                         self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
                     }
-                    (None, Some(song)) if song.is_vgm() => {
-                        let tag = song.vgm_meta().and_then(|meta| meta.tag.as_ref());
-                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(tag));
-                    }
-                    _ => self.status = crate::strings::APP_STATUS_ONLY_VGM_TAG.to_owned(),
+                    None => self.status = crate::strings::APP_STATUS_ONLY_VGM_TAG.to_owned(),
                 }
             }
             Action::OpenVgmMetadata => {
                 if !self.require_document() {
                     return;
                 }
-                let dialog = match (self.editor.vgm(), self.editor.song()) {
-                    (Some(file), _) => VgmMetadataDialog::for_vgm(file),
-                    (None, Some(song)) => VgmMetadataDialog::new(song),
-                    (None, None) => None,
-                };
+                // Metadata lives in the VGM header; a DRO has none.
+                let dialog = self.editor.vgm().and_then(VgmMetadataDialog::for_vgm);
                 match dialog {
                     Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
                     None => self.status = crate::strings::APP_STATUS_NOT_VGM.to_owned(),
                 }
             }
             Action::ConvertToVgm => {
+                // `require_song` gates on an editable DRO; a VGM document is held
+                // as a `VgmFile` and never reaches here.
                 if !self.require_song() {
-                    return;
-                }
-                if self.editor.song().expect("gated").is_vgm() {
-                    self.status = crate::strings::APP_STATUS_ALREADY_VGM.to_owned();
                     return;
                 }
                 match self.editor.convert_to_vgm() {
@@ -2018,7 +2009,8 @@ impl VgmStudioApp {
                     self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
                     return;
                 }
-                if self.editor.song().is_some_and(|song| !song.is_vgm()) {
+                // Optimize is VGM-only; an editable DRO (`editor.song()`) is refused.
+                if self.editor.song().is_some() {
                     self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
                     return;
                 }

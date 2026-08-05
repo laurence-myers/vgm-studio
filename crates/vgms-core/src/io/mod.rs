@@ -8,22 +8,21 @@
 pub mod dro;
 
 use crate::error::{Error, Result};
-use crate::song::{Song, SongData};
-use crate::vgm::io as vgm;
+use crate::song::Song;
 
-/// Reads a song, choosing the format from `name`'s extension.
+/// Reads a DRO song.
 ///
-/// A `.vgz` is detected from its gzip magic rather than its name, so a compressed
-/// file with a `.vgm` extension opens.
+/// This reads DRO documents only. A `.vgm`/`.vgz` is read through
+/// [`vgm::file::read`](crate::vgm::file::read) into a [`VgmFile`](crate::VgmFile);
+/// the editor and the CLI divert VGM names there directly, so a VGM never reaches
+/// this entry point.
 ///
 /// # Errors
-/// If the extension is not one we support, or the bytes do not parse as that format.
+/// If the extension is not `.dro`, or the bytes do not parse as a DRO.
 pub fn read_song(name: &str, bytes: &[u8]) -> Result<Song> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".dro") {
         dro::read(name, bytes)
-    } else if lower.ends_with(".vgm") || lower.ends_with(".vgz") {
-        vgm::read(name, bytes)
     } else {
         Err(Error::file(format!(
             "Tried to read an unsupported file format: {name}"
@@ -31,18 +30,16 @@ pub fn read_song(name: &str, bytes: &[u8]) -> Result<Song> {
     }
 }
 
-/// Serialises a song in its own format, compressing if `name` ends in `.vgz`.
+/// Serialises a DRO song in its own format.
+///
+/// A [`Song`] is always a DRO now; a VGM document is a
+/// [`VgmFile`](crate::VgmFile), written through
+/// [`vgm::file::write`](crate::vgm::file::write).
 ///
 /// # Errors
-/// If the song's data and its declared format disagree.
+/// If the song's data and its declared version disagree.
 pub fn write_song(song: &Song) -> Result<Vec<u8>> {
-    match song.data() {
-        SongData::V1(_) | SongData::V2(_) => dro::write(song),
-        SongData::Vgm(_) if song.name.to_ascii_lowercase().ends_with(".vgz") => {
-            vgm::write_gzipped(song)
-        }
-        SongData::Vgm(_) => vgm::write(song),
-    }
+    dro::write(song)
 }
 
 /// Reads `u8` / `u16` / `u32` little-endian values with bounds checks.
@@ -122,19 +119,19 @@ mod tests {
     fn read_song_dispatches_on_the_extension() {
         assert_eq!(read_song("a.dro", DRO_V2_FIXTURE).unwrap().len(), 299);
         assert_eq!(read_song("a.DRO", DRO_V2_FIXTURE).unwrap().len(), 299);
-        assert_eq!(read_song("a.vgm", VGM_FIXTURE).unwrap().len(), 299);
-        assert_eq!(read_song("a.VGZ", VGM_FIXTURE).unwrap().len(), 299);
 
-        let error = read_song("a.mid", VGM_FIXTURE).unwrap_err().to_string();
-        assert!(error.contains("unsupported file format"), "{error}");
+        // `read_song` is DRO-only: a VGM name is read through `vgm::file::read`
+        // by the editor and CLI, never here, so it is an unsupported format.
+        for name in ["a.vgm", "a.vgz", "a.mid"] {
+            let error = read_song(name, VGM_FIXTURE).unwrap_err().to_string();
+            assert!(error.contains("unsupported file format"), "{name}: {error}");
+        }
     }
 
     #[test]
-    fn write_song_round_trips_every_format() {
-        for (name, bytes) in [("a.dro", DRO_V2_FIXTURE), ("a.vgm", VGM_FIXTURE)] {
-            let song = read_song(name, bytes).unwrap();
-            assert_eq!(write_song(&song).unwrap(), bytes, "{name}");
-        }
+    fn write_song_round_trips_a_dro() {
+        let song = read_song("a.dro", DRO_V2_FIXTURE).unwrap();
+        assert_eq!(write_song(&song).unwrap(), DRO_V2_FIXTURE);
     }
 
     /// The editor's Load then Save is `read_song` then `write_song`: a DRO of
@@ -166,17 +163,6 @@ mod tests {
             saved,
             "a v1 DRO must save byte-for-byte"
         );
-    }
-
-    #[test]
-    fn write_song_compresses_a_vgz_by_name() {
-        let mut song = read_song("a.vgm", VGM_FIXTURE).unwrap();
-        assert!(!vgm::is_gzipped(&write_song(&song).unwrap()));
-
-        song.name = "a.vgz".to_owned();
-        let compressed = write_song(&song).unwrap();
-        assert!(vgm::is_gzipped(&compressed));
-        assert_eq!(read_song("a.vgz", &compressed).unwrap().data(), song.data());
     }
 
     #[test]

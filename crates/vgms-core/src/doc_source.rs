@@ -86,10 +86,8 @@ impl DocSource {
     #[must_use]
     pub fn stem_and_extension(&self) -> (&str, &'static str) {
         let (name, extension) = match self {
-            Self::Opl(song) => (
-                song.name.as_str(),
-                if song.is_vgm() { "vgm" } else { "dro" },
-            ),
+            // An Opl document is always a DRO now.
+            Self::Opl(song) => (song.name.as_str(), "dro"),
             Self::Vgm(file) => (file.name.as_str(), "vgm"),
         };
         let stem = name

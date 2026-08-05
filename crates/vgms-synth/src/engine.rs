@@ -287,13 +287,8 @@ impl LoopConfig {
     #[must_use]
     pub fn for_song(song: &Song, start: usize, end: usize, count: LoopCount, rate: u32) -> Self {
         let rate = u64::from(rate);
-        let start_frames = if song.data().delays_in_samples() {
-            u64::from(song.samples_before(start)) * rate / u64::from(VGM_SAMPLE_RATE)
-        } else {
-            // A DRO's delays are milliseconds, and `samples_before` only counts
-            // sample delays, so the millisecond prefix is the honest source here.
-            u64::from(song.ms_offset_at(start).unwrap_or(0)) * rate / 1000
-        };
+        // A `Song` is always a DRO, whose delays are milliseconds.
+        let start_frames = u64::from(song.ms_offset_at(start).unwrap_or(0)) * rate / 1000;
         Self {
             start,
             end,
@@ -442,11 +437,8 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
     /// different [`OplChip`]).
     #[must_use]
     pub fn with_chip(song: B, chip: C, sample_rate: u32) -> Self {
-        let delay_unit = if song.borrow().data().delays_in_samples() {
-            VGM_SAMPLE_RATE
-        } else {
-            1000
-        };
+        // A `Song` is always a DRO, whose delays are milliseconds.
+        let delay_unit = 1000;
         let mut engine = Self {
             song,
             chip,

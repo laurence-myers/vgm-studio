@@ -13,14 +13,12 @@
 //! the chosen part.
 
 use crate::song::dro_data::v1_opcode;
-use crate::song::{DroDataV1, DroDataV2, Instruction, Song, SongData};
+use crate::song::{DroDataV1, DroDataV2, Song, SongData};
 use crate::state_patch::{StateFold, append_patch};
-use crate::util::VGM_SAMPLE_RATE;
+use crate::vgm::VgmFile;
 #[cfg(test)]
 use crate::vgm::data::command;
-use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
 use crate::vgm::stream::VgmCommand;
-use crate::vgm::{VgmData, VgmFile, VgmMeta};
 
 /// One detected song within a capture: the half-open instruction range
 /// `[start, end)` that holds it, and where it sits in time.
@@ -49,25 +47,13 @@ pub struct Segment {
     pub trailing_gap: u32,
 }
 
-/// The delay units per second in a song's native unit: `44100` for a VGM
-/// (samples), `1000` for a DRO (milliseconds). Lets a UI convert the
-/// native-unit [`Segment`] fields and its threshold to and from seconds.
+/// The delay units per second in a DRO song's native unit: `1000`
+/// (milliseconds). Lets a UI convert the native-unit [`Segment`] fields and its
+/// threshold to and from seconds. (A VGM capture splits through
+/// [`detect_segments_in_vgm`], which works in samples.)
 #[must_use]
-pub fn native_rate(song: &Song) -> u32 {
-    if song.data().delays_in_samples() {
-        VGM_SAMPLE_RATE
-    } else {
-        1000
-    }
-}
-
-/// One instruction's delay in the song's native unit.
-fn native_delay(instruction: Instruction, in_samples: bool) -> u32 {
-    if in_samples {
-        instruction.delay_samples()
-    } else {
-        instruction.delay_ms()
-    }
+pub const fn native_rate(_song: &Song) -> u32 {
+    1000
 }
 
 impl Segment {
@@ -102,13 +88,9 @@ impl Segment {
 /// unit, so a piece is never split where no time actually passes.
 #[must_use]
 pub fn detect_segments(song: &Song, threshold: u32) -> Vec<Segment> {
-    let in_samples = song.data().delays_in_samples();
     detect(song.len(), threshold, |index| {
         let instruction = song.instruction(index).expect("index < len");
-        (
-            native_delay(instruction, in_samples),
-            instruction.is_delay(),
-        )
+        (instruction.delay_ms(), instruction.is_delay())
     })
 }
 
@@ -299,10 +281,6 @@ fn append_state_prelude(bytes: &mut Vec<u8>, song: &Song, start: usize) {
 /// `song`'s own format.
 fn append_delay(bytes: &mut Vec<u8>, song: &Song, native: u32) {
     match song.data() {
-        SongData::Vgm(_) => {
-            // `0x61 nn nn` waits up to 65535 samples; the shared helper chunks it.
-            crate::vgm::data::append_wait(bytes, u64::from(native));
-        }
         SongData::V1(_) => {
             // `0x01 lo hi` waits (word + 1) ms, up to 65536; chunk longer waits.
             let mut ms = native;
@@ -339,29 +317,8 @@ fn append_v2_delay(bytes: &mut Vec<u8>, mut ms: u32, data: &DroDataV2) {
 /// DRO v2, its codemap). `total_native` is the piece's total delay, which a DRO
 /// header records in milliseconds.
 fn build_piece(song: &Song, bytes: Vec<u8>, total_native: u32) -> Song {
-    let name = piece_name(&song.name, if song.is_vgm() { "vgm" } else { "dro" });
+    let name = piece_name(&song.name, "dro");
     match song.data() {
-        SongData::Vgm(_) => {
-            let mut meta = VgmMeta::new(synthesise_header());
-            // Copy the source GD3 but blank the track title: it names the whole
-            // capture, not this one song. Game/system/author/date carry over; the
-            // per-song title is set later in pack quick-edit or bulk tag.
-            meta.tag = song
-                .vgm_meta()
-                .and_then(|meta| meta.tag.clone())
-                .map(|mut tag| {
-                    tag.track_name_en.clear();
-                    tag.track_name_native.clear();
-                    tag
-                });
-            Song::vgm(
-                name,
-                CONVERSION_VERSION,
-                VgmData::new(bytes).expect("materialise only emits VGM commands the indexer knows"),
-                song.opl_type,
-                meta,
-            )
-        }
         SongData::V1(_) => Song::dro_v1(
             name,
             DroDataV1::new(bytes).expect("materialise only emits whole v1 instructions"),
@@ -401,7 +358,18 @@ mod tests {
     // The reference folds every state-replay assertion is written against, shared
     // with the crop edits that emit the same patches.
     use crate::state_patch::{state_after_writes, state_over};
-    use crate::vgm::Gd3Tag;
+
+    /// A low-bank OPL2 write, `0x5A reg value`.
+    fn write(reg: u8, value: u8) -> Vec<u8> {
+        vec![command::YM3812, reg, value]
+    }
+
+    /// A long wait of `samples` (0..=65535), as one `0x61` VGM command.
+    fn wait(samples: u16) -> Vec<u8> {
+        let mut bytes = vec![command::WAIT];
+        bytes.extend_from_slice(&samples.to_le_bytes());
+        bytes
+    }
 
     /// A capture for chips the OPL model knows nothing about, as a `VgmFile`.
     /// Two songs, parted by `gap_samples` of silence; each song writes one
@@ -550,470 +518,6 @@ mod tests {
         );
     }
 
-    /// A low-bank OPL2 write, `0x5A reg value`.
-    fn write(reg: u8, value: u8) -> Vec<u8> {
-        vec![command::YM3812, reg, value]
-    }
-
-    /// A high-bank write, `0xAA reg value` (dual-OPL2 second chip / decoded as the
-    /// high bank).
-    fn write_hi(reg: u8, value: u8) -> Vec<u8> {
-        vec![command::YM3812_CHIP_2, reg, value]
-    }
-
-    /// A long wait of `samples` (0..=65535), as one `0x61` command.
-    fn wait(samples: u16) -> Vec<u8> {
-        let mut bytes = vec![command::WAIT];
-        bytes.extend_from_slice(&samples.to_le_bytes());
-        bytes
-    }
-
-    fn song_of(chunks: &[Vec<u8>]) -> Song {
-        song_of_type(chunks, OplType::Opl2)
-    }
-
-    fn song_of_type(chunks: &[Vec<u8>], opl_type: OplType) -> Song {
-        let bytes: Vec<u8> = chunks.concat();
-        Song::vgm(
-            "capture.vgm".to_owned(),
-            0x151,
-            VgmData::new(bytes).unwrap(),
-            opl_type,
-            VgmMeta::new(synthesise_header()),
-        )
-    }
-
-    #[test]
-    fn a_single_song_with_no_gaps_is_one_segment() {
-        let song = song_of(&[write(0x20, 0x01), wait(1000), write(0x21, 0x02), wait(1000)]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].start, 0);
-        // Ends at the last register write (index 2), excluding the trailing wait.
-        assert_eq!(segments[0].end, 3);
-        assert_eq!(segments[0].start_time, 0);
-        assert_eq!(segments[0].duration, 1000);
-    }
-
-    #[test]
-    fn a_gap_over_the_threshold_splits_two_songs() {
-        // song A: write, wait 500, write; gap of 10000; song B: write, wait 500, write.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(500),
-            write(0x21, 0x02),
-            wait(10_000), // the gap
-            write(0x22, 0x03),
-            wait(500),
-            write(0x23, 0x04),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 2);
-        // Piece A: instructions [0, 3) -- ends before the gap wait at index 3.
-        assert_eq!((segments[0].start, segments[0].end), (0, 3));
-        assert_eq!(segments[0].start_time, 0);
-        assert_eq!(segments[0].duration, 500);
-        // Piece B: starts at index 4 (the first write after the gap), ends at 7.
-        assert_eq!((segments[1].start, segments[1].end), (4, 7));
-        // It begins after A's 500 samples plus the 10000 gap.
-        assert_eq!(segments[1].start_time, 10_500);
-        assert_eq!(segments[1].duration, 500);
-    }
-
-    #[test]
-    fn a_gap_may_span_several_delay_instructions() {
-        // Four 3000-sample waits in a row sum to 12000 -- over an 8000 threshold --
-        // even though no single one reaches it.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(3000),
-            wait(3000),
-            wait(3000),
-            wait(3000),
-            write(0x21, 0x02),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 2);
-        assert_eq!((segments[0].start, segments[0].end), (0, 1));
-        assert_eq!((segments[1].start, segments[1].end), (5, 6));
-    }
-
-    #[test]
-    fn a_gap_interrupted_by_a_write_is_not_a_boundary() {
-        // Two 5000 waits that would sum to 10000, but a register write between
-        // them resets the accumulator, so neither run reaches 8000.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(5000),
-            write(0x21, 0x02), // resets the gap accumulator
-            wait(5000),
-            write(0x22, 0x03),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 1);
-        assert_eq!((segments[0].start, segments[0].end), (0, 5));
-    }
-
-    #[test]
-    fn the_threshold_is_inclusive() {
-        // A gap of exactly the threshold splits; one sample under does not.
-        let stream = |gap: u16| song_of(&[write(0x20, 0x01), wait(gap), write(0x21, 0x02)]);
-        assert_eq!(detect_segments(&stream(8000), 8000).len(), 2, "== splits");
-        assert_eq!(detect_segments(&stream(7999), 8000).len(), 1, "< does not");
-    }
-
-    #[test]
-    fn leading_and_trailing_silence_is_trimmed() {
-        // Silence, song, silence: the piece runs from the first write to the last,
-        // and neither the leading nor the trailing wait is part of it.
-        let song = song_of(&[
-            wait(20_000), // leading silence
-            write(0x20, 0x01),
-            wait(500),
-            write(0x21, 0x02),
-            wait(20_000), // trailing silence
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 1);
-        assert_eq!((segments[0].start, segments[0].end), (1, 4));
-        // start_time counts the leading silence that came before it.
-        assert_eq!(segments[0].start_time, 20_000);
-        assert_eq!(segments[0].duration, 500);
-    }
-
-    #[test]
-    fn an_empty_or_writeless_stream_yields_no_segments() {
-        assert!(detect_segments(&song_of(&[]), 8000).is_empty());
-        assert!(detect_segments(&song_of(&[wait(9000), wait(9000)]), 8000).is_empty());
-    }
-
-    #[test]
-    fn a_zero_threshold_still_needs_an_actual_gap() {
-        // Two adjacent writes with no delay between them are one piece even at a
-        // zero threshold; only a real (>= 1 sample) gap can split.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            write(0x21, 0x02),
-            wait(1),
-            write(0x22, 0x03),
-        ]);
-        let segments = detect_segments(&song, 0);
-        assert_eq!(
-            segments.len(),
-            2,
-            "the 1-sample gap splits, the adjacency does not"
-        );
-        assert_eq!((segments[0].start, segments[0].end), (0, 2));
-        assert_eq!((segments[1].start, segments[1].end), (3, 4));
-    }
-
-    #[test]
-    fn the_segment_length_sums_the_internal_delays() {
-        // A piece with several sub-threshold delays: its length is their sum.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(100),
-            write(0x21, 0x02),
-            wait(200),
-            write(0x22, 0x03),
-            wait(300),
-            write(0x23, 0x04),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].duration, 600);
-        assert_eq!(segments[0].len(), 7);
-        assert!(!segments[0].is_empty());
-    }
-
-    // -- materialise -------------------------------------------------------
-
-    /// A four-song capture used by the materialise tests. Each song is two
-    /// writes with a 500-sample delay between them, setting distinct registers so
-    /// a later piece's prelude must restore the earlier ones; the songs are
-    /// parted by 10000-sample gaps (over the 8000 threshold).
-    fn capture() -> Song {
-        song_of(&[
-            // song 0
-            write(0x20, 0x11),
-            wait(500),
-            write(0x40, 0x22),
-            wait(10_000),
-            // song 1
-            write(0x60, 0x33),
-            wait(500),
-            write(0x80, 0x44),
-            wait(10_000),
-            // song 2
-            write(0xA0, 0x55),
-            wait(500),
-            write(0xB0, 0x66),
-            wait(10_000),
-            // song 3
-            write(0x21, 0x77),
-            wait(500),
-            write(0x41, 0x88),
-        ])
-    }
-
-    #[test]
-    fn a_piece_round_trips_through_read_song() {
-        let song = capture();
-        let segments = detect_segments(&song, 8000);
-        for segment in &segments {
-            let piece = materialise(&song, segment, true, 0);
-            let bytes = write_song(&piece).expect("a materialised VGM writes");
-            let reread = read_song("piece.vgm", &bytes).expect("and reads back");
-            assert_eq!(
-                reread.data(),
-                piece.data(),
-                "stream survived the round trip"
-            );
-            assert_eq!(reread.opl_type, song.opl_type);
-        }
-    }
-
-    #[test]
-    fn the_register_state_at_a_piece_start_matches_the_original() {
-        let song = capture();
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 4);
-
-        for segment in &segments {
-            let expected = state_over(&song, segment.start);
-            let piece = materialise(&song, segment, true, 0);
-            // Re-read so the assertion also proves the prelude's opcodes decode
-            // back to the banks they came from.
-            let bytes = write_song(&piece).unwrap();
-            let reread = read_song("piece.vgm", &bytes).unwrap();
-            assert_eq!(
-                state_after_writes(&reread, expected.len()),
-                expected,
-                "piece starting at {} does not restore the original state",
-                segment.start
-            );
-        }
-        // The third piece must have restored all four earlier registers.
-        assert_eq!(state_over(&song, segments[3].start).len(), 6);
-    }
-
-    #[test]
-    fn a_high_bank_prelude_uses_the_right_opcode() {
-        // A dual-OPL2 capture whose first song writes the high bank; the second
-        // song's prelude must restore it as a high-bank write, not a low one.
-        let song = song_of_type(
-            &[
-                write(0x20, 0x01),
-                write_hi(0x20, 0x09), // high bank
-                wait(10_000),
-                write(0x40, 0x02),
-                wait(500),
-            ],
-            OplType::DualOpl2,
-        );
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 2);
-
-        let piece = materialise(&song, &segments[1], true, 0);
-        let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
-        // The high-bank value survives as a high-bank write.
-        assert_eq!(
-            reread.instruction(1),
-            Some(Instruction::Register {
-                reg: 0x20,
-                value: 0x09,
-                bank: Some(Bank::High),
-            })
-        );
-        assert_eq!(
-            state_after_writes(&reread, 2),
-            state_over(&song, segments[1].start)
-        );
-    }
-
-    #[test]
-    fn a_piece_from_offset_zero_has_no_prelude() {
-        let song = capture();
-        let segments = detect_segments(&song, 8000);
-        let first = &segments[0];
-        assert_eq!(first.start, 0);
-
-        let piece = materialise(&song, first, true, 0);
-        // No prelude: the piece is exactly the segment's own instructions.
-        assert_eq!(piece.len(), first.len());
-        assert_eq!(
-            piece.instruction(0),
-            Some(Instruction::Register {
-                reg: 0x20,
-                value: 0x11,
-                bank: Some(Bank::Low),
-            })
-        );
-    }
-
-    #[test]
-    fn state_replay_off_omits_the_prelude() {
-        let song = capture();
-        let segments = detect_segments(&song, 8000);
-        let second = &segments[1];
-
-        let with = materialise(&song, second, true, 0);
-        let without = materialise(&song, second, false, 0);
-        assert!(with.len() > without.len(), "replay adds a prelude");
-        // Without a prelude the piece is just its own instructions.
-        assert_eq!(without.len(), second.len());
-    }
-
-    #[test]
-    fn the_gd3_tag_is_copied_but_the_title_is_cleared() {
-        let mut song = capture();
-        let tag = Gd3Tag {
-            track_name_en: "Whole Capture".to_owned(),
-            track_name_native: "\u{5168}".to_owned(),
-            game_name_en: "Sound Test".to_owned(),
-            track_author_en: "Composer".to_owned(),
-            ..Gd3Tag::default()
-        };
-        song.vgm_meta_mut().unwrap().tag = Some(tag);
-
-        for segment in &detect_segments(&song, 8000) {
-            let piece = materialise(&song, segment, true, 0);
-            let piece_tag = piece.vgm_meta().unwrap().tag.as_ref().unwrap();
-            // The capture-wide title is blanked; the rest carries over.
-            assert_eq!(piece_tag.track_name_en, "");
-            assert_eq!(piece_tag.track_name_native, "");
-            assert_eq!(piece_tag.game_name_en, "Sound Test");
-            assert_eq!(piece_tag.track_author_en, "Composer");
-            // And that survives a write/read cycle.
-            let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
-            let reread_tag = reread.vgm_meta().unwrap().tag.as_ref().unwrap();
-            assert_eq!(reread_tag.track_name_en, "");
-            assert_eq!(reread_tag.game_name_en, "Sound Test");
-        }
-    }
-
-    #[test]
-    fn a_source_without_a_tag_yields_untagged_pieces() {
-        let song = capture();
-        assert!(song.vgm_meta().unwrap().tag.is_none());
-        let piece = materialise(&song, &detect_segments(&song, 8000)[0], true, 0);
-        assert!(piece.vgm_meta().unwrap().tag.is_none());
-    }
-
-    #[test]
-    fn the_piece_durations_sum_to_the_original_minus_the_gaps() {
-        let song = capture();
-        let segments = detect_segments(&song, 8000);
-
-        // Each piece's duration is its segment length (the prelude adds no time).
-        let mut total = 0u32;
-        for segment in &segments {
-            let piece = materialise(&song, segment, true, 0);
-            assert_eq!(piece.total_delay_samples(), segment.duration);
-            total += piece.total_delay_samples();
-        }
-        // Four songs of 500 samples each; the three 10000 gaps are dropped.
-        assert_eq!(total, 4 * 500);
-        assert_eq!(song.total_delay_samples(), 4 * 500 + 3 * 10_000);
-    }
-
-    #[test]
-    fn a_piece_that_ends_on_a_write_keeps_no_trailing_delay() {
-        // A song whose last real command is a write, with a trailing wait before
-        // the next gap, yields a piece ending exactly on that write.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(300),
-            write(0x21, 0x02),
-            wait(400), // trailing decay, trimmed
-            wait(10_000),
-            write(0x22, 0x03),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        let piece = materialise(&song, &segments[0], true, 0);
-        // 300 internal only; the 400 trailing wait is not part of the piece.
-        assert_eq!(piece.total_delay_samples(), 300);
-    }
-
-    #[test]
-    fn a_vgz_source_still_produces_an_uncompressed_piece() {
-        // The piece name drives write_song's compression choice; a `.vgz` source
-        // must not yield gzipped pieces named `.vgm`.
-        assert_eq!(piece_name("capture.vgz", "vgm"), "capture.vgm");
-        assert_eq!(piece_name("my.sound.test.vgm", "vgm"), "my.sound.test.vgm");
-        assert_eq!(piece_name("noext", "vgm"), "noext.vgm");
-        assert_eq!(piece_name("capture.dro", "dro"), "capture.dro");
-
-        let mut song = capture();
-        song.name = "capture.vgz".to_owned();
-        let piece = materialise(&song, &detect_segments(&song, 8000)[0], true, 0);
-        assert!(piece.name.ends_with(".vgm"));
-        let bytes = write_song(&piece).unwrap();
-        assert!(
-            !crate::vgm::io::is_gzipped(&bytes),
-            "the piece should be plain VGM"
-        );
-    }
-
-    // -- corpus sanity -----------------------------------------------------
-
-    /// Corpus sanity on a real capture: three copies of the `dro2vgm` OPL2 rip,
-    /// parted by one-second gaps, must split back into three pieces, each
-    /// beginning on exactly the register state the stream had reached there. This
-    /// is the programmatic stand-in for "listen to piece 2+ for state-replay
-    /// correctness" -- a real few-hundred-command stream of ordinary music, not a
-    /// synthetic one.
-    #[test]
-    fn a_real_capture_tripled_with_gaps_splits_and_replays() {
-        const CAPTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
-        let base = read_song("lsl3_score_up.vgm", CAPTURE).unwrap();
-        // At the 0.75 s default threshold the jingle itself has no internal gap.
-        assert_eq!(
-            detect_segments(&base, 33_075).len(),
-            1,
-            "one song on its own"
-        );
-
-        // Concatenate the command stream three times, parted by 44100-sample gaps.
-        let body = base.data().raw();
-        let gap = [command::WAIT, 0x44, 0xAC]; // 44100 = 0xAC44
-        let mut bytes = Vec::new();
-        for copy in 0..3 {
-            if copy > 0 {
-                bytes.extend_from_slice(&gap);
-            }
-            bytes.extend_from_slice(body);
-        }
-        let capture = Song::vgm(
-            "triple.vgm".to_owned(),
-            0x151,
-            VgmData::new(bytes).unwrap(),
-            base.opl_type,
-            VgmMeta::new(synthesise_header()),
-        );
-
-        let segments = detect_segments(&capture, 33_075);
-        assert_eq!(segments.len(), 3, "three songs after concatenation");
-
-        for (index, segment) in segments.iter().enumerate() {
-            let expected = state_over(&capture, segment.start);
-            let piece = materialise(&capture, segment, true, 0);
-            let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
-            assert_eq!(
-                state_after_writes(&reread, expected.len()),
-                expected,
-                "piece {index} does not open on the capture's register state"
-            );
-            // Every piece carries the whole jingle: the same command count as the
-            // original stream, plus its state-replay prelude.
-            assert!(piece.len() >= base.len(), "piece {index} lost commands");
-        }
-        // Pieces 2 and 3 have a real prelude to restore (piece 1 does not).
-        assert!(state_over(&capture, segments[0].start).is_empty());
-        assert!(!state_over(&capture, segments[1].start).is_empty());
-        assert!(!state_over(&capture, segments[2].start).is_empty());
-    }
-
     // -- DRO captures ------------------------------------------------------
 
     /// A three-song DRO v2 capture: registers via a shared codemap, 100 ms
@@ -1110,42 +614,6 @@ mod tests {
     // -- decay tail --------------------------------------------------------
 
     #[test]
-    fn a_decay_tail_appends_up_to_the_trailing_gap() {
-        // song 0, a 10000-sample gap, song 1. With a 4000-sample tail, piece 0
-        // keeps 4000 of that gap; without a tail it keeps none.
-        let song = song_of(&[
-            write(0x20, 0x01),
-            wait(500),
-            write(0x21, 0x02),
-            wait(10_000), // the gap
-            write(0x22, 0x03),
-            wait(500),
-            write(0x23, 0x04),
-        ]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments[0].trailing_gap, 10_000);
-
-        let no_tail = materialise(&song, &segments[0], true, 0);
-        assert_eq!(no_tail.total_delay_samples(), 500);
-
-        let tailed = materialise(&song, &segments[0], true, 4000);
-        assert_eq!(tailed.total_delay_samples(), 500 + 4000);
-    }
-
-    #[test]
-    fn a_decay_tail_is_capped_by_the_actual_gap() {
-        // The last song's trailing gap is only 500 samples; asking for 5000 keeps
-        // just the 500 that were there.
-        let song = song_of(&[write(0x20, 0x01), wait(500), write(0x21, 0x02), wait(500)]);
-        let segments = detect_segments(&song, 8000);
-        assert_eq!(segments.len(), 1);
-        assert_eq!(segments[0].trailing_gap, 500);
-        let piece = materialise(&song, &segments[0], true, 5000);
-        // 500 internal + 500 tail (all the gap there was), not 500 + 5000.
-        assert_eq!(piece.total_delay_samples(), 500 + 500);
-    }
-
-    #[test]
     fn a_dro_decay_tail_is_encoded_in_milliseconds() {
         let song = dro_v2_capture();
         let segments = detect_segments(&song, 750);
@@ -1157,82 +625,5 @@ mod tests {
         // And it still reads back cleanly.
         let reread = read_song("piece.dro", &write_song(&piece).unwrap()).unwrap();
         assert_eq!(reread.total_delay_ms(), piece.total_delay_ms());
-    }
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod proptests {
-    use super::*;
-    use crate::io::{read_song, write_song};
-    use crate::song::OplType;
-    use crate::state_patch::{state_after_writes, state_over};
-    use proptest::prelude::*;
-
-    /// A random VGM command: a low- or high-bank register write, or a wait.
-    fn command_bytes() -> impl Strategy<Value = Vec<u8>> {
-        prop_oneof![
-            (any::<u8>(), any::<u8>()).prop_map(|(reg, value)| vec![command::YM3812, reg, value]),
-            (any::<u8>(), any::<u8>()).prop_map(|(reg, value)| vec![
-                command::YM3812_CHIP_2,
-                reg,
-                value
-            ]),
-            any::<u16>().prop_map(|samples| {
-                let mut command = vec![command::WAIT];
-                command.extend_from_slice(&samples.to_le_bytes());
-                command
-            }),
-        ]
-    }
-
-    fn random_stream() -> impl Strategy<Value = Vec<u8>> {
-        proptest::collection::vec(command_bytes(), 1..60).prop_map(|commands| commands.concat())
-    }
-
-    proptest! {
-        /// However a capture is split, a state-replay piece begins on exactly the
-        /// register state a naive fold of the original's earlier writes reaches --
-        /// and that holds through a write/read round trip, so the prelude's
-        /// opcodes decode back to the banks they were captured from.
-        #[test]
-        fn a_replayed_piece_restores_the_folded_state(
-            bytes in random_stream(),
-            pick in 0usize..60,
-        ) {
-            let song = Song::vgm(
-                "capture.vgm".to_owned(),
-                0x151,
-                VgmData::new(bytes).unwrap(),
-                OplType::DualOpl2,
-                VgmMeta::new(synthesise_header()),
-            );
-            let segments = detect_segments(&song, 4000);
-            prop_assume!(!segments.is_empty());
-            let segment = segments[pick % segments.len()];
-
-            let expected = state_over(&song, segment.start);
-            let piece = materialise(&song, &segment, true, 0);
-            let reread = read_song("piece.vgm", &write_song(&piece).unwrap()).unwrap();
-            prop_assert_eq!(state_after_writes(&reread, expected.len()), expected);
-        }
-
-        /// A piece's duration is exactly its segment's length, whatever the split.
-        #[test]
-        fn a_piece_duration_equals_its_segment_length(
-            bytes in random_stream(),
-            threshold in 1u32..20_000,
-        ) {
-            let song = Song::vgm(
-                "capture.vgm".to_owned(),
-                0x151,
-                VgmData::new(bytes).unwrap(),
-                OplType::Opl2,
-                VgmMeta::new(synthesise_header()),
-            );
-            for segment in detect_segments(&song, threshold) {
-                let piece = materialise(&song, &segment, true, 0);
-                prop_assert_eq!(piece.total_delay_samples(), segment.duration);
-            }
-        }
     }
 }

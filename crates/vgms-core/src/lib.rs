@@ -46,8 +46,8 @@ pub use song::{
 pub use split_songs::{Segment, detect_segments};
 pub use undo::{ReplaceStream, UndoController, UndoableCommand};
 pub use vgm::{
-    ChipKind, ChipSettings, ChipTarget, ChipUse, ExtraHeader, Gd3Tag, VgmBody, VgmCommand, VgmData,
-    VgmFile, VgmHeader, VgmMeta, VgmStream,
+    ChipKind, ChipSettings, ChipTarget, ChipUse, ExtraHeader, Gd3Tag, VgmBody, VgmCommand, VgmFile,
+    VgmHeader, VgmMeta, VgmStream,
 };
 pub use volume::{
     boost_for_peak, encode_volume_modifier, matched_volume, nearest_volume_modifier, peak_dbfs,

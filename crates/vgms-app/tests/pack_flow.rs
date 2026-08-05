@@ -12,19 +12,17 @@ const PNG_FIXTURE: &[u8] = include_bytes!("../../../tests/screenshot.png");
 
 /// The VGM fixture re-serialised under `name` with a GD3 game name.
 fn song(name: &str, game: &str, author: &str) -> PickedFile {
-    let mut song = vgms_core::io::read_song(name, VGM_FIXTURE).unwrap();
-    if let Some(meta) = song.vgm_meta_mut() {
-        meta.tag = Some(vgms_core::Gd3Tag {
-            game_name_en: game.to_owned(),
-            track_author_en: author.to_owned(),
-            creator: "Ripper".to_owned(),
-            ..vgms_core::Gd3Tag::default()
-        });
-    }
+    let mut file = vgms_core::vgm::file::read(name, VGM_FIXTURE).unwrap();
+    file.tag = Some(vgms_core::Gd3Tag {
+        game_name_en: game.to_owned(),
+        track_author_en: author.to_owned(),
+        creator: "Ripper".to_owned(),
+        ..vgms_core::Gd3Tag::default()
+    });
     PickedFile {
         name: name.to_owned(),
         path: Some(std::path::PathBuf::from(format!("C:/Cool Game/{name}"))),
-        bytes: vgms_core::io::write_song(&song).unwrap(),
+        bytes: vgms_core::vgm::file::write(&file).unwrap(),
     }
 }
 

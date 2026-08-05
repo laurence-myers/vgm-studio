@@ -68,7 +68,8 @@ type SharedChip = Arc<Mutex<SerialOpl3Chip>>;
 /// coherent, and the shutdown path still owes the board a silencing sweep -- so
 /// taking the guard back beats leaving the chip sounding.
 fn lock_chip(chip: &SharedChip) -> MutexGuard<'_, SerialOpl3Chip> {
-    chip.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    chip.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// The [`OplChip`] an engine voice writes through: it forwards every write to the
@@ -343,7 +344,15 @@ fn run_pump(
     // A panic in here would otherwise leave the chip holding whatever it was
     // playing -- a real one does not stop when the program does.
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        pump_loop(&mut device, &mut engine, &chip, opl, consumer, &shared, &stop)
+        pump_loop(
+            &mut device,
+            &mut engine,
+            &chip,
+            opl,
+            consumer,
+            &shared,
+            &stop,
+        )
     }));
 
     match outcome {

@@ -46,21 +46,6 @@ pub fn install_cores() {
     }
 }
 
-/// Reads and parses the song at `path`, naming it after the file (falling back to
-/// `input.dro`) so format detection follows the file's extension. Every
-/// subcommand opens its one input exactly this way.
-///
-/// # Errors
-/// If the file cannot be read, or is not a song `vgms_core` can parse.
-pub fn read_song_from_path(path: &Path) -> Result<Song> {
-    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
-    let name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("input.dro");
-    Ok(read_song(name, &bytes)?)
-}
-
 /// A song a subcommand opened: a DRO as its editable OPL [`Song`], or any VGM --
 /// OPL or not -- as its whole file.
 ///
@@ -243,7 +228,6 @@ mod loaded_song_tests {
         std::fs::remove_file(&path).ok();
     }
 
-    /// The OPL arm must be what `read_song_from_path` always produced -- the
     /// An OPL VGM now loads whole, as its own file (Stage K): the CLI routes it
     /// through the same VgmEngine path as any VGM rather than a projected `Song`.
     #[test]

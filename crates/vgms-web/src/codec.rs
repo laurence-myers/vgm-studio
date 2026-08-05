@@ -1008,9 +1008,14 @@ mod tests {
     use super::*;
 
     const OPL_VGM: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
+    const OPL_DRO: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
 
+    // The codec's Opl-document arm carries a DRO `Song` now (an OPL VGM travels as
+    // a `VgmFile` on the Vgm arm); a `Song` is always a DRO.
     fn sample_song() -> Arc<Song> {
-        Arc::new(vgms_core::io::read_song("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses"))
+        Arc::new(
+            vgms_core::io::read_song("lsl3_score_up_dro2.dro", OPL_DRO).expect("fixture parses"),
+        )
     }
 
     fn sample_vgm() -> Arc<VgmFile> {

@@ -3,9 +3,8 @@
 //! Each payload is a shape that could once panic, wrap a pointer on wasm32, or
 //! reserve unbounded memory (Stage A of the 2026-08 review remediation). The
 //! property proved here is *"returns an error, or opens harmlessly -- but never
-//! panics"*, and it is proved for **both** readers: the OPL reader
-//! (`vgm::io::read`) and the any-chip reader (`vgm::file::read`), since a cap or
-//! guard that reached only one would still leave a crash path open.
+//! panics"*, proved for the any-chip reader (`vgm::file::read`), the one file-open
+//! path there is now.
 //!
 //! The narrow, single-function crash sites (a >32-bit compression width, an
 //! absurd DAC stream rate, the gunzip ceiling) are proved next to their code;
@@ -15,7 +14,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use std::io::Write;
 
-use vgms_core::vgm::{file, io};
+use vgms_core::vgm::file;
 
 const VGM_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
 
@@ -101,11 +100,9 @@ fn no_hostile_file_crashes_either_reader() {
     ];
 
     for (name, bytes, expect) in corpus {
-        // The calls completing at all is the no-panic proof.
-        let opl = io::read(name, &bytes);
+        // The call completing at all is the no-panic proof.
         let any = file::read(name, &bytes);
         if let Expect::Rejected = expect {
-            assert!(opl.is_err(), "{name}: OPL reader should reject it");
             assert!(any.is_err(), "{name}: any-chip reader should reject it");
         }
     }
@@ -114,7 +111,6 @@ fn no_hostile_file_crashes_either_reader() {
 #[test]
 fn the_clean_fixture_still_opens() {
     // A guard against a corpus entry that accidentally rejects everything.
-    assert!(io::read("clean.vgm", VGM_FIXTURE).is_ok());
     assert!(file::read("clean.vgm", VGM_FIXTURE).is_ok());
-    assert!(io::read("clean.vgz", &gzip(VGM_FIXTURE)).is_ok());
+    assert!(file::read("clean.vgz", &gzip(VGM_FIXTURE)).is_ok());
 }

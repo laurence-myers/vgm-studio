@@ -33,9 +33,9 @@ const SAMPLE: usize = 12;
 
 /// Renders `path` the way the app would.
 ///
-/// Which engine matters: an OPL file plays through `PlayerEngine` (which carries
-/// the OPL register policy); `VgmEngine` has no OPL core and would render it as
-/// silence.
+/// Every VGM, OPL included, renders through `VgmEngine` over the registered cores
+/// -- an OPL file's chip is hosted by the `OplCoreAdapter` (ou-1), so it no longer
+/// needs a separate `PlayerEngine` path here.
 fn render_ours(path: &Path) -> Option<Render> {
     render_ours_at(path, RATE)
 }
@@ -47,15 +47,6 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
     let name = path.file_name()?.to_string_lossy().to_string();
     let file = vgms_core::vgm::file::read(&name, &bytes).ok()?;
     file.stream()?;
-
-    if let Some(song) = file.to_song() {
-        // The OPL path, exactly as the WAV export uses it.
-        let wav = vgms_synth::render_wav(&song, rate, 16).ok()?;
-        let (samples, wav_rate) = parity::reference::read_wav(&wav).ok()?;
-        let wanted = rate as usize * SECONDS * 2;
-        let samples = &samples[..samples.len().min(wanted)];
-        return Some(Render::from_interleaved_i16(samples, wav_rate));
-    }
 
     render_with_at(path, rate, build_core)
 }

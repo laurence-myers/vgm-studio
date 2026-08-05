@@ -675,15 +675,6 @@ impl VgmStream {
         &self.data[..self.tail as usize]
     }
 
-    /// Where each command starts, in the same order as the rows.
-    ///
-    /// Handed to a snapshot so it need not re-walk a stream this has already
-    /// walked -- and so a stream carrying a command the OPL table cannot size
-    /// still yields a usable snapshot.
-    pub(crate) fn offsets(&self) -> &[u32] {
-        &self.offsets
-    }
-
     /// How many commands the stream holds, before its end marker.
     #[must_use]
     pub fn len(&self) -> usize {

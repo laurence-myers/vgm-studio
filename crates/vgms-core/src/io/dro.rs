@@ -55,12 +55,11 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
 /// Serialises a song back to DRO bytes, at whichever version it was read as.
 ///
 /// # Errors
-/// If the song is a VGM, or its data does not match its declared version.
+/// Never fails today; the `Result` keeps the writer signatures uniform.
 pub fn write(song: &Song) -> Result<Vec<u8>> {
     match song.data() {
         SongData::V1(_) => Ok(write_v1(song)),
         SongData::V2(data) => Ok(write_v2(song, data)),
-        SongData::Vgm(_) => Err(Error::file("Tried to write a VGM song as a DRO")),
     }
 }
 

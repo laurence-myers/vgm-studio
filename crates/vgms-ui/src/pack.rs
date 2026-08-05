@@ -108,8 +108,8 @@ impl PackTrack {
         let Some(file) = self.vgm() else {
             return false;
         };
-        // `to_song()` is `Some` exactly when `opl()` is, so this is the same
-        // branch `preview_source` takes -- minus the snapshot.
+        // An OPL file is playable; this is the same branch `preview_source`
+        // takes -- minus the snapshot.
         if file.opl().is_some() {
             return true;
         }
@@ -2705,14 +2705,12 @@ mod tests {
     /// A VGM fixture re-serialised with a given file name and GD3 tag, wrapped as
     /// a picked file -- the same trick the editor's tests use.
     fn tagged_song(name: &str, tag: Gd3Tag) -> PickedFile {
-        let mut song = vgms_core::io::read_song(name, VGM_FIXTURE).unwrap();
-        if let Some(meta) = song.vgm_meta_mut() {
-            meta.tag = Some(tag);
-        }
+        let mut file = vgms_core::vgm::file::read(name, VGM_FIXTURE).unwrap();
+        file.tag = Some(tag);
         PickedFile {
             name: name.to_owned(),
             path: Some(PathBuf::from(format!("C:/pack/{name}"))),
-            bytes: vgms_core::io::write_song(&song).unwrap(),
+            bytes: vgms_core::vgm::file::write(&file).unwrap(),
         }
     }
 
@@ -2921,8 +2919,8 @@ mod tests {
     #[test]
     fn retagging_an_opl_track_no_longer_rewrites_its_chip_clock() {
         const ODD_CLOCK: u32 = 3_600_000; // not the canonical 3_579_545
-        let mut bytes = vgms_core::io::write_song(
-            &vgms_core::io::read_song("01 Tune.vgm", VGM_FIXTURE).unwrap(),
+        let mut bytes = vgms_core::vgm::file::write(
+            &vgms_core::vgm::file::read("01 Tune.vgm", VGM_FIXTURE).unwrap(),
         )
         .unwrap();
         let at = ChipKind::Ym3812.clock_offset();
@@ -3111,11 +3109,10 @@ mod tests {
 
     /// The volume_modifier a set of serialised song bytes decode to.
     fn modifier_of(bytes: &[u8]) -> u8 {
-        vgms_core::io::read_song("x.vgm", bytes)
+        vgms_core::vgm::file::read("x.vgm", bytes)
             .unwrap()
-            .vgm_meta()
-            .unwrap()
-            .volume_modifier
+            .header
+            .volume_modifier()
     }
 
     #[test]
@@ -3336,11 +3333,8 @@ mod tests {
             let PackMutation::Write { bytes, .. } = mutation else {
                 panic!("date conversion is writes only");
             };
-            let song = vgms_core::io::read_song("x.vgm", bytes).unwrap();
-            assert_eq!(
-                song.vgm_meta().unwrap().tag.as_ref().unwrap().release_date,
-                "1994-03-01"
-            );
+            let file = vgms_core::vgm::file::read("x.vgm", bytes).unwrap();
+            assert_eq!(file.tag.as_ref().unwrap().release_date, "1994-03-01");
         }
     }
 

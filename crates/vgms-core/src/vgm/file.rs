@@ -31,7 +31,7 @@ use flate2::write::GzEncoder;
 
 use crate::chip_state::{self, ChipState};
 use crate::error::{Error, Result};
-use crate::song::{OplType, Song, slide_index_past_deletion};
+use crate::song::{OplType, slide_index_past_deletion};
 use crate::vgm::data::{Gd3Tag, VgmMeta};
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset, widen_offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
@@ -256,17 +256,6 @@ impl VgmFile {
         body.stream()
             .is_some_and(crate::vgm::projection::is_wholly_opl)
             .then_some(opl)
-    }
-
-    /// A [`Song`] snapshot of this file, for the paths that consume one.
-    ///
-    /// `None` unless the file is an OPL one. The snapshot carries the same
-    /// metadata the OPL reader would have produced, so the synth, the
-    /// waveform render and the analyser see exactly what they always have.
-    #[must_use]
-    pub fn to_song(&self) -> Option<Song> {
-        let opl = self.opl()?;
-        Some(opl.to_song(self.name.clone(), self.header.version(), self.vgm_meta()))
     }
 
     /// The metadata a [`Song`] snapshot carries: the loop as instruction
@@ -1120,14 +1109,10 @@ mod tests {
         assert_eq!(file.index_and_ms_offset_at_pct(1.0), Some((3, 227)));
     }
 
-    /// The point of the opaque body: commands the OPL reader rejects outright
-    /// pass through untouched.
+    /// The point of the opaque body: commands the closed OPL table could not
+    /// size pass through untouched.
     #[test]
     fn the_body_survives_commands_the_opl_reader_cannot_size() {
-        assert!(
-            crate::vgm::io::read("sonic.vgm", &mega_drive(true)).is_err(),
-            "the OPL reader is expected to refuse this file"
-        );
         let file = read("sonic.vgm", &mega_drive(true)).unwrap();
         assert_eq!(file.body.len(), MEGA_DRIVE_BODY.len());
     }
@@ -1805,7 +1790,6 @@ mod tests {
         let mut file = original.clone();
         file.crop_to_region(10, rows).unwrap();
         assert!(file.is_opl(), "still OPL after the crop");
-        assert!(file.to_song().is_some(), "and still materialises a song");
         assert_eq!(
             state_of(&file),
             full_state,

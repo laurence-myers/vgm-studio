@@ -292,11 +292,8 @@ pub fn render_vgm_waveform(
 /// delays, through the same [`FrameClock`]. Register writes cost no frames.
 fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32) -> u64 {
     let song = song.borrow();
-    let delay_unit = if song.data().delays_in_samples() {
-        VGM_SAMPLE_RATE
-    } else {
-        1000
-    };
+    // A `Song` is always a DRO, whose delays are milliseconds.
+    let delay_unit = 1000;
     let mut clock = FrameClock::new(sample_rate, delay_unit);
     let mut frames = 0u64;
     for instruction in song.data().iter() {
