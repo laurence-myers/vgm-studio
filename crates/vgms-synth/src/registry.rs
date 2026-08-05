@@ -303,6 +303,14 @@ struct GatedCore {
     /// silence takes over, so un-muting resumes held notes like a native-mute
     /// chip. The next partial mask re-asserts from a clean baseline.
     standing_down: bool,
+    /// Whether a whole-chip mute is allowed to stand the gate down. True on the
+    /// emulated path, where [`Voice::silenced`](crate::vgm_engine) zeroes the
+    /// muted chip's frames in the mix, so the gate need not touch the writes.
+    /// **False for hardware** ([`opl_hardware_core`]): a real chip *is* the
+    /// audio -- nothing downstream masks it -- so a whole-chip mute must gate
+    /// every channel's key at the register level, exactly as a partial mute
+    /// does, or the muted notes sound.
+    stand_down_allowed: bool,
     /// Whether the mute mask is also forwarded to the inner core. True in the
     /// build path; the A/B harness ([`gate_without_forwarding`]) sets it false so
     /// a native-mute core underneath does not mute too, letting the gate's own
@@ -329,10 +337,38 @@ impl GatedCore {
                 inner,
                 gate,
                 standing_down: false,
+                stand_down_allowed: true,
                 forward_mask: true,
             }),
             None => inner,
         }
+    }
+}
+
+/// Hosts an [`OplChip`] as a [`ChipCore`] for the hardware pump: the
+/// [`OplCoreAdapter`] that lets [`VgmEngine`](crate::vgm_engine) drive it, wrapped
+/// in the OPL [`ChannelGate`] with the whole-chip stand-down *disabled*.
+///
+/// The emulated path lets a whole-chip mute stand the gate down, because
+/// [`Voice::silenced`](crate::vgm_engine) zeroes that chip's frames in the mix.
+/// A hardware chip has no such mix -- its registers *are* the sound -- so the
+/// gate must gate every channel's key at the register level, a full mask
+/// included. Everything else is a normal gated OPL core: partial mutes, seek
+/// replays and pan all behave exactly as they do on the emulated path.
+#[must_use]
+pub fn opl_hardware_core(opl: Box<dyn OplChip>, chip: ChipKind) -> Box<dyn ChipCore> {
+    let adapter: Box<dyn ChipCore> = Box::new(OplCoreAdapter::new(opl));
+    match ChannelGate::new(chip) {
+        Some(gate) => Box::new(GatedCore {
+            inner: adapter,
+            gate,
+            standing_down: false,
+            stand_down_allowed: false,
+            forward_mask: true,
+        }),
+        // Every OPL chip has a gate table, so this is a safety net rather than a
+        // path taken; an un-gated OPL core would simply mute nothing.
+        None => adapter,
     }
 }
 
@@ -355,6 +391,7 @@ pub fn gate_without_forwarding(
             inner,
             gate,
             standing_down: false,
+            stand_down_allowed: true,
             forward_mask: false,
         }) as Box<dyn ChipCore>
     })
@@ -409,10 +446,11 @@ impl ChipCore for GatedCore {
 
     fn set_channel_mutes(&mut self, muted: u32) {
         let mut writes = Vec::new();
-        if self.gate.is_full(muted) {
+        if self.stand_down_allowed && self.gate.is_full(muted) {
             // Whole chip muted: stand the gate down and let the engine's own
             // silence take over. Restating a full mask (every seek does) is
-            // idempotent.
+            // idempotent. Hardware forbids this (`stand_down_allowed` false) --
+            // there is no mix to silence the chip, so a full mask keeps gating.
             self.gate.stand_down();
             self.standing_down = true;
         } else if self.standing_down {
@@ -1386,6 +1424,71 @@ mod tests {
             "leaving stand-down re-keys off the still-muted channel: {:?}",
             recorder.writes
         );
+    }
+
+    /// A spy [`OplChip`] logging every register write, so the hardware OPL
+    /// core's gating can be inspected without an emulator.
+    #[derive(Debug, Clone, Default)]
+    struct SpyOpl(std::sync::Arc<std::sync::Mutex<Vec<(u16, u8)>>>);
+
+    impl OplChip for SpyOpl {
+        fn reset(&mut self, _sample_rate: u32) {}
+        fn write_reg(&mut self, reg: u16, value: u8) {
+            self.0.lock().expect("not poisoned").push((reg, value));
+        }
+        fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+            self.0.lock().expect("not poisoned").push((reg, value));
+        }
+        fn generate_samples(&mut self, buffer: &mut [i16]) {
+            buffer.fill(0);
+        }
+    }
+
+    /// The hardware OPL core does **not** stand down on a whole-chip mute: a
+    /// real chip is the sound, so a full mask must clear every key at the
+    /// register level, exactly as a partial mask does. This is the contract the
+    /// RetroWave "everything muted stays silent" behaviour rests on.
+    #[test]
+    fn the_hardware_opl_core_gates_a_whole_chip_mute_at_the_register_level() {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut core = opl_hardware_core(
+            Box::new(SpyOpl(std::sync::Arc::clone(&log))),
+            ChipKind::Ymf262,
+        );
+
+        // Mute every one of the OPL3's 23 channels: the whole chip.
+        core.set_channel_mutes(u32::MAX);
+        log.lock().expect("not poisoned").clear();
+
+        // A key-on for melodic channel 0 must reach the chip with the key bit
+        // cleared -- not passed through as a live note, which is what a
+        // stood-down gate would have done.
+        core.write(0, 0xB0, 0x31); // frequency-high + block + key-on
+        let writes = log.lock().expect("not poisoned").clone();
+        assert_eq!(
+            writes,
+            [(0xB0, 0x11)],
+            "the whole-chip mute cleared the key bit rather than standing down"
+        );
+    }
+
+    /// The same core still isolates one channel: a partial mute clears the muted
+    /// channel's key and passes the rest, like every other gated OPL core.
+    #[test]
+    fn the_hardware_opl_core_still_isolates_one_channel() {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut core = opl_hardware_core(
+            Box::new(SpyOpl(std::sync::Arc::clone(&log))),
+            ChipKind::Ymf262,
+        );
+
+        core.set_channel_mutes(0b1); // channel 0 only
+        log.lock().expect("not poisoned").clear();
+
+        core.write(0, 0xB0, 0x31); // muted channel -> key cleared
+        core.write(0, 0xB1, 0x31); // audible channel -> passes
+        let writes = log.lock().expect("not poisoned").clone();
+        assert_eq!(writes, [(0xB0, 0x11), (0xB1, 0x31)]);
     }
 
     /// The rest of the trait forwards, and `reset` reaches both the gate and the

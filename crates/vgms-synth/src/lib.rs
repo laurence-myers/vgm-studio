@@ -54,7 +54,7 @@ pub use peak::{
 };
 pub use registry::{
     CoreChoices, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, gate_without_forwarding, install,
-    registry, with_render_choices,
+    opl_hardware_core, registry, with_render_choices,
 };
 pub use split::{SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable};
 pub use vgm_engine::VgmEngine;
