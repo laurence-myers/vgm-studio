@@ -552,40 +552,20 @@ impl Song {
     /// The register column: `"DLYS"`, `"DLYL"`, `"BANK"`, or bare hex `"2A"`.
     #[must_use]
     pub fn register_display(&self, index: usize) -> Option<String> {
-        Some(match self.data.get(index)? {
-            Instruction::BankSwitch(_) => "BANK".to_owned(),
-            Instruction::Register { reg, .. } => format!("{reg:02X}"),
-            Instruction::DelayMs { kind, .. } | Instruction::DelaySamples { kind, .. } => {
-                kind.token().to_owned()
-            }
-        })
+        self.data.get(index).map(Instruction::register_display)
     }
 
     /// The value column: `"177 ms"`, `"176 smp"`, `"low"` / `"high"`, or bare
     /// hex with the decimal, `"2A (42)"`.
     #[must_use]
     pub fn value_display(&self, index: usize) -> Option<String> {
-        Some(match self.data.get(index)? {
-            Instruction::DelayMs { ms, .. } => format!("{ms} ms"),
-            Instruction::DelaySamples { samples, .. } => format!("{samples} smp"),
-            Instruction::BankSwitch(bank) => bank.name().to_owned(),
-            Instruction::Register { value, .. } => format!("{value:02X} ({value})"),
-        })
+        self.data.get(index).map(Instruction::value_display)
     }
 
     /// The description column, before detailed analysis has run.
-    ///
-    /// Every possible answer is a string literal, so this allocates nothing.
     #[must_use]
     pub fn instruction_description(&self, index: usize) -> Option<&'static str> {
-        Some(match self.data.get(index)? {
-            Instruction::DelayMs { kind, .. } | Instruction::DelaySamples { kind, .. } => {
-                kind.description()
-            }
-            Instruction::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
-            Instruction::BankSwitch(Bank::High) => "Switch to high registers (Dual OPL-2 / OPL-3)",
-            Instruction::Register { reg, bank, .. } => register_description(reg, bank),
-        })
+        self.data.get(index).map(Instruction::description)
     }
 
     #[must_use]
@@ -761,6 +741,47 @@ fn register_description(reg: u8, bank: Option<Bank>) -> &'static str {
             _ => None,
         })
         .unwrap_or("(unknown)")
+}
+
+/// The three instruction-table cells that read only the decoded instruction --
+/// no chip-state replay, no song context. They live here rather than on
+/// `Instruction` itself so they can share `register_description`, and they are
+/// what lets a row be drawn from a decoded VGM command (an OPL VGM, since k-4)
+/// exactly as from a DRO's own instruction.
+impl Instruction {
+    /// The register column: `"DLYS"`, `"DLYL"`, `"BANK"`, or bare hex `"2A"`.
+    #[must_use]
+    pub fn register_display(self) -> String {
+        match self {
+            Self::BankSwitch(_) => "BANK".to_owned(),
+            Self::Register { reg, .. } => format!("{reg:02X}"),
+            Self::DelayMs { kind, .. } | Self::DelaySamples { kind, .. } => kind.token().to_owned(),
+        }
+    }
+
+    /// The value column: `"177 ms"`, `"176 smp"`, `"low"` / `"high"`, or bare hex
+    /// with the decimal, `"2A (42)"`.
+    #[must_use]
+    pub fn value_display(self) -> String {
+        match self {
+            Self::DelayMs { ms, .. } => format!("{ms} ms"),
+            Self::DelaySamples { samples, .. } => format!("{samples} smp"),
+            Self::BankSwitch(bank) => bank.name().to_owned(),
+            Self::Register { value, .. } => format!("{value:02X} ({value})"),
+        }
+    }
+
+    /// The description column before detailed analysis runs. Every answer is a
+    /// string literal, so this allocates nothing.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::DelayMs { kind, .. } | Self::DelaySamples { kind, .. } => kind.description(),
+            Self::BankSwitch(Bank::Low) => "Switch to low registers (Dual OPL-2 / OPL-3)",
+            Self::BankSwitch(Bank::High) => "Switch to high registers (Dual OPL-2 / OPL-3)",
+            Self::Register { reg, bank, .. } => register_description(reg, bank),
+        }
+    }
 }
 
 impl fmt::Display for Song {

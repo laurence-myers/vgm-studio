@@ -1232,9 +1232,9 @@ fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
     // Inline tasks run the scan; convert to VGM so there is a modifier to fill.
     let (mut harness, _handles) = build(Some(picked(&song)), true, false);
     harness.state_mut().editor.convert_to_vgm().unwrap();
-    let vgm = harness.state().editor.song().unwrap().clone();
+    let vgm = harness.state().editor.vgm().unwrap().clone();
     harness.state_mut().dialogs.vgm_metadata =
-        Some(crate::dialogs::VgmMetadataDialog::new(&vgm).unwrap());
+        Some(crate::dialogs::VgmMetadataDialog::for_vgm(&vgm).unwrap());
 
     // Trigger the Measure scan; the inline scan stores its Peak, then a poll frame
     // routes it to the open dialog (the same delivery shape as Match Volume).
@@ -2821,8 +2821,16 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     };
     let (mut harness, _handles) = build(Some(file), false, false);
 
-    // It opened as an OPL song -- transport, waveform, the lot.
-    assert!(harness.state().editor.song().is_some());
+    // It opened as an OPL VGM -- transport, waveform, the lot -- held as its own
+    // file (no projected Song behind it any more).
+    assert!(
+        harness
+            .state()
+            .editor
+            .vgm()
+            .is_some_and(|file| file.is_opl())
+    );
+    assert!(harness.state().editor.song().is_none());
     assert!(harness.state().editor.capabilities().playable);
 
     assert_eq!(
@@ -4230,7 +4238,7 @@ fn loading_a_song_switches_to_the_editor_tab_and_stops_preview() {
         None,
         "the preview is stopped"
     );
-    assert!(harness.state().editor.has_song());
+    assert!(harness.state().editor.has_document());
 }
 
 #[test]
@@ -4288,7 +4296,7 @@ fn opening_a_track_loads_it_into_the_editor() {
 
     assert_eq!(harness.state().active_tab, AppTab::Editor);
     assert!(
-        harness.state().editor.has_song(),
+        harness.state().editor.has_document(),
         "the track loaded into the editor"
     );
     assert!(
@@ -4315,7 +4323,7 @@ fn open_button_loads_the_track_into_the_editor() {
 
     assert_eq!(harness.state().active_tab, AppTab::Editor);
     assert!(
-        harness.state().editor.has_song(),
+        harness.state().editor.has_document(),
         "the Open button loaded the track"
     );
     assert!(
@@ -6858,20 +6866,15 @@ fn applying_a_loop_writes_the_vgm_metadata() {
     );
 
     act(&mut harness, Action::ApplyLoopToMetadata);
-    let meta = harness
-        .state()
-        .editor
-        .song()
-        .unwrap()
-        .vgm_meta()
-        .unwrap()
-        .clone();
-    assert_eq!(meta.loop_point, Some(1));
+    let file = harness.state().editor.vgm().unwrap().clone();
+    assert_eq!(file.loop_index(), Some(1));
     // The stored end is what the header can express: it holds the loop's length
     // in samples, so an end sharing its instant with the rows before it comes
     // back as the first of them. The markers snap to it, which is what keeps
     // the "unapplied" cue from staying lit on a loop that was just applied.
-    let stored = meta.loop_end.expect("an end short of the tail is stored");
+    let stored = file
+        .loop_end_index()
+        .expect("an end short of the tail is stored");
     assert!((2..len).contains(&stored), "a real region, got {stored}");
     assert_eq!(harness.state().editor.markers.end(), stored);
     assert!(!harness.state().editor.loop_markers_are_unapplied());
@@ -6886,7 +6889,7 @@ fn applying_a_loop_writes_the_vgm_metadata() {
     // so a later trim widens the loop with the song instead of stranding it.
     act(&mut harness, Action::SetLoopEnd(len));
     act(&mut harness, Action::ApplyLoopToMetadata);
-    let meta = harness.state().editor.song().unwrap().vgm_meta().unwrap();
+    let meta = harness.state().editor.vgm().unwrap().vgm_meta();
     assert_eq!(meta.loop_end, None);
 }
 
@@ -7346,23 +7349,33 @@ fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
 #[test]
 fn optimize_undo_then_redo_restores_the_exact_bytes() {
     let (mut harness, _handles) = harness_with_song(&redundant_vgm_song());
-    let original = harness.state().editor.song().unwrap().data().raw().to_vec();
+    let stream_bytes = |h: &Harness<'static, VgmStudioApp>| {
+        h.state()
+            .editor
+            .vgm()
+            .unwrap()
+            .stream()
+            .unwrap()
+            .commands()
+            .to_vec()
+    };
+    let original = stream_bytes(&harness);
 
     act(&mut harness, Action::OptimizeVgm);
-    let optimized = harness.state().editor.song().unwrap().data().raw().to_vec();
+    let optimized = stream_bytes(&harness);
     assert_ne!(optimized, original, "optimizing should change the stream");
 
     act(&mut harness, Action::Undo);
     assert_eq!(
-        harness.state().editor.song().unwrap().data().raw(),
-        original.as_slice(),
+        stream_bytes(&harness),
+        original,
         "undo must restore the original bytes exactly"
     );
 
     act(&mut harness, Action::Redo);
     assert_eq!(
-        harness.state().editor.song().unwrap().data().raw(),
-        optimized.as_slice(),
+        stream_bytes(&harness),
+        optimized,
         "redo must re-apply the optimization exactly"
     );
 }
@@ -7416,11 +7429,9 @@ fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
     let state = harness.state();
     let remapped = state
         .editor
-        .song()
+        .vgm()
         .unwrap()
-        .vgm_meta()
-        .unwrap()
-        .loop_point
+        .loop_index()
         .expect("the loop survives optimization");
     // The markers were re-derived from the song's remapped loop, so they agree.
     assert_eq!(state.editor.markers.start(), remapped);

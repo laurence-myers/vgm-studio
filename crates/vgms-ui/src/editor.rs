@@ -158,26 +158,15 @@ pub struct Editor {
     /// are what a save writes back, so a file that is only retagged is returned
     /// byte for byte.
     vgm: Option<VgmFile>,
-    /// The OPL view of `vgm`, for the parts of the app that read an OPL stream:
-    /// Find Register, the waveform, the synth. (The register analyser reads the
-    /// command stream directly now -- see [`Self::row_analysis`] -- so it is one
-    /// consumer closer to retiring this field entirely.)
+    /// The loaded VGM shared by value, rebuilt on every edit (see
+    /// [`Self::refresh_vgm_views`]). A `VgmFile` clone copies its command index
+    /// too -- 20 MiB / ~8 ms for a command-dense 4 MiB rip -- so caching it once
+    /// per edit is what lets [`Self::doc_source`] hand it to a background job as a
+    /// reference-count bump rather than a fresh clone every time.
     ///
-    /// OPL is a capability of a VGM, not a kind of one, and this is where that
-    /// distinction is paid for. It is rebuilt eagerly whenever the stream
-    /// changes rather than derived on demand: it is asked for far more often
-    /// than it changes (every frame the table draws, every audio reload), and
-    /// `Editor::song` hands out a plain reference, which a lazily-filled cache
-    /// could not.
-    ///
-    /// `None` for a VGM whose chips are not OPL, which is exactly what makes
-    /// the OPL-only features absent for one.
-    projection: Option<Arc<Song>>,
-    /// The loaded VGM shared by value, rebuilt with the projection on every edit
-    /// (see [`Self::refresh_vgm_views`]). A `VgmFile` clone copies its command
-    /// index too -- 20 MiB / ~8 ms for a command-dense 4 MiB rip -- so caching it
-    /// once per edit is what lets [`Self::doc_source`] hand it to a background job
-    /// as a reference-count bump rather than a fresh clone every time.
+    /// A VGM has no projected `Song` any longer: every OPL-stream reading (the
+    /// analyser, the audio, the render) works off this file's own command stream,
+    /// so an OPL VGM takes exactly the path any other VGM does.
     vgm_source: Option<Arc<VgmFile>>,
     /// Where the song was loaded from or last saved to. `None` on the web, and
     /// after Convert to VGM -- the converted song has no file yet, so Save
@@ -221,22 +210,34 @@ impl Editor {
         Self::default()
     }
 
-    /// The loaded document as an OPL instruction stream, if it is one: a DRO,
-    /// or a VGM whose chips are OPL seen through its projection.
+    /// The loaded document as an OPL instruction stream, if it is a DRO.
     ///
-    /// Read-only by construction. The projection is a view of the VGM, so
-    /// editing through it would edit a copy; every edit goes through the
-    /// document itself.
+    /// `None` for a VGM of any chips, OPL included: a VGM is played, rendered and
+    /// analysed straight from its own command stream now, not a `Song` projected
+    /// off it. The OPL-stream questions a VGM can still answer are asked of its
+    /// [`VgmFile`] (`stream()`, [`Self::row_analysis`], [`VgmFile::is_opl`]).
     #[must_use]
     pub fn song(&self) -> Option<&Song> {
-        self.dro.as_ref().or(self.projection.as_deref())
+        self.dro.as_ref()
     }
 
-    /// Whether there is an OPL stream to read -- what the analyser, the synth
-    /// and the waveform all need.
+    /// Whether a DRO is loaded -- the document that *is* an editable OPL `Song`.
+    ///
+    /// This is the "DRO-only" gate: DRO Info, Convert to VGM/DRO, and the delay
+    /// navigation's OPL-instruction search key off it. For "does this document
+    /// have any OPL reading at all, DRO or OPL VGM" ask [`Self::is_opl`].
     #[must_use]
     pub fn has_song(&self) -> bool {
         self.song().is_some()
+    }
+
+    /// Whether the loaded document is OPL -- a DRO, or a VGM whose chips are an
+    /// OPL set. This is the "reaches the OPL board / has the OPL mixer vocabulary"
+    /// question, true for both a DRO and an OPL VGM (unlike [`Self::has_song`],
+    /// which is a DRO alone now that a VGM keeps no projected `Song`).
+    #[must_use]
+    pub fn is_opl(&self) -> bool {
+        self.dro.is_some() || self.vgm.as_ref().is_some_and(VgmFile::is_opl)
     }
 
     /// The loaded document as a VGM, if it is one held that way.
@@ -369,12 +370,10 @@ impl Editor {
     /// song.
     #[must_use]
     pub fn snapshot(&self) -> Option<Arc<Song>> {
-        // A DRO is cloned because it *is* the editable document; the projection
-        // is already a fresh song rebuilt on every edit, so it can be shared.
-        self.dro
-            .clone()
-            .map(Arc::new)
-            .or_else(|| self.projection.clone())
+        // A DRO only: it *is* the editable document, so a snapshot must not alias
+        // it. A VGM is snapshotted as its own file ([`Self::vgm_arc`]); there is
+        // no projected `Song` behind one any more.
+        self.dro.clone().map(Arc::new)
     }
 
     /// Records that the document changed, and rebuilds its OPL view with it.
@@ -400,13 +399,10 @@ impl Editor {
         };
     }
 
-    /// Rebuilds both derived views of the loaded VGM -- the OPL projection and
-    /// the by-value `Arc<VgmFile>` [`Self::doc_source`] hands out -- so neither
-    /// can be one edit behind the file. Called after every edit that touches the
-    /// stream or its metadata, and after a load; both are `None` when no VGM is
-    /// held.
+    /// Rebuilds the by-value `Arc<VgmFile>` [`Self::doc_source`] hands out, so it
+    /// can never be one edit behind the file. Called after every edit that touches
+    /// the stream or its metadata, and after a load; `None` when no VGM is held.
     fn refresh_vgm_views(&mut self) {
-        self.projection = self.vgm.as_ref().and_then(VgmFile::to_song).map(Arc::new);
         self.vgm_source = self.vgm.as_ref().cloned().map(Arc::new);
     }
 
@@ -458,7 +454,6 @@ impl Editor {
             Err(error) => return Err(LoadFailure::Unreadable(error.to_string())),
         };
         self.vgm = None;
-        self.projection = None;
         self.vgm_undo.reset();
 
         let mut report = LoadReport::default();
@@ -1076,9 +1071,10 @@ impl Editor {
     /// The question is not which slot holds the document -- every VGM is held
     /// as one -- but whether it has an OPL stream to name registers from. A
     /// VGM for chips there is no OPL reading of gets rows named by the chip
-    /// each command writes to.
+    /// each command writes to; an OPL VGM keeps the OPL bank/register rows,
+    /// analysed straight from its stream ([`Self::row_analysis`]).
     fn shows_chip_rows(&self) -> bool {
-        self.vgm.is_some() && self.projection.is_none()
+        self.vgm.as_ref().is_some_and(|file| !file.is_opl())
     }
 
     /// What the instruction table's five columns are called for the loaded
@@ -1151,7 +1147,19 @@ impl Editor {
         }
 
         let analysis = self.row_analysis(index);
-        let Some(song) = self.song() else {
+        // The OPL instruction at this row: a DRO decodes its own; an OPL VGM
+        // decodes the command straight from its stream (the same projection the
+        // analyser walks). Both feed the identical display helpers, so a row reads
+        // the same however the document is held -- there is no projected `Song`.
+        let instruction = if let Some(song) = self.dro.as_ref() {
+            song.instruction(index)
+        } else {
+            self.vgm
+                .as_ref()
+                .and_then(VgmFile::opl)
+                .and_then(|opl| opl.instruction(index))
+        };
+        let Some(instruction) = instruction else {
             return RowCells {
                 position,
                 ..RowCells::default()
@@ -1162,13 +1170,10 @@ impl Editor {
             bank: analysis
                 .as_ref()
                 .map_or_else(String::new, |a| a.bank.index().to_string()),
-            register: song.register_display(index).unwrap_or_default(),
-            value: song.value_display(index).unwrap_or_default(),
+            register: instruction.register_display(),
+            value: instruction.value_display(),
             description: analysis.map_or_else(String::new, |a| a.description.into_owned()),
-            hover: song
-                .instruction_description(index)
-                .unwrap_or_default()
-                .to_owned(),
+            hover: instruction.description().to_owned(),
         }
     }
 
@@ -1273,7 +1278,16 @@ mod tests {
         let (editor, report) = loaded(&vgm);
         assert_eq!(report, LoadReport::default());
         assert_eq!(editor.len(), vgm.len());
-        assert!(editor.song().unwrap().instruction(0).unwrap().is_delay());
+        assert!(
+            editor
+                .vgm()
+                .unwrap()
+                .opl()
+                .unwrap()
+                .instruction(0)
+                .unwrap()
+                .is_delay()
+        );
     }
 
     #[test]
@@ -1336,16 +1350,17 @@ mod tests {
         assert_eq!(editor.path, Some(PathBuf::from("C:/rips/Sonic/sonic.vgm")));
     }
 
-    /// An OPL VGM is held as a VGM too, and projects to the OPL stream the
-    /// analyser and the synth read.
+    /// An OPL VGM is held only as a VGM: there is no projected `Song` behind it
+    /// any more (`song()` is `None`), yet it is playable and analysed straight
+    /// from its own stream -- exactly the path any other VGM takes.
     #[test]
-    fn an_opl_vgm_is_held_as_a_vgm_and_projects() {
+    fn an_opl_vgm_is_held_as_a_vgm_with_no_projection() {
         let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
         let (editor, _) = loaded(&vgm);
 
         assert!(editor.vgm().is_some(), "the file itself is the document");
-        let song = editor.song().expect("and it projects to OPL");
-        assert_eq!(song.len(), editor.len());
+        assert!(editor.song().is_none(), "and there is no projected Song");
+        assert!(editor.vgm().unwrap().is_opl(), "but it is an OPL VGM");
         assert!(editor.capabilities().playable);
     }
 
@@ -1546,9 +1561,9 @@ mod tests {
         editor.selection.select_only(2);
         editor.convert_to_vgm().unwrap();
 
-        let song = editor.song().unwrap();
-        assert!(song.is_vgm());
-        assert!(song.name.ends_with(".vgm"));
+        let file = editor.vgm().expect("converting installs a VGM file");
+        assert!(file.name.ends_with(".vgm"));
+        assert!(editor.song().is_none(), "no projected Song behind it");
         // Save does not write VGM bytes over the original .dro path -- the
         // converted song has no path until Save As.
         assert!(editor.path.is_none());
@@ -1637,14 +1652,14 @@ mod tests {
         // The dialog captured a longer song than the one being edited now.
         let dropped = editor.set_vgm_metadata(Some(len + 50), None, 0, 0, 0);
         assert!(dropped, "the caller is told the loop point was dropped");
-        assert_eq!(editor.song().unwrap().vgm_meta().unwrap().loop_point, None);
+        assert_eq!(editor.vgm().unwrap().vgm_meta().loop_point, None);
         // The write path must not panic on what was just stored.
         editor.save_bytes().unwrap();
 
         // A valid loop point still lands, and is not reported as dropped.
         let dropped = editor.set_vgm_metadata(Some(len - 1), None, 1, 2, 3);
         assert!(!dropped);
-        let meta = editor.song().unwrap().vgm_meta().unwrap();
+        let meta = editor.vgm().unwrap().vgm_meta();
         assert_eq!(meta.loop_point, Some(len - 1));
         assert_eq!(
             (meta.loop_base, meta.loop_modifier, meta.volume_modifier),
@@ -1667,7 +1682,7 @@ mod tests {
         // file cannot express the difference. What matters is that it still
         // bounds a real region, and that the markers say what was stored.
         editor.set_vgm_metadata(Some(1), Some(len - 1), 0, 0, 0);
-        let stored = editor.song().unwrap().vgm_meta().unwrap().loop_end;
+        let stored = editor.vgm().unwrap().vgm_meta().loop_end;
         assert!(
             matches!(stored, Some(end) if (2..len).contains(&end)),
             "a real region inside the song, got {stored:?}"
@@ -1681,13 +1696,13 @@ mod tests {
         // At the end of the song: stored as `None`, which already means that --
         // and is what lets a later trim widen the loop with the song.
         editor.set_vgm_metadata(Some(1), Some(len), 0, 0, 0);
-        assert_eq!(editor.song().unwrap().vgm_meta().unwrap().loop_end, None);
+        assert_eq!(editor.vgm().unwrap().vgm_meta().loop_end, None);
 
         // At or before the start, or past the song: no region to bound.
         for end in [Some(1), Some(0), Some(len + 5)] {
             editor.set_vgm_metadata(Some(1), end, 0, 0, 0);
             assert_eq!(
-                editor.song().unwrap().vgm_meta().unwrap().loop_end,
+                editor.vgm().unwrap().vgm_meta().loop_end,
                 None,
                 "end {end:?} does not bound a region"
             );
@@ -1695,7 +1710,7 @@ mod tests {
 
         // And an end without a start describes a region with no beginning.
         editor.set_vgm_metadata(None, Some(2), 0, 0, 0);
-        let meta = editor.song().unwrap().vgm_meta().unwrap();
+        let meta = editor.vgm().unwrap().vgm_meta();
         assert_eq!((meta.loop_point, meta.loop_end), (None, None));
         editor.save_bytes().unwrap();
     }
@@ -1805,7 +1820,7 @@ mod tests {
         // The loop moved with the stream: down by the region's start, up past
         // the prelude -- and the markers were re-derived from it, so they now
         // describe the stored loop rather than the pre-crop region.
-        let loop_point = editor.song().unwrap().vgm_meta().unwrap().loop_point;
+        let loop_point = editor.vgm().unwrap().vgm_meta().loop_point;
         assert_eq!(loop_point, Some(2 - 1 + restored));
         assert_eq!(editor.markers.start(), 2 - 1 + restored);
         assert_eq!(editor.markers.end(), kept);

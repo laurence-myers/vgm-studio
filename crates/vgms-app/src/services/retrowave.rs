@@ -271,8 +271,10 @@ impl AudioService for SwitchingAudioService {
         // A source the hardware cannot play goes to the emulated output whatever
         // the setting says, because the alternative is refusing to play a file
         // this app can perfectly well render. The setting is about *OPL* output;
-        // it was never a claim about every chip.
-        let wanted = if source.opl().is_some() {
+        // it was never a claim about every chip. An OPL VGM now travels as the
+        // `Vgm` arm (its `opl()` is `None`), so the OPL test is `is_opl()` -- the
+        // hardware service reconstructs the board's `Song` from the file at load.
+        let wanted = if source.is_opl() {
             config.output_backend()
         } else {
             OutputBackend::Emulated

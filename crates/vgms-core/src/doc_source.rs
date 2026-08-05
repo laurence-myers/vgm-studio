@@ -49,6 +49,18 @@ impl DocSource {
         }
     }
 
+    /// Whether this document is OPL -- a DRO/OPL song, or an OPL VGM. The
+    /// hardware-routing decision keys on this rather than [`Self::opl`], because
+    /// an OPL VGM now travels as the `Vgm` arm (its `opl()` is `None`) yet still
+    /// belongs on the OPL board, which reconstructs its own `Song` at load.
+    #[must_use]
+    pub fn is_opl(&self) -> bool {
+        match self {
+            Self::Opl(_) => true,
+            Self::Vgm(file) => file.is_opl(),
+        }
+    }
+
     /// Delay units per second in this capture's native unit: 44100 for a VGM
     /// (samples), 1000 for a DRO (milliseconds). Lets a UI convert the native-unit
     /// [`Segment`] fields and a gap threshold to and from seconds.

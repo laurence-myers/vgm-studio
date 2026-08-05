@@ -1795,7 +1795,7 @@ impl VgmStudioApp {
                 // from Settings.
                 let chips = self.document_chips();
                 self.dialogs.split = Some(SplitDialog::new(
-                    self.editor.has_song(),
+                    self.editor.is_opl(),
                     chips,
                     self.config.audio.cores.clone(),
                     self.config.audio.boost,
@@ -1917,15 +1917,17 @@ impl VgmStudioApp {
                 }
             }
             Action::OpenDroInfo => {
+                // The menu hides this for a VGM, so the shortcut must agree --
+                // otherwise Ctrl+I opens a dialog the menu says does not apply. A
+                // VGM's header is the VGM Metadata dialog's job. Checked before
+                // `require_song`, whose "needs an OPL song" message is for an empty
+                // editor, not a loaded VGM.
+                if self.editor.vgm().is_some() {
+                    self.status = crate::strings::APP_STATUS_DRO_INFO_VGM.to_owned();
+                    return;
+                }
                 if self.require_song() {
-                    let song = self.editor.song().expect("gated");
-                    // The menu hides this for a VGM, so the shortcut must agree
-                    // -- otherwise Ctrl+I opens a dialog the menu says does not
-                    // apply. A VGM's header is the VGM Metadata dialog's job.
-                    if song.is_vgm() {
-                        self.status = crate::strings::APP_STATUS_DRO_INFO_VGM.to_owned();
-                        return;
-                    }
+                    let song = self.editor.song().expect("gated -- a DRO");
                     let edit_allowed = self.config.ui.dro_info_edit_enabled;
                     self.dialogs.dro_info = Some(DroInfoDialog::new(song, edit_allowed));
                 }
@@ -4101,7 +4103,10 @@ impl VgmStudioApp {
     /// routed to the emulator whatever the setting says -- so for one of those
     /// the answer is yes regardless.
     fn output_renders_samples(&self) -> bool {
-        self.config.audio.renders_samples() || !self.editor.has_song()
+        // "Not an OPL document" is the always-metered case: a non-OPL VGM never
+        // reaches the board. An OPL VGM *can* (RetroWave), so it defers to the
+        // config -- hence is_opl(), not has_song() (which is a DRO alone now).
+        self.config.audio.renders_samples() || !self.editor.is_opl()
     }
 
     /// [`Self::output_renders_samples`] for tests, which have only a shared

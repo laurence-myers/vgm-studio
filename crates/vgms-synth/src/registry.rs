@@ -716,8 +716,11 @@ impl CoreRegistry {
     pub fn mute_capable(&self, chip: ChipKind) -> bool {
         self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
             .is_some_and(|info| {
+                // Mirror `build`: it wraps ANY buildable maker (Generic or the OPL
+                // adapter) in a gate when the chip has a table and no native mute.
+                // Only a Routed core (RetroWave) has no `ChipCore` to gate at all.
                 info.channel_mute
-                    || (ChannelGate::exists(chip) && matches!(info.make, CoreMaker::Generic(_)))
+                    || (ChannelGate::exists(chip) && !matches!(info.make, CoreMaker::Routed))
             })
     }
 }
