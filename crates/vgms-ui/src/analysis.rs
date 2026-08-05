@@ -57,6 +57,22 @@ impl AnalysisCache {
         Some(row)
     }
 
+    /// [`Self::row`] for an OPL VGM, read from its command stream rather than a
+    /// projected `Song`. Shares the cursor and memo with [`Self::row`]: only one of
+    /// the two is ever queried for a given loaded document (a DRO uses `row`, an OPL
+    /// VGM `row_vgm`), so their index keys never collide.
+    pub fn row_vgm(&mut self, stream: &VgmStream, index: usize) -> Option<RowAnalysis> {
+        if let Some(row) = self.rows.get(&index) {
+            return Some(row.clone());
+        }
+        let row = self.analyzer.row_vgm(stream, index)?;
+        if self.rows.len() >= Self::CAPACITY {
+            self.rows.clear();
+        }
+        self.rows.insert(index, row.clone());
+        Some(row)
+    }
+
     /// The documented Description for a multichip row, or `None` when the chip
     /// or the command is undocumented (the caller shows the generic one-liner).
     ///

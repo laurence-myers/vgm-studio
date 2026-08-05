@@ -159,7 +159,9 @@ pub struct Editor {
     /// byte for byte.
     vgm: Option<VgmFile>,
     /// The OPL view of `vgm`, for the parts of the app that read an OPL stream:
-    /// the register analyser, Find Register, the waveform, the synth.
+    /// Find Register, the waveform, the synth. (The register analyser reads the
+    /// command stream directly now -- see [`Self::row_analysis`] -- so it is one
+    /// consumer closer to retiring this field entirely.)
     ///
     /// OPL is a capability of a VGM, not a kind of one, and this is where that
     /// distinction is paid for. It is rebuilt eagerly whenever the stream
@@ -1062,8 +1064,11 @@ impl Editor {
         if let Some(song) = self.dro.as_ref() {
             return self.analysis.row(song, index);
         }
-        let projected = self.projection.clone()?;
-        self.analysis.row(&projected, index)
+        // An OPL VGM's rows are analysed straight from its command stream, not a
+        // projected `Song`. This arm is only reached for an OPL VGM -- a non-OPL
+        // VGM takes the chip-row path in `row_cells`, and a DRO returned above.
+        let stream = self.vgm.as_ref()?.stream()?;
+        self.analysis.row_vgm(stream, index)
     }
 
     /// Whether the table shows chip-named rows rather than OPL ones.
@@ -1342,6 +1347,35 @@ mod tests {
         let song = editor.song().expect("and it projects to OPL");
         assert_eq!(song.len(), editor.len());
         assert!(editor.capabilities().playable);
+    }
+
+    /// An OPL VGM's rows are analysed straight from its command stream (k-3), so
+    /// the table still shows OPL bank/register descriptions rather than chip rows,
+    /// and every column agrees with the analyser reading the file's projection.
+    #[test]
+    fn an_opl_vgm_analyses_its_rows_from_the_stream() {
+        let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
+        let (mut editor, _) = loaded(&vgm);
+        assert_eq!(editor.column_titles()[1], "Bank", "OPL rows, not chip rows");
+
+        // The oracle: the analyser over the file's own projection. Every row's
+        // Bank and Description column must match what the stream-fed cache produced.
+        let file = editor.vgm().expect("held as a VGM");
+        let reference =
+            vgms_core::RegisterAnalyzer::analyze_all(&file.to_song().expect("an OPL file"));
+        assert_eq!(reference.len(), editor.len());
+        for (index, expected) in reference.iter().enumerate() {
+            let cells = editor.row_cells(index);
+            assert_eq!(
+                cells.bank,
+                expected.bank.index().to_string(),
+                "row {index} bank"
+            );
+            assert_eq!(
+                cells.description, &*expected.description,
+                "row {index} desc"
+            );
+        }
     }
 
     /// The point of the cache: `doc_source`/`vgm_arc` hand out the same file

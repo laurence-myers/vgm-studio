@@ -17,6 +17,8 @@ use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
 use crate::song::{Bank, Instruction, Song};
+use crate::vgm::projection::project;
+use crate::vgm::stream::VgmStream;
 
 /// The analysis of one instruction, for the table's Bank and Description columns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,13 +72,40 @@ impl RegisterAnalyzer {
         self.state.iter_mut().for_each(|slot| *slot = None);
     }
 
-    /// Analyses the instruction at `index`, replaying as far as needed.
+    /// Analyses the instruction at `index` of a DRO document, replaying as far as
+    /// needed. See [`Self::row_vgm`] for the OPL-VGM counterpart.
     ///
     /// Returns `None` iff `index` is out of range. Querying rows in ascending
     /// order (as a virtual table paints them) is `O(1)` amortised; a lower
     /// `index` than the last resets the cursor and replays from `0`.
     pub fn row(&mut self, song: &Song, index: usize) -> Option<RowAnalysis> {
-        if index >= song.len() {
+        self.row_with(song.len(), index, |at| song.instruction(at))
+    }
+
+    /// [`Self::row`] for an OPL VGM, read straight from its command stream rather
+    /// than a projected [`Song`].
+    ///
+    /// Each command is decoded by the same [`project`] the projection used, so a
+    /// row's analysis is identical whether it is walked here or through the
+    /// projection -- which is what lets the editor drop the projection without the
+    /// table's text moving. A command that is not an OPL instruction (a data block
+    /// in an otherwise-OPL rip) decodes to `None`, exactly as it did through the
+    /// projection.
+    pub fn row_vgm(&mut self, stream: &VgmStream, index: usize) -> Option<RowAnalysis> {
+        self.row_with(stream.len(), index, |at| {
+            stream.raw_command(at).and_then(project)
+        })
+    }
+
+    /// The shared replay cursor behind [`Self::row`] and [`Self::row_vgm`]: only
+    /// the source of instructions differs between a DRO and an OPL VGM.
+    fn row_with(
+        &mut self,
+        len: usize,
+        index: usize,
+        instruction_at: impl Fn(usize) -> Option<Instruction>,
+    ) -> Option<RowAnalysis> {
+        if index >= len {
             return None;
         }
         if self.applied > index {
@@ -85,16 +114,13 @@ impl RegisterAnalyzer {
         // Replay up to (but not including) `index`, discarding descriptions,
         // so that the chip state reflects exactly instructions `[0, index)`...
         while self.applied < index {
-            let instruction = song
-                .instruction(self.applied)
-                .expect("index < song.len(), so every earlier instruction decodes");
+            let instruction =
+                instruction_at(self.applied).expect("every earlier instruction decodes");
             self.step(instruction);
             self.applied += 1;
         }
         // ...then describe `index` itself against the state it now sees.
-        let instruction = song
-            .instruction(index)
-            .expect("index < song.len() checked above");
+        let instruction = instruction_at(index).expect("index < len checked above");
         let analysis = self.step(instruction);
         self.applied += 1;
         Some(analysis)
@@ -292,10 +318,28 @@ impl RegisterUsage {
 /// song's initial stereo image rather than a later repan.
 #[must_use]
 pub fn initial_channel_pans(song: &Song) -> [u8; 18] {
+    channel_pans_from(song.data().iter())
+}
+
+/// [`initial_channel_pans`] for an OPL VGM, read from its command stream rather
+/// than a projected [`Song`].
+///
+/// A command that is not an OPL instruction (a data block in an otherwise-OPL
+/// rip) carries no pan and is skipped -- the projection dropped it the same way.
+#[must_use]
+pub fn initial_channel_pans_vgm(stream: &VgmStream) -> [u8; 18] {
+    channel_pans_from(
+        (0..stream.len()).filter_map(|index| stream.raw_command(index).and_then(project)),
+    )
+}
+
+/// The shared scan behind both [`initial_channel_pans`] entry points: the first
+/// `0xC0..=0xC8` write per slot decides its pan; later repans are ignored.
+fn channel_pans_from(instructions: impl Iterator<Item = Instruction>) -> [u8; 18] {
     let mut pans = [0x80u8; 18];
     let mut seen = [false; 18];
     let mut bank = Bank::Low;
-    for instruction in song.data().iter() {
+    for instruction in instructions {
         if let Some(selected) = instruction.selected_bank() {
             bank = selected;
         }
@@ -531,6 +575,49 @@ mod tests {
         assert!(RegisterAnalyzer::new().row(&song, 999).is_none());
     }
 
+    /// The load-bearing k-3 guarantee: walking an OPL VGM's own command stream
+    /// describes every row identically to walking its projection `Song`, in every
+    /// query order -- which is what lets the editor drop the projection without
+    /// the table's text moving. Row `i` is command `i`, so the two cursors stay in
+    /// lock-step.
+    #[test]
+    fn row_vgm_matches_the_projection_row_for_row() {
+        let file = crate::vgm::file::read("lsl3_score_up.vgm", VGM_FIXTURE).unwrap();
+        let stream = file.stream().expect("the fixture has a stream");
+        let projection = file.to_song().expect("and it is an OPL file");
+        let len = projection.len();
+        assert_eq!(stream.len(), len, "row i is command i");
+
+        // (a) forward -- the amortised O(1) path.
+        let mut proj = RegisterAnalyzer::new();
+        let mut strm = RegisterAnalyzer::new();
+        for index in 0..len {
+            assert_eq!(
+                strm.row_vgm(stream, index),
+                proj.row(&projection, index),
+                "forward {index}"
+            );
+        }
+        // (b) strictly backwards -- a reset and replay on every single row.
+        let mut proj = RegisterAnalyzer::new();
+        let mut strm = RegisterAnalyzer::new();
+        for index in (0..len).rev() {
+            assert_eq!(
+                strm.row_vgm(stream, index),
+                proj.row(&projection, index),
+                "backward {index}"
+            );
+        }
+        // (c) a fresh cursor for one deep row equals a full scan's answer, and
+        // out-of-range is None on the stream arm too.
+        let deep = len - 1;
+        assert_eq!(
+            RegisterAnalyzer::new().row_vgm(stream, deep),
+            RegisterAnalyzer::new().row(&projection, deep),
+        );
+        assert!(RegisterAnalyzer::new().row_vgm(stream, len).is_none());
+    }
+
     #[test]
     fn reset_lets_the_cursor_be_reused() {
         let song = synthetic_v1();
@@ -622,6 +709,44 @@ mod tests {
                 assert_eq!(pan, 0x80, "unwritten slot {slot} stays centred");
             }
         }
+    }
+
+    /// The OPL-VGM pan seed read from a stream matches the one read from the
+    /// projection of the same file -- the k-3 equivalence for `initial_channel_pans`,
+    /// and the first test to exercise the OPL3-VGM pan path at all (every other pan
+    /// test is a DRO).
+    #[test]
+    fn initial_channel_pans_vgm_matches_the_projection() {
+        // A DRO writing speaker bits on both banks, converted to an OPL3 VGM.
+        let dro = Song::dro_v1(
+            "pans.dro".to_owned(),
+            DroDataV1::new(vec![
+                0xC0, 0x10, // ch0 low: left only  -> 0x00
+                0xC1, 0x20, // ch1 low: right only -> 0xFF
+                0x03, // bank switch high
+                0xC0, 0x20, // ch0 high: right only -> slot 9 = 0xFF
+            ])
+            .unwrap(),
+            0,
+            OplType::Opl3,
+        );
+        let file = crate::convert::opl_song_to_vgm_file(&dro).expect("the DRO converts");
+        let stream = file.stream().expect("the VGM has a stream");
+
+        let from_stream = initial_channel_pans_vgm(stream);
+        assert_eq!(
+            from_stream,
+            initial_channel_pans(&dro),
+            "the stream reproduces the source DRO's pan seed"
+        );
+        assert_eq!(
+            from_stream,
+            initial_channel_pans(&file.to_song().expect("an OPL file")),
+            "and matches the projection of the same file"
+        );
+        assert_eq!(from_stream[0], 0x00, "ch0 left");
+        assert_eq!(from_stream[1], 0xFF, "ch1 right");
+        assert_eq!(from_stream[9], 0xFF, "high-bank ch0 right");
     }
 
     #[test]
