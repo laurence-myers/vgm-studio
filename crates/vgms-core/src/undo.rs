@@ -397,11 +397,9 @@ impl UndoableCommand<Song> for UpdateHeader {
 /// Swaps in a rebuilt instruction stream, snapshotting the whole of the old one
 /// so undo restores it exactly.
 ///
-/// Every edit that rebuilds a stream wholesale uses this: the optimiser
-/// ([`optimize`](crate::optimize::optimize)), whose merge pass re-encodes delay
-/// runs, and the crop edits ([`crop_to_region`](crate::crop::crop_to_region),
-/// [`delete_region`](crate::crop::delete_region)), which splice a state patch in
-/// among the survivors and move the loop markers across it. Unlike
+/// The crop edits ([`crop_to_region`](crate::crop::crop_to_region),
+/// [`delete_region`](crate::crop::delete_region)) rebuild a stream wholesale and
+/// use this: they splice a state patch in among the survivors. Unlike
 /// [`DeleteInstructions`], none of those is a set of removals, and snapshotting
 /// both streams is a plainer inverse than an insert and a delete that would have
 /// to undo in the right order.

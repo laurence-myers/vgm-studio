@@ -137,10 +137,9 @@ pub struct VgmMeta {
     /// a command before the loop and every later byte shifts. Holding an
     /// instruction index instead lets edits move it, and the writer converts back.
     ///
-    /// The matching `loop # samples` field is not stored at all -- it is
-    /// [`Song::loop_num_samples`](crate::Song::loop_num_samples), derived from the
-    /// command stream and [`Self::loop_end`], so trimming inside the loop cannot
-    /// leave it stale.
+    /// The matching `loop # samples` field is not stored at all -- it is derived
+    /// from the command stream and [`Self::loop_end`], so trimming inside the loop
+    /// cannot leave it stale.
     pub loop_point: Option<usize>,
     /// Where the loop stops, as an **exclusive** instruction index, or `None` for
     /// the end of the song.

@@ -9,8 +9,8 @@
 //! # A projection, not a conversion
 //!
 //! Nothing is copied or decoded up front. [`OplProjection`] borrows the stream
-//! and decodes on access, exactly as [`VgmData`](super::VgmData) did -- it is
-//! on the path of every table-row paint, so it allocates nothing.
+//! and decodes on access -- it is on the path of every table-row paint, so it
+//! allocates nothing.
 //!
 //! # Rows that are not OPL
 //!

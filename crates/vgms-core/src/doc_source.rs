@@ -2,10 +2,10 @@
 //!
 //! A job that renders, plays, loop-searches or splits a document does not care
 //! which format it came from -- it cares only "here is the document, in the shape
-//! I can work with". That shape is one of two: an OPL [`Song`] (a DRO, or an OPL
-//! VGM's projection) or a raw [`VgmFile`]. This one type carries either, so the
-//! audio backend, the WAV render, the loop search and the song split share it
-//! rather than each declaring its own identical pair.
+//! I can work with". That shape is one of two: a DRO [`Song`], or a [`VgmFile`]
+//! (any VGM, OPL or not). This one type carries either, so the audio backend, the
+//! WAV render, the loop search and the song split share it rather than each
+//! declaring its own identical pair.
 //!
 //! It lives here, in the permissive core, so `vgms-synth`'s public API can take
 //! it (as `AudioSource`) without either crate growing a second copy of the type.
@@ -19,9 +19,9 @@ use crate::vgm::VgmFile;
 
 /// The loaded document as whichever of the two shapes a job needs.
 ///
-/// The `Opl` arm is the OPL song a DRO is, or an OPL VGM projects to; the `Vgm`
-/// arm is the file itself. Both wrap an [`Arc`] so handing the document to a
-/// background job is a reference-count bump, not a copy.
+/// The `Opl` arm is the DRO a document is; the `Vgm` arm is the file itself (any
+/// VGM, OPL or not). Both wrap an [`Arc`] so handing the document to a background
+/// job is a reference-count bump, not a copy.
 #[derive(Debug, Clone)]
 pub enum DocSource {
     Opl(Arc<Song>),
@@ -49,10 +49,10 @@ impl DocSource {
         }
     }
 
-    /// Whether this document is OPL -- a DRO/OPL song, or an OPL VGM. The
-    /// hardware-routing decision keys on this rather than [`Self::opl`], because
-    /// an OPL VGM now travels as the `Vgm` arm (its `opl()` is `None`) yet still
-    /// belongs on the OPL board, which reconstructs its own `Song` at load.
+    /// Whether this document is OPL -- a DRO, or an OPL VGM. The hardware-routing
+    /// decision keys on this rather than [`Self::opl`], because an OPL VGM now
+    /// travels as the `Vgm` arm (its `opl()` is `None`) yet still belongs on the
+    /// OPL board, which the RetroWave service drives from the `VgmFile`.
     #[must_use]
     pub fn is_opl(&self) -> bool {
         match self {

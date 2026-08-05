@@ -231,6 +231,23 @@ mod tests {
     }
 
     #[test]
+    fn only_the_last_value_of_a_rewritten_register_is_emitted() {
+        // 0x20 is written twice to *different* values; the fold records the
+        // latest, so the patch carries 0x99 rather than the stale 0x11. A fold
+        // that kept the first write would silently re-emit the old value.
+        let data = [v1_write(0x20, 0x11), v1_write(0x20, 0x99)].concat();
+        let song = Song::dro_v1(
+            "rewrite.dro".to_owned(),
+            crate::song::DroDataV1::new(data).unwrap(),
+            0,
+            OplType::Opl2,
+        );
+        let (bytes, count) = patch_between(&song, 0, song.len());
+        assert_eq!(count, 1, "one register, one write");
+        assert_eq!(bytes, v1_write(0x20, 0x99));
+    }
+
+    #[test]
     fn a_v1_fold_tracks_the_bank_across_switches() {
         let song = v1_song();
         // After the whole stream the chip is back in the low bank.

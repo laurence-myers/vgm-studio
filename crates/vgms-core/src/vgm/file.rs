@@ -17,7 +17,7 @@
 //! the tag included), and only the EOF and GD3 offsets are patched -- to the
 //! values they already held. The single exception is a file that stores its
 //! GD3 *before* its data, which cannot round-trip because the rewritten tag
-//! goes at the end; see [`write`].
+//! goes at the end; see [`write()`].
 
 #[cfg(test)]
 use std::io::{Read, Write};
@@ -258,7 +258,7 @@ impl VgmFile {
             .then_some(opl)
     }
 
-    /// The metadata a [`Song`] snapshot carries: the loop as instruction
+    /// The VGM-only header fields as a [`VgmMeta`]: the loop as instruction
     /// indices, the modifiers, the tag, and the header bytes verbatim.
     #[must_use]
     pub fn vgm_meta(&self) -> VgmMeta {
@@ -327,7 +327,7 @@ impl VgmFile {
     /// Removes the commands at `indices`, and brings the header back into step:
     /// the sample total, and the loop's offset and length.
     ///
-    /// Doing the repatch *here*, rather than in [`write`], is what keeps an
+    /// Doing the repatch *here*, rather than in [`write()`], is what keeps an
     /// untouched file byte-exact: the writer never recomputes anything, so a
     /// file that is only retagged cannot have a disagreeing header quietly
     /// "corrected" underneath it. The header's own bytes stay the one truth.
@@ -855,7 +855,7 @@ pub fn write(file: &VgmFile) -> Result<Vec<u8>> {
 /// Serialises a file to gzipped VGZ bytes.
 ///
 /// # Errors
-/// As [`write`], plus any compression failure.
+/// As [`write()`], plus any compression failure.
 pub fn write_gzipped(file: &VgmFile) -> Result<Vec<u8>> {
     let plain = write(file)?;
     crate::vgm::gzip::gzip(&plain)

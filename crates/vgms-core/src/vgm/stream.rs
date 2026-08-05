@@ -1,11 +1,10 @@
 //! The VGM command stream, for every chip the spec defines.
 //!
-//! [`VgmData`](super::VgmData) is the OPL stream: a closed table of eight
-//! opcodes, each decoding to a register write or a delay. This is the open one.
-//! It sizes every command the spec lists -- including the reserved ranges, whose
-//! operand counts exist precisely so an unknown command can be stepped over --
-//! and describes the ones it recognises, without needing to *understand* any of
-//! them.
+//! This sizes every command the spec lists -- including the reserved ranges,
+//! whose operand counts exist precisely so an unknown command can be stepped
+//! over -- and describes the ones it recognises, without needing to *understand*
+//! any of them. The OPL projection ([`project`](super::projection::project))
+//! decodes an OPL subset of it on demand.
 //!
 //! # Nothing is ever dropped
 //!
@@ -667,9 +666,6 @@ impl VgmStream {
     }
 
     /// The commands, without the end marker or anything after it.
-    ///
-    /// What an OPL [`VgmData`](crate::vgm::VgmData) snapshot is built over: it
-    /// stores the stream minus its marker, which is exactly this span.
     #[must_use]
     pub fn commands(&self) -> &[u8] {
         &self.data[..self.tail as usize]

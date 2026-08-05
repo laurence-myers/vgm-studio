@@ -71,9 +71,9 @@ impl Segment {
     }
 }
 
-/// Finds the individual songs in `song`, split at every run of consecutive delay
-/// instructions whose summed length reaches `threshold` (in the song's native
-/// unit -- samples for a VGM, milliseconds for a DRO; see [`native_rate`]).
+/// Finds the individual songs in a DRO `song`, split at every run of consecutive
+/// delay instructions whose summed length reaches `threshold` (in milliseconds; a
+/// VGM capture splits through [`detect_segments_in_vgm`], which works in samples).
 ///
 /// One cheap pass: it accumulates the native delay of consecutive delays and,
 /// when a run reaches the threshold, treats it as a gap between two songs. A
