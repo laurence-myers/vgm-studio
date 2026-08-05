@@ -4910,7 +4910,7 @@ impl eframe::App for VgmStudioApp {
 // The headless GUI tests live in their own file but mount here, as a child
 // module of `app`, so they can read `VgmStudioApp`'s private fields directly.
 #[cfg(test)]
-#[path = "app_gui_tests.rs"]
+#[path = "app_gui_tests/mod.rs"]
 mod gui_tests;
 
 impl fmt::Debug for VgmStudioApp {
