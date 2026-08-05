@@ -116,11 +116,12 @@ pub(crate) fn last_error() -> String {
 fn read_source(name: &str, bytes: &[u8]) -> Result<AudioSource, String> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".vgm") || lower.ends_with(".vgz") {
+        // Every VGM travels as the `Vgm` arm now -- an OPL VGM included, exactly
+        // as the native reader routes it. The engine plays it straight from its
+        // own stream (its mutes/pans are the generic per-chip vocabulary), so it
+        // no longer projects to a VGM-flavoured `Song` through `to_song`.
         let file = vgms_core::vgm::file::read(name, bytes).map_err(|error| error.to_string())?;
-        Ok(match file.to_song() {
-            Some(song) => AudioSource::Opl(Arc::new(song)),
-            None => AudioSource::Vgm(Arc::new(file)),
-        })
+        Ok(AudioSource::Vgm(Arc::new(file)))
     } else {
         let song = vgms_core::io::read_song(name, bytes).map_err(|error| error.to_string())?;
         Ok(AudioSource::Opl(Arc::new(song)))
@@ -484,7 +485,10 @@ mod tests {
     fn an_opl_vgm_loads_and_sounds() {
         install_once();
         let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
-        assert!(matches!(source, AudioSource::Opl(_)), "projects to OPL");
+        assert!(
+            matches!(source, AudioSource::Vgm(_)),
+            "an OPL VGM travels as the Vgm arm now"
+        );
         let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
             .expect("the fixture builds a player");
         assert!(
@@ -559,10 +563,11 @@ mod tests {
     #[test]
     fn muting_every_opl_channel_quiets_the_stream() {
         install_once();
-        // The same fixture, once as it plays and once with every channel muted
-        // (drums masked away too -- Muting::from_raw(0, [0xE0; 2])). The muting
-        // has to reach the engine through exactly the ABI's raw pair, so a
-        // fully-muted pass is a small fraction of the loud one.
+        // The same fixture, once as it plays and once with every channel muted.
+        // An OPL VGM mutes through the generic per-chip vocabulary now (the Vgm
+        // arm), so the OPL "everything muted" mask (Muting::from_raw(0, [0xE0; 2]))
+        // is translated to the Ym3812's ChipMuting -- a fully-muted pass must be a
+        // small fraction of the loud one.
         let loud = {
             let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
             let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
@@ -573,7 +578,8 @@ mod tests {
             let source = read_source("lsl3_score_up.vgm", OPL_VGM).expect("fixture parses");
             let mut player = WebPlayer::new(source, 48_000, ResampleMode::Sinc)
                 .expect("the fixture builds a player");
-            player.engine.set_muting(Muting::from_raw(0, [0xE0, 0xE0]));
+            let silence = opl_chip_muting(&Muting::from_raw(0, [0xE0, 0xE0]), OplType::Opl2);
+            player.engine.set_chip_muting(silence);
             render_peak(&mut player, 48_000)
         };
         assert!(loud > 0.01, "the unmuted stream sounds");
