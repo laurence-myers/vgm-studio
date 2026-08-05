@@ -3135,9 +3135,9 @@ mod tests {
             .revolumed(0x20)
             .expect("a VGM")
             .expect("writes");
-        let other_song =
+        let other_file =
             vgms_core::convert::dro_to_vgm(&crate::test_song::tone_song()).expect("converts");
-        let audio_edit = vgms_core::io::write_song(&other_song).expect("writes");
+        let audio_edit = vgms_core::vgm::file::write(&other_file).expect("writes");
         let file = |name: &str, bytes: Vec<u8>| PickedFile {
             name: name.to_owned(),
             path: Some(PathBuf::from(format!("C:/pack/{name}"))),

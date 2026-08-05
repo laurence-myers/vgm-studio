@@ -263,34 +263,38 @@ mod tests {
     // -- reading the song's own loop -----------------------------------------
 
     #[test]
-    fn from_song_adopts_a_vgms_loop_region() {
+    fn from_vgm_adopts_a_vgms_loop_region() {
         use crate::test_song::tone_song;
-        let mut song = vgms_core::convert::dro_to_vgm(&tone_song()).unwrap();
-        let len = song.len();
-        {
-            let meta = song.vgm_meta_mut().unwrap();
-            meta.loop_point = Some(2);
-            meta.loop_end = Some(len - 1);
-        }
-        let markers = RangeMarkers::from_song(&song);
-        assert_eq!((markers.start(), markers.end()), (2, len - 1));
+        let mut file = vgms_core::convert::dro_to_vgm(&tone_song()).unwrap();
+        let len = file.len();
+        file.set_loop_rows(Some(2), Some(len - 1));
+        // The markers adopt the file's own loop -- the start verbatim and the end
+        // as the command boundary the VGM resolves it to (not necessarily the raw
+        // row asked for; that resolution is the file's, pinned in `vgm::file`).
+        let markers = RangeMarkers::from_vgm(&file);
+        assert_eq!(markers.start(), 2, "the loop start is adopted");
+        assert_eq!(
+            Some(markers.end()),
+            file.loop_end_index(),
+            "the loop end is adopted from the file"
+        );
     }
 
     #[test]
-    fn from_song_falls_back_to_the_whole_song() {
+    fn markers_fall_back_to_the_whole_song() {
         use crate::test_song::{dro_song_v2, tone_song};
         // A DRO has no loop metadata at all.
         let dro = dro_song_v2();
         assert!(RangeMarkers::from_song(&dro).is_full(dro.len()));
 
         // A VGM that does not loop opens the same way.
-        let vgm = vgms_core::convert::dro_to_vgm(&tone_song()).unwrap();
-        assert!(RangeMarkers::from_song(&vgm).is_full(vgm.len()));
+        let file = vgms_core::convert::dro_to_vgm(&tone_song()).unwrap();
+        assert!(RangeMarkers::from_vgm(&file).is_full(file.len()));
 
         // A loop point with no explicit end runs to the end of the song.
-        let mut looping = vgm.clone();
-        looping.vgm_meta_mut().unwrap().loop_point = Some(1);
-        let markers = RangeMarkers::from_song(&looping);
+        let mut looping = file.clone();
+        looping.set_loop_rows(Some(1), None);
+        let markers = RangeMarkers::from_vgm(&looping);
         assert_eq!((markers.start(), markers.end()), (1, looping.len()));
     }
 }

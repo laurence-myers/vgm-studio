@@ -1,15 +1,14 @@
 //! Format conversions: DRO -> VGM, DRO v2 -> v1, and filtering a VGM's register
 //! writes ([`filter_vgm`], which shares the VGM emitter with the DRO conversion).
 
-use std::borrow::Cow;
-
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
 use crate::song::{Bank, DelayKind, DroDataV1, Instruction, OplType, Song, SongData};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::data::command;
-use crate::vgm::io::{CONVERSION_VERSION, synthesise_header};
-use crate::vgm::{VgmData, VgmFile, VgmMeta};
+use crate::vgm::header::offset;
+use crate::vgm::io::{put_chip_clocks, synthesise_header};
+use crate::vgm::{VgmData, VgmFile};
 
 /// The longest wait a single `0x61` command can express. Only the test that a
 /// long delay spans several commands names it now; the chunking itself lives in
@@ -87,13 +86,34 @@ impl VgmStream {
     fn finish(self) -> Result<VgmData> {
         VgmData::new(self.out)
     }
+
+    /// The raw command bytes, for a caller that assembles the VGM container
+    /// itself ([`dro_to_vgm`]) rather than wrapping them in a `Song`.
+    fn into_bytes(self) -> Vec<u8> {
+        self.out
+    }
 }
 
-/// Converts a DRO song to a VGM song.
+/// Writes a little-endian `u32` at `offset` into a header buffer.
+fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// Converts a DRO song to a playable [`VgmFile`].
+///
+/// The DRO's register writes and millisecond delays become a v1.51 VGM command
+/// stream (delays in samples, chunked to fit `0x61`); the container is assembled
+/// here -- a synthesised header with the OPL chip clocks, total-sample count and
+/// EOF patched in, then the stream and an end marker -- and read straight back
+/// through [`vgm::file::read`](crate::vgm::file::read), so the result is a real
+/// `VgmFile` rather than a VGM-flavoured `Song`. That assembled byte image is
+/// exactly what `dro2vgm` emits (pinned byte-for-byte against the fixture), which
+/// is why the conversion carries no `Song::vgm` intermediate.
 ///
 /// # Errors
-/// If `song` is already a VGM.
-pub fn dro_to_vgm(song: &Song) -> Result<Song> {
+/// If `song` is already a VGM, or the synthesised header cannot hold the OPL
+/// clocks, or the assembled bytes do not read back.
+pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
     if song.is_vgm() {
         return Err(Error::file("Tried to convert a VGM song to VGM"));
     }
@@ -101,6 +121,9 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
+    // The header's `total # samples` field; accumulated here because the stream
+    // holds only the (chunked) wait commands, not their sum.
+    let mut total_samples = 0u64;
 
     for instruction in song.data().iter() {
         match instruction {
@@ -113,23 +136,37 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
                 // DRO v2 carries the bank on the write; v1 tracks it separately.
                 stream.write(own.unwrap_or(bank), reg, value);
             }
-            Instruction::DelayMs { ms, .. } => stream.wait(clock.samples_for_ms(ms)),
+            Instruction::DelayMs { ms, .. } => {
+                let samples = clock.samples_for_ms(ms);
+                total_samples = total_samples.saturating_add(samples);
+                stream.wait(samples);
+            }
             Instruction::DelaySamples { .. } => {
                 unreachable!("a DRO song has no sample delays")
             }
         }
     }
 
+    // Assemble the VGM container. A converted file has no loop and no GD3, so the
+    // synthesised header's zeroed loop/GD3/modifier fields are already correct;
+    // only the chip clocks, total samples and EOF need patching -- the same
+    // fields `vgm::io::write` would patch for this file.
     let mut header = synthesise_header();
-    crate::vgm::io::put_chip_clocks(&mut header, song.opl_type)?;
+    put_chip_clocks(&mut header, song.opl_type)?;
+    let data = stream.into_bytes();
+    let end_marker = 1;
+    let eof = header.len() + data.len() + end_marker;
+    put_u32(&mut header, offset::EOF, (eof - offset::EOF) as u32);
+    put_u32(
+        &mut header,
+        offset::TOTAL_SAMPLES,
+        u32::try_from(total_samples).unwrap_or(u32::MAX),
+    );
 
-    Ok(Song::vgm(
-        replace_extension(&song.name, "vgm"),
-        CONVERSION_VERSION,
-        stream.finish()?,
-        song.opl_type,
-        VgmMeta::new(header),
-    ))
+    let mut out = header;
+    out.extend_from_slice(&data);
+    out.push(command::END);
+    crate::vgm::file::read(&replace_extension(&song.name, "vgm"), &out)
 }
 
 /// Projects an OPL document to a playable [`VgmFile`], for routing OPL playback
@@ -146,13 +183,17 @@ pub fn dro_to_vgm(song: &Song) -> Result<Song> {
 /// If the song is a DRO that will not convert, or the serialised VGM does not
 /// read back.
 pub fn opl_song_to_vgm_file(song: &Song) -> Result<VgmFile> {
-    let vgm = if matches!(song.data(), SongData::Vgm(_)) {
-        Cow::Borrowed(song)
-    } else {
-        Cow::Owned(dro_to_vgm(song)?)
-    };
-    let bytes = crate::io::write_song(&vgm)?;
-    crate::vgm::file::read(&vgm.name, &bytes)
+    match song.data() {
+        // A VGM-flavoured `Song` (the web worklet still projects an OPL VGM to
+        // one via `to_song`): serialise and re-read it. This branch retires with
+        // that projection.
+        SongData::Vgm(_) => {
+            let bytes = crate::io::write_song(song)?;
+            crate::vgm::file::read(&song.name, &bytes)
+        }
+        // A DRO converts straight to a `VgmFile`, no `Song::vgm` in between.
+        _ => dro_to_vgm(song),
+    }
 }
 
 /// Rewrites a VGM's register writes through `gate`, keeping everything else.
@@ -359,6 +400,7 @@ fn replace_extension(name: &str, extension: &str) -> String {
 mod tests {
     use super::*;
     use crate::io::dro;
+    use crate::vgm::VgmMeta;
     use crate::vgm::io as vgm_io;
 
     const DRO_V2_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
@@ -376,10 +418,12 @@ mod tests {
         let vgm = dro_to_vgm(&dro).unwrap();
 
         assert_eq!(vgm.name, "lsl3_score_up_dro2.vgm");
-        assert_eq!(vgm.total_delay_samples(), 118_320);
+        assert_eq!(vgm.header.total_samples(), 118_320);
         assert_eq!(vgm.len(), 299);
 
-        let written = vgm_io::write(&vgm).unwrap();
+        // `file::write` reproduces the container verbatim, so this still pins the
+        // conversion byte-for-byte against the independent `dro2vgm` oracle.
+        let written = crate::vgm::file::write(&vgm).unwrap();
         assert_eq!(written.len(), VGM_FIXTURE.len());
         assert_eq!(written, VGM_FIXTURE);
     }
@@ -421,14 +465,14 @@ mod tests {
         let song = build_dro_v1(&[0x01, 0xCF, 0x07]); // long delay: 0x07CF + 1 = 2000 ms
         let vgm = dro_to_vgm(&song).unwrap();
         assert_eq!(vgm.len(), 2, "one wait cannot express 88200 samples");
-        assert_eq!(vgm.total_delay_samples() as u64, samples);
-        assert_eq!(vgm.data().raw()[0], command::WAIT);
-        assert_eq!(vgm.data().raw()[3], command::WAIT, "the opcode repeats");
+        assert_eq!(u64::from(vgm.header.total_samples()), samples);
+        assert_eq!(vgm.body.raw()[0], command::WAIT);
+        assert_eq!(vgm.body.raw()[3], command::WAIT, "the opcode repeats");
 
         // ... and it survives a round trip through the writer and reader.
-        let written = vgm_io::write(&vgm).unwrap();
-        let reread = vgm_io::read("t.vgm", &written).unwrap();
-        assert_eq!(reread.total_delay_samples() as u64, samples);
+        let written = crate::vgm::file::write(&vgm).unwrap();
+        let reread = crate::vgm::file::read("t.vgm", &written).unwrap();
+        assert_eq!(u64::from(reread.header.total_samples()), samples);
     }
 
     fn build_dro_v1(data: &[u8]) -> Song {
@@ -476,8 +520,10 @@ mod tests {
             OplType::Opl3,
         );
         let vgm = dro_to_vgm(&song).unwrap();
+        // `body.raw()` is the whole command body, including the trailing end
+        // marker the container carries.
         assert_eq!(
-            vgm.data().raw(),
+            vgm.body.raw(),
             [
                 command::YMF262_PORT_0,
                 0x20,
@@ -488,6 +534,7 @@ mod tests {
                 command::YMF262_PORT_0,
                 0x20,
                 0x03,
+                command::END,
             ]
         );
         assert_eq!(vgm.len(), 3, "bank switches leave no VGM command behind");

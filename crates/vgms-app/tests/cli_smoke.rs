@@ -195,7 +195,7 @@ fn split_song_writes_vgm_files_for_a_vgm_input() {
     // is what `--song` means: the input's own format.
     let dro = vgms_core::io::read_song("small.dro", &small_song_bytes()).unwrap();
     let vgm = vgms_core::convert::dro_to_vgm(&dro).unwrap();
-    std::fs::write(&input, write_song(&vgm).unwrap()).unwrap();
+    std::fs::write(&input, vgms_core::vgm::file::write(&vgm).unwrap()).unwrap();
 
     let output = run(&["split", "--song", input.to_str().unwrap()]);
     assert!(output.status.success(), "split --song failed: {output:?}");
@@ -229,7 +229,7 @@ fn split_song_keeps_a_vgms_own_chip_clock() {
     // An OPL2 VGM whose YM3812 clock is deliberately non-standard.
     let dro = vgms_core::io::read_song("odd.dro", &small_song_bytes()).unwrap();
     let vgm = vgms_core::convert::dro_to_vgm(&dro).unwrap();
-    let mut bytes = write_song(&vgm).unwrap();
+    let mut bytes = vgms_core::vgm::file::write(&vgm).unwrap();
     const ODD_CLOCK: u32 = 4_000_000; // not the canonical YM3812 3_579_545
     let offset = ChipKind::Ym3812.clock_offset();
     bytes[offset..offset + 4].copy_from_slice(&ODD_CLOCK.to_le_bytes());

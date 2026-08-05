@@ -53,8 +53,8 @@ fn vgz_round_trips() {
 fn dro_to_vgm_reproduces_the_vgm_fixture() {
     let dro = read_song("lsl3_score_up_dro2.dro", DRO_V2_FIXTURE).unwrap();
     let vgm = dro_to_vgm(&dro).unwrap();
-    assert_eq!(vgm.total_delay_samples(), 118_320);
-    assert_eq!(vgm_io::write(&vgm).unwrap(), VGM_FIXTURE);
+    assert_eq!(vgm.header.total_samples(), 118_320);
+    assert_eq!(vgms_core::vgm::file::write(&vgm).unwrap(), VGM_FIXTURE);
 }
 
 /// `usize` is 32 bits here, so a header claiming 2^31 pairs must not wrap.

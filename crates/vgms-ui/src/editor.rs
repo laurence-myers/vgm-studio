@@ -862,24 +862,18 @@ impl Editor {
     /// Replaces the DRO song with its VGM conversion. Not undoable: the
     /// history is wiped.
     ///
-    /// The result is a VGM like any other -- held as its own bytes -- so the
-    /// conversion is serialised and read straight back rather than left as a
-    /// VGM-flavoured `Song`. That round trip is what keeps the DRO slot holding
-    /// only DROs, and it costs one write of a file the user is about to save
-    /// anyway.
+    /// The result is a VGM like any other -- [`dro_to_vgm`](convert::dro_to_vgm)
+    /// builds a real `VgmFile` directly -- so it drops into the VGM slot and the
+    /// DRO slot keeps holding only DROs.
     ///
     /// # Errors
-    /// If no song is loaded, it is already a VGM, or the conversion will not
-    /// serialise.
+    /// If no song is loaded, it is already a VGM, or the conversion fails.
     pub fn convert_to_vgm(&mut self) -> Result<(), String> {
         let song = self
             .dro
             .as_ref()
             .ok_or(crate::strings::EDITOR_NO_SONG_LOADED)?;
-        let converted = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
-        let bytes = io::write_song(&converted).map_err(|e| e.to_string())?;
-        let file =
-            vgms_core::vgm::file::read(&converted.name, &bytes).map_err(|e| e.to_string())?;
+        let file = convert::dro_to_vgm(song).map_err(|e| e.to_string())?;
 
         // No path: the converted song has no file yet, so Save falls through to
         // Save As rather than writing VGM bytes over the original `.dro`.
@@ -1233,6 +1227,19 @@ mod tests {
         (editor, report)
     }
 
+    /// The VGM counterpart of [`loaded`]: serialise a `VgmFile` and open it, so a
+    /// converted DRO takes the same load path a real `.vgm` does.
+    fn loaded_vgm(file: &VgmFile) -> (Editor, LoadReport) {
+        let picked = PickedFile {
+            name: file.name.clone(),
+            path: Some(PathBuf::from(format!("C:/songs/{}", file.name))),
+            bytes: vgms_core::vgm::file::write(file).unwrap(),
+        };
+        let mut editor = Editor::new();
+        let report = editor.load(picked).unwrap();
+        (editor, report)
+    }
+
     #[test]
     fn loading_a_clean_dro_reports_nothing() {
         let (editor, report) = loaded(&dro_song_v2());
@@ -1273,9 +1280,9 @@ mod tests {
         // DRO-only). Convert the bogus-delay song directly, so its leading
         // delay survives into the VGM.
         let vgm = convert::dro_to_vgm(&bogus_leading_delay_song()).unwrap();
-        assert!(vgm.instruction(0).unwrap().is_delay());
+        assert!(vgm.opl().unwrap().instruction(0).unwrap().is_delay());
 
-        let (editor, report) = loaded(&vgm);
+        let (editor, report) = loaded_vgm(&vgm);
         assert_eq!(report, LoadReport::default());
         assert_eq!(editor.len(), vgm.len());
         assert!(
@@ -1356,7 +1363,7 @@ mod tests {
     #[test]
     fn an_opl_vgm_is_held_as_a_vgm_with_no_projection() {
         let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
-        let (editor, _) = loaded(&vgm);
+        let (editor, _) = loaded_vgm(&vgm);
 
         assert!(editor.vgm().is_some(), "the file itself is the document");
         assert!(editor.song().is_none(), "and there is no projected Song");
@@ -1370,7 +1377,7 @@ mod tests {
     #[test]
     fn an_opl_vgm_analyses_its_rows_from_the_stream() {
         let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
-        let (mut editor, _) = loaded(&vgm);
+        let (mut editor, _) = loaded_vgm(&vgm);
         assert_eq!(editor.column_titles()[1], "Bank", "OPL rows, not chip rows");
 
         // The oracle: the analyser over the file's own projection. Every row's
@@ -1399,7 +1406,7 @@ mod tests {
     #[test]
     fn the_cached_doc_source_is_shared_and_rebuilt_on_an_edit() {
         let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
-        let (mut editor, _) = loaded(&vgm);
+        let (mut editor, _) = loaded_vgm(&vgm);
 
         let first = editor.vgm_arc().expect("a VGM is loaded");
         assert!(
@@ -1421,7 +1428,7 @@ mod tests {
     #[test]
     fn a_rename_reaches_the_cached_doc_source() {
         let vgm = convert::dro_to_vgm(&dro_song_v2()).unwrap();
-        let (mut editor, _) = loaded(&vgm);
+        let (mut editor, _) = loaded_vgm(&vgm);
         editor.record_saved("renamed.vgm".to_owned(), None);
         assert_eq!(editor.doc_source().unwrap().name(), "renamed.vgm");
         assert_eq!(editor.vgm_arc().unwrap().name, "renamed.vgm");
