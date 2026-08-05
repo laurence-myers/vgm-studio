@@ -36,10 +36,12 @@
 
 mod chip;
 mod ffi;
+mod fold;
 /// Test-only: nothing in the shipped library reads a struct offset, so the
 /// layout guard exists purely to fail a test.
 #[cfg(test)]
 mod layout;
+mod specs;
 #[cfg(target_arch = "wasm32")]
 mod wasm_libc;
 
@@ -59,7 +61,7 @@ pub const CORE_SUFFIX: &str = "libvgm";
 /// Nuked back over the YM2612, YM2151 and YM2413 rows, leaving libvgm on their
 /// pickers.
 pub fn register(registry: &mut vgms_synth::CoreRegistry) {
-    for spec in chip::SPECS {
+    for spec in specs::SPECS {
         registry.register(vgms_synth::CoreInfo {
             id: spec.registry_id(),
             chip: spec.kind,
