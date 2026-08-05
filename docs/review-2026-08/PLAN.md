@@ -1,7 +1,15 @@
 # Review remediation — staged plan
 
-Date: 2026-08-02. Status: **PLANNED — nothing implemented.** Branch: `review-2026-08`
-(forked from `web-target` @ `df3d5cf`).
+Date: 2026-08-02, updated 2026-08-05. Status: **Stages A–I and K are DONE; only
+Stage J (structural splits) remains.** Branch: forked as `review-2026-08` from
+`web-target` @ `df3d5cf` (60 commits, A–H); Stage I landed on `stage-i-migration`;
+Stage K (§12b, the projection retirement) finished 2026-08-05. All three are now
+contained in the `render-split-2026-08` lineage (`review-2026-08` is an ancestor
+of it), which is green host + wasm with clippy clean. **Stage J has not started**
+(verified 2026-08-05: `app_gui_tests.rs` 7,558 / `app.rs` 4,969 / ui `pack.rs`
+3,794 / core `pack.rs` 2,363 / libvgm `chip.rs` 2,516 lines, all monolithic);
+st-4 (the app.rs split, §14's highest-risk item) must be the last commit to touch
+that file. Nothing here is pushed or merged.
 
 **Revision 3** — every decision is answered (see [DECISIONS.md](DECISIONS.md));
 §0b records where research changed the work's shape, and §12b scopes the
@@ -123,19 +131,19 @@ justified below the table.
 constraints left are the mechanical ones (B before D's test hooks, E before the
 byte-changing stages, st-4 last).
 
-| | Stage | What it is |
-|---|---|---|
-| **A** | `hf-` | Hostile files — the crash class |
-| **B** | `ci-` | Build and CI unblock (D11: `web/e2e/` moves out, CI calls the script) |
-| **C** | `sw-` | Silent wrongness in core, synth, ui, native |
-| **D** | `wb-` | Web and worklet correctness (D4: wrapper + smoke-test repoint; needs B) |
-| **E** | `sn-` | Arm the safety nets (D5: parity stays; fix it) |
-| **F** | `dd-` | Deletions and doc rot |
-| **G** | `tm-` | Terminology, API hygiene, manifests |
-| **H** | `fk-` | Unify the native/web forks |
-| **I** | `mg-` | Finish the DRO→VGM migration (D21, D22 accepted) |
-| **J** | `st-` | Structural splits |
-| **K** | — | *Follow-on, separate programme:* retire the projection (§12b) |
+| | Stage | What it is | Status |
+|---|---|---|---|
+| **A** | `hf-` | Hostile files — the crash class | ✅ done |
+| **B** | `ci-` | Build and CI unblock (D11: `web/e2e/` moves out, CI calls the script) | ✅ done |
+| **C** | `sw-` | Silent wrongness in core, synth, ui, native | ✅ done |
+| **D** | `wb-` | Web and worklet correctness (D4: wrapper + smoke-test repoint; needs B) | ✅ done |
+| **E** | `sn-` | Arm the safety nets (D5: parity stays; fix it) | ✅ done |
+| **F** | `dd-` | Deletions and doc rot | ✅ done |
+| **G** | `tm-` | Terminology, API hygiene, manifests | ✅ done |
+| **H** | `fk-` | Unify the native/web forks | ✅ done |
+| **I** | `mg-` | Finish the DRO→VGM migration (D21, D22 accepted) | ✅ done (`stage-i-migration`) |
+| **J** | `st-` | Structural splits | ⛏️ **not started — the only remaining work** |
+| **K** | — | *Follow-on, separate programme:* retire the projection (§12b) | ✅ done 2026-08-05 (`fc1be98`) |
 
 **Why Stage J is last even though it is refactoring.** `app.rs` carries 46 of
 the 233 findings. Split it first and every one of those has to be re-anchored

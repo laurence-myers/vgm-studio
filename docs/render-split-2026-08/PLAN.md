@@ -1,9 +1,15 @@
 # Pseudo-muting + render split — implementation plan
 
-Date: 2026-08-02, updated 2026-08-03. Status: **Stages 0–3 unimplemented; Stage 4
-(= Stage K) begun.** Branch context: rebases onto `stage-i-migration` (Stage I is
-complete — mg-5's `DocSource`/`doc_source()` is the seam Stage 4 needs; the plan
-must rebase onto it, not the reverse).
+Date: 2026-08-02, updated 2026-08-05. Status: **COMPLETE — all of Stages 0–4 are
+done and committed on branch `render-split-2026-08`** (workspace green host + wasm,
+clippy clean). Stage 4 = Stage K = the OPL projection retirement, which finished
+2026-08-05: `SongData::Vgm` and the whole Song-based VGM path are deleted (`fc1be98`,
+`8d1abae`), so an OPL VGM is just a `VgmFile` on the generic `VgmEngine` and a
+`Song` is always a DRO. What remains is opt-in follow-up only, not gating work:
+the deferred `ChannelGate` tables for the exotic chips (YM2608/YM2610/Y8950 report
+"no gate" honestly; the appendix's TRANSFORM-class latch chips never got tables)
+and the §3 accepted limitations. The branch rebased onto `stage-i-migration` as
+planned; `review-2026-08` is an ancestor of it.
 
 The request: render each chip channel to its own WAV ("render split"), built on a
 "pseudo-muting" mechanism — send every instruction to a core *except* those that
