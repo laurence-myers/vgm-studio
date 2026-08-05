@@ -7,7 +7,10 @@
 //! shadow only, and resuming plays it out (see `SerialOpl3Chip`). A real chip
 //! sounds continuously, so a paused seek that reached it would be audible.
 
+use std::sync::Arc;
+
 use vgms_core::config::{AudioConfig, OutputBackend};
+use vgms_core::{OplType, VgmFile};
 use vgms_retrowave::{Device, RetroWaveAudio};
 use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
 use vgms_ui::{AudioService, platform::HardwarePortInfo};
@@ -25,8 +28,15 @@ pub struct RetroWaveAudioService {
     /// port can refuse to reopen immediately after closing.
     device: Option<Device>,
     playing: bool,
+    /// Live controls, kept so a fresh pump (a load makes one) gets the current
+    /// state on the next [`play`](Self::play). Both vocabularies are held: the
+    /// pump routes each to the engine only when it fits the loaded document (an
+    /// OPL document takes the OPL `Muting`/`Panning`, an OPL VGM the generic
+    /// `ChipMuting`/`ChipPanning`), exactly as the native backend does.
     muting: Muting,
     panning: Panning,
+    chip_muting: ChipMuting,
+    chip_panning: ChipPanning,
     loop_config: Option<LoopConfig>,
 }
 
@@ -66,28 +76,37 @@ impl RetroWaveAudioService {
 impl AudioService for RetroWaveAudioService {
     fn load(&mut self, source: AudioSource, config: &AudioConfig) -> Result<(), String> {
         self.unload();
-        // The hardware is an OPL3, and it drives its serial chip from an OPL
-        // `Song`. Build that Song here from whichever arm the source is -- an OPL
-        // `Song` directly, or an OPL VGM projected -- so this service owns its
-        // projection rather than depending on the editor handing it one. A VGM
-        // for other chips has nothing to send an OPL3, and saying so beats
-        // silence. (Today the `Vgm` arm only ever carries non-OPL files, whose
-        // projection is `None`, so this refuses exactly as before; it is what
-        // keeps RetroWave working once OPL VGMs route through the `Vgm` arm.)
-        let song = match &source {
-            AudioSource::Opl(song) => std::sync::Arc::clone(song),
-            AudioSource::Vgm(file) => match file.to_song() {
-                Some(song) => std::sync::Arc::new(song),
-                None => {
-                    return Err(format!(
-                        "{} is not an OPL song, and the RetroWave output is an OPL3.",
-                        source.name()
-                    ));
-                }
-            },
+        // The hardware is an OPL3, driven through the same `VgmEngine` every chip
+        // plays through, so it needs an OPL `VgmFile`. Build one from whichever
+        // arm the source is -- a DRO's OPL `Song` projected, or an OPL VGM taken
+        // as it is -- and carry the OPL type when (and only when) the document is
+        // a DRO, whose panel speaks the OPL `Muting`/`Panning` vocabulary the
+        // pump must translate. An OPL VGM speaks the generic per-chip vocabulary
+        // directly, so its `opl` is `None`. A VGM for other chips has nothing to
+        // send an OPL3, and saying so beats silence.
+        let (file, opl): (Arc<VgmFile>, Option<OplType>) = match &source {
+            // A DRO: project it (a DRO is always canonical-clock, so the
+            // projection is faithful), and tag it as an OPL document.
+            AudioSource::Opl(song) => (
+                Arc::new(
+                    vgms_core::convert::opl_song_to_vgm_file(song).map_err(|error| {
+                        format!("{} could not be projected for the OPL3: {error}", source.name())
+                    })?,
+                ),
+                Some(song.opl_type),
+            ),
+            // An OPL VGM: use its own bytes (re-projecting would canonicalise a
+            // non-standard chip clock); refuse a non-OPL one.
+            AudioSource::Vgm(file) if file.is_opl() => (Arc::clone(file), None),
+            AudioSource::Vgm(_) => {
+                return Err(format!(
+                    "{} is not an OPL song, and the RetroWave output is an OPL3.",
+                    source.name()
+                ));
+            }
         };
         let device = self.acquire_device(config)?;
-        self.audio = Some(RetroWaveAudio::new(device, song));
+        self.audio = Some(RetroWaveAudio::new(device, file, opl));
         Ok(())
     }
 
@@ -104,8 +123,13 @@ impl AudioService for RetroWaveAudioService {
             .audio
             .as_mut()
             .ok_or("No song is loaded into the RetroWave device.")?;
+        // Re-state every control: a load built a fresh pump that knows none of
+        // them. The pump keeps whichever vocabulary fits the loaded document and
+        // ignores the other, so sending both is safe.
         audio.set_muting(self.muting);
+        audio.set_chip_muting(self.chip_muting.clone());
         audio.set_panning(self.panning);
+        audio.set_chip_panning(self.chip_panning.clone());
         audio.set_loop(self.loop_config);
         audio.play();
         self.playing = true;
@@ -155,14 +179,23 @@ impl AudioService for RetroWaveAudioService {
     /// backend renders none.
     fn set_boost(&mut self, _boost: f32) {}
 
-    /// Nothing to do, and not an oversight: the board is an OPL3, `load`
-    /// refuses anything else, so there is never a generic chip here to mute.
-    /// Written out because the trait requires it -- see
-    /// [`AudioService::set_chip_muting`].
-    fn set_chip_muting(&mut self, _muting: ChipMuting) {}
+    /// The any-chip mutes an OPL VGM's generic mixer emits. Kept for the next
+    /// [`play`](Self::play) and forwarded live; the pump applies it only when the
+    /// loaded document is an OPL VGM (an OPL `Song` mutes through [`set_muting`]).
+    fn set_chip_muting(&mut self, muting: ChipMuting) {
+        self.chip_muting = muting.clone();
+        if let Some(audio) = &mut self.audio {
+            audio.set_chip_muting(muting);
+        }
+    }
 
-    /// As above: no generic engine, so no per-chip pans to place.
-    fn set_chip_panning(&mut self, _panning: ChipPanning) {}
+    /// As above, for the any-chip pans.
+    fn set_chip_panning(&mut self, panning: ChipPanning) {
+        self.chip_panning = panning.clone();
+        if let Some(audio) = &mut self.audio {
+            audio.set_chip_panning(panning);
+        }
+    }
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {
         self.loop_config = config;
@@ -477,7 +510,7 @@ mod tests {
     /// reading of what that setting means.
     #[test]
     fn a_non_opl_source_goes_to_the_emulator_whatever_the_setting_says() {
-        fn mega_drive_vgm() -> Arc<vgms_core::VgmFile> {
+        fn mega_drive_vgm() -> Arc<VgmFile> {
             let mut bytes = vec![0u8; 0x100];
             bytes[..4].copy_from_slice(b"Vgm ");
             bytes[0x08..0x0C].copy_from_slice(&0x161u32.to_le_bytes());

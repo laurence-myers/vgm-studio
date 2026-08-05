@@ -335,10 +335,19 @@ impl VgmEngine {
         self.voices.iter().map(|voice| voice.target).collect()
     }
 
-    /// Whether the stream has been played to its end.
+    /// Whether the stream has been played to its end -- every command consumed
+    /// **and** the last wait's frames rendered out.
+    ///
+    /// The `pending == 0` term matters: `finished` flips as soon as the final
+    /// command is read, but that command is usually a wait, and its frames (a
+    /// held final note, the tail of a fade) have still to be rendered. Reporting
+    /// "finished" while they are pending would cut them off -- which is exactly
+    /// what the hardware pump does with this signal, and it is the same
+    /// `pending_frames == 0` rule [`PlayerEngine::is_finished`](crate::PlayerEngine)
+    /// applies, so the two engines agree about when a song is over.
     #[must_use]
     pub const fn is_finished(&self) -> bool {
-        self.finished
+        self.finished && self.pending == 0
     }
 
     /// Chooses how every voice is brought to the output rate.

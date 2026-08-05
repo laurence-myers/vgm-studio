@@ -2,23 +2,32 @@
 //!
 //! The emulated backend is paced by the sound card asking for samples. Hardware
 //! output has no such pull -- the audio never passes through this program -- so a
-//! thread walks the same [`PlayerEngine`] against [`Instant`] instead, handing
-//! the register writes it produces to the device as they fall due.
+//! thread walks a [`VgmEngine`] against [`Instant`] instead, handing the register
+//! writes it produces to the device as they fall due.
+//!
+//! The engine is the same one every other chip plays through: it hosts the board's
+//! [`SerialOpl3Chip`] as an [`OplCoreAdapter`](vgms_synth::OplCoreAdapter) (Stage K
+//! / ou-1), so the OPL family is no longer a separate `PlayerEngine` path -- an OPL
+//! `Song` is projected to a VGM and driven here exactly as a native OPL VGM is. The
+//! samples the engine renders are discarded; the register writes it makes to the
+//! shared chip are the point, and the shadow/`hw` model in [`SerialOpl3Chip`] turns
+//! them into the minimal wire traffic the board needs.
 
 use std::{
+    cell::Cell,
     panic::AssertUnwindSafe,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use vgms_core::Song;
+use vgms_core::{OplType, VgmFile};
 use vgms_synth::{
-    NATIVE_SAMPLE_RATE,
-    engine::{LoopConfig, Muting, Panning, PlayerEngine, Position},
+    ChipMuting, ChipPanning, LoopConfig, Muting, NATIVE_SAMPLE_RATE, Panning, Position, VgmEngine,
+    opl::OplChip, opl_chip_muting, opl_chip_panning, opl_hardware_core,
 };
 
 use crate::{chip::SerialOpl3Chip, device::Device};
@@ -43,8 +52,92 @@ const QUANTUM: Duration =
 /// backlog would just be noise.
 const MAX_LAG: Duration = Duration::from_millis(250);
 
+/// The board's chip, shared between the engine's adapter(s) and the pump.
+///
+/// The pump drives one YMF262 through a [`VgmEngine`] whose voices write to it,
+/// but the pump also reaches the chip directly -- to materialize after a seek,
+/// release notes on a pause, sweep it silent, and drain its wire. Rust ownership
+/// forces that sharing through an `Arc<Mutex<_>>`; everything runs on the pump
+/// thread, so the mutex is never contended and exists only for the shared hold.
+type SharedChip = Arc<Mutex<SerialOpl3Chip>>;
+
+/// Locks the shared chip, recovering a poisoned mutex.
+///
+/// Poisoning means the pump panicked while a write held the lock; the outer
+/// `catch_unwind` is already handling that, the chip's register bytes are still
+/// coherent, and the shutdown path still owes the board a silencing sweep -- so
+/// taking the guard back beats leaving the chip sounding.
+fn lock_chip(chip: &SharedChip) -> MutexGuard<'_, SerialOpl3Chip> {
+    chip.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// The [`OplChip`] an engine voice writes through: it forwards every write to the
+/// one shared [`SerialOpl3Chip`], shifting a dual-OPL2's second instance onto the
+/// YMF262's high bank.
+///
+/// A real dual-OPL2 board is one OPL3 with the second OPL2 mapped to bank 1, but
+/// the (projected or native) VGM declares two YM3812 instances that each address
+/// registers `0x0nn`. The second instance's wrapper ORs `0x100` in, so the two
+/// banks stay distinct on the one chip -- the same split the DRO projection
+/// encodes. The first instance (and a single OPL2/OPL3) shifts nothing: an OPL3's
+/// own high-bank writes already carry their bank in the adapter's port.
+#[derive(Debug, Clone)]
+struct SharedOplChip {
+    chip: SharedChip,
+    bank_shift: u16,
+}
+
+impl OplChip for SharedOplChip {
+    fn reset(&mut self, sample_rate: u32) {
+        lock_chip(&self.chip).reset(sample_rate);
+    }
+
+    fn write_reg(&mut self, reg: u16, value: u8) {
+        lock_chip(&self.chip).write_reg(reg | self.bank_shift, value);
+    }
+
+    fn write_reg_buffered(&mut self, reg: u16, value: u8) {
+        lock_chip(&self.chip).write_reg_buffered(reg | self.bank_shift, value);
+    }
+
+    /// Silence: the sound comes out of the board, not this program.
+    fn generate_samples(&mut self, buffer: &mut [i16]) {
+        buffer.fill(0);
+    }
+}
+
+/// Builds the engine that drives `chip` for `file`, at the OPL's native rate.
+///
+/// Every OPL voice the header declares gets an [`opl_hardware_core`] over a
+/// [`SharedOplChip`]: the first on the low bank, a dual-OPL2's second on the
+/// high. Running at [`NATIVE_SAMPLE_RATE`] makes the engine's resampler an
+/// identity pass, so the writes land on the same frame boundaries a
+/// `PlayerEngine` put them on.
+fn opl_engine(file: Arc<VgmFile>, chip: &SharedChip) -> VgmEngine {
+    let chip = Arc::clone(chip);
+    // Which OPL voice we are building, so a dual-OPL2's second instance takes the
+    // high bank. `with_cores` calls the factory in instance order, so the count
+    // is the instance for the one OPL chip a hardware song can hold.
+    let opl_voices = Cell::new(0u16);
+    VgmEngine::with_cores(file, NATIVE_SAMPLE_RATE, move |kind| {
+        if !vgms_synth::registry::OPL_CHIPS.contains(&kind) {
+            // A hardware song is wholly OPL, so this is a safety net; a non-OPL
+            // chip simply gets no voice (silence) rather than an OPL adapter.
+            return None;
+        }
+        let voice = opl_voices.get();
+        opl_voices.set(voice + 1);
+        let bank_shift = if voice == 0 { 0 } else { 0x100 };
+        let shared = SharedOplChip {
+            chip: Arc::clone(&chip),
+            bank_shift,
+        };
+        Some(opl_hardware_core(Box::new(shared), kind))
+    })
+}
+
 /// Control messages for the pump thread.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Command {
     Play,
     Pause,
@@ -52,7 +145,9 @@ enum Command {
     SeekPos(usize),
     Rewind,
     SetMuting(Muting),
+    SetChipMuting(ChipMuting),
     SetPanning(Panning),
+    SetChipPanning(ChipPanning),
     SetLoop(Option<LoopConfig>),
 }
 
@@ -84,13 +179,20 @@ pub struct RetroWaveAudio {
 }
 
 impl RetroWaveAudio {
-    /// Starts a pump for `song` on `device`, paused.
+    /// Starts a pump for `file` on `device`, paused.
+    ///
+    /// `file` is an OPL VGM -- a native one, or the projection of an OPL `Song`
+    /// the service made. `opl` is `Some(type)` when the document is a DRO, whose
+    /// OPL panel speaks the [`Muting`]/[`Panning`] vocabulary the pump must
+    /// translate; `None` when it is an OPL VGM, which the generic per-chip mixer
+    /// drives in [`ChipMuting`]/[`ChipPanning`] directly. It matches the native
+    /// backend's `Engine::opl`.
     ///
     /// Takes ownership of the device for as long as the song is loaded; get it
     /// back with [`Self::into_device`] rather than reopening the port, which
     /// costs a chip reset and can fail outright on a port only just closed.
     #[must_use]
-    pub fn new(device: Device, song: Arc<Song>) -> Self {
+    pub fn new(device: Device, file: Arc<VgmFile>, opl: Option<OplType>) -> Self {
         let (commands, consumer) = rtrb::RingBuffer::new(64);
         let shared = Arc::new(SharedState::default());
         let stop = Arc::new(AtomicBool::new(false));
@@ -100,7 +202,7 @@ impl RetroWaveAudio {
             .spawn({
                 let shared = Arc::clone(&shared);
                 let stop = Arc::clone(&stop);
-                move || run_pump(device, song, consumer, shared, stop)
+                move || run_pump(device, file, opl, consumer, shared, stop)
             })
             .expect("spawning a thread");
 
@@ -137,17 +239,27 @@ impl RetroWaveAudio {
         self.send(Command::Rewind);
     }
 
-    /// Replaces the channel/percussion muting.
+    /// Replaces the channel/percussion muting (an OPL document's vocabulary).
     pub fn set_muting(&mut self, muting: Muting) {
         self.send(Command::SetMuting(muting));
     }
 
-    /// Replaces the per-channel panning.
+    /// Replaces the any-chip channel mutes (an OPL VGM's vocabulary).
+    pub fn set_chip_muting(&mut self, muting: ChipMuting) {
+        self.send(Command::SetChipMuting(muting));
+    }
+
+    /// Replaces the per-channel panning (an OPL document's vocabulary).
     ///
     /// Only its effect on the song's own writes reaches the hardware: the
     /// emulator's panpot registers do not exist on a YMF262.
     pub fn set_panning(&mut self, panning: Panning) {
         self.send(Command::SetPanning(panning));
+    }
+
+    /// Replaces the any-chip panning (an OPL VGM's vocabulary).
+    pub fn set_chip_panning(&mut self, panning: ChipPanning) {
+        self.send(Command::SetChipPanning(panning));
     }
 
     /// Sets (or clears) the region playback loops over.
@@ -215,18 +327,23 @@ impl Drop for RetroWaveAudio {
 /// The pump thread's body: set up, run, and silence the chip on the way out.
 fn run_pump(
     mut device: Device,
-    song: Arc<Song>,
+    file: Arc<VgmFile>,
+    opl: Option<OplType>,
     consumer: rtrb::Consumer<Command>,
     shared: Arc<SharedState>,
     stop: Arc<AtomicBool>,
 ) -> Option<Device> {
-    let chip = SerialOpl3Chip::new(song.opl_type);
-    let mut engine = PlayerEngine::with_chip(song, chip, NATIVE_SAMPLE_RATE);
+    // The chip's own OPL type (for its OPL2-on-OPL3 wire fix-ups) comes from the
+    // file, whichever arm the source was; the vocabulary routing (`opl`) is the
+    // source-arm distinction the service passes in.
+    let chip_type = file.opl().map_or(OplType::Opl3, |opl| opl.opl_type());
+    let chip: SharedChip = Arc::new(Mutex::new(SerialOpl3Chip::new(chip_type)));
+    let mut engine = opl_engine(Arc::clone(&file), &chip);
 
     // A panic in here would otherwise leave the chip holding whatever it was
     // playing -- a real one does not stop when the program does.
     let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        pump_loop(&mut device, &mut engine, consumer, &shared, &stop)
+        pump_loop(&mut device, &mut engine, &chip, opl, consumer, &shared, &stop)
     }));
 
     match outcome {
@@ -244,16 +361,18 @@ fn run_pump(
     }
     shared.stopped.store(true, Ordering::Relaxed);
 
-    engine.chip_mut().mute_sweep();
+    lock_chip(&chip).mute_sweep();
     // Best effort: if this fails the port is already gone, and a hard reset
     // belongs to closing the device rather than unloading a song.
-    let _ = flush(&mut device, &mut engine);
+    let _ = flush(&mut device, &chip);
     Some(device)
 }
 
 fn pump_loop(
     device: &mut Device,
-    engine: &mut PlayerEngine<Arc<Song>, SerialOpl3Chip>,
+    engine: &mut VgmEngine,
+    chip: &SharedChip,
+    opl: Option<OplType>,
     mut consumer: rtrb::Consumer<Command>,
     shared: &SharedState,
     stop: &AtomicBool,
@@ -279,7 +398,7 @@ fn pump_loop(
                 Command::Pause => {
                     if playing {
                         playing = false;
-                        engine.chip_mut().release_all_notes();
+                        lock_chip(chip).release_all_notes();
                     }
                 }
                 Command::SeekMs(ms) => {
@@ -287,36 +406,62 @@ fn pump_loop(
                     reconcile = true;
                 }
                 Command::SeekPos(pos) => {
-                    engine.seek_to_pos(pos);
+                    engine.seek_to_row(pos);
                     reconcile = true;
                 }
                 Command::Rewind => {
                     engine.rewind();
                     reconcile = true;
                 }
-                Command::SetMuting(muting) => engine.set_muting(muting),
+                // Route the two vocabularies the way the native backend does: an
+                // OPL document (`opl` set) translates its panel's Muting/Panning
+                // to the generic engine's, an OPL VGM speaks the generic one and
+                // ignores the OPL panel's -- and vice versa. A muted channel's
+                // key-off reaches the wire through the gate on the next flush, so
+                // muting needs no reconcile; a pan change re-emits through the
+                // shadow, so it does.
+                Command::SetMuting(muting) => {
+                    if let Some(opl_type) = opl {
+                        engine.set_muting(opl_chip_muting(&muting, opl_type));
+                    }
+                }
+                Command::SetChipMuting(muting) => {
+                    if opl.is_none() {
+                        engine.set_muting(muting);
+                    }
+                }
                 Command::SetPanning(panning) => {
-                    engine.set_panning(panning);
-                    reconcile = true;
+                    if let Some(opl_type) = opl {
+                        engine.set_panning(opl_chip_panning(&panning, opl_type));
+                        reconcile = true;
+                    }
+                }
+                Command::SetChipPanning(panning) => {
+                    if opl.is_none() {
+                        engine.set_panning(panning);
+                        reconcile = true;
+                    }
                 }
                 Command::SetLoop(config) => engine.set_loop(config),
             }
         }
 
         // Reconciling while paused would undo the pause: the engine's seek
-        // replays key-on bits, and a real chip would start sounding them. The
-        // shadow keeps the intent; resuming plays it out.
+        // replays key-on bits into the shadow, and materialize would sound them
+        // on a real chip. The shadow keeps the intent; resuming plays it out.
         if reconcile && playing {
-            engine.chip_mut().materialize();
+            lock_chip(chip).materialize();
         }
 
         // Unconditional: writes made while paused -- released notes, a channel
         // just muted -- have to reach the device too.
-        flush(device, engine)?;
+        flush(device, chip)?;
 
         if playing && !was_finished {
+            // The samples are discarded; walking the stream is what makes the
+            // engine's voices write to the shared chip.
             engine.render(&mut scratch);
-            flush(device, engine)?;
+            flush(device, chip)?;
 
             let position = engine.position();
             shared
@@ -334,8 +479,8 @@ fn pump_loop(
         if finished && !was_finished {
             // Sweeping through the chip, not the device, so the hardware model
             // stays truthful and playing the song again reconstructs it fully.
-            engine.chip_mut().mute_sweep();
-            flush(device, engine)?;
+            lock_chip(chip).mute_sweep();
+            flush(device, chip)?;
         }
         was_finished = finished;
         shared.finished.store(finished, Ordering::Relaxed);
@@ -356,11 +501,8 @@ fn pump_loop(
 }
 
 /// Hands whatever the chip has queued to the device.
-fn flush(
-    device: &mut Device,
-    engine: &mut PlayerEngine<Arc<Song>, SerialOpl3Chip>,
-) -> Result<(), crate::device::Error> {
-    let chip = engine.chip_mut();
+fn flush(device: &mut Device, chip: &SharedChip) -> Result<(), crate::device::Error> {
+    let mut chip = lock_chip(chip);
     chip.seal();
     if chip.wire().is_empty() {
         return Ok(());
@@ -378,7 +520,8 @@ mod tests {
         io,
         sync::mpsc::{Sender, channel},
     };
-    use vgms_core::{DroDataV2, OplType};
+    use vgms_core::vgm::ChipKind;
+    use vgms_core::{DroDataV2, OplType, Song};
 
     /// Reports every write with the time it arrived, so tests can check pacing.
     #[derive(Debug)]
@@ -397,9 +540,17 @@ mod tests {
         }
     }
 
+    /// Projects a DRO fixture the way the service does, tagging it as an OPL
+    /// document (the `Some(opl_type)` vocabulary the pump translates).
+    fn dro(song: Song) -> (Arc<VgmFile>, Option<OplType>) {
+        let opl_type = song.opl_type;
+        let file = vgms_core::convert::opl_song_to_vgm_file(&song).expect("a DRO projects");
+        (Arc::new(file), Some(opl_type))
+    }
+
     /// A song that writes a register, waits `delay_ms` (at most 256), then
     /// writes another.
-    fn two_writes_apart(delay_ms: u32) -> Arc<Song> {
+    fn two_writes_apart(delay_ms: u32) -> (Arc<VgmFile>, Option<OplType>) {
         const SHORT_DELAY: u8 = 0xFE;
         const LONG_DELAY: u8 = 0xFF;
         let data = vec![
@@ -410,7 +561,7 @@ mod tests {
             0x00,
             0x02, // register 0x20 = 0x02
         ];
-        Arc::new(Song::dro_v2(
+        dro(Song::dro_v2(
             "test".to_owned(),
             DroDataV2::new(data, vec![0x20, 0x40], SHORT_DELAY, LONG_DELAY)
                 .expect("a well-formed fixture"),
@@ -420,7 +571,7 @@ mod tests {
     }
 
     /// A song that keys a note on and holds it for `hold_ms` (at most 256).
-    fn held_note(hold_ms: u32) -> Arc<Song> {
+    fn held_note(hold_ms: u32) -> (Arc<VgmFile>, Option<OplType>) {
         const SHORT_DELAY: u8 = 0xFE;
         const LONG_DELAY: u8 = 0xFF;
         let data = vec![
@@ -429,7 +580,7 @@ mod tests {
             SHORT_DELAY,
             (hold_ms - 1) as u8,
         ];
-        Arc::new(Song::dro_v2(
+        dro(Song::dro_v2(
             "held.dro".to_owned(),
             DroDataV2::new(data, vec![0xB0, 0x20], SHORT_DELAY, LONG_DELAY)
                 .expect("a well-formed fixture"),
@@ -438,8 +589,33 @@ mod tests {
         ))
     }
 
+    /// Writes a `u32` little-endian into a VGM byte buffer.
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+
+    /// A native OPL VGM (not a projection) with `body` as its command stream and
+    /// `clock` on the YM3812 slot -- the `None` (generic-vocabulary) arm.
+    fn opl_vgm(clock: u32, body: &[u8]) -> (Arc<VgmFile>, Option<OplType>) {
+        let mut bytes = vec![0u8; 0x100];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x151);
+        put_u32(&mut bytes, 0x34, 0x100 - 0x34);
+        put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), clock);
+        bytes.extend_from_slice(body);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        let file = vgms_core::vgm::file::read("opl.vgm", &bytes).expect("a walkable OPL VGM");
+        assert!(file.is_opl(), "the fixture is an OPL VGM");
+        (Arc::new(file), None)
+    }
+
     fn device_with(events: Sender<(Instant, Vec<u8>)>) -> Device {
         Device::with_io(Box::new(TimedIo { events })).expect("bring-up")
+    }
+
+    fn audio(device: Device, fixture: (Arc<VgmFile>, Option<OplType>)) -> RetroWaveAudio {
+        RetroWaveAudio::new(device, fixture.0, fixture.1)
     }
 
     /// Collects everything written until the wire stays quiet for `quiet_for`.
@@ -460,7 +636,7 @@ mod tests {
     fn a_paused_pump_leaves_the_device_alone() {
         let (tx, rx) = channel();
         let device = device_with(tx);
-        let audio = RetroWaveAudio::new(device, two_writes_apart(50));
+        let audio = audio(device, two_writes_apart(50));
         // Drain the bring-up traffic, then watch a while without pressing play.
         thread::sleep(Duration::from_millis(30));
         while rx.try_recv().is_ok() {}
@@ -472,7 +648,7 @@ mod tests {
     #[test]
     fn a_paused_seek_sends_nothing_until_playback_resumes() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), two_writes_apart(50));
+        let mut audio = audio(device_with(tx), two_writes_apart(50));
         thread::sleep(Duration::from_millis(30));
         while rx.try_recv().is_ok() {}
 
@@ -493,7 +669,7 @@ mod tests {
     #[test]
     fn playing_spaces_the_writes_by_the_songs_own_delay() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), two_writes_apart(100));
+        let mut audio = audio(device_with(tx), two_writes_apart(100));
         let _ = drain_burst(&rx, Duration::from_millis(30));
 
         audio.play();
@@ -514,7 +690,7 @@ mod tests {
     #[test]
     fn pausing_releases_the_sounding_note_and_resuming_restores_it() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), held_note(250));
+        let mut audio = audio(device_with(tx), held_note(250));
         let _ = drain_burst(&rx, Duration::from_millis(30));
 
         audio.play();
@@ -544,11 +720,13 @@ mod tests {
 
     /// Mute everything, seek into the song, then play: no key-on may reach the
     /// real chip while every channel is muted. A muted seek replays key-ons that
-    /// nothing keys off, so materialize could otherwise ring them on the hardware.
+    /// nothing keys off, so materialize could otherwise ring them on the hardware
+    /// -- the gate clears the key bit on the replay, so the shadow (and the wire)
+    /// stay silent.
     #[test]
     fn playing_a_selection_with_everything_muted_stays_silent() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), held_note(100));
+        let mut audio = audio(device_with(tx), held_note(100));
         audio.set_muting(Muting::silent());
         let _ = drain_burst(&rx, Duration::from_millis(40));
 
@@ -577,7 +755,7 @@ mod tests {
     #[test]
     fn scrubbing_while_paused_never_restarts_the_note() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), held_note(250));
+        let mut audio = audio(device_with(tx), held_note(250));
         audio.play();
         let _ = drain_burst(&rx, Duration::from_millis(40));
         audio.pause();
@@ -598,7 +776,7 @@ mod tests {
     #[test]
     fn dropping_the_player_silences_the_chip_and_returns_the_device() {
         let (tx, rx) = channel();
-        let mut audio = RetroWaveAudio::new(device_with(tx), two_writes_apart(50));
+        let mut audio = audio(device_with(tx), two_writes_apart(50));
         audio.play();
         thread::sleep(Duration::from_millis(40));
         while rx.try_recv().is_ok() {}
@@ -638,7 +816,7 @@ mod tests {
 
         let device = Device::with_io(Box::new(DiesOnThirdWrite(0)))
             .expect("bring-up writes fewer than three times");
-        let mut audio = RetroWaveAudio::new(device, two_writes_apart(50));
+        let mut audio = audio(device, two_writes_apart(50));
         audio.play();
         thread::sleep(Duration::from_millis(120));
 
@@ -650,5 +828,58 @@ mod tests {
             audio.take_error().is_some(),
             "the failure should be reported"
         );
+    }
+
+    /// A native OPL VGM (the `None` arm) plays its own command stream to the
+    /// chip, exactly as a projected DRO does.
+    #[test]
+    fn an_opl_vgm_plays_its_writes_to_the_chip() {
+        let (tx, rx) = channel();
+        // A YM3812 key-on, then a wait, then end.
+        let mut audio = audio(
+            device_with(tx),
+            opl_vgm(3_579_545, &[0x5A, 0xB0, 0x31, 0x61, 0x00, 0x80, 0x66]),
+        );
+        let _ = drain_burst(&rx, Duration::from_millis(30));
+
+        audio.play();
+        let (bytes, _) = drain_burst(&rx, Duration::from_millis(40));
+        let writes = crate::protocol::decode_writes(&bytes);
+        assert!(
+            writes.contains(&(crate::Bank::Zero, 0xB0, 0x31)),
+            "the OPL VGM's key-on should reach the chip, got {writes:02X?}"
+        );
+        drop(audio);
+    }
+
+    /// A dual-OPL2 VGM is two YM3812 instances on one physical YMF262: the first
+    /// chip's writes land on bank 0, the second's (opcode `0xAA`) on bank 1. This
+    /// is the routing the single shared chip's two adapters have to get right.
+    #[test]
+    fn a_dual_opl2_vgm_routes_its_second_chip_to_the_high_bank() {
+        const DUAL_STEREO: u32 = 3_579_545 | 0xC000_0000; // dual (bit 30) + SB Pro (bit 31)
+        let (tx, rx) = channel();
+        // Instance 0 (0x5A) keys channel 0; instance 1 (0xAA) keys channel 1.
+        let mut audio = audio(
+            device_with(tx),
+            opl_vgm(
+                DUAL_STEREO,
+                &[0x5A, 0xB0, 0x31, 0xAA, 0xB1, 0x31, 0x61, 0x00, 0x80, 0x66],
+            ),
+        );
+        let _ = drain_burst(&rx, Duration::from_millis(30));
+
+        audio.play();
+        let (bytes, _) = drain_burst(&rx, Duration::from_millis(40));
+        let writes = crate::protocol::decode_writes(&bytes);
+        assert!(
+            writes.contains(&(crate::Bank::Zero, 0xB0, 0x31)),
+            "the first chip's key-on is on bank 0, got {writes:02X?}"
+        );
+        assert!(
+            writes.contains(&(crate::Bank::One, 0xB1, 0x31)),
+            "the second chip's key-on is on bank 1, got {writes:02X?}"
+        );
+        drop(audio);
     }
 }

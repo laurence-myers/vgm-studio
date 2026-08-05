@@ -50,21 +50,27 @@ pub fn run(args: &Args) -> Result<()> {
     let total_ms = song.total_ms();
     match &args.retrowave {
         Some(port) => {
-            // The board is an OPL3; only an OPL stream can drive it. A DRO is one
-            // directly; an OPL VGM projects to one (the same Song the hardware
-            // service builds). Same refusal the GUI's hardware output makes for a
+            // The board is an OPL3; only an OPL stream can drive it, through the
+            // same `VgmEngine` the emulator uses. A DRO projects to an OPL VGM
+            // (the same projection the hardware service makes); an OPL VGM plays
+            // from its own bytes. `opl` is `Some` for a DRO, whose OPL panel
+            // vocabulary the pump translates. Same refusal the GUI makes for a
             // VGM of other chips.
-            let song = match song {
-                LoadedSong::Opl(song) => song,
-                LoadedSong::Vgm(file) if file.is_opl() => {
-                    file.to_song().expect("an OPL VGM projects to an OPL song")
-                }
+            let (file, opl) = match song {
+                LoadedSong::Opl(song) => (
+                    Arc::new(
+                        vgms_core::convert::opl_song_to_vgm_file(&song)
+                            .context("projecting the DRO for the OPL3")?,
+                    ),
+                    Some(song.opl_type),
+                ),
+                LoadedSong::Vgm(file) if file.is_opl() => (Arc::new(*file), None),
                 LoadedSong::Vgm(_) => anyhow::bail!(
                     "{} is not an OPL song, and the RetroWave output is an OPL3.",
                     args.input.display()
                 ),
             };
-            play_on_hardware(song, port.as_str(), total_ms)
+            play_on_hardware(file, opl, port.as_str(), total_ms)
         }
         None => play(song, &config.audio, total_ms),
     }
@@ -105,8 +111,15 @@ fn play(song: LoadedSong, audio: &AudioConfig, total_ms: u32) -> Result<()> {
     Ok(())
 }
 
-/// Plays `song` through a RetroWave board. `port` may be empty to auto-detect.
-fn play_on_hardware(song: vgms_core::Song, port: &str, total_ms: u32) -> Result<()> {
+/// Plays an OPL `file` through a RetroWave board. `port` may be empty to
+/// auto-detect; `opl` is the OPL type when the source was a DRO (whose panel
+/// vocabulary the pump translates), `None` for an OPL VGM.
+fn play_on_hardware(
+    file: Arc<vgms_core::VgmFile>,
+    opl: Option<vgms_core::OplType>,
+    port: &str,
+    total_ms: u32,
+) -> Result<()> {
     let port = if port.is_empty() {
         let found = vgms_retrowave::default_port()
             .context("finding a RetroWave device (try `vgmstudio retrowave-probe --list`)")?;
@@ -117,7 +130,7 @@ fn play_on_hardware(song: vgms_core::Song, port: &str, total_ms: u32) -> Result<
     };
 
     let device = vgms_retrowave::Device::open(&port).with_context(|| format!("opening {port}"))?;
-    let mut player = vgms_retrowave::RetroWaveAudio::new(device, Arc::new(song));
+    let mut player = vgms_retrowave::RetroWaveAudio::new(device, file, opl);
     player.play();
     show_progress(&player, total_ms);
 
