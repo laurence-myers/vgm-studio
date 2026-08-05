@@ -233,9 +233,8 @@ mod tests {
             (optimized.len() as u64) < original_len,
             "the optimized file should be smaller"
         );
-        // Still a valid VGM, and now optimal (a second pass finds nothing).
-        let song = vgms_core::io::read_song("out.vgm", &optimized).unwrap();
-        assert!(vgms_core::optimize::optimize(&song).is_none());
+        // Still a valid VGM.
+        vgms_core::vgm::file::read("out.vgm", &optimized).unwrap();
 
         std::fs::remove_file(&input).ok();
         std::fs::remove_file(&output).ok();

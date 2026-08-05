@@ -435,8 +435,7 @@ pub struct ReplaceStream {
 
 impl ReplaceStream {
     /// Builds the command from whatever the edit produced -- a
-    /// [`CropOutcome`](crate::CropOutcome) or an
-    /// [`OptimizeOutcome`](crate::OptimizeOutcome), both of which convert into a
+    /// [`CropOutcome`](crate::CropOutcome), which converts into a
     /// [`StreamSnapshot`]. `description` is what Undo and Redo call it, e.g.
     /// `"Crop to Marked Region"`.
     #[must_use]
@@ -807,56 +806,6 @@ mod tests {
             OplType::Opl2,
             crate::vgm::VgmMeta::new(synthesise_header()),
         )
-    }
-
-    #[test]
-    fn optimize_vgm_applies_and_reverts_exactly() {
-        use crate::optimize::optimize;
-        let original = optimizable_vgm();
-        let outcome = optimize(&original).expect("the fixture has a redundant write");
-        let saved = outcome.bytes_saved;
-        assert!(saved > 0);
-
-        let mut song = original.clone();
-        let mut undo = UndoController::new();
-        undo.execute(
-            Box::new(ReplaceStream::new("Optimize VGM", outcome)),
-            &mut song,
-        );
-
-        // The stream shrank, and the total delay is conserved.
-        assert!(song.data().raw().len() < original.data().raw().len());
-        assert_eq!(song.total_delay_samples(), original.total_delay_samples());
-        assert_eq!(undo.undo_description(), Some("Optimize VGM"));
-
-        // Undo restores the original exactly; redo re-applies.
-        undo.undo(&mut song);
-        assert_eq!(song, original);
-        undo.redo(&mut song);
-        assert!(song.data().raw().len() < original.data().raw().len());
-        undo.undo(&mut song);
-        assert_eq!(song, original);
-    }
-
-    #[test]
-    fn optimize_vgm_preserves_loop_markers_through_undo() {
-        use crate::optimize::optimize;
-        let mut original = optimizable_vgm();
-        {
-            let meta = original.vgm_meta_mut().unwrap();
-            meta.loop_point = Some(0); // loop the whole song
-        }
-        let outcome = optimize(&original).unwrap();
-        let mut song = original.clone();
-        let mut undo = UndoController::new();
-        undo.execute(
-            Box::new(ReplaceStream::new("Optimize VGM", outcome)),
-            &mut song,
-        );
-        // The loop point is still present after the rebuild.
-        assert!(song.vgm_meta().unwrap().loop_point.is_some());
-        undo.undo(&mut song);
-        assert_eq!(song, original);
     }
 
     // -- ReplaceStream, driven by the crop edits ----------------------------

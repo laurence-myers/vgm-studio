@@ -68,10 +68,8 @@ fn the_projection_matches_the_opl_reader_across_the_corpus() {
                 // dropped: once mg-1 delegates `io::read` to `file::read`,
                 // `expected` and the projection are the same code, so it would
                 // pass vacuously. The unit goldens in `projection.rs` hold the
-                // frozen reader reference; the optimiser and splitter oracles
-                // below still bite.
-                let checked = compare_optimised(&name, &bytes, &expected)
-                    .and_then(|()| compare_split(&file, &expected, &mut split_pieces));
+                // frozen reader reference; the splitter oracle below still bites.
+                let checked = compare_split(&file, &expected, &mut split_pieces);
                 if let Err(why) = checked {
                     failures.push(format!("{name}: {why}"));
                 } else {
@@ -160,51 +158,6 @@ fn cause_label_buckets_by_the_first_gate() {
     );
 }
 
-/// The chip-agnostic optimiser against the OPL one it will replace, on the same
-/// file: both halves -- the redundant-write strip and the byte-minimal delay
-/// merge -- must produce the same bytes, or every optimised file in a pack
-/// would change how it is spelled.
-fn compare_optimised(name: &str, bytes: &[u8], expected: &vgms_core::Song) -> Result<(), String> {
-    let mut file = vgms_core::vgm::file::read(name, bytes).map_err(|e| e.to_string())?;
-    file.optimize();
-    // The *stream*, not the whole file: the two writers legitimately differ in
-    // the header (the OPL one re-derives the chip clocks from the song's type,
-    // which is the canonicalisation `vgm::file::write` deliberately avoids), so
-    // comparing files would be comparing writers rather than optimisers.
-    let ours = file.body.raw();
-    let ours = &ours[..ours.len().saturating_sub(1)]; // drop the end marker
-
-    let theirs = match vgms_core::optimize::optimize(expected) {
-        Some(outcome) => outcome.data.raw().to_vec(),
-        // Nothing to strip or merge: the stream must come back untouched.
-        None => expected.data().raw().to_vec(),
-    };
-    if ours != theirs.as_slice() {
-        let at = ours
-            .iter()
-            .zip(&theirs)
-            .position(|(a, b)| a != b)
-            .map_or_else(|| "the length".to_owned(), |at| format!("byte {at}"));
-        return Err(format!(
-            "optimised streams differ at {at} ({} vs {} bytes)",
-            ours.len(),
-            theirs.len()
-        ));
-    }
-
-    // The loop must land on the same command in both.
-    let theirs_loop = vgms_core::optimize::optimize(expected).map_or_else(
-        || expected.vgm_meta().and_then(|m| m.loop_point),
-        |o| o.loop_point,
-    );
-    if file.loop_index() != theirs_loop {
-        return Err(format!(
-            "optimised loop differs ({:?} vs {theirs_loop:?})",
-            file.loop_index()
-        ));
-    }
-    Ok(())
-}
 
 /// The chip-agnostic splitter against the OPL one, on the same file.
 ///
