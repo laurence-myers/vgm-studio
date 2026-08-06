@@ -392,7 +392,7 @@ impl VgmStudioApp {
             self.alerts.push_back(Alert::confirm(
                 crate::strings::APP_CONFIRM_EXPORT_TITLE,
                 crate::strings::app_export_warnings_body(&listed),
-                Action::ConfirmExportZip,
+                Action::Pack(PackAction::ConfirmExportZip),
             ));
             return;
         }
@@ -1160,7 +1160,7 @@ impl VgmStudioApp {
         self.alerts.push_back(Alert::confirm(
             crate::strings::APP_CONFIRM_DELETE_SCREENSHOT_TITLE,
             crate::strings::app_delete_screenshot_body(&name),
-            Action::ConfirmDeleteScreenshot(name),
+            Action::Pack(PackAction::ConfirmDeleteScreenshot(name)),
         ));
     }
 

@@ -8,7 +8,7 @@
 //! are all named after the game -- but it is editable, because a pack may carry
 //! more than one: a title screen per region, or per game variation.
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, PackAction, UiAction};
 use crate::theme::Palette;
 
 /// What Save does: rename the file the dialog opened on, or write the picked
@@ -221,16 +221,16 @@ impl ScreenshotRenameDialog {
             return false;
         }
         actions.push(match &mut self.job {
-            Job::Rename => Action::PackRenameScreenshot {
+            Job::Rename => Action::Pack(PackAction::RenameScreenshot {
                 original_name: self.original_name.clone(),
                 file_name: name,
-            },
+            }),
             // Taken, not cloned: the dialog closes on the way out of this.
-            Job::Add(bytes) => Action::PackAddScreenshotAs {
+            Job::Add(bytes) => Action::Pack(PackAction::AddScreenshotAs {
                 file_name: name,
                 bytes: std::mem::take(bytes),
                 recompress: self.recompress,
-            },
+            }),
         });
         true
     }
@@ -308,10 +308,10 @@ mod tests {
         assert!(dialog.save(&mut actions));
         match actions.as_slice() {
             [
-                Action::PackRenameScreenshot {
+                Action::Pack(PackAction::RenameScreenshot {
                     original_name,
                     file_name,
-                },
+                }),
             ] => {
                 assert_eq!(original_name, "dosbox_000.png");
                 assert_eq!(file_name, "Cool Game (Japan).png");

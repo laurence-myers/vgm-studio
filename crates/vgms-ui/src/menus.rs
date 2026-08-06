@@ -3,7 +3,9 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 use vgms_core::SongFileType;
 
-use crate::action::{Action, EditAction, FileAction, LoopAction, SettingsAction, UiAction};
+use crate::action::{
+    Action, EditAction, FileAction, LoopAction, PackAction, SettingsAction, UiAction,
+};
 use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -168,13 +170,13 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 actions.push(Action::File(FileAction::Open));
             }
             if item(ui, "Open Pack Folder...", None) {
-                actions.push(Action::OpenPackFolder);
+                actions.push(Action::Pack(PackAction::OpenFolder));
             }
             // A pack that lives in a .zip: the same project, edited in memory.
             // Offered beside the folder opener rather than hidden behind "Open
             // Song", which is where a .zip would otherwise have to be found.
             if item(ui, "Open Pack Zip...", None) {
-                actions.push(Action::OpenPackZip);
+                actions.push(Action::Pack(PackAction::OpenZip));
             }
             crate::theme::separator(ui, palette);
             if editor {
@@ -218,14 +220,14 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             } else {
                 // The pack's own outputs, in the order they are produced.
                 if item(ui, "Save Package Files", None) {
-                    actions.push(Action::PackSaveDocs);
+                    actions.push(Action::Pack(PackAction::SaveDocs));
                 }
                 if item(ui, "Export Zip...", None) {
-                    actions.push(Action::PackExportZip);
+                    actions.push(Action::Pack(PackAction::ExportZip));
                 }
                 crate::theme::separator(ui, palette);
                 if item(ui, "Close Pack", None) {
-                    actions.push(Action::ClosePack);
+                    actions.push(Action::Pack(PackAction::Close));
                 }
             }
             crate::theme::separator(ui, palette);
@@ -264,17 +266,21 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 ui.menu_button("Levels", |ui| {
                     widen(ui);
                     if item(ui, "Scan Volumes", None) {
-                        actions.push(Action::PackScanVolumes);
+                        actions.push(Action::Pack(PackAction::ScanVolumes));
                     }
                     // Two items rather than one plus a mode: which levelling ran
                     // is the whole question, and a menu cannot show a latch.
                     // Both need peaks to level *from*, so both wait for the scan.
                     let scanned = state.pack_has_peaks;
                     if enabled_item(ui, scanned, "Apply Album Level", None) {
-                        actions.push(Action::PackApplySuggestedModifiers { album: true });
+                        actions.push(Action::Pack(PackAction::ApplySuggestedModifiers {
+                            album: true,
+                        }));
                     }
                     if enabled_item(ui, scanned, "Apply Track Levels", None) {
-                        actions.push(Action::PackApplySuggestedModifiers { album: false });
+                        actions.push(Action::Pack(PackAction::ApplySuggestedModifiers {
+                            album: false,
+                        }));
                     }
                 });
                 // "Track Tags", not "Tags": the pack's section strip has a Tags
@@ -283,13 +289,13 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 ui.menu_button("Track Tags", |ui| {
                     widen(ui);
                     if item(ui, "Bulk Tag...", None) {
-                        actions.push(Action::OpenBulkTag);
+                        actions.push(Action::Pack(PackAction::OpenBulkTag));
                     }
                     if item(ui, "Fix Dates", None) {
-                        actions.push(Action::PackConvertDatesToHyphens);
+                        actions.push(Action::Pack(PackAction::ConvertDatesToHyphens));
                     }
                     if item(ui, "Fix File Names", None) {
-                        actions.push(Action::PackRenameFromTags);
+                        actions.push(Action::Pack(PackAction::RenameFromTags));
                     }
                 });
                 return;

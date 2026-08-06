@@ -77,7 +77,7 @@ fn scanning_pack_volumes_fills_the_peak_map() {
     let (mut harness, handles) = build(None, true, false);
     open_folder(&mut harness, &handles, cool_game_folder());
 
-    act(&mut harness, Action::PackScanVolumes);
+    act(&mut harness, Action::Pack(PackAction::ScanVolumes));
     // The inline scan stores its PackPeaks on submit; a poll frame delivers them.
     for _ in 0..4 {
         harness.step();
@@ -104,7 +104,7 @@ fn pack_scan_measures_non_opl_tracks_too() {
     );
     open_folder(&mut harness, &handles, folder);
 
-    act(&mut harness, Action::PackScanVolumes);
+    act(&mut harness, Action::Pack(PackAction::ScanVolumes));
     for _ in 0..4 {
         harness.step();
     }
@@ -149,7 +149,7 @@ fn a_pack_preview_starts_at_the_tracks_modifier_volume() {
         pack_folder("Loud Pack", vec![track]),
     );
 
-    act(&mut harness, Action::PackTrackPreview(0));
+    act(&mut harness, Action::Pack(PackAction::TrackPreview(0)));
 
     assert_eq!(
         handles.audio.borrow().loaded_boost,
@@ -858,7 +858,7 @@ fn alt_arrow_moves_the_focused_track_and_keeps_it_focused() {
 
     // Clicking a row focuses it; Alt+Down then moves it, and the focus travels
     // with it so the keys can be pressed again straight away.
-    act(&mut harness, Action::PackFocusTrack(0));
+    act(&mut harness, Action::Pack(PackAction::FocusTrack(0)));
     harness.run();
     harness.key_press_modifiers(Modifiers::ALT, Key::ArrowDown);
     harness.run();
@@ -880,7 +880,7 @@ fn a_run_of_keyboard_moves_on_one_track_is_one_undo() {
     let (mut harness, handles) = tall_pack_harness();
     open_folder(&mut harness, &handles, four_track_folder());
     pack_section(&mut harness, PackSection::Tracks);
-    act(&mut harness, Action::PackFocusTrack(3));
+    act(&mut harness, Action::Pack(PackAction::FocusTrack(3)));
 
     for _ in 0..3 {
         {
@@ -905,7 +905,7 @@ fn a_run_of_keyboard_moves_on_one_track_is_one_undo() {
     );
 
     // A move that does not continue the run starts a new step.
-    act(&mut harness, Action::PackFocusTrack(2));
+    act(&mut harness, Action::Pack(PackAction::FocusTrack(2)));
     {
         let mut files = handles.files.borrow_mut();
         for _ in 0..8 {
@@ -929,8 +929,11 @@ fn a_keyboard_move_asks_to_scroll_the_row_back_into_view() {
 
     // Dispatched without a frame in between: the table takes the request as it
     // draws, which is exactly what makes it fire once.
-    act(&mut harness, Action::PackFocusTrack(0));
-    act(&mut harness, Action::PackMoveFocusedTrack { delta: 1 });
+    act(&mut harness, Action::Pack(PackAction::FocusTrack(0)));
+    act(
+        &mut harness,
+        Action::Pack(PackAction::MoveFocusedTrack { delta: 1 }),
+    );
     assert_eq!(
         harness.state().pack.as_ref().unwrap().scroll_to_track,
         Some(1)
@@ -1014,7 +1017,7 @@ fn moving_the_pointer_hands_the_row_back_to_the_mouse() {
     open_folder(&mut harness, &handles, cool_game_folder());
     pack_section(&mut harness, PackSection::Tracks);
 
-    act(&mut harness, Action::PackFocusTrack(1));
+    act(&mut harness, Action::Pack(PackAction::FocusTrack(1)));
     harness.run();
     assert_eq!(
         harness.state().pack.as_ref().unwrap().focused_track,
@@ -1928,10 +1931,10 @@ fn a_renamed_screenshot_keeps_its_new_name_and_is_undoable() {
     }
     act(
         &mut harness,
-        Action::PackRenameScreenshot {
+        Action::Pack(PackAction::RenameScreenshot {
             original_name: "dosbox_000.png".to_owned(),
             file_name: "Cool Game (Japan).png".to_owned(),
-        },
+        }),
     );
     harness.run_steps(8);
 
@@ -1974,7 +1977,9 @@ fn deleting_a_screenshot_asks_first_then_removes_the_file() {
 
     act(
         &mut harness,
-        Action::ConfirmDeleteScreenshot("Cool Game.png".to_owned()),
+        Action::Pack(PackAction::ConfirmDeleteScreenshot(
+            "Cool Game.png".to_owned(),
+        )),
     );
     harness.run_steps(4);
 
@@ -1991,7 +1996,9 @@ fn a_deleted_screenshot_can_be_undone_back_onto_disk() {
 
     act(
         &mut harness,
-        Action::ConfirmDeleteScreenshot("Cool Game.png".to_owned()),
+        Action::Pack(PackAction::ConfirmDeleteScreenshot(
+            "Cool Game.png".to_owned(),
+        )),
     );
     // The rescan after the delete: the folder no longer has the .png.
     handles
@@ -2463,7 +2470,10 @@ fn the_scan_buttons_are_barred_while_their_scan_runs() {
     );
 
     // The editor's Match button is barred by its own scan, not the pack's.
-    act(&mut harness, Action::SelectTab(AppTab::Editor));
+    act(
+        &mut harness,
+        Action::Pack(PackAction::SelectTab(AppTab::Editor)),
+    );
     harness.run_steps(2);
     assert!(
         !harness.get_by_label("Match").accesskit_node().is_disabled(),
@@ -2597,7 +2607,10 @@ fn converting_dates_to_hyphens_fixes_the_pack_in_one_undoable_step() {
     // Dispatch the fix-assist directly (as the button does), so the batch is
     // built from the current slash dates before any frame's folder poll runs --
     // the same pattern the reorder test uses.
-    act(&mut harness, Action::PackConvertDatesToHyphens);
+    act(
+        &mut harness,
+        Action::Pack(PackAction::ConvertDatesToHyphens),
+    );
     harness.run_steps(16);
 
     let state = harness.state();
@@ -2694,7 +2707,7 @@ fn fixing_names_renames_each_file_from_its_tag_in_one_undoable_step() {
     }
     // Dispatched directly (as the button does) so the batch is built before any
     // frame's folder poll installs the rescan above -- as the reorder test does.
-    act(&mut harness, Action::PackRenameFromTags);
+    act(&mut harness, Action::Pack(PackAction::RenameFromTags));
     harness.run_steps(16);
 
     {
@@ -2793,7 +2806,7 @@ fn applying_album_levels_from_the_menu_arms_the_album_latch() {
 
     act(
         &mut harness,
-        Action::PackApplySuggestedModifiers { album: true },
+        Action::Pack(PackAction::ApplySuggestedModifiers { album: true }),
     );
     harness.run();
     assert!(

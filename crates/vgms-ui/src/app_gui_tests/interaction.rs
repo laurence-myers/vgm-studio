@@ -71,7 +71,10 @@ fn opening_a_zip_makes_a_memory_pack_that_edits_dirty() {
     // Reordering renumbers the in-memory archive and marks the pack dirty. The
     // file-op run spans several frames (a rename per poll), so step a fixed
     // number rather than `run()`, which settles before the batch finishes.
-    act(&mut harness, Action::PackMoveTrack { index: 0, delta: 1 });
+    act(
+        &mut harness,
+        Action::Pack(PackAction::MoveTrack { index: 0, delta: 1 }),
+    );
     harness.run_steps(16);
     let pack = harness.state().e2e_snapshot().pack.expect("still a pack");
     assert_eq!(pack.track_names, ["01 Beta.vgm", "02 Alpha.vgm"]);

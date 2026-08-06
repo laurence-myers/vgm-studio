@@ -362,7 +362,7 @@ impl VgmStudioApp {
             self.alerts.push_back(Alert::confirm(
                 crate::strings::APP_SONGS_EXPORTED_TITLE,
                 crate::strings::app_songs_exported_body(written, dir.display()),
-                Action::OpenPackFolderAt(dir.to_path_buf()),
+                Action::Pack(PackAction::OpenFolderAt(dir.to_path_buf())),
             ));
         } else {
             self.status = crate::strings::app_status_wrote_files(written, dir.display());

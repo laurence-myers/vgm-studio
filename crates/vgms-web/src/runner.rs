@@ -166,7 +166,9 @@ mod e2e {
     use wasm_bindgen::{JsCast, JsValue};
 
     use vgms_ui::VgmStudioApp;
-    use vgms_ui::action::{Action, AppTab, EditAction, FileAction, PlaybackAction, UiAction};
+    use vgms_ui::action::{
+        Action, AppTab, EditAction, FileAction, PackAction, PlaybackAction, UiAction,
+    };
     use vgms_ui::app::E2eSnapshot;
 
     /// The app and the egui context, retained so the JS hook can enqueue actions
@@ -283,39 +285,39 @@ mod e2e {
             "Play" => Action::Playback(PlaybackAction::Play),
             "Stop" => Action::Playback(PlaybackAction::Stop),
             // Pack
-            "OpenPackFolder" => Action::OpenPackFolder,
-            "OpenPackZip" => Action::OpenPackZip,
-            "ConfirmOpenPackFolder" => Action::ConfirmOpenPackFolder,
-            "ClosePack" => Action::ClosePack,
-            "ConfirmClosePack" => Action::ConfirmClosePack,
-            "PackSaveDocs" => Action::PackSaveDocs,
-            "PackScanVolumes" => Action::PackScanVolumes,
-            "PackRenameFromTags" => Action::PackRenameFromTags,
-            "PackConvertDatesToHyphens" => Action::PackConvertDatesToHyphens,
-            "PackExportZip" => Action::PackExportZip,
-            "ConfirmExportZip" => Action::ConfirmExportZip,
-            "PackSaveArchive" => Action::PackSaveArchive,
-            "ConfirmOpenZipPack" => Action::ConfirmOpenZipPack,
-            "PackApplySuggestedModifiers" => Action::PackApplySuggestedModifiers {
+            "OpenPackFolder" => Action::Pack(PackAction::OpenFolder),
+            "OpenPackZip" => Action::Pack(PackAction::OpenZip),
+            "ConfirmOpenPackFolder" => Action::Pack(PackAction::ConfirmOpenFolder),
+            "ClosePack" => Action::Pack(PackAction::Close),
+            "ConfirmClosePack" => Action::Pack(PackAction::ConfirmClose),
+            "PackSaveDocs" => Action::Pack(PackAction::SaveDocs),
+            "PackScanVolumes" => Action::Pack(PackAction::ScanVolumes),
+            "PackRenameFromTags" => Action::Pack(PackAction::RenameFromTags),
+            "PackConvertDatesToHyphens" => Action::Pack(PackAction::ConvertDatesToHyphens),
+            "PackExportZip" => Action::Pack(PackAction::ExportZip),
+            "ConfirmExportZip" => Action::Pack(PackAction::ConfirmExportZip),
+            "PackSaveArchive" => Action::Pack(PackAction::SaveArchive),
+            "ConfirmOpenZipPack" => Action::Pack(PackAction::ConfirmOpenZip),
+            "PackApplySuggestedModifiers" => Action::Pack(PackAction::ApplySuggestedModifiers {
                 album: field_bool(arg, "album").unwrap_or(false),
-            },
-            "SelectTab" => Action::SelectTab(match arg.as_string().as_deref() {
+            }),
+            "SelectTab" => Action::Pack(PackAction::SelectTab(match arg.as_string().as_deref() {
                 Some("pack") => AppTab::Pack,
                 _ => AppTab::Editor,
-            }),
-            "PackTrackOpen" => Action::PackTrackOpen(scalar_usize(arg)?),
-            "PackTrackPreview" => Action::PackTrackPreview(scalar_usize(arg)?),
-            "ConfirmDeleteScreenshot" => {
-                Action::ConfirmDeleteScreenshot(arg.as_string().unwrap_or_default())
-            }
-            "PackMoveTrack" => Action::PackMoveTrack {
+            })),
+            "PackTrackOpen" => Action::Pack(PackAction::TrackOpen(scalar_usize(arg)?)),
+            "PackTrackPreview" => Action::Pack(PackAction::TrackPreview(scalar_usize(arg)?)),
+            "ConfirmDeleteScreenshot" => Action::Pack(PackAction::ConfirmDeleteScreenshot(
+                arg.as_string().unwrap_or_default(),
+            )),
+            "PackMoveTrack" => Action::Pack(PackAction::MoveTrack {
                 index: field_usize(arg, "index")?,
                 delta: field_isize(arg, "delta")?,
-            },
-            "PackMoveTrackTo" => Action::PackMoveTrackTo {
+            }),
+            "PackMoveTrackTo" => Action::Pack(PackAction::MoveTrackTo {
                 from: field_usize(arg, "from")?,
                 to: field_usize(arg, "to")?,
-            },
+            }),
             other => return Err(format!("unknown e2e action {other:?}")),
         };
         Ok(action)

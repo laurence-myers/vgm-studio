@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use vgms_core::VgmFile;
 
-use crate::action::Action;
+use crate::action::{Action, PackAction};
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
@@ -103,9 +103,9 @@ impl UnwalkableVgmDialog {
                     let (label, action) = match &self.folder {
                         Some(folder) => (
                             "Open This Folder as a Pack",
-                            Action::OpenPackFolderAt(folder.clone()),
+                            Action::Pack(PackAction::OpenFolderAt(folder.clone())),
                         ),
-                        None => ("Open a Pack\u{2026}", Action::OpenPackFolder),
+                        None => ("Open a Pack\u{2026}", Action::Pack(PackAction::OpenFolder)),
                     };
                     if bevel::button(ui, palette, label)
                         .on_hover_text(crate::strings::UNWALKABLE_VGM_OPEN_PACK_HINT)

@@ -3,13 +3,13 @@
 //! Each field has its own apply checkbox, so a bulk edit touches only what is
 //! checked and leaves every other field at each track's own value.
 //!
-//! Apply emits [`Action::BulkTagSubmitted`]; the app overlays the checked fields
+//! Apply emits [`PackAction::BulkTagSubmitted`]; the app overlays the checked fields
 //! onto each target's existing tag and rewrites the files as one undoable batch.
 
 use vgms_core::vgm::data::GD3_FIELD_COUNT;
 
 use super::gd3_tag::LABELS;
-use crate::action::{Action, UiAction};
+use crate::action::{Action, PackAction, UiAction};
 use crate::pack::BulkTagOverlay;
 use crate::theme::{Palette, bevel};
 
@@ -165,10 +165,10 @@ impl BulkTagDialog {
             }));
             return false;
         }
-        actions.push(Action::BulkTagSubmitted {
+        actions.push(Action::Pack(PackAction::BulkTagSubmitted {
             targets,
             overlay: Box::new(self.overlay.clone()),
-        });
+        }));
         true
     }
 }
@@ -230,7 +230,7 @@ mod tests {
         let mut actions = Vec::new();
         assert!(dialog.apply(&mut actions));
         match actions.as_slice() {
-            [Action::BulkTagSubmitted { targets, overlay }] => {
+            [Action::Pack(PackAction::BulkTagSubmitted { targets, overlay })] => {
                 assert_eq!(targets, &["01 Intro.vgz", "03 Ending.vgz"]);
                 assert!(overlay.apply[6]);
                 assert_eq!(overlay.values[6], "New Composer");

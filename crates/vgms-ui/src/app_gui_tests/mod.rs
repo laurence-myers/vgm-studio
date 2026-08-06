@@ -22,7 +22,8 @@ use vgms_synth::LoopCount;
 
 use super::VgmStudioApp;
 use crate::action::{
-    Action, AppTab, EditAction, FileAction, LoopAction, MixerAction, PlaybackAction, UiAction,
+    Action, AppTab, EditAction, FileAction, LoopAction, MixerAction, PackAction, PlaybackAction,
+    UiAction,
 };
 use crate::pack::PackSection;
 use crate::platform::{
@@ -280,7 +281,7 @@ fn act(harness: &mut Harness<'static, VgmStudioApp>, action: Action) {
 /// user cannot hit that window; a synthetic click landing the same millisecond
 /// can.)
 fn pack_section(harness: &mut Harness<'static, VgmStudioApp>, section: PackSection) {
-    act(harness, Action::PackSelectSection(section));
+    act(harness, Action::Pack(PackAction::SelectSection(section)));
     harness.run();
     harness.run();
 }

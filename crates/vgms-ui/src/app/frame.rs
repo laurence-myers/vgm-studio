@@ -60,7 +60,7 @@ impl VgmStudioApp {
                     ];
                     let selected = VIEWS.iter().position(|t| *t == self.active_tab);
                     if let Some(i) = theme::tabs::strip(ui, p, &strip, selected.unwrap_or(0)) {
-                        actions.push(Action::SelectTab(VIEWS[i]));
+                        actions.push(Action::Pack(PackAction::SelectTab(VIEWS[i])));
                     }
                 });
             });
@@ -968,7 +968,7 @@ impl VgmStudioApp {
             self.alerts.push_back(Alert::confirm(
                 crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
                 crate::strings::APP_CONFIRM_PACK_OPEN_BODY,
-                Action::ConfirmOpenZipPack,
+                Action::Pack(PackAction::ConfirmOpenZip),
             ));
         } else {
             self.do_open_zip_pack(file);
@@ -1005,11 +1005,11 @@ impl VgmStudioApp {
                     (menus::MOVE_TRACK_DOWN, 1),
                 ] {
                     if input.consume_shortcut(&shortcut) {
-                        actions.push(Action::PackMoveFocusedTrack { delta });
+                        actions.push(Action::Pack(PackAction::MoveFocusedTrack { delta }));
                     }
                 }
                 if input.consume_shortcut(&menus::SAVE) {
-                    actions.push(Action::PackSaveDocs);
+                    actions.push(Action::Pack(PackAction::SaveDocs));
                 }
                 // Shifted variants first (egui ignores a surplus Shift).
                 if input.consume_shortcut(&menus::REDO_ALT) {

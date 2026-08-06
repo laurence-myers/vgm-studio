@@ -10,7 +10,7 @@ use vgms_core::pack::readiness::{
 };
 use vgms_core::pack::{CONSOLE_PRESETS, PRESETS, format_byte_count, format_track_time};
 
-use crate::action::Action;
+use crate::action::{Action, PackAction};
 use crate::theme::{Palette, bevel};
 
 use super::state::{PackImage, PackSection, PackState, PackTrack};
@@ -109,7 +109,9 @@ fn section_tabs(
         .position(|section| *section == state.section)
         .unwrap_or(0);
     if let Some(index) = crate::theme::tabs::strip(ui, palette, &tabs, selected) {
-        actions.push(Action::PackSelectSection(PackSection::ALL[index]));
+        actions.push(Action::Pack(PackAction::SelectSection(
+            PackSection::ALL[index],
+        )));
     }
 }
 
@@ -135,7 +137,7 @@ fn track_tools(
                     })
                     .clicked()
                 {
-                    actions.push(Action::PackScanVolumes);
+                    actions.push(Action::Pack(PackAction::ScanVolumes));
                 }
             });
             // Both wait on the scan: until a peak has been measured there is
@@ -150,9 +152,9 @@ fn track_tools(
                     })
                     .clicked()
                 {
-                    actions.push(Action::PackApplySuggestedModifiers {
+                    actions.push(Action::Pack(PackAction::ApplySuggestedModifiers {
                         album: state.album_normalize,
-                    });
+                    }));
                 }
                 // A lit pad, not a checkbox: this modifies what Apply does, so
                 // it belongs beside it, and "lit = on" is the chrome's own rule.
@@ -165,7 +167,7 @@ fn track_tools(
                 .on_hover_text(crate::strings::PACK_BULK_TAG_TIP)
                 .clicked()
             {
-                actions.push(Action::OpenBulkTag);
+                actions.push(Action::Pack(PackAction::OpenBulkTag));
             }
             // A fix-assist for the most common mechanical problem, greyed rather
             // than hidden once there is no slash date left to convert.
@@ -174,7 +176,7 @@ fn track_tools(
                     .on_hover_text(crate::strings::PACK_FIX_DATES_TIP)
                     .clicked()
                 {
-                    actions.push(Action::PackConvertDatesToHyphens);
+                    actions.push(Action::Pack(PackAction::ConvertDatesToHyphens));
                 }
             });
             // The other mechanical fix: pull every file name back into step with
@@ -184,7 +186,7 @@ fn track_tools(
                     .on_hover_text(crate::strings::PACK_FIX_FILE_NAMES_TIP)
                     .clicked()
                 {
-                    actions.push(Action::PackRenameFromTags);
+                    actions.push(Action::Pack(PackAction::RenameFromTags));
                 }
             });
         });
@@ -416,7 +418,9 @@ pub fn deck(
                 .on_hover_text(crate::strings::PACK_VIEW_CHECKLIST_TIP)
                 .clicked()
             {
-                actions.push(Action::PackSelectSection(PackSection::Checklist));
+                actions.push(Action::Pack(PackAction::SelectSection(
+                    PackSection::Checklist,
+                )));
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -425,7 +429,7 @@ pub fn deck(
                 .on_hover_text(crate::strings::PACK_EXPORT_ZIP_TIP)
                 .clicked()
             {
-                actions.push(Action::PackExportZip);
+                actions.push(Action::Pack(PackAction::ExportZip));
             }
             // A zip-opened pack has no folder to write docs to; its save is a
             // re-export of the whole archive (wt-8).
@@ -434,13 +438,13 @@ pub fn deck(
                     .on_hover_text(crate::strings::PACK_SAVE_ARCHIVE_TIP)
                     .clicked()
                 {
-                    actions.push(Action::PackSaveArchive);
+                    actions.push(Action::Pack(PackAction::SaveArchive));
                 }
             } else if bevel::button(ui, palette, "Save Pack")
                 .on_hover_text(crate::strings::PACK_SAVE_DOCS_TIP)
                 .clicked()
             {
-                actions.push(Action::PackSaveDocs);
+                actions.push(Action::Pack(PackAction::SaveDocs));
             }
             crate::theme::separator(ui, palette);
             // The two export options, as lit pads: the tooltip carries the
@@ -675,7 +679,7 @@ fn checklist_item(
             }
             ReadinessTarget::Track(index) => {
                 if checklist_link(ui, palette, &item.message).clicked() {
-                    actions.push(Action::OpenTrackQuickEdit(index));
+                    actions.push(Action::Pack(PackAction::OpenTrackQuickEdit(index)));
                 }
             }
             ReadinessTarget::Pack => {
@@ -752,7 +756,7 @@ fn track_status_glyph(
     if !unreadable {
         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
         if response.clicked() {
-            actions.push(Action::OpenTrackQuickEdit(index));
+            actions.push(Action::Pack(PackAction::OpenTrackQuickEdit(index)));
         }
     }
 }
@@ -879,9 +883,9 @@ fn track_table(
                         };
                         if row_icon(ui, palette, glyph, name).clicked() {
                             actions.push(if previewing {
-                                Action::PackStopPreview
+                                Action::Pack(PackAction::StopPreview)
                             } else {
-                                Action::PackTrackPreview(index)
+                                Action::Pack(PackAction::TrackPreview(index))
                             });
                         }
                     });
@@ -967,10 +971,10 @@ fn track_table(
 
                     let response = row.response();
                     if response.clicked() {
-                        actions.push(Action::PackFocusTrack(index));
+                        actions.push(Action::Pack(PackAction::FocusTrack(index)));
                     }
                     if response.double_clicked() {
-                        actions.push(Action::PackTrackOpen(index));
+                        actions.push(Action::Pack(PackAction::TrackOpen(index)));
                     }
                 });
             });
@@ -1068,11 +1072,11 @@ fn row_menu(
             if !editable {
                 open.on_disabled_hover_text(crate::strings::PACK_OPEN_DISABLED_TIP);
             } else if open.clicked() {
-                actions.push(Action::PackTrackOpen(index));
+                actions.push(Action::Pack(PackAction::TrackOpen(index)));
                 ui.close();
             }
             if ui.button("Quick edit\u{2026}").clicked() {
-                actions.push(Action::OpenTrackQuickEdit(index));
+                actions.push(Action::Pack(PackAction::OpenTrackQuickEdit(index)));
                 ui.close();
             }
         })
@@ -1139,7 +1143,7 @@ fn drop_target(
         // moving down, since taking it out first shifts everything below it up.
         let to = if slot > from { slot - 1 } else { slot };
         if to != from {
-            actions.push(Action::PackMoveTrackTo { from, to });
+            actions.push(Action::Pack(PackAction::MoveTrackTo { from, to }));
         }
     }
 }
@@ -1186,7 +1190,7 @@ fn add_screenshot_button(
         .on_hover_text(hover)
         .clicked()
     {
-        actions.push(Action::PackAddScreenshot);
+        actions.push(Action::Pack(PackAction::AddScreenshot));
     }
 }
 
@@ -1291,7 +1295,7 @@ fn image_facts(
             .on_hover_text(crate::strings::PACK_RENAME_SCREENSHOT_TIP)
             .clicked()
         {
-            actions.push(Action::PackRenameScreenshotAt(index));
+            actions.push(Action::Pack(PackAction::RenameScreenshotAt(index)));
         }
         // "Recompress", not "Optimize": the deck's Optimize pad is the VGM
         // pipeline's vgm_cmp step, and two different jobs must not share one
@@ -1300,19 +1304,19 @@ fn image_facts(
             .on_hover_text(crate::strings::PACK_RECOMPRESS_TIP)
             .clicked()
         {
-            actions.push(Action::RecompressImage(index));
+            actions.push(Action::Pack(PackAction::RecompressImage(index)));
         }
         if bevel::button(ui, palette, "Replace\u{2026}")
             .on_hover_text(crate::strings::PACK_REPLACE_SCREENSHOT_TIP)
             .clicked()
         {
-            actions.push(Action::PackReplaceScreenshot(index));
+            actions.push(Action::Pack(PackAction::ReplaceScreenshot(index)));
         }
         if bevel::button(ui, palette, "Delete")
             .on_hover_text(crate::strings::PACK_DELETE_SCREENSHOT_TIP)
             .clicked()
         {
-            actions.push(Action::PackDeleteScreenshot(index));
+            actions.push(Action::Pack(PackAction::DeleteScreenshot(index)));
         }
     });
 }

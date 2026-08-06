@@ -37,114 +37,8 @@ pub enum Action {
     /// tag dialogs with their saves, and the find dialogs.
     Edit(EditAction),
 
-    // Pack mode
-    /// Open the folder picker for a pack project (prompts first if the current
-    /// pack has unsaved edits).
-    OpenPackFolder,
-    /// Open the folder picker after the user confirmed discarding a dirty pack.
-    ConfirmOpenPackFolder,
-    /// Open a specific folder as a pack project (the Split Songs completion offer).
-    OpenPackFolderAt(std::path::PathBuf),
-    /// Open the file picker for a `.zip` to edit as an in-memory pack (wt-8).
-    /// The picked file arrives on the ordinary picked-file channel, so the
-    /// discard-changes prompt is the same one a dropped `.zip` raises.
-    OpenPackZip,
-    /// Open the `.zip` held in `pending_zip` as a pack, after the user confirmed
-    /// discarding the current pack's unsaved edits (wt-8).
-    ConfirmOpenZipPack,
-    /// Save a memory-backed (zip-opened) pack: re-export the archive, in place to
-    /// its source `.zip` on native, or as a download on the web (wt-8).
-    PackSaveArchive,
-    /// Switch the active tab (only meaningful while a pack is open).
-    SelectTab(AppTab),
-    /// Close the pack project (prompts first if it has unsaved edits).
-    ClosePack,
-    /// Close the pack project after the user confirmed discarding it.
-    ConfirmClosePack,
-    /// Write the generated Game Name.txt and Game Name.m3u into the folder.
-    PackSaveDocs,
-    /// Measure every pack track's peak in the background, for the Peak column.
-    PackScanVolumes,
-    /// Set each track's VGM volume modifier from the scanned peaks, as one
-    /// undoable batch of header rewrites. `album` levels the pack by its loudest
-    /// track; otherwise each track is normalised to its own peak. The pad passes
-    /// the Album latch; the menu items say which they mean.
-    PackApplySuggestedModifiers { album: bool },
-    /// Rewrite every slash-separated release date (pack meta and each track's
-    /// GD3) to hyphens -- the checklist's one-click date fix-assist.
-    PackConvertDatesToHyphens,
-    /// Rename every track file that has drifted from its GD3 Track Name to
-    /// `NN Title.ext` (`vgm_ren`'s rules), as one undoable batch of renames.
-    PackRenameFromTags,
-    /// Show a pack sub-section (the section tabs, and the deck's verdict link).
-    PackSelectSection(crate::pack::PackSection),
-    /// Pick a screenshot and copy it into the open pack's folder.
-    PackAddScreenshot,
-    /// Pick a screenshot to overwrite the one at this index.
-    PackReplaceScreenshot(usize),
-    /// Open the rename dialog on the screenshot at this index.
-    PackRenameScreenshotAt(usize),
-    /// Rename a screenshot, as one undoable step. Carries the name the dialog
-    /// opened on, not an index: a rescan in between can reorder the list.
-    PackRenameScreenshot {
-        original_name: String,
-        file_name: String,
-    },
-    /// Copy a picked screenshot into the pack folder under the name the naming
-    /// dialog settled on. It carries the bytes because nothing was written while
-    /// the dialog was open -- cancelling it leaves the folder untouched.
-    PackAddScreenshotAs {
-        file_name: String,
-        bytes: Vec<u8>,
-        /// Losslessly recompress before writing, so the file lands optimal
-        /// rather than being rewritten a moment later.
-        recompress: bool,
-    },
-    /// Ask whether to delete the screenshot at this index.
-    PackDeleteScreenshot(usize),
-    /// Delete the named screenshot after the user confirmed it. Carries the file
-    /// name, not the index: a rescan between the prompt and the answer can
-    /// reorder the list.
-    ConfirmDeleteScreenshot(String),
-    /// Build the release zip and save it (prompts first on soft warnings).
-    PackExportZip,
-    /// Build the release zip after the user accepted the warnings.
-    ConfirmExportZip,
-    /// Open a track in the editor (double-click / button in the track list).
-    PackTrackOpen(usize),
-    /// Preview a track through the audio output.
-    PackTrackPreview(usize),
-    /// Stop the track preview.
-    PackStopPreview,
-    /// Open the quick-edit dialog (rename + GD3) for a track.
-    OpenTrackQuickEdit(usize),
-    /// Move a track up (`-1`) or down (`+1`) one slot, renumbering the files.
-    PackMoveTrack { index: usize, delta: isize },
-    /// Move a track to a position, renumbering the files: what dropping a dragged
-    /// row emits. `to` is the destination index in the final list.
-    PackMoveTrackTo { from: usize, to: usize },
-    /// Make a track the row the keyboard acts on (a click on it).
-    PackFocusTrack(usize),
-    /// Move the focused track one slot (`-1` up, `+1` down): Alt+arrow. The focus
-    /// travels with it, so the keys can be pressed again straight away.
-    PackMoveFocusedTrack { delta: isize },
-    /// Losslessly recompress a screenshot and save it in place.
-    RecompressImage(usize),
-    /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
-    QuickEditSubmitted {
-        original_name: String,
-        file_name: String,
-        tag: Box<Gd3Tag>,
-    },
-    /// Open the bulk GD3 tag editor (chosen fields written to chosen tracks).
-    OpenBulkTag,
-    /// Apply a bulk GD3 edit: overlay the checked fields onto each target track's
-    /// existing tag and rewrite the files as one undoable batch. Targets are file
-    /// names (the stable identity re-resolved against the current list).
-    BulkTagSubmitted {
-        targets: Vec<String>,
-        overlay: Box<BulkTagOverlay>,
-    },
+    /// Pack mode: the VGMRips submission project and its file operations.
+    Pack(PackAction),
 
     /// The mixer: channel toggles, panning, and the volume lever.
     Mixer(MixerAction),
@@ -324,6 +218,119 @@ pub enum MixerAction {
     /// keyboard focus. While it does, the editor's key shortcuts stand down so a
     /// typed number edits the volume instead of toggling a channel.
     VolumeFieldFocused(bool),
+}
+
+/// Pack mode: the VGMRips submission project and its file operations.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PackAction {
+    /// Pick a screenshot and copy it into the open pack's folder.
+    AddScreenshot,
+    /// Copy a picked screenshot into the pack folder under the name the naming
+    /// dialog settled on. It carries the bytes because nothing was written while
+    /// the dialog was open -- cancelling it leaves the folder untouched.
+    AddScreenshotAs {
+        file_name: String,
+        bytes: Vec<u8>,
+        /// Losslessly recompress before writing, so the file lands optimal
+        /// rather than being rewritten a moment later.
+        recompress: bool,
+    },
+    /// Set each track's VGM volume modifier from the scanned peaks, as one
+    /// undoable batch of header rewrites. `album` levels the pack by its loudest
+    /// track; otherwise each track is normalised to its own peak. The pad passes
+    /// the Album latch; the menu items say which they mean.
+    ApplySuggestedModifiers { album: bool },
+    /// Apply a bulk GD3 edit: overlay the checked fields onto each target track's
+    /// existing tag and rewrite the files as one undoable batch. Targets are file
+    /// names (the stable identity re-resolved against the current list).
+    BulkTagSubmitted {
+        targets: Vec<String>,
+        overlay: Box<BulkTagOverlay>,
+    },
+    /// Close the pack project (prompts first if it has unsaved edits).
+    Close,
+    /// Close the pack project after the user confirmed discarding it.
+    ConfirmClose,
+    /// Delete the named screenshot after the user confirmed it. Carries the file
+    /// name, not the index: a rescan between the prompt and the answer can
+    /// reorder the list.
+    ConfirmDeleteScreenshot(String),
+    /// Build the release zip after the user accepted the warnings.
+    ConfirmExportZip,
+    /// Open the folder picker after the user confirmed discarding a dirty pack.
+    ConfirmOpenFolder,
+    /// Open the `.zip` held in `pending_zip` as a pack, after the user confirmed
+    /// discarding the current pack's unsaved edits (wt-8).
+    ConfirmOpenZip,
+    /// Rewrite every slash-separated release date (pack meta and each track's
+    /// GD3) to hyphens -- the checklist's one-click date fix-assist.
+    ConvertDatesToHyphens,
+    /// Ask whether to delete the screenshot at this index.
+    DeleteScreenshot(usize),
+    /// Build the release zip and save it (prompts first on soft warnings).
+    ExportZip,
+    /// Make a track the row the keyboard acts on (a click on it).
+    FocusTrack(usize),
+    /// Move the focused track one slot (`-1` up, `+1` down): Alt+arrow. The focus
+    /// travels with it, so the keys can be pressed again straight away.
+    MoveFocusedTrack { delta: isize },
+    /// Move a track up (`-1`) or down (`+1`) one slot, renumbering the files.
+    MoveTrack { index: usize, delta: isize },
+    /// Move a track to a position, renumbering the files: what dropping a dragged
+    /// row emits. `to` is the destination index in the final list.
+    MoveTrackTo { from: usize, to: usize },
+    /// Open the bulk GD3 tag editor (chosen fields written to chosen tracks).
+    OpenBulkTag,
+    /// Open the folder picker for a pack project (prompts first if the current
+    /// pack has unsaved edits).
+    OpenFolder,
+    /// Open a specific folder as a pack project (the Split Songs completion offer).
+    OpenFolderAt(std::path::PathBuf),
+    /// Open the quick-edit dialog (rename + GD3) for a track.
+    OpenTrackQuickEdit(usize),
+    /// Open the file picker for a `.zip` to edit as an in-memory pack (wt-8).
+    /// The picked file arrives on the ordinary picked-file channel, so the
+    /// discard-changes prompt is the same one a dropped `.zip` raises.
+    OpenZip,
+    /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
+    QuickEditSubmitted {
+        original_name: String,
+        file_name: String,
+        tag: Box<Gd3Tag>,
+    },
+    /// Losslessly recompress a screenshot and save it in place.
+    RecompressImage(usize),
+    /// Rename every track file that has drifted from its GD3 Track Name to
+    /// `NN Title.ext` (`vgm_ren`'s rules), as one undoable batch of renames.
+    RenameFromTags,
+    /// Rename a screenshot, as one undoable step. Carries the name the dialog
+    /// opened on, not an index: a rescan in between can reorder the list.
+    RenameScreenshot {
+        original_name: String,
+        file_name: String,
+    },
+    /// Open the rename dialog on the screenshot at this index.
+    RenameScreenshotAt(usize),
+    /// Pick a screenshot to overwrite the one at this index.
+    ReplaceScreenshot(usize),
+    /// Save a memory-backed (zip-opened) pack: re-export the archive, in place to
+    /// its source `.zip` on native, or as a download on the web (wt-8).
+    SaveArchive,
+    /// Write the generated Game Name.txt and Game Name.m3u into the folder.
+    SaveDocs,
+    /// Measure every pack track's peak in the background, for the Peak column.
+    ScanVolumes,
+    /// Show a pack sub-section (the section tabs, and the deck's verdict link).
+    SelectSection(crate::pack::PackSection),
+    /// Switch the active tab (only meaningful while a pack is open).
+    SelectTab(AppTab),
+    /// Stop the track preview.
+    StopPreview,
+    /// Open a track in the editor (double-click / button in the track list).
+    TrackOpen(usize),
+    /// Preview a track through the audio output.
+    TrackPreview(usize),
 }
 
 /// Transport and position: play/stop, seeking, and moving through the rows.

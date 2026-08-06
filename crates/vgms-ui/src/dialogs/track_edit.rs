@@ -1,11 +1,11 @@
 //! Pack mode's quick-edit dialog: rename a track's file and edit its GD3 tag
 //! without loading it into the editor. It is the GD3 dialog plus a leading
-//! "File name" field; Save emits [`Action::QuickEditSubmitted`], which rewrites
+//! "File name" field; Save emits [`PackAction::QuickEditSubmitted`], which rewrites
 //! the file's bytes and, if the name changed, renames it.
 
 use vgms_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, PackAction, UiAction};
 use crate::theme::Palette;
 
 #[derive(Debug)]
@@ -149,11 +149,11 @@ impl TrackEditDialog {
             }));
             return false;
         }
-        actions.push(Action::QuickEditSubmitted {
+        actions.push(Action::Pack(PackAction::QuickEditSubmitted {
             original_name: self.original_name.clone(),
             file_name: name,
             tag: Box::new(Gd3Tag::from_fields(self.fields.clone())),
-        });
+        }));
         true
     }
 }
@@ -244,7 +244,7 @@ mod tests {
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         match actions.as_slice() {
-            [Action::QuickEditSubmitted { file_name, .. }] => {
+            [Action::Pack(PackAction::QuickEditSubmitted { file_name, .. })] => {
                 assert_eq!(file_name, "01 Intro Redux.vgz");
             }
             other => panic!("expected a submit, got {other:?}"),
@@ -260,7 +260,7 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert!(matches!(
             actions.as_slice(),
-            [Action::QuickEditSubmitted { .. }]
+            [Action::Pack(PackAction::QuickEditSubmitted { .. })]
         ));
     }
 }

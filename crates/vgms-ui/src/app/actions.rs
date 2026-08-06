@@ -9,93 +9,7 @@ impl VgmStudioApp {
 
             Action::Edit(action) => self.handle_edit_action(action),
 
-            Action::OpenPackFolder => {
-                if self.pack_is_dirty() {
-                    self.alerts.push_back(Alert::confirm(
-                        crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
-                        crate::strings::APP_CONFIRM_PACK_OPEN_BODY,
-                        Action::ConfirmOpenPackFolder,
-                    ));
-                } else {
-                    self.files.pick_folder();
-                }
-            }
-            Action::ConfirmOpenPackFolder => self.files.pick_folder(),
-            Action::OpenPackFolderAt(path) => self.files.open_folder_path(path),
-            // No dirty prompt here: the picked `.zip` comes back through
-            // `load_or_confirm`, which raises it once the file is in hand --
-            // asking before the picker would prompt even for a dismissed one.
-            Action::OpenPackZip => self.files.pick_pack_zip(),
-            Action::SelectTab(tab) => self.select_tab(tab),
-            Action::ClosePack => {
-                if self.pack_is_dirty() {
-                    self.alerts.push_back(Alert::confirm(
-                        crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
-                        crate::strings::APP_CONFIRM_PACK_CLOSE_BODY,
-                        Action::ConfirmClosePack,
-                    ));
-                } else {
-                    self.close_pack();
-                }
-            }
-            Action::ConfirmClosePack => self.close_pack(),
-            Action::PackSaveDocs => self.save_pack_docs(),
-            Action::PackScanVolumes => self.scan_pack_volumes(),
-            Action::PackApplySuggestedModifiers { album } => self.apply_pack_modifiers(album),
-            Action::PackConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
-            Action::PackRenameFromTags => self.rename_pack_tracks_from_tags(),
-            Action::PackSelectSection(section) => {
-                if let Some(pack) = self.pack.as_mut() {
-                    pack.section = section;
-                }
-            }
-            Action::PackAddScreenshot => {
-                self.pending_screenshot = Some(ScreenshotPick::Add);
-                self.files.pick_image();
-            }
-            Action::PackReplaceScreenshot(index) => self.replace_screenshot(index),
-            Action::PackRenameScreenshotAt(index) => self.open_screenshot_rename(index),
-            Action::PackAddScreenshotAs {
-                file_name,
-                bytes,
-                recompress,
-            } => self.add_screenshot_as(&file_name, bytes, recompress),
-            Action::PackRenameScreenshot {
-                original_name,
-                file_name,
-            } => self.rename_screenshot(&original_name, &file_name),
-            Action::PackDeleteScreenshot(index) => self.confirm_delete_screenshot(index),
-            Action::ConfirmDeleteScreenshot(name) => self.delete_screenshot(&name),
-            Action::PackExportZip => self.export_pack_zip(false),
-            Action::ConfirmExportZip => self.export_pack_zip(true),
-            Action::PackSaveArchive => self.save_pack_archive(),
-            Action::ConfirmOpenZipPack => {
-                if let Some(file) = self.pending_zip.take() {
-                    self.do_open_zip_pack(file);
-                }
-            }
-            Action::PackTrackOpen(index) => self.open_track_in_editor(index),
-            Action::PackTrackPreview(index) => self.preview_track(index),
-            Action::PackStopPreview => self.stop_preview(),
-            Action::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
-            Action::PackMoveTrack { index, delta } => self.move_pack_track(index, delta),
-            Action::PackMoveTrackTo { from, to } => self.move_pack_track_to(from, to),
-            Action::PackFocusTrack(index) => {
-                if let Some(pack) = self.pack.as_mut() {
-                    pack.focused_track = Some(index);
-                }
-            }
-            Action::PackMoveFocusedTrack { delta } => self.move_focused_pack_track(delta),
-            Action::RecompressImage(index) => self.recompress_image(index),
-            Action::QuickEditSubmitted {
-                original_name,
-                file_name,
-                tag,
-            } => self.quick_edit_submitted(original_name, file_name, *tag),
-            Action::OpenBulkTag => self.open_bulk_tag(),
-            Action::BulkTagSubmitted { targets, overlay } => {
-                self.bulk_tag_submitted(targets, *overlay);
-            }
+            Action::Pack(action) => self.handle_pack_action(action),
 
             Action::Mixer(action) => self.handle_mixer_action(action),
             Action::Playback(action) => self.handle_playback_action(action),
@@ -541,6 +455,103 @@ impl VgmStudioApp {
         match doc {
             Some(doc) => self.dialogs.find_loop = Some(FindLoopDialog::new(doc)),
             None => self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned(),
+        }
+    }
+
+    /// Pack actions: the VGMRips submission project and its file operations.
+    fn handle_pack_action(&mut self, action: PackAction) {
+        match action {
+            PackAction::AddScreenshot => {
+                self.pending_screenshot = Some(ScreenshotPick::Add);
+                self.files.pick_image();
+            }
+            PackAction::AddScreenshotAs {
+                file_name,
+                bytes,
+                recompress,
+            } => self.add_screenshot_as(&file_name, bytes, recompress),
+            PackAction::ApplySuggestedModifiers { album } => self.apply_pack_modifiers(album),
+            PackAction::BulkTagSubmitted { targets, overlay } => {
+                self.bulk_tag_submitted(targets, *overlay);
+            }
+            PackAction::Close => self.on_close_pack(),
+            PackAction::ConfirmClose => self.close_pack(),
+            PackAction::ConfirmDeleteScreenshot(name) => self.delete_screenshot(&name),
+            PackAction::ConfirmExportZip => self.export_pack_zip(true),
+            PackAction::ConfirmOpenFolder => self.files.pick_folder(),
+            PackAction::ConfirmOpenZip => {
+                if let Some(file) = self.pending_zip.take() {
+                    self.do_open_zip_pack(file);
+                }
+            }
+            PackAction::ConvertDatesToHyphens => self.convert_pack_dates_to_hyphens(),
+            PackAction::DeleteScreenshot(index) => self.confirm_delete_screenshot(index),
+            PackAction::ExportZip => self.export_pack_zip(false),
+            PackAction::FocusTrack(index) => {
+                if let Some(pack) = self.pack.as_mut() {
+                    pack.focused_track = Some(index);
+                }
+            }
+            PackAction::MoveFocusedTrack { delta } => self.move_focused_pack_track(delta),
+            PackAction::MoveTrack { index, delta } => self.move_pack_track(index, delta),
+            PackAction::MoveTrackTo { from, to } => self.move_pack_track_to(from, to),
+            PackAction::OpenBulkTag => self.open_bulk_tag(),
+            PackAction::OpenFolder => self.on_open_pack_folder(),
+            PackAction::OpenFolderAt(path) => self.files.open_folder_path(path),
+            PackAction::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
+            // No dirty prompt here: the picked `.zip` comes back through
+            // `load_or_confirm`, which raises it once the file is in hand --
+            // asking before the picker would prompt even for a dismissed one.
+            PackAction::OpenZip => self.files.pick_pack_zip(),
+            PackAction::QuickEditSubmitted {
+                original_name,
+                file_name,
+                tag,
+            } => self.quick_edit_submitted(original_name, file_name, *tag),
+            PackAction::RecompressImage(index) => self.recompress_image(index),
+            PackAction::RenameFromTags => self.rename_pack_tracks_from_tags(),
+            PackAction::RenameScreenshot {
+                original_name,
+                file_name,
+            } => self.rename_screenshot(&original_name, &file_name),
+            PackAction::RenameScreenshotAt(index) => self.open_screenshot_rename(index),
+            PackAction::ReplaceScreenshot(index) => self.replace_screenshot(index),
+            PackAction::SaveArchive => self.save_pack_archive(),
+            PackAction::SaveDocs => self.save_pack_docs(),
+            PackAction::ScanVolumes => self.scan_pack_volumes(),
+            PackAction::SelectSection(section) => {
+                if let Some(pack) = self.pack.as_mut() {
+                    pack.section = section;
+                }
+            }
+            PackAction::SelectTab(tab) => self.select_tab(tab),
+            PackAction::StopPreview => self.stop_preview(),
+            PackAction::TrackOpen(index) => self.open_track_in_editor(index),
+            PackAction::TrackPreview(index) => self.preview_track(index),
+        }
+    }
+
+    fn on_close_pack(&mut self) {
+        if self.pack_is_dirty() {
+            self.alerts.push_back(Alert::confirm(
+                crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
+                crate::strings::APP_CONFIRM_PACK_CLOSE_BODY,
+                Action::Pack(PackAction::ConfirmClose),
+            ));
+        } else {
+            self.close_pack();
+        }
+    }
+
+    fn on_open_pack_folder(&mut self) {
+        if self.pack_is_dirty() {
+            self.alerts.push_back(Alert::confirm(
+                crate::strings::APP_CONFIRM_DISCARD_PACK_TITLE,
+                crate::strings::APP_CONFIRM_PACK_OPEN_BODY,
+                Action::Pack(PackAction::ConfirmOpenFolder),
+            ));
+        } else {
+            self.files.pick_folder();
         }
     }
 
