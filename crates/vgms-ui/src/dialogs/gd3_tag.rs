@@ -3,7 +3,7 @@
 use vgms_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
 use crate::action::Action;
-use crate::theme::{Palette, bevel};
+use crate::theme::Palette;
 
 /// Labels in `Gd3Tag` field order; "orig" is GD3's original-language variant.
 /// Shared with the bulk-tag dialog, which lays the same labels out with a
@@ -44,10 +44,7 @@ impl Gd3TagDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        // The body borrows the fields mutably, so the footer reports clicks
-        // through cells and the save is emitted after the call returns.
-        let close = std::cell::Cell::new(false);
-        let save_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Save");
         let open = super::dialog_modal(
             ctx,
             "gd3-tag-modal",
@@ -61,23 +58,14 @@ impl Gd3TagDialog {
                         gd3_fields(ui, palette, &mut self.fields);
                     });
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() {
-                        save_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
-        if save_clicked.get() {
+        if footer.primary_clicked() {
             actions.push(Action::SaveGd3(Box::new(Gd3Tag::from_fields(
                 self.fields.clone(),
             ))));
         }
-        open && !(close.get() || save_clicked.get())
+        open && footer.clicked() == super::FooterClick::None
     }
 }
 

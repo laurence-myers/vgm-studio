@@ -114,8 +114,11 @@ impl DroInfoDialog {
             },
             |ui| {
                 super::dialog_footer(ui, |ui| {
-                    let close_label = if edit_mode { "Cancel" } else { "Close" };
-                    if bevel::button(ui, palette, close_label).clicked() {
+                    // The dismiss button reads "Close" in both modes, where every
+                    // other dialog puts its Close -- editing then discarding is a
+                    // Close like any other, not a distinct "Cancel". Only the
+                    // affirmative button toggles its label, Edit -> Save.
+                    if bevel::button(ui, palette, "Close").clicked() {
                         close.set(true);
                     }
                     if edit_allowed {

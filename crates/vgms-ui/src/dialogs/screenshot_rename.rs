@@ -9,7 +9,7 @@
 //! more than one: a title screen per region, or per game variation.
 
 use crate::action::Action;
-use crate::theme::{Palette, bevel};
+use crate::theme::Palette;
 
 /// What Save does: rename the file the dialog opened on, or write the picked
 /// file it is holding into the pack folder.
@@ -131,10 +131,7 @@ impl ScreenshotRenameDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let (title, current_label, commit) = self.words();
-        // The body borrows `self` mutably, so the footer reports clicks through
-        // cells and the save runs after the call returns.
-        let close = std::cell::Cell::new(false);
-        let commit_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, commit);
         let open = super::dialog_modal(
             ctx,
             "screenshot-rename-modal",
@@ -188,20 +185,11 @@ impl ScreenshotRenameDialog {
                         }
                     });
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, commit).clicked() {
-                        commit_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
         // Only a clicked commit runs the save; a refused one leaves the dialog open.
-        let committed = commit_clicked.get() && self.save(actions);
-        open && !(close.get() || committed)
+        let committed = footer.primary_clicked() && self.save(actions);
+        open && !(footer.closed() || committed)
     }
 
     /// Validates the derived name, then emits the rename or the add; returns

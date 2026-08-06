@@ -10,7 +10,7 @@ use egui::KeyboardShortcut;
 
 use crate::action::Action;
 use crate::menus::{self, shortcut_text};
-use crate::theme::{Palette, bevel};
+use crate::theme::Palette;
 
 /// What a row's key column says.
 ///
@@ -197,7 +197,7 @@ impl HelpDialog {
         palette: &Palette,
         _actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
+        let footer = super::Footer::close_only(palette);
         // Wider than the app's other dialogs: this one is a reference table read
         // across, not a form filled in down.
         let open = super::dialog_modal_sized(
@@ -254,15 +254,9 @@ impl HelpDialog {
                         }
                     });
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close = true;
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
-        open && !close
+        open && !footer.closed()
     }
 }
 

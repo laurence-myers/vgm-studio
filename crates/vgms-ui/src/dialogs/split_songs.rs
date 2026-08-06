@@ -102,10 +102,7 @@ impl SplitSongsDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        // The body borrows `self` and `actions` mutably, so the footer reports
-        // clicks through cells and the export runs after the call returns.
-        let close = std::cell::Cell::new(false);
-        let export_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Export...");
         let open = super::dialog_modal(
             ctx,
             "split-songs-modal",
@@ -158,20 +155,11 @@ impl SplitSongsDialog {
                 crate::theme::separator_clipped(ui, palette);
                 self.boundary_table(ui, palette, actions);
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Export...").clicked() {
-                        export_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
         // Only a clicked Export runs the save; a refused one leaves the dialog open.
-        let exported = export_clicked.get() && self.save(actions);
-        open && !(close.get() || exported)
+        let exported = footer.primary_clicked() && self.save(actions);
+        open && !(footer.closed() || exported)
     }
 
     /// The song count and the scrollable boundary list (number, start, length, an

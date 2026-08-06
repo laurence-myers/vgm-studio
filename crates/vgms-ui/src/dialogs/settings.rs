@@ -8,7 +8,7 @@ use vgms_core::vgm::ChipKind;
 
 use crate::action::Action;
 use crate::platform::HardwarePortInfo;
-use crate::theme::{Palette, bevel};
+use crate::theme::Palette;
 use crate::widgets::chip_output;
 
 /// The appearance settings, as `(theme, pad_style, deck_style)`. These three
@@ -194,8 +194,7 @@ impl SettingsDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let close = std::cell::Cell::new(false);
-        let save_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Save");
         let opened_with = self.skin();
         let open = super::dialog_modal(
             ctx,
@@ -227,21 +226,12 @@ impl SettingsDialog {
                     SettingsTab::Interface => self.interface_tab(ui),
                 }
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() {
-                        save_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
-        let saved = save_clicked.get() && self.save(actions);
+        let saved = footer.primary_clicked() && self.save(actions);
         // `open` is false when Esc or a backdrop click dismissed the modal,
         // which means the same as Close.
-        let closing = close.get() || !open || saved;
+        let closing = footer.closed() || !open || saved;
         actions.extend(self.preview(opened_with, closing, saved));
         actions.extend(self.preview_cores(closing, saved));
         actions.extend(self.preview_resampling(closing, saved));

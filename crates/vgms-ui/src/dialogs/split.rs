@@ -7,7 +7,7 @@ use vgms_core::vgm::ChipKind;
 use vgms_synth::{ChannelGate, SplitFormat};
 
 use crate::action::Action;
-use crate::theme::{Palette, bevel};
+use crate::theme::Palette;
 use crate::widgets::chip_output;
 
 /// The boost range the audio config accepts. A stem at 1.0 is bit-transparent.
@@ -86,10 +86,7 @@ impl SplitDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        // The body borrows `self` mutably, so the footer reports clicks through
-        // cells and the split is emitted after the call returns.
-        let close = std::cell::Cell::new(false);
-        let split_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Split");
         let open = super::dialog_modal(
             ctx,
             "split-modal",
@@ -155,21 +152,12 @@ impl SplitDialog {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(crate::strings::SPLIT_SKIPPED_NOTE).small());
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Split").clicked() {
-                        split_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
         // Only a clicked Split with a valid boost runs the save; a refused one
         // leaves the dialog open (like the Render dialog).
-        let split_done = split_clicked.get() && self.save(actions);
-        open && !(close.get() || split_done)
+        let split_done = footer.primary_clicked() && self.save(actions);
+        open && !(footer.closed() || split_done)
     }
 
     /// Emits the split request, or queues an error box and stays open when the

@@ -113,10 +113,7 @@ impl VgmMetadataDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        // The body borrows `self` and `actions` mutably, so the footer reports
-        // clicks through cells and the save runs after the call returns.
-        let close = std::cell::Cell::new(false);
-        let save_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Save");
         let open = super::dialog_modal(
             ctx,
             "vgm-metadata-modal",
@@ -176,20 +173,11 @@ impl VgmMetadataDialog {
                         ui.end_row();
                     });
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Save").clicked() {
-                        save_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
         // Only a clicked Save runs the validation; a refused one leaves the dialog open.
-        let saved = save_clicked.get() && self.save(actions);
-        open && !(close.get() || saved)
+        let saved = footer.primary_clicked() && self.save(actions);
+        open && !(footer.closed() || saved)
     }
 
     /// Parses and emits the save; `false` (with an error box queued) if any

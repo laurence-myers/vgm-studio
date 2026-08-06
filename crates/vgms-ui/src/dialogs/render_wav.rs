@@ -67,10 +67,7 @@ impl RenderWavDialog {
         palette: &Palette,
         actions: &mut Vec<Action>,
     ) -> bool {
-        // The body borrows `self` mutably, so the footer reports clicks through
-        // cells and the render is emitted after the call returns.
-        let close = std::cell::Cell::new(false);
-        let render_clicked = std::cell::Cell::new(false);
+        let footer = super::Footer::new(palette, "Render");
         let open = super::dialog_modal(
             ctx,
             "render-wav-modal",
@@ -125,20 +122,11 @@ impl RenderWavDialog {
                 ui.add_space(8.0);
                 ui.label(egui::RichText::new(crate::strings::RENDER_WAV_FREQ_NOTE).small());
             },
-            |ui| {
-                super::dialog_footer(ui, |ui| {
-                    if bevel::button(ui, palette, "Close").clicked() {
-                        close.set(true);
-                    }
-                    if bevel::button(ui, palette, "Render").clicked() {
-                        render_clicked.set(true);
-                    }
-                });
-            },
+            |ui| footer.show(ui),
         );
         // Only a clicked Render runs the save; a refused one leaves the dialog open.
-        let rendered = render_clicked.get() && self.save(actions);
-        open && !(close.get() || rendered)
+        let rendered = footer.primary_clicked() && self.save(actions);
+        open && !(footer.closed() || rendered)
     }
 
     /// Emits the render request, or queues an error box and stays open.

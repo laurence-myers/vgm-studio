@@ -214,6 +214,88 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::U
     });
 }
 
+/// Which of a [`Footer`]'s buttons the user pressed this frame.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum FooterClick {
+    /// Neither button was pressed.
+    #[default]
+    None,
+    /// The primary (affirmative) button -- Save, Render, Split, and so on.
+    Primary,
+    /// The Close button.
+    Close,
+}
+
+/// The common dialog footer: an optional primary (affirmative) button and a
+/// Close button, drawn in the shared right-to-left row so the primary sits left
+/// of Close, and reporting which was pressed.
+///
+/// This is the answer to the borrow puzzle every modal used to hand-roll: the
+/// body closure passed to [`dialog_modal`] borrows the dialog `&mut`, so the
+/// footer closure cannot also touch it. A `Footer` is built *before* the modal,
+/// its [`show`](Footer::show) drawn inside the footer closure, and the button
+/// pressed read back with [`clicked`](Footer::clicked) *after* the modal returns
+/// -- so each dialog decides for itself what a click means (whether Save closes,
+/// what to emit) without a scatter of `Cell<bool>` flags.
+///
+/// Dialogs that need more than one action plus Close (Find Loop's Apply and
+/// Audition, DRO Info's Edit/Save toggle) draw [`dialog_footer`] themselves.
+pub(crate) struct Footer<'a> {
+    palette: &'a crate::theme::Palette,
+    /// The affirmative button's label; `None` for a Close-only footer.
+    primary: Option<&'a str>,
+    click: std::cell::Cell<FooterClick>,
+}
+
+impl<'a> Footer<'a> {
+    /// A footer with an affirmative button labelled `primary`, plus Close.
+    pub(crate) fn new(palette: &'a crate::theme::Palette, primary: &'a str) -> Self {
+        Self {
+            palette,
+            primary: Some(primary),
+            click: std::cell::Cell::new(FooterClick::None),
+        }
+    }
+
+    /// A footer with only a Close button.
+    pub(crate) fn close_only(palette: &'a crate::theme::Palette) -> Self {
+        Self {
+            palette,
+            primary: None,
+            click: std::cell::Cell::new(FooterClick::None),
+        }
+    }
+
+    /// Draws the footer. Call inside [`dialog_modal`]'s footer closure.
+    pub(crate) fn show(&self, ui: &mut egui::Ui) {
+        dialog_footer(ui, |ui| {
+            if crate::theme::bevel::button(ui, self.palette, "Close").clicked() {
+                self.click.set(FooterClick::Close);
+            }
+            if let Some(label) = self.primary
+                && crate::theme::bevel::button(ui, self.palette, label).clicked()
+            {
+                self.click.set(FooterClick::Primary);
+            }
+        });
+    }
+
+    /// Which button was pressed this frame.
+    pub(crate) fn clicked(&self) -> FooterClick {
+        self.click.get()
+    }
+
+    /// Whether the primary (affirmative) button was pressed.
+    pub(crate) fn primary_clicked(&self) -> bool {
+        self.click.get() == FooterClick::Primary
+    }
+
+    /// Whether the Close button was pressed.
+    pub(crate) fn closed(&self) -> bool {
+        self.click.get() == FooterClick::Close
+    }
+}
+
 /// Where a [`caption_checkbox`]'s caption sits relative to the box it toggles.
 pub(crate) enum CaptionSide {
     /// Checkbox first, then the caption, wrapped in a `horizontal` -- a standalone
