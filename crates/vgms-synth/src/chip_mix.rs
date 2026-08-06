@@ -144,6 +144,78 @@ impl ChipPanning {
     }
 }
 
+/// The full trim: 100%, the reference balance untouched. A fresh panel sits
+/// here, and the render path skips a voice whose trim is full.
+pub const TRIM_FULL: u8 = 100;
+
+/// One chip instance's listening trim: a `0..=100`% attenuation the user
+/// multiplies on top of the reference balance. It only pulls a chip down --
+/// 100% is the reference, never louder -- and lives nowhere but the ear: it is
+/// not saved to the config and not written into the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChipTrimEntry {
+    pub kind: ChipKind,
+    pub instance: u8,
+    pub percent: u8,
+}
+
+/// Every chip instance's trim. Absent means full (100%) -- the reference
+/// balance, untouched.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ChipTrims {
+    entries: Vec<ChipTrimEntry>,
+}
+
+impl ChipTrims {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the trim for one chip instance, replacing whatever it had. The
+    /// percent is clamped to `0..=100`: the trim only attenuates.
+    pub fn set(&mut self, kind: ChipKind, instance: u8, percent: u8) {
+        let percent = percent.min(TRIM_FULL);
+        match self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.kind == kind && entry.instance == instance)
+        {
+            Some(entry) => entry.percent = percent,
+            None => self.entries.push(ChipTrimEntry {
+                kind,
+                instance,
+                percent,
+            }),
+        }
+    }
+
+    /// The trim for one chip instance, as a percent. Full (100%) when unset.
+    #[must_use]
+    pub fn percent_for(&self, kind: ChipKind, instance: u8) -> u8 {
+        self.entries
+            .iter()
+            .find(|entry| entry.kind == kind && entry.instance == instance)
+            .map_or(TRIM_FULL, |entry| entry.percent)
+    }
+
+    /// Whether every trim is full -- the state a fresh panel is in, and the
+    /// one the render path can skip applying.
+    #[must_use]
+    pub fn is_neutral(&self) -> bool {
+        self.entries.iter().all(|entry| entry.percent == TRIM_FULL)
+    }
+
+    /// Each set instance's `(chip, instance, percent)`, for a backend that must
+    /// replay the trims one at a time -- the AudioWorklet ABI, which sets one
+    /// chip instance per call.
+    pub fn entries(&self) -> impl Iterator<Item = (ChipKind, u8, u8)> + '_ {
+        self.entries
+            .iter()
+            .map(|entry| (entry.kind, entry.instance, entry.percent))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +271,53 @@ mod tests {
             Some([PAN_LEFT, PAN_CENTER, PAN_RIGHT].as_slice())
         );
         assert_eq!(panning.pans_for(ChipKind::Ay8910, 1), None);
+    }
+
+    #[test]
+    fn trims_are_per_instance_and_absent_means_full() {
+        let mut trims = ChipTrims::new();
+        assert!(trims.is_neutral());
+        assert_eq!(
+            trims.percent_for(ChipKind::Sn76489, 0),
+            TRIM_FULL,
+            "unset is full"
+        );
+        trims.set(ChipKind::Sn76489, 0, 30);
+        trims.set(ChipKind::Sn76489, 1, 70);
+        assert_eq!(trims.percent_for(ChipKind::Sn76489, 0), 30);
+        assert_eq!(trims.percent_for(ChipKind::Sn76489, 1), 70);
+        assert_eq!(trims.percent_for(ChipKind::Ym2612, 0), TRIM_FULL);
+        assert!(!trims.is_neutral());
+        // Setting a chip back to full reads as neutral again -- the render path
+        // checks the value, not merely whether an entry exists.
+        trims.set(ChipKind::Sn76489, 0, TRIM_FULL);
+        trims.set(ChipKind::Sn76489, 1, TRIM_FULL);
+        assert!(trims.is_neutral(), "restored trims read as neutral");
+    }
+
+    #[test]
+    fn a_trim_only_attenuates() {
+        let mut trims = ChipTrims::new();
+        trims.set(ChipKind::Ym2612, 0, 200);
+        assert_eq!(
+            trims.percent_for(ChipKind::Ym2612, 0),
+            TRIM_FULL,
+            "a trim over 100% is clamped to full"
+        );
+    }
+
+    #[test]
+    fn trim_entries_report_every_set_instance() {
+        // The worklet backend replays the trims one instance at a time, so
+        // `entries` must surface exactly what was set.
+        let mut trims = ChipTrims::new();
+        trims.set(ChipKind::Sn76489, 0, 30);
+        trims.set(ChipKind::Ym2612, 1, 70);
+        let mut got: Vec<_> = trims.entries().collect();
+        got.sort_by_key(|(_, instance, _)| *instance);
+        assert_eq!(
+            got,
+            vec![(ChipKind::Sn76489, 0, 30), (ChipKind::Ym2612, 1, 70)]
+        );
     }
 }

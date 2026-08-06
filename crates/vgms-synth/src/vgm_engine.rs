@@ -25,7 +25,7 @@ use vgms_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
 use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header, stream_owner};
 use crate::chip::{ChipCore, core_for};
-use crate::chip_mix::{ChipMuting, ChipPanning};
+use crate::chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
 use crate::engine::{FrameClock, LoopConfig, Position};
@@ -60,6 +60,13 @@ struct Voice {
     /// [`Self::next_frame`] *after* `balance`; the doubled surviving side undoes
     /// the dual-declaration halving `balance` already applied, matching libvgm.
     stereo: [u32; 2],
+    /// The user's listening trim for this chip instance, 8.8 fixed point
+    /// ([`balance::GAIN_UNITY`] = 1.0 = 100%), derived from the panel's percent
+    /// in [`apply_mix`](VgmEngine::apply_mix). Unity by default, so 100% is the
+    /// reference balance untouched; it only attenuates. Applied as a mono factor
+    /// alongside `balance` in [`Self::next_frame`], never saved or written to the
+    /// file -- it lives only in the ear.
+    trim: u32,
     /// How many channels this chip has, so [`apply_mix`](VgmEngine::apply_mix)
     /// can tell "every channel muted" from a partial mask.
     channel_count: u32,
@@ -92,6 +99,7 @@ impl Voice {
             resampler: Resampler::new(native, output_rate),
             balance,
             stereo: [crate::balance::GAIN_UNITY; 2],
+            trim: crate::balance::GAIN_UNITY,
             channel_count: vgms_core::vgm::channels_of(chip.kind, chip.variant).len() as u32,
             silenced: false,
         }
@@ -127,19 +135,22 @@ impl Voice {
             return [0, 0];
         }
         // Unity on every axis is the overwhelming common case (a single, centred
-        // chip): hand the core's frame straight back untouched. The stereo check
-        // is load-bearing -- a hard-panned voice whose balance happens to be
-        // unity must not skip its pan.
+        // chip at full trim): hand the core's frame straight back untouched. The
+        // stereo check is load-bearing -- a hard-panned voice whose balance
+        // happens to be unity must not skip its pan.
         if self.balance == crate::balance::GAIN_UNITY
+            && self.trim == crate::balance::GAIN_UNITY
             && self.stereo == [crate::balance::GAIN_UNITY; 2]
         {
             return frame;
         }
-        // Cross-chip balance (mono) first, then the whole-chip stereo placement.
+        // Cross-chip balance and the user trim (both mono) first, then the
+        // whole-chip stereo placement.
         let scale = |sample: i32, gain: u32| ((i64::from(sample) * i64::from(gain)) >> 8) as i32;
+        let mono = |sample: i32| scale(scale(sample, self.balance), self.trim);
         [
-            scale(scale(frame[0], self.balance), self.stereo[0]),
-            scale(scale(frame[1], self.balance), self.stereo[1]),
+            scale(mono(frame[0]), self.stereo[0]),
+            scale(mono(frame[1]), self.stereo[1]),
         ]
     }
 }
@@ -185,6 +196,10 @@ pub struct VgmEngine {
     muting: ChipMuting,
     /// The channel pans in force, reapplied the same way.
     panning: ChipPanning,
+    /// The per-chip listening trims in force, reapplied the same way. Purely a
+    /// gain the engine multiplies -- unlike mutes and pans it never travels to a
+    /// core, so it holds on every chip regardless of what the core supports.
+    trims: ChipTrims,
 }
 
 impl std::fmt::Debug for VgmEngine {
@@ -284,6 +299,7 @@ impl VgmEngine {
             output_rate: output_rate.max(1),
             muting: ChipMuting::new(),
             panning: ChipPanning::new(),
+            trims: ChipTrims::new(),
         }
     }
 
@@ -302,7 +318,16 @@ impl VgmEngine {
         self.apply_mix();
     }
 
-    /// Pushes the stored mutes and pans into every voice.
+    /// Applies (and keeps) the per-chip listening trims. Live, like muting: a
+    /// playing stream changes level mid-note. Purely a gain on the engine's
+    /// side, so it holds on every core -- one with no per-channel controls
+    /// included.
+    pub fn set_trims(&mut self, trims: ChipTrims) {
+        self.trims = trims;
+        self.apply_mix();
+    }
+
+    /// Pushes the stored mutes, pans and trims into every voice.
     ///
     /// Also called after every reset (rewind, seek): a core's mask and pans
     /// do not survive its own reset, so the engine restates them -- the
@@ -320,6 +345,13 @@ impl VgmEngine {
             // set, not merely enough bits: a stray high bit is not a mute.
             let full = (1u64 << voice.channel_count) - 1;
             voice.silenced = voice.channel_count > 0 && u64::from(mask) & full == full;
+            // The trim is the engine's own gain, so unlike the pans it never
+            // reaches the core: 100% is unity, and a percent maps to 8.8 by
+            // `percent * GAIN_UNITY / 100`.
+            let percent = self
+                .trims
+                .percent_for(voice.target.kind, voice.target.instance);
+            voice.trim = u32::from(percent) * crate::balance::GAIN_UNITY / 100;
             if let Some(pans) = self
                 .panning
                 .pans_for(voice.target.kind, voice.target.instance)
@@ -1002,6 +1034,51 @@ mod tests {
             out.iter().any(|&s| s != 0),
             "a partial mask is the core's business"
         );
+    }
+
+    #[test]
+    fn a_chip_trim_attenuates_the_voice_by_its_percent() {
+        /// Renders a constant, so the trim's effect on level is all that moves.
+        #[derive(Debug)]
+        struct Constant;
+        impl ChipCore for Constant {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(1000);
+            }
+        }
+
+        let file = vgm(&[(ChipKind::Ym2151, 3_579_545)], &[0x61, 0x00, 0x10, 0x66]);
+        let peak = |trim: Option<u8>| -> i32 {
+            let mut engine =
+                VgmEngine::with_cores(Arc::clone(&file), 44_100, |_| Some(Box::new(Constant)));
+            if let Some(percent) = trim {
+                let mut trims = ChipTrims::new();
+                trims.set(ChipKind::Ym2151, 0, percent);
+                engine.set_trims(trims);
+            }
+            let mut out = vec![0i16; 512];
+            engine.render(&mut out);
+            out.iter().map(|&s| i32::from(s).abs()).max().unwrap_or(0)
+        };
+
+        let full = peak(None);
+        assert!(full > 0, "sanity: the constant sounds at full trim");
+
+        // 50% is exactly half in 8.8 (128/256), applied linearly before the
+        // resample, so the peak lands within a sample of half the full peak.
+        let half = peak(Some(50));
+        let ratio = f64::from(half) / f64::from(full);
+        assert!(
+            (0.45..=0.55).contains(&ratio),
+            "a 50% trim should roughly halve the level: {half} vs {full}"
+        );
+
+        assert_eq!(peak(Some(0)), 0, "a 0% trim silences the voice");
     }
 
     #[test]

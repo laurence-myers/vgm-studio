@@ -36,7 +36,7 @@ pub mod write_queue;
 pub use banks::{Banks, BlockKind};
 pub use channel_gate::{ChannelGate, GateAction};
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_realtime, playability};
-pub use chip_mix::{ChipMuting, ChipPanning};
+pub use chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{DecompressionTable, decompress};
