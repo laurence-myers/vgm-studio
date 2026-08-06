@@ -103,7 +103,7 @@ impl RenderWavDialog {
                         super::CaptionSide::Row,
                     );
                     ui.add_enabled_ui(self.use_boost, |ui| {
-                        super::text_field(ui, palette, &mut self.boost, 44.0).on_hover_text(
+                        super::text_field(ui, palette, &mut self.boost, 80.0).on_hover_text(
                             crate::strings::render_wav_boost_range(MIN_BOOST, MAX_BOOST),
                         );
                         ui.label("x");
