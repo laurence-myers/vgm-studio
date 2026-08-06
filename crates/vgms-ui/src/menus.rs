@@ -3,7 +3,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 use vgms_core::SongFileType;
 
-use crate::action::{Action, FileAction, LoopAction, SettingsAction, UiAction};
+use crate::action::{Action, EditAction, FileAction, LoopAction, SettingsAction, UiAction};
 use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -202,12 +202,12 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 if is_dro {
                     ui.menu_button("Convert", |ui| {
                         if item(ui, "Convert to VGM", None) {
-                            actions.push(Action::ConvertToVgm);
+                            actions.push(Action::Edit(EditAction::ConvertToVgm));
                         }
                         // Only a v2 has anywhere to go: v1 is already the older
                         // format.
                         if state.is_dro_v2 && item(ui, "Convert to DRO v1", None) {
-                            actions.push(Action::ConvertToDro1);
+                            actions.push(Action::Edit(EditAction::ConvertToDro1));
                         }
                     });
                 }
@@ -251,10 +251,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             // Undo/Redo work on both tabs: the app fills can_undo/can_redo from
             // the editor's song history or the pack file-edit history to match.
             if enabled_item(ui, state.can_undo, &undo_label, Some(&UNDO)) {
-                actions.push(Action::Undo);
+                actions.push(Action::Edit(EditAction::Undo));
             }
             if enabled_item(ui, state.can_redo, &redo_label, Some(&REDO)) {
-                actions.push(Action::Redo);
+                actions.push(Action::Edit(EditAction::Redo));
             }
             // On the Pack tab the rest of this menu edits a song that is not on
             // screen. What belongs there instead are the batch operations the
@@ -299,10 +299,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             ui.menu_button("Find", |ui| {
                 widen(ui);
                 if item(ui, "Goto...", Some(&GOTO)) {
-                    actions.push(Action::OpenGoto);
+                    actions.push(Action::Edit(EditAction::OpenGoto));
                 }
                 if item(ui, "Find Register...", Some(&FIND_REGISTER)) {
-                    actions.push(Action::OpenFindRegister);
+                    actions.push(Action::Edit(EditAction::OpenFindRegister));
                 }
                 // Marking and looping work on a DRO too, so Find Loop is offered
                 // for both formats; only the dialog's Apply button is VGM-gated.
@@ -348,16 +348,16 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             });
             crate::theme::separator(ui, palette);
             if is_dro && enabled_item(ui, editor, "DRO Info...", Some(&DRO_INFO)) {
-                actions.push(Action::OpenDroInfo);
+                actions.push(Action::Edit(EditAction::OpenDroInfo));
             }
             if is_vgm && enabled_item(ui, editor, "Edit Tag", None) {
-                actions.push(Action::OpenEditTag);
+                actions.push(Action::Edit(EditAction::OpenEditTag));
             }
             if is_vgm && enabled_item(ui, editor, "Edit VGM Metadata", None) {
-                actions.push(Action::OpenVgmMetadata);
+                actions.push(Action::Edit(EditAction::OpenVgmMetadata));
             }
             if is_vgm && enabled_item(ui, editor, "Optimize VGM", None) {
-                actions.push(Action::OptimizeVgm);
+                actions.push(Action::Edit(EditAction::OptimizeVgm));
             }
             crate::theme::separator(ui, palette);
             // The three ways to take instructions out of the song, together: two
@@ -369,7 +369,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             // disagrees with its stream by accident, and the user cannot
             // know theirs does until they look.
             if is_vgm && enabled_item(ui, editor, "Fix Header…", None) {
-                actions.push(Action::AuditHeader);
+                actions.push(Action::Edit(EditAction::AuditHeader));
             }
             let marked = editor && state.has_marked_region;
             if enabled_item(ui, marked, "Crop to Marked Region", None) {
@@ -388,7 +388,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 )
                 .clicked()
             {
-                actions.push(Action::DeleteSelection);
+                actions.push(Action::Edit(EditAction::DeleteSelection));
             }
         });
 

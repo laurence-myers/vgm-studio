@@ -2,12 +2,12 @@
 //!
 //! View-only unless `ui.dro_info_edit_enabled` is set, in which case an
 //! Edit/Save toggle unlocks the hardware type and length. Saving goes through
-//! the undoable [`Action::UpdateHeader`] and the dialog stays open in edit mode
+//! the undoable [`EditAction::UpdateHeader`] and the dialog stays open in edit mode
 //! afterwards.
 
 use vgms_core::{OplType, Song};
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, EditAction, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// Every value here is a number, so the fields are sized for one rather than
@@ -146,10 +146,10 @@ impl DroInfoDialog {
     fn save(&mut self, actions: &mut Vec<Action>) {
         match self.length_text.trim().parse::<u32>() {
             Ok(ms_length) => {
-                actions.push(Action::UpdateHeader {
+                actions.push(Action::Edit(EditAction::UpdateHeader {
                     opl_type: self.opl_type,
                     ms_length,
-                });
+                }));
                 actions.push(Action::Ui(UiAction::Alert {
                     title: crate::strings::DRO_INFO_ALERT_TITLE.to_owned(),
                     message: crate::strings::DRO_INFO_UPDATED_MESSAGE.to_owned(),

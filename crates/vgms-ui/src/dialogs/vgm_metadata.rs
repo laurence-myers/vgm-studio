@@ -6,7 +6,7 @@
 //!   displayed read-only rather than edited.
 //! - Save applies the metadata, and invalid input gets an error box.
 
-use crate::action::{Action, MixerAction, UiAction};
+use crate::action::{Action, EditAction, MixerAction, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// These fields all hold a number, so they are sized for one rather than
@@ -236,13 +236,13 @@ impl VgmMetadataDialog {
             return false;
         };
 
-        actions.push(Action::SaveVgmMetadata {
+        actions.push(Action::Edit(EditAction::SaveVgmMetadata {
             loop_point,
             loop_end,
             loop_base,
             loop_modifier,
             volume_modifier,
-        });
+        }));
         true
     }
 
@@ -344,11 +344,11 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert!(matches!(
             actions.as_slice(),
-            [Action::SaveVgmMetadata {
+            [Action::Edit(EditAction::SaveVgmMetadata {
                 loop_point: Some(1),
                 loop_end: None,
                 ..
-            }]
+            })]
         ));
     }
 
@@ -379,10 +379,10 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert!(matches!(
             actions.as_slice(),
-            [Action::SaveVgmMetadata {
+            [Action::Edit(EditAction::SaveVgmMetadata {
                 volume_modifier: 32,
                 ..
-            }]
+            })]
         ));
     }
 

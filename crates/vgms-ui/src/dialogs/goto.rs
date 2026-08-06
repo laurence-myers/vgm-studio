@@ -2,7 +2,7 @@
 //! the user can jump repeatedly. Validation (and its exact status-bar
 //! messages) lives in the app.
 
-use crate::action::Action;
+use crate::action::{Action, EditAction};
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug, Default)]
@@ -42,7 +42,7 @@ impl GotoDialog {
                     close_clicked = true;
                 }
                 if bevel::button(ui, palette, "Go").clicked() || submitted {
-                    actions.push(Action::GotoSubmitted(self.input.clone()));
+                    actions.push(Action::Edit(EditAction::GotoSubmitted(self.input.clone())));
                 }
             });
         });

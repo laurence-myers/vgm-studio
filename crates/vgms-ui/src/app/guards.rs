@@ -109,7 +109,7 @@ impl VgmStudioApp {
         self.alerts.push_back(Alert::confirm(
             crate::strings::APP_FIX_HEADER_TITLE,
             message,
-            Action::ConfirmFixHeader,
+            Action::Edit(EditAction::ConfirmFixHeader),
         ));
     }
 

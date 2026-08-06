@@ -191,7 +191,7 @@ impl VgmStudioApp {
                                 .on_hover_text(crate::strings::APP_TIP_DELETE)
                                 .clicked()
                             {
-                                actions.push(Action::DeleteSelection);
+                                actions.push(Action::Edit(EditAction::DeleteSelection));
                             }
                             // Delete applies to any document; everything
                             // after it drives playback, which needs a stream
@@ -1013,13 +1013,13 @@ impl VgmStudioApp {
                 }
                 // Shifted variants first (egui ignores a surplus Shift).
                 if input.consume_shortcut(&menus::REDO_ALT) {
-                    actions.push(Action::Redo);
+                    actions.push(Action::Edit(EditAction::Redo));
                 }
                 if input.consume_shortcut(&menus::UNDO) {
-                    actions.push(Action::Undo);
+                    actions.push(Action::Edit(EditAction::Undo));
                 }
                 if input.consume_shortcut(&menus::REDO) {
-                    actions.push(Action::Redo);
+                    actions.push(Action::Edit(EditAction::Redo));
                 }
                 if input.consume_shortcut(&menus::HELP) {
                     actions.push(Action::Ui(UiAction::Help));
@@ -1051,25 +1051,25 @@ impl VgmStudioApp {
                 actions.push(Action::File(FileAction::Save));
             }
             if input.consume_shortcut(&menus::REDO_ALT) {
-                actions.push(Action::Redo);
+                actions.push(Action::Edit(EditAction::Redo));
             }
             if input.consume_shortcut(&menus::UNDO) {
-                actions.push(Action::Undo);
+                actions.push(Action::Edit(EditAction::Undo));
             }
             if input.consume_shortcut(&menus::REDO) {
-                actions.push(Action::Redo);
+                actions.push(Action::Edit(EditAction::Redo));
             }
             if input.consume_shortcut(&menus::OPEN) {
                 actions.push(Action::File(FileAction::Open));
             }
             if input.consume_shortcut(&menus::GOTO) {
-                actions.push(Action::OpenGoto);
+                actions.push(Action::Edit(EditAction::OpenGoto));
             }
             if input.consume_shortcut(&menus::FIND_REGISTER) {
-                actions.push(Action::OpenFindRegister);
+                actions.push(Action::Edit(EditAction::OpenFindRegister));
             }
             if input.consume_shortcut(&menus::DRO_INFO) {
-                actions.push(Action::OpenDroInfo);
+                actions.push(Action::Edit(EditAction::OpenDroInfo));
             }
             if input.consume_shortcut(&menus::HELP) {
                 actions.push(Action::Ui(UiAction::Help));
@@ -1088,7 +1088,7 @@ impl VgmStudioApp {
             if input.key_pressed(menus::DELETE_SELECTION.logical_key)
                 || input.key_pressed(menus::DELETE_SELECTION_ALT.logical_key)
             {
-                actions.push(Action::DeleteSelection);
+                actions.push(Action::Edit(EditAction::DeleteSelection));
             }
             if input.key_pressed(menus::PLAY_STOP.logical_key) {
                 actions.push(Action::Playback(PlaybackAction::TogglePlayback));

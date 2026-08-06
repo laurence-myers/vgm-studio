@@ -22,7 +22,7 @@ use vgms_synth::LoopCount;
 
 use super::VgmStudioApp;
 use crate::action::{
-    Action, AppTab, FileAction, LoopAction, MixerAction, PlaybackAction, UiAction,
+    Action, AppTab, EditAction, FileAction, LoopAction, MixerAction, PlaybackAction, UiAction,
 };
 use crate::pack::PackSection;
 use crate::platform::{

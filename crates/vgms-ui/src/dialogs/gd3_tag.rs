@@ -2,7 +2,7 @@
 
 use vgms_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
-use crate::action::Action;
+use crate::action::{Action, EditAction};
 use crate::theme::Palette;
 
 /// Labels in `Gd3Tag` field order; "orig" is GD3's original-language variant.
@@ -61,8 +61,8 @@ impl Gd3TagDialog {
             |ui| footer.show(ui),
         );
         if footer.primary_clicked() {
-            actions.push(Action::SaveGd3(Box::new(Gd3Tag::from_fields(
-                self.fields.clone(),
+            actions.push(Action::Edit(EditAction::SaveGd3(Box::new(
+                Gd3Tag::from_fields(self.fields.clone()),
             ))));
         }
         open && footer.clicked() == super::FooterClick::None

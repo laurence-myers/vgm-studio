@@ -155,7 +155,7 @@ fn cropping_to_the_markers_keeps_only_the_region() {
     );
 
     // And it undoes back to the whole song.
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(harness.state().editor.len(), len);
 }
 
@@ -178,7 +178,7 @@ fn deleting_the_marked_region_keeps_everything_else() {
         Some("Delete Marked Region")
     );
 
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(harness.state().editor.len(), len);
 }
 
@@ -244,7 +244,7 @@ fn deleting_instructions_slides_the_loop_markers() {
     act(&mut harness, Action::Loop(LoopAction::SetEnd(4)));
 
     harness.state_mut().editor.selection.select_only(0);
-    act(&mut harness, Action::DeleteSelection);
+    act(&mut harness, Action::Edit(EditAction::DeleteSelection));
 
     let markers = harness.state().editor.markers;
     assert_eq!(

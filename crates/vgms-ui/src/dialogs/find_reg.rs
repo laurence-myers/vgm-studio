@@ -10,7 +10,7 @@ use vgms_core::song::DRO_FILE_V1;
 use vgms_core::vgm::{ChipKind, VgmFile, VgmFindTarget};
 use vgms_core::{FindTarget, Song, SongFileType, chip_docs};
 
-use crate::action::{Action, FindQuery};
+use crate::action::{Action, EditAction, FindQuery};
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
@@ -147,18 +147,18 @@ impl FindRegDialog {
                 if bevel::button(ui, palette, "Find Next").clicked()
                     && let Some(query) = query.clone()
                 {
-                    actions.push(Action::FindRegister {
+                    actions.push(Action::Edit(EditAction::FindRegister {
                         query,
                         backwards: false,
-                    });
+                    }));
                 }
                 if bevel::button(ui, palette, "Find Previous").clicked()
                     && let Some(query) = query.clone()
                 {
-                    actions.push(Action::FindRegister {
+                    actions.push(Action::Edit(EditAction::FindRegister {
                         query,
                         backwards: true,
-                    });
+                    }));
                 }
             });
         });

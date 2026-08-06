@@ -16,7 +16,8 @@ use vgms_synth::{
 };
 
 use crate::action::{
-    Action, AppTab, FileAction, LoopAction, MixerAction, PlaybackAction, SettingsAction, UiAction,
+    Action, AppTab, EditAction, FileAction, LoopAction, MixerAction, PlaybackAction,
+    SettingsAction, UiAction,
 };
 use crate::alert::{self, Alert};
 use crate::dialogs::{

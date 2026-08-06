@@ -2007,7 +2007,7 @@ fn a_deleted_screenshot_can_be_undone_back_onto_disk() {
     assert_eq!(harness.state().pack_undo.len(), 1, "and it is undoable");
 
     // Undo writes the bytes the app still held straight back to the same path.
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     harness.run_steps(4);
     let files = handles.files.borrow();
     match files.save_requests.last().expect("the restoring write") {

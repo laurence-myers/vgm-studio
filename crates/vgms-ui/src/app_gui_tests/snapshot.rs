@@ -362,21 +362,21 @@ fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
     assert_eq!(harness.state().editor.selection.first(), Some(3));
 
     // Find Register opens the chip-picker dialog for a VGM (not "wrong file").
-    act(&mut harness, Action::OpenFindRegister);
+    act(&mut harness, Action::Edit(EditAction::OpenFindRegister));
     assert!(harness.state().dialogs.find_reg.is_some());
 
     // Searching for the AY8910's mixer write lands on row 2.
     harness.state_mut().editor.selection.select_only(0);
     act(
         &mut harness,
-        Action::FindRegister {
+        Action::Edit(EditAction::FindRegister {
             query: FindQuery::Vgm(VgmFindTarget::Write {
                 kind: vgms_core::ChipKind::Ay8910,
                 instance: Some(0),
                 addr: Some(0x07),
             }),
             backwards: false,
-        },
+        }),
     );
     assert_eq!(harness.state().editor.selection.first(), Some(2));
     assert!(
@@ -391,7 +391,7 @@ fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
 #[test]
 fn snapshot_find_register_vgm_dialog() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, true);
-    act(&mut harness, Action::OpenFindRegister);
+    act(&mut harness, Action::Edit(EditAction::OpenFindRegister));
     settled_snapshot(&mut harness, "find_register_vgm_dialog");
 }
 
@@ -426,7 +426,7 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
         "the restore leads"
     );
 
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(harness.state().editor.len(), rows);
     assert_eq!(
         harness.state().editor.save_bytes().unwrap(),
@@ -455,7 +455,7 @@ fn a_non_opl_document_can_have_a_region_deleted() {
         harness.state().status
     );
 
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
@@ -467,14 +467,14 @@ fn a_non_opl_document_can_be_edited_and_saved() {
     let rows = harness.state().editor.len();
 
     harness.state_mut().editor.selection.select_only(1);
-    act(&mut harness, Action::DeleteSelection);
+    act(&mut harness, Action::Edit(EditAction::DeleteSelection));
     assert_eq!(harness.state().editor.len(), rows - 1, "the row is gone");
 
     act(&mut harness, Action::File(FileAction::Save));
     let saved = handles.files.borrow().save_requests.len();
     assert_eq!(saved, 1, "the save reached the file service");
 
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(harness.state().editor.len(), rows);
 }
 
@@ -500,7 +500,7 @@ fn editing_a_non_opl_vgm_keeps_the_position_length_current() {
 
     // Delete the 10000-sample wait (row 1); the rest is a 735-sample wait.
     harness.state_mut().editor.selection.select_only(1);
-    act(&mut harness, Action::DeleteSelection);
+    act(&mut harness, Action::Edit(EditAction::DeleteSelection));
 
     let after = harness
         .state()
@@ -651,7 +651,7 @@ fn a_non_opl_capture_can_be_split_into_its_songs() {
 fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
 
-    act(&mut harness, Action::OpenEditTag);
+    act(&mut harness, Action::Edit(EditAction::OpenEditTag));
     assert!(
         harness.state().dialogs.gd3_tag.is_some(),
         "the tag dialog opens: {}",
@@ -675,7 +675,7 @@ fn a_non_opl_document_can_be_tagged_and_have_its_loop_edited() {
     );
     assert!(harness.state().editor.is_dirty(), "and it wants saving");
 
-    act(&mut harness, Action::OpenVgmMetadata);
+    act(&mut harness, Action::Edit(EditAction::OpenVgmMetadata));
     assert!(
         harness.state().dialogs.vgm_metadata.is_some(),
         "the metadata dialog opens: {}",
@@ -734,7 +734,7 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     );
 
     // And the disagreement is still there to be reported, not quietly gone.
-    act(&mut harness, Action::AuditHeader);
+    act(&mut harness, Action::Edit(EditAction::AuditHeader));
     assert!(
         !harness.state().alerts.is_empty(),
         "the falsified length is still reported: {}",
@@ -1070,7 +1070,7 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
     );
     assert!(!harness.state().editor.is_dirty());
 
-    act(&mut harness, Action::AuditHeader);
+    act(&mut harness, Action::Edit(EditAction::AuditHeader));
     let alert = harness.state().alerts.front().expect("it offers a fix");
     assert_eq!(alert.title, "Fix Header");
     assert!(alert.message.contains("999999"), "{}", alert.message);
@@ -1082,7 +1082,7 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
         "still untouched while the question is open"
     );
 
-    act(&mut harness, Action::ConfirmFixHeader);
+    act(&mut harness, Action::Edit(EditAction::ConfirmFixHeader));
     let app = harness.state();
     assert_eq!(app.editor.vgm().unwrap().header.total_samples(), 10_735);
     assert!(app.editor.is_dirty(), "and there is something to save");
@@ -1119,7 +1119,7 @@ fn a_non_opl_document_can_be_optimized() {
     let before = harness.state().editor.save_bytes().unwrap();
     assert_eq!(harness.state().editor.len(), 4);
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
     let app = harness.state();
     assert_eq!(app.editor.len(), 3, "the repeat is gone");
     assert!(app.status.contains("Optimized"), "{}", app.status);
@@ -1172,7 +1172,7 @@ fn a_chip_the_built_in_pass_cannot_touch_is_optimized_in_the_editor() {
     let before = harness.state().editor.save_bytes().unwrap();
     assert_eq!(harness.state().editor.len(), 4);
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
     let app = harness.state();
     assert_eq!(app.editor.len(), 3, "the repeat is gone");
     assert!(app.status.contains("Optimized"), "{}", app.status);
@@ -1280,7 +1280,7 @@ fn a_non_opl_document_can_have_its_loop_found_and_applied() {
 #[test]
 fn an_honest_header_reports_that_it_agrees() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
-    act(&mut harness, Action::AuditHeader);
+    act(&mut harness, Action::Edit(EditAction::AuditHeader));
     assert!(harness.state().alerts.is_empty());
     assert!(
         harness.state().status.contains("agrees with the stream"),

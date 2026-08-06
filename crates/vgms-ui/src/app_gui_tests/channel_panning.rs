@@ -645,7 +645,7 @@ fn measuring_the_modifier_fills_for_a_non_opl_vgm() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
     assert!(harness.state().editor.song().is_none(), "held as a VGM");
 
-    act(&mut harness, Action::OpenVgmMetadata);
+    act(&mut harness, Action::Edit(EditAction::OpenVgmMetadata));
     assert!(
         harness.state().dialogs.vgm_metadata.is_some(),
         "dialog opens"

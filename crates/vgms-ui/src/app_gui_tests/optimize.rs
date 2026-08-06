@@ -7,7 +7,7 @@ fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
     let (mut harness, _handles) = harness_with_vgm(&redundant_vgm_file());
     let before = harness.state().editor.len();
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
 
     let state = harness.state();
     assert!(
@@ -38,18 +38,18 @@ fn optimize_undo_then_redo_restores_the_exact_bytes() {
     };
     let original = stream_bytes(&harness);
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
     let optimized = stream_bytes(&harness);
     assert_ne!(optimized, original, "optimizing should change the stream");
 
-    act(&mut harness, Action::Undo);
+    act(&mut harness, Action::Edit(EditAction::Undo));
     assert_eq!(
         stream_bytes(&harness),
         original,
         "undo must restore the original bytes exactly"
     );
 
-    act(&mut harness, Action::Redo);
+    act(&mut harness, Action::Edit(EditAction::Redo));
     assert_eq!(
         stream_bytes(&harness),
         optimized,
@@ -62,7 +62,7 @@ fn optimizing_a_dro_is_refused() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let before = harness.state().editor.len();
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
 
     let state = harness.state();
     assert_eq!(state.editor.len(), before, "a DRO must be left untouched");
@@ -77,7 +77,7 @@ fn optimizing_an_already_optimal_vgm_reports_nothing() {
     harness.run();
     let before = harness.state().editor.len();
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
 
     let state = harness.state();
     assert_eq!(state.editor.len(), before, "nothing should change");
@@ -101,7 +101,7 @@ fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
         "loaded loop point"
     );
 
-    act(&mut harness, Action::OptimizeVgm);
+    act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
 
     let state = harness.state();
     let remapped = state
@@ -145,7 +145,7 @@ fn dro_info_offers_editing_when_the_setting_is_on() {
         |harness: &mut Harness<'static, VgmStudioApp>| harness.get_all_by_label("Edit").count();
 
     // Off by default: the dialog is view-only, so only the menu answers.
-    act(&mut harness, Action::OpenDroInfo);
+    act(&mut harness, Action::Edit(EditAction::OpenDroInfo));
     harness.run();
     assert!(harness.state().dialogs.dro_info.is_some());
     assert_eq!(
@@ -157,7 +157,7 @@ fn dro_info_offers_editing_when_the_setting_is_on() {
     harness.run();
 
     harness.state_mut().config.ui.dro_info_edit_enabled = true;
-    act(&mut harness, Action::OpenDroInfo);
+    act(&mut harness, Action::Edit(EditAction::OpenDroInfo));
     harness.run();
     assert_eq!(
         edit_nodes(&mut harness),
@@ -210,7 +210,7 @@ fn clicking_a_settings_caption_toggles_its_checkbox() {
     );
 
     // The DRO Info dialog now offers editing -- the user-visible payoff.
-    act(&mut harness, Action::OpenDroInfo);
+    act(&mut harness, Action::Edit(EditAction::OpenDroInfo));
     harness.run();
     assert_eq!(
         harness.get_all_by_label("Edit").count(),

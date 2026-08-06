@@ -7,159 +7,7 @@ impl VgmStudioApp {
         match action {
             Action::File(action) => self.handle_file_action(ctx, action),
 
-            Action::Undo => {
-                // On the pack tab, Undo reverses the last file edit; on the editor
-                // tab it reverses the last song edit.
-                if self.active_tab == AppTab::Pack {
-                    self.undo_pack_edit();
-                } else if self.require_document() {
-                    match self.editor.undo() {
-                        Some(description) => {
-                            self.status = crate::strings::app_status_undone(&description);
-                            self.after_edit();
-                        }
-                        None => self.status = crate::strings::APP_STATUS_NOTHING_TO_UNDO.to_owned(),
-                    }
-                }
-            }
-            Action::Redo => {
-                if self.active_tab == AppTab::Pack {
-                    self.redo_pack_edit();
-                } else if self.require_document() {
-                    match self.editor.redo() {
-                        Some(description) => {
-                            self.status = crate::strings::app_status_redone(&description);
-                            self.after_edit();
-                        }
-                        None => self.status = crate::strings::APP_STATUS_NOTHING_TO_REDO.to_owned(),
-                    }
-                }
-            }
-            Action::OpenGoto => {
-                if self.require_document() {
-                    self.dialogs.goto = Some(GotoDialog::new());
-                }
-            }
-            Action::OpenFindRegister => {
-                // Either document kind: an OPL song gets the token/register
-                // list, any other VGM the chip picker.
-                self.dialogs.find_reg = match (self.editor.song(), self.editor.vgm()) {
-                    (Some(song), _) => Some(FindRegDialog::new(song)),
-                    (None, Some(file)) => Some(FindRegDialog::for_vgm(file)),
-                    (None, None) => {
-                        self.require_document();
-                        None
-                    }
-                };
-            }
-            Action::OpenDroInfo => {
-                // The menu hides this for a VGM, so the shortcut must agree --
-                // otherwise Ctrl+I opens a dialog the menu says does not apply. A
-                // VGM's header is the VGM Metadata dialog's job. Checked before
-                // `require_song`, whose "needs an OPL song" message is for an empty
-                // editor, not a loaded VGM.
-                if self.editor.vgm().is_some() {
-                    self.status = crate::strings::APP_STATUS_DRO_INFO_VGM.to_owned();
-                    return;
-                }
-                if self.require_song() {
-                    let song = self.editor.song().expect("gated -- a DRO");
-                    let edit_allowed = self.config.ui.dro_info_edit_enabled;
-                    self.dialogs.dro_info = Some(DroInfoDialog::new(song, edit_allowed));
-                }
-            }
-            Action::OpenEditTag => {
-                if !self.require_document() {
-                    return;
-                }
-                // The document itself, not its OPL projection: the tag lives
-                // in the file, and the projection is only a view of the stream.
-                match self.editor.vgm() {
-                    // The tag lives in the file; a DRO has none.
-                    Some(file) => {
-                        self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
-                    }
-                    None => self.status = crate::strings::APP_STATUS_ONLY_VGM_TAG.to_owned(),
-                }
-            }
-            Action::OpenVgmMetadata => {
-                if !self.require_document() {
-                    return;
-                }
-                // Metadata lives in the VGM header; a DRO has none.
-                let dialog = self.editor.vgm().and_then(VgmMetadataDialog::for_vgm);
-                match dialog {
-                    Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
-                    None => self.status = crate::strings::APP_STATUS_NOT_VGM.to_owned(),
-                }
-            }
-            Action::ConvertToVgm => {
-                // `require_song` gates on an editable DRO; a VGM document is held
-                // as a `VgmFile` and never reaches here.
-                if !self.require_song() {
-                    return;
-                }
-                match self.editor.convert_to_vgm() {
-                    Ok(()) => {
-                        self.status = crate::strings::APP_STATUS_CONVERTED_VGM.to_owned();
-                        self.close_song_dialogs();
-                        self.scroll_to = Some(table::ScrollTo::centered(0));
-                        self.after_edit();
-                    }
-                    Err(message) => self.alerts.push_back(Alert::error(message)),
-                }
-            }
-            Action::ConvertToDro1 => {
-                if !self.require_song() {
-                    return;
-                }
-                match self.editor.convert_to_dro1() {
-                    Ok(()) => {
-                        self.status = crate::strings::APP_STATUS_CONVERTED_DRO1.to_owned();
-                        self.close_song_dialogs();
-                        self.scroll_to = Some(table::ScrollTo::centered(0));
-                        self.after_edit();
-                    }
-                    Err(message) => self.alerts.push_back(Alert::error(message)),
-                }
-            }
-            Action::DeleteSelection => {
-                if !self.require_document() {
-                    return;
-                }
-                if self.editor.delete_selection() {
-                    self.scroll_to = self.editor.selection.first().map(table::ScrollTo::centered);
-                    self.after_edit();
-                }
-            }
-            Action::AuditHeader => self.audit_header(),
-            Action::ConfirmFixHeader => {
-                let fixed = self.editor.fix_header();
-                self.status = match fixed {
-                    0 => crate::strings::APP_STATUS_HEADER_AGREES.to_owned(),
-                    1 => crate::strings::APP_STATUS_HEADER_FIXED_ONE.to_owned(),
-                    count => crate::strings::app_status_header_fixed(count),
-                };
-            }
-            Action::OptimizeVgm => {
-                if !self.editor.has_document() {
-                    self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
-                    return;
-                }
-                // Optimize is VGM-only; an editable DRO (`editor.song()`) is refused.
-                if self.editor.song().is_some() {
-                    self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
-                    return;
-                }
-                match self.editor.optimize_vgm(self.config.optimizer) {
-                    Some((commands, bytes)) => {
-                        self.status = crate::strings::app_status_optimized(commands, bytes);
-                        self.scroll_to = Some(table::ScrollTo::centered(0));
-                        self.after_edit();
-                    }
-                    None => self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned(),
-                }
-            }
+            Action::Edit(action) => self.handle_edit_action(action),
 
             Action::OpenPackFolder => {
                 if self.pack_is_dirty() {
@@ -254,48 +102,249 @@ impl VgmStudioApp {
 
             Action::Loop(action) => self.handle_loop_action(action),
 
-            Action::GotoSubmitted(text) => self.goto_submitted(&text),
-            Action::FindRegister { query, backwards } => self.find_register(&query, backwards),
-            Action::UpdateHeader {
-                opl_type,
-                ms_length,
-            } => {
-                self.editor.update_header(opl_type, ms_length);
-                // The chip type may have changed the high-bank visibility and the
-                // Original pan policy; after_edit invalidates the audio revision,
-                // so the next ensure_audio pushes the fresh panning.
-                self.channels.set_opl_type(opl_type, self.editor.song());
-                self.after_edit();
+            Action::Settings(action) => self.handle_settings_action(ctx, action),
+            Action::Ui(action) => self.handle_ui_action(action),
+        }
+    }
+
+    /// Edit actions: undo/redo, deletion, conversion, the header and tag
+    /// dialogs with their saves, and the find dialogs.
+    fn handle_edit_action(&mut self, action: EditAction) {
+        match action {
+            EditAction::AuditHeader => self.audit_header(),
+            EditAction::ConfirmFixHeader => {
+                let fixed = self.editor.fix_header();
+                self.status = match fixed {
+                    0 => crate::strings::APP_STATUS_HEADER_AGREES.to_owned(),
+                    1 => crate::strings::APP_STATUS_HEADER_FIXED_ONE.to_owned(),
+                    count => crate::strings::app_status_header_fixed(count),
+                };
             }
-            Action::SaveGd3(tag) => self.editor.set_gd3_tag(*tag),
-            Action::SaveVgmMetadata {
+            EditAction::ConvertToDro1 => self.on_convert_to_dro1(),
+            EditAction::ConvertToVgm => self.on_convert_to_vgm(),
+            EditAction::DeleteSelection => self.on_delete_selection(),
+            EditAction::FindRegister { query, backwards } => {
+                self.find_register(&query, backwards);
+            }
+            EditAction::GotoSubmitted(text) => self.goto_submitted(&text),
+            EditAction::OpenDroInfo => self.on_open_dro_info(),
+            EditAction::OpenEditTag => self.on_open_edit_tag(),
+            EditAction::OpenFindRegister => self.on_open_find_register(),
+            EditAction::OpenGoto => {
+                if self.require_document() {
+                    self.dialogs.goto = Some(GotoDialog::new());
+                }
+            }
+            EditAction::OpenVgmMetadata => self.on_open_vgm_metadata(),
+            EditAction::OptimizeVgm => self.on_optimize_vgm(),
+            EditAction::Redo => self.on_redo(),
+            EditAction::SaveGd3(tag) => self.editor.set_gd3_tag(*tag),
+            EditAction::SaveVgmMetadata {
                 loop_point,
                 loop_end,
                 loop_base,
                 loop_modifier,
                 volume_modifier,
             } => {
-                let dropped = self.editor.set_vgm_metadata(
+                self.on_save_vgm_metadata(
                     loop_point,
                     loop_end,
                     loop_base,
                     loop_modifier,
                     volume_modifier,
                 );
-                // The stored loop is now the marked one, so re-arm playback.
-                self.push_loop_config();
-                if dropped {
-                    self.alerts.push_back(Alert::new(
-                        crate::strings::APP_LOOP_CLEARED_TITLE,
-                        crate::strings::APP_LOOP_CLEARED_BODY,
-                    ));
-                } else {
-                    self.status = crate::strings::APP_STATUS_VGM_METADATA_UPDATED.to_owned();
-                }
             }
-            Action::Settings(action) => self.handle_settings_action(ctx, action),
-            Action::Ui(action) => self.handle_ui_action(action),
+            EditAction::Undo => self.on_undo(),
+            EditAction::UpdateHeader {
+                opl_type,
+                ms_length,
+            } => self.on_update_header(opl_type, ms_length),
         }
+    }
+
+    fn on_convert_to_dro1(&mut self) {
+        if !self.require_song() {
+            return;
+        }
+        match self.editor.convert_to_dro1() {
+            Ok(()) => {
+                self.status = crate::strings::APP_STATUS_CONVERTED_DRO1.to_owned();
+                self.close_song_dialogs();
+                self.scroll_to = Some(table::ScrollTo::centered(0));
+                self.after_edit();
+            }
+            Err(message) => self.alerts.push_back(Alert::error(message)),
+        }
+    }
+
+    fn on_convert_to_vgm(&mut self) {
+        // `require_song` gates on an editable DRO; a VGM document is held
+        // as a `VgmFile` and never reaches here.
+        if !self.require_song() {
+            return;
+        }
+        match self.editor.convert_to_vgm() {
+            Ok(()) => {
+                self.status = crate::strings::APP_STATUS_CONVERTED_VGM.to_owned();
+                self.close_song_dialogs();
+                self.scroll_to = Some(table::ScrollTo::centered(0));
+                self.after_edit();
+            }
+            Err(message) => self.alerts.push_back(Alert::error(message)),
+        }
+    }
+
+    fn on_delete_selection(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        if self.editor.delete_selection() {
+            self.scroll_to = self.editor.selection.first().map(table::ScrollTo::centered);
+            self.after_edit();
+        }
+    }
+
+    fn on_open_dro_info(&mut self) {
+        // The menu hides this for a VGM, so the shortcut must agree --
+        // otherwise Ctrl+I opens a dialog the menu says does not apply. A
+        // VGM's header is the VGM Metadata dialog's job. Checked before
+        // `require_song`, whose "needs an OPL song" message is for an empty
+        // editor, not a loaded VGM.
+        if self.editor.vgm().is_some() {
+            self.status = crate::strings::APP_STATUS_DRO_INFO_VGM.to_owned();
+            return;
+        }
+        if self.require_song() {
+            let song = self.editor.song().expect("gated -- a DRO");
+            let edit_allowed = self.config.ui.dro_info_edit_enabled;
+            self.dialogs.dro_info = Some(DroInfoDialog::new(song, edit_allowed));
+        }
+    }
+
+    fn on_open_edit_tag(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        // The document itself, not its OPL projection: the tag lives
+        // in the file, and the projection is only a view of the stream.
+        match self.editor.vgm() {
+            // The tag lives in the file; a DRO has none.
+            Some(file) => {
+                self.dialogs.gd3_tag = Some(Gd3TagDialog::new(file.tag.as_ref()));
+            }
+            None => self.status = crate::strings::APP_STATUS_ONLY_VGM_TAG.to_owned(),
+        }
+    }
+
+    fn on_open_find_register(&mut self) {
+        // Either document kind: an OPL song gets the token/register
+        // list, any other VGM the chip picker.
+        self.dialogs.find_reg = match (self.editor.song(), self.editor.vgm()) {
+            (Some(song), _) => Some(FindRegDialog::new(song)),
+            (None, Some(file)) => Some(FindRegDialog::for_vgm(file)),
+            (None, None) => {
+                self.require_document();
+                None
+            }
+        };
+    }
+
+    fn on_open_vgm_metadata(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        // Metadata lives in the VGM header; a DRO has none.
+        let dialog = self.editor.vgm().and_then(VgmMetadataDialog::for_vgm);
+        match dialog {
+            Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
+            None => self.status = crate::strings::APP_STATUS_NOT_VGM.to_owned(),
+        }
+    }
+
+    fn on_optimize_vgm(&mut self) {
+        if !self.editor.has_document() {
+            self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
+            return;
+        }
+        // Optimize is VGM-only; an editable DRO (`editor.song()`) is refused.
+        if self.editor.song().is_some() {
+            self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
+            return;
+        }
+        match self.editor.optimize_vgm(self.config.optimizer) {
+            Some((commands, bytes)) => {
+                self.status = crate::strings::app_status_optimized(commands, bytes);
+                self.scroll_to = Some(table::ScrollTo::centered(0));
+                self.after_edit();
+            }
+            None => self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned(),
+        }
+    }
+
+    fn on_redo(&mut self) {
+        if self.active_tab == AppTab::Pack {
+            self.redo_pack_edit();
+        } else if self.require_document() {
+            match self.editor.redo() {
+                Some(description) => {
+                    self.status = crate::strings::app_status_redone(&description);
+                    self.after_edit();
+                }
+                None => self.status = crate::strings::APP_STATUS_NOTHING_TO_REDO.to_owned(),
+            }
+        }
+    }
+
+    fn on_save_vgm_metadata(
+        &mut self,
+        loop_point: Option<usize>,
+        loop_end: Option<usize>,
+        loop_base: u8,
+        loop_modifier: u8,
+        volume_modifier: u8,
+    ) {
+        let dropped = self.editor.set_vgm_metadata(
+            loop_point,
+            loop_end,
+            loop_base,
+            loop_modifier,
+            volume_modifier,
+        );
+        // The stored loop is now the marked one, so re-arm playback.
+        self.push_loop_config();
+        if dropped {
+            self.alerts.push_back(Alert::new(
+                crate::strings::APP_LOOP_CLEARED_TITLE,
+                crate::strings::APP_LOOP_CLEARED_BODY,
+            ));
+        } else {
+            self.status = crate::strings::APP_STATUS_VGM_METADATA_UPDATED.to_owned();
+        }
+    }
+
+    fn on_undo(&mut self) {
+        // On the pack tab, Undo reverses the last file edit; on the editor
+        // tab it reverses the last song edit.
+        if self.active_tab == AppTab::Pack {
+            self.undo_pack_edit();
+        } else if self.require_document() {
+            match self.editor.undo() {
+                Some(description) => {
+                    self.status = crate::strings::app_status_undone(&description);
+                    self.after_edit();
+                }
+                None => self.status = crate::strings::APP_STATUS_NOTHING_TO_UNDO.to_owned(),
+            }
+        }
+    }
+
+    fn on_update_header(&mut self, opl_type: vgms_core::OplType, ms_length: u32) {
+        self.editor.update_header(opl_type, ms_length);
+        // The chip type may have changed the high-bank visibility and the
+        // Original pan policy; after_edit invalidates the audio revision,
+        // so the next ensure_audio pushes the fresh panning.
+        self.channels.set_opl_type(opl_type, self.editor.song());
+        self.after_edit();
     }
 
     /// File actions: open/save/close, quit, and the render and split exports.

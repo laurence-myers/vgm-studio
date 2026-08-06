@@ -166,7 +166,7 @@ mod e2e {
     use wasm_bindgen::{JsCast, JsValue};
 
     use vgms_ui::VgmStudioApp;
-    use vgms_ui::action::{Action, AppTab, FileAction, PlaybackAction, UiAction};
+    use vgms_ui::action::{Action, AppTab, EditAction, FileAction, PlaybackAction, UiAction};
     use vgms_ui::app::E2eSnapshot;
 
     /// The app and the egui context, retained so the JS hook can enqueue actions
@@ -276,8 +276,8 @@ mod e2e {
             "CloseFile" => Action::File(FileAction::Close),
             "ConfirmCloseFile" => Action::File(FileAction::ConfirmClose),
             // Edit
-            "Undo" => Action::Undo,
-            "Redo" => Action::Redo,
+            "Undo" => Action::Edit(EditAction::Undo),
+            "Redo" => Action::Edit(EditAction::Redo),
             "Status" => Action::Ui(UiAction::Status(arg.as_string().unwrap_or_default())),
             // Playback
             "Play" => Action::Playback(PlaybackAction::Play),

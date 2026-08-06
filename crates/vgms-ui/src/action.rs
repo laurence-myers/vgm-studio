@@ -33,25 +33,9 @@ pub enum Action {
     /// The song file: open/save/close, quit, and the render and split exports.
     File(FileAction),
 
-    // Edit
-    Undo,
-    Redo,
-    OpenGoto,
-    OpenFindRegister,
-    OpenDroInfo,
-    OpenEditTag,
-    OpenVgmMetadata,
-    ConvertToVgm,
-    /// Convert the loaded DRO v2 down to DRO v1.
-    ConvertToDro1,
-    DeleteSelection,
-    /// Strip redundant register writes and merge the delays left behind (VGM only).
-    OptimizeVgm,
-    /// Edit > Fix Header: audit the loaded VGM's header against its stream and
-    /// offer to correct what disagrees.
-    AuditHeader,
-    /// Apply the corrections the audit found, after the user confirmed them.
-    ConfirmFixHeader,
+    /// Editing the document: undo/redo, deletion, conversion, the header and
+    /// tag dialogs with their saves, and the find dialogs.
+    Edit(EditAction),
 
     // Pack mode
     /// Open the folder picker for a pack project (prompts first if the current
@@ -85,9 +69,7 @@ pub enum Action {
     /// undoable batch of header rewrites. `album` levels the pack by its loudest
     /// track; otherwise each track is normalised to its own peak. The pad passes
     /// the Album latch; the menu items say which they mean.
-    PackApplySuggestedModifiers {
-        album: bool,
-    },
+    PackApplySuggestedModifiers { album: bool },
     /// Rewrite every slash-separated release date (pack meta and each track's
     /// GD3) to hyphens -- the checklist's one-click date fix-assist.
     PackConvertDatesToHyphens,
@@ -137,23 +119,15 @@ pub enum Action {
     /// Open the quick-edit dialog (rename + GD3) for a track.
     OpenTrackQuickEdit(usize),
     /// Move a track up (`-1`) or down (`+1`) one slot, renumbering the files.
-    PackMoveTrack {
-        index: usize,
-        delta: isize,
-    },
+    PackMoveTrack { index: usize, delta: isize },
     /// Move a track to a position, renumbering the files: what dropping a dragged
     /// row emits. `to` is the destination index in the final list.
-    PackMoveTrackTo {
-        from: usize,
-        to: usize,
-    },
+    PackMoveTrackTo { from: usize, to: usize },
     /// Make a track the row the keyboard acts on (a click on it).
     PackFocusTrack(usize),
     /// Move the focused track one slot (`-1` up, `+1` down): Alt+arrow. The focus
     /// travels with it, so the keys can be pressed again straight away.
-    PackMoveFocusedTrack {
-        delta: isize,
-    },
+    PackMoveFocusedTrack { delta: isize },
     /// Losslessly recompress a screenshot and save it in place.
     RecompressImage(usize),
     /// Apply a quick edit: rewrite the file's GD3 tag and, if changed, its name.
@@ -180,16 +154,38 @@ pub enum Action {
     /// Loop points: the marked region, loop playback, and the loop search.
     Loop(LoopAction),
 
-    // Dialog submissions
-    GotoSubmitted(String),
+    /// Settings: opening the dialog, saving it, and its live previews.
+    Settings(SettingsAction),
+    /// App chrome: message boxes, the status bar, and the Help menu.
+    Ui(UiAction),
+}
+
+/// Editing the document: undo/redo, deletion, conversion, the header and tag
+/// dialogs with their saves, and the find dialogs. Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EditAction {
+    /// Edit > Fix Header: audit the loaded VGM's header against its stream and
+    /// offer to correct what disagrees.
+    AuditHeader,
+    /// Apply the corrections the audit found, after the user confirmed them.
+    ConfirmFixHeader,
+    /// Convert the loaded DRO v2 down to DRO v1.
+    ConvertToDro1,
+    ConvertToVgm,
+    DeleteSelection,
     FindRegister {
         query: FindQuery,
         backwards: bool,
     },
-    UpdateHeader {
-        opl_type: OplType,
-        ms_length: u32,
-    },
+    GotoSubmitted(String),
+    OpenDroInfo,
+    OpenEditTag,
+    OpenFindRegister,
+    OpenGoto,
+    OpenVgmMetadata,
+    /// Strip redundant register writes and merge the delays left behind (VGM only).
+    OptimizeVgm,
+    Redo,
     SaveGd3(Box<Gd3Tag>),
     SaveVgmMetadata {
         loop_point: Option<usize>,
@@ -199,10 +195,11 @@ pub enum Action {
         loop_modifier: u8,
         volume_modifier: u8,
     },
-    /// Settings: opening the dialog, saving it, and its live previews.
-    Settings(SettingsAction),
-    /// App chrome: message boxes, the status bar, and the Help menu.
-    Ui(UiAction),
+    Undo,
+    UpdateHeader {
+        opl_type: OplType,
+        ms_length: u32,
+    },
 }
 
 /// The song file: open/save/close, quit, and the render and split exports.
