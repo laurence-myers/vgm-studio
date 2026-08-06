@@ -6,7 +6,7 @@
 //!   displayed read-only rather than edited.
 //! - Save applies the metadata, and invalid input gets an error box.
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, MixerAction, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// These fields all hold a number, so they are sized for one rather than
@@ -166,7 +166,7 @@ impl VgmMetadataDialog {
                                 .on_hover_text(crate::strings::VGM_METADATA_MEASURE_HINT)
                                 .clicked()
                             {
-                                actions.push(Action::MeasureVolumeModifier);
+                                actions.push(Action::Mixer(MixerAction::MeasureVolumeModifier));
                             }
                             ui.label(self.volume_modifier_readout());
                         });

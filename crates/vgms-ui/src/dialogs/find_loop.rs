@@ -15,7 +15,7 @@
 use egui_extras::{Column, TableBuilder};
 use vgms_core::{Candidate, Song};
 
-use crate::action::Action;
+use crate::action::{Action, PlaybackAction};
 use crate::theme::{Palette, bevel};
 
 /// The minimum match length the dialog opens with, in seconds. A permissive
@@ -200,7 +200,7 @@ impl FindLoopDialog {
     fn on_audition(&self, actions: &mut Vec<Action>) {
         if let Some(candidate) = self.selected_candidate() {
             Self::mark(candidate, actions);
-            actions.push(Action::PlaySeam);
+            actions.push(Action::Playback(PlaybackAction::PlaySeam));
         }
     }
 
@@ -521,7 +521,7 @@ mod tests {
             vec![
                 Action::SetLoopStart(3),
                 Action::SetLoopEnd(9),
-                Action::PlaySeam
+                Action::Playback(PlaybackAction::PlaySeam)
             ]
         );
     }

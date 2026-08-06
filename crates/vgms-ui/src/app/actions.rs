@@ -363,57 +363,8 @@ impl VgmStudioApp {
                 self.bulk_tag_submitted(targets, *overlay);
             }
 
-            Action::Play => self.do_play(),
-            Action::Stop => self.do_stop(),
-            Action::PlayTail => self.do_play_tail(),
-            Action::PlaySeam => self.do_play_seam(),
-            Action::TogglePlayback => {
-                if !self.require_playable() {
-                    return;
-                }
-                if self.audio.is_playing() {
-                    self.do_stop();
-                } else {
-                    self.do_play();
-                }
-            }
-
-            Action::NextDelay => self.delay_navigate(false),
-            Action::PreviousDelay => self.delay_navigate(true),
-            Action::SelectionMove { delta, extend } => {
-                if let Some(row) = self
-                    .editor
-                    .selection
-                    .key_move(delta, extend, self.editor.len())
-                {
-                    self.scroll_to = Some(table::ScrollTo::centered(row));
-                }
-            }
-            Action::WaveformClicked { index, ms } => {
-                self.editor.selection.select_only(index);
-                // Bring the table to where playback would start, that row at the
-                // top: the click says "play from here", so what follows it is
-                // what the user wants to read -- not the rows before it, which
-                // is what centring would spend half the view on.
-                self.scroll_to = Some(table::ScrollTo::to_top(index));
-                if self.audio.is_playing() {
-                    // The click already carries the row's time; seek by it (the
-                    // engine addresses ms, not row index -- ou-2).
-                    self.audio.seek_ms(ms);
-                }
-                self.position.set_position_ms(ms);
-            }
-            Action::RewindToStart => {
-                // Restart live playback from the top; snap the cursor and the
-                // readout to zero whether or not anything is playing.
-                self.audio.rewind();
-                self.waveform.cursor_ms = 0;
-                self.editor.selection.select_only(0);
-                if self.audio.is_playing() {
-                    self.audio.seek_ms(0);
-                }
-                self.position.set_position_ms(0);
-            }
+            Action::Mixer(action) => self.handle_mixer_action(action),
+            Action::Playback(action) => self.handle_playback_action(action),
 
             Action::SetLoopStart(index) => self.set_loop_marker(Some(index), None),
             Action::SetLoopEnd(index) => self.set_loop_marker(None, Some(index)),
@@ -470,18 +421,6 @@ impl VgmStudioApp {
                 self.status = crate::strings::APP_STATUS_LOOP_SEARCH_CANCELLED.to_owned();
             }
 
-            Action::ToggleChannel(channel) => {
-                self.channels.toggle_selected_channel(channel);
-                self.push_muting();
-            }
-            Action::MutingChanged => self.push_muting(),
-            Action::PanningChanged => self.push_panning(),
-            Action::SetBoost { value, persist } => self.set_boost(value, persist),
-            Action::SetLockBoost(lock) => self.set_lock_boost(lock),
-            Action::MatchVolume => self.match_volume(),
-            Action::MeasureVolumeModifier => self.measure_volume_modifier(),
-            Action::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
-
             Action::GotoSubmitted(text) => self.goto_submitted(&text),
             Action::FindRegister { query, backwards } => self.find_register(&query, backwards),
             Action::UpdateHeader {
@@ -524,6 +463,89 @@ impl VgmStudioApp {
             Action::Settings(action) => self.handle_settings_action(ctx, action),
             Action::Ui(action) => self.handle_ui_action(action),
         }
+    }
+
+    /// Mixer actions: channel toggles, panning, and the volume lever.
+    fn handle_mixer_action(&mut self, action: MixerAction) {
+        match action {
+            MixerAction::MatchVolume => self.match_volume(),
+            MixerAction::MeasureVolumeModifier => self.measure_volume_modifier(),
+            MixerAction::MutingChanged => self.push_muting(),
+            MixerAction::PanningChanged => self.push_panning(),
+            MixerAction::SetBoost { value, persist } => self.set_boost(value, persist),
+            MixerAction::SetLockBoost(lock) => self.set_lock_boost(lock),
+            MixerAction::ToggleChannel(channel) => {
+                self.channels.toggle_selected_channel(channel);
+                self.push_muting();
+            }
+            MixerAction::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
+        }
+    }
+
+    /// Playback actions: transport, seeking, and row navigation.
+    fn handle_playback_action(&mut self, action: PlaybackAction) {
+        match action {
+            PlaybackAction::NextDelay => self.delay_navigate(false),
+            PlaybackAction::Play => self.do_play(),
+            PlaybackAction::PlaySeam => self.do_play_seam(),
+            PlaybackAction::PlayTail => self.do_play_tail(),
+            PlaybackAction::PreviousDelay => self.delay_navigate(true),
+            PlaybackAction::RewindToStart => self.on_rewind_to_start(),
+            PlaybackAction::SelectionMove { delta, extend } => {
+                self.on_selection_move(delta, extend);
+            }
+            PlaybackAction::Stop => self.do_stop(),
+            PlaybackAction::TogglePlayback => self.on_toggle_playback(),
+            PlaybackAction::WaveformClicked { index, ms } => self.on_waveform_clicked(index, ms),
+        }
+    }
+
+    fn on_rewind_to_start(&mut self) {
+        // Restart live playback from the top; snap the cursor and the
+        // readout to zero whether or not anything is playing.
+        self.audio.rewind();
+        self.waveform.cursor_ms = 0;
+        self.editor.selection.select_only(0);
+        if self.audio.is_playing() {
+            self.audio.seek_ms(0);
+        }
+        self.position.set_position_ms(0);
+    }
+
+    fn on_selection_move(&mut self, delta: isize, extend: bool) {
+        if let Some(row) = self
+            .editor
+            .selection
+            .key_move(delta, extend, self.editor.len())
+        {
+            self.scroll_to = Some(table::ScrollTo::centered(row));
+        }
+    }
+
+    fn on_toggle_playback(&mut self) {
+        if !self.require_playable() {
+            return;
+        }
+        if self.audio.is_playing() {
+            self.do_stop();
+        } else {
+            self.do_play();
+        }
+    }
+
+    fn on_waveform_clicked(&mut self, index: usize, ms: u32) {
+        self.editor.selection.select_only(index);
+        // Bring the table to where playback would start, that row at the
+        // top: the click says "play from here", so what follows it is
+        // what the user wants to read -- not the rows before it, which
+        // is what centring would spend half the view on.
+        self.scroll_to = Some(table::ScrollTo::to_top(index));
+        if self.audio.is_playing() {
+            // The click already carries the row's time; seek by it (the
+            // engine addresses ms, not row index -- ou-2).
+            self.audio.seek_ms(ms);
+        }
+        self.position.set_position_ms(ms);
     }
 
     /// Settings actions: the dialog, saving it, and its live previews.

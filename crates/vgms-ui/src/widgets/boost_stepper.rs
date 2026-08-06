@@ -7,7 +7,7 @@
 //! limiter engages, the ceiling stops the value rising further (the clipping
 //! guard).
 
-use crate::action::Action;
+use crate::action::{Action, MixerAction};
 use crate::theme::icon::Icon;
 use crate::theme::{self, Palette};
 use vgms_core::{
@@ -31,7 +31,7 @@ fn snapped_within_ceiling(desired: f32, ceiling: Option<f32>) -> f32 {
 
 /// Draws the volume lever right-aligned in the transport row: up/down arrows, an
 /// editable factor (`0.25x`..=`64.00x`), a "Volume" label, and a dividing
-/// groove. Emits [`Action::SetBoost`] on any change.
+/// groove. Emits [`MixerAction::SetBoost`] on any change.
 ///
 /// `boost` is the current factor. `ceiling`, when set, is the level at which the
 /// limiter began clipping this song; the up arrow and typed input are capped
@@ -67,7 +67,7 @@ pub(crate) fn boost_stepper(
             })
             .clicked()
         {
-            actions.push(Action::SetLockBoost(locked));
+            actions.push(Action::Mixer(MixerAction::SetLockBoost(locked)));
         }
 
         // Snap the stored factor to its nearest ladder position, then step and
@@ -93,10 +93,10 @@ pub(crate) fn boost_stepper(
                 .clicked()
                 && can_lower
             {
-                actions.push(Action::SetBoost {
+                actions.push(Action::Mixer(MixerAction::SetBoost {
                     value: down_factor,
                     persist: true,
-                });
+                }));
             }
             // The up arrow stays interactive so its hover can explain the cap (the
             // bevel button does not grey when disabled), but a click at the
@@ -112,10 +112,10 @@ pub(crate) fn boost_stepper(
                 .clicked()
                 && can_raise
             {
-                actions.push(Action::SetBoost {
+                actions.push(Action::Mixer(MixerAction::SetBoost {
                     value: up_factor,
                     persist: true,
-                });
+                }));
             }
         });
 
@@ -159,14 +159,16 @@ pub(crate) fn boost_stepper(
             // must change the volume, not toggle a channel. Routed as an action
             // rather than written to egui memory here, which would deadlock the
             // memory lock held during the draw.
-            actions.push(Action::VolumeFieldFocused(response.has_focus()));
+            actions.push(Action::Mixer(MixerAction::VolumeFieldFocused(
+                response.has_focus(),
+            )));
             // No continuous drag (speed 0), so a change is always a committed edit
             // -- persist it once, like an arrow click.
             if response.changed() {
-                actions.push(Action::SetBoost {
+                actions.push(Action::Mixer(MixerAction::SetBoost {
                     value: snapped_within_ceiling(value as f32, ceiling),
                     persist: true,
-                });
+                }));
             }
         });
 
@@ -184,7 +186,7 @@ pub(crate) fn boost_stepper(
                 })
                 .clicked()
             {
-                actions.push(Action::MatchVolume);
+                actions.push(Action::Mixer(MixerAction::MatchVolume));
             }
         });
         // ...and a beveled groove at full row height separates the volume section

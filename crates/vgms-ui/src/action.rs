@@ -231,36 +231,10 @@ pub enum Action {
         overlay: Box<BulkTagOverlay>,
     },
 
-    // Playback
-    Play,
-    Stop,
-    PlayTail,
-    /// Play the loop join: `tail_length` ms before the loop end, looping, so the
-    /// seam can be heard on its own.
-    PlaySeam,
-    TogglePlayback,
-    /// Jump the play position back to the very start.
-    RewindToStart,
-    /// The boost slider moved. `persist` is set once the interaction ends,
-    /// so vgmstudio.ini is written once per adjustment, not per frame.
-    SetBoost {
-        value: f32,
-        persist: bool,
-    },
-    /// The volume lever's "Match" button: measure the song's peak in the
-    /// background, then set the volume to bring it to full scale.
-    MatchVolume,
-    /// The volume lever's "Lock" toggle: `true` keeps the volume across songs
-    /// (and persists it); `false` lets each song set its own from its header
-    /// modifier.
-    SetLockBoost(bool),
-    /// The VGM metadata dialog's "Measure" button: measure the song's peak in the
-    /// background, then fill the volume-modifier field with a suggestion.
-    MeasureVolumeModifier,
-    /// Reported each frame by the volume field: whether it currently holds
-    /// keyboard focus. While it does, the editor's key shortcuts stand down so a
-    /// typed number edits the volume instead of toggling a channel.
-    VolumeFieldFocused(bool),
+    /// The mixer: channel toggles, panning, and the volume lever.
+    Mixer(MixerAction),
+    /// Transport and position: play/stop, seeking, and row navigation.
+    Playback(PlaybackAction),
 
     // Loop points
     /// Mark the loop start at an instruction index.
@@ -287,26 +261,6 @@ pub enum Action {
     /// Cancel a running loop search.
     CancelLoopSearch,
 
-    // Table navigation
-    NextDelay,
-    PreviousDelay,
-    /// Arrow-key selection movement; `extend` ranges with Shift.
-    SelectionMove {
-        delta: isize,
-        extend: bool,
-    },
-    /// The waveform was clicked at an instruction.
-    WaveformClicked {
-        index: usize,
-        ms: u32,
-    },
-
-    // Channel soloing
-    ToggleChannel(usize),
-    MutingChanged,
-    /// A pan knob or the Original/Custom mode toggle moved.
-    PanningChanged,
-
     // Dialog submissions
     GotoSubmitted(String),
     FindRegister {
@@ -330,6 +284,63 @@ pub enum Action {
     Settings(SettingsAction),
     /// App chrome: message boxes, the status bar, and the Help menu.
     Ui(UiAction),
+}
+
+/// The mixer: channel toggles, panning, and the volume lever.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MixerAction {
+    /// The volume lever's "Match" button: measure the song's peak in the
+    /// background, then set the volume to bring it to full scale.
+    MatchVolume,
+    /// The VGM metadata dialog's "Measure" button: measure the song's peak in the
+    /// background, then fill the volume-modifier field with a suggestion.
+    MeasureVolumeModifier,
+    MutingChanged,
+    /// A pan knob or the Original/Custom mode toggle moved.
+    PanningChanged,
+    /// The boost slider moved. `persist` is set once the interaction ends,
+    /// so vgmstudio.ini is written once per adjustment, not per frame.
+    SetBoost {
+        value: f32,
+        persist: bool,
+    },
+    /// The volume lever's "Lock" toggle: `true` keeps the volume across songs
+    /// (and persists it); `false` lets each song set its own from its header
+    /// modifier.
+    SetLockBoost(bool),
+    ToggleChannel(usize),
+    /// Reported each frame by the volume field: whether it currently holds
+    /// keyboard focus. While it does, the editor's key shortcuts stand down so a
+    /// typed number edits the volume instead of toggling a channel.
+    VolumeFieldFocused(bool),
+}
+
+/// Transport and position: play/stop, seeking, and moving through the rows.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlaybackAction {
+    NextDelay,
+    Play,
+    /// Play the loop join: `tail_length` ms before the loop end, looping, so the
+    /// seam can be heard on its own.
+    PlaySeam,
+    PlayTail,
+    PreviousDelay,
+    /// Jump the play position back to the very start.
+    RewindToStart,
+    /// Arrow-key selection movement; `extend` ranges with Shift.
+    SelectionMove {
+        delta: isize,
+        extend: bool,
+    },
+    Stop,
+    TogglePlayback,
+    /// The waveform was clicked at an instruction.
+    WaveformClicked {
+        index: usize,
+        ms: u32,
+    },
 }
 
 /// Settings: opening the dialog, saving it, and the live previews it drives.

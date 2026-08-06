@@ -88,7 +88,7 @@ impl VgmStudioApp {
                             .on_hover_text(crate::strings::APP_TIP_REWIND)
                             .clicked()
                         {
-                            actions.push(Action::RewindToStart);
+                            actions.push(Action::Playback(PlaybackAction::RewindToStart));
                         }
                         // Hardware output sends no samples through this program,
                         // so there is nothing to meter -- and a meter pinned at
@@ -201,25 +201,25 @@ impl VgmStudioApp {
                                     .on_hover_text(crate::strings::APP_TIP_PLAY)
                                     .clicked()
                                 {
-                                    actions.push(Action::Play);
+                                    actions.push(Action::Playback(PlaybackAction::Play));
                                 }
                                 if theme::bevel::icon_button(ui, p, theme::icon::Icon::Stop, "Stop")
                                     .on_hover_text(crate::strings::APP_TIP_STOP)
                                     .clicked()
                                 {
-                                    actions.push(Action::Stop);
+                                    actions.push(Action::Playback(PlaybackAction::Stop));
                                 }
                                 if theme::bevel::icon_button(ui, p, theme::icon::Icon::Tail, "Tail")
                                     .on_hover_text(self.play_tail_label())
                                     .clicked()
                                 {
-                                    actions.push(Action::PlayTail);
+                                    actions.push(Action::Playback(PlaybackAction::PlayTail));
                                 }
                                 if theme::bevel::icon_button(ui, p, theme::icon::Icon::Seam, "Seam")
                                     .on_hover_text(self.play_seam_label())
                                     .clicked()
                                 {
-                                    actions.push(Action::PlaySeam);
+                                    actions.push(Action::Playback(PlaybackAction::PlaySeam));
                                 }
                                 let mut looping = self.loop_enabled;
                                 if theme::bevel::icon_toggle(
@@ -284,10 +284,10 @@ impl VgmStudioApp {
                         // The panel hides its own high bank for a plain OPL2 song.
                         let channels = self.channels.show(ui, p, pan_supported, mute_supported);
                         if channels.muting_changed {
-                            actions.push(Action::MutingChanged);
+                            actions.push(Action::Mixer(MixerAction::MutingChanged));
                         }
                         if channels.panning_changed {
-                            actions.push(Action::PanningChanged);
+                            actions.push(Action::Mixer(MixerAction::PanningChanged));
                         }
                         ui.add_space(PAD);
                     });
@@ -1092,25 +1092,25 @@ impl VgmStudioApp {
                 actions.push(Action::DeleteSelection);
             }
             if input.key_pressed(menus::PLAY_STOP.logical_key) {
-                actions.push(Action::TogglePlayback);
+                actions.push(Action::Playback(PlaybackAction::TogglePlayback));
             }
             if input.key_pressed(menus::PREVIOUS_DELAY.logical_key) {
-                actions.push(Action::PreviousDelay);
+                actions.push(Action::Playback(PlaybackAction::PreviousDelay));
             }
             if input.key_pressed(menus::NEXT_DELAY.logical_key) {
-                actions.push(Action::NextDelay);
+                actions.push(Action::Playback(PlaybackAction::NextDelay));
             }
             if input.key_pressed(menus::SELECTION_UP.logical_key) {
-                actions.push(Action::SelectionMove {
+                actions.push(Action::Playback(PlaybackAction::SelectionMove {
                     delta: -1,
                     extend: mods.shift,
-                });
+                }));
             }
             if input.key_pressed(menus::SELECTION_DOWN.logical_key) {
-                actions.push(Action::SelectionMove {
+                actions.push(Action::Playback(PlaybackAction::SelectionMove {
                     delta: 1,
                     extend: mods.shift,
-                });
+                }));
             }
             // [ and ] bracket the loop around the focused row -- the fastest way
             // to mark a region, since the table is where an exact instruction is
@@ -1139,7 +1139,7 @@ impl VgmStudioApp {
             let bank = if mods.shift { 9 } else { 0 };
             for (offset, key) in NUMBER_KEYS.into_iter().enumerate() {
                 if input.key_pressed(key) {
-                    actions.push(Action::ToggleChannel(bank + offset));
+                    actions.push(Action::Mixer(MixerAction::ToggleChannel(bank + offset)));
                 }
             }
         });

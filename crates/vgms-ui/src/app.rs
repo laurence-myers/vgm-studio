@@ -15,7 +15,7 @@ use vgms_synth::{
     VgmRenderMix, VgmSplitOptions,
 };
 
-use crate::action::{Action, AppTab, SettingsAction, UiAction};
+use crate::action::{Action, AppTab, MixerAction, PlaybackAction, SettingsAction, UiAction};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
@@ -65,7 +65,10 @@ fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Optio
         (true, true) => Some(Action::SetLoopEnd(index)),
         // A plain right-click marks nothing; seeking is the left button's job.
         (false, true) => None,
-        (false, false) => Some(Action::WaveformClicked { index, ms }),
+        (false, false) => Some(Action::Playback(PlaybackAction::WaveformClicked {
+            index,
+            ms,
+        })),
     }
 }
 
@@ -309,7 +312,7 @@ pub struct VgmStudioApp {
     /// single value tracks the live purpose.
     volume_scan_purpose: VolumeScanPurpose,
     /// Whether the transport's volume field held keyboard focus as of the last
-    /// frame, reported by the lever via [`Action::VolumeFieldFocused`]. While it
+    /// frame, reported by the lever via [`MixerAction::VolumeFieldFocused`]. While it
     /// does, [`Self::gather_key_input`] stands the editor shortcuts down so typed
     /// numbers edit the value instead of toggling channels.
     volume_field_editing: bool,

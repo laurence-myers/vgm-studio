@@ -299,7 +299,7 @@ fn boost_up_arrow_steps_up_the_live_volume_without_persisting_when_unlocked() {
 fn a_locked_volume_change_is_persisted() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Locking the volume makes changes persist and carry across songs.
-    act(&mut harness, Action::SetLockBoost(true));
+    act(&mut harness, Action::Mixer(MixerAction::SetLockBoost(true)));
     let before = handles.saved_configs.borrow().len();
 
     harness.get_by_label("\u{25B2}").click(); // â–² louder
@@ -332,13 +332,13 @@ fn opening_a_song_sets_the_volume_from_its_header_modifier_when_unlocked() {
 fn a_locked_volume_ignores_the_songs_modifier_on_open() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     // Lock the volume at 4x.
-    act(&mut harness, Action::SetLockBoost(true));
+    act(&mut harness, Action::Mixer(MixerAction::SetLockBoost(true)));
     act(
         &mut harness,
-        Action::SetBoost {
+        Action::Mixer(MixerAction::SetBoost {
             value: 4.0,
             persist: true,
-        },
+        }),
     );
     // Opening a song whose modifier asks for 2x must not disturb the locked 4x.
     harness
@@ -371,7 +371,7 @@ fn a_non_opl_vgms_header_modifier_sets_the_load_volume() {
     );
 
     // Locked, opening a second non-OPL file keeps the volume, ignoring its 4x.
-    act(&mut harness, Action::SetLockBoost(true));
+    act(&mut harness, Action::Mixer(MixerAction::SetLockBoost(true)));
     let mut other = sms_vgm_file();
     other.bytes[0x7C] = 0x40; // would ask for 4x
     harness.state_mut().load_file(other);
@@ -387,17 +387,20 @@ fn a_non_opl_vgms_header_modifier_sets_the_load_volume() {
 fn unlocking_snaps_the_volume_to_the_current_songs_modifier() {
     // Locked at 4x over a song whose modifier asks for 2x.
     let (mut harness, _handles) = build(Some(picked_vgm(&vgm_with_modifier(0x20))), false, false);
-    act(&mut harness, Action::SetLockBoost(true));
+    act(&mut harness, Action::Mixer(MixerAction::SetLockBoost(true)));
     act(
         &mut harness,
-        Action::SetBoost {
+        Action::Mixer(MixerAction::SetBoost {
             value: 4.0,
             persist: true,
-        },
+        }),
     );
     assert_eq!(harness.state().config.audio.boost, 4.0);
     // Unlocking hands control back to the song: the volume snaps to its 2x now.
-    act(&mut harness, Action::SetLockBoost(false));
+    act(
+        &mut harness,
+        Action::Mixer(MixerAction::SetLockBoost(false)),
+    );
     assert!(
         (harness.state().config.audio.boost - 2.0).abs() < 1e-4,
         "unlocking snaps to the modifier: {}",
@@ -563,7 +566,7 @@ fn opening_a_song_cancels_a_running_volume_scan() {
     // A scan started for song A must not land on song B: its stale peak would
     // overwrite B's modifier-derived volume. Loading cancels the scan.
     let (mut harness, handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::MatchVolume);
+    act(&mut harness, Action::Mixer(MixerAction::MatchVolume));
     harness.state_mut().load_file(picked(&tone_song()));
     harness.run();
     assert!(
@@ -602,7 +605,7 @@ fn match_volume_measures_a_non_opl_vgm() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
     assert!(harness.state().editor.song().is_none(), "held as a VGM");
 
-    act(&mut harness, Action::MatchVolume);
+    act(&mut harness, Action::Mixer(MixerAction::MatchVolume));
     for _ in 0..4 {
         harness.step();
     }
@@ -647,7 +650,10 @@ fn measuring_the_modifier_fills_for_a_non_opl_vgm() {
         harness.state().dialogs.vgm_metadata.is_some(),
         "dialog opens"
     );
-    act(&mut harness, Action::MeasureVolumeModifier);
+    act(
+        &mut harness,
+        Action::Mixer(MixerAction::MeasureVolumeModifier),
+    );
     for _ in 0..4 {
         harness.step();
     }
@@ -669,7 +675,7 @@ fn match_volume_on_a_coreless_vgm_reports_nothing_to_play() {
         "no core for its chips"
     );
 
-    act(&mut harness, Action::MatchVolume);
+    act(&mut harness, Action::Mixer(MixerAction::MatchVolume));
     harness.run();
 
     assert!(
@@ -699,7 +705,10 @@ fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
 
     // Trigger the Measure scan; the inline scan stores its Peak, then a poll frame
     // routes it to the open dialog (the same delivery shape as Match Volume).
-    act(&mut harness, Action::MeasureVolumeModifier);
+    act(
+        &mut harness,
+        Action::Mixer(MixerAction::MeasureVolumeModifier),
+    );
     for _ in 0..4 {
         harness.step();
     }

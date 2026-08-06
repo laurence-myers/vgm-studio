@@ -356,9 +356,9 @@ fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
     assert!(harness.state().editor.song().is_none(), "held as a VGM");
 
     // ArrowRight steps to the first delay (row 1), then the second (row 3).
-    act(&mut harness, Action::NextDelay);
+    act(&mut harness, Action::Playback(PlaybackAction::NextDelay));
     assert_eq!(harness.state().editor.selection.first(), Some(1));
-    act(&mut harness, Action::NextDelay);
+    act(&mut harness, Action::Playback(PlaybackAction::NextDelay));
     assert_eq!(harness.state().editor.selection.first(), Some(3));
 
     // Find Register opens the chip-picker dialog for a VGM (not "wrong file").
@@ -931,7 +931,7 @@ fn a_vgm_this_app_can_play_gets_its_transport_back() {
     );
 
     // And playing it loads it into the audio output.
-    act(&mut harness, Action::Play);
+    act(&mut harness, Action::Playback(PlaybackAction::Play));
     let audio = handles.audio.borrow();
     assert_eq!(
         audio.loaded.as_ref().map(vgms_synth::AudioSource::name),
@@ -957,7 +957,10 @@ fn a_non_opl_vgm_waveform_click_seeks() {
         "but it still has a timeline to map clicks against"
     );
 
-    act(&mut harness, Action::WaveformClicked { index: 1, ms: 500 });
+    act(
+        &mut harness,
+        Action::Playback(PlaybackAction::WaveformClicked { index: 1, ms: 500 }),
+    );
     assert_eq!(harness.state().editor.selection.first(), Some(1));
     assert_eq!(harness.state().position.position_ms(), 500);
 }
@@ -1026,7 +1029,7 @@ fn a_non_opl_document_can_loop_a_marked_region() {
     assert_eq!(config.end, rows);
 
     // And auditioning the seam plays rather than refusing.
-    act(&mut harness, Action::PlaySeam);
+    act(&mut harness, Action::Playback(PlaybackAction::PlaySeam));
     assert!(
         handles.audio.borrow().playing,
         "the seam plays: {}",

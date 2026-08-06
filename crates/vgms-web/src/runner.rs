@@ -166,7 +166,7 @@ mod e2e {
     use wasm_bindgen::{JsCast, JsValue};
 
     use vgms_ui::VgmStudioApp;
-    use vgms_ui::action::{Action, AppTab, UiAction};
+    use vgms_ui::action::{Action, AppTab, PlaybackAction, UiAction};
     use vgms_ui::app::E2eSnapshot;
 
     /// The app and the egui context, retained so the JS hook can enqueue actions
@@ -280,8 +280,8 @@ mod e2e {
             "Redo" => Action::Redo,
             "Status" => Action::Ui(UiAction::Status(arg.as_string().unwrap_or_default())),
             // Playback
-            "Play" => Action::Play,
-            "Stop" => Action::Stop,
+            "Play" => Action::Playback(PlaybackAction::Play),
+            "Stop" => Action::Playback(PlaybackAction::Stop),
             // Pack
             "OpenPackFolder" => Action::OpenPackFolder,
             "OpenPackZip" => Action::OpenPackZip,

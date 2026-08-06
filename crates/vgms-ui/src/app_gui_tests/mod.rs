@@ -21,7 +21,7 @@ use vgms_core::config::{AppConfig, ThemeChoice};
 use vgms_synth::LoopCount;
 
 use super::VgmStudioApp;
-use crate::action::{Action, AppTab, UiAction};
+use crate::action::{Action, AppTab, MixerAction, PlaybackAction, UiAction};
 use crate::pack::PackSection;
 use crate::platform::{
     OptimizedImage, PackJobOutcome, PickedFile, PickedFolder, SaveOutcome, SaveRequest,

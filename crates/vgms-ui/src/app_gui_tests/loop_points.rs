@@ -57,7 +57,10 @@ fn changing_the_repeat_count_re_arms_the_region() {
 #[test]
 fn a_waveform_click_scrolls_the_table_to_the_row_it_will_play_from() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::WaveformClicked { index: 5, ms: 120 });
+    act(
+        &mut harness,
+        Action::Playback(PlaybackAction::WaveformClicked { index: 5, ms: 120 }),
+    );
 
     let state = harness.state();
     assert_eq!(state.editor.selection.first(), Some(5));
@@ -78,10 +81,10 @@ fn an_edit_that_outruns_the_playback_start_snaps_it_back_to_the_top() {
     let length_ms = harness.state().editor.song().unwrap().total_delay_ms();
     act(
         &mut harness,
-        Action::WaveformClicked {
+        Action::Playback(PlaybackAction::WaveformClicked {
             index: len - 1,
             ms: length_ms,
-        },
+        }),
     );
     assert!(harness.state().position.position_ms() > 0, "start is set");
 
@@ -114,7 +117,10 @@ fn a_crop_puts_the_playback_start_back_at_the_beginning() {
     // there would be starting somewhere the user never chose.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
-    act(&mut harness, Action::WaveformClicked { index: 1, ms: 5 });
+    act(
+        &mut harness,
+        Action::Playback(PlaybackAction::WaveformClicked { index: 1, ms: 5 }),
+    );
     assert_eq!(harness.state().position.position_ms(), 5);
 
     act(&mut harness, Action::SetLoopStart(0));
@@ -315,7 +321,7 @@ fn play_tail_seeks_near_the_end_of_a_non_opl_vgm() {
         .expect("a length")
         .total_ms();
 
-    act(&mut harness, Action::PlayTail);
+    act(&mut harness, Action::Playback(PlaybackAction::PlayTail));
 
     let log = handles.audio.borrow();
     assert_eq!(
@@ -330,7 +336,7 @@ fn play_seam_forces_looping_on_and_seeks_before_the_loop_end() {
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
     act(&mut harness, Action::SetLoopEnd(song.len()));
-    act(&mut harness, Action::PlaySeam);
+    act(&mut harness, Action::Playback(PlaybackAction::PlaySeam));
 
     assert!(
         harness.state().loop_enabled,
@@ -496,7 +502,10 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
     // Unmodified, the left button still seeks...
     assert_eq!(
         waveform_action(7, 500, false, false),
-        Some(Action::WaveformClicked { index: 7, ms: 500 })
+        Some(Action::Playback(PlaybackAction::WaveformClicked {
+            index: 7,
+            ms: 500
+        }))
     );
     // ...and the right button does nothing at all.
     assert_eq!(waveform_action(7, 500, true, false), None);
