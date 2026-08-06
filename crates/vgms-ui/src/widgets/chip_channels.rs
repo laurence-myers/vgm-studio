@@ -1,17 +1,19 @@
-//! A mute/solo (and, where the core allows, pan) panel for one chip instance.
+//! The channel panel: a mute/solo (and, where the core allows, pan) panel for
+//! one chip instance.
 //!
-//! The chip-agnostic counterpart of [`ChannelPanel`](super::channels::ChannelPanel):
-//! where that one knows OPL's two banks, drum groups and stereo-ext image, this
-//! one knows only what [`vgms_core::vgm::channels_of`] says -- a flat list of
-//! named channels. Left-click a toggle to mute, right-click to solo; the "All"
-//! button unmutes everything. Pan knobs appear only when the chip's core can
-//! place channels in the stereo image (see
+//! It knows only what [`vgms_core::vgm::channels_of`] says -- a flat list of
+//! named channels -- so it serves every chip, OPL included: a DRO drives it
+//! through its OPL projection just as a VGM drives it for each of its chips.
+//! Left-click a toggle to mute, right-click to solo; the "All" button unmutes
+//! everything. Pan knobs appear only when the chip's core can place channels in
+//! the stereo image (see
 //! [`CoreRegistry::pan_capable`](vgms_synth::CoreRegistry::pan_capable)); when it
 //! cannot, they are omitted rather than shown inert.
 //!
 //! Its output is a mute mask and a pan array for one `(kind, instance)`, which
 //! [`ChipPanels`](super::chip_panels::ChipPanels) folds into the whole
-//! document's [`ChipMuting`](vgms_synth::ChipMuting) / [`ChipPanning`].
+//! document's [`ChipMuting`](vgms_synth::ChipMuting) / [`ChipPanning`] -- or, for
+//! a DRO, bridges back to the OPL `Muting`/`Panning` its audio path consumes.
 
 use vgms_core::vgm::{ChannelInfo, ChipKind, channels_of};
 
@@ -262,10 +264,10 @@ impl GenericChannelPanel {
         before != self.pan_entry()
     }
 
-    /// Draws the panel, laid out like the OPL one: each group of channels is a
-    /// pan row directly above its toggle row, "All" leads the first toggle row,
-    /// and the Custom latch, Spread knob and Reset button close the first pan
-    /// row.
+    /// Draws the panel: each group of channels is a pan row directly above its
+    /// toggle row, "All" leads the first toggle row, and the Custom latch sits
+    /// above it in the pan row's "All" column, with the Spread knob and Reset
+    /// button closing the first pan row past the knobs.
     ///
     /// `pan_supported` decides whether the pan controls appear at all -- omitted,
     /// not greyed, when the core cannot pan. When it can, the knobs are always
@@ -295,8 +297,14 @@ impl GenericChannelPanel {
                     // The pan row above this group of toggles.
                     if pan_supported {
                         ui.label(if row_start == 0 { "Pan:" } else { "" });
-                        ui.label(""); // the "All" column, which has no pan
+                        // The "All" column: the Custom latch on the first row,
+                        // directly above the "All" button; empty on the rest.
                         let live = self.custom;
+                        if row_start == 0 {
+                            response.panning_changed |= self.custom_toggle(ui, palette);
+                        } else {
+                            ui.label("");
+                        }
                         for offset in 0..chunk.len() {
                             let label = self.channels[base + offset].name;
                             response.panning_changed |= pan_knob::show(
@@ -308,10 +316,10 @@ impl GenericChannelPanel {
                             )
                             .changed();
                         }
-                        // The mode controls close the first pan row, past the
-                        // knobs they govern.
+                        // The Spread knob and Reset button close the first pan
+                        // row, past the knobs they govern.
                         if row_start == 0 {
-                            response.panning_changed |= self.mode_controls(ui, palette);
+                            response.panning_changed |= self.spread_reset(ui, palette);
                         }
                         ui.end_row();
                     }
@@ -333,24 +341,33 @@ impl GenericChannelPanel {
         response
     }
 
-    /// The Custom latch, Spread knob and Reset button, shared with the OPL panel.
-    /// Returns whether the effective panning changed.
-    fn mode_controls(&mut self, ui: &mut egui::Ui, palette: &Palette) -> bool {
+    /// The Custom/Original latch, in the pan row's "All" column above the "All"
+    /// button. Returns whether the effective panning changed.
+    fn custom_toggle(&mut self, ui: &mut egui::Ui, palette: &Palette) -> bool {
         let mut custom = self.custom;
-        let mut spread = self.spread;
-        let mode = pan_controls::mode_controls(
+        if pan_controls::custom_toggle(
             ui,
             palette,
             &mut custom,
-            &mut spread,
             crate::strings::CHIP_CHANNELS_CUSTOM,
+        ) {
+            self.custom = custom;
+            return true;
+        }
+        false
+    }
+
+    /// The global Spread knob and Reset button, closing the first pan row.
+    /// Returns whether the effective panning changed.
+    fn spread_reset(&mut self, ui: &mut egui::Ui, palette: &Palette) -> bool {
+        let mut spread = self.spread;
+        let mode = pan_controls::spread_reset(
+            ui,
+            palette,
+            &mut spread,
             crate::strings::CHIP_CHANNELS_RESET,
         );
         let mut changed = false;
-        if mode.mode_toggled {
-            self.custom = custom;
-            changed = true;
-        }
         if mode.spread_changed {
             self.set_spread(spread);
             changed = true;

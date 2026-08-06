@@ -49,40 +49,47 @@ pub(crate) fn spread_into(pans: &mut [u8], strength: f32) {
     }
 }
 
-/// What [`mode_controls`] changed this frame. The fields are separate because the
-/// caller answers each differently: a mode flip only changes which image applies,
-/// a spread drag rewrites every pan, and a reset restores the defaults.
+/// Draws the Custom/Original latch on its own, writing the mode back through
+/// `custom`. Returns whether it toggled.
+///
+/// It sits in the pan row's "All" column, directly above the "All" button, so a
+/// panel's whole-panel pan mode reads left-to-right the way its muting does.
+/// `custom_hover` differs per panel (a generic chip says "the chip's own
+/// image").
+pub(crate) fn custom_toggle(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    custom: &mut bool,
+    custom_hover: &str,
+) -> bool {
+    bevel::icon_toggle(ui, palette, custom, Icon::Custom, "Custom")
+        .on_hover_text(custom_hover)
+        .changed()
+}
+
+/// What [`spread_reset`] changed this frame. Separate fields because the caller
+/// answers each differently: a spread drag rewrites every pan, a reset restores
+/// the defaults.
 #[derive(Debug, Clone, Copy, Default)]
-pub(crate) struct PanModeResponse {
-    /// The Custom/Original latch flipped (`custom` now holds the new mode).
-    pub(crate) mode_toggled: bool,
+pub(crate) struct SpreadReset {
     /// The Spread knob moved (`spread` now holds the new strength).
     pub(crate) spread_changed: bool,
     /// Reset was clicked.
     pub(crate) reset: bool,
 }
 
-/// Draws the Custom latch, the Spread knob and the Reset button in a row,
-/// writing the latch and the strength back through `custom` / `spread`.
+/// Draws the global Spread knob and the Reset button in a row, closing the pan
+/// row past the knobs they govern. Writes the strength back through `spread`.
 ///
-/// `custom_hover` differs per panel (OPL names what Original means for the song
-/// type; a generic chip says "the chip's own image"), as does `reset_hover`.
-pub(crate) fn mode_controls(
+/// `reset_hover` differs per panel.
+pub(crate) fn spread_reset(
     ui: &mut egui::Ui,
     palette: &Palette,
-    custom: &mut bool,
     spread: &mut f32,
-    custom_hover: &str,
     reset_hover: &str,
-) -> PanModeResponse {
-    let mut response = PanModeResponse::default();
+) -> SpreadReset {
+    let mut response = SpreadReset::default();
     ui.horizontal(|ui| {
-        if bevel::icon_toggle(ui, palette, custom, Icon::Custom, "Custom")
-            .on_hover_text(custom_hover)
-            .changed()
-        {
-            response.mode_toggled = true;
-        }
         // One global stereo-width control, -1..+1. 0 is mono, the extremes a wide
         // image. A drag engages Custom in the caller, so it is heard at once.
         ui.label("Spread:");
