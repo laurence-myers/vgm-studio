@@ -15,7 +15,9 @@ use vgms_synth::{
     VgmRenderMix, VgmSplitOptions,
 };
 
-use crate::action::{Action, AppTab, MixerAction, PlaybackAction, SettingsAction, UiAction};
+use crate::action::{
+    Action, AppTab, LoopAction, MixerAction, PlaybackAction, SettingsAction, UiAction,
+};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
@@ -61,8 +63,8 @@ fn about_text() -> String {
 /// everything sounding before the click is inside the loop.
 fn waveform_action(index: usize, ms: u32, secondary: bool, shift: bool) -> Option<Action> {
     match (shift, secondary) {
-        (true, false) => Some(Action::SetLoopStart(index)),
-        (true, true) => Some(Action::SetLoopEnd(index)),
+        (true, false) => Some(Action::Loop(LoopAction::SetStart(index))),
+        (true, true) => Some(Action::Loop(LoopAction::SetEnd(index))),
         // A plain right-click marks nothing; seeking is the left button's job.
         (false, true) => None,
         (false, false) => Some(Action::Playback(PlaybackAction::WaveformClicked {

@@ -405,9 +405,9 @@ fn a_non_opl_document_can_be_cropped_and_undone() {
     let rows = harness.state().editor.len();
 
     // Mark the second half and crop to it.
-    act(&mut harness, Action::SetLoopStart(2));
-    act(&mut harness, Action::SetLoopEnd(rows));
-    act(&mut harness, Action::CropToMarkers);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(2)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(rows)));
+    act(&mut harness, Action::Loop(LoopAction::CropToMarkers));
 
     let app = harness.state();
     assert!(
@@ -441,9 +441,9 @@ fn a_non_opl_document_can_have_a_region_deleted() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     let before = harness.state().editor.save_bytes().unwrap();
 
-    act(&mut harness, Action::SetLoopStart(0));
-    act(&mut harness, Action::SetLoopEnd(2));
-    act(&mut harness, Action::DeleteMarkedRegion);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(0)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(2)));
+    act(&mut harness, Action::Loop(LoopAction::DeleteMarkedRegion));
     assert!(
         harness.state().status.contains("Deleted 2 instruction(s)"),
         "{}",
@@ -1013,9 +1013,9 @@ fn a_non_opl_document_can_loop_a_marked_region() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
     let rows = harness.state().editor.len();
 
-    act(&mut harness, Action::SetLoopStart(1));
-    act(&mut harness, Action::SetLoopEnd(rows));
-    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(rows)));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
 
     let config = handles
         .audio
@@ -1227,14 +1227,14 @@ fn a_non_opl_document_can_have_its_loop_found_and_applied() {
         "held as a VGM, with no OPL projection"
     );
 
-    act(&mut harness, Action::OpenFindLoop);
+    act(&mut harness, Action::Loop(LoopAction::OpenSearch));
     assert!(harness.state().dialogs.find_loop.is_some());
     // Two writes is the body length; the search finds the one repeat.
     act(
         &mut harness,
-        Action::FindLoopSearch {
+        Action::Loop(LoopAction::Search {
             min_len_commands: 2,
-        },
+        }),
     );
     harness.run();
     assert_eq!(

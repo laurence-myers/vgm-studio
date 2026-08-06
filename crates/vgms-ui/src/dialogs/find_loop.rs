@@ -15,7 +15,7 @@
 use egui_extras::{Column, TableBuilder};
 use vgms_core::{Candidate, Song};
 
-use crate::action::{Action, PlaybackAction};
+use crate::action::{Action, LoopAction, PlaybackAction};
 use crate::theme::{Palette, bevel};
 
 /// The minimum match length the dialog opens with, in seconds. A permissive
@@ -185,15 +185,15 @@ impl FindLoopDialog {
         self.candidates.clear();
         self.selected = None;
         self.searching = true; // optimiztic; the task service confirms it next frame
-        actions.push(Action::FindLoopSearch {
+        actions.push(Action::Loop(LoopAction::Search {
             min_len_commands: self.min_len_commands(),
-        });
+        }));
     }
 
     /// Sets the editor's loop markers to `candidate`.
     fn mark(candidate: Candidate, actions: &mut Vec<Action>) {
-        actions.push(Action::SetLoopStart(candidate.loop_point));
-        actions.push(Action::SetLoopEnd(candidate.loop_end));
+        actions.push(Action::Loop(LoopAction::SetStart(candidate.loop_point)));
+        actions.push(Action::Loop(LoopAction::SetEnd(candidate.loop_end)));
     }
 
     /// Marks the selected candidate and plays its seam.
@@ -208,7 +208,7 @@ impl FindLoopDialog {
     fn on_apply(&self, actions: &mut Vec<Action>) {
         if let Some(candidate) = self.selected_candidate() {
             Self::mark(candidate, actions);
-            actions.push(Action::ApplyLoopToMetadata);
+            actions.push(Action::Loop(LoopAction::ApplyToMetadata));
         }
     }
 
@@ -254,7 +254,7 @@ impl FindLoopDialog {
                 ui.horizontal(|ui| {
                     if self.searching {
                         if bevel::button(ui, palette, "Cancel").clicked() {
-                            actions.push(Action::CancelLoopSearch);
+                            actions.push(Action::Loop(LoopAction::CancelSearch));
                         }
                         ui.spinner();
                         ui.colored_label(
@@ -471,9 +471,9 @@ mod tests {
         dialog.on_search(&mut actions);
         assert_eq!(
             actions,
-            vec![Action::FindLoopSearch {
+            vec![Action::Loop(LoopAction::Search {
                 min_len_commands: 200
-            }]
+            })]
         );
         assert!(
             dialog.searching,
@@ -506,7 +506,10 @@ mod tests {
         FindLoopDialog::mark(dialog.selected_candidate().unwrap(), &mut actions);
         assert_eq!(
             actions,
-            vec![Action::SetLoopStart(3), Action::SetLoopEnd(9)]
+            vec![
+                Action::Loop(LoopAction::SetStart(3)),
+                Action::Loop(LoopAction::SetEnd(9))
+            ]
         );
     }
 
@@ -519,8 +522,8 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                Action::SetLoopStart(3),
-                Action::SetLoopEnd(9),
+                Action::Loop(LoopAction::SetStart(3)),
+                Action::Loop(LoopAction::SetEnd(9)),
                 Action::Playback(PlaybackAction::PlaySeam)
             ]
         );
@@ -535,9 +538,9 @@ mod tests {
         assert_eq!(
             actions,
             vec![
-                Action::SetLoopStart(3),
-                Action::SetLoopEnd(9),
-                Action::ApplyLoopToMetadata
+                Action::Loop(LoopAction::SetStart(3)),
+                Action::Loop(LoopAction::SetEnd(9)),
+                Action::Loop(LoopAction::ApplyToMetadata)
             ]
         );
     }

@@ -3,7 +3,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 use vgms_core::SongFileType;
 
-use crate::action::{Action, SettingsAction, UiAction};
+use crate::action::{Action, LoopAction, SettingsAction, UiAction};
 use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -307,7 +307,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 // Marking and looping work on a DRO too, so Find Loop is offered
                 // for both formats; only the dialog's Apply button is VGM-gated.
                 if item(ui, "Find Loop...", None) {
-                    actions.push(Action::OpenFindLoop);
+                    actions.push(Action::Loop(LoopAction::OpenSearch));
                 }
             });
             // Everything about the loop region in one place: the two markers, the
@@ -324,7 +324,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                     .clicked()
                     && let Some(row) = state.focused_row
                 {
-                    actions.push(Action::SetLoopStart(row));
+                    actions.push(Action::Loop(LoopAction::SetStart(row)));
                 }
                 if ui
                     .add(
@@ -334,16 +334,16 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                     .clicked()
                     && let Some(row) = state.focused_row
                 {
-                    actions.push(Action::SetLoopEnd(row + 1));
+                    actions.push(Action::Loop(LoopAction::SetEnd(row + 1)));
                 }
                 if item(ui, "Clear Loop Markers", None) {
-                    actions.push(Action::ClearLoopMarkers);
+                    actions.push(Action::Loop(LoopAction::ClearMarkers));
                 }
                 // Marking and looping work on a DRO too -- auditioning a region
                 // is useful whatever the format -- but only a VGM has anywhere
                 // to store the result.
                 if is_vgm && item(ui, "Apply Loop to Metadata", None) {
-                    actions.push(Action::ApplyLoopToMetadata);
+                    actions.push(Action::Loop(LoopAction::ApplyToMetadata));
                 }
             });
             crate::theme::separator(ui, palette);
@@ -373,10 +373,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             let marked = editor && state.has_marked_region;
             if enabled_item(ui, marked, "Crop to Marked Region", None) {
-                actions.push(Action::CropToMarkers);
+                actions.push(Action::Loop(LoopAction::CropToMarkers));
             }
             if enabled_item(ui, marked, "Delete Marked Region", None) {
-                actions.push(Action::DeleteMarkedRegion);
+                actions.push(Action::Loop(LoopAction::DeleteMarkedRegion));
             }
             // The Del key is handled as a plain key, not a shortcut; the hint
             // matches the label "&Delete Instruction(s)\tDEL".

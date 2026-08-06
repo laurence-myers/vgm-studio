@@ -232,7 +232,7 @@ impl VgmStudioApp {
                                 .on_hover_text(crate::strings::APP_TIP_LOOP)
                                 .clicked()
                                 {
-                                    actions.push(Action::ToggleLoopPlayback);
+                                    actions.push(Action::Loop(LoopAction::TogglePlayback));
                                 }
                                 loop_stepper::loop_count_stepper(
                                     ui,
@@ -1118,10 +1118,10 @@ impl VgmStudioApp {
             // taking it into the loop rather than stopping just short of it.
             if let Some(row) = self.editor.selection.first() {
                 if input.key_pressed(menus::SET_LOOP_START.logical_key) {
-                    actions.push(Action::SetLoopStart(row));
+                    actions.push(Action::Loop(LoopAction::SetStart(row)));
                 }
                 if input.key_pressed(menus::SET_LOOP_END.logical_key) {
-                    actions.push(Action::SetLoopEnd(row + 1));
+                    actions.push(Action::Loop(LoopAction::SetEnd(row + 1)));
                 }
             }
             // 1..9 toggle channels 0..8; Shift+1..9 the high bank, channels 9..17.

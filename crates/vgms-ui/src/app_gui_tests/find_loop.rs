@@ -24,15 +24,15 @@ fn find_loop_is_offered_for_both_dro_and_vgm() {
 fn searching_finds_a_loop_and_applying_writes_it() {
     // Inline tasks so the background search runs synchronously on submit.
     let (mut harness, _handles) = build(Some(picked_vgm(&looping_vgm())), true, false);
-    act(&mut harness, Action::OpenFindLoop);
+    act(&mut harness, Action::Loop(LoopAction::OpenSearch));
     assert!(harness.state().dialogs.find_loop.is_some());
 
     // Four commands is the body length; the search finds the one repeat.
     act(
         &mut harness,
-        Action::FindLoopSearch {
+        Action::Loop(LoopAction::Search {
             min_len_commands: 4,
-        },
+        }),
     );
     harness.run(); // a poll frame delivers the streamed candidates
 
@@ -75,8 +75,8 @@ fn searching_finds_a_loop_and_applying_writes_it() {
 #[test]
 fn cancelling_a_search_stops_it() {
     let (mut harness, handles) = build(Some(picked_vgm(&looping_vgm())), false, false);
-    act(&mut harness, Action::OpenFindLoop);
-    act(&mut harness, Action::CancelLoopSearch);
+    act(&mut harness, Action::Loop(LoopAction::OpenSearch));
+    act(&mut harness, Action::Loop(LoopAction::CancelSearch));
     assert!(
         handles
             .tasks
@@ -91,12 +91,12 @@ fn cancelling_a_search_stops_it() {
 fn snapshot_find_loop_dialog() {
     // Inline tasks render a real result; wgpu renders the pixels.
     let (mut harness, _handles) = build(Some(picked_vgm(&looping_vgm())), true, true);
-    act(&mut harness, Action::OpenFindLoop);
+    act(&mut harness, Action::Loop(LoopAction::OpenSearch));
     act(
         &mut harness,
-        Action::FindLoopSearch {
+        Action::Loop(LoopAction::Search {
             min_len_commands: 4,
-        },
+        }),
     );
     harness.run();
     settled_snapshot(&mut harness, "find_loop_dialog");

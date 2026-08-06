@@ -9,8 +9,8 @@ fn marking_a_loop_pushes_the_region_only_while_looping_is_on() {
 
     // Markers move, but with looping off nothing but `None` reaches the engine:
     // Play still means "play the song".
-    act(&mut harness, Action::SetLoopStart(1));
-    act(&mut harness, Action::SetLoopEnd(3));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(3)));
     assert_eq!(
         (
             harness.state().editor.markers.start(),
@@ -23,25 +23,28 @@ fn marking_a_loop_pushes_the_region_only_while_looping_is_on() {
         "looping is off, so no region should be armed"
     );
 
-    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
     let armed = handles.audio.borrow().loops.last().copied().flatten();
     let armed = armed.expect("toggling looping on arms the marked region");
     assert_eq!((armed.start, armed.end), (1, 3));
 
     // Turning it back off disarms rather than leaving a stale region behind.
-    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
     assert!(handles.audio.borrow().loops.last().unwrap().is_none());
 
     // And a reset marks the whole song again.
-    act(&mut harness, Action::ClearLoopMarkers);
+    act(&mut harness, Action::Loop(LoopAction::ClearMarkers));
     assert!(harness.state().editor.markers.is_full(len));
 }
 
 #[test]
 fn changing_the_repeat_count_re_arms_the_region() {
     let (mut harness, handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::ToggleLoopPlayback);
-    act(&mut harness, Action::SetLoopCount(LoopCount::Times(3)));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
+    act(
+        &mut harness,
+        Action::Loop(LoopAction::SetCount(LoopCount::Times(3))),
+    );
 
     let armed = handles
         .audio
@@ -88,9 +91,9 @@ fn an_edit_that_outruns_the_playback_start_snaps_it_back_to_the_top() {
     );
     assert!(harness.state().position.position_ms() > 0, "start is set");
 
-    act(&mut harness, Action::SetLoopStart(0));
-    act(&mut harness, Action::SetLoopEnd(3));
-    act(&mut harness, Action::CropToMarkers);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(0)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(3)));
+    act(&mut harness, Action::Loop(LoopAction::CropToMarkers));
 
     let state = harness.state();
     assert!(state.editor.len() < len, "the song was cropped");
@@ -123,9 +126,9 @@ fn a_crop_puts_the_playback_start_back_at_the_beginning() {
     );
     assert_eq!(harness.state().position.position_ms(), 5);
 
-    act(&mut harness, Action::SetLoopStart(0));
-    act(&mut harness, Action::SetLoopEnd(len - 1));
-    act(&mut harness, Action::CropToMarkers);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(0)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(len - 1)));
+    act(&mut harness, Action::Loop(LoopAction::CropToMarkers));
 
     let state = harness.state();
     assert_eq!(state.position.position_ms(), 0);
@@ -137,10 +140,10 @@ fn a_crop_puts_the_playback_start_back_at_the_beginning() {
 fn cropping_to_the_markers_keeps_only_the_region() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
-    act(&mut harness, Action::SetLoopStart(2));
-    act(&mut harness, Action::SetLoopEnd(len - 1));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(2)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(len - 1)));
 
-    act(&mut harness, Action::CropToMarkers);
+    act(&mut harness, Action::Loop(LoopAction::CropToMarkers));
     let state = harness.state();
     assert!(state.editor.len() < len, "the song was cropped");
     assert!(state.status.starts_with("Cropped to "), "{}", state.status);
@@ -160,10 +163,10 @@ fn cropping_to_the_markers_keeps_only_the_region() {
 fn deleting_the_marked_region_keeps_everything_else() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
-    act(&mut harness, Action::SetLoopStart(1));
-    act(&mut harness, Action::SetLoopEnd(3));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(3)));
 
-    act(&mut harness, Action::DeleteMarkedRegion);
+    act(&mut harness, Action::Loop(LoopAction::DeleteMarkedRegion));
     let state = harness.state();
     assert!(
         state.status.starts_with("Deleted 2 instruction(s)"),
@@ -187,7 +190,10 @@ fn the_region_edits_need_a_region_to_act_on() {
 
     // ...and the actions decline rather than edit anything if they fire anyway.
     let len = harness.state().editor.len();
-    for action in [Action::CropToMarkers, Action::DeleteMarkedRegion] {
+    for action in [
+        Action::Loop(LoopAction::CropToMarkers),
+        Action::Loop(LoopAction::DeleteMarkedRegion),
+    ] {
         act(&mut harness, action);
         let state = harness.state();
         assert_eq!(state.editor.len(), len);
@@ -200,7 +206,7 @@ fn the_region_edits_need_a_region_to_act_on() {
     }
 
     // Marking one enables them.
-    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
     assert!(harness.state().menu_state().has_marked_region);
 }
 
@@ -210,11 +216,11 @@ fn a_cropped_region_re_arms_looping_over_the_new_stream() {
     // be re-armed over what is actually there now.
     let (mut harness, handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
-    act(&mut harness, Action::ToggleLoopPlayback);
-    act(&mut harness, Action::SetLoopStart(2));
-    act(&mut harness, Action::SetLoopEnd(len - 1));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(2)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(len - 1)));
 
-    act(&mut harness, Action::CropToMarkers);
+    act(&mut harness, Action::Loop(LoopAction::CropToMarkers));
     let cropped_len = harness.state().editor.len();
     let armed = handles
         .audio
@@ -234,8 +240,8 @@ fn a_cropped_region_re_arms_looping_over_the_new_stream() {
 #[test]
 fn deleting_instructions_slides_the_loop_markers() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::SetLoopStart(2));
-    act(&mut harness, Action::SetLoopEnd(4));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(2)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(4)));
 
     harness.state_mut().editor.selection.select_only(0);
     act(&mut harness, Action::DeleteSelection);
@@ -251,7 +257,7 @@ fn deleting_instructions_slides_the_loop_markers() {
 #[test]
 fn applying_a_loop_to_a_dro_explains_itself_instead_of_failing_quietly() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::ApplyLoopToMetadata);
+    act(&mut harness, Action::Loop(LoopAction::ApplyToMetadata));
     harness.run_steps(2);
     assert!(
         harness
@@ -267,14 +273,14 @@ fn applying_a_loop_writes_the_vgm_metadata() {
     harness.state_mut().editor.convert_to_vgm().unwrap();
     let len = harness.state().editor.len();
 
-    act(&mut harness, Action::SetLoopStart(1));
-    act(&mut harness, Action::SetLoopEnd(len - 1));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(len - 1)));
     assert!(
         harness.state().editor.loop_markers_are_unapplied(),
         "the markers differ from the stored loop until applied"
     );
 
-    act(&mut harness, Action::ApplyLoopToMetadata);
+    act(&mut harness, Action::Loop(LoopAction::ApplyToMetadata));
     let file = harness.state().editor.vgm().unwrap().clone();
     assert_eq!(file.loop_index(), Some(1));
     // The stored end is what the header can express: it holds the loop's length
@@ -296,8 +302,8 @@ fn applying_a_loop_writes_the_vgm_metadata() {
 
     // An end at the song's end is stored as "to the end", not a fixed index --
     // so a later trim widens the loop with the song instead of stranding it.
-    act(&mut harness, Action::SetLoopEnd(len));
-    act(&mut harness, Action::ApplyLoopToMetadata);
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(len)));
+    act(&mut harness, Action::Loop(LoopAction::ApplyToMetadata));
     let meta = harness.state().editor.vgm().unwrap().vgm_meta();
     assert_eq!(meta.loop_end, None);
 }
@@ -335,7 +341,7 @@ fn play_tail_seeks_near_the_end_of_a_non_opl_vgm() {
 fn play_seam_forces_looping_on_and_seeks_before_the_loop_end() {
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
-    act(&mut harness, Action::SetLoopEnd(song.len()));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(song.len())));
     act(&mut harness, Action::Playback(PlaybackAction::PlaySeam));
 
     assert!(
@@ -393,7 +399,7 @@ fn the_loop_overlay_appears_only_once_there_is_something_to_show() {
     );
 
     // Switching looping on shows the region even though it is still the whole song.
-    act(&mut harness, Action::ToggleLoopPlayback);
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
     harness.run_steps(2);
     let overlay = harness
         .state()
@@ -403,8 +409,8 @@ fn the_loop_overlay_appears_only_once_there_is_something_to_show() {
     assert!(overlay.active);
 
     // Marking a region shows them with looping off too.
-    act(&mut harness, Action::ToggleLoopPlayback);
-    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
     harness.run_steps(2);
     let overlay = harness
         .state()
@@ -418,7 +424,7 @@ fn the_loop_overlay_appears_only_once_there_is_something_to_show() {
 fn the_overlay_flags_an_unapplied_region_until_it_is_written() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     harness.state_mut().editor.convert_to_vgm().unwrap();
-    act(&mut harness, Action::SetLoopStart(1));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
     harness.run_steps(2);
     assert!(
         harness
@@ -430,7 +436,7 @@ fn the_overlay_flags_an_unapplied_region_until_it_is_written() {
         "the region differs from the song's stored loop"
     );
 
-    act(&mut harness, Action::ApplyLoopToMetadata);
+    act(&mut harness, Action::Loop(LoopAction::ApplyToMetadata));
     harness.run_steps(2);
     assert!(
         !harness
@@ -452,10 +458,13 @@ fn snapshot_loop_overlay() {
     harness.state_mut().editor.convert_to_vgm().unwrap();
     // Instruction 9 opens the first burst and every fourth one after it starts
     // the next 100 ms, so 13..25 is the region from 100 ms to 400 ms of 600.
-    act(&mut harness, Action::SetLoopStart(13));
-    act(&mut harness, Action::SetLoopEnd(25));
-    act(&mut harness, Action::ToggleLoopPlayback);
-    act(&mut harness, Action::SetLoopCount(LoopCount::Times(4)));
+    act(&mut harness, Action::Loop(LoopAction::SetStart(13)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(25)));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
+    act(
+        &mut harness,
+        Action::Loop(LoopAction::SetCount(LoopCount::Times(4))),
+    );
     harness.run();
     settled_snapshot(&mut harness, "loop_overlay");
 }
@@ -466,8 +475,8 @@ fn an_applied_loop_is_guarded_by_the_discard_prompt() {
     // so an Open over it must prompt rather than throw it away.
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.state_mut().editor.convert_to_vgm().unwrap();
-    act(&mut harness, Action::SetLoopStart(1));
-    act(&mut harness, Action::ApplyLoopToMetadata);
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::ApplyToMetadata));
     assert!(
         harness.state().editor.is_dirty(),
         "applying a loop leaves unsaved changes"
@@ -493,11 +502,11 @@ fn shift_brackets_the_loop_with_the_two_mouse_buttons() {
     // Shift+left marks the start, Shift+right the end -- one gesture apart.
     assert_eq!(
         waveform_action(7, 500, false, true),
-        Some(Action::SetLoopStart(7))
+        Some(Action::Loop(LoopAction::SetStart(7)))
     );
     assert_eq!(
         waveform_action(7, 500, true, true),
-        Some(Action::SetLoopEnd(7))
+        Some(Action::Loop(LoopAction::SetEnd(7)))
     );
     // Unmodified, the left button still seeks...
     assert_eq!(

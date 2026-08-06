@@ -7,14 +7,14 @@
 
 use vgms_synth::LoopCount;
 
-use crate::action::Action;
+use crate::action::{Action, LoopAction};
 use crate::theme::{self, Palette};
 
 /// The highest finite count the stepper offers before "without end".
 const MAX_FINITE: u32 = 9;
 
 /// Draws the stepper: down arrow, the current count, up arrow. Emits
-/// [`Action::SetLoopCount`] on a change.
+/// [`LoopAction::SetCount`] on a change.
 pub(crate) fn loop_count_stepper(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -34,7 +34,7 @@ pub(crate) fn loop_count_stepper(
             .clicked()
             && let Some(fewer) = decrement(count)
         {
-            actions.push(Action::SetLoopCount(fewer));
+            actions.push(Action::Loop(LoopAction::SetCount(fewer)));
         }
 
         // The count in a sunken well, like the boost value beside it. Painted
@@ -54,7 +54,7 @@ pub(crate) fn loop_count_stepper(
             .clicked()
             && let Some(more) = increment(count)
         {
-            actions.push(Action::SetLoopCount(more));
+            actions.push(Action::Loop(LoopAction::SetCount(more)));
         }
     });
 }

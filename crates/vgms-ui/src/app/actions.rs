@@ -153,19 +153,6 @@ impl VgmStudioApp {
                     }
                 };
             }
-            Action::OpenFindLoop => {
-                // Either representation: the dialog wants a time per row and a
-                // command density, both of which a VGM can give directly.
-                let doc = match (self.editor.snapshot(), self.editor.vgm()) {
-                    (Some(song), _) => Some(crate::dialogs::LoopSearchDoc::from_song(&song)),
-                    (None, Some(file)) => Some(crate::dialogs::LoopSearchDoc::from_vgm(file)),
-                    (None, None) => None,
-                };
-                match doc {
-                    Some(doc) => self.dialogs.find_loop = Some(FindLoopDialog::new(doc)),
-                    None => self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned(),
-                }
-            }
             Action::OpenDroInfo => {
                 // The menu hides this for a VGM, so the shortcut must agree --
                 // otherwise Ctrl+I opens a dialog the menu says does not apply. A
@@ -366,60 +353,7 @@ impl VgmStudioApp {
             Action::Mixer(action) => self.handle_mixer_action(action),
             Action::Playback(action) => self.handle_playback_action(action),
 
-            Action::SetLoopStart(index) => self.set_loop_marker(Some(index), None),
-            Action::SetLoopEnd(index) => self.set_loop_marker(None, Some(index)),
-            Action::ClearLoopMarkers => {
-                self.editor.markers = RangeMarkers::full(self.editor.len());
-                self.push_loop_config();
-                self.status = crate::strings::APP_STATUS_LOOP_RESET.to_owned();
-            }
-            Action::ToggleLoopPlayback => {
-                self.loop_enabled = !self.loop_enabled;
-                self.push_loop_config();
-            }
-            Action::SetLoopCount(count) => {
-                self.loop_count = count;
-                self.push_loop_config();
-            }
-            Action::ApplyLoopToMetadata => self.apply_loop_to_metadata(),
-            Action::CropToMarkers => {
-                if !self.require_document() {
-                    return;
-                }
-                match self.editor.crop_to_markers() {
-                    Some((kept, restored)) => {
-                        // The restored writes are instructions the user did not
-                        // put there, so they are worth accounting for -- but only
-                        // when there were any; a "0" reads as a puzzle.
-                        self.status = match restored {
-                            0 => crate::strings::app_status_cropped(kept),
-                            n => crate::strings::app_status_cropped_restored(kept, n),
-                        };
-                        self.after_region_edit();
-                    }
-                    None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
-                }
-            }
-            Action::DeleteMarkedRegion => {
-                if !self.require_document() {
-                    return;
-                }
-                match self.editor.delete_marked_region() {
-                    Some((removed, bridged)) => {
-                        self.status = match bridged {
-                            0 => crate::strings::app_status_deleted(removed),
-                            n => crate::strings::app_status_deleted_bridged(removed, n),
-                        };
-                        self.after_region_edit();
-                    }
-                    None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
-                }
-            }
-            Action::FindLoopSearch { min_len_commands } => self.start_loop_search(min_len_commands),
-            Action::CancelLoopSearch => {
-                self.tasks.cancel(TaskKind::LoopSearch);
-                self.status = crate::strings::APP_STATUS_LOOP_SEARCH_CANCELLED.to_owned();
-            }
+            Action::Loop(action) => self.handle_loop_action(action),
 
             Action::GotoSubmitted(text) => self.goto_submitted(&text),
             Action::FindRegister { query, backwards } => self.find_register(&query, backwards),
@@ -462,6 +396,85 @@ impl VgmStudioApp {
             }
             Action::Settings(action) => self.handle_settings_action(ctx, action),
             Action::Ui(action) => self.handle_ui_action(action),
+        }
+    }
+
+    /// Loop actions: the marked region, loop playback, and the loop search.
+    fn handle_loop_action(&mut self, action: LoopAction) {
+        match action {
+            LoopAction::ApplyToMetadata => self.apply_loop_to_metadata(),
+            LoopAction::CancelSearch => {
+                self.tasks.cancel(TaskKind::LoopSearch);
+                self.status = crate::strings::APP_STATUS_LOOP_SEARCH_CANCELLED.to_owned();
+            }
+            LoopAction::ClearMarkers => {
+                self.editor.markers = RangeMarkers::full(self.editor.len());
+                self.push_loop_config();
+                self.status = crate::strings::APP_STATUS_LOOP_RESET.to_owned();
+            }
+            LoopAction::CropToMarkers => self.on_crop_to_markers(),
+            LoopAction::DeleteMarkedRegion => self.on_delete_marked_region(),
+            LoopAction::OpenSearch => self.on_open_loop_search(),
+            LoopAction::Search { min_len_commands } => self.start_loop_search(min_len_commands),
+            LoopAction::SetCount(count) => {
+                self.loop_count = count;
+                self.push_loop_config();
+            }
+            LoopAction::SetEnd(index) => self.set_loop_marker(None, Some(index)),
+            LoopAction::SetStart(index) => self.set_loop_marker(Some(index), None),
+            LoopAction::TogglePlayback => {
+                self.loop_enabled = !self.loop_enabled;
+                self.push_loop_config();
+            }
+        }
+    }
+
+    fn on_crop_to_markers(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        match self.editor.crop_to_markers() {
+            Some((kept, restored)) => {
+                // The restored writes are instructions the user did not
+                // put there, so they are worth accounting for -- but only
+                // when there were any; a "0" reads as a puzzle.
+                self.status = match restored {
+                    0 => crate::strings::app_status_cropped(kept),
+                    n => crate::strings::app_status_cropped_restored(kept, n),
+                };
+                self.after_region_edit();
+            }
+            None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
+        }
+    }
+
+    fn on_delete_marked_region(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        match self.editor.delete_marked_region() {
+            Some((removed, bridged)) => {
+                self.status = match bridged {
+                    0 => crate::strings::app_status_deleted(removed),
+                    n => crate::strings::app_status_deleted_bridged(removed, n),
+                };
+                self.after_region_edit();
+            }
+            None => self.status = crate::strings::APP_NOTHING_MARKED.to_owned(),
+        }
+    }
+
+    fn on_open_loop_search(&mut self) {
+        // Either representation: the dialog wants a time per row and a
+        // command density, both of which a VGM can give directly.
+        let doc = match (self.editor.snapshot(), self.editor.vgm()) {
+            (Some(song), _) => Some(crate::dialogs::LoopSearchDoc::from_song(&song)),
+            (None, Some(file)) => Some(crate::dialogs::LoopSearchDoc::from_vgm(file)),
+            (None, None) => None,
+        };
+        match doc {
+            Some(doc) => self.dialogs.find_loop = Some(FindLoopDialog::new(doc)),
+            None => self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned(),
         }
     }
 

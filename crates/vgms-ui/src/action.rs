@@ -94,9 +94,6 @@ pub enum Action {
     Redo,
     OpenGoto,
     OpenFindRegister,
-    /// Open the Find Loop dialog (search for loop points). Works for a DRO or a
-    /// VGM; only the Apply button inside it is VGM-only.
-    OpenFindLoop,
     OpenDroInfo,
     OpenEditTag,
     OpenVgmMetadata,
@@ -236,30 +233,8 @@ pub enum Action {
     /// Transport and position: play/stop, seeking, and row navigation.
     Playback(PlaybackAction),
 
-    // Loop points
-    /// Mark the loop start at an instruction index.
-    SetLoopStart(usize),
-    /// Mark the loop end at an instruction index (exclusive).
-    SetLoopEnd(usize),
-    /// Reset the marked region to the whole song.
-    ClearLoopMarkers,
-    /// Turn loop playback on or off. Takes effect immediately, mid-playback.
-    ToggleLoopPlayback,
-    /// Change how many times the marked region repeats.
-    SetLoopCount(LoopCount),
-    /// Write the marked region into the song's VGM loop metadata.
-    ApplyLoopToMetadata,
-    /// Keep only the marked region, deleting everything outside it.
-    CropToMarkers,
-    /// Delete the marked region, keeping everything outside it.
-    DeleteMarkedRegion,
-    /// Search the command stream for loop candidates at least `min_len_commands`
-    /// delay-stripped commands long (the Find Loop dialog's Search button).
-    FindLoopSearch {
-        min_len_commands: usize,
-    },
-    /// Cancel a running loop search.
-    CancelLoopSearch,
+    /// Loop points: the marked region, loop playback, and the loop search.
+    Loop(LoopAction),
 
     // Dialog submissions
     GotoSubmitted(String),
@@ -284,6 +259,36 @@ pub enum Action {
     Settings(SettingsAction),
     /// App chrome: message boxes, the status bar, and the Help menu.
     Ui(UiAction),
+}
+
+/// Loop points: the marked region, loop playback, and the loop search.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LoopAction {
+    /// Write the marked region into the song's VGM loop metadata.
+    ApplyToMetadata,
+    /// Cancel a running loop search.
+    CancelSearch,
+    /// Reset the marked region to the whole song.
+    ClearMarkers,
+    /// Keep only the marked region, deleting everything outside it.
+    CropToMarkers,
+    /// Delete the marked region, keeping everything outside it.
+    DeleteMarkedRegion,
+    /// Open the Find Loop dialog (search for loop points). Works for a DRO or a
+    /// VGM; only the Apply button inside it is VGM-only.
+    OpenSearch,
+    /// Search the command stream for loop candidates at least `min_len_commands`
+    /// delay-stripped commands long (the Find Loop dialog's Search button).
+    Search { min_len_commands: usize },
+    /// Change how many times the marked region repeats.
+    SetCount(LoopCount),
+    /// Mark the loop end at an instruction index (exclusive).
+    SetEnd(usize),
+    /// Mark the loop start at an instruction index.
+    SetStart(usize),
+    /// Turn loop playback on or off. Takes effect immediately, mid-playback.
+    TogglePlayback,
 }
 
 /// The mixer: channel toggles, panning, and the volume lever.
