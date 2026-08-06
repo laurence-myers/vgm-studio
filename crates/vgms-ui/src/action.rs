@@ -4,6 +4,15 @@
 //! being drawn; the app processes the queue afterwards. A menu item, its
 //! button and its keyboard shortcut all emit the same action, so they share
 //! one handler.
+//!
+//! [`Action`] holds one variant per *group* -- `Edit`, `File`, `Loop`, `Mixer`,
+//! `Pack`, `Playback`, `Settings`, `Ui` -- each wrapping its own sub-enum, and
+//! `handle_action` dispatches each group to its own exhaustive match. Adding an
+//! action therefore means choosing its group, and forgetting to handle it is a
+//! compile error in that group's dispatcher (and a new group, in
+//! `handle_action` itself). Groups, the sub-enums below, and every sub-enum's
+//! variants are kept alphabetical; a dialog-opening variant sits in the same
+//! group as the submission it produces.
 
 use vgms_core::config::{AppConfig, SurfaceChoice, ThemeChoice};
 use vgms_core::{Gd3Tag, OplType};
@@ -30,24 +39,19 @@ pub enum FindQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// The song file: open/save/close, quit, and the render and split exports.
-    File(FileAction),
-
     /// Editing the document: undo/redo, deletion, conversion, the header and
     /// tag dialogs with their saves, and the find dialogs.
     Edit(EditAction),
-
-    /// Pack mode: the VGMRips submission project and its file operations.
-    Pack(PackAction),
-
-    /// The mixer: channel toggles, panning, and the volume lever.
-    Mixer(MixerAction),
-    /// Transport and position: play/stop, seeking, and row navigation.
-    Playback(PlaybackAction),
-
+    /// The song file: open/save/close, quit, and the render and split exports.
+    File(FileAction),
     /// Loop points: the marked region, loop playback, and the loop search.
     Loop(LoopAction),
-
+    /// The mixer: channel toggles, panning, and the volume lever.
+    Mixer(MixerAction),
+    /// Pack mode: the VGMRips submission project and its file operations.
+    Pack(PackAction),
+    /// Transport and position: play/stop, seeking, and row navigation.
+    Playback(PlaybackAction),
     /// Settings: opening the dialog, saving it, and its live previews.
     Settings(SettingsAction),
     /// App chrome: message boxes, the status bar, and the Help menu.

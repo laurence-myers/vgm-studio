@@ -5,17 +5,12 @@ impl VgmStudioApp {
 
     pub(super) fn handle_action(&mut self, ctx: &egui::Context, action: Action) {
         match action {
-            Action::File(action) => self.handle_file_action(ctx, action),
-
             Action::Edit(action) => self.handle_edit_action(action),
-
-            Action::Pack(action) => self.handle_pack_action(action),
-
-            Action::Mixer(action) => self.handle_mixer_action(action),
-            Action::Playback(action) => self.handle_playback_action(action),
-
+            Action::File(action) => self.handle_file_action(ctx, action),
             Action::Loop(action) => self.handle_loop_action(action),
-
+            Action::Mixer(action) => self.handle_mixer_action(action),
+            Action::Pack(action) => self.handle_pack_action(action),
+            Action::Playback(action) => self.handle_playback_action(action),
             Action::Settings(action) => self.handle_settings_action(ctx, action),
             Action::Ui(action) => self.handle_ui_action(action),
         }
@@ -458,6 +453,23 @@ impl VgmStudioApp {
         }
     }
 
+    /// Mixer actions: channel toggles, panning, and the volume lever.
+    fn handle_mixer_action(&mut self, action: MixerAction) {
+        match action {
+            MixerAction::MatchVolume => self.match_volume(),
+            MixerAction::MeasureVolumeModifier => self.measure_volume_modifier(),
+            MixerAction::MutingChanged => self.push_muting(),
+            MixerAction::PanningChanged => self.push_panning(),
+            MixerAction::SetBoost { value, persist } => self.set_boost(value, persist),
+            MixerAction::SetLockBoost(lock) => self.set_lock_boost(lock),
+            MixerAction::ToggleChannel(channel) => {
+                self.channels.toggle_selected_channel(channel);
+                self.push_muting();
+            }
+            MixerAction::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
+        }
+    }
+
     /// Pack actions: the VGMRips submission project and its file operations.
     fn handle_pack_action(&mut self, action: PackAction) {
         match action {
@@ -555,23 +567,6 @@ impl VgmStudioApp {
         }
     }
 
-    /// Mixer actions: channel toggles, panning, and the volume lever.
-    fn handle_mixer_action(&mut self, action: MixerAction) {
-        match action {
-            MixerAction::MatchVolume => self.match_volume(),
-            MixerAction::MeasureVolumeModifier => self.measure_volume_modifier(),
-            MixerAction::MutingChanged => self.push_muting(),
-            MixerAction::PanningChanged => self.push_panning(),
-            MixerAction::SetBoost { value, persist } => self.set_boost(value, persist),
-            MixerAction::SetLockBoost(lock) => self.set_lock_boost(lock),
-            MixerAction::ToggleChannel(channel) => {
-                self.channels.toggle_selected_channel(channel);
-                self.push_muting();
-            }
-            MixerAction::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
-        }
-    }
-
     /// Playback actions: transport, seeking, and row navigation.
     fn handle_playback_action(&mut self, action: PlaybackAction) {
         match action {
@@ -653,16 +648,6 @@ impl VgmStudioApp {
         }
     }
 
-    /// App-chrome actions: message boxes, the status bar, and the Help menu.
-    fn handle_ui_action(&mut self, action: UiAction) {
-        match action {
-            UiAction::About => self.alerts.push_back(Alert::new("About", about_text())),
-            UiAction::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
-            UiAction::Help => self.dialogs.help = Some(HelpDialog),
-            UiAction::Status(message) => self.status = message,
-        }
-    }
-
     fn on_open_settings(&mut self) {
         // Listed at open, so the picker offers what is plugged in now.
         let mut dialog = SettingsDialog::new(&self.config, self.audio.list_hardware_ports());
@@ -672,5 +657,15 @@ impl VgmStudioApp {
             dialog = dialog.with_song(song);
         }
         self.dialogs.settings = Some(dialog);
+    }
+
+    /// App-chrome actions: message boxes, the status bar, and the Help menu.
+    fn handle_ui_action(&mut self, action: UiAction) {
+        match action {
+            UiAction::About => self.alerts.push_back(Alert::new("About", about_text())),
+            UiAction::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
+            UiAction::Help => self.dialogs.help = Some(HelpDialog),
+            UiAction::Status(message) => self.status = message,
+        }
     }
 }
