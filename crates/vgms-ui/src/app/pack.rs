@@ -453,7 +453,7 @@ impl VgmStudioApp {
         // source speaks and ignores the other, exactly as the editor's load does.
         let preview_panning = source
             .opl()
-            .map(|song| ChannelPanel::for_song(song).panning());
+            .map(|song| crate::widgets::chip_panels::default_opl_panning(song));
         // `load` below tears down the editor's stream the instant it runs --
         // success or not -- so the editor's audio snapshot is gone regardless.
         // Invalidate the revision *before* the load so the editor's next Play

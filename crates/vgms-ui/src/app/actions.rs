@@ -249,10 +249,10 @@ impl VgmStudioApp {
 
     fn on_update_header(&mut self, opl_type: vgms_core::OplType, ms_length: u32) {
         self.editor.update_header(opl_type, ms_length);
-        // The chip type may have changed the high-bank visibility and the
-        // Original pan policy; after_edit invalidates the audio revision,
-        // so the next ensure_audio pushes the fresh panning.
-        self.channels.set_opl_type(opl_type, self.editor.song());
+        // The chip type may have changed the projection chips and the Original
+        // pan policy; after_edit invalidates the audio revision, so the next
+        // ensure_audio pushes the fresh panning.
+        self.channels.set_opl_type(opl_type);
         self.after_edit();
     }
 

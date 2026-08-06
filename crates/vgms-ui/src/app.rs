@@ -39,8 +39,7 @@ use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::waveform::WaveformState;
 use crate::widgets::{
-    boost_stepper, channels::ChannelPanel, chip_panels::ChipPanels, loop_stepper, peak_meter,
-    table, waveform,
+    boost_stepper, chip_panels::ChipPanels, loop_stepper, peak_meter, table, waveform,
 };
 
 /// The About box: who wrote it, and -- because this program links copyleft

@@ -68,7 +68,7 @@ fn a_saved_render_is_reported_in_the_status_bar() {
 fn the_render_options_reach_the_task() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     // Mute a channel and pan another, so "apply" has something to apply.
-    harness.state_mut().channels.opl().toggle_channel(1);
+    harness.state_mut().channels.toggle_selected_channel(1);
     open_render_wav_dialog(&mut harness);
     harness.get_by_label("All of the above").click();
     harness.run();

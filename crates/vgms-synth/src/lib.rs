@@ -48,7 +48,9 @@ pub use opl::CReferenceOpl3;
 pub use opl::NukedOpl3;
 pub use opl::{DefaultOplChip, OplChip, SilentOpl};
 pub use opl_adapter::OplCoreAdapter;
-pub use opl_chip_mix::{opl_chip_muting, opl_chip_panning, opl_projection_kind};
+pub use opl_chip_mix::{
+    opl_chip_muting, opl_chip_panning, opl_muting_from_chip, opl_projection_kind,
+};
 pub use peak::{
     Peak, measure_peak, measure_peak_cancellable, measure_vgm_peak, measure_vgm_peak_cancellable,
 };

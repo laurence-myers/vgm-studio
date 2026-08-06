@@ -15,10 +15,19 @@
 
 use vgms_core::vgm::{ChannelInfo, ChipKind, channels_of};
 
-use super::channels::ChannelsResponse;
 use super::pan_controls::{self, PAN_CENTER};
 use super::pan_knob;
 use crate::theme::{Palette, bevel, icon::Icon};
+
+/// What a channel panel (and the chip deck's selector) changed this frame,
+/// split so a pan drag never resends muting mid-note, a mute toggle never
+/// resends panning, and a trim drag resends only the trims.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ChannelsResponse {
+    pub(crate) muting_changed: bool,
+    pub(crate) panning_changed: bool,
+    pub(crate) trim_changed: bool,
+}
 
 /// Channels drawn per row before wrapping -- the OPL panel's bank width, so a
 /// 16-channel chip reads as two familiar rows rather than one long one.
@@ -182,6 +191,26 @@ impl GenericChannelPanel {
     pub(crate) fn pan_entry(&self) -> Option<Vec<i16>> {
         self.custom
             .then(|| self.pans.iter().copied().map(pan_to_i16).collect())
+    }
+
+    /// This panel's raw pan bytes while it is in Custom mode, or `None` in
+    /// Original mode. The OPL bridge reads these directly (rather than the
+    /// converted [`pan_entry`](Self::pan_entry)) because the OPL audio path
+    /// re-derives its `i16` positions from the byte image itself, matching the
+    /// old OPL panel's exact round trip.
+    #[must_use]
+    pub(crate) fn custom_pan_bytes(&self) -> Option<&[u8]> {
+        self.custom.then_some(self.pans.as_slice())
+    }
+
+    /// Test-only: engage Custom mode and set one channel's pan byte, for the
+    /// panning showcase and the app-level panning tests.
+    #[cfg(test)]
+    pub(crate) fn set_showcase_pan(&mut self, channel: usize, byte: u8) {
+        self.custom = true;
+        if let Some(pan) = self.pans.get_mut(channel) {
+            *pan = byte;
+        }
     }
 
     /// Toggles channel `index`, for the number-key shortcuts. Out-of-range

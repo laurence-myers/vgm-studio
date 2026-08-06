@@ -29,7 +29,7 @@ use crate::test_song::tone_song;
 use crate::theme::bevel::{self, Bevel};
 use crate::theme::icon::Icon;
 use crate::theme::{self, Palette};
-use crate::widgets::channels::ChannelPanel;
+use crate::widgets::chip_channels::GenericChannelPanel;
 use crate::widgets::peak_meter::{self, PeakMeterState};
 use crate::widgets::position_panel::PositionPanel;
 use crate::widgets::table;
@@ -44,7 +44,7 @@ struct ShowcaseState {
     editor: Editor,
     waveform: WaveformState,
     meter: PeakMeterState,
-    channels: ChannelPanel,
+    channels: GenericChannelPanel,
     position: PositionPanel,
     goto: GotoDialog,
     text: String,
@@ -77,18 +77,16 @@ impl ShowcaseState {
         position.set_length_ms(300_000);
         position.set_position_ms(123_456);
 
-        // A mix of muted and audible toggles across both banks, and Custom
+        // A rich OPL3 panel: a mix of muted and audible toggles, and Custom
         // panning engaged with a spread of positions so the pan knobs render at
         // varied angles (hard left, left, centre, right, hard right).
-        let mut channels = ChannelPanel::new();
+        let mut channels = GenericChannelPanel::new(vgms_core::vgm::ChipKind::Ymf262, 0, false);
         channels.toggle_channel(2);
         channels.toggle_channel(4);
         channels.toggle_channel(12);
-        let mut pans = [0x80u8; 18];
-        for (slot, pan) in pans.iter_mut().enumerate() {
-            *pan = [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5];
+        for slot in 0..18 {
+            channels.set_showcase_pan(slot, [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5]);
         }
-        channels.set_showcase_pans(pans);
 
         Self {
             editor,
@@ -232,7 +230,7 @@ fn show(ui: &mut egui::Ui, state: &mut ShowcaseState, choice: ThemeChoice) {
             scroll_sample(ui);
 
             section(ui, p, "Channel panel");
-            state.channels.show(ui, p, true);
+            state.channels.show(ui, p, true, true);
 
             section(ui, p, "Position panel");
             // `PositionPanel::show` centres-and-justifies within its columns,

@@ -429,10 +429,20 @@ fn the_opl_lamp_mutes_the_whole_device() {
 
     harness.get_by_label("YM3812 lamp").click();
     harness.run();
+    // The whole OPL2 device is silenced: every low-bank melodic channel muted
+    // and the low bank's drums gated. (The high bank belongs to no chip on an
+    // OPL2 device, so its bits are immaterial -- this checks the meaningful
+    // low-bank state rather than the exact `silent()` byte representation.)
+    let muted = harness.state().channels.muting();
     assert_eq!(
-        harness.state().channels.muting(),
-        vgms_synth::Muting::silent(),
-        "the lamp mutes the whole OPL device"
+        muted.channels_raw() & 0x1FF,
+        0,
+        "every low-bank melodic channel muted"
+    );
+    assert_eq!(
+        muted.percussion_raw()[0],
+        0xE0,
+        "the low-bank drums are silenced"
     );
 
     harness.get_by_label("YM3812 lamp").click();
@@ -1537,14 +1547,15 @@ fn snapshot_split_songs_dialog() {
 
 #[test]
 fn snapshot_pan_strip_custom() {
-    // A dual-OPL2 song shows both bank pan rows; engage Custom with a spread of
-    // pans so the knobs render at distinct angles in the app's controls panel.
+    // A dual-OPL2 song is two YM3812 tabs; the selected one's pan row engages
+    // Custom with a spread of pans so the knobs render at distinct angles in the
+    // app's controls panel.
     let (mut harness, _handles) = build(Some(picked(&dual_tone_song())), false, true);
     let mut pans = [0x80u8; 18];
     for (slot, pan) in pans.iter_mut().enumerate() {
         *pan = [0x00, 0x40, 0x80, 0xC0, 0xFF][slot % 5];
     }
-    harness.state_mut().channels.opl().set_showcase_pans(pans);
+    harness.state_mut().channels.set_showcase_pans(pans);
     settled_snapshot(&mut harness, "pan_strip_custom");
 }
 

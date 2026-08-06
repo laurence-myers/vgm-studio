@@ -1,7 +1,6 @@
 //! The main window's custom widgets.
 
 pub(crate) mod boost_stepper;
-pub(crate) mod channels;
 pub(crate) mod chip_channels;
 pub(crate) mod chip_output;
 pub(crate) mod chip_panels;

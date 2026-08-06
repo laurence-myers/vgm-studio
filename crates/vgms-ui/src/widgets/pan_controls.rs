@@ -1,12 +1,12 @@
-//! The panning controls both channel panels share: the auto-spread image, and
-//! the Custom / Spread / Reset group that drives it.
+//! The panning controls the channel panel shares across chips: the auto-spread
+//! image, and the Custom / Spread / Reset group that drives it.
 //!
-//! The OPL panel ([`ChannelPanel`](super::channels::ChannelPanel)) and the
-//! any-chip one ([`GenericChannelPanel`](super::chip_channels::GenericChannelPanel))
-//! hold their own pans -- eighteen fixed slots against a chip's channel list --
-//! but the *controls* over them are one design: a mode latch, one global width
-//! knob, and a reset. They live here so a core that pans gets exactly what OPL
-//! gets, rather than a second implementation that drifts.
+//! Every chip -- OPL included, now that a DRO drives the same
+//! [`GenericChannelPanel`](super::chip_channels::GenericChannelPanel) a VGM does
+//! -- holds its own pans against its channel list, but the *controls* over them
+//! are one design: a mode latch, one global width knob, and a reset. They live
+//! here so a core that pans gets exactly what OPL gets, rather than a second
+//! implementation that drifts.
 
 use crate::theme::{Palette, bevel, icon::Icon};
 use crate::widgets::pan_knob;

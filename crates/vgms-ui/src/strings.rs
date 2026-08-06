@@ -782,35 +782,10 @@ pub(crate) fn tasks_song_not_extracted(number: impl std::fmt::Display) -> String
 }
 
 // ============================================================================
-// widgets/channels.rs
+// widgets/pan_controls.rs
 // ============================================================================
 
-pub(crate) const CHANNELS_UNMUTE_ALL: &str =
-    "Unmute every channel and drum (panning is left alone)";
-pub(crate) const CHANNELS_ORIGINAL_DUAL_OPL2: &str = "Original: chip 1 left, chip 2 right";
-pub(crate) const CHANNELS_ORIGINAL_OPL3: &str = "Original: the song's own panning";
-pub(crate) const CHANNELS_ORIGINAL_MONO: &str = "Original: mono";
 pub(crate) const CHANNELS_SPREAD: &str = "Stereo spread: mono at centre, wide at the extremes";
-pub(crate) const CHANNELS_RESET: &str = "Reset panning to this song type's default (Original mode)";
-pub(crate) const CHANNELS_PERCUSSION_LOW: &str = "Percussion (low bank)";
-pub(crate) const CHANNELS_PERCUSSION_HIGH: &str = "Percussion (high bank)";
-
-pub(crate) fn channels_pan_label(channel: usize, bank_name: &str) -> String {
-    format!("Pan {} ({bank_name} bank)", channel + 1)
-}
-pub(crate) fn channels_channel_hover(index: usize) -> String {
-    format!(
-        "Channel {} ({} bank). Left-click mutes, right-click solos.",
-        index % 9 + 1,
-        if index < 9 { "low" } else { "high" },
-    )
-}
-pub(crate) fn channels_percussion_hover(hover: &str) -> String {
-    format!(
-        "{hover}. Drums sound through channels 7-9's pans. \
-         Left-click mutes, right-click solos."
-    )
-}
 
 // ============================================================================
 // widgets/chip_channels.rs

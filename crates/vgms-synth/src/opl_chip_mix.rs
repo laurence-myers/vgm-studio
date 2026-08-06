@@ -182,6 +182,92 @@ pub fn opl_chip_panning(panning: &Panning, opl_type: OplType) -> ChipPanning {
     out
 }
 
+/// Mutes, on `bank`, the melodic channels and drums a roster `mask` marks --
+/// the inverse of [`instance_mask`] for one `Ym3812` bank (`melodic` melodic
+/// channels, then the five drums).
+fn mute_bank_from_mask(muting: &mut Muting, mask: u32, bank: Bank, melodic: usize) {
+    for channel in 0..melodic {
+        if mask & (1 << channel) != 0 {
+            muting.mute_channel(bank, 0xB0 + channel as u8);
+        }
+    }
+    // Start every drum audible (as `Muting::all` leaves them) and clear the bit
+    // of each muted one; only write the mask back if a drum is actually muted,
+    // so an untouched bank keeps its full `0xFF`.
+    let mut percussion = 0xFFu8;
+    for (drum, &bit) in DRUM_BITS.iter().enumerate() {
+        if mask & (1 << (melodic + drum)) != 0 {
+            percussion &= !bit;
+        }
+    }
+    if percussion != 0xFF {
+        muting.set_percussion(bank, percussion);
+    }
+}
+
+/// The OPL [`Muting`] a generic-engine [`ChipMuting`] describes -- the inverse
+/// of [`opl_chip_muting`].
+///
+/// A DRO now drives the same per-chip [`GenericChannelPanel`] a VGM does, so its
+/// mixer speaks [`ChipMuting`] keyed by the projection chip; this turns that back
+/// into the OPL `Muting` vocabulary the DRO's audio, render and split paths still
+/// consume. The round trip is lossless for the states a panel produces:
+/// `opl_chip_muting(opl_muting_from_chip(c, t), t) == c`.
+///
+/// [`GenericChannelPanel`]: https://docs.rs/vgms-ui
+#[must_use]
+pub fn opl_muting_from_chip(chip: &ChipMuting, opl_type: OplType) -> Muting {
+    let mut muting = Muting::all();
+    match opl_type {
+        OplType::Opl3 => {
+            let mask = chip.mask_for(ChipKind::Ymf262, 0);
+            for i in 0..18 {
+                if mask & (1 << i) != 0 {
+                    let bank = if i < BANK_CHANNELS {
+                        Bank::Low
+                    } else {
+                        Bank::High
+                    };
+                    muting.mute_channel(bank, 0xB0 + (i % BANK_CHANNELS) as u8);
+                }
+            }
+            // The five drums live on the low bank for an OPL3 document.
+            let mut percussion = 0xFFu8;
+            for (drum, &bit) in DRUM_BITS.iter().enumerate() {
+                if mask & (1 << (18 + drum)) != 0 {
+                    percussion &= !bit;
+                }
+            }
+            if percussion != 0xFF {
+                muting.set_percussion(Bank::Low, percussion);
+            }
+        }
+        OplType::Opl2 => {
+            mute_bank_from_mask(
+                &mut muting,
+                chip.mask_for(ChipKind::Ym3812, 0),
+                Bank::Low,
+                BANK_CHANNELS,
+            );
+        }
+        OplType::DualOpl2 => {
+            mute_bank_from_mask(
+                &mut muting,
+                chip.mask_for(ChipKind::Ym3812, 0),
+                Bank::Low,
+                BANK_CHANNELS,
+            );
+            mute_bank_from_mask(
+                &mut muting,
+                chip.mask_for(ChipKind::Ym3812, 1),
+                Bank::High,
+                BANK_CHANNELS,
+            );
+        }
+    }
+    muting
+}
+
 /// The [`ChipKind`] an [`OplType`] document's voices carry, exposed for the
 /// callers that must name the same instance when they push a fresh mute/pan.
 #[must_use]
@@ -323,6 +409,57 @@ mod tests {
         assert_eq!(first.len(), 14);
         assert_eq!(first[0], PAN_LEFT);
         assert_eq!(second[0], PAN_RIGHT - 2);
+    }
+
+    /// The reverse mute translation is the exact inverse of the forward one for
+    /// every state a panel produces, so a DRO's `ChipMuting` survives the trip
+    /// out to the OPL vocabulary and back into the engine unchanged.
+    #[test]
+    fn chip_muting_round_trips_through_the_opl_vocabulary() {
+        // Compare per (kind, instance) mask rather than structurally: the forward
+        // translation always emits a (possibly-zero) entry per instance, so an
+        // all-audible state that starts with no entries is still equivalent.
+        let check = |opl_type: OplType, build: &dyn Fn(&mut ChipMuting)| {
+            let mut chip = ChipMuting::new();
+            build(&mut chip);
+            let back = opl_chip_muting(&opl_muting_from_chip(&chip, opl_type), opl_type);
+            let instances = match opl_type {
+                OplType::Opl3 => vec![(ChipKind::Ymf262, 0)],
+                OplType::Opl2 => vec![(ChipKind::Ym3812, 0)],
+                OplType::DualOpl2 => vec![(ChipKind::Ym3812, 0), (ChipKind::Ym3812, 1)],
+            };
+            for (kind, instance) in instances {
+                assert_eq!(
+                    back.mask_for(kind, instance),
+                    chip.mask_for(kind, instance),
+                    "{opl_type:?} {kind:?}#{instance} did not round-trip"
+                );
+            }
+        };
+
+        // Nothing muted.
+        for opl_type in OplType::ALL {
+            check(opl_type, &|_| {});
+        }
+        // A melodic channel, a single drum, and both together.
+        check(OplType::Opl2, &|c| c.set(ChipKind::Ym3812, 0, 1 << 2));
+        check(OplType::Opl2, &|c| c.set(ChipKind::Ym3812, 0, 1 << 11)); // Tom-Tom
+        check(OplType::Opl2, &|c| {
+            c.set(ChipKind::Ym3812, 0, (1 << 0) | (1 << 9) | (1 << 13));
+        });
+        // OPL3: a high-bank channel and the full drum set.
+        check(OplType::Opl3, &|c| {
+            c.set(ChipKind::Ymf262, 0, (1 << 12) | (0b1_1111 << 18));
+        });
+        // Dual OPL2: each instance muted independently.
+        check(OplType::DualOpl2, &|c| {
+            c.set(ChipKind::Ym3812, 0, (1 << 1) | (1 << 9));
+            c.set(ChipKind::Ym3812, 1, (1 << 4) | (0b1_1111 << 9));
+        });
+        // A whole chip muted (the lamp): every channel and drum bit set.
+        check(OplType::Opl3, &|c| {
+            c.set(ChipKind::Ymf262, 0, (1 << 23) - 1)
+        });
     }
 
     /// The pan mapping is the exact inverse of the adapter's panpot conversion,
