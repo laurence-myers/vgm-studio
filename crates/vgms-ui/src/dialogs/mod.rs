@@ -429,7 +429,7 @@ impl Dialogs {
         retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
         retain(&mut self.settings, |d| d.show(ctx, palette, actions));
         retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
-        retain(&mut self.bulk_tag, |d| d.show(ctx, palette, area, actions));
+        retain(&mut self.bulk_tag, |d| d.show(ctx, palette, actions));
         retain(&mut self.screenshot_rename, |d| {
             d.show(ctx, palette, actions)
         });

@@ -49,71 +49,56 @@ impl BulkTagDialog {
 
     /// Draws the dialog. Returns `false` once closed.
     ///
-    /// A modal taken to most of `area`: the eleven GD3 fields plus the track
-    /// list overflow a default window. The heading and footer are pinned; only
-    /// the middle scrolls, so the buttons stay reachable however many tracks the
-    /// pack has.
+    /// The eleven GD3 fields plus the track list overflow a default window, so it
+    /// rides the shared wide-modal scaffold ([`super::dialog_modal_sized`]) like
+    /// the Help table: the heading and footer pin while the middle scrolls when
+    /// it must, so Apply and Close stay reachable however many tracks the pack
+    /// has. The intro line leads the body.
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         palette: &Palette,
-        area: egui::Rect,
         actions: &mut Vec<Action>,
     ) -> bool {
-        let mut close = false;
-        // Leave a margin of screen around it, and room for the pinned chrome.
-        let width = (area.width() * 0.9).min(720.0);
-        let body_height = (area.height() * 0.9 - 150.0).max(160.0);
-        let modal = egui::Modal::new(egui::Id::new("bulk-tag-modal")).show(ctx, |ui| {
-            ui.set_width(width);
-            ui.heading("Bulk Tag Tracks");
-            ui.colored_label(palette.muted, crate::strings::BULK_TAG_INTRO);
-            crate::theme::separator_clipped(ui, palette);
-            ui.add_space(6.0);
-
-            let output = egui::ScrollArea::vertical()
-                .max_height(body_height)
-                .auto_shrink([false, true])
-                .show(ui, |ui| {
-                    egui::Grid::new("bulk-tag-fields")
-                        .num_columns(3)
-                        .spacing([8.0, 6.0])
-                        .show(ui, |ui| {
-                            for (index, label) in LABELS.iter().enumerate() {
-                                ui.checkbox(&mut self.overlay.apply[index], "");
-                                ui.label(*label);
-                                let value = &mut self.overlay.values[index];
-                                if index == GD3_FIELD_COUNT - 1 {
-                                    ui.add(super::wrapping_edit(value, palette, f32::INFINITY, 3));
-                                } else {
-                                    // Fills the row and wraps at the dialog's
-                                    // edge, as in the single-track editor.
-                                    super::text_field(ui, palette, value, f32::INFINITY);
-                                }
-                                ui.end_row();
+        let footer = super::Footer::new(palette, "Apply");
+        let open = super::dialog_modal_sized(
+            ctx,
+            "bulk-tag-modal",
+            "Bulk Tag Tracks",
+            palette,
+            720.0,
+            |ui| {
+                ui.colored_label(palette.muted, crate::strings::BULK_TAG_INTRO);
+                ui.add_space(6.0);
+                egui::Grid::new("bulk-tag-fields")
+                    .num_columns(3)
+                    .spacing([8.0, 6.0])
+                    .show(ui, |ui| {
+                        for (index, label) in LABELS.iter().enumerate() {
+                            ui.checkbox(&mut self.overlay.apply[index], "");
+                            ui.label(*label);
+                            let value = &mut self.overlay.values[index];
+                            if index == GD3_FIELD_COUNT - 1 {
+                                ui.add(super::wrapping_edit(value, palette, f32::INFINITY, 3));
+                            } else {
+                                // Fills the row and wraps at the dialog's edge, as
+                                // in the single-track editor.
+                                super::text_field(ui, palette, value, f32::INFINITY);
                             }
-                        });
+                            ui.end_row();
+                        }
+                    });
 
-                    ui.add_space(8.0);
-                    crate::theme::separator_clipped(ui, palette);
-                    self.target_picker(ui, palette);
-                });
-            crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
-
-            ui.add_space(8.0);
-            crate::theme::separator_clipped(ui, palette);
-            ui.add_space(8.0);
-            super::dialog_footer(ui, |ui| {
-                if bevel::button(ui, palette, "Close").clicked() {
-                    close = true;
-                }
-                if bevel::button(ui, palette, "Apply").clicked() && self.apply(actions) {
-                    close = true;
-                }
-            });
-        });
-        // Esc or a click on the backdrop dismisses it, like the alert modal.
-        !close && !modal.should_close()
+                ui.add_space(8.0);
+                crate::theme::separator_clipped(ui, palette);
+                self.target_picker(ui, palette);
+            },
+            |ui| footer.show(ui),
+        );
+        // Only a clicked Apply that validates closes the dialog; a refused one
+        // leaves it open (like the Render and Split dialogs).
+        let applied = footer.primary_clicked() && self.apply(actions);
+        open && !(footer.closed() || applied)
     }
 
     /// The "Apply to:" heading, All/None buttons, a running count, and the
