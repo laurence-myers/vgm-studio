@@ -109,7 +109,7 @@ impl ScreenshotRenameDialog {
     pub(crate) fn derived_name(&self) -> String {
         format!(
             "{}.{}",
-            vgms_core::pack::vgm_ren_title(&self.stem),
+            vgms_core::pack::naming::vgm_ren_title(&self.stem),
             self.ext
         )
     }
@@ -218,7 +218,7 @@ impl ScreenshotRenameDialog {
     /// *rename* to the name the file already has closes without touching the
     /// folder; an add still has a file to write, so it goes ahead.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
-        if vgms_core::pack::vgm_ren_title(&self.stem).is_empty() {
+        if vgms_core::pack::naming::vgm_ren_title(&self.stem).is_empty() {
             actions.push(Action::Alert {
                 title: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_TITLE.to_owned(),
                 message: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_MESSAGE.to_owned(),

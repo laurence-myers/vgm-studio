@@ -12,7 +12,7 @@ use std::sync::Arc;
 use vgms_core::Song;
 use vgms_core::io::write_song;
 use vgms_core::loopfind::{Candidate, find_loops, rank};
-use vgms_core::pack::track_file_name;
+use vgms_core::pack::naming::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
     AudioSource, CoreChoices, Peak, RenderMix, SplitData, VgmRenderMix, VgmSplitOptions,

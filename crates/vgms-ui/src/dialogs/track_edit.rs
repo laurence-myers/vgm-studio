@@ -42,7 +42,7 @@ impl TrackEditDialog {
         // seed it from the original file name's title so the derived name starts
         // out matching the file on disk rather than blank.
         if fields[0].trim().is_empty() {
-            fields[0] = vgms_core::pack::title_from_filename(&file_name).to_owned();
+            fields[0] = vgms_core::pack::naming::title_from_filename(&file_name).to_owned();
         }
         Self {
             original_name: file_name,
@@ -63,7 +63,7 @@ impl TrackEditDialog {
     /// The file name derived from the track number and the Track Name (EN)
     /// field, keeping the original extension. This is what Save writes.
     fn derived_name(&self) -> String {
-        vgms_core::pack::track_file_name(self.track_number, &self.fields[0], &self.ext)
+        vgms_core::pack::naming::track_file_name(self.track_number, &self.fields[0], &self.ext)
     }
 
     /// Draws the modal. Returns `false` once closed.
@@ -139,7 +139,7 @@ impl TrackEditDialog {
         // The file name is derived from the Track Name (EN), so require one that
         // leaves something behind: "?!" is a track name, but every character of
         // it is dropped on the way into a file name.
-        if vgms_core::pack::vgm_ren_title(&self.fields[0]).is_empty() {
+        if vgms_core::pack::naming::vgm_ren_title(&self.fields[0]).is_empty() {
             actions.push(Action::Alert {
                 title: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_TITLE.to_owned(),
                 message: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_MESSAGE.to_owned(),

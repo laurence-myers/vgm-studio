@@ -1349,7 +1349,7 @@ fn complete_vgm(name: &str) -> PickedFile {
     vgm_with_tag(
         name,
         vgms_core::Gd3Tag {
-            track_name_en: vgms_core::pack::title_from_filename(name).to_owned(),
+            track_name_en: vgms_core::pack::naming::title_from_filename(name).to_owned(),
             game_name_en: "Cool Game".to_owned(),
             system_name_en: "IBM PC/AT".to_owned(),
             track_author_en: "Ada".to_owned(),
@@ -2505,7 +2505,7 @@ fn a_note_leaves_the_deck_reading_as_shippable() {
     open_folder(&mut harness, &handles, complete_folder());
     let (severity, summary) = harness.state().pack.as_ref().unwrap().readiness_summary();
     assert!(
-        matches!(severity, Some(vgms_core::pack::Severity::Note)),
+        matches!(severity, Some(vgms_core::pack::readiness::Severity::Note)),
         "expected the note tier, got {severity:?} ({summary})"
     );
     assert!(

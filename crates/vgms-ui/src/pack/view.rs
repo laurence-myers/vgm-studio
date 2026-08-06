@@ -5,10 +5,10 @@
 
 use egui_extras::{Column, TableBuilder};
 
-use vgms_core::pack::{
-    CONSOLE_PRESETS, MetaField, PRESETS, ReadinessCategory, ReadinessItem, ReadinessTarget,
-    Severity, format_byte_count, format_track_time,
+use vgms_core::pack::readiness::{
+    MetaField, ReadinessCategory, ReadinessItem, ReadinessTarget, Severity,
 };
+use vgms_core::pack::{CONSOLE_PRESETS, PRESETS, format_byte_count, format_track_time};
 
 use crate::action::Action;
 use crate::theme::{Palette, bevel};

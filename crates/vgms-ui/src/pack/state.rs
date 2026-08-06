@@ -6,10 +6,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use vgms_core::pack::naming::doc_file_stem;
+use vgms_core::pack::readiness::{
+    MetaField, ReadinessCategory, ReadinessItem, ReadinessTarget, Severity, TrackFacts, readiness,
+};
 use vgms_core::pack::{
-    DEFAULT_OS, DEFAULT_SYSTEM, MetaField, PackMeta, PngInfo, ReadinessCategory, ReadinessItem,
-    ReadinessTarget, Severity, TrackEntry, TrackFacts, doc_file_stem, generate_description,
-    generate_m3u, music_hardware_suggestion, parse_description, readiness,
+    DEFAULT_OS, DEFAULT_SYSTEM, PackMeta, PngInfo, TrackEntry, generate_description, generate_m3u,
+    music_hardware_suggestion, parse_description,
 };
 use vgms_core::{Gd3Tag, OplType, VgmFile};
 use vgms_synth::AudioSource;
@@ -494,14 +497,14 @@ impl PackState {
 
     /// Whether any pack or track release date is a slash-separated date the
     /// "Convert dates to hyphens" fix-assist could rewrite (see
-    /// [`vgms_core::pack::hyphenate_date`]).
+    /// [`vgms_core::pack::readiness::hyphenate_date`]).
     #[must_use]
     pub fn has_convertible_dates(&self) -> bool {
-        vgms_core::pack::hyphenate_date(&self.meta.release_date).is_some()
+        vgms_core::pack::readiness::hyphenate_date(&self.meta.release_date).is_some()
             || self.tracks.iter().any(|track| {
-                track
-                    .tag()
-                    .is_some_and(|tag| vgms_core::pack::hyphenate_date(&tag.release_date).is_some())
+                track.tag().is_some_and(|tag| {
+                    vgms_core::pack::readiness::hyphenate_date(&tag.release_date).is_some()
+                })
             })
     }
 
@@ -509,7 +512,9 @@ impl PackState {
     /// a convertible slash date. Returns whether it changed (and marks the pack
     /// dirty). A pack-metadata edit, like typing in the form -- not a file op.
     pub fn hyphenate_meta_date(&mut self) -> bool {
-        if let Some(hyphenated) = vgms_core::pack::hyphenate_date(&self.meta.release_date) {
+        if let Some(hyphenated) =
+            vgms_core::pack::readiness::hyphenate_date(&self.meta.release_date)
+        {
             self.meta.release_date = hyphenated;
             self.dirty = true;
             true
@@ -531,7 +536,8 @@ impl PackState {
             let (Some(tag), Some(path)) = (track.tag().cloned(), track.path.clone()) else {
                 continue;
             };
-            let Some(hyphenated) = vgms_core::pack::hyphenate_date(&tag.release_date) else {
+            let Some(hyphenated) = vgms_core::pack::readiness::hyphenate_date(&tag.release_date)
+            else {
                 continue;
             };
             let mut new_tag = tag;
@@ -563,7 +569,7 @@ impl PackState {
 
     /// The file name each track should carry, from its GD3 Track Name and its
     /// 1-based position, paired with the name it has now -- omitting the tracks
-    /// already named correctly. See [`vgms_core::pack::tag_file_name`]: the title
+    /// already named correctly. See [`vgms_core::pack::naming::tag_file_name`]: the title
     /// goes through `vgm_ren`'s replacements, so this agrees with the file-name
     /// check by construction.
     ///
@@ -706,7 +712,7 @@ impl PackState {
     /// Every submission-readiness finding, in checklist order: this app's own
     /// file-level shape checks (readable songs, `NN Title` numbering, screenshot,
     /// game name) followed by the shared, wasm-clean GD3 / metadata content
-    /// checks from [`vgms_core::pack::readiness`]. One list feeds both the export
+    /// checks from [`vgms_core::pack::readiness::readiness`]. One list feeds both the export
     /// gate ([`Self::validations`]) and the submission checklist, so they can
     /// never disagree.
     #[must_use]
@@ -998,7 +1004,7 @@ fn file_item(severity: Severity, message: String) -> ReadinessItem {
 /// no file can be named after.
 fn wanted_file_name(index: usize, track: &PackTrack) -> Option<String> {
     let tag = track.tag()?;
-    vgms_core::pack::tag_file_name(index + 1, tag.track_name_en.trim(), &track.file_name)
+    vgms_core::pack::naming::tag_file_name(index + 1, tag.track_name_en.trim(), &track.file_name)
 }
 
 /// The `NN` from a `NN Title.ext` file name, if present.
