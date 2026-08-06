@@ -96,6 +96,20 @@ fn describe_target(target: vgms_core::vgm::VgmFindTarget) -> String {
     }
 }
 
+/// How a DRO find target reads in the status line -- the OPL counterpart of
+/// [`describe_target`]. The picker only ever builds a register, "any write" or
+/// "any delay"; the remaining variants are covered so the match stays total.
+fn describe_dro_target(target: FindTarget) -> String {
+    match target {
+        FindTarget::Register(reg) => format!("register {reg:#04X}"),
+        FindTarget::AnyRegister => crate::strings::APP_TARGET_ANY_WRITE.to_owned(),
+        FindTarget::AnyDelay | FindTarget::ShortDelay | FindTarget::LongDelay => {
+            crate::strings::APP_TARGET_ANY_DELAY.to_owned()
+        }
+        FindTarget::BankSwitch => crate::strings::APP_TARGET_BANK_SWITCH.to_owned(),
+    }
+}
+
 fn mismatch_alert(auto_trimmed: bool, file_version: u32) -> Alert {
     let prefix = if auto_trimmed {
         crate::strings::APP_MISMATCH_PREFIX_TRIMMED

@@ -32,6 +32,8 @@ pub(crate) const APP_MISMATCH_ADVICE_V2: &str = "Please enable \"Allow editing i
 pub(crate) const APP_NOTHING_MARKED: &str =
     "Mark a region first -- the loop markers cover the whole song.";
 pub(crate) const APP_TARGET_ANY_DELAY: &str = "a delay";
+pub(crate) const APP_TARGET_ANY_WRITE: &str = "a register write";
+pub(crate) const APP_TARGET_BANK_SWITCH: &str = "a bank switch";
 
 pub(crate) const APP_TIP_REWIND: &str = "Rewind to the start";
 pub(crate) const APP_TIP_DELETE: &str = "Delete the selected instruction(s)";

@@ -165,6 +165,11 @@ impl Instruction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FindTarget {
     Register(u8),
+    /// Any register write, whatever its address -- the dialog's "any write",
+    /// the OPL counterpart of [`VgmFindTarget::Write`] with no address.
+    ///
+    /// [`VgmFindTarget`]: crate::vgm::VgmFindTarget
+    AnyRegister,
     ShortDelay,
     LongDelay,
     AnyDelay,
@@ -191,6 +196,7 @@ impl FindTarget {
             Self::Register(wanted) => {
                 matches!(instruction, Instruction::Register { reg, .. } if reg == wanted)
             }
+            Self::AnyRegister => matches!(instruction, Instruction::Register { .. }),
             Self::ShortDelay => instruction.delay_kind() == Some(DelayKind::Short),
             Self::LongDelay => instruction.delay_kind() == Some(DelayKind::Long),
             Self::AnyDelay => instruction.is_delay(),
@@ -359,5 +365,10 @@ mod tests {
 
         assert!(FindTarget::BankSwitch.matches(bank));
         assert!(!FindTarget::BankSwitch.matches(reg));
+
+        // "Any write" matches every register write and nothing else.
+        assert!(FindTarget::AnyRegister.matches(reg));
+        assert!(!FindTarget::AnyRegister.matches(short));
+        assert!(!FindTarget::AnyRegister.matches(bank));
     }
 }

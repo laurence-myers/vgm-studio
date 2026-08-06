@@ -28,12 +28,15 @@ pub enum AppTab {
     Pack,
 }
 
-/// What the Find Register dialog is searching for: a DRO/OPL token or hex
-/// register (parsed by [`FindTarget`](vgms_core::FindTarget)), or a multichip
-/// target for a VGM the editor holds as one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What the Find Register dialog is searching for: an OPL instruction target
+/// for a DRO, or a multichip target for a VGM the editor holds as one. The
+/// dialog is the same chip/register picker either way (see [`FindRegDialog`]);
+/// only which target type a selection becomes differs by document.
+///
+/// [`FindRegDialog`]: crate::dialogs::FindRegDialog
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FindQuery {
-    Dro(String),
+    Dro(vgms_core::FindTarget),
     Vgm(vgms_core::vgm::VgmFindTarget),
 }
 

@@ -535,6 +535,16 @@ fn snapshot_find_register_vgm_dialog() {
     settled_snapshot(&mut harness, "find_register_vgm_dialog");
 }
 
+/// The Find Register dialog for a DRO: the same chip/register picker a VGM
+/// gets, offering the document's one OPL chip and its registers by name rather
+/// than the old bare token dropdown.
+#[test]
+fn snapshot_find_register_dro_dialog() {
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
+    act(&mut harness, Action::Edit(EditAction::OpenFindRegister));
+    settled_snapshot(&mut harness, "find_register_dro_dialog");
+}
+
 /// A VGM for chips this app has no core for can be cropped to a marked region
 /// and undone. Driven through the menu actions, so their gates are exercised too.
 #[test]

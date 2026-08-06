@@ -226,12 +226,10 @@ impl VgmStudioApp {
         // Each query kind knows how to describe itself for the status line, and
         // which stream to search.
         let (found, label) = match query {
-            crate::action::FindQuery::Dro(target) => {
-                let Ok(parsed) = target.parse::<FindTarget>() else {
-                    return;
-                };
-                (self.editor.find_next(parsed, backwards), target.clone())
-            }
+            crate::action::FindQuery::Dro(target) => (
+                self.editor.find_next(*target, backwards),
+                describe_dro_target(*target),
+            ),
             crate::action::FindQuery::Vgm(target) => (
                 self.editor.find_next_vgm(*target, backwards),
                 describe_target(*target),

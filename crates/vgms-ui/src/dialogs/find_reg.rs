@@ -1,35 +1,35 @@
 //! The Find Register dialog. Modeless.
 //!
-//! Two shapes, one per document kind. For an OPL song the choices are the delay
-//! tokens, `BANK` where bank switches exist (DRO v1), then every register
-//! `0x00`..`0xFF`. For a multichip VGM they are a chip picker and, per chip, its
-//! documented registers plus "any write" and "any delay" -- and a free hex box
-//! for an address the docs do not name.
+//! One chip/register picker for either document kind. A DRO offers its single
+//! OPL chip; a multichip VGM offers each chip its header declares. Per chip the
+//! register dropdown lists "any delay", "any write" and the chip's documented
+//! registers by name, with a free hex box for an address the docs do not name.
+//! What a selection becomes differs only at the very end: a DRO builds a
+//! [`FindTarget`], a VGM a [`VgmFindTarget`] (see [`Emit`]).
 
-use vgms_core::song::DRO_FILE_V1;
 use vgms_core::vgm::{ChipKind, VgmFile, VgmFindTarget};
-use vgms_core::{FindTarget, Song, SongFileType, chip_docs};
+use vgms_core::{FindTarget, OplType, Song, chip_docs};
 
 use crate::action::{Action, EditAction, FindQuery};
 use crate::theme::{Palette, bevel};
 
 #[derive(Debug)]
 pub struct FindRegDialog {
-    mode: Mode,
+    find: Find,
 }
 
-#[derive(Debug)]
-enum Mode {
-    /// An OPL song: a flat list of tokens and 8-bit registers.
-    Dro {
-        choices: Vec<String>,
-        selected: String,
-    },
-    /// A multichip VGM: a chip picker and its register choices.
-    Vgm(VgmFind),
+/// Which document the dialog searches -- the one thing that differs between a
+/// DRO and a VGM, deciding how the shared chip/register selection becomes a
+/// query.
+#[derive(Debug, Clone, Copy)]
+enum Emit {
+    /// A DRO's OPL instruction stream: the selection becomes a [`FindTarget`].
+    Dro,
+    /// A multichip VGM stream: the selection becomes a [`VgmFindTarget`].
+    Vgm,
 }
 
-/// One chip a VGM declares, expanded per instance.
+/// One chip the document declares, expanded per instance.
 #[derive(Debug)]
 struct ChipChoice {
     label: String,
@@ -51,8 +51,20 @@ enum RegWhat {
     Addr(u16),
 }
 
+/// What the current selection picks, before it becomes a per-document query:
+/// the hex box when it holds a valid address, else the register dropdown.
+#[derive(Debug, Clone, Copy)]
+enum Selected {
+    AnyDelay,
+    AnyWrite,
+    Addr(u16),
+}
+
+/// The chip/register picker itself, shared by both document kinds. Only
+/// [`Self::query`] cares which one it is drawing for.
 #[derive(Debug)]
-struct VgmFind {
+struct Find {
+    emit: Emit,
     chips: Vec<ChipChoice>,
     chip: usize,
     /// The register choices for the selected chip, rebuilt when it changes.
@@ -67,30 +79,21 @@ struct VgmFind {
 }
 
 impl FindRegDialog {
-    /// The dialog for an OPL song.
+    /// The dialog for a DRO: its single OPL chip.
     #[must_use]
     pub fn new(song: &Song) -> Self {
-        let is_v1 = song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V1;
-        // The tokens come from vgms-core (shared with `FindTarget::from_str`), so
-        // the dialog can't offer one the parser rejects. BANK is dropped for
-        // anything but DRO v1, where no instruction could ever match it.
-        let mut choices: Vec<String> = FindTarget::TOKENS
-            .iter()
-            .filter(|(_, target)| *target != FindTarget::BankSwitch || is_v1)
-            .map(|(token, _)| (*token).to_owned())
-            .collect();
-        // Bare hex, matching the table's Reg. column; `FindTarget::from_str`
-        // accepts it (an optional `0x` is stripped).
-        choices.extend((0..=0xFFu16).map(|reg| format!("{reg:02X}")));
+        let kind = opl_find_kind(song.opl_type);
+        let chips = vec![ChipChoice {
+            label: kind.name().to_owned(),
+            kind,
+            instance: 0,
+        }];
         Self {
-            mode: Mode::Dro {
-                choices,
-                selected: String::new(),
-            },
+            find: Find::new(Emit::Dro, chips),
         }
     }
 
-    /// The dialog for a multichip VGM: a chip picker and its registers.
+    /// The dialog for a multichip VGM: one entry per chip instance.
     #[must_use]
     pub fn for_vgm(file: &VgmFile) -> Self {
         let mut chips = Vec::new();
@@ -109,17 +112,8 @@ impl FindRegDialog {
                 });
             }
         }
-        let mut find = VgmFind {
-            chips,
-            chip: 0,
-            registers: Vec::new(),
-            reg: 0,
-            hex: String::new(),
-            hex_digits: 2,
-        };
-        find.rebuild_registers();
         Self {
-            mode: Mode::Vgm(find),
+            find: Find::new(Emit::Vgm, chips),
         }
     }
 
@@ -135,17 +129,14 @@ impl FindRegDialog {
         let open = super::dialog_window(ctx, "Find Register", area, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.add_space(2.0);
-            let query = match &mut self.mode {
-                Mode::Dro { choices, selected } => Self::draw_dro(ui, palette, choices, selected),
-                Mode::Vgm(find) => find.draw(ui, palette),
-            };
+            let query = self.find.draw(ui, palette);
             crate::theme::separator(ui, palette);
             super::dialog_footer(ui, |ui| {
                 if bevel::button(ui, palette, "Close").clicked() {
                     close_clicked = true;
                 }
                 if bevel::button(ui, palette, "Find Next").clicked()
-                    && let Some(query) = query.clone()
+                    && let Some(query) = query
                 {
                     actions.push(Action::Edit(EditAction::FindRegister {
                         query,
@@ -153,7 +144,7 @@ impl FindRegDialog {
                     }));
                 }
                 if bevel::button(ui, palette, "Find Previous").clicked()
-                    && let Some(query) = query.clone()
+                    && let Some(query) = query
                 {
                     actions.push(Action::Edit(EditAction::FindRegister {
                         query,
@@ -164,37 +155,23 @@ impl FindRegDialog {
         });
         open && !close_clicked
     }
-
-    /// The OPL body: one dropdown of tokens and registers. Returns the query
-    /// the buttons would submit.
-    fn draw_dro(
-        ui: &mut egui::Ui,
-        palette: &Palette,
-        choices: &[String],
-        selected: &mut String,
-    ) -> Option<FindQuery> {
-        ui.horizontal(|ui| {
-            ui.label("Instruction:");
-            ui.scope(|ui| {
-                crate::theme::style_dropdown(ui, palette);
-                egui::ComboBox::from_id_salt("find-reg-choice")
-                    .selected_text(selected.as_str())
-                    .width(120.0)
-                    .height(300.0)
-                    .show_ui(ui, |ui| {
-                        for choice in choices {
-                            if ui.selectable_label(choice == selected, choice).clicked() {
-                                *selected = choice.clone();
-                            }
-                        }
-                    });
-            });
-        });
-        (!selected.is_empty()).then(|| FindQuery::Dro(selected.clone()))
-    }
 }
 
-impl VgmFind {
+impl Find {
+    fn new(emit: Emit, chips: Vec<ChipChoice>) -> Self {
+        let mut find = Self {
+            emit,
+            chips,
+            chip: 0,
+            registers: Vec::new(),
+            reg: 0,
+            hex: String::new(),
+            hex_digits: 2,
+        };
+        find.rebuild_registers();
+        find
+    }
+
     /// Rebuilds the register choices from the selected chip: the always-there
     /// "any delay" and "any write", then each documented register by name.
     fn rebuild_registers(&mut self) {
@@ -228,7 +205,7 @@ impl VgmFind {
         self.reg = 0;
     }
 
-    /// The VGM body: a chip dropdown, a register dropdown, and a free hex box.
+    /// The body: a chip dropdown, a register dropdown, and a free hex box.
     /// Returns the query the buttons would submit.
     fn draw(&mut self, ui: &mut egui::Ui, palette: &Palette) -> Option<FindQuery> {
         ui.horizontal(|ui| {
@@ -289,13 +266,9 @@ impl VgmFind {
         self.query()
     }
 
-    /// The query the current selection describes: the hex box wins when it
-    /// holds a valid address, else the register dropdown.
-    fn query(&self) -> Option<FindQuery> {
-        let chip = self.chips.get(self.chip)?;
-        let kind = chip.kind;
-        let instance = Some(chip.instance);
-
+    /// What the current selection picks: the hex box when it holds a valid
+    /// address, else the register dropdown.
+    fn selected(&self) -> Option<Selected> {
         let hex = self.hex.trim();
         if !hex.is_empty() {
             let digits = hex
@@ -303,26 +276,52 @@ impl VgmFind {
                 .or_else(|| hex.strip_prefix("0X"))
                 .unwrap_or(hex);
             let addr = u16::from_str_radix(digits, 16).ok()?;
-            return Some(FindQuery::Vgm(VgmFindTarget::Write {
-                kind,
-                instance,
-                addr: Some(addr),
-            }));
+            return Some(Selected::Addr(addr));
         }
+        Some(match self.registers.get(self.reg)?.what {
+            RegWhat::AnyDelay => Selected::AnyDelay,
+            RegWhat::AnyWrite => Selected::AnyWrite,
+            RegWhat::Addr(addr) => Selected::Addr(addr),
+        })
+    }
 
-        let what = self.registers.get(self.reg)?.what;
-        Some(FindQuery::Vgm(match what {
-            RegWhat::AnyDelay => VgmFindTarget::AnyDelay,
-            RegWhat::AnyWrite => VgmFindTarget::Write {
-                kind,
-                instance,
-                addr: None,
-            },
-            RegWhat::Addr(addr) => VgmFindTarget::Write {
-                kind,
-                instance,
-                addr: Some(addr),
-            },
-        }))
+    /// The query the current selection describes, in the document's own
+    /// vocabulary.
+    fn query(&self) -> Option<FindQuery> {
+        let chip = self.chips.get(self.chip)?;
+        let selected = self.selected()?;
+        Some(match self.emit {
+            Emit::Vgm => FindQuery::Vgm(match selected {
+                Selected::AnyDelay => VgmFindTarget::AnyDelay,
+                Selected::AnyWrite => VgmFindTarget::Write {
+                    kind: chip.kind,
+                    instance: Some(chip.instance),
+                    addr: None,
+                },
+                Selected::Addr(addr) => VgmFindTarget::Write {
+                    kind: chip.kind,
+                    instance: Some(chip.instance),
+                    addr: Some(addr),
+                },
+            }),
+            Emit::Dro => FindQuery::Dro(match selected {
+                Selected::AnyDelay => FindTarget::AnyDelay,
+                Selected::AnyWrite => FindTarget::AnyRegister,
+                // A DRO addresses registers by a single byte; the port/bank an
+                // OPL3 register carries in the high byte is not part of the DRO
+                // register code, so the search matches the byte in either bank.
+                Selected::Addr(addr) => FindTarget::Register((addr & 0xFF) as u8),
+            }),
+        })
+    }
+}
+
+/// The chip a DRO's OPL type projects to, for the find dialog's one-chip
+/// picker. A dual OPL2 is two `Ym3812` instances at playback, but its register
+/// codes are identical on either, so the picker offers just the one chip.
+const fn opl_find_kind(opl_type: OplType) -> ChipKind {
+    match opl_type {
+        OplType::Opl3 => ChipKind::Ymf262,
+        OplType::Opl2 | OplType::DualOpl2 => ChipKind::Ym3812,
     }
 }
