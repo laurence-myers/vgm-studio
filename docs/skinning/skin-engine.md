@@ -186,7 +186,8 @@ and the loop note lists its tracks one per line rather than comma-joining them.
 **Petrol is the default case** (2026-07-25), with `pad: Surface::Light` —
 `dark_plate_case!` takes an optional pad surface for exactly this. Flipping the
 default also needs `src/vgmstudio.ini` and the `vgms-core` config tests, plus the
-Settings theme tests in `app_gui_tests.rs`, which name the default twice.
+Settings theme tests under `src/app_gui_tests/` (split into per-section modules,
+st-6), which name the default twice.
 
 **Alert boxes scroll.** `alert.rs` caps the message at
 `content_rect().height() - 180` and scrolls it, height still shrink-to-fit. The

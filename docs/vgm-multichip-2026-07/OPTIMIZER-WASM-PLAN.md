@@ -1,9 +1,13 @@
 # The optimisers on the web: a wasm instance is a better process than a process
 
-> **Status: PROPOSED (2026-07-30).** Follows `OPTIMIZER-PLAN.md`, whose ot-1
-> chose child processes for the desktop. This is the web half. It can be built
-> and proven under node *before* `vgms-web` exists, exactly as the libvgm wasm
-> spike was.
+> **Status: LARGELY BUILT via the wasip1 pivot (see §"The wasip1 pivot" below;
+> ow-8..ow-11 shipped 2026-08-01, including CI).** The original browser_wasi_shim
+> proposal below (ow-1..ow-7) is kept as the record of what was built and proven
+> before the pivot. **Still open:** the shim's `debug` logging defaulting ON in
+> the vendored `WASI` constructor, undefined-behaviour fixtures for the tool
+> modules, and a browser e2e that exercises the wasip1 tools (the smoke test runs
+> under node). Follows `OPTIMIZER-PLAN.md`, whose ot-1 chose child processes for
+> the desktop; this is the web half.
 
 ## The problem, and why it is smaller than it looks
 

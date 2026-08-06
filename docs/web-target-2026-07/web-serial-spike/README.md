@@ -1,9 +1,10 @@
 # RetroWave over Web Serial — investigation (wt-9)
 
 Low-priority investigation into driving the RetroWave OPL3 board from the browser
-over **Web Serial** (not WebUSB — the CDC interface is OS-driver-owned). It ends
-with a go/no-go, recorded in [`../PLAN.md`](../PLAN.md) (wt-9): **GO, deferred to a
-follow-up design** for a worker-hosted batched pump.
+over **Web Serial** (not WebUSB — the CDC interface is OS-driver-owned). Its
+go/no-go verdict (wt-9, 2026-07-31): **GO, deferred to a follow-up design** for a
+worker-hosted batched pump. (The web-target plan that commissioned it is complete
+and deleted; this directory is kept as the reference for that follow-up.)
 
 ## What's here
 

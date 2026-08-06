@@ -7,6 +7,15 @@ document: if hardware panning is wanted later, the design below still stands, an
 the controls it would re-enable are gated on one predicate,
 `AudioConfig::renders_samples`.
 
+> **Substrate update (2026-08-05, Stage K / k-5.2):** the RetroWave service no
+> longer runs `PlayerEngine` over a `Song` — the board is driven by `VgmEngine`
+> through `opl_hardware_core`, an OPL `ChipCore` whose write gate never stands
+> down (`vgms-synth`), with the shadow+diff serial chip underneath unchanged.
+> The register-mirroring design below is engine-agnostic (it operates at the
+> chip-write level), but its implementation hooks now live in
+> `opl_hardware_core` / the RetroWave service rather than the deleted
+> `PlayerEngine` path — re-anchor the step list before implementing.
+
 Goal: make the channel panel's pan knobs audible on RetroWave hardware for OPL2
 songs, which is today the one place they are silently inert. Mechanism (the user's
 design): mirror every bank-0 channel into the YMF262's second register array —
