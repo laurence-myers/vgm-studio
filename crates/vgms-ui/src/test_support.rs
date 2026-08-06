@@ -212,6 +212,8 @@ pub(crate) struct AudioLog {
     /// Every any-chip mute pushed, for the generic channel panel's tests.
     pub chip_mutings: Vec<vgms_synth::ChipMuting>,
     pub chip_pannings: Vec<vgms_synth::ChipPanning>,
+    /// Every per-chip trim pushed, for the chip mixer's tests.
+    pub chip_trims: Vec<vgms_synth::ChipTrims>,
     pub boosts: Vec<f32>,
     /// Every loop region pushed at the service, `None` for "stop looping".
     pub loops: Vec<Option<vgms_synth::LoopConfig>>,
@@ -311,6 +313,10 @@ impl AudioService for FakeAudioService {
 
     fn set_chip_panning(&mut self, panning: vgms_synth::ChipPanning) {
         self.0.borrow_mut().chip_pannings.push(panning);
+    }
+
+    fn set_chip_trims(&mut self, trims: vgms_synth::ChipTrims) {
+        self.0.borrow_mut().chip_trims.push(trims);
     }
 
     fn set_boost(&mut self, boost: f32) {

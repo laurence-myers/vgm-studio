@@ -12,7 +12,9 @@ use std::sync::Arc;
 use vgms_core::config::{AudioConfig, OutputBackend};
 use vgms_core::{OplType, VgmFile};
 use vgms_retrowave::{Device, RetroWaveAudio};
-use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
+use vgms_synth::{
+    AudioSource, ChipMuting, ChipPanning, ChipTrims, LoopConfig, Muting, Panning, Position,
+};
 use vgms_ui::{AudioService, platform::HardwarePortInfo};
 
 use super::NativeAudioService;
@@ -200,6 +202,12 @@ impl AudioService for RetroWaveAudioService {
         }
     }
 
+    /// Nothing to do, for the same reason as [`set_boost`](Self::set_boost): a
+    /// trim scales a rendered mix, and this backend renders none -- it replays
+    /// register writes to a real OPL3 board. (The chip mixer is a generic-chip
+    /// control anyway; nothing produces a trim for an OPL document.)
+    fn set_chip_trims(&mut self, _trims: ChipTrims) {}
+
     fn set_loop(&mut self, config: Option<LoopConfig>) {
         self.loop_config = config;
         if let Some(audio) = &mut self.audio {
@@ -370,6 +378,11 @@ impl AudioService for SwitchingAudioService {
         self.active_mut().set_chip_panning(panning);
     }
 
+    /// Forwarded like the chip mutes/pans, and required for the same reason.
+    fn set_chip_trims(&mut self, trims: ChipTrims) {
+        self.active_mut().set_chip_trims(trims);
+    }
+
     fn set_boost(&mut self, boost: f32) {
         self.active_mut().set_boost(boost);
     }
@@ -486,6 +499,18 @@ mod tests {
                 .pans_for(ChipKind::Sn76489, 0),
             Some(&[-0x100i16, -0x100, -0x100, -0x100][..]),
             "pans must reach the backend too"
+        );
+
+        let mut trims = ChipTrims::new();
+        trims.set(ChipKind::Ym2612, 0, 40);
+        service.set_chip_trims(trims);
+        assert_eq!(
+            service
+                .native
+                .last_chip_trims()
+                .percent_for(ChipKind::Ym2612, 0),
+            40,
+            "and so must a per-chip trim"
         );
     }
 

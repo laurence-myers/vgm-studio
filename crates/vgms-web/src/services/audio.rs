@@ -26,7 +26,8 @@ use wasm_bindgen_futures::{JsFuture, spawn_local};
 use vgms_core::config::AudioConfig;
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
-    AudioSource, ChipMuting, ChipPanning, LoopConfig, LoopCount, Muting, Panning, Position,
+    AudioSource, ChipMuting, ChipPanning, ChipTrims, LoopConfig, LoopCount, Muting, Panning,
+    Position,
 };
 use vgms_ui::AudioService;
 
@@ -317,6 +318,21 @@ impl AudioService for WebAudioService {
                     ("slug", JsValue::from_str(kind.slug())),
                     ("instance", num(f64::from(instance))),
                     ("pans", array.into()),
+                ],
+            ));
+        }
+    }
+
+    fn set_chip_trims(&mut self, trims: ChipTrims) {
+        // One postMessage per instance, a plain number like the boost -- the
+        // trim is a scalar, not a buffer as the pans are.
+        for (kind, instance, percent) in trims.entries() {
+            self.post(command(
+                "setChipTrim",
+                &[
+                    ("slug", JsValue::from_str(kind.slug())),
+                    ("instance", num(f64::from(instance))),
+                    ("percent", num(f64::from(percent))),
                 ],
             ));
         }

@@ -288,6 +288,26 @@ pub unsafe extern "C" fn vgmsw_set_chip_pan(
     player::set_chip_pan(kind, instance, pans);
 }
 
+/// Sets one chip instance's listening trim (0..=100%; the generic engine's, a
+/// no-op on an OPL song). A scalar like the boost -- no buffer. `slug` names the
+/// chip, e.g. `sn76489`.
+///
+/// # Safety
+/// `(slug_ptr, slug_len)` must describe a valid initialised buffer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn vgmsw_set_chip_trim(
+    slug_ptr: *const u8,
+    slug_len: usize,
+    instance: u8,
+    percent: u8,
+) {
+    // Safety: the host passes a valid slug buffer.
+    let Some(kind) = (unsafe { text(slug_ptr, slug_len) }).and_then(ChipKind::from_slug) else {
+        return;
+    };
+    player::set_chip_trim(kind, instance, percent);
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn vgmsw_position_frames() -> f64 {
     player::position_frames()

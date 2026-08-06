@@ -14,7 +14,9 @@
 
 use vgms_audio_native::NativeAudio;
 use vgms_core::config::AudioConfig;
-use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
+use vgms_synth::{
+    AudioSource, ChipMuting, ChipPanning, ChipTrims, LoopConfig, Muting, Panning, Position,
+};
 use vgms_ui::AudioService;
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +41,8 @@ pub struct NativeAudioService {
     chip_muting: ChipMuting,
     /// The latest requested any-chip pans, likewise.
     chip_panning: ChipPanning,
+    /// The latest requested per-chip trims, likewise.
+    chip_trims: ChipTrims,
     /// The latest requested boost, flushed on every play.
     boost: f32,
     /// The latest requested loop region, flushed on every play.
@@ -56,6 +60,7 @@ impl Default for NativeAudioService {
             panning: Panning::Original,
             chip_muting: ChipMuting::new(),
             chip_panning: ChipPanning::new(),
+            chip_trims: ChipTrims::new(),
             boost: 1.0,
             loop_config: None,
             pending_seek: None,
@@ -87,6 +92,12 @@ impl NativeAudioService {
     #[cfg(test)]
     pub(super) const fn last_chip_panning(&self) -> &ChipPanning {
         &self.chip_panning
+    }
+
+    /// The per-chip trims this service last accepted, as above.
+    #[cfg(test)]
+    pub(super) const fn last_chip_trims(&self) -> &ChipTrims {
+        &self.chip_trims
     }
 }
 
@@ -123,6 +134,7 @@ impl AudioService for NativeAudioService {
         audio.set_panning(self.panning);
         audio.set_chip_muting(self.chip_muting.clone());
         audio.set_chip_panning(self.chip_panning.clone());
+        audio.set_chip_trims(self.chip_trims.clone());
         audio.set_boost(self.boost);
         audio.set_loop(self.loop_config);
         audio.play().map_err(|e| e.to_string())?;
@@ -206,6 +218,16 @@ impl AudioService for NativeAudioService {
                 .as_mut()
                 .expect("stream_live checked")
                 .set_chip_panning(panning);
+        }
+    }
+
+    fn set_chip_trims(&mut self, trims: ChipTrims) {
+        self.chip_trims = trims.clone();
+        if self.stream_live() {
+            self.audio
+                .as_mut()
+                .expect("stream_live checked")
+                .set_chip_trims(trims);
         }
     }
 

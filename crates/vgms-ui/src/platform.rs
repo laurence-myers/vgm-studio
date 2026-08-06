@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 
 use vgms_core::config::AudioConfig;
 use vgms_pack_archive::PackArchive;
-use vgms_synth::{AudioSource, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position};
+use vgms_synth::{
+    AudioSource, ChipMuting, ChipPanning, ChipTrims, LoopConfig, Muting, Panning, Position,
+};
 
 pub use vgms_core::config::ConfigStore;
 
@@ -440,6 +442,14 @@ pub trait AudioService {
     /// Replaces the any-chip channel pans, live. Required, for the reason on
     /// [`set_chip_muting`](Self::set_chip_muting).
     fn set_chip_panning(&mut self, panning: ChipPanning);
+
+    /// Replaces the per-chip listening trims, live -- the volume half of the
+    /// per-chip mixer, beside the chip mutes and pans. Required, for the same
+    /// reason as [`set_chip_muting`](Self::set_chip_muting): a `{}` default
+    /// would let a forwarding wrapper swallow it in silence. A backend that
+    /// renders no signal to attenuate writes the empty body and its reason, as
+    /// it does for [`set_boost`](Self::set_boost).
+    fn set_chip_trims(&mut self, trims: ChipTrims);
 
     /// Sets the live playback volume boost. A limiter keeps the boosted signal
     /// from clipping. Never affects a WAV render or the waveform.

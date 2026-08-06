@@ -29,8 +29,8 @@ use vgms_core::OplType;
 use vgms_core::config::AudioConfig;
 use vgms_synth::vgm_engine::VgmEngine;
 use vgms_synth::{
-    AudioSource, BoostLimiter, ChipMuting, ChipPanning, LoopConfig, Muting, Panning, Position,
-    opl_chip_muting, opl_chip_panning,
+    AudioSource, BoostLimiter, ChipMuting, ChipPanning, ChipTrims, LoopConfig, Muting, Panning,
+    Position, opl_chip_muting, opl_chip_panning,
 };
 
 /// What can go wrong opening or driving the audio device.
@@ -63,6 +63,9 @@ enum Command {
     SetChipMuting(ChipMuting),
     /// Any-chip channel pans, likewise.
     SetChipPanning(ChipPanning),
+    /// Per-chip listening trims, for the generic engine (a no-op on the OPL
+    /// arm, which has no trim vocabulary).
+    SetChipTrims(ChipTrims),
     SetBoost(f32),
     SetLoop(Option<LoopConfig>),
     Rewind,
@@ -313,6 +316,11 @@ impl NativeAudio {
         self.send(Command::SetChipPanning(panning));
     }
 
+    /// Replaces the per-chip listening trims (the generic engine's).
+    pub fn set_chip_trims(&mut self, trims: ChipTrims) {
+        self.send(Command::SetChipTrims(trims));
+    }
+
     /// Changes the live playback volume boost. The limiter keeps the boosted
     /// signal from clipping; this never touches a WAV render.
     pub fn set_boost(&mut self, boost: f32) {
@@ -462,6 +470,16 @@ impl Engine {
         }
     }
 
+    fn set_chip_trims(&mut self, trims: ChipTrims) {
+        // Gated like the mutes/pans: an OPL document plays over its projection
+        // and its panel has no trim, so a trim command here means the UI has
+        // not caught up (per the chip mixer's v1 scope -- the OPL tab keeps its
+        // plain label). A plain VGM applies it.
+        if self.opl.is_none() {
+            self.inner.set_trims(trims);
+        }
+    }
+
     fn set_loop(&mut self, config: Option<LoopConfig>) {
         self.inner.set_loop(config);
     }
@@ -509,6 +527,7 @@ where
                     Command::SetPanning(panning) => engine.set_panning(panning),
                     Command::SetChipMuting(muting) => engine.set_chip_muting(muting),
                     Command::SetChipPanning(panning) => engine.set_chip_panning(panning),
+                    Command::SetChipTrims(trims) => engine.set_chip_trims(trims),
                     Command::SetBoost(boost) => limiter.set_boost(boost),
                     Command::SetLoop(config) => engine.set_loop(config),
                     Command::Rewind => engine.rewind(),
@@ -726,6 +745,42 @@ mod tests {
 
         // And the OPL-only command is a no-op on this arm rather than a panic.
         engine.set_muting(Muting::all());
+    }
+
+    /// A trim never reaches a core (it is the engine's own gain), so the VGM
+    /// arm forwarding it is observed in the render: a 0% trim silences.
+    #[test]
+    fn the_vgm_arm_forwards_chip_trims() {
+        struct Constant;
+        impl ChipCore for Constant {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(1000);
+            }
+        }
+
+        let engine = VgmEngine::with_cores(sn_vgm(), 44_100, |_| Some(Box::new(Constant)));
+        let mut engine = Engine {
+            inner: Box::new(engine),
+            opl: None,
+        };
+        let mut out = vec![0i16; 256];
+        engine.render(&mut out);
+        assert!(out.iter().any(|&s| s != 0), "sanity: the constant sounds");
+
+        let mut trims = ChipTrims::new();
+        trims.set(ChipKind::Sn76489, 0, 0);
+        engine.set_chip_trims(trims);
+        let mut out = vec![0i16; 256];
+        engine.render(&mut out);
+        assert!(
+            out.iter().all(|&s| s == 0),
+            "a 0% trim reached the voice on the VGM arm"
+        );
     }
 
     #[test]

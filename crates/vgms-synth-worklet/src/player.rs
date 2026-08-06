@@ -17,8 +17,8 @@ use vgms_core::vgm::ChipKind;
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::vgm_engine::VgmEngine;
 use vgms_synth::{
-    AudioSource, BoostLimiter, ChipMuting, ChipPanning, CoreRegistry, LoopConfig, LoopCount,
-    Muting, Panning, Position, opl_chip_muting, opl_chip_panning,
+    AudioSource, BoostLimiter, ChipMuting, ChipPanning, ChipTrims, CoreRegistry, LoopConfig,
+    LoopCount, Muting, Panning, Position, opl_chip_muting, opl_chip_panning,
 };
 
 /// The process-wide player the ABI drives. `None` until the first successful
@@ -169,6 +169,9 @@ pub(crate) fn set_chip_mute(kind: ChipKind, instance: u8, mask: u32) {
 pub(crate) fn set_chip_pan(kind: ChipKind, instance: u8, pans: Vec<i16>) {
     with_player((), |player| player.set_chip_pan(kind, instance, pans));
 }
+pub(crate) fn set_chip_trim(kind: ChipKind, instance: u8, percent: u8) {
+    with_player((), |player| player.set_chip_trim(kind, instance, percent));
+}
 pub(crate) fn position_frames() -> f64 {
     with_player(0.0, |player| {
         player.engine.position().frames_rendered as f64
@@ -214,10 +217,11 @@ pub(crate) struct WebPlayer {
     /// The lowest boost at which the limiter has engaged since this song loaded,
     /// or `0.0` for "never".
     min_engaged_boost: f32,
-    /// The generic engine's mutes/pans, accumulated per chip instance (the ABI
-    /// sets one at a time), kept so each change re-applies the whole set.
+    /// The generic engine's mutes/pans/trims, accumulated per chip instance (the
+    /// ABI sets one at a time), kept so each change re-applies the whole set.
     chip_muting: ChipMuting,
     chip_panning: ChipPanning,
+    chip_trims: ChipTrims,
 }
 
 impl WebPlayer {
@@ -238,6 +242,7 @@ impl WebPlayer {
             min_engaged_boost: 0.0,
             chip_muting: ChipMuting::new(),
             chip_panning: ChipPanning::new(),
+            chip_trims: ChipTrims::new(),
         })
     }
 
@@ -281,6 +286,11 @@ impl WebPlayer {
     fn set_chip_pan(&mut self, kind: ChipKind, instance: u8, pans: Vec<i16>) {
         self.chip_panning.set(kind, instance, pans);
         self.engine.set_chip_panning(self.chip_panning.clone());
+    }
+
+    fn set_chip_trim(&mut self, kind: ChipKind, instance: u8, percent: u8) {
+        self.chip_trims.set(kind, instance, percent);
+        self.engine.set_chip_trims(self.chip_trims.clone());
     }
 
     /// The loudest post-limiter peak on `channel` (0 = left, else right) since the
@@ -411,6 +421,12 @@ impl Engine {
     fn set_chip_panning(&mut self, panning: ChipPanning) {
         if self.opl.is_none() {
             self.inner.set_panning(panning);
+        }
+    }
+
+    fn set_chip_trims(&mut self, trims: ChipTrims) {
+        if self.opl.is_none() {
+            self.inner.set_trims(trims);
         }
     }
 }

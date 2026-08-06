@@ -207,6 +207,12 @@ class VgmsEngineProcessor extends AudioWorkletProcessor {
         );
         break;
       }
+      case "setChipTrim":
+        // A scalar percent like the mute mask, not a buffer as the pans are.
+        this._withString(data.slug, (ptr, len) =>
+          this.ex.vgmsw_set_chip_trim(ptr, len, data.instance & 0xff, data.percent & 0xff),
+        );
+        break;
       default:
         break;
     }
