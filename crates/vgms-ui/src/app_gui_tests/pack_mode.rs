@@ -2901,7 +2901,7 @@ fn snapshot_add_screenshot_dialog() {
 #[test]
 fn help_opens_a_dialog_listing_the_shortcuts() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
-    act(&mut harness, Action::Help);
+    act(&mut harness, Action::Ui(UiAction::Help));
     harness.run();
     assert!(harness.state().dialogs.help.is_some(), "the dialog opens");
     // A key from each of the two screens, so the tables really are both there.
@@ -2922,7 +2922,7 @@ fn snapshot_help_dialog() {
     // Tall: the point of this dialog is that it holds every shortcut at once.
     let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1500.0));
     let _ = &handles;
-    act(&mut harness, Action::Help);
+    act(&mut harness, Action::Ui(UiAction::Help));
     harness.run();
     settled_snapshot(&mut harness, "help_dialog");
 }

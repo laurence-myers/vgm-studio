@@ -6,7 +6,7 @@
 //!   displayed read-only rather than edited.
 //! - Save applies the metadata, and invalid input gets an error box.
 
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// These fields all hold a number, so they are sized for one rather than
@@ -190,10 +190,10 @@ impl VgmMetadataDialog {
             match trimmed.parse::<usize>() {
                 Ok(index) if index < self.song_len => Some(index),
                 _ => {
-                    actions.push(Action::Alert {
+                    actions.push(Action::Ui(UiAction::Alert {
                         title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
                         message: crate::strings::vgm_metadata_loop_start_message(self.song_len),
-                    });
+                    }));
                     return false;
                 }
             }
@@ -205,17 +205,17 @@ impl VgmMetadataDialog {
         let loop_end = match (loop_point, self.parsed_end()) {
             (None, _) => None,
             (Some(_), None) => {
-                actions.push(Action::Alert {
+                actions.push(Action::Ui(UiAction::Alert {
                     title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
                     message: crate::strings::vgm_metadata_loop_end_message(self.song_len),
-                });
+                }));
                 return false;
             }
             (Some(start), Some(end)) if end <= start => {
-                actions.push(Action::Alert {
+                actions.push(Action::Ui(UiAction::Alert {
                     title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
                     message: crate::strings::VGM_METADATA_LOOP_END_AFTER_START.to_owned(),
-                });
+                }));
                 return false;
             }
             // An end at the end of the song is the default, and storing it as
@@ -229,10 +229,10 @@ impl VgmMetadataDialog {
             self.volume_modifier.trim().parse::<u8>(),
         );
         let (Ok(loop_base), Ok(loop_modifier), Ok(volume_modifier)) = parsed else {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
                 message: crate::strings::VGM_METADATA_UPDATE_ERROR.to_owned(),
-            });
+            }));
             return false;
         };
 
@@ -359,7 +359,10 @@ mod tests {
         dialog.loop_end = "2".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]

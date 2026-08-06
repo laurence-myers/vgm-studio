@@ -34,7 +34,7 @@ fn e2e_hook_dispatches_actions_and_reports_state() {
     // An enqueued action runs through the ordinary handler on the next frame.
     harness
         .state_mut()
-        .e2e_enqueue_action(Action::Status("e2e-probe".to_owned()));
+        .e2e_enqueue_action(Action::Ui(UiAction::Status("e2e-probe".to_owned())));
     harness.run();
     assert_eq!(harness.state().e2e_snapshot().status, "e2e-probe");
 

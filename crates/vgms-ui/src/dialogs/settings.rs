@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use vgms_core::config::{AppConfig, OptimizerChoice, OutputBackend, SurfaceChoice, ThemeChoice};
 use vgms_core::vgm::ChipKind;
 
-use crate::action::Action;
+use crate::action::{Action, SettingsAction, UiAction};
 use crate::platform::HardwarePortInfo;
 use crate::theme::Palette;
 use crate::widgets::chip_output;
@@ -255,7 +255,7 @@ impl SettingsDialog {
             return None;
         }
         self.previewed_resampling = wanted.clone();
-        Some(Action::PreviewResampling(wanted))
+        Some(Action::Settings(SettingsAction::PreviewResampling(wanted)))
     }
 
     /// The Output page: which core plays each chip, and where the sound goes.
@@ -562,7 +562,7 @@ impl SettingsDialog {
             return None;
         }
         self.previewed_cores = wanted.clone();
-        Some(Action::PreviewCores(wanted))
+        Some(Action::Settings(SettingsAction::PreviewCores(wanted)))
     }
 
     /// The preview to emit for a frame that started on `opened_with`, if any.
@@ -581,11 +581,11 @@ impl SettingsDialog {
             self.skin()
         };
         let (theme, pad_style, deck_style) = wanted;
-        (wanted != opened_with).then_some(Action::PreviewSkin {
+        (wanted != opened_with).then_some(Action::Settings(SettingsAction::PreviewSkin {
             theme,
             pad_style,
             deck_style,
-        })
+        }))
     }
 
     /// Parses, validates and emits the new settings; `false` (with an error
@@ -595,10 +595,10 @@ impl SettingsDialog {
         // edit (like `audio.boost`, driven by the transport slider) survive.
         let mut config = self.original.clone();
         let Ok(tail_length) = self.tail_length.trim().parse::<u32>() else {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::SETTINGS_INVALID_TITLE.to_owned(),
                 message: crate::strings::SETTINGS_INVALID_NUMBERS.to_owned(),
-            });
+            }));
             return false;
         };
         config.audio.frequency = self.frequency;
@@ -617,13 +617,13 @@ impl SettingsDialog {
         config.ui.deck_style = self.deck_style;
 
         if let Err(error) = config.validate() {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::SETTINGS_INVALID_TITLE.to_owned(),
                 message: error.to_string(),
-            });
+            }));
             return false;
         }
-        actions.push(Action::ApplySettings(Box::new(config)));
+        actions.push(Action::Settings(SettingsAction::Apply(Box::new(config))));
         true
     }
 }
@@ -745,7 +745,7 @@ mod tests {
         dialog.tail_length = "2000".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.frequency, 22_050, "the unlisted rate is kept");
@@ -759,7 +759,7 @@ mod tests {
         dialog.frequency = 49_716;
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.frequency, 49_716);
@@ -774,7 +774,7 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert!(saved.ui.dro_info_edit_enabled);
@@ -788,7 +788,7 @@ mod tests {
         let mut dialog = SettingsDialog::new(&config, Vec::new());
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.buffer_size, 384, "the unlisted size is kept");
@@ -796,7 +796,7 @@ mod tests {
         dialog.buffer_size = 1024;
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.buffer_size, 1024);
@@ -827,7 +827,7 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.output_backend(), OutputBackend::RetroWave);
@@ -847,7 +847,7 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.core("sn76489"), Some("native"));
@@ -869,7 +869,7 @@ mod tests {
         dialog.retrowave_port = String::new();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let Some(Action::ApplySettings(saved)) = actions.pop() else {
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
             panic!("expected the settings to be applied");
         };
         assert_eq!(saved.audio.retrowave_port, None);
@@ -888,11 +888,11 @@ mod tests {
 
     fn previewed(action: Option<Action>) -> Option<Skin> {
         match action {
-            Some(Action::PreviewSkin {
+            Some(Action::Settings(SettingsAction::PreviewSkin {
                 theme,
                 pad_style,
                 deck_style,
-            }) => Some((theme, pad_style, deck_style)),
+            })) => Some((theme, pad_style, deck_style)),
             Some(other) => panic!("expected a preview, got {other:?}"),
             None => None,
         }
@@ -987,7 +987,9 @@ mod tests {
         );
 
         dialog.choose_core("ym2612", "lle");
-        let Some(Action::PreviewCores(map)) = dialog.preview_cores(false, false) else {
+        let Some(Action::Settings(SettingsAction::PreviewCores(map))) =
+            dialog.preview_cores(false, false)
+        else {
             panic!("expected a core preview");
         };
         assert_eq!(map.get("ym2612").map(String::as_str), Some("lle"));
@@ -997,7 +999,9 @@ mod tests {
         );
 
         // Close means none of it: the saved (empty) map comes back.
-        let Some(Action::PreviewCores(map)) = dialog.preview_cores(true, false) else {
+        let Some(Action::Settings(SettingsAction::PreviewCores(map))) =
+            dialog.preview_cores(true, false)
+        else {
             panic!("expected the revert preview");
         };
         assert!(!map.contains_key("ym2612"));
@@ -1018,7 +1022,9 @@ mod tests {
         );
 
         dialog.resampling = "linear".to_owned();
-        let Some(Action::PreviewResampling(mode)) = dialog.preview_resampling(false, false) else {
+        let Some(Action::Settings(SettingsAction::PreviewResampling(mode))) =
+            dialog.preview_resampling(false, false)
+        else {
             panic!("expected a resampling preview");
         };
         assert_eq!(mode, "linear");
@@ -1028,7 +1034,9 @@ mod tests {
         );
 
         // Close reverts to the saved mode.
-        let Some(Action::PreviewResampling(mode)) = dialog.preview_resampling(true, false) else {
+        let Some(Action::Settings(SettingsAction::PreviewResampling(mode))) =
+            dialog.preview_resampling(true, false)
+        else {
             panic!("expected the revert preview");
         };
         assert_eq!(mode, dialog.original.audio.resampling);

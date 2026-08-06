@@ -8,7 +8,7 @@
 //! are all named after the game -- but it is editable, because a pack may carry
 //! more than one: a title screen per region, or per game variation.
 
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::theme::Palette;
 
 /// What Save does: rename the file the dialog opened on, or write the picked
@@ -199,10 +199,10 @@ impl ScreenshotRenameDialog {
     /// folder; an add still has a file to write, so it goes ahead.
     fn save(&mut self, actions: &mut Vec<Action>) -> bool {
         if vgms_core::pack::naming::vgm_ren_title(&self.stem).is_empty() {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_TITLE.to_owned(),
                 message: crate::strings::SCREENSHOT_RENAME_NAME_REQUIRED_MESSAGE.to_owned(),
-            });
+            }));
             return false;
         }
         let name = self.derived_name();
@@ -214,10 +214,10 @@ impl ScreenshotRenameDialog {
             .iter()
             .any(|sibling| sibling.eq_ignore_ascii_case(&name))
         {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::SCREENSHOT_RENAME_DUPLICATE_TITLE.to_owned(),
                 message: crate::strings::screenshot_rename_duplicate_message(&name),
-            });
+            }));
             return false;
         }
         actions.push(match &mut self.job {
@@ -283,7 +283,10 @@ mod tests {
         dialog.stem = "?!".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]
@@ -291,7 +294,10 @@ mod tests {
         let mut dialog = make("dosbox_000.png", "Cool Game", &["Cool Game.png"]);
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]

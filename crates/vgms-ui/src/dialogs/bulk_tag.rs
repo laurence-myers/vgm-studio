@@ -9,7 +9,7 @@
 use vgms_core::vgm::data::GD3_FIELD_COUNT;
 
 use super::gd3_tag::LABELS;
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::pack::BulkTagOverlay;
 use crate::theme::{Palette, bevel};
 
@@ -146,10 +146,10 @@ impl BulkTagDialog {
     /// leaving the dialog open) if no field is checked or no track is selected.
     fn apply(&mut self, actions: &mut Vec<Action>) -> bool {
         if !self.overlay.writes_anything() {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::BULK_TAG_NOTHING_TITLE.to_owned(),
                 message: crate::strings::BULK_TAG_NOTHING_MESSAGE.to_owned(),
-            });
+            }));
             return false;
         }
         let targets: Vec<String> = self
@@ -159,10 +159,10 @@ impl BulkTagDialog {
             .map(|t| t.file_name.clone())
             .collect();
         if targets.is_empty() {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::BULK_TAG_NO_TRACKS_TITLE.to_owned(),
                 message: crate::strings::BULK_TAG_NO_TRACKS_MESSAGE.to_owned(),
-            });
+            }));
             return false;
         }
         actions.push(Action::BulkTagSubmitted {
@@ -200,7 +200,10 @@ mod tests {
         let mut dialog = dialog();
         let mut actions = Vec::new();
         assert!(!dialog.apply(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]
@@ -210,7 +213,10 @@ mod tests {
         dialog.set_all(false); // ...but nothing is selected
         let mut actions = Vec::new();
         assert!(!dialog.apply(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]

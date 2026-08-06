@@ -83,7 +83,6 @@ pub enum Action {
     CloseFile,
     /// Close the song after the user confirmed discarding it.
     ConfirmCloseFile,
-    OpenSettings,
     Exit,
     /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).
     ConfirmExit,
@@ -232,10 +231,6 @@ pub enum Action {
         overlay: Box<BulkTagOverlay>,
     },
 
-    // Help
-    Help,
-    About,
-
     // Playback
     Play,
     Stop,
@@ -313,13 +308,6 @@ pub enum Action {
     PanningChanged,
 
     // Dialog submissions
-    /// Queue a modal message box.
-    Alert {
-        title: String,
-        message: String,
-    },
-    /// Set the status-bar text.
-    Status(String),
     GotoSubmitted(String),
     FindRegister {
         query: FindQuery,
@@ -338,15 +326,19 @@ pub enum Action {
         loop_modifier: u8,
         volume_modifier: u8,
     },
-    ApplySettings(Box<AppConfig>),
-    /// Repaint in a different skin without saving it, so the Settings dropdowns
-    /// show what they mean on the real UI rather than on a description of it.
-    /// Closing the dialog re-emits the settings it opened with, which reverts.
-    PreviewSkin {
-        theme: ThemeChoice,
-        pad_style: SurfaceChoice,
-        deck_style: SurfaceChoice,
-    },
+    /// Settings: opening the dialog, saving it, and its live previews.
+    Settings(SettingsAction),
+    /// App chrome: message boxes, the status bar, and the Help menu.
+    Ui(UiAction),
+}
+
+/// Settings: opening the dialog, saving it, and the live previews it drives.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SettingsAction {
+    Apply(Box<AppConfig>),
+    /// Open the Settings dialog.
+    Open,
     /// Audition a core map without saving it: the registry choices are
     /// replaced and the loaded stream rebuilt in place at its position, so a
     /// core picked in Settings is heard at once. Closing the dialog re-emits
@@ -356,4 +348,27 @@ pub enum Action {
     /// the loaded stream is rebuilt in place with it, so a mode picked in
     /// Settings is heard at once. Closing re-emits the saved mode, which reverts.
     PreviewResampling(String),
+    /// Repaint in a different skin without saving it, so the Settings dropdowns
+    /// show what they mean on the real UI rather than on a description of it.
+    /// Closing the dialog re-emits the settings it opened with, which reverts.
+    PreviewSkin {
+        theme: ThemeChoice,
+        pad_style: SurfaceChoice,
+        deck_style: SurfaceChoice,
+    },
+}
+
+/// App chrome: message boxes, the status bar, and the Help menu's dialogs.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiAction {
+    About,
+    /// Queue a modal message box.
+    Alert {
+        title: String,
+        message: String,
+    },
+    Help,
+    /// Set the status-bar text.
+    Status(String),
 }

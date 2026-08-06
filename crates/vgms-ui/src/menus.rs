@@ -3,7 +3,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 use vgms_core::SongFileType;
 
-use crate::action::Action;
+use crate::action::{Action, SettingsAction, UiAction};
 use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -230,7 +230,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             crate::theme::separator(ui, palette);
             if item(ui, "Settings...", None) {
-                actions.push(Action::OpenSettings);
+                actions.push(Action::Settings(SettingsAction::Open));
             }
             crate::theme::separator(ui, palette);
             if item(ui, "Exit", None) {
@@ -395,10 +395,10 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
         ui.menu_button("Help", |ui| {
             widen(ui);
             if item(ui, "Help...", Some(&HELP)) {
-                actions.push(Action::Help);
+                actions.push(Action::Ui(UiAction::Help));
             }
             if item(ui, "About...", None) {
-                actions.push(Action::About);
+                actions.push(Action::Ui(UiAction::About));
             }
         });
     });

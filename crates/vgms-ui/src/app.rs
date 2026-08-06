@@ -15,7 +15,7 @@ use vgms_synth::{
     VgmRenderMix, VgmSplitOptions,
 };
 
-use crate::action::{Action, AppTab};
+use crate::action::{Action, AppTab, SettingsAction, UiAction};
 use crate::alert::{self, Alert};
 use crate::dialogs::{
     BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,

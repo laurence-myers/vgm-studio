@@ -87,17 +87,6 @@ impl VgmStudioApp {
                 trailing_tail,
             } => self.start_split_songs(threshold_native, included, trailing_tail),
             Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
-            Action::OpenSettings => {
-                // Listed at open, so the picker offers what is plugged in now.
-                let mut dialog =
-                    SettingsDialog::new(&self.config, self.audio.list_hardware_ports());
-                // Hand the dialog the loaded file's chips, so its Output tab can
-                // surface the cores actually in use before the rest of the roster.
-                if let Some(song) = self.settings_song_context() {
-                    dialog = dialog.with_song(song);
-                }
-                self.dialogs.settings = Some(dialog);
-            }
             Action::Exit => {
                 if self.editor.is_dirty() || self.pack_is_dirty() {
                     self.alerts.push_back(Alert::confirm(
@@ -374,9 +363,6 @@ impl VgmStudioApp {
                 self.bulk_tag_submitted(targets, *overlay);
             }
 
-            Action::Help => self.dialogs.help = Some(HelpDialog),
-            Action::About => self.alerts.push_back(Alert::new("About", about_text())),
-
             Action::Play => self.do_play(),
             Action::Stop => self.do_stop(),
             Action::PlayTail => self.do_play_tail(),
@@ -496,8 +482,6 @@ impl VgmStudioApp {
             Action::MeasureVolumeModifier => self.measure_volume_modifier(),
             Action::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
 
-            Action::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
-            Action::Status(message) => self.status = message,
             Action::GotoSubmitted(text) => self.goto_submitted(&text),
             Action::FindRegister { query, backwards } => self.find_register(&query, backwards),
             Action::UpdateHeader {
@@ -537,14 +521,44 @@ impl VgmStudioApp {
                     self.status = crate::strings::APP_STATUS_VGM_METADATA_UPDATED.to_owned();
                 }
             }
-            Action::ApplySettings(config) => self.apply_settings(ctx, *config),
-            Action::PreviewSkin {
+            Action::Settings(action) => self.handle_settings_action(ctx, action),
+            Action::Ui(action) => self.handle_ui_action(action),
+        }
+    }
+
+    /// Settings actions: the dialog, saving it, and its live previews.
+    fn handle_settings_action(&mut self, ctx: &egui::Context, action: SettingsAction) {
+        match action {
+            SettingsAction::Apply(config) => self.apply_settings(ctx, *config),
+            SettingsAction::Open => self.on_open_settings(),
+            SettingsAction::PreviewCores(cores) => self.preview_cores(cores),
+            SettingsAction::PreviewResampling(mode) => self.preview_resampling(mode),
+            SettingsAction::PreviewSkin {
                 theme,
                 pad_style,
                 deck_style,
             } => self.preview_skin(ctx, theme, pad_style, deck_style),
-            Action::PreviewCores(cores) => self.preview_cores(cores),
-            Action::PreviewResampling(mode) => self.preview_resampling(mode),
         }
+    }
+
+    /// App-chrome actions: message boxes, the status bar, and the Help menu.
+    fn handle_ui_action(&mut self, action: UiAction) {
+        match action {
+            UiAction::About => self.alerts.push_back(Alert::new("About", about_text())),
+            UiAction::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
+            UiAction::Help => self.dialogs.help = Some(HelpDialog),
+            UiAction::Status(message) => self.status = message,
+        }
+    }
+
+    fn on_open_settings(&mut self) {
+        // Listed at open, so the picker offers what is plugged in now.
+        let mut dialog = SettingsDialog::new(&self.config, self.audio.list_hardware_ports());
+        // Hand the dialog the loaded file's chips, so its Output tab can
+        // surface the cores actually in use before the rest of the roster.
+        if let Some(song) = self.settings_song_context() {
+            dialog = dialog.with_song(song);
+        }
+        self.dialogs.settings = Some(dialog);
     }
 }

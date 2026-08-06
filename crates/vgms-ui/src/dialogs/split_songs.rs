@@ -17,7 +17,7 @@ use vgms_core::Segment;
 
 use crate::tasks::SplitSource;
 
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// The default gap threshold, in seconds. `vgm_sptd` uses 0x8000 = 32768 samples
@@ -236,10 +236,10 @@ impl SplitSongsDialog {
     /// checked. Returns whether the dialog should close.
     fn save(&self, actions: &mut Vec<Action>) -> bool {
         if self.included_count() == 0 {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::SPLIT_SONGS_NOTHING_TITLE.to_owned(),
                 message: crate::strings::SPLIT_SONGS_NOTHING_MESSAGE.to_owned(),
-            });
+            }));
             return false;
         }
         actions.push(Action::SplitSongsSubmitted {
@@ -328,7 +328,10 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]

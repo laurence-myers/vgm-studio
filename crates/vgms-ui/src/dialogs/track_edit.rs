@@ -5,7 +5,7 @@
 
 use vgms_core::{Gd3Tag, vgm::data::GD3_FIELD_COUNT};
 
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::theme::Palette;
 
 #[derive(Debug)]
@@ -128,10 +128,10 @@ impl TrackEditDialog {
         // leaves something behind: "?!" is a track name, but every character of
         // it is dropped on the way into a file name.
         if vgms_core::pack::naming::vgm_ren_title(&self.fields[0]).is_empty() {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_TITLE.to_owned(),
                 message: crate::strings::TRACK_EDIT_TRACK_NAME_REQUIRED_MESSAGE.to_owned(),
-            });
+            }));
             return false;
         }
         let name = self.derived_name();
@@ -143,10 +143,10 @@ impl TrackEditDialog {
                 .iter()
                 .any(|sibling| sibling.eq_ignore_ascii_case(&name))
         {
-            actions.push(Action::Alert {
+            actions.push(Action::Ui(UiAction::Alert {
                 title: crate::strings::TRACK_EDIT_DUPLICATE_TITLE.to_owned(),
                 message: crate::strings::track_edit_duplicate_message(&name),
-            });
+            }));
             return false;
         }
         actions.push(Action::QuickEditSubmitted {
@@ -197,7 +197,10 @@ mod tests {
         dialog.fields[0] = "   ".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]
@@ -208,7 +211,10 @@ mod tests {
         dialog.fields[0] = "?!".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]
@@ -225,7 +231,10 @@ mod tests {
         dialog.fields[0] = "Intro".to_owned();
         let mut actions = Vec::new();
         assert!(!dialog.save(&mut actions));
-        assert!(matches!(actions.as_slice(), [Action::Alert { .. }]));
+        assert!(matches!(
+            actions.as_slice(),
+            [Action::Ui(UiAction::Alert { .. })]
+        ));
     }
 
     #[test]

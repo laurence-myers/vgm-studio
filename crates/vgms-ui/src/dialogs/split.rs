@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::{ChannelGate, SplitFormat};
 
-use crate::action::Action;
+use crate::action::{Action, UiAction};
 use crate::theme::Palette;
 use crate::widgets::chip_output;
 
@@ -169,10 +169,10 @@ impl SplitDialog {
             match self.boost.trim().parse::<f32>() {
                 Ok(boost) if (MIN_BOOST..=MAX_BOOST).contains(&boost) => boost,
                 _ => {
-                    actions.push(Action::Alert {
+                    actions.push(Action::Ui(UiAction::Alert {
                         title: crate::strings::RENDER_WAV_INVALID_TITLE.to_owned(),
                         message: crate::strings::render_wav_boost_message(MIN_BOOST, MAX_BOOST),
-                    });
+                    }));
                     return false;
                 }
             }
@@ -351,7 +351,7 @@ mod tests {
 
             let mut actions = Vec::new();
             assert!(!dialog.save(&mut actions), "{typed:?} should be refused");
-            assert!(matches!(actions[0], Action::Alert { .. }));
+            assert!(matches!(actions[0], Action::Ui(UiAction::Alert { .. })));
         }
     }
 

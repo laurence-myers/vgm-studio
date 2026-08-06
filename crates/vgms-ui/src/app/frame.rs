@@ -1023,7 +1023,7 @@ impl VgmStudioApp {
                     actions.push(Action::Redo);
                 }
                 if input.consume_shortcut(&menus::HELP) {
-                    actions.push(Action::Help);
+                    actions.push(Action::Ui(UiAction::Help));
                 }
             });
             return;
@@ -1073,7 +1073,7 @@ impl VgmStudioApp {
                 actions.push(Action::OpenDroInfo);
             }
             if input.consume_shortcut(&menus::HELP) {
-                actions.push(Action::Help);
+                actions.push(Action::Ui(UiAction::Help));
             }
         });
 
