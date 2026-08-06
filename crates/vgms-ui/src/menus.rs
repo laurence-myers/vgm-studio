@@ -3,7 +3,7 @@
 use egui::{Key, KeyboardShortcut, Modifiers};
 use vgms_core::SongFileType;
 
-use crate::action::{Action, LoopAction, SettingsAction, UiAction};
+use crate::action::{Action, FileAction, LoopAction, SettingsAction, UiAction};
 use crate::theme::Palette;
 
 pub const OPEN: KeyboardShortcut = KeyboardShortcut::new(Modifiers::COMMAND, Key::O);
@@ -165,7 +165,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             // Both openers, on both screens: opening the other kind of project is
             // how you get to the other tab in the first place.
             if item(ui, "Open Song...", Some(&OPEN)) {
-                actions.push(Action::OpenFile);
+                actions.push(Action::File(FileAction::Open));
             }
             if item(ui, "Open Pack Folder...", None) {
                 actions.push(Action::OpenPackFolder);
@@ -179,22 +179,22 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             crate::theme::separator(ui, palette);
             if editor {
                 if item(ui, "Save", Some(&SAVE)) {
-                    actions.push(Action::Save);
+                    actions.push(Action::File(FileAction::Save));
                 }
                 if item(ui, "Save As...", Some(&SAVE_AS)) {
-                    actions.push(Action::SaveAs);
+                    actions.push(Action::File(FileAction::SaveAs));
                 }
                 crate::theme::separator(ui, palette);
                 if state.can_render && item(ui, "Render to WAV...", None) {
-                    actions.push(Action::OpenRenderWav);
+                    actions.push(Action::File(FileAction::OpenRenderWav));
                 }
                 if state.can_split_channels && item(ui, "Split Channels...", None) {
-                    actions.push(Action::OpenSplit);
+                    actions.push(Action::File(FileAction::OpenSplit));
                 }
                 // Split one capture into its per-song files, for any chips: where
                 // a capture falls silent is not an OPL question.
                 if item(ui, "Split Songs...", None) {
-                    actions.push(Action::OpenSplitSongs);
+                    actions.push(Action::File(FileAction::OpenSplitSongs));
                 }
                 // Convert to another format, in an expanding submenu. DRO only: a
                 // VGM has no format this app can convert it to, and which
@@ -213,7 +213,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
                 }
                 crate::theme::separator(ui, palette);
                 if item(ui, "Close Song", None) {
-                    actions.push(Action::CloseFile);
+                    actions.push(Action::File(FileAction::Close));
                 }
             } else {
                 // The pack's own outputs, in the order they are produced.
@@ -234,7 +234,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             crate::theme::separator(ui, palette);
             if item(ui, "Exit", None) {
-                actions.push(Action::Exit);
+                actions.push(Action::File(FileAction::Exit));
             }
         });
 

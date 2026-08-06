@@ -470,7 +470,7 @@ fn a_non_opl_document_can_be_edited_and_saved() {
     act(&mut harness, Action::DeleteSelection);
     assert_eq!(harness.state().editor.len(), rows - 1, "the row is gone");
 
-    act(&mut harness, Action::Save);
+    act(&mut harness, Action::File(FileAction::Save));
     let saved = handles.files.borrow().save_requests.len();
     assert_eq!(saved, 1, "the save reached the file service");
 
@@ -523,7 +523,7 @@ fn editing_a_non_opl_vgm_keeps_the_position_length_current() {
 fn save_as_offers_the_documents_own_name_for_a_non_opl_vgm() {
     let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
 
-    act(&mut harness, Action::SaveAs);
+    act(&mut harness, Action::File(FileAction::SaveAs));
 
     let files = handles.files.borrow();
     let Some(SaveRequest::Dialog { suggested_name, .. }) = files.save_requests.last() else {
@@ -541,7 +541,7 @@ fn saving_a_pathless_non_opl_vgm_falls_through_to_the_dialog() {
     picked.path = None;
     let (mut harness, handles) = build(Some(picked), false, false);
 
-    act(&mut harness, Action::Save);
+    act(&mut harness, Action::File(FileAction::Save));
 
     let files = handles.files.borrow();
     let Some(SaveRequest::Dialog { suggested_name, .. }) = files.save_requests.last() else {
@@ -770,12 +770,12 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
 
     act(
         &mut harness,
-        Action::RenderWavSubmitted {
+        Action::File(FileAction::RenderWavSubmitted {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
             core_choices: Default::default(),
-        },
+        }),
     );
     harness.run();
 
@@ -815,12 +815,12 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
 
     act(
         &mut harness,
-        Action::RenderWavSubmitted {
+        Action::File(FileAction::RenderWavSubmitted {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
             core_choices: Default::default(),
-        },
+        }),
     );
     harness.run();
     let faithful = {
@@ -833,12 +833,12 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
 
     act(
         &mut harness,
-        Action::RenderWavSubmitted {
+        Action::File(FileAction::RenderWavSubmitted {
             use_toggles: true,
             use_panning: true,
             boost: 1.0,
             core_choices: Default::default(),
-        },
+        }),
     );
     harness.run();
     let with_options = {
@@ -865,7 +865,7 @@ fn render_to_wav_dialog_opens_for_a_non_opl_vgm() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
     assert!(harness.state().editor.song().is_none(), "held as a VGM");
 
-    act(&mut harness, Action::OpenRenderWav);
+    act(&mut harness, Action::File(FileAction::OpenRenderWav));
     assert!(
         harness.state().dialogs.render_wav.is_some(),
         "the dialog opened instead of refusing"

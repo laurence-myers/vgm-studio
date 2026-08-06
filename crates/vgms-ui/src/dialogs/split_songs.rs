@@ -17,7 +17,7 @@ use vgms_core::Segment;
 
 use crate::tasks::SplitSource;
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, FileAction, UiAction};
 use crate::theme::{Palette, bevel};
 
 /// The default gap threshold, in seconds. `vgm_sptd` uses 0x8000 = 32768 samples
@@ -215,9 +215,9 @@ impl SplitSongsDialog {
                             ui.add_enabled_ui(can_preview, |ui| {
                                 let preview = bevel::button(ui, palette, "Preview");
                                 if preview.clicked() {
-                                    actions.push(Action::SplitSongsPreview {
+                                    actions.push(Action::File(FileAction::SplitSongsPreview {
                                         start_index: segment.start,
-                                    });
+                                    }));
                                 }
                                 if !can_preview {
                                     preview.on_hover_text(
@@ -242,11 +242,11 @@ impl SplitSongsDialog {
             }));
             return false;
         }
-        actions.push(Action::SplitSongsSubmitted {
+        actions.push(Action::File(FileAction::SplitSongsSubmitted {
             threshold_native: self.threshold_native(),
             included: self.included.clone(),
             trailing_tail: self.tail_native(),
-        });
+        }));
         true
     }
 }
@@ -307,11 +307,11 @@ mod tests {
         assert!(dialog.save(&mut actions));
         match actions.as_slice() {
             [
-                Action::SplitSongsSubmitted {
+                Action::File(FileAction::SplitSongsSubmitted {
                     threshold_native,
                     included,
                     trailing_tail,
-                },
+                }),
             ] => {
                 assert_eq!(*threshold_native, 33_075);
                 assert_eq!(included, &[true, false, true]);

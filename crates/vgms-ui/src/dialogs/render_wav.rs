@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use vgms_core::vgm::ChipKind;
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, FileAction, UiAction};
 use crate::theme::{Palette, bevel};
 use crate::widgets::chip_output;
 
@@ -148,12 +148,12 @@ impl RenderWavDialog {
             1.0
         };
 
-        actions.push(Action::RenderWavSubmitted {
+        actions.push(Action::File(FileAction::RenderWavSubmitted {
             use_toggles: self.use_toggles,
             use_panning: self.use_panning,
             boost,
             core_choices: self.cores.clone(),
-        });
+        }));
         true
     }
 }
@@ -223,12 +223,12 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert_eq!(
             actions,
-            [Action::RenderWavSubmitted {
+            [Action::File(FileAction::RenderWavSubmitted {
                 use_toggles: false,
                 use_panning: false,
                 boost: 1.0,
                 core_choices: BTreeMap::new(),
-            }]
+            })]
         );
     }
 
@@ -252,12 +252,12 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert_eq!(
             actions,
-            [Action::RenderWavSubmitted {
+            [Action::File(FileAction::RenderWavSubmitted {
                 use_toggles: true,
                 use_panning: true,
                 boost: 2.5,
                 core_choices: BTreeMap::new(),
-            }]
+            })]
         );
     }
 
@@ -272,7 +272,8 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let [Action::RenderWavSubmitted { core_choices, .. }] = &actions[..] else {
+        let [Action::File(FileAction::RenderWavSubmitted { core_choices, .. })] = &actions[..]
+        else {
             panic!("expected a render request, got {actions:?}")
         };
         assert_eq!(core_choices.get("opl3").map(String::as_str), Some("cqm"));
@@ -285,7 +286,7 @@ mod tests {
         dialog.boost = "8".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let [Action::RenderWavSubmitted { boost, .. }] = actions[..] else {
+        let [Action::File(FileAction::RenderWavSubmitted { boost, .. })] = actions[..] else {
             panic!("expected a render request, got {actions:?}")
         };
         assert_eq!(boost, 1.0);
@@ -298,7 +299,10 @@ mod tests {
         dialog.boost = "not a number".to_owned();
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        assert!(matches!(actions[0], Action::RenderWavSubmitted { .. }));
+        assert!(matches!(
+            actions[0],
+            Action::File(FileAction::RenderWavSubmitted { .. })
+        ));
     }
 
     #[test]

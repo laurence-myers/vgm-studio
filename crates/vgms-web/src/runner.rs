@@ -166,7 +166,7 @@ mod e2e {
     use wasm_bindgen::{JsCast, JsValue};
 
     use vgms_ui::VgmStudioApp;
-    use vgms_ui::action::{Action, AppTab, PlaybackAction, UiAction};
+    use vgms_ui::action::{Action, AppTab, FileAction, PlaybackAction, UiAction};
     use vgms_ui::app::E2eSnapshot;
 
     /// The app and the egui context, retained so the JS hook can enqueue actions
@@ -270,11 +270,11 @@ mod e2e {
     fn map_action(name: &str, arg: &JsValue) -> Result<Action, String> {
         let action = match name {
             // File
-            "OpenFile" => Action::OpenFile,
-            "Save" => Action::Save,
-            "SaveAs" => Action::SaveAs,
-            "CloseFile" => Action::CloseFile,
-            "ConfirmCloseFile" => Action::ConfirmCloseFile,
+            "OpenFile" => Action::File(FileAction::Open),
+            "Save" => Action::File(FileAction::Save),
+            "SaveAs" => Action::File(FileAction::SaveAs),
+            "CloseFile" => Action::File(FileAction::Close),
+            "ConfirmCloseFile" => Action::File(FileAction::ConfirmClose),
             // Edit
             "Undo" => Action::Undo,
             "Redo" => Action::Redo,

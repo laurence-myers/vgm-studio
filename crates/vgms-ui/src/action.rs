@@ -30,64 +30,8 @@ pub enum FindQuery {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    // File
-    OpenFile,
-    Save,
-    SaveAs,
-    /// Open the Render to WAV options dialog.
-    OpenRenderWav,
-    /// Open the Split Channels options dialog.
-    OpenSplit,
-    /// Split the song into one file per channel used, once a folder is chosen.
-    SplitSubmitted {
-        format: vgms_synth::SplitFormat,
-        /// Exclude the channels the mixer has muted from the output set
-        /// (decision 9).
-        use_skip_muted: bool,
-        /// Apply the mixer's pan knobs to each rendered stem (WAV only).
-        use_panning: bool,
-        /// The boost applied to each rendered WAV stem; `1.0` when off.
-        boost: f32,
-        /// The per-render core choices the dialog's picker settled on, seeded
-        /// from Settings and never persisted. Empty means the configured cores.
-        core_choices: std::collections::BTreeMap<String, String>,
-    },
-    /// Open the Split Songs dialog (a long capture into its per-song files).
-    OpenSplitSongs,
-    /// Split the capture into per-song files at the silent gaps, once a folder is
-    /// chosen. `threshold_native` and `trailing_tail` are in the song's native
-    /// delay unit (samples for a VGM, milliseconds for a DRO); `included` is one
-    /// flag per detected segment, in detection order, so the user can drop false
-    /// positives before exporting.
-    SplitSongsSubmitted {
-        threshold_native: u32,
-        included: Vec<bool>,
-        trailing_tail: u32,
-    },
-    /// Preview a detected song by seeking playback to its first instruction and
-    /// playing from there.
-    SplitSongsPreview {
-        start_index: usize,
-    },
-    /// Render the song to a WAV with the chosen options applied, then offer to
-    /// save it. `boost` is already resolved to `1.0` when it was switched off.
-    RenderWavSubmitted {
-        use_toggles: bool,
-        use_panning: bool,
-        boost: f32,
-        /// The per-render core choices the dialog's picker settled on, seeded
-        /// from Settings and never persisted. Empty means the configured cores.
-        core_choices: std::collections::BTreeMap<String, String>,
-    },
-    /// Close the loaded song (prompts first if it has unsaved edits).
-    CloseFile,
-    /// Close the song after the user confirmed discarding it.
-    ConfirmCloseFile,
-    Exit,
-    /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).
-    ConfirmExit,
-    /// Load the file stashed in `pending_load`, discarding the current song.
-    ConfirmDiscardAndLoad,
+    /// The song file: open/save/close, quit, and the render and split exports.
+    File(FileAction),
 
     // Edit
     Undo,
@@ -259,6 +203,70 @@ pub enum Action {
     Settings(SettingsAction),
     /// App chrome: message boxes, the status bar, and the Help menu.
     Ui(UiAction),
+}
+
+/// The song file: open/save/close, quit, and the render and split exports.
+/// Variants are alphabetical.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileAction {
+    /// Close the loaded song (prompts first if it has unsaved edits).
+    Close,
+    /// Close the song after the user confirmed discarding it.
+    ConfirmClose,
+    /// Load the file stashed in `pending_load`, discarding the current song.
+    ConfirmDiscardAndLoad,
+    /// Quit past the unsaved-changes prompt (sets the quitting flag, closes).
+    ConfirmExit,
+    Exit,
+    /// Open the file picker for a song.
+    Open,
+    /// Open the Render to WAV options dialog.
+    OpenRenderWav,
+    /// Open the Split Channels options dialog.
+    OpenSplit,
+    /// Open the Split Songs dialog (a long capture into its per-song files).
+    OpenSplitSongs,
+    /// Render the song to a WAV with the chosen options applied, then offer to
+    /// save it. `boost` is already resolved to `1.0` when it was switched off.
+    RenderWavSubmitted {
+        use_toggles: bool,
+        use_panning: bool,
+        boost: f32,
+        /// The per-render core choices the dialog's picker settled on, seeded
+        /// from Settings and never persisted. Empty means the configured cores.
+        core_choices: std::collections::BTreeMap<String, String>,
+    },
+    Save,
+    SaveAs,
+    /// Preview a detected song by seeking playback to its first instruction and
+    /// playing from there.
+    SplitSongsPreview {
+        start_index: usize,
+    },
+    /// Split the capture into per-song files at the silent gaps, once a folder is
+    /// chosen. `threshold_native` and `trailing_tail` are in the song's native
+    /// delay unit (samples for a VGM, milliseconds for a DRO); `included` is one
+    /// flag per detected segment, in detection order, so the user can drop false
+    /// positives before exporting.
+    SplitSongsSubmitted {
+        threshold_native: u32,
+        included: Vec<bool>,
+        trailing_tail: u32,
+    },
+    /// Split the song into one file per channel used, once a folder is chosen.
+    SplitSubmitted {
+        format: vgms_synth::SplitFormat,
+        /// Exclude the channels the mixer has muted from the output set
+        /// (decision 9).
+        use_skip_muted: bool,
+        /// Apply the mixer's pan knobs to each rendered stem (WAV only).
+        use_panning: bool,
+        /// The boost applied to each rendered WAV stem; `1.0` when off.
+        boost: f32,
+        /// The per-render core choices the dialog's picker settled on, seeded
+        /// from Settings and never persisted. Empty means the configured cores.
+        core_choices: std::collections::BTreeMap<String, String>,
+    },
 }
 
 /// Loop points: the marked region, loop playback, and the loop search.

@@ -929,15 +929,14 @@ impl VgmStudioApp {
         }
         if self.editor.is_dirty() || self.pack_is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            let already_asking = self
-                .alerts
-                .iter()
-                .any(|alert| alert.confirm.as_deref() == Some(&Action::ConfirmExit));
+            let already_asking = self.alerts.iter().any(|alert| {
+                alert.confirm.as_deref() == Some(&Action::File(FileAction::ConfirmExit))
+            });
             if !already_asking {
                 self.alerts.push_back(Alert::confirm(
                     crate::strings::APP_CONFIRM_DISCARD_TITLE,
                     crate::strings::APP_CONFIRM_QUIT_BODY,
-                    Action::ConfirmExit,
+                    Action::File(FileAction::ConfirmExit),
                 ));
             }
         }
@@ -954,7 +953,7 @@ impl VgmStudioApp {
             self.alerts.push_back(Alert::confirm(
                 crate::strings::APP_CONFIRM_DISCARD_TITLE,
                 crate::strings::APP_CONFIRM_DISCARD_LOAD_BODY,
-                Action::ConfirmDiscardAndLoad,
+                Action::File(FileAction::ConfirmDiscardAndLoad),
             ));
         } else {
             self.load_file(file);
@@ -1046,10 +1045,10 @@ impl VgmStudioApp {
             // egui's shortcut matching ignores a surplus Shift, so the
             // shifted variants must be consumed before their plain forms.
             if input.consume_shortcut(&menus::SAVE_AS) {
-                actions.push(Action::SaveAs);
+                actions.push(Action::File(FileAction::SaveAs));
             }
             if input.consume_shortcut(&menus::SAVE) {
-                actions.push(Action::Save);
+                actions.push(Action::File(FileAction::Save));
             }
             if input.consume_shortcut(&menus::REDO_ALT) {
                 actions.push(Action::Redo);
@@ -1061,7 +1060,7 @@ impl VgmStudioApp {
                 actions.push(Action::Redo);
             }
             if input.consume_shortcut(&menus::OPEN) {
-                actions.push(Action::OpenFile);
+                actions.push(Action::File(FileAction::Open));
             }
             if input.consume_shortcut(&menus::GOTO) {
                 actions.push(Action::OpenGoto);

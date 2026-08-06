@@ -39,7 +39,9 @@ fn e2e_hook_dispatches_actions_and_reports_state() {
     assert_eq!(harness.state().e2e_snapshot().status, "e2e-probe");
 
     // An action with real effect: closing a clean document (no discard prompt).
-    harness.state_mut().e2e_enqueue_action(Action::CloseFile);
+    harness
+        .state_mut()
+        .e2e_enqueue_action(Action::File(FileAction::Close));
     harness.run();
     assert!(!harness.state().e2e_snapshot().has_document);
 }
@@ -380,7 +382,7 @@ fn enter_confirms_a_confirm_alert_and_runs_its_action() {
         .push_back(crate::alert::Alert::confirm(
             "Discard unsaved changes?",
             "Quit anyway?",
-            Action::ConfirmExit,
+            Action::File(FileAction::ConfirmExit),
         ));
     harness.run();
 

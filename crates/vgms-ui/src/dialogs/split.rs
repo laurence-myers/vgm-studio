@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use vgms_core::vgm::ChipKind;
 use vgms_synth::{ChannelGate, SplitFormat};
 
-use crate::action::{Action, UiAction};
+use crate::action::{Action, FileAction, UiAction};
 use crate::theme::Palette;
 use crate::widgets::chip_output;
 
@@ -179,13 +179,13 @@ impl SplitDialog {
         } else {
             1.0
         };
-        actions.push(Action::SplitSubmitted {
+        actions.push(Action::File(FileAction::SplitSubmitted {
             format: self.format,
             use_skip_muted: self.use_skip_muted,
             use_panning: self.use_panning && is_wav,
             boost,
             core_choices: self.cores.clone(),
-        });
+        }));
         true
     }
 }
@@ -261,13 +261,13 @@ mod tests {
         assert!(dialog(true).save(&mut actions));
         assert_eq!(
             actions,
-            [Action::SplitSubmitted {
+            [Action::File(FileAction::SplitSubmitted {
                 format: SplitFormat::Wav,
                 use_skip_muted: false,
                 use_panning: false,
                 boost: 1.0,
                 core_choices: BTreeMap::new(),
-            }]
+            })]
         );
     }
 
@@ -281,14 +281,14 @@ mod tests {
         assert!(dialog.save(&mut actions));
         assert_eq!(
             actions,
-            [Action::SplitSubmitted {
+            [Action::File(FileAction::SplitSubmitted {
                 format: SplitFormat::Song,
                 use_skip_muted: true,
                 // Pan/boost are dropped for a song split, which cannot render.
                 use_panning: false,
                 boost: 1.0,
                 core_choices: BTreeMap::new(),
-            }]
+            })]
         );
     }
 
@@ -303,9 +303,9 @@ mod tests {
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
         let [
-            Action::SplitSubmitted {
+            Action::File(FileAction::SplitSubmitted {
                 use_panning, boost, ..
-            },
+            }),
         ] = actions[..]
         else {
             panic!("expected a split request, got {actions:?}")
@@ -330,9 +330,9 @@ mod tests {
             "a song split ignores the boost field"
         );
         let [
-            Action::SplitSubmitted {
+            Action::File(FileAction::SplitSubmitted {
                 use_panning, boost, ..
-            },
+            }),
         ] = actions[..]
         else {
             panic!("expected a split request, got {actions:?}")
@@ -397,7 +397,7 @@ mod tests {
 
         let mut actions = Vec::new();
         assert!(dialog.save(&mut actions));
-        let [Action::SplitSubmitted { core_choices, .. }] = &actions[..] else {
+        let [Action::File(FileAction::SplitSubmitted { core_choices, .. })] = &actions[..] else {
             panic!("expected a split request, got {actions:?}")
         };
         assert_eq!(core_choices.get("opl3").map(String::as_str), Some("cqm"));

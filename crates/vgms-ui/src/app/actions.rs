@@ -5,108 +5,7 @@ impl VgmStudioApp {
 
     pub(super) fn handle_action(&mut self, ctx: &egui::Context, action: Action) {
         match action {
-            Action::OpenFile => self.files.pick_open(),
-            Action::Save => self.save(false),
-            Action::SaveAs => self.save(true),
-            Action::CloseFile => {
-                if !self.require_document() {
-                    return;
-                }
-                if self.editor.is_dirty() {
-                    self.alerts.push_back(Alert::confirm(
-                        crate::strings::APP_CONFIRM_DISCARD_TITLE,
-                        crate::strings::APP_CONFIRM_CLOSE_FILE_BODY,
-                        Action::ConfirmCloseFile,
-                    ));
-                } else {
-                    self.close_song();
-                }
-            }
-            Action::ConfirmCloseFile => self.close_song(),
-            Action::OpenRenderWav => {
-                if self.require_renderable() {
-                    // Seed the per-render core picker from the document's chips
-                    // and the current Settings choices; the dialog edits its own
-                    // copy and never writes vgmstudio.ini.
-                    let chips = self.document_chips();
-                    self.dialogs.render_wav = Some(RenderWavDialog::new(
-                        self.config.audio.boost,
-                        chips,
-                        self.config.audio.cores.clone(),
-                    ));
-                }
-            }
-            Action::RenderWavSubmitted {
-                use_toggles,
-                use_panning,
-                boost,
-                core_choices,
-            } => self.render_to_wav(use_toggles, use_panning, boost, core_choices),
-            Action::OpenSplit => {
-                if !self.require_splittable() {
-                    return;
-                }
-                if self.split_is_running() {
-                    self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
-                    return;
-                }
-                // An OPL document always offers the Song format; a generic VGM
-                // offers it when a gate-covered chip lets a channel be rewritten.
-                // Either way the split gets the per-render core picker, seeded
-                // from Settings.
-                let chips = self.document_chips();
-                self.dialogs.split = Some(SplitDialog::new(
-                    self.editor.is_opl(),
-                    chips,
-                    self.config.audio.cores.clone(),
-                    self.config.audio.boost,
-                ));
-            }
-            Action::SplitSubmitted {
-                format,
-                use_skip_muted,
-                use_panning,
-                boost,
-                core_choices,
-            } => self.start_split(format, use_skip_muted, use_panning, boost, core_choices),
-            Action::OpenSplitSongs => {
-                if !self.require_document() {
-                    return;
-                }
-                if self.split_is_running() {
-                    self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING.to_owned();
-                    return;
-                }
-                if let Some(source) = self.split_source() {
-                    self.dialogs.split_songs = Some(SplitSongsDialog::new(source));
-                }
-            }
-            Action::SplitSongsSubmitted {
-                threshold_native,
-                included,
-                trailing_tail,
-            } => self.start_split_songs(threshold_native, included, trailing_tail),
-            Action::SplitSongsPreview { start_index } => self.preview_segment(start_index),
-            Action::Exit => {
-                if self.editor.is_dirty() || self.pack_is_dirty() {
-                    self.alerts.push_back(Alert::confirm(
-                        crate::strings::APP_CONFIRM_DISCARD_TITLE,
-                        crate::strings::APP_CONFIRM_QUIT_BODY,
-                        Action::ConfirmExit,
-                    ));
-                } else {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-            }
-            Action::ConfirmExit => {
-                self.quitting = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            Action::ConfirmDiscardAndLoad => {
-                if let Some(file) = self.pending_load.take() {
-                    self.load_file(file);
-                }
-            }
+            Action::File(action) => self.handle_file_action(ctx, action),
 
             Action::Undo => {
                 // On the pack tab, Undo reverses the last file edit; on the editor
@@ -396,6 +295,124 @@ impl VgmStudioApp {
             }
             Action::Settings(action) => self.handle_settings_action(ctx, action),
             Action::Ui(action) => self.handle_ui_action(action),
+        }
+    }
+
+    /// File actions: open/save/close, quit, and the render and split exports.
+    fn handle_file_action(&mut self, ctx: &egui::Context, action: FileAction) {
+        match action {
+            FileAction::Close => self.on_close_file(),
+            FileAction::ConfirmClose => self.close_song(),
+            FileAction::ConfirmDiscardAndLoad => {
+                if let Some(file) = self.pending_load.take() {
+                    self.load_file(file);
+                }
+            }
+            FileAction::ConfirmExit => {
+                self.quitting = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            FileAction::Exit => self.on_exit_requested(ctx),
+            FileAction::Open => self.files.pick_open(),
+            FileAction::OpenRenderWav => self.on_open_render_wav(),
+            FileAction::OpenSplit => self.on_open_split(),
+            FileAction::OpenSplitSongs => self.on_open_split_songs(),
+            FileAction::RenderWavSubmitted {
+                use_toggles,
+                use_panning,
+                boost,
+                core_choices,
+            } => self.render_to_wav(use_toggles, use_panning, boost, core_choices),
+            FileAction::Save => self.save(false),
+            FileAction::SaveAs => self.save(true),
+            FileAction::SplitSongsPreview { start_index } => self.preview_segment(start_index),
+            FileAction::SplitSongsSubmitted {
+                threshold_native,
+                included,
+                trailing_tail,
+            } => self.start_split_songs(threshold_native, included, trailing_tail),
+            FileAction::SplitSubmitted {
+                format,
+                use_skip_muted,
+                use_panning,
+                boost,
+                core_choices,
+            } => self.start_split(format, use_skip_muted, use_panning, boost, core_choices),
+        }
+    }
+
+    fn on_close_file(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        if self.editor.is_dirty() {
+            self.alerts.push_back(Alert::confirm(
+                crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                crate::strings::APP_CONFIRM_CLOSE_FILE_BODY,
+                Action::File(FileAction::ConfirmClose),
+            ));
+        } else {
+            self.close_song();
+        }
+    }
+
+    fn on_exit_requested(&mut self, ctx: &egui::Context) {
+        if self.editor.is_dirty() || self.pack_is_dirty() {
+            self.alerts.push_back(Alert::confirm(
+                crate::strings::APP_CONFIRM_DISCARD_TITLE,
+                crate::strings::APP_CONFIRM_QUIT_BODY,
+                Action::File(FileAction::ConfirmExit),
+            ));
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+    }
+
+    fn on_open_render_wav(&mut self) {
+        if self.require_renderable() {
+            // Seed the per-render core picker from the document's chips
+            // and the current Settings choices; the dialog edits its own
+            // copy and never writes vgmstudio.ini.
+            let chips = self.document_chips();
+            self.dialogs.render_wav = Some(RenderWavDialog::new(
+                self.config.audio.boost,
+                chips,
+                self.config.audio.cores.clone(),
+            ));
+        }
+    }
+
+    fn on_open_split(&mut self) {
+        if !self.require_splittable() {
+            return;
+        }
+        if self.split_is_running() {
+            self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
+            return;
+        }
+        // An OPL document always offers the Song format; a generic VGM
+        // offers it when a gate-covered chip lets a channel be rewritten.
+        // Either way the split gets the per-render core picker, seeded
+        // from Settings.
+        let chips = self.document_chips();
+        self.dialogs.split = Some(SplitDialog::new(
+            self.editor.is_opl(),
+            chips,
+            self.config.audio.cores.clone(),
+            self.config.audio.boost,
+        ));
+    }
+
+    fn on_open_split_songs(&mut self) {
+        if !self.require_document() {
+            return;
+        }
+        if self.split_is_running() {
+            self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING.to_owned();
+            return;
+        }
+        if let Some(source) = self.split_source() {
+            self.dialogs.split_songs = Some(SplitSongsDialog::new(source));
         }
     }
 
