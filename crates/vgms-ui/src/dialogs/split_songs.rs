@@ -221,8 +221,8 @@ impl SplitSongsDialog {
 
                         for (index, segment) in segments.iter().enumerate() {
                             ui.label(format!("{}", index + 1));
-                            ui.label(fmt_time(segment.start_time, rate));
-                            ui.label(fmt_time(segment.duration, rate));
+                            ui.label(super::fmt_time(segment.start_time, rate));
+                            ui.label(super::fmt_time(segment.duration, rate));
                             ui.checkbox(&mut included[index], "Include");
                             ui.add_enabled_ui(can_preview, |ui| {
                                 let preview = bevel::button(ui, palette, "Preview");
@@ -261,14 +261,6 @@ impl SplitSongsDialog {
         });
         true
     }
-}
-
-/// Formats a native-unit time as `M:SS.s`, given the unit's per-second `rate`.
-fn fmt_time(native: u32, rate: u32) -> String {
-    let total_secs = f64::from(native) / f64::from(rate);
-    let minutes = (total_secs / 60.0).floor() as u32;
-    let seconds = total_secs - f64::from(minutes) * 60.0;
-    format!("{minutes}:{seconds:04.1}")
 }
 
 #[cfg(test)]
@@ -358,16 +350,5 @@ mod tests {
         song.name = "tone.vgm".to_owned();
         let dialog = SplitSongsDialog::new(SplitSource::Opl(Arc::new(song)));
         assert!(dialog.segments.len() <= 1);
-    }
-
-    #[test]
-    fn fmt_time_reads_as_minutes_and_seconds() {
-        // Samples at 44100 Hz.
-        assert_eq!(fmt_time(0, 44_100), "0:00.0");
-        assert_eq!(fmt_time(44_100, 44_100), "0:01.0");
-        assert_eq!(fmt_time(44_100 * 75, 44_100), "1:15.0");
-        // Milliseconds.
-        assert_eq!(fmt_time(1000, 1000), "0:01.0");
-        assert_eq!(fmt_time(75_000, 1000), "1:15.0");
     }
 }

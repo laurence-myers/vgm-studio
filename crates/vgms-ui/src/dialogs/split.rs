@@ -118,25 +118,28 @@ impl SplitDialog {
                 ui.add_space(8.0);
                 ui.label(crate::strings::SPLIT_MIX_APPLY);
                 ui.add_space(4.0);
-                option_row(
+                super::caption_checkbox(
                     ui,
                     "Skip muted channels",
                     crate::strings::SPLIT_SKIP_MUTED_HOVER,
                     &mut self.use_skip_muted,
+                    super::CaptionSide::Row,
                 );
                 if self.format == SplitFormat::Wav {
-                    option_row(
+                    super::caption_checkbox(
                         ui,
                         "Channel panning",
                         crate::strings::SPLIT_PANNING_HOVER,
                         &mut self.use_panning,
+                        super::CaptionSide::Row,
                     );
                     ui.horizontal(|ui| {
-                        option_row(
+                        super::caption_checkbox(
                             ui,
                             "Boost",
                             crate::strings::SPLIT_BOOST_HOVER,
                             &mut self.use_boost,
+                            super::CaptionSide::Row,
                         );
                         ui.add_enabled_ui(self.use_boost, |ui| {
                             super::text_field(ui, palette, &mut self.boost, 44.0).on_hover_text(
@@ -234,20 +237,6 @@ fn core_picker(
                 chip_output::song_chip_row(ui, palette, "split", cores, entry);
             }
         });
-}
-
-/// A checkbox whose caption toggles it, as the Render dialog's rows do.
-fn option_row(ui: &mut egui::Ui, caption: &str, hover: &str, value: &mut bool) {
-    ui.horizontal(|ui| {
-        ui.checkbox(value, "");
-        if ui
-            .add(egui::Label::new(caption).sense(egui::Sense::click()))
-            .on_hover_text(hover)
-            .clicked()
-        {
-            *value = !*value;
-        }
-    });
 }
 
 /// Shows a whole-number boost without a pointless `.0`.

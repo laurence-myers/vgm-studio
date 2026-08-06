@@ -534,14 +534,22 @@ impl SettingsDialog {
                 // nothing there. (`vgms-ui` is compiled separately for wasm32, so
                 // this `cfg!` resolves per target.)
                 if !cfg!(target_arch = "wasm32") {
-                    checkbox_row(ui, "Maximize window at launch", &mut self.maximize_window);
+                    super::caption_checkbox(
+                        ui,
+                        "Maximize window at launch",
+                        "",
+                        &mut self.maximize_window,
+                        super::CaptionSide::GridLeft,
+                    );
                     ui.end_row();
                 }
 
-                checkbox_row(
+                super::caption_checkbox(
                     ui,
                     "Allow editing in DRO Info",
+                    "",
                     &mut self.dro_info_edit_enabled,
+                    super::CaptionSide::GridLeft,
                 );
                 ui.end_row();
             });
@@ -628,21 +636,6 @@ impl SettingsDialog {
         actions.push(Action::ApplySettings(Box::new(config)));
         true
     }
-}
-
-/// A settings row whose caption toggles the checkbox beside it.
-///
-/// The grid puts captions in the left column, where a plain `ui.label` is inert,
-/// so this makes clicking the caption toggle the box, as every other toolkit
-/// does.
-fn checkbox_row(ui: &mut egui::Ui, caption: &str, value: &mut bool) {
-    if ui
-        .add(egui::Label::new(caption).sense(egui::Sense::click()))
-        .clicked()
-    {
-        *value = !*value;
-    }
-    ui.checkbox(value, "");
 }
 
 /// The rates the dropdown offers: CD rate, the usual device rate, and the

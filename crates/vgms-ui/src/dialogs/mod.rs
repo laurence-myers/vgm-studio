@@ -214,6 +214,65 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, buttons: impl FnOnce(&mut egui::U
     });
 }
 
+/// Where a [`caption_checkbox`]'s caption sits relative to the box it toggles.
+pub(crate) enum CaptionSide {
+    /// Checkbox first, then the caption, wrapped in a `horizontal` -- a standalone
+    /// row, as the Render and Split dialogs use.
+    Row,
+    /// Caption first, then the checkbox, emitted as two cells of the enclosing
+    /// grid, as the Settings rows use.
+    GridLeft,
+}
+
+/// A checkbox whose caption also toggles it. egui's plain label is inert, so
+/// without this clicking the caption does nothing; every toolkit lets you hit the
+/// label. `hover` is shown on the caption (empty for none, as the grid rows use).
+pub(crate) fn caption_checkbox(
+    ui: &mut egui::Ui,
+    caption: &str,
+    hover: &str,
+    value: &mut bool,
+    side: CaptionSide,
+) {
+    fn clickable_caption(ui: &mut egui::Ui, caption: &str, hover: &str, value: &mut bool) {
+        let response = ui.add(egui::Label::new(caption).sense(egui::Sense::click()));
+        let response = if hover.is_empty() {
+            response
+        } else {
+            response.on_hover_text(hover)
+        };
+        if response.clicked() {
+            *value = !*value;
+        }
+    }
+    match side {
+        CaptionSide::Row => {
+            ui.horizontal(|ui| {
+                ui.checkbox(value, "");
+                clickable_caption(ui, caption, hover, value);
+            });
+        }
+        CaptionSide::GridLeft => {
+            clickable_caption(ui, caption, hover, value);
+            ui.checkbox(value, "");
+        }
+    }
+}
+
+/// Formats a `native`-unit time as `M:SS.s`, given the unit's per-second `rate`.
+///
+/// Shared by Find Loop (millisecond offsets, `rate = 1000`) and Split Songs
+/// (sample offsets, `rate` = the song's sample rate). Distinct from
+/// [`vgms_core::util::ms_to_timestr`] (`MM:SS`, no fraction) and
+/// [`vgms_core::pack::format_track_time`] (`M:SS` from a sample count): this one
+/// keeps the tenth-of-a-second the loop and split tables read to.
+pub(crate) fn fmt_time(native: u32, rate: u32) -> String {
+    let total_secs = f64::from(native) / f64::from(rate);
+    let minutes = (total_secs / 60.0).floor() as u32;
+    let seconds = total_secs - f64::from(minutes) * 60.0;
+    format!("{minutes}:{seconds:04.1}")
+}
+
 /// The open dialogs. One of each at most -- reopening replaces the instance.
 #[derive(Debug, Default)]
 pub struct Dialogs {
@@ -313,6 +372,17 @@ mod tests {
     use egui::accesskit::Role;
     use egui_kittest::kittest::Queryable as _;
     use vgms_core::config::ThemeChoice;
+
+    #[test]
+    fn fmt_time_reads_as_minutes_and_seconds() {
+        // Samples at 44100 Hz.
+        assert_eq!(super::fmt_time(0, 44_100), "0:00.0");
+        assert_eq!(super::fmt_time(44_100, 44_100), "0:01.0");
+        assert_eq!(super::fmt_time(44_100 * 75, 44_100), "1:15.0");
+        // Milliseconds.
+        assert_eq!(super::fmt_time(1000, 1000), "0:01.0");
+        assert_eq!(super::fmt_time(75_000, 1000), "1:15.0");
+    }
 
     /// Drives a lone [`super::text_field`] over `value`.
     fn harness(value: &str) -> egui_kittest::Harness<'static, String> {

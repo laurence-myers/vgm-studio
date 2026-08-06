@@ -360,12 +360,16 @@ impl FindLoopDialog {
                                 body.row(row_height, |mut row| {
                                     row.set_selected(*selected == Some(row_index));
                                     cell(&mut row, palette.muted, &format!("{}", row_index + 1));
-                                    cell(&mut row, palette.data_text, &fmt_time(start));
-                                    cell(&mut row, palette.data_text, &fmt_time(end));
                                     cell(
                                         &mut row,
                                         palette.data_text,
-                                        &fmt_time(end.saturating_sub(start)),
+                                        &super::fmt_time(start, 1000),
+                                    );
+                                    cell(&mut row, palette.data_text, &super::fmt_time(end, 1000));
+                                    cell(
+                                        &mut row,
+                                        palette.data_text,
+                                        &super::fmt_time(end.saturating_sub(start), 1000),
                                     );
                                     row.col(|ui| {
                                         ui.label(
@@ -393,14 +397,6 @@ fn cell(row: &mut egui_extras::TableRow<'_, '_>, color: egui::Color32, text: &st
     row.col(|ui| {
         ui.label(egui::RichText::new(text).monospace().color(color));
     });
-}
-
-/// A `M:SS.s` time from a millisecond offset.
-fn fmt_time(ms: u32) -> String {
-    let total_secs = f64::from(ms) / 1000.0;
-    let minutes = (total_secs / 60.0).floor() as u32;
-    let seconds = total_secs - f64::from(minutes) * 60.0;
-    format!("{minutes}:{seconds:04.1}")
 }
 
 /// The hover text explaining a candidate's quality flags and match length.

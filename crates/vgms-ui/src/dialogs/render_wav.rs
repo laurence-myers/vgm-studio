@@ -82,25 +82,28 @@ impl RenderWavDialog {
 
                 // The channel toggle/pan mix applies to either document: an OPL
                 // render gates registers, a generic one carries per-chip masks.
-                option_row(
+                super::caption_checkbox(
                     ui,
                     "Channel toggles",
                     crate::strings::RENDER_WAV_TOGGLES_HOVER,
                     &mut self.use_toggles,
+                    super::CaptionSide::Row,
                 );
-                option_row(
+                super::caption_checkbox(
                     ui,
                     "Channel panning",
                     crate::strings::RENDER_WAV_PANNING_HOVER,
                     &mut self.use_panning,
+                    super::CaptionSide::Row,
                 );
 
                 ui.horizontal(|ui| {
-                    option_row(
+                    super::caption_checkbox(
                         ui,
                         "Boost",
                         crate::strings::RENDER_WAV_BOOST_HOVER,
                         &mut self.use_boost,
+                        super::CaptionSide::Row,
                     );
                     ui.add_enabled_ui(self.use_boost, |ui| {
                         super::text_field(ui, palette, &mut self.boost, 44.0).on_hover_text(
@@ -202,20 +205,6 @@ fn core_picker(
                 chip_output::song_chip_row(ui, palette, "render", cores, entry);
             }
         });
-}
-
-/// A checkbox whose caption toggles it, as the Settings rows do.
-fn option_row(ui: &mut egui::Ui, caption: &str, hover: &str, value: &mut bool) {
-    ui.horizontal(|ui| {
-        ui.checkbox(value, "");
-        if ui
-            .add(egui::Label::new(caption).sense(egui::Sense::click()))
-            .on_hover_text(hover)
-            .clicked()
-        {
-            *value = !*value;
-        }
-    });
 }
 
 /// Shows a whole-number boost without a pointless `.0`.
