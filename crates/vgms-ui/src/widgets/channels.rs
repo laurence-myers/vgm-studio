@@ -12,12 +12,14 @@ use crate::theme::{Palette, bevel, icon::Icon};
 use crate::widgets::pan_controls::{self, PAN_CENTER, PAN_LEFT, PAN_RIGHT};
 use crate::widgets::pan_knob;
 
-/// What [`ChannelPanel::show`] changed this frame, split so a pan drag never
-/// resends muting mid-note and a mute toggle never resends panning.
+/// What [`ChannelPanel::show`] (and the chip deck's selector) changed this frame,
+/// split so a pan drag never resends muting mid-note, a mute toggle never resends
+/// panning, and a trim drag resends only the trims.
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ChannelsResponse {
     pub(crate) muting_changed: bool,
     pub(crate) panning_changed: bool,
+    pub(crate) trim_changed: bool,
 }
 
 #[derive(Debug)]
@@ -122,6 +124,14 @@ impl ChannelPanel {
         if !self.custom {
             self.pans = self.default_pans;
         }
+    }
+
+    /// The loaded OPL document's chip type, or `None` before any song. The deck
+    /// reads it to key the OPL device's trim to its projected chip, and to know
+    /// whether the OPL cell has a device to mix at all.
+    #[must_use]
+    pub(crate) const fn opl_type(&self) -> Option<OplType> {
+        self.opl_type
     }
 
     /// The muting the current toggles describe.

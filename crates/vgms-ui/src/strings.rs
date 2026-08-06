@@ -822,10 +822,16 @@ pub(crate) const CHIP_CHANNELS_RESET: &str =
 
 pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
 
-pub(crate) const CHIP_PANELS_MUTE_CHIP: &str =
-    "Mute this whole chip. Works with every core; the channel toggles keep their pattern.";
-pub(crate) const CHIP_PANELS_SOLO_CHIP: &str =
-    "Solo this chip: mute every other chip in the file. Press again to bring them back.";
+/// The chip lamp's hover text, one per play state. Left-click mutes the whole
+/// chip, right-click solos it, on every core.
+pub(crate) const CHIP_LAMP_PLAYING: &str =
+    "Playing. Click to mute this whole chip; right-click to solo it.";
+pub(crate) const CHIP_LAMP_MUTED: &str =
+    "Muted. Click to unmute; right-click to solo. The channel toggles keep their pattern.";
+pub(crate) const CHIP_LAMP_SOLOED: &str =
+    "Soloed. Right-click to unsolo; click to mute. Solo is additive across chips.";
+pub(crate) const CHIP_LAMP_SILENCED: &str =
+    "Silenced by another chip's solo. Right-click to solo this one too; click to mute it.";
 
 pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
     format!("{}. Left-click mutes, right-click solos.", name)
@@ -896,6 +902,11 @@ pub(crate) fn pan_knob_spread_readout(spread: f32) -> String {
     } else {
         format!("{}{pct}%", if spread < 0.0 { "-" } else { "+" })
     }
+}
+/// The trim knob's hover readout: a plain percentage (`71%`), no `L`/`R`/`C`
+/// prefix and no sign, since the trim only attenuates over `0..=100`%.
+pub(crate) fn pan_knob_trim_readout(percent: u8) -> String {
+    format!("{percent}%")
 }
 
 // ============================================================================

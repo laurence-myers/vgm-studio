@@ -1,19 +1,20 @@
 //! Rotary knobs: a domed keycap whose value reads as a 270-degree amber arc. A
-//! per-channel pan knob, and a bipolar stereo-spread knob that drives all the
-//! pans at once.
+//! per-channel pan knob, a bipolar stereo-spread knob that drives all the pans at
+//! once, and a per-chip trim knob for the chip mixer.
 //!
 //! Painted in the pad chrome's language, so the knob follows the selected pad
 //! surface (theme default, or a Light/Dark/Grey/Tint override) exactly as the
 //! channel digits under it do: a domed cap in the [`pad_caps`] colours, sunk into
 //! a dark channel, lit from the upper-left. The value is a full-radius arc in the
-//! hardware latch amber, sweeping from 12 o'clock toward the position (hard left
-//! at 7:30, hard right at 4:30). A slim line on the cap marks the exact position,
-//! lining up with the arc's tip; at unity (centre / mono) the arc is unlit and the
-//! line points straight up, so the knob rests quietly like the pads. There is no
-//! centre hub. They report themselves as sliders to accessibility and egui_kittest,
-//! so the GUI tests can find and drag them. Pans are bytes: `0x00` hard left,
-//! `0x80` centre, `0xFF` hard right. Spread is `-1.0..=1.0`: `0.0` mono, the
-//! extremes a wide image (its sign mirrors the sides).
+//! hardware latch amber, filling from an anchor toward the position (hard left at
+//! 7:30, hard right at 4:30). A slim line on the cap marks the exact position,
+//! lining up with the arc's tip. There is no centre hub. They report themselves as
+//! sliders to accessibility and egui_kittest, so the GUI tests can find and drag
+//! them. Pans are bytes: `0x00` hard left, `0x80` centre, `0xFF` hard right, and
+//! fill from 12 o'clock so the knob rests unlit at centre. Spread is `-1.0..=1.0`:
+//! `0.0` mono, the extremes a wide image (its sign mirrors the sides). The trim is
+//! a `0..=100`% level filling from the 0% end (7:30) upward, so it rests *fully
+//! lit* at its 100% default -- the opposite resting state, on purpose.
 
 use core::cmp::Ordering;
 
@@ -42,11 +43,37 @@ const SPREAD_UNITS_PER_POINT: f32 = 1.0 / 64.0;
 /// Half-width of the snap-to-mono band, in spread units.
 const SPREAD_SNAP: f32 = 0.06;
 
+/// The full trim, and the value it rests at: 100%, the reference balance
+/// untouched. Mirrors [`vgms_synth::ChipTrims`]'s full; the widget keeps its own
+/// so it stays a plain `0..=100` control.
+const TRIM_FULL: u8 = 100;
+/// Trim percent moved per point of drag: ~64 points spans the full `0..=100`%,
+/// matching the pan knob's feel.
+const TRIM_UNITS_PER_POINT: f32 = 100.0 / 64.0;
+/// The angle of the trim arc's 0% end: 7:30, the same corner hard-left pan
+/// reaches. The lit arc fills from here to the value, so 100% is a full ring.
+const TRIM_MIN_ANGLE: f32 = -SWEEP / 2.0;
+
 /// The new raw pan after a drag of `dx` (rightward) and `dy` (downward) points
 /// from `raw`, clamped to `0..=255`. Right and down both pan right; left and up
 /// both pan left -- the two axes add, so the knob answers whichever way you drag.
 fn drag_value(raw: f32, dx: f32, dy: f32) -> f32 {
     (raw + (dx + dy) * DRAG_UNITS_PER_POINT).clamp(0.0, 255.0)
+}
+
+/// The new raw trim after a drag of `dx` (rightward) and `dy` (downward) points
+/// from `raw`, clamped to `0..=100`. The axes add exactly as the pan knob's do,
+/// so the trim answers a drag identically to the pan knobs beside it: right or
+/// down raises the level, left or up lowers it.
+fn trim_drag_value(raw: f32, dx: f32, dy: f32) -> f32 {
+    (raw + (dx + dy) * TRIM_UNITS_PER_POINT).clamp(0.0, f32::from(TRIM_FULL))
+}
+
+/// The trim marker's angle in radians, clockwise from 12 o'clock: `0` -> -135 deg
+/// (7:30), `50` -> 0 (12:00), `100` -> +135 deg (4:30). Unlike the pan knob it
+/// rests at the +135-degree extreme (100%), not at centre.
+fn trim_angle(percent: u8) -> f32 {
+    SWEEP * (f32::from(percent.min(TRIM_FULL)) / f32::from(TRIM_FULL) - 0.5)
 }
 
 /// Snaps a pan within [`SNAP_BAND`] of centre to exactly centre.
@@ -178,10 +205,57 @@ pub(crate) fn show_spread(
 
     if ui.is_rect_visible(rect) {
         // Reuse the pan dial: 0 points straight up, the extremes reach the same
-        // 135-degree corners as hard left / hard right.
-        paint_dial(ui, rect, palette, *spread * (SWEEP / 2.0), true);
+        // 135-degree corners as hard left / hard right, filling from 12 o'clock.
+        paint_dial(ui, rect, palette, *spread * (SWEEP / 2.0), 0.0, true);
     }
     response.on_hover_text(crate::strings::pan_knob_spread_readout(*spread))
+}
+
+/// Draws the per-chip trim knob for `value` (`0` silent .. `100` the reference
+/// balance). Always live; the lit arc fills from the 0% end (7:30) up to the
+/// value, so the whole ring is lit at the 100% default and pulling a chip down
+/// visibly shortens it. Dragging raises or lowers the level, relative and in the
+/// pan knob's units; double-click or right-click resets to 100%. `label` names it
+/// for accessibility and the headless tests. Returns the [`Response`];
+/// `response.changed()` is true on the frames the trim moved.
+pub(crate) fn show_trim(ui: &mut Ui, palette: &Palette, value: &mut u8, label: &str) -> Response {
+    let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
+
+    // A continuous raw value in per-widget memory, so relative drag accumulates
+    // smoothly across frames as the pan knob's does. No detent: the reset gesture
+    // covers returning to the 100% extreme, so the drag writes the value straight.
+    if response.drag_started() {
+        ui.data_mut(|d| d.insert_temp(response.id, f32::from(*value)));
+    }
+    if response.dragged() {
+        let delta = response.drag_delta();
+        let raw = ui.data_mut(|d| {
+            let seed = d.get_temp::<f32>(response.id).unwrap_or(f32::from(*value));
+            let raw = trim_drag_value(seed, delta.x, delta.y);
+            d.insert_temp(response.id, raw);
+            raw
+        });
+        let stepped = raw.round() as u8;
+        if stepped != *value {
+            *value = stepped;
+            response.mark_changed();
+        }
+    }
+    if response.drag_stopped() {
+        ui.data_mut(|d| d.remove::<f32>(response.id));
+    }
+    if (response.double_clicked() || response.secondary_clicked()) && *value != TRIM_FULL {
+        *value = TRIM_FULL;
+        response.mark_changed();
+    }
+
+    response.widget_info(|| egui::WidgetInfo::slider(true, f64::from(*value), label));
+
+    if ui.is_rect_visible(rect) {
+        // Fill from the 0% end, not 12 o'clock: a full ring at 100%, empty at 0%.
+        paint_dial(ui, rect, palette, trim_angle(*value), TRIM_MIN_ANGLE, true);
+    }
+    response.on_hover_text(crate::strings::pan_knob_trim_readout(*value))
 }
 
 /// A circular arc as a stroked polyline (the value arc, the cap glint and rim).
@@ -217,13 +291,22 @@ fn disc(center: Pos2, radius: f32, inner: Color32, outer: Color32) -> Shape {
 
 /// Paints the domed cap and its value arc for a pan `value`.
 fn paint(ui: &Ui, rect: egui::Rect, palette: &Palette, value: u8, enabled: bool) {
-    paint_dial(ui, rect, palette, dot_angle(value), enabled);
+    // Pan fills from 12 o'clock (`from_theta == 0`), so it rests unlit at centre.
+    paint_dial(ui, rect, palette, dot_angle(value), 0.0, enabled);
 }
 
-/// Paints the knob with its value arc sweeping from 12 o'clock to `theta` radians
-/// clockwise from straight up. At `theta == 0` (unity) the arc is unlit. Shared by
-/// the pan knob ([`dot_angle`]) and the spread knob.
-fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled: bool) {
+/// Paints the knob with its value arc filling from `from_theta` to `theta`, both
+/// radians clockwise from straight up. When `theta == from_theta` the arc is
+/// unlit. The pan and spread knobs anchor at `0.0` (12 o'clock, unlit at rest);
+/// the trim anchors at [`TRIM_MIN_ANGLE`] (7:30), so it rests fully lit at 100%.
+fn paint_dial(
+    ui: &Ui,
+    rect: egui::Rect,
+    palette: &Palette,
+    theta: f32,
+    from_theta: f32,
+    enabled: bool,
+) {
     let painter = ui.painter();
     let c = rect.center();
     // Scale every measure off the drawn size, so the recipe holds at any DPI.
@@ -264,13 +347,19 @@ fn paint_dial(ui: &Ui, rect: egui::Rect, palette: &Palette, theta: f32, enabled:
     painter.circle_filled(c, r, Color32::from_black_alpha(0x60));
     painter.circle_stroke(c, r, Stroke::new(s, border));
 
-    // The value: a full-radius arc from 12 o'clock to the position, round-capped.
-    // Nothing paints at unity, so the knob rests unlit like the pads.
-    if theta.abs() > 0.01 {
+    // The value: a full-radius arc from the anchor to the position, round-capped.
+    // Nothing paints when the position is at the anchor, so the pan/spread knobs
+    // rest unlit at centre and the trim rests empty at 0%.
+    let from = from_theta.to_degrees() - 90.0;
+    if (theta - from_theta).abs() > 0.01 {
         let to = theta.to_degrees() - 90.0;
-        painter.add(arc(c, r_track, -90.0, to, Stroke::new(track_w, arc_ink)));
+        painter.add(arc(c, r_track, from, to, Stroke::new(track_w, arc_ink)));
         let cap_r = track_w / 2.0;
-        painter.circle_filled(c - vec2(0.0, r_track), cap_r, arc_ink);
+        let start = c + vec2(
+            from.to_radians().cos() * r_track,
+            from.to_radians().sin() * r_track,
+        );
+        painter.circle_filled(start, cap_r, arc_ink);
         let end = c + vec2(
             to.to_radians().cos() * r_track,
             to.to_radians().sin() * r_track,
@@ -382,5 +471,48 @@ mod tests {
         assert_eq!(pan_knob_spread_readout(-1.0), "-100%");
         assert_eq!(pan_knob_spread_readout(0.5), "+50%");
         assert_eq!(pan_knob_spread_readout(-0.25), "-25%");
+    }
+
+    #[test]
+    fn trim_drag_scales_and_clamps() {
+        // Same axes and ~64pt-spans-the-range feel as the pan knob.
+        assert_eq!(trim_drag_value(50.0, 0.0, 0.0), 50.0);
+        assert!(
+            (trim_drag_value(50.0, 6.4, 0.0) - 60.0).abs() < 1e-4,
+            "right raises"
+        );
+        assert!(
+            (trim_drag_value(50.0, 0.0, 6.4) - 60.0).abs() < 1e-4,
+            "down raises"
+        );
+        assert!(
+            (trim_drag_value(50.0, -6.4, 0.0) - 40.0).abs() < 1e-4,
+            "left lowers"
+        );
+        assert_eq!(trim_drag_value(0.0, -5.0, 0.0), 0.0, "clamps at 0%");
+        assert_eq!(trim_drag_value(100.0, 5.0, 5.0), 100.0, "clamps at 100%");
+    }
+
+    #[test]
+    fn trim_angle_rests_at_the_full_extreme() {
+        // 0% at 7:30 (-135deg), 50% straight up, 100% at 4:30 (+135deg) -- the
+        // opposite resting state from the pan knob's unlit centre.
+        assert!(
+            (trim_angle(0) + SWEEP / 2.0).abs() < 1e-6,
+            "0% is half the sweep CCW"
+        );
+        assert!(trim_angle(50).abs() < 1e-2, "50% points straight up");
+        assert!(
+            (trim_angle(100) - SWEEP / 2.0).abs() < 1e-6,
+            "100% is half the sweep CW"
+        );
+    }
+
+    #[test]
+    fn trim_readout_is_a_plain_percentage() {
+        use crate::strings::pan_knob_trim_readout;
+        assert_eq!(pan_knob_trim_readout(0), "0%");
+        assert_eq!(pan_knob_trim_readout(71), "71%");
+        assert_eq!(pan_knob_trim_readout(100), "100%");
     }
 }

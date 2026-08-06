@@ -24,6 +24,10 @@ use crate::theme::{Palette, bevel, icon::Icon};
 /// 16-channel chip reads as two familiar rows rather than one long one.
 const ROW: usize = 9;
 
+/// The full trim, and the level a fresh panel rests at: 100%, the reference
+/// balance untouched. Mirrors [`vgms_synth::ChipTrims`]'s full.
+const TRIM_FULL: u8 = 100;
+
 /// Converts a pan byte (`0x00` left .. `0x80` centre .. `0xFF` right) to
 /// libvgm's `-0x100 ..= 0x100` position.
 ///
@@ -51,10 +55,20 @@ pub(crate) struct GenericChannelPanel {
     channels: &'static [ChannelInfo],
     /// Audible per channel; muting un-lights a toggle.
     audible: Vec<bool>,
-    /// The whole chip muted, over and above the per-channel toggles -- the
-    /// chip tab's Mute control, and what Solo on a sibling sets. Kept separate
-    /// from `audible` so un-muting the chip restores the channel pattern.
+    /// The whole chip muted by the user -- the chip lamp's left-click, over and
+    /// above the per-channel toggles. Kept separate from `audible` so un-muting
+    /// the chip restores the channel pattern, and separate from `soloed` so
+    /// "muted by you" stays distinct from "silenced for you".
     chip_muted: bool,
+    /// The chip soloed by the user -- the chip lamp's right-click. An explicit
+    /// per-chip flag (additive: several chips can be soloed at once), so a solo
+    /// never touches a sibling's `chip_muted`. Effective silence, folded in by
+    /// [`Self::mask_effective`], is `chip_muted || (any_solo && !soloed)`.
+    soloed: bool,
+    /// The user's listening trim for this chip, `0..=100`% (100% the reference
+    /// balance). Set from the chip lamp's knob; folded into the document's
+    /// [`ChipTrims`](vgms_synth::ChipTrims) by the deck.
+    trim: u8,
     /// Pan byte per channel, edited under Custom mode.
     pans: Vec<u8>,
     /// The last strength applied via the Spread knob (`-1.0..=1.0`, `0.0` mono),
@@ -76,6 +90,8 @@ impl GenericChannelPanel {
             channels,
             audible: vec![true; channels.len()],
             chip_muted: false,
+            soloed: false,
+            trim: TRIM_FULL,
             pans: vec![PAN_CENTER; channels.len()],
             spread: 0.0,
             custom: false,
@@ -112,7 +128,20 @@ impl GenericChannelPanel {
         mask
     }
 
-    /// Whether the whole chip is muted (the tab's Mute control).
+    /// The effective mute mask for the engine, given whether *any* chip in the
+    /// document is soloed: a chip that is not itself soloed while a solo is
+    /// active is silenced whole, on top of its own [`mask`](Self::mask). This is
+    /// the `chip_muted || (any_solo && !soloed)` rule -- a document-level fact,
+    /// so the deck passes `any_solo` in rather than the panel guessing it.
+    #[must_use]
+    pub(crate) fn mask_effective(&self, any_solo: bool) -> u32 {
+        if any_solo && !self.soloed {
+            return (1u32 << self.channels.len()) - 1;
+        }
+        self.mask()
+    }
+
+    /// Whether the whole chip is muted by the user (the lamp's left-click).
     #[must_use]
     pub(crate) const fn chip_muted(&self) -> bool {
         self.chip_muted
@@ -122,6 +151,29 @@ impl GenericChannelPanel {
     /// come back when it is unmuted.
     pub(crate) fn set_chip_muted(&mut self, muted: bool) {
         self.chip_muted = muted;
+    }
+
+    /// Whether the user has soloed this chip (the lamp's right-click).
+    #[must_use]
+    pub(crate) const fn soloed(&self) -> bool {
+        self.soloed
+    }
+
+    /// Solos or unsolos this chip. Additive: it touches only this chip's flag,
+    /// never a sibling's mute.
+    pub(crate) fn set_soloed(&mut self, soloed: bool) {
+        self.soloed = soloed;
+    }
+
+    /// This chip's listening trim, `0..=100`%.
+    #[must_use]
+    pub(crate) const fn trim(&self) -> u8 {
+        self.trim
+    }
+
+    /// Sets this chip's listening trim, clamped to `0..=100`%.
+    pub(crate) fn set_trim(&mut self, trim: u8) {
+        self.trim = trim.min(TRIM_FULL);
     }
 
     /// The pan positions to apply, or `None` for "leave the chip's own image
@@ -389,6 +441,40 @@ mod tests {
         let mut panel = GenericChannelPanel::new(ChipKind::Sn76489, 0, false);
         panel.toggle_channel(17); // shift+9 on a 4-channel chip
         assert_eq!(panel.mask(), 0, "no channel to toggle, no change");
+    }
+
+    #[test]
+    fn a_solo_elsewhere_silences_this_chip_whole() {
+        let mut panel = GenericChannelPanel::new(ChipKind::Ym2612, 0, false);
+        let full = (1u32 << panel.channels.len()) - 1;
+        // No solo active: the panel plays its own (empty) mask.
+        assert_eq!(panel.mask_effective(false), 0);
+        // A solo is active and this chip is not the soloed one: silenced whole.
+        assert_eq!(
+            panel.mask_effective(true),
+            full,
+            "silenced by another's solo"
+        );
+        // Now this chip is the soloed one: it plays.
+        panel.set_soloed(true);
+        assert_eq!(panel.mask_effective(true), 0, "the soloed chip plays");
+        // A user mute always silences, solo or not.
+        panel.set_chip_muted(true);
+        assert_eq!(panel.mask_effective(true), full, "an explicit mute wins");
+    }
+
+    #[test]
+    fn a_trim_defaults_full_and_clamps() {
+        let mut panel = GenericChannelPanel::new(ChipKind::Sn76489, 0, false);
+        assert_eq!(
+            panel.trim(),
+            100,
+            "a fresh panel is at the reference balance"
+        );
+        panel.set_trim(40);
+        assert_eq!(panel.trim(), 40);
+        panel.set_trim(250);
+        assert_eq!(panel.trim(), 100, "a trim over 100% is clamped");
     }
 
     #[test]

@@ -218,6 +218,9 @@ pub enum MixerAction {
     /// modifier.
     SetLockBoost(bool),
     ToggleChannel(usize),
+    /// A chip lamp's trim knob moved. Split from [`MutingChanged`](Self::MutingChanged)
+    /// so a trim drag resends only the trims, never the mutes.
+    TrimChanged,
     /// Reported each frame by the volume field: whether it currently holds
     /// keyboard focus. While it does, the editor's key shortcuts stand down so a
     /// typed number edits the volume instead of toggling a channel.

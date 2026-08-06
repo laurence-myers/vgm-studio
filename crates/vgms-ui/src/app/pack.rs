@@ -490,6 +490,7 @@ impl VgmStudioApp {
             self.audio.set_panning(panning);
         }
         self.audio.set_chip_panning(ChipPanning::new());
+        self.audio.set_chip_trims(ChipTrims::new());
         if let Err(message) = self.audio.play() {
             // Load succeeded but playback won't start: drop the half-started
             // preview so the service isn't left holding it (and the editor's

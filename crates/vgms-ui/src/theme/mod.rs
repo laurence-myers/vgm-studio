@@ -298,31 +298,52 @@ fn gapped_outline(painter: &egui::Painter, rect: egui::Rect, gap: egui::Rangef, 
     painter.add(egui::Shape::line(points, egui::Stroke::new(1.0, color)));
 }
 
+/// The lamp body: a domed dot in `color` at `centre`, bezelled and blooming onto
+/// the surface around it. Shared by the passive [`led`] and the clickable
+/// [`led_button`] so the two are pixel-identical -- only their [`egui::Sense`]
+/// differs.
+fn paint_led(painter: &egui::Painter, centre: egui::Pos2, color: Color32) {
+    // The bloom sits inside the allocated box, so a lamp never bleeds over its
+    // neighbour -- the same rule the pads' lighting follows.
+    painter.circle_filled(centre, 6.0, color.gamma_multiply(0.22));
+    painter.circle_filled(centre, 4.0, color);
+    painter.circle_stroke(
+        centre,
+        4.0,
+        egui::Stroke::new(1.0, Color32::from_black_alpha(150)),
+    );
+    // A specular glint up-left, so the lamp reads as a dome rather than a dot.
+    painter.circle_filled(
+        centre - egui::vec2(1.2, 1.2),
+        1.1,
+        Color32::from_white_alpha(110),
+    );
+}
+
 /// A status lamp: a domed dot in `color`, bezelled and blooming onto the surface
 /// around it, for a state that must read at a glance. Hover-only, so it takes a
 /// tooltip but is never a click target -- the lamp reports, the control beside it
-/// acts. The bezel is a shadow rather than a palette role, so the lamp sits on
-/// any surface.
+/// acts (the pack readiness lamp). For a lamp that *is* the control, see
+/// [`led_button`]. The bezel is a shadow rather than a palette role, so the lamp
+/// sits on any surface.
 pub fn led(ui: &mut egui::Ui, color: Color32) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
     if ui.is_rect_visible(rect) {
-        let painter = ui.painter();
-        let centre = rect.center();
-        // The bloom sits inside the allocated box, so a lamp never bleeds over
-        // its neighbour -- the same rule the pads' lighting follows.
-        painter.circle_filled(centre, 6.0, color.gamma_multiply(0.22));
-        painter.circle_filled(centre, 4.0, color);
-        painter.circle_stroke(
-            centre,
-            4.0,
-            egui::Stroke::new(1.0, Color32::from_black_alpha(150)),
-        );
-        // A specular glint up-left, so the lamp reads as a dome rather than a dot.
-        painter.circle_filled(
-            centre - egui::vec2(1.2, 1.2),
-            1.1,
-            Color32::from_white_alpha(110),
-        );
+        paint_led(ui.painter(), rect.center(), color);
+    }
+    response
+}
+
+/// The same lamp, made a click target: the chip mixer's per-chip lamp, where a
+/// left-click mutes the chip and a right-click solos it -- the channel pads'
+/// convention. Identical in appearance to [`led`]; the caller reads
+/// `response.clicked()` / `response.secondary_clicked()` and chooses `color` per
+/// state (green playing, yellow soloed, unlit user-muted, dim green silenced by
+/// another chip's solo), attaching its own hover text.
+pub fn led_button(ui: &mut egui::Ui, color: Color32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        paint_led(ui.painter(), rect.center(), color);
     }
     response
 }

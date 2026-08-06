@@ -87,8 +87,16 @@ const SECTIONS: &[Section] = &[
                 "Solo it (again to bring the rest back)",
             ),
             (
-                Keys::Text("Mute / Solo by the chip tabs"),
-                "Mute or solo a whole chip of a multi-chip file, whatever its core",
+                Keys::Text("Click a chip's lamp"),
+                "Mute or unmute that whole chip, whatever its core",
+            ),
+            (
+                Keys::Text("Right-click a chip's lamp"),
+                "Solo the chip (again to bring the rest back); solo is additive",
+            ),
+            (
+                Keys::Text("Right-click / double-click a chip's knob"),
+                "Reset that chip's level to 100%",
             ),
         ],
     },

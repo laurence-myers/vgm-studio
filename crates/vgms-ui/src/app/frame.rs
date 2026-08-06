@@ -289,6 +289,9 @@ impl VgmStudioApp {
                         if channels.panning_changed {
                             actions.push(Action::Mixer(MixerAction::PanningChanged));
                         }
+                        if channels.trim_changed {
+                            actions.push(Action::Mixer(MixerAction::TrimChanged));
+                        }
                         ui.add_space(PAD);
                     });
                 })

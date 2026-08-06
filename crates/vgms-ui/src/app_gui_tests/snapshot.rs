@@ -266,10 +266,11 @@ fn spread_and_reset_pan_a_generic_chip_like_the_opl_panel() {
     );
 }
 
-/// The chip tab's Mute control masks that whole chip, and Solo mutes every
-/// *other* chip -- the isolation workflow: solo the SN76489 of a Mega Drive
-/// rip and only the PSG is left sounding. Works whatever the cores can do,
-/// because a whole-chip mask is honoured by the engine itself.
+/// A chip's lamp masks that whole chip (left-click) and solos it (right-click,
+/// additive -- every un-soloed chip silenced) -- the isolation workflow: solo
+/// the SN76489 of a Mega Drive rip and only the PSG is left sounding. Works
+/// whatever the cores can do, because a whole-chip mask is honoured by the
+/// engine itself. The lamp replaces the old Mute/Solo pads, one per chip.
 #[test]
 fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
     use vgms_core::ChipKind;
@@ -277,8 +278,8 @@ fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
     let (mut harness, handles) = build(Some(mega_drive_vgm_file()), false, false);
     harness.run();
 
-    // The SN76489 tab is selected first; Solo it.
-    harness.get_by_label("Solo").click();
+    // Right-click the SN76489 lamp to solo it.
+    harness.get_by_label("SN76489 lamp").click_secondary();
     harness.run();
     {
         let audio = handles.audio.borrow();
@@ -291,12 +292,12 @@ fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
         assert_eq!(
             last.mask_for(ChipKind::Ym2612, 0),
             0x7F,
-            "the other chip is fully masked"
+            "every un-soloed chip is fully masked"
         );
     }
 
-    // Solo again: everything comes back.
-    harness.get_by_label("Solo").click();
+    // Right-click again: the solo lifts and everything comes back.
+    harness.get_by_label("SN76489 lamp").click_secondary();
     harness.run();
     {
         let audio = handles.audio.borrow();
@@ -305,20 +306,159 @@ fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
         assert_eq!(last.mask_for(ChipKind::Ym2612, 0), 0);
     }
 
-    // Mute the selected chip alone.
-    harness.get_by_label("Mute").click();
+    // Left-click the lamp to mute that chip alone.
+    harness.get_by_label("SN76489 lamp").click();
     harness.run();
     let audio = handles.audio.borrow();
     let last = audio.chip_mutings.last().expect("a chip muting was pushed");
     assert_eq!(
         last.mask_for(ChipKind::Sn76489, 0),
         0xF,
-        "the selected chip is fully masked"
+        "the muted chip is fully masked"
     );
     assert_eq!(
         last.mask_for(ChipKind::Ym2612, 0),
         0,
         "the other is untouched"
+    );
+}
+
+/// Dragging a chip's trim knob down attenuates that chip and pushes the trim to
+/// the audio output; the other chip stays at the reference balance.
+#[test]
+fn dragging_a_chip_trim_knob_pushes_the_attenuation() {
+    use vgms_core::ChipKind;
+
+    let (mut harness, handles) = build(Some(mega_drive_vgm_file()), false, false);
+    harness.run();
+
+    // Drag the SN76489's level knob down (left lowers, as on the pan knobs).
+    let knob = harness.get_by_label("SN76489 level").rect().center();
+    drag_by(&mut harness, knob, egui::vec2(-30.0, 0.0));
+
+    let audio = handles.audio.borrow();
+    let last = audio.chip_trims.last().expect("a chip trim was pushed");
+    assert!(
+        last.percent_for(ChipKind::Sn76489, 0) < 100,
+        "the drag attenuated the chip: {last:?}"
+    );
+    assert_eq!(
+        last.percent_for(ChipKind::Ym2612, 0),
+        100,
+        "the other chip stays at the reference balance"
+    );
+}
+
+/// Right-clicking a chip's trim knob returns it to 100%.
+#[test]
+fn right_clicking_a_chip_trim_knob_resets_it_to_unity() {
+    use vgms_core::ChipKind;
+
+    let (mut harness, handles) = build(Some(sn76489_vgm_file()), false, false);
+    harness.run();
+
+    let knob = harness.get_by_label("SN76489 level").rect().center();
+    drag_by(&mut harness, knob, egui::vec2(-40.0, 0.0));
+    assert!(
+        handles
+            .audio
+            .borrow()
+            .chip_trims
+            .last()
+            .expect("a chip trim was pushed")
+            .percent_for(ChipKind::Sn76489, 0)
+            < 100,
+        "the drag attenuated it first"
+    );
+
+    harness.get_by_label("SN76489 level").click_secondary();
+    harness.run();
+    let audio = handles.audio.borrow();
+    let last = audio.chip_trims.last().expect("the reset was pushed");
+    assert_eq!(
+        last.percent_for(ChipKind::Sn76489, 0),
+        100,
+        "right-click resets the trim to 100%"
+    );
+}
+
+/// A six-chip arcade set is too wide for the deck, so the chip strip wraps to a
+/// second row rather than scrolling. Pinned by the last chip's cell sitting
+/// below the first's.
+#[test]
+fn the_chip_strip_wraps_to_a_second_row() {
+    use vgms_core::ChipKind;
+
+    let file = generic_vgm_file(
+        "06 Arcade.vgm",
+        &[
+            (ChipKind::Sn76489, 3_579_545),
+            (ChipKind::Ym2612, 7_670_454),
+            (ChipKind::Ym2151, 3_579_545),
+            (ChipKind::Ym2203, 3_000_000),
+            (ChipKind::Ym2608, 8_000_000),
+            (ChipKind::Ay8910, 1_789_772),
+        ],
+    );
+    // Narrow, so six cells cannot fit on one row.
+    let (mut harness, _handles) = build_sized(Some(file), false, false, egui::vec2(520.0, 720.0));
+    harness.run();
+
+    // The lamp labels are unique per chip (the bare chip name also appears in the
+    // editor), and each lamp sits in its chip's cell, so their rows are the cells'.
+    let first = harness.get_by_label("SN76489 lamp").rect();
+    let last = harness.get_by_label("AY8910 lamp").rect();
+    assert!(
+        last.top() > first.bottom(),
+        "the sixth chip wrapped below the first: first {first:?}, last {last:?}"
+    );
+}
+
+/// The single OPL/DRO device gets the mixer controls too: its lamp mutes the
+/// whole device (folded into the OPL muting, so it works on hardware and the
+/// emulator alike).
+#[test]
+fn the_opl_lamp_mutes_the_whole_device() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    harness.run();
+    assert_eq!(
+        harness.state().channels.muting(),
+        vgms_synth::Muting::all(),
+        "playing at first"
+    );
+
+    harness.get_by_label("YM3812 lamp").click();
+    harness.run();
+    assert_eq!(
+        harness.state().channels.muting(),
+        vgms_synth::Muting::silent(),
+        "the lamp mutes the whole OPL device"
+    );
+
+    harness.get_by_label("YM3812 lamp").click();
+    harness.run();
+    assert_eq!(
+        harness.state().channels.muting(),
+        vgms_synth::Muting::all(),
+        "clicking again brings it back"
+    );
+}
+
+/// The OPL device's trim knob attenuates it, keyed to the chip its projection
+/// plays through (an OPL2 tone -> the YM3812 voice), and reaches the audio.
+#[test]
+fn dragging_the_opl_trim_knob_pushes_the_attenuation() {
+    let (mut harness, handles) = harness_with_song(&tone_song());
+    harness.run();
+
+    let knob = harness.get_by_label("YM3812 level").rect().center();
+    drag_by(&mut harness, knob, egui::vec2(-30.0, 0.0));
+
+    let audio = handles.audio.borrow();
+    let last = audio.chip_trims.last().expect("a chip trim was pushed");
+    assert!(
+        last.percent_for(vgms_core::ChipKind::Ym3812, 0) < 100,
+        "the OPL trim attenuates its projected chip: {last:?}"
     );
 }
 

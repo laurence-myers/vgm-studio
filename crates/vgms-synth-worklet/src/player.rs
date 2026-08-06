@@ -425,9 +425,10 @@ impl Engine {
     }
 
     fn set_chip_trims(&mut self, trims: ChipTrims) {
-        if self.opl.is_none() {
-            self.inner.set_trims(trims);
-        }
+        // Forwarded on both arms (unlike the mutes/pans): the trim is keyed by
+        // chip kind and an OPL document's projection carries the projected chip's
+        // kind, so the OPL device's trim reaches its voice here too.
+        self.inner.set_trims(trims);
     }
 }
 

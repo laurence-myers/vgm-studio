@@ -42,6 +42,7 @@ impl VgmStudioApp {
         self.audio.load(source, &self.config.audio)?;
         self.push_muting();
         self.push_panning();
+        self.push_trims();
         self.audio_revision = Some(self.editor.revision());
         // The device may have rejected the configured frequency; positions
         // report frames at the stream's real rate, so the panel must too.
@@ -70,6 +71,12 @@ impl VgmStudioApp {
     pub(super) fn push_panning(&mut self) {
         self.audio.set_panning(self.channels.panning());
         self.audio.set_chip_panning(self.channels.chip_panning());
+    }
+
+    /// Pushes the current per-chip trims to the audio output. Generic-only:
+    /// an OPL document has no trim (its level is the transport's Volume).
+    pub(super) fn push_trims(&mut self) {
+        self.audio.set_chip_trims(self.channels.chip_trims());
     }
 
     /// Refreshes the waveform's loop brackets from the markers.

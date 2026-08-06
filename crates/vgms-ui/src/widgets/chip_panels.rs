@@ -1,33 +1,53 @@
-//! The per-chip control deck: a chip selector strip, and one panel per chip.
+//! The per-chip control deck: a chip mixer strip, and one panel per chip.
 //!
-//! A document declares its chips; each gets a tab in the strip, and the
-//! selected tab draws its own controls. An OPL document (a DRO, or a VGM the
-//! editor opens through its projection) shows the OPL
+//! A document declares its chips; each becomes a cell in the strip -- a generic
+//! chip its **lamp · trim knob · name**, the OPL device a plain named cell --
+//! and the selected chip's name draws its own controls below. An OPL document (a
+//! DRO, or a VGM the editor opens through its projection) shows the OPL
 //! [`ChannelPanel`](super::channels::ChannelPanel) -- eighteen channels across
 //! two banks, drum groups, the OPL stereo-ext image. Any other chip shows a
 //! [`GenericChannelPanel`](super::chip_channels::GenericChannelPanel): a flat
 //! mute/solo list from [`vgms_core::vgm::channels_of`], with pan knobs only
 //! where the chip's core can pan.
 //!
-//! The strip is drawn **always** -- even for a single chip, even an empty
-//! editor -- so the deck's shape does not jump as documents come and go, and a
-//! one-chip file names its chip rather than leaving the controls unlabelled.
-//! It is the same [`theme::tabs`](crate::theme::tabs) strip the Editor/Pack
-//! views use.
+//! The lamp is the whole-chip mute/solo, one per chip: left-click mutes,
+//! right-click solos (additive), coloured by the chip's play state. The knob
+//! trims that chip's level. Both act through the engine's own gain/mask, so they
+//! work on every core. The strip is drawn **always** -- even for a single chip,
+//! even an empty editor -- so the deck's shape does not jump as documents come
+//! and go, and it wraps to a second row rather than scrolling when a wide chip
+//! set outgrows the deck.
 //!
 //! The OPL entry covers the whole OPL device, both banks together, rather than
 //! splitting dual OPL2 into two entries: those eighteen channels are one
 //! panel's worth of controls. A generic multichip file instead gets one entry
-//! per chip *instance* -- a dual SN76489 is two tabs -- because a user mutes
+//! per chip *instance* -- a dual SN76489 is two cells -- because a user mutes
 //! one of the pair, not the kind.
 
 use vgms_core::vgm::ChipKind;
 use vgms_core::{OplType, Song, VgmFile};
-use vgms_synth::{ChipMuting, ChipPanning, Muting, Panning};
+use vgms_synth::{ChipMuting, ChipPanning, ChipTrims, Muting, Panning};
 
 use super::channels::{ChannelPanel, ChannelsResponse};
 use super::chip_channels::GenericChannelPanel;
-use crate::theme::{Palette, bevel, tabs};
+use super::pan_knob;
+use crate::theme::paint::darken;
+use crate::theme::{Palette, tabs};
+
+/// Padding between the selector well's edge and its cells.
+const WELL_PAD: i8 = 3;
+/// The selector well's corner radius.
+const WELL_RADIUS: u8 = 3;
+/// Gap between one chip's cell and the next, across a row.
+const CELL_GAP: f32 = 10.0;
+/// Gap between the strip's rows once it wraps.
+const ROW_GAP: f32 = 4.0;
+/// Gap between a cell's own lamp, knob and name.
+const CELL_INNER_GAP: f32 = 4.0;
+/// The lamp's drawn side, for measuring a cell's width.
+const LAMP_SIZE: f32 = 12.0;
+/// The full trim, and the level the OPL device rests at: 100%.
+const TRIM_FULL: u8 = 100;
 
 /// What a chip contributes to the deck.
 #[derive(Debug)]
@@ -54,6 +74,13 @@ pub(crate) struct ChipPanels {
     /// audio output speaks OPL muting and panning whenever an OPL document is
     /// loaded, and an empty editor still shows its channel toggles.
     opl: ChannelPanel,
+    /// The OPL device's whole-chip mute, the lamp's left-click on the OPL cell.
+    /// Folded into [`muting`](Self::muting) as `Muting::silent`. The OPL has no
+    /// sibling to solo against, so its lamp is mute-only.
+    opl_muted: bool,
+    /// The OPL device's listening trim, `0..=100`%. Keyed to the projected chip
+    /// in [`chip_trims`](Self::chip_trims); listening-only, like every trim.
+    opl_trim: u8,
 }
 
 impl Default for ChipPanels {
@@ -66,6 +93,8 @@ impl Default for ChipPanels {
             }],
             selected: 0,
             opl: ChannelPanel::new(),
+            opl_muted: false,
+            opl_trim: TRIM_FULL,
         }
     }
 }
@@ -87,6 +116,8 @@ impl ChipPanels {
             }],
             selected: 0,
             opl: ChannelPanel::for_song(song),
+            opl_muted: false,
+            opl_trim: TRIM_FULL,
         }
     }
 
@@ -117,6 +148,8 @@ impl ChipPanels {
             entries,
             selected: 0,
             opl: ChannelPanel::new(),
+            opl_muted: false,
+            opl_trim: TRIM_FULL,
         }
     }
 
@@ -139,10 +172,16 @@ impl ChipPanels {
         &mut self.opl
     }
 
-    /// The OPL muting the OPL panel describes (for the OPL playback path).
+    /// The OPL muting the OPL panel describes (for the OPL playback path). The
+    /// OPL cell's whole-chip mute silences the lot, over the per-channel toggles
+    /// -- the OPL counterpart of a generic chip's `chip_muted`.
     #[must_use]
     pub(crate) fn muting(&self) -> Muting {
-        self.opl.muting()
+        if self.opl_muted {
+            Muting::silent()
+        } else {
+            self.opl.muting()
+        }
     }
 
     /// The OPL panning the OPL panel describes.
@@ -152,16 +191,53 @@ impl ChipPanels {
     }
 
     /// The any-chip mutes every generic panel describes (for the generic
-    /// playback path). Empty when the document is OPL.
+    /// playback path). Empty when the document is OPL. Solo is folded in here,
+    /// at the document level: a chip that is not soloed while any chip is
+    /// soloed is silenced whole, on top of its own mask.
     #[must_use]
     pub(crate) fn chip_muting(&self) -> ChipMuting {
+        let any_solo = self.any_solo();
         let mut muting = ChipMuting::new();
         for entry in &self.entries {
             if let ChipControls::Generic(panel) = &entry.controls {
-                muting.set(panel.kind(), panel.instance(), panel.mask());
+                muting.set(
+                    panel.kind(),
+                    panel.instance(),
+                    panel.mask_effective(any_solo),
+                );
             }
         }
         muting
+    }
+
+    /// The per-chip listening trims every panel describes. Generic chips key by
+    /// their own `(kind, instance)`; the OPL device keys by the chip its
+    /// projection plays through -- a dual OPL2 is two `Ym3812` instances, so it
+    /// trims both. Neutral when nothing is loaded.
+    #[must_use]
+    pub(crate) fn chip_trims(&self) -> ChipTrims {
+        let mut trims = ChipTrims::new();
+        for entry in &self.entries {
+            if let ChipControls::Generic(panel) = &entry.controls {
+                trims.set(panel.kind(), panel.instance(), panel.trim());
+            }
+        }
+        if let Some(opl_type) = self.opl.opl_type() {
+            let kind = vgms_synth::opl_projection_kind(opl_type);
+            trims.set(kind, 0, self.opl_trim);
+            if opl_type == OplType::DualOpl2 {
+                trims.set(kind, 1, self.opl_trim);
+            }
+        }
+        trims
+    }
+
+    /// Whether any generic chip is soloed -- a document-level fact the lamps and
+    /// the effective mute mask both read.
+    fn any_solo(&self) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| matches!(&entry.controls, ChipControls::Generic(panel) if panel.soloed()))
     }
 
     /// The any-chip pans every generic panel in Custom mode describes.
@@ -207,30 +283,6 @@ impl ChipPanels {
         }
     }
 
-    /// Whether the selected chip is the only unmuted one -- the state Solo
-    /// puts the strip in, and what a second Solo press undoes.
-    fn selected_is_soloed(&self) -> bool {
-        self.entries.iter().enumerate().all(|(at, entry)| {
-            match &entry.controls {
-                ChipControls::Generic(panel) => panel.chip_muted() == (at != self.selected),
-                // An OPL entry never coexists with generic ones in a real
-                // document, so it neither blocks nor satisfies a solo.
-                ChipControls::Opl => true,
-            }
-        })
-    }
-
-    /// Solo the selected chip -- every other chip muted -- or, when it already
-    /// is soloed, bring the others back.
-    fn toggle_selected_solo(&mut self) {
-        let undo = self.selected_is_soloed();
-        for (at, entry) in self.entries.iter_mut().enumerate() {
-            if let ChipControls::Generic(panel) = &mut entry.controls {
-                panel.set_chip_muted(!undo && at != self.selected);
-            }
-        }
-    }
-
     /// Draws the selector strip (always) and the selected chip's controls.
     ///
     /// `pan_supported(chip)` / `mute_supported(chip)` answer whether pan and mute
@@ -257,60 +309,248 @@ impl ChipPanels {
         };
         response.muting_changed |= body.muting_changed;
         response.panning_changed |= body.panning_changed;
+        response.trim_changed |= body.trim_changed;
         response
     }
 
+    /// Draws the chip selector: each generic chip a cell of **lamp · trim knob ·
+    /// name**, and the OPL device the same once a song is loaded (mute-only, keyed
+    /// to the whole device). The lamp is the whole-chip mute/solo the pads used to
+    /// be -- left-click mutes, right-click solos, for every chip rather than the
+    /// selected one -- coloured by its play state. The name is drawn in the
+    /// Editor/Pack tab chrome. The cells sit in a readout well and wrap to a
+    /// second row when the deck is too narrow, never scrolling.
     fn selector(&mut self, ui: &mut egui::Ui, palette: &Palette) -> ChannelsResponse {
         let mut response = ChannelsResponse::default();
-        // Owned, so the strip does not hold `self.entries` borrowed across the
-        // mute/solo controls below, which mutate the panels.
-        let labels: Vec<String> = self
+        let any_solo = self.any_solo();
+        let selected_index = self.selected;
+        let opl_type = self.opl.opl_type();
+        let mut new_selected = self.selected;
+        // The OPL device's mixer state lives on `self` beside `entries`; copy it
+        // out so the cell loop can borrow `self.entries` mutably without also
+        // borrowing these, then write back after.
+        let mut opl_muted = self.opl_muted;
+        let mut opl_trim = self.opl_trim;
+        // The well is placed straight in the deck's vertical layout. The cells go
+        // in a `Grid` broken every `cols` -- a plain wrapping layout will not wrap
+        // a multi-widget cell, whose size it cannot know before placing it, so the
+        // row count is worked out from the widest cell and the deck's width. Each
+        // cell names its own chip, so the strip needs no "Chip:" prefix.
+        egui::Frame::new()
+            .fill(palette.data_bg)
+            .stroke(egui::Stroke::new(1.0, palette.plate_border))
+            .corner_radius(egui::CornerRadius::same(WELL_RADIUS))
+            .inner_margin(egui::Margin::same(WELL_PAD))
+            .show(ui, |ui| {
+                let cols = self.columns_that_fit(ui);
+                let last = self.entries.len().saturating_sub(1);
+                egui::Grid::new("chip-selector-grid")
+                    .spacing([CELL_GAP, ROW_GAP])
+                    .show(ui, |ui| {
+                        for (at, entry) in self.entries.iter_mut().enumerate() {
+                            let selected = at == selected_index;
+                            let ChipEntry { label, controls } = entry;
+                            let name = label.as_str();
+                            let clicked = match controls {
+                                ChipControls::Generic(panel) => {
+                                    ui.horizontal(|ui| {
+                                        generic_cell(
+                                            ui,
+                                            palette,
+                                            name,
+                                            panel,
+                                            any_solo,
+                                            selected,
+                                            &mut response,
+                                        )
+                                    })
+                                    .inner
+                                }
+                                ChipControls::Opl => {
+                                    ui.horizontal(|ui| {
+                                        opl_cell(
+                                            ui,
+                                            palette,
+                                            name,
+                                            opl_type,
+                                            &mut opl_muted,
+                                            &mut opl_trim,
+                                            selected,
+                                            &mut response,
+                                        )
+                                    })
+                                    .inner
+                                }
+                            };
+                            if clicked {
+                                new_selected = at;
+                            }
+                            if (at + 1) % cols == 0 && at != last {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        self.selected = new_selected;
+        self.opl_muted = opl_muted;
+        self.opl_trim = opl_trim;
+        response
+    }
+
+    /// How many chip cells fit on one row of the well before it must wrap: the
+    /// deck's width divided by the widest cell. At least one, so a deck narrower
+    /// than a single cell still shows it (clipped) rather than dividing by zero.
+    fn columns_that_fit(&self, ui: &mut egui::Ui) -> usize {
+        let font = egui::TextStyle::Button.resolve(ui.style());
+        // The name is a `tabs::tab_button`, padded on each side; a small
+        // over-estimate only wraps a touch early, which is the safe direction.
+        let name_pad = 20.0;
+        let opl_has_controls = self.opl.opl_type().is_some();
+        let widest = self
             .entries
             .iter()
-            .map(|entry| entry.label.clone())
-            .collect();
-        ui.horizontal(|ui| {
-            let strip: Vec<tabs::Tab> = labels
-                .iter()
-                .map(|label| tabs::Tab::new(label.as_str()))
-                .collect();
-            ui.label("Chip:");
-            if let Some(clicked) = tabs::strip(ui, palette, &strip, self.selected) {
-                self.selected = clicked;
-            }
-            // Whole-chip mute and solo, beside the tabs they act on. Only on a
-            // multi-chip document -- isolation needs something to isolate
-            // *from* -- and only for a generic chip. Not gated on the core's
-            // per-channel mute: a whole-chip mask silences the voice in the
-            // engine itself, so these work on every core (the reason they are
-            // the reliable way to A/B one chip's output).
-            if self.entries.len() < 2 {
-                return;
-            }
-            let Some(ChipControls::Generic(panel)) =
-                self.entries.get_mut(self.selected).map(|e| &mut e.controls)
-            else {
-                return;
-            };
-            let mut muted = panel.chip_muted();
-            if bevel::toggle(ui, palette, &mut muted, "Mute")
-                .on_hover_text(crate::strings::CHIP_PANELS_MUTE_CHIP)
-                .changed()
-            {
-                panel.set_chip_muted(muted);
-                response.muting_changed = true;
-            }
-            let soloed = self.selected_is_soloed();
-            let mut solo = soloed;
-            if bevel::toggle(ui, palette, &mut solo, "Solo")
-                .on_hover_text(crate::strings::CHIP_PANELS_SOLO_CHIP)
-                .changed()
-            {
-                self.toggle_selected_solo();
-                response.muting_changed = true;
-            }
-        });
-        response
+            .map(|entry| {
+                let name = ui.fonts_mut(|fonts| {
+                    fonts
+                        .layout_no_wrap(
+                            entry.label.clone(),
+                            font.clone(),
+                            egui::Color32::PLACEHOLDER,
+                        )
+                        .size()
+                        .x
+                });
+                let name_cell = name + name_pad;
+                let with_controls = match entry.controls {
+                    ChipControls::Generic(_) => true,
+                    ChipControls::Opl => opl_has_controls,
+                };
+                if with_controls {
+                    // lamp + knob + name, a gap between each.
+                    LAMP_SIZE + CELL_INNER_GAP + pan_knob::SIZE + CELL_INNER_GAP + name_cell
+                } else {
+                    name_cell
+                }
+            })
+            .fold(1.0_f32, f32::max);
+        let avail = ui.available_width();
+        (((avail + CELL_GAP) / (widest + CELL_GAP)).floor() as usize).max(1)
+    }
+}
+
+/// A generic chip's cell: lamp, trim knob, name. Returns whether the name was
+/// clicked to select the chip.
+fn generic_cell(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    name: &str,
+    panel: &mut GenericChannelPanel,
+    any_solo: bool,
+    selected: bool,
+    response: &mut ChannelsResponse,
+) -> bool {
+    ui.spacing_mut().item_spacing.x = CELL_INNER_GAP;
+    // The lamp: whole-chip mute (left-click) and solo (right-click), on every
+    // core -- a whole-chip mask silences the voice in the engine itself. It
+    // never gates on the core's per-channel mute.
+    let lamp = crate::theme::led_button(ui, led_color(palette, panel, any_solo))
+        .on_hover_text(led_hover(panel, any_solo));
+    lamp.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} lamp"))
+    });
+    if lamp.clicked() {
+        panel.set_chip_muted(!panel.chip_muted());
+        response.muting_changed = true;
+    }
+    if lamp.secondary_clicked() {
+        panel.set_soloed(!panel.soloed());
+        response.muting_changed = true;
+    }
+
+    // The trim knob.
+    let mut trim = panel.trim();
+    if pan_knob::show_trim(ui, palette, &mut trim, &format!("{name} level")).changed() {
+        panel.set_trim(trim);
+        response.trim_changed = true;
+    }
+
+    // The name, in the Editor/Pack tab chrome; clicking it selects the chip's
+    // detailed panel below.
+    tabs::tab_button(ui, palette, name, selected).clicked()
+}
+
+/// The OPL device's cell. Once a song is loaded it is lamp · trim knob · name
+/// like a generic chip, but mute-only -- a one-chip document has nothing to solo
+/// against -- and keyed to the whole device. With nothing loaded it is a plain
+/// named tab. Returns whether the name was clicked to select it.
+#[allow(clippy::too_many_arguments)]
+fn opl_cell(
+    ui: &mut egui::Ui,
+    palette: &Palette,
+    name: &str,
+    opl_type: Option<OplType>,
+    muted: &mut bool,
+    trim: &mut u8,
+    selected: bool,
+    response: &mut ChannelsResponse,
+) -> bool {
+    ui.spacing_mut().item_spacing.x = CELL_INNER_GAP;
+    // No OPL song: nothing to mix, so just a name.
+    if opl_type.is_none() {
+        return tabs::tab_button(ui, palette, name, selected).clicked();
+    }
+    let color = if *muted {
+        palette.meter_off
+    } else {
+        palette.meter_low
+    };
+    let hover = if *muted {
+        crate::strings::CHIP_LAMP_MUTED
+    } else {
+        crate::strings::CHIP_LAMP_PLAYING
+    };
+    let lamp = crate::theme::led_button(ui, color).on_hover_text(hover);
+    lamp.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{name} lamp"))
+    });
+    if lamp.clicked() {
+        *muted = !*muted;
+        response.muting_changed = true;
+    }
+    let mut t = *trim;
+    if pan_knob::show_trim(ui, palette, &mut t, &format!("{name} level")).changed() {
+        *trim = t;
+        response.trim_changed = true;
+    }
+    tabs::tab_button(ui, palette, name, selected).clicked()
+}
+
+/// The lamp colour for a chip's play state (the meter roles, no new palette):
+/// green playing, yellow soloed, unlit muted by the user, dim green silenced by
+/// another chip's solo. The fourth state keeps "muted by you" and "silenced for
+/// you" from collapsing into one dark lamp.
+fn led_color(palette: &Palette, panel: &GenericChannelPanel, any_solo: bool) -> egui::Color32 {
+    if panel.chip_muted() {
+        palette.meter_off
+    } else if panel.soloed() {
+        palette.meter_mid
+    } else if any_solo {
+        darken(palette.meter_low, 0.6)
+    } else {
+        palette.meter_low
+    }
+}
+
+/// The lamp's hover text for its state.
+fn led_hover(panel: &GenericChannelPanel, any_solo: bool) -> &'static str {
+    if panel.chip_muted() {
+        crate::strings::CHIP_LAMP_MUTED
+    } else if panel.soloed() {
+        crate::strings::CHIP_LAMP_SOLOED
+    } else if any_solo {
+        crate::strings::CHIP_LAMP_SILENCED
+    } else {
+        crate::strings::CHIP_LAMP_PLAYING
     }
 }
 

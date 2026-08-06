@@ -466,6 +466,7 @@ impl VgmStudioApp {
                 self.channels.toggle_selected_channel(channel);
                 self.push_muting();
             }
+            MixerAction::TrimChanged => self.push_trims(),
             MixerAction::VolumeFieldFocused(focused) => self.volume_field_editing = focused,
         }
     }

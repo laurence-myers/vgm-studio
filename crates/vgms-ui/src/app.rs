@@ -11,8 +11,8 @@ use vgms_core::config::{AppConfig, ConfigStore, SurfaceChoice, ThemeChoice};
 use vgms_core::song::{DRO_FILE_V2, SongFileType};
 use vgms_core::{FindTarget, Gd3Tag};
 use vgms_synth::{
-    ChipMuting, ChipPanning, LoopConfig, LoopCount, Muting, Panning, RenderMix, SplitFormat,
-    VgmRenderMix, VgmSplitOptions,
+    ChipMuting, ChipPanning, ChipTrims, LoopConfig, LoopCount, Muting, Panning, RenderMix,
+    SplitFormat, VgmRenderMix, VgmSplitOptions,
 };
 
 use crate::action::{

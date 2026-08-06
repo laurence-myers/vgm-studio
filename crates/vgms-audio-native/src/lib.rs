@@ -471,13 +471,12 @@ impl Engine {
     }
 
     fn set_chip_trims(&mut self, trims: ChipTrims) {
-        // Gated like the mutes/pans: an OPL document plays over its projection
-        // and its panel has no trim, so a trim command here means the UI has
-        // not caught up (per the chip mixer's v1 scope -- the OPL tab keeps its
-        // plain label). A plain VGM applies it.
-        if self.opl.is_none() {
-            self.inner.set_trims(trims);
-        }
+        // Unlike the mutes/pans, forwarded on both arms: a trim is keyed by chip
+        // kind and applied as the engine's own gain, and an OPL document's
+        // projection carries the projected chip's kind, so the OPL device's trim
+        // (keyed to that kind) reaches its voice here. There is no OPL-vocabulary
+        // counterpart to gate against.
+        self.inner.set_trims(trims);
     }
 
     fn set_loop(&mut self, config: Option<LoopConfig>) {

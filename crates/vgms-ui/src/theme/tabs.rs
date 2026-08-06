@@ -12,7 +12,9 @@
 //! Cells report themselves as selectable labels to accessibility and
 //! egui_kittest, so `get_by_label("Editor").click()` still drives them.
 
-use egui::{Color32, CornerRadius, Rangef, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use egui::{
+    Color32, CornerRadius, Rangef, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
+};
 
 use super::paint::lerp_color;
 use super::palette::Palette;
@@ -155,6 +157,52 @@ pub fn strip(ui: &mut Ui, palette: &Palette, tabs: &[Tab], selected: usize) -> O
         painter.galley(cell.center() - galley.size() * 0.5, galley, ink);
     }
     clicked
+}
+
+/// A single display tab as a self-contained button at the cursor, in the same
+/// well-cell chrome [`strip`] draws: `data_stripe` fill and a display-ink ring
+/// when `selected`, a faint hover wash otherwise, the label in `data_text` (lit)
+/// or `data_label` (dim). For composite strips like the chip mixer, whose cells
+/// carry a lamp and a trim knob beside the name and so cannot use `strip`'s
+/// single-galley layout. Reports itself as a selectable label, so
+/// `get_by_label` still drives it.
+pub(crate) fn tab_button(ui: &mut Ui, palette: &Palette, label: &str, selected: bool) -> Response {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley =
+        ui.fonts_mut(|fonts| fonts.layout_no_wrap(label.to_owned(), font, Color32::PLACEHOLDER));
+    let size = galley.size() + vec2(CELL_PAD_X * 2.0, CELL_PAD_Y * 2.0);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let live = ui.is_enabled();
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, live, selected, label)
+    });
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        let radius = CornerRadius::same(CELL_RADIUS);
+        if selected {
+            painter.rect_filled(rect, radius, palette.data_stripe);
+            let ring = lerp_color(
+                palette.data_text,
+                palette.data_bg,
+                if live { 0.72 } else { 0.86 },
+            );
+            painter.rect_stroke(rect, radius, Stroke::new(1.0, ring), StrokeKind::Inside);
+        } else if live && response.hovered() {
+            painter.rect_filled(rect, radius, Color32::from_white_alpha(13));
+        }
+        let base = if selected {
+            palette.data_text
+        } else {
+            palette.data_label
+        };
+        let ink = if live {
+            base
+        } else {
+            lerp_color(base, palette.data_bg, DISABLED_SINK)
+        };
+        painter.galley(rect.center() - galley.size() * 0.5, galley, ink);
+    }
+    response
 }
 
 /// Paints the readout well the cells sit in: the dark data surface, a shadowed
