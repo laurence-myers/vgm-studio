@@ -20,7 +20,7 @@
 use std::path::PathBuf;
 
 use vgms_core::{Bank, DroDataV1, DroSong, OplType};
-use vgms_synth::{Muting, Panning, RenderMix, render_wav, render_wav_mixed};
+use vgms_synth::{Muting, Panning, RenderMix, render_dro_wav, render_dro_wav_mixed};
 
 /// The render every fixture uses: the app's own defaults.
 const SAMPLE_RATE: u32 = 48_000;
@@ -101,7 +101,7 @@ fn assert_matches_fixture(name: &str, actual: &[u8]) {
 
 #[test]
 fn the_full_mix_is_unchanged() {
-    let wav = render_wav(&regression_song(), SAMPLE_RATE, BIT_DEPTH).unwrap();
+    let wav = render_dro_wav(&regression_song(), SAMPLE_RATE, BIT_DEPTH).unwrap();
     assert_matches_fixture("full.wav", &wav);
 }
 
@@ -109,7 +109,7 @@ fn the_full_mix_is_unchanged() {
 fn a_muted_channel_is_unchanged() {
     let mut muting = Muting::all();
     muting.mute_channel(Bank::Low, 0xB1); // channel 1 silent, channel 0 and the drums stay
-    let wav = render_wav_mixed(
+    let wav = render_dro_wav_mixed(
         regression_song(),
         RenderMix {
             muting,
@@ -124,7 +124,7 @@ fn a_muted_channel_is_unchanged() {
 
 #[test]
 fn a_boosted_render_is_unchanged() {
-    let wav = render_wav_mixed(
+    let wav = render_dro_wav_mixed(
         regression_song(),
         RenderMix {
             boost: 2.0,
@@ -143,7 +143,7 @@ fn a_panned_render_is_unchanged() {
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
     pans[1] = 0xFF;
-    let wav = render_wav_mixed(
+    let wav = render_dro_wav_mixed(
         regression_song(),
         RenderMix {
             panning: Panning::Custom(pans),
@@ -164,7 +164,7 @@ fn a_fully_mixed_render_is_unchanged() {
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
 
-    let wav = render_wav_mixed(
+    let wav = render_dro_wav_mixed(
         regression_song(),
         RenderMix {
             muting,
@@ -194,7 +194,7 @@ fn the_scenarios_render_differently_from_one_another() {
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
 
-    let full = render_wav(&song, SAMPLE_RATE, BIT_DEPTH).unwrap();
+    let full = render_dro_wav(&song, SAMPLE_RATE, BIT_DEPTH).unwrap();
     let variants = [
         (
             "muted",
@@ -219,7 +219,7 @@ fn the_scenarios_render_differently_from_one_another() {
         ),
     ];
     for (name, mix) in variants {
-        let rendered = render_wav_mixed(&song, mix, SAMPLE_RATE, BIT_DEPTH).unwrap();
+        let rendered = render_dro_wav_mixed(&song, mix, SAMPLE_RATE, BIT_DEPTH).unwrap();
         assert_ne!(rendered, full, "{name} rendered the same as the full mix");
     }
 }

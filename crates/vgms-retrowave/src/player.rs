@@ -7,7 +7,7 @@
 //!
 //! The engine is the same one every other chip plays through: it hosts the board's
 //! [`SerialOpl3Chip`] as an [`OplCoreAdapter`](vgms_synth::OplCoreAdapter) (Stage K
-//! / ou-1), so the OPL family is no longer a separate `PlayerEngine` path -- an OPL
+//! / ou-1), so the OPL family is no longer a separate `DroEngine` path -- an OPL
 //! `DroSong` is projected to a VGM and driven here exactly as a native OPL VGM is. The
 //! samples the engine renders are discarded; the register writes it makes to the
 //! shared chip are the point, and the shadow/`hw` model in [`SerialOpl3Chip`] turns
@@ -113,7 +113,7 @@ impl OplChip for SharedOplChip {
 /// [`SharedOplChip`]: the first on the low bank, a dual-OPL2's second on the
 /// high. Running at [`NATIVE_SAMPLE_RATE`] makes the engine's resampler an
 /// identity pass, so the writes land on the same frame boundaries a
-/// `PlayerEngine` put them on.
+/// `DroEngine` put them on.
 fn opl_engine(file: Arc<VgmFile>, chip: &SharedChip) -> VgmEngine {
     let chip = Arc::clone(chip);
     // Which OPL voice we are building, so a dual-OPL2's second instance takes the

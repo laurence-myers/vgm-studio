@@ -1,7 +1,7 @@
 //! rc-1: a per-render core override reaches the WAV render.
 //!
 //! [`with_render_choices`] scopes a one-shot [`CoreChoices`] pick to the current
-//! thread; the OPL render's chip selection (`build_opl` + `PlayerEngine::with_chip`)
+//! thread; the OPL render's chip selection (`build_opl` + `DroEngine::with_chip`)
 //! reads it, so a render dialog can export through a different OPL emulator than
 //! the one Settings plays with, without disturbing playback. This needs the full
 //! app registry (two OPL cores: the default `nuked`, and `cqm`), so it lives here
@@ -13,7 +13,7 @@ use vgms_synth::registry::{CoreChoices, with_render_choices};
 const RATE: u32 = vgms_synth::NATIVE_SAMPLE_RATE;
 
 /// A real single-chip OPL capture as a DRO song -- what the WAV render renders
-/// for an OPL document through `PlayerEngine` (the per-render core override the
+/// for an OPL document through `DroEngine` (the per-render core override the
 /// rc-1 feature scopes applies on this path).
 fn opl_song() -> vgms_core::DroSong {
     let bytes = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
@@ -22,7 +22,7 @@ fn opl_song() -> vgms_core::DroSong {
 
 fn render(song: &vgms_core::DroSong, choices: Option<CoreChoices>) -> Vec<u8> {
     with_render_choices(choices, || {
-        vgms_synth::render_wav(song, RATE, 16).expect("the render succeeds")
+        vgms_synth::render_dro_wav(song, RATE, 16).expect("the render succeeds")
     })
 }
 

@@ -1,9 +1,9 @@
 //! Offline waveform generation.
 //!
-//! It is a tight loop over [`PlayerEngine::render`] with integer bucket
+//! It is a tight loop over [`DroEngine::render`] with integer bucket
 //! boundaries and a true min/max per bucket. [`WaveformBucketer`] can be fed PCM
 //! incrementally and yields completed buckets, so a background task can stream
-//! partial updates; [`render_waveform`] is the batch convenience over it.
+//! partial updates; [`render_dro_waveform`] is the batch convenience over it.
 
 use std::borrow::Borrow;
 
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use vgms_core::VgmFile;
 
-use crate::engine::{FrameClock, PlayerEngine};
+use crate::engine::{DroEngine, FrameClock};
 use crate::vgm_engine::VgmEngine;
 
 /// The vertical extent of one horizontal slice of the waveform: the lowest and
@@ -126,7 +126,7 @@ impl WaveformBucketer {
     }
 }
 
-/// The number of progressive snapshots [`render_waveform_progressive`] aims to
+/// The number of progressive snapshots [`render_dro_waveform_progressive`] aims to
 /// emit across a whole render, chosen so the fill looks smooth without flooding
 /// the UI. Independent of song length -- a longer song simply renders more
 /// buckets between updates.
@@ -134,19 +134,19 @@ const PROGRESSIVE_UPDATES: usize = 32;
 
 /// Renders `song` and buckets it into `num_buckets` min/max slices for drawing.
 #[must_use]
-pub fn render_waveform(
+pub fn render_dro_waveform(
     song: &DroSong,
     num_buckets: usize,
     sample_rate: u32,
 ) -> Vec<WaveformBucket> {
-    render_waveform_cancellable(song, num_buckets, sample_rate, || true)
+    render_dro_waveform_cancellable(song, num_buckets, sample_rate, || true)
         .expect("a render that is never cancelled always completes")
 }
 
-/// As [`render_waveform`], but calling `keep_going` between render chunks so a
+/// As [`render_dro_waveform`], but calling `keep_going` between render chunks so a
 /// background task can abandon a stale render mid-song (the GUI resubmits the
 /// render on every edit). Returns `None` iff `keep_going` returned `false`.
-pub fn render_waveform_cancellable(
+pub fn render_dro_waveform_cancellable(
     song: &DroSong,
     num_buckets: usize,
     sample_rate: u32,
@@ -154,7 +154,7 @@ pub fn render_waveform_cancellable(
 ) -> Option<Vec<WaveformBucket>> {
     // Reuse the progressive loop but keep only the last (final) snapshot.
     let mut last = None;
-    let completed = render_waveform_progressive(
+    let completed = render_dro_waveform_progressive(
         song,
         num_buckets,
         sample_rate,
@@ -176,7 +176,7 @@ pub fn render_waveform_cancellable(
 /// Returns `true` if the render completed, `false` if it was cancelled. Snapshot
 /// pacing is by bucket progress, not wall-clock, so this stays wasm-clean and
 /// deterministic.
-pub fn render_waveform_progressive(
+pub fn render_dro_waveform_progressive(
     song: &DroSong,
     num_buckets: usize,
     sample_rate: u32,
@@ -193,7 +193,7 @@ pub fn render_waveform_progressive(
     let stride = (num_buckets / PROGRESSIVE_UPDATES).max(1);
     let mut next_update = stride;
 
-    let mut engine = PlayerEngine::new(song, sample_rate);
+    let mut engine = DroEngine::new(song, sample_rate);
     let mut buffer = vec![0i16; 4096 * 2];
     loop {
         if !keep_going() {
@@ -214,7 +214,7 @@ pub fn render_waveform_progressive(
 }
 
 /// Renders a VGM for any chips into `num_buckets` buckets, the same shape as
-/// [`render_waveform_progressive`].
+/// [`render_dro_waveform_progressive`].
 ///
 /// A waveform is a picture of the audio, and what produced the audio does not
 /// change how it is drawn -- so this is the same loop over the other engine.
@@ -291,7 +291,7 @@ pub fn render_vgm_waveform(
     last
 }
 
-/// The number of output frames [`PlayerEngine`] will render for the whole song,
+/// The number of output frames [`DroEngine`] will render for the whole song,
 /// used to size the buckets. Mirrors the engine's own frame accounting: the
 /// delays, through the same [`FrameClock`]. Register writes cost no frames.
 fn total_output_frames<B: Borrow<DroSong>>(song: B, sample_rate: u32) -> u64 {
@@ -336,13 +336,13 @@ mod tests {
     fn produces_exactly_the_requested_number_of_buckets() {
         let song = tone_song();
         for num in [1usize, 10, 300, 1000] {
-            assert_eq!(render_waveform(&song, num, 48_000).len(), num);
+            assert_eq!(render_dro_waveform(&song, num, 48_000).len(), num);
         }
     }
 
     #[test]
     fn zero_buckets_is_empty() {
-        assert!(render_waveform(&tone_song(), 0, 48_000).is_empty());
+        assert!(render_dro_waveform(&tone_song(), 0, 48_000).is_empty());
     }
 
     // Asserts the OPL render is *not* silent, which only an OPL core can
@@ -352,7 +352,7 @@ mod tests {
     fn the_tone_shows_amplitude_and_the_tail_is_silent() {
         // 300 ms song, 30 buckets = 10 ms each. The first ~20 buckets are the
         // keyed-on tone; the last ~10 are silence.
-        let buckets = render_waveform(&tone_song(), 30, 48_000);
+        let buckets = render_dro_waveform(&tone_song(), 30, 48_000);
         // Across the tone region the wave swings well to both sides of zero.
         let peak = buckets[..20].iter().map(|b| b.max).max().unwrap();
         let trough = buckets[..20].iter().map(|b| b.min).min().unwrap();
@@ -389,23 +389,23 @@ mod tests {
     fn a_cancelled_render_returns_none_and_an_uncancelled_one_matches_the_batch() {
         let song = tone_song();
         assert_eq!(
-            render_waveform_cancellable(&song, 30, 48_000, || false),
+            render_dro_waveform_cancellable(&song, 30, 48_000, || false),
             None
         );
         assert_eq!(
-            render_waveform_cancellable(&song, 30, 48_000, || true).unwrap(),
-            render_waveform(&song, 30, 48_000)
+            render_dro_waveform_cancellable(&song, 30, 48_000, || true).unwrap(),
+            render_dro_waveform(&song, 30, 48_000)
         );
     }
 
     #[test]
     fn progressive_updates_fill_left_to_right_and_end_at_the_batch() {
         let song = tone_song();
-        let batch = render_waveform(&song, 64, 48_000);
+        let batch = render_dro_waveform(&song, 64, 48_000);
 
         let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
         let completed =
-            render_waveform_progressive(&song, 64, 48_000, &mut || true, &mut |buckets| {
+            render_dro_waveform_progressive(&song, 64, 48_000, &mut || true, &mut |buckets| {
                 updates.push(buckets)
             });
 
@@ -437,7 +437,9 @@ mod tests {
         let song = tone_song();
         let mut updates = 0;
         let completed =
-            render_waveform_progressive(&song, 64, 48_000, &mut || false, &mut |_| updates += 1);
+            render_dro_waveform_progressive(&song, 64, 48_000, &mut || false, &mut |_| {
+                updates += 1
+            });
         assert!(!completed);
         assert_eq!(
             updates, 0,
@@ -448,10 +450,13 @@ mod tests {
     #[test]
     fn zero_buckets_still_emits_one_empty_final() {
         let mut updates: Vec<Vec<WaveformBucket>> = Vec::new();
-        let completed =
-            render_waveform_progressive(&tone_song(), 0, 48_000, &mut || true, &mut |buckets| {
-                updates.push(buckets)
-            });
+        let completed = render_dro_waveform_progressive(
+            &tone_song(),
+            0,
+            48_000,
+            &mut || true,
+            &mut |buckets| updates.push(buckets),
+        );
         assert!(completed);
         assert_eq!(updates, vec![Vec::new()]);
     }

@@ -4,7 +4,7 @@
 //! WAV. The same bytes result on native and web -- the caller writes them to disk
 //! or offers them as a download.
 //!
-//! Two engines, one loop: [`PlayerEngine`] for a DRO or an OPL VGM (with the
+//! Two engines, one loop: [`DroEngine`] for a DRO or an OPL VGM (with the
 //! muting and panning that only mean something there), and
 //! [`VgmEngine`](crate::vgm_engine::VgmEngine) for a VGM of any other chips.
 
@@ -15,7 +15,7 @@ use hound::{SampleFormat, WavSpec, WavWriter};
 use vgms_core::DroSong;
 
 use crate::chip_mix::{ChipMuting, ChipPanning};
-use crate::engine::{Muting, Panning, PlayerEngine};
+use crate::engine::{DroEngine, Muting, Panning};
 use crate::opl::{DefaultOplChip, OplChip};
 use crate::resample::ResampleMode;
 use std::sync::Arc;
@@ -60,7 +60,7 @@ impl Default for RenderMix {
 /// # Errors
 /// If the `hound` writer fails. Writing to an in-memory `Cursor` does not fail in
 /// practice, so this is effectively infallible.
-pub fn render_wav(
+pub fn render_dro_wav(
     song: &DroSong,
     sample_rate: u32,
     bit_depth: u16,
@@ -77,11 +77,11 @@ pub fn render_wav(
 /// Renders `song` with muting, panning and boost all applied -- the GUI's Render
 /// to WAV, whose dialog offers the three independently.
 ///
-/// [`RenderMix::default()`] renders exactly what [`render_wav`] does.
+/// [`RenderMix::default()`] renders exactly what [`render_dro_wav`] does.
 ///
 /// # Errors
-/// See [`render_wav`].
-pub fn render_wav_mixed<B: Borrow<DroSong>>(
+/// See [`render_dro_wav`].
+pub fn render_dro_wav_mixed<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -90,7 +90,7 @@ pub fn render_wav_mixed<B: Borrow<DroSong>>(
     render_uncancelled(song, mix, sample_rate, bit_depth, &mut |_| {})
 }
 
-/// As [`render_wav_mixed`], reporting progress and calling `keep_going` between
+/// As [`render_dro_wav_mixed`], reporting progress and calling `keep_going` between
 /// render chunks so a background export can be abandoned part-way -- when the
 /// song it belongs to is replaced, say. `Ok(None)` iff `keep_going` returned
 /// `false`.
@@ -99,8 +99,8 @@ pub fn render_wav_mixed<B: Borrow<DroSong>>(
 /// shorthands for it.
 ///
 /// # Errors
-/// See [`render_wav`].
-pub fn render_wav_cancellable<B: Borrow<DroSong>>(
+/// See [`render_dro_wav`].
+pub fn render_dro_wav_cancellable<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -111,7 +111,7 @@ pub fn render_wav_cancellable<B: Borrow<DroSong>>(
     render_wav_impl(song, mix, sample_rate, bit_depth, on_progress, keep_going)
 }
 
-/// As [`render_wav`], but multiplies the signal by `boost` through the same peak
+/// As [`render_dro_wav`], but multiplies the signal by `boost` through the same peak
 /// limiter used for live playback, so a boosted render matches boosted playback
 /// and still cannot clip (`boost == 1.0` is bit-transparent). Reports the running
 /// rendered-frame count to `on_progress` after each chunk so a CLI can show live
@@ -119,8 +119,8 @@ pub fn render_wav_cancellable<B: Borrow<DroSong>>(
 /// GUI / `vgmstudio.ini` boost never reaches a render.
 ///
 /// # Errors
-/// See [`render_wav`].
-pub fn render_wav_boosted_with_progress(
+/// See [`render_dro_wav`].
+pub fn render_dro_wav_boosted_with_progress(
     song: &DroSong,
     sample_rate: u32,
     bit_depth: u16,
@@ -135,7 +135,7 @@ pub fn render_wav_boosted_with_progress(
 }
 
 /// [`render_wav_impl`] for the entry points that cannot be cancelled, which is
-/// every one but [`render_wav_cancellable`].
+/// every one but [`render_dro_wav_cancellable`].
 fn render_uncancelled<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
@@ -149,7 +149,7 @@ fn render_uncancelled<B: Borrow<DroSong>>(
     )
 }
 
-/// The shared render loop behind the public `render_wav*` entry points.
+/// The shared render loop behind the public `render_dro_wav*` entry points.
 ///
 /// Returns `Ok(None)` when `keep_going` asks it to stop; the callers that cannot
 /// be cancelled go through [`render_uncancelled`].
@@ -178,7 +178,7 @@ fn render_wav_impl<B: Borrow<DroSong>>(
                 .build_opl(Some(&choice), sample_rate)
                 .unwrap_or_else(|| Box::new(DefaultOplChip::new(sample_rate)));
             run_player(
-                PlayerEngine::with_chip(song, chip, sample_rate),
+                DroEngine::with_chip(song, chip, sample_rate),
                 mix,
                 spec,
                 bit_depth,
@@ -187,7 +187,7 @@ fn render_wav_impl<B: Borrow<DroSong>>(
             )
         }
         None => run_player(
-            PlayerEngine::new(song, sample_rate),
+            DroEngine::new(song, sample_rate),
             mix,
             spec,
             bit_depth,
@@ -201,7 +201,7 @@ fn render_wav_impl<B: Borrow<DroSong>>(
 /// and per-render-core paths, generic over the chip type so a boxed chosen chip
 /// and the engine's own default chip go through one body.
 fn run_player<B: Borrow<DroSong>, C: OplChip>(
-    mut engine: PlayerEngine<B, C>,
+    mut engine: DroEngine<B, C>,
     mix: RenderMix,
     spec: WavSpec,
     bit_depth: u16,
@@ -230,14 +230,14 @@ fn run_player<B: Borrow<DroSong>, C: OplChip>(
 
 /// Renders a VGM for whatever chips it declares, through the multi-chip engine.
 ///
-/// The counterpart of [`render_wav_mixed`] for a file the OPL model does not
+/// The counterpart of [`render_dro_wav_mixed`] for a file the OPL model does not
 /// cover. There is no muting or panning: those are OPL ideas, and this engine
 /// has no register policy at all. A chip with no core renders silence, so a file
 /// this app only half knows comes out half played -- check
 /// [`playability`](crate::chip::playability) first if that matters.
 ///
 /// # Errors
-/// If the WAV cannot be written -- the same failures as [`render_wav`].
+/// If the WAV cannot be written -- the same failures as [`render_dro_wav`].
 pub fn render_vgm_wav(
     file: Arc<VgmFile>,
     sample_rate: u32,
@@ -386,7 +386,7 @@ fn write_render(
         let (frames, rendered) = pull(&mut buffer);
         // Boost and limit exactly as the live audio callback does, so a boosted
         // render matches boosted playback. Bit-transparent when boost is 1.0, so
-        // the faithful unboosted `render_wav` path is unchanged.
+        // the faithful unboosted `render_dro_wav` path is unchanged.
         limiter.process(&mut buffer[..frames * 2]);
         for &sample in &buffer[..frames * 2] {
             if bit_depth == 8 {
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn renders_a_16_bit_stereo_wav_of_the_right_length() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 16).unwrap();
+        let bytes = render_dro_wav(&song, 48_000, 16).unwrap();
         let (spec, samples) = read_back(&bytes);
 
         assert_eq!(spec.channels, 2);
@@ -553,12 +553,13 @@ mod tests {
     #[test]
     fn progress_is_reported_without_changing_the_render() {
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16).unwrap();
+        let plain = render_dro_wav(&song, 48_000, 16).unwrap();
         let mut frames = Vec::new();
-        let tracked = render_wav_boosted_with_progress(&song, 48_000, 16, 1.0, &mut |rendered| {
-            frames.push(rendered);
-        })
-        .unwrap();
+        let tracked =
+            render_dro_wav_boosted_with_progress(&song, 48_000, 16, 1.0, &mut |rendered| {
+                frames.push(rendered);
+            })
+            .unwrap();
         assert_eq!(
             tracked, plain,
             "progress reporting must not change the bytes"
@@ -577,7 +578,7 @@ mod tests {
     #[test]
     fn the_render_is_not_silent() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 16).unwrap();
+        let bytes = render_dro_wav(&song, 48_000, 16).unwrap();
         let (_, samples) = read_back(&bytes);
         assert!(
             samples.iter().any(|&s| s != 0),
@@ -591,7 +592,7 @@ mod tests {
     #[test]
     fn eight_bit_export_round_trips_through_hound() {
         let song = small_song();
-        let bytes = render_wav(&song, 48_000, 8).unwrap();
+        let bytes = render_dro_wav(&song, 48_000, 8).unwrap();
         let (spec, samples) = read_back(&bytes);
         assert_eq!(spec.bits_per_sample, 8);
         assert_eq!(samples.len(), 150 * 48 * 2);
@@ -603,7 +604,7 @@ mod tests {
         let song = small_song();
         // Refused before the first chunk.
         assert!(
-            render_wav_cancellable(
+            render_dro_wav_cancellable(
                 &song,
                 RenderMix::default(),
                 48_000,
@@ -618,7 +619,7 @@ mod tests {
         // ...and part-way through: the render stops early, so fewer chunks run
         // than the whole song needs.
         let mut chunks = 0;
-        let cancelled = render_wav_cancellable(
+        let cancelled = render_dro_wav_cancellable(
             &song,
             RenderMix::default(),
             48_000,
@@ -636,8 +637,8 @@ mod tests {
     #[test]
     fn an_uncancelled_render_is_identical_to_the_plain_one() {
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16).unwrap();
-        let cancellable = render_wav_cancellable(
+        let plain = render_dro_wav(&song, 48_000, 16).unwrap();
+        let cancellable = render_dro_wav_cancellable(
             &song,
             RenderMix::default(),
             48_000,
@@ -654,8 +655,8 @@ mod tests {
         // Everything audible, the song's own image, no boost -- so the dialog's
         // "none of the options" is the same faithful render the CLI produces.
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16).unwrap();
-        let mixed = render_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
+        let plain = render_dro_wav(&song, 48_000, 16).unwrap();
+        let mixed = render_dro_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
         assert_eq!(plain, mixed);
     }
 
@@ -665,7 +666,7 @@ mod tests {
     #[test]
     fn panning_a_render_hard_left_moves_the_energy() {
         let song = small_song();
-        let hard_left = render_wav_mixed(
+        let hard_left = render_dro_wav_mixed(
             &song,
             RenderMix {
                 panning: Panning::Custom([0x00; 18]),
@@ -700,8 +701,8 @@ mod tests {
     #[test]
     fn a_boosted_render_is_louder_but_never_clips() {
         let song = small_song();
-        let plain = render_wav(&song, 48_000, 16).unwrap();
-        let boosted = render_wav_mixed(
+        let plain = render_dro_wav(&song, 48_000, 16).unwrap();
+        let boosted = render_dro_wav_mixed(
             &song,
             RenderMix {
                 boost: 4.0,

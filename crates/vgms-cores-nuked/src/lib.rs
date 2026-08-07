@@ -38,7 +38,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-CQM",
             realtime: true,
             channel_pan: false,
-            // An OPL core: muting is register-gated by `PlayerEngine`, not the
+            // An OPL core: muting is register-gated by `DroEngine`, not the
             // `ChipCore` path, so it always works.
             channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,

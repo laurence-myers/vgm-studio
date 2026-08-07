@@ -35,7 +35,7 @@ const SAMPLE: usize = 12;
 ///
 /// Every VGM, OPL included, renders through `VgmEngine` over the registered cores
 /// -- an OPL file's chip is hosted by the `OplCoreAdapter` (ou-1), so it no longer
-/// needs a separate `PlayerEngine` path here.
+/// needs a separate `DroEngine` path here.
 fn render_ours(path: &Path) -> Option<Render> {
     render_ours_at(path, RATE)
 }

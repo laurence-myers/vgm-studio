@@ -1,6 +1,6 @@
 //! Peak-level measurement.
 //!
-//! Drives the same [`PlayerEngine`] the WAV render does, but instead of writing
+//! Drives the same [`DroEngine`] the WAV render does, but instead of writing
 //! the mixed frames anywhere it scans them for the loudest one and throws them
 //! away -- no allocation, no boost, no limiter. This is the sample-exact
 //! equivalent of running vgmtools' `vgm_vol` over a rendered WAV, without the
@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use vgms_core::{DroSong, VgmFile};
 
-use crate::engine::PlayerEngine;
+use crate::engine::DroEngine;
 use crate::resample::ResampleMode;
 use crate::vgm_engine::VgmEngine;
 
@@ -51,39 +51,39 @@ impl Peak {
 
 /// Measures the peak of a full render of `song` at `sample_rate`.
 ///
-/// Renders one pass through the song -- a freshly built [`PlayerEngine`] does
+/// Renders one pass through the song -- a freshly built [`DroEngine`] does
 /// not repeat loops (its `loop_config` starts unset), and every sample a loop
 /// would replay already occurs in that first pass, so the peak of one pass is
 /// the peak of any number of them.
 ///
 /// The measurement never runs through [`BoostLimiter`](crate::BoostLimiter):
 /// there is no boost knob here, so it reports the song's own un-boosted level,
-/// the same signal the faithful [`render_wav`](crate::render_wav) writes.
+/// the same signal the faithful [`render_dro_wav`](crate::render_dro_wav) writes.
 ///
-/// This is the uncancellable shorthand; [`measure_peak_cancellable`] is the one
+/// This is the uncancellable shorthand; [`measure_dro_peak_cancellable`] is the one
 /// with progress reporting and cancellation.
 #[must_use]
-pub fn measure_peak<B: Borrow<DroSong>>(song: B, sample_rate: u32) -> Peak {
-    measure_peak_cancellable(song, sample_rate, &mut |_| {}, &mut || true)
+pub fn measure_dro_peak<B: Borrow<DroSong>>(song: B, sample_rate: u32) -> Peak {
+    measure_dro_peak_cancellable(song, sample_rate, &mut |_| {}, &mut || true)
         .expect("a measurement that is never cancelled always completes")
 }
 
-/// As [`measure_peak`], reporting the running rendered-frame count to
+/// As [`measure_dro_peak`], reporting the running rendered-frame count to
 /// `on_progress` between chunks and polling `keep_going` so a background scan
 /// can be abandoned -- when the song it belongs to is replaced, say.
 /// `None` iff `keep_going` returned `false`.
 ///
 /// The progress and cancellation shape is identical to
-/// [`render_wav_cancellable`](crate::render_wav_cancellable), so the task
+/// [`render_dro_wav_cancellable`](crate::render_dro_wav_cancellable), so the task
 /// service drives a volume scan exactly as it drives a WAV export.
 #[must_use]
-pub fn measure_peak_cancellable<B: Borrow<DroSong>>(
+pub fn measure_dro_peak_cancellable<B: Borrow<DroSong>>(
     song: B,
     sample_rate: u32,
     on_progress: &mut dyn FnMut(u64),
     keep_going: &mut dyn FnMut() -> bool,
 ) -> Option<Peak> {
-    let mut engine = PlayerEngine::new(song, sample_rate);
+    let mut engine = DroEngine::new(song, sample_rate);
     let mut buffer = vec![0i16; 4096 * 2];
     let mut abs_peak: u16 = 0;
     loop {
@@ -108,9 +108,9 @@ pub fn measure_peak_cancellable<B: Borrow<DroSong>>(
 
 /// Measures the peak of a full render of `file` at `sample_rate`, through the
 /// generic multichip engine -- the [`VgmEngine`] counterpart of
-/// [`measure_peak`], for a VGM whose chips are not OPL and so has no [`DroSong`].
+/// [`measure_dro_peak`], for a VGM whose chips are not OPL and so has no [`DroSong`].
 ///
-/// One pass, like [`measure_peak`]: a freshly built [`VgmEngine`] has no
+/// One pass, like [`measure_dro_peak`]: a freshly built [`VgmEngine`] has no
 /// [`LoopConfig`](crate::LoopConfig) and never wraps, and every sample a loop
 /// would replay already occurs in that pass. No boost and no muting or panning,
 /// so it reports the file's own un-boosted level -- the same signal the faithful
@@ -125,7 +125,7 @@ pub fn measure_vgm_peak(file: Arc<VgmFile>, sample_rate: u32, resampling: Resamp
 
 /// As [`measure_vgm_peak`], reporting progress to `on_progress` and polling
 /// `keep_going` so a background scan can be abandoned. `None` iff `keep_going`
-/// returned `false`. The [`measure_peak_cancellable`] counterpart for a VGM;
+/// returned `false`. The [`measure_dro_peak_cancellable`] counterpart for a VGM;
 /// the two share the task service's scan plumbing.
 #[must_use]
 pub fn measure_vgm_peak_cancellable(
@@ -159,7 +159,7 @@ pub fn measure_vgm_peak_cancellable(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wav::{render_vgm_wav, render_wav};
+    use crate::wav::{render_dro_wav, render_vgm_wav};
     use std::io::Cursor;
     use vgms_core::{DroDataV1, OplType};
 
@@ -183,7 +183,7 @@ mod tests {
 
     /// The loudest `|sample|` in a rendered 16-bit WAV, as a `u32`.
     fn render_abs_peak(song: &DroSong) -> u32 {
-        let bytes = render_wav(song, 48_000, 16).unwrap();
+        let bytes = render_dro_wav(song, 48_000, 16).unwrap();
         let reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
         reader
             .into_samples::<i32>()
@@ -230,11 +230,11 @@ mod tests {
 
     #[test]
     fn peak_matches_the_wav_render_it_mirrors() {
-        // The faithful WAV render writes the very samples `measure_peak` scans
+        // The faithful WAV render writes the very samples `measure_dro_peak` scans
         // (same engine, no boost, no limiter), so their peaks must agree
         // exactly -- which also pins the measurement as boost-independent.
         let song = small_song();
-        let peak = measure_peak(&song, 48_000);
+        let peak = measure_dro_peak(&song, 48_000);
         let render_peak = render_abs_peak(&song);
 
         assert_eq!(
@@ -250,7 +250,7 @@ mod tests {
     #[cfg(feature = "nuked-opl")]
     #[test]
     fn a_keyed_on_note_is_not_silent() {
-        let peak = measure_peak(small_song(), 48_000);
+        let peak = measure_dro_peak(small_song(), 48_000);
         assert!(peak.max_level > 0, "the keyed-on note made no sound");
     }
 
@@ -262,7 +262,7 @@ mod tests {
         // A different output rate still renders the same note; the peak stays
         // sane rather than depending on the resampler's chosen rate.
         for rate in [44_100, 48_000, 49_716] {
-            let peak = measure_peak(small_song(), rate);
+            let peak = measure_dro_peak(small_song(), rate);
             assert!(peak.max_level > 0, "silent at {rate} Hz");
         }
     }
@@ -272,13 +272,13 @@ mod tests {
         let song = small_song();
         // Refused before the first chunk.
         assert!(
-            measure_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || false).is_none(),
+            measure_dro_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || false).is_none(),
             "an immediately cancelled scan yields None"
         );
 
         // ...and part-way through: the scan stops early.
         let mut chunks = 0;
-        let cancelled = measure_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || {
+        let cancelled = measure_dro_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || {
             chunks += 1;
             chunks <= 1
         });
@@ -288,9 +288,9 @@ mod tests {
     #[test]
     fn an_uncancelled_scan_matches_the_shorthand() {
         let song = small_song();
-        let simple = measure_peak(&song, 48_000);
+        let simple = measure_dro_peak(&song, 48_000);
         let cancellable =
-            measure_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || true).unwrap();
+            measure_dro_peak_cancellable(&song, 48_000, &mut |_| {}, &mut || true).unwrap();
         assert_eq!(simple, cancellable);
     }
 
@@ -403,7 +403,7 @@ mod tests {
     fn progress_is_reported_and_only_grows() {
         let song = small_song();
         let mut frames = Vec::new();
-        let peak = measure_peak_cancellable(
+        let peak = measure_dro_peak_cancellable(
             &song,
             48_000,
             &mut |rendered| frames.push(rendered),

@@ -38,12 +38,12 @@ use crate::opl_adapter::OplCoreAdapter;
 /// Only a [`Routed`](Self::Routed) entry builds no [`ChipCore`]: RetroWave
 /// output is a whole audio service in a native-only crate, chosen by id rather
 /// than pulled for samples. The OPL entries build both ways -- an [`OplChip`]
-/// for `PlayerEngine`, and, since ou-1, a `ChipCore` for `VgmEngine` through the
+/// for `DroEngine`, and, since ou-1, a `ChipCore` for `VgmEngine` through the
 /// [`OplCoreAdapter`].
 pub enum CoreMaker {
     /// Built here and driven by `VgmEngine`.
     Generic(fn() -> Box<dyn ChipCore>),
-    /// An OPL core. Built as an [`OplChip`] for `PlayerEngine`
+    /// An OPL core. Built as an [`OplChip`] for `DroEngine`
     /// ([`build_opl`](CoreInfo::build_opl)) and, wrapped in an
     /// [`OplCoreAdapter`], as a `ChipCore` for `VgmEngine`
     /// ([`build`](CoreInfo::build)). Takes the sample rate, because an OPL core
@@ -158,7 +158,7 @@ impl CoreInfo {
     pub fn build(&self) -> Option<Box<dyn ChipCore>> {
         let core: Box<dyn ChipCore> = match self.make {
             CoreMaker::Generic(make) => make(),
-            // An OPL core answers to `PlayerEngine` as an `OplChip`; the adapter
+            // An OPL core answers to `DroEngine` as an `OplChip`; the adapter
             // presents it as a `ChipCore` so `VgmEngine` can host it too. It runs
             // the chip at its native rate and lets the engine's Voice resampler
             // convert to the output rate, so no output rate need reach here.
@@ -182,7 +182,7 @@ impl CoreInfo {
     /// Builds this core as an OPL chip, or `None` when it is not one.
     ///
     /// Separate from [`build`](Self::build) because the two engines are
-    /// separate: `VgmEngine` pulls samples from a `ChipCore`, `PlayerEngine`
+    /// separate: `VgmEngine` pulls samples from a `ChipCore`, `DroEngine`
     /// drives an `OplChip` through muting, panning and buffered writes. A core
     /// answers to one or the other, never both.
     #[must_use]
@@ -529,13 +529,13 @@ impl CoreRegistry {
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
                 realtime: true,
                 // The OPL3's per-channel pan is the `stereo-ext` register path
-                // `PlayerEngine` drives (not the `ChipCore` mute/pan API); CQM
+                // `DroEngine` drives (not the `ChipCore` mute/pan API); CQM
                 // and the RetroWave board cannot, and keep `false`.
                 channel_pan: true,
                 // On the VgmEngine path the OPL adapter mutes through the write
                 // gate (the OPL `ChannelGate` rows), so `build` wraps it in a
                 // `GatedCore` -- `false` engages that. OPL *documents* still mute
-                // through `PlayerEngine`'s own register gating, untouched by this.
+                // through `DroEngine`'s own register gating, untouched by this.
                 channel_mute: false,
                 level: LEVEL_UNITY,
                 make: CoreMaker::Opl(|rate| Box::new(crate::opl::NukedOpl3::new(rate))),
@@ -662,7 +662,7 @@ impl CoreRegistry {
     /// Builds the OPL core the config names, at `sample_rate`.
     ///
     /// `None` when the choice is a routed one (hardware) or this build has no
-    /// OPL core at all -- both mean "`PlayerEngine` must fall back to its
+    /// OPL core at all -- both mean "`DroEngine` must fall back to its
     /// default chip", which is what the caller does.
     #[must_use]
     pub fn build_opl(&self, choice: Option<&str>, sample_rate: u32) -> Option<Box<dyn OplChip>> {

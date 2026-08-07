@@ -2,7 +2,7 @@
 //!
 //! A push design survives neither a cpal callback nor an
 //! `AudioWorkletProcessor.process()`, so everything here is *pulled*:
-//! [`PlayerEngine::render`] fills a caller-supplied buffer,
+//! [`DroEngine::render`] fills a caller-supplied buffer,
 //! stepping instructions and rendering delays, and pauses mid-delay when the
 //! buffer fills so the next call resumes exactly where it left off. Native audio,
 //! web audio, WAV render and waveform generation are all thin callers of it.
@@ -263,7 +263,7 @@ impl LoopCount {
 
 /// A region to loop over, and how often.
 ///
-/// `start_frames` is carried rather than derived because [`PlayerEngine::set_loop`]
+/// `start_frames` is carried rather than derived because [`DroEngine::set_loop`]
 /// runs inside the audio callback, where walking the song to sum its delays would
 /// be real-time work. Build one with [`LoopConfig::for_song`] off the audio thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,9 +384,9 @@ impl Position {
 ///
 /// Generic over the song container (`&DroSong` for a one-shot offline render,
 /// `Arc<DroSong>` for the audio thread) and the OPL core (a mock in tests). Build one
-/// with [`PlayerEngine::new`]; drive it with [`PlayerEngine::render`].
+/// with [`DroEngine::new`]; drive it with [`DroEngine::render`].
 #[derive(Debug)]
-pub struct PlayerEngine<B = std::sync::Arc<DroSong>, C = DefaultOplChip> {
+pub struct DroEngine<B = std::sync::Arc<DroSong>, C = DefaultOplChip> {
     song: B,
     chip: C,
     sample_rate: u32,
@@ -422,7 +422,7 @@ pub struct PlayerEngine<B = std::sync::Arc<DroSong>, C = DefaultOplChip> {
     loops_done: u32,
 }
 
-impl<B: Borrow<DroSong>> PlayerEngine<B, DefaultOplChip> {
+impl<B: Borrow<DroSong>> DroEngine<B, DefaultOplChip> {
     /// Builds an engine for `song`, rendering at `sample_rate` Hz. The chip is
     /// reset and positioned at the start of the song.
     #[must_use]
@@ -432,8 +432,8 @@ impl<B: Borrow<DroSong>> PlayerEngine<B, DefaultOplChip> {
     }
 }
 
-impl<B: Borrow<DroSong>, C: OplChip> PlayerEngine<B, C> {
-    /// As [`PlayerEngine::new`], but with a caller-provided chip (for tests, or a
+impl<B: Borrow<DroSong>, C: OplChip> DroEngine<B, C> {
+    /// As [`DroEngine::new`], but with a caller-provided chip (for tests, or a
     /// different [`OplChip`]).
     #[must_use]
     pub fn with_chip(song: B, chip: C, sample_rate: u32) -> Self {
@@ -892,8 +892,8 @@ mod tests {
         }
     }
 
-    fn recording_engine(song: &DroSong) -> PlayerEngine<&DroSong, RecordingChip> {
-        PlayerEngine::with_chip(song, RecordingChip::default(), 48_000)
+    fn recording_engine(song: &DroSong) -> DroEngine<&DroSong, RecordingChip> {
+        DroEngine::with_chip(song, RecordingChip::default(), 48_000)
     }
 
     /// Like [`RecordingChip`], but models the real chip's *deferred* write buffer:
@@ -927,7 +927,7 @@ mod tests {
     }
 
     /// Renders an engine to the end and returns the total frames rendered.
-    fn render_to_end<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
+    fn render_to_end<B: Borrow<DroSong>, C: OplChip>(engine: &mut DroEngine<B, C>) -> u64 {
         let mut out = vec![0i16; 65_536 * 2];
         while engine.render(&mut out) == out.len() / 2 {}
         engine.position().frames_rendered
@@ -1153,7 +1153,7 @@ mod tests {
         // drains -- by routing the key-off through the same write buffer -- not
         // before, or the queued key-on wins and the note sticks.
         let song = dro_song_v1();
-        let mut engine = PlayerEngine::with_chip(&song, BufferingChip::default(), 48_000);
+        let mut engine = DroEngine::with_chip(&song, BufferingChip::default(), 48_000);
         // A pending (not-yet-drained) playback key-on for low-bank channel 0xB0.
         engine.chip.write_reg_buffered(0xB0, 0x31);
 
@@ -1423,7 +1423,7 @@ mod tests {
         start: usize,
         end: usize,
         count: LoopCount,
-    ) -> PlayerEngine<&DroSong, RecordingChip> {
+    ) -> DroEngine<&DroSong, RecordingChip> {
         let mut engine = recording_engine(song);
         engine.set_loop(Some(LoopConfig::for_song(song, start, end, count, 48_000)));
         engine
@@ -1434,7 +1434,7 @@ mod tests {
     /// A wrap rewinds `frames_rendered`, so unlike [`render_to_end`] this totals
     /// what each call returned -- the final position of a looped run is only the
     /// last pass. Never call it on an infinite loop.
-    fn total_rendered<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
+    fn total_rendered<B: Borrow<DroSong>, C: OplChip>(engine: &mut DroEngine<B, C>) -> u64 {
         let mut out = vec![0i16; 4096 * 2];
         let mut total = 0u64;
         loop {
@@ -1447,7 +1447,7 @@ mod tests {
     }
 
     /// Renders until the engine reports one more wrap than it has now.
-    fn render_past_one_wrap<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) {
+    fn render_past_one_wrap<B: Borrow<DroSong>, C: OplChip>(engine: &mut DroEngine<B, C>) {
         let target = engine.position().loop_iteration + 1;
         let mut out = vec![0i16; 64 * 2];
         while engine.position().loop_iteration < target {

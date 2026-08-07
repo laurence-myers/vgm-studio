@@ -16,8 +16,8 @@ use vgms_core::pack::naming::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
     AudioSource, CoreChoices, Peak, RenderMix, SplitData, VgmRenderMix, VgmSplitOptions,
-    WaveformBucket, measure_peak_cancellable, measure_vgm_peak_cancellable, render_wav_cancellable,
-    render_waveform_progressive, split_vgm_cancellable,
+    WaveformBucket, measure_dro_peak_cancellable, measure_vgm_peak_cancellable,
+    render_dro_wav_cancellable, render_dro_waveform_progressive, split_vgm_cancellable,
 };
 
 /// Identifies a task for cancel-on-resubmit.
@@ -279,7 +279,7 @@ fn measure_source(
 ) -> Option<Peak> {
     match source {
         AudioSource::Dro(song) => {
-            measure_peak_cancellable(Arc::clone(song), sample_rate, &mut |_| {}, &mut || {
+            measure_dro_peak_cancellable(Arc::clone(song), sample_rate, &mut |_| {}, &mut || {
                 !is_cancelled()
             })
         }
@@ -309,7 +309,7 @@ pub fn run_task(
             // engine would make that audio.
             match source {
                 AudioSource::Dro(song) => {
-                    render_waveform_progressive(
+                    render_dro_waveform_progressive(
                         song,
                         *num_buckets,
                         *sample_rate,
@@ -345,14 +345,16 @@ pub fn run_task(
             // untouched. An empty map behaves exactly as the configured cores.
             let rendered = vgms_synth::with_render_choices(Some(core_choices.clone()), || {
                 match (source, mix) {
-                    (WavSource::Dro(song), RenderWavMix::Opl(mix)) => Some(render_wav_cancellable(
-                        Arc::clone(song),
-                        *mix,
-                        *sample_rate,
-                        *bit_depth,
-                        &mut |_| {},
-                        &mut || !is_cancelled(),
-                    )),
+                    (WavSource::Dro(song), RenderWavMix::Opl(mix)) => {
+                        Some(render_dro_wav_cancellable(
+                            Arc::clone(song),
+                            *mix,
+                            *sample_rate,
+                            *bit_depth,
+                            &mut |_| {},
+                            &mut || !is_cancelled(),
+                        ))
+                    }
                     (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
                         Some(vgms_synth::render_vgm_wav_mixed_cancellable(
                             Arc::clone(file),
@@ -571,7 +573,7 @@ fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> 
 mod tests {
     use super::*;
     use crate::test_song::tone_song;
-    use vgms_synth::{render_wav_mixed, render_waveform};
+    use vgms_synth::{render_dro_wav_mixed, render_dro_waveform};
 
     fn request(song: DroSong) -> TaskRequest {
         TaskRequest::RenderWaveform {
@@ -591,7 +593,7 @@ mod tests {
     #[test]
     fn the_waveform_task_ends_at_the_batch_render() {
         let song = tone_song();
-        let expected = render_waveform(&song, 32, 48_000);
+        let expected = render_dro_waveform(&song, 32, 48_000);
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());
@@ -609,7 +611,7 @@ mod tests {
     #[test]
     fn the_volume_scan_emits_the_songs_peak() {
         let song = tone_song();
-        let expected = vgms_synth::measure_peak(&song, 48_000);
+        let expected = vgms_synth::measure_dro_peak(&song, 48_000);
         let scan = TaskRequest::VolumeScan {
             source: AudioSource::Dro(Arc::new(song)),
             sample_rate: 48_000,
@@ -738,7 +740,7 @@ mod tests {
     #[test]
     fn the_pack_volume_scan_emits_a_peak_per_track() {
         let song = Arc::new(tone_song());
-        let expected = vgms_synth::measure_peak(&*song, 48_000);
+        let expected = vgms_synth::measure_dro_peak(&*song, 48_000);
         let scan = TaskRequest::PackVolumeScan {
             tracks: vec![
                 ("01.vgm".to_owned(), AudioSource::Dro(Arc::clone(&song))),
@@ -796,7 +798,7 @@ mod tests {
     #[test]
     fn the_wav_task_renders_the_mix_and_names_the_file() {
         let song = tone_song();
-        let expected = render_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
+        let expected = render_dro_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
 
         let results = collect(
             &TaskRequest::RenderWav {

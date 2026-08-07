@@ -141,7 +141,7 @@ impl OplChip for Box<dyn OplChip> {
 ///
 /// Only reachable with the `nuked-opl` feature off. The point is that turning
 /// the feature off must not delete the OPL *path* -- muting, panning, seeking,
-/// the channel split and the whole `PlayerEngine` state machine are file-format
+/// the channel split and the whole `DroEngine` state machine are file-format
 /// logic, not emulation, and a permissive consumer wants all of it. So the chip
 /// goes quiet and everything else keeps working. The registry registers no OPL
 /// core in that build, so the UI reports the silence rather than implying sound.
@@ -166,14 +166,14 @@ impl OplChip for SilentOpl {
     }
 }
 
-/// The OPL core [`PlayerEngine::new`](crate::engine::PlayerEngine::new) builds.
+/// The OPL core [`DroEngine::new`](crate::engine::DroEngine::new) builds.
 ///
 /// A type alias rather than a `cfg` on the engine itself, so the engine has one
 /// definition whichever way the feature falls.
 #[cfg(feature = "nuked-opl")]
 pub type DefaultOplChip = NukedOpl3;
 
-/// The OPL core [`PlayerEngine::new`](crate::engine::PlayerEngine::new) builds
+/// The OPL core [`DroEngine::new`](crate::engine::DroEngine::new) builds
 /// when this crate is compiled without an OPL emulator.
 #[cfg(not(feature = "nuked-opl"))]
 pub type DefaultOplChip = SilentOpl;

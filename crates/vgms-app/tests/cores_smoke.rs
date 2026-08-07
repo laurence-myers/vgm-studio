@@ -61,7 +61,7 @@ fn the_default_sn76489_is_libvgms_and_makes_sound() {
 
 /// Every libvgm-served chip is that chip's default -- except the three the
 /// owner named back to Nuked -- and every default `VgmEngine` can build
-/// actually builds. OPL stays routed to `PlayerEngine`.
+/// actually builds. OPL stays routed to `DroEngine`.
 #[test]
 fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
     vgms_app::install_cores();

@@ -1,15 +1,15 @@
 //! Stage K: OPL playback runs through the one `VgmEngine`, not a separate
-//! `PlayerEngine` over an OPL projection.
+//! `DroEngine` over an OPL projection.
 //!
 //! The gate that proved this originally compared an OPL VGM through both engines
 //! and scored correlation 1.0000 -- the [`OplCoreAdapter`](vgms_synth::OplCoreAdapter)
-//! `CoreInfo::build` wraps a `CoreMaker::Opl` in reproduces `PlayerEngine` 1:1.
-//! With the projection retired (k-5) there is no longer a `PlayerEngine`-over-OPL
+//! `CoreInfo::build` wraps a `CoreMaker::Opl` in reproduces `DroEngine` 1:1.
+//! With the projection retired (k-5) there is no longer a `DroEngine`-over-OPL
 //! reference to compare an OPL VGM against, so that direct A/B is gone; what
 //! remains guards the two guarantees that outlive it:
 //!
 //! - **The DRO path is audio-clean through `VgmEngine`.** A DRO still plays
-//!   through `PlayerEngine` (`render_wav`), so it is a live reference: rendered
+//!   through `DroEngine` (`render_dro_wav`), so it is a live reference: rendered
 //!   directly, and projected to a `VgmFile` and run through `VgmEngine`, the two
 //!   match to a fraction of a percent in level (the ms->sample->frame
 //!   requantization floor keeps correlation just under 1). This is the same
@@ -56,7 +56,7 @@ fn drain_secs(mut engine: VgmEngine, secs: usize) -> Render {
     Render::from_interleaved_i16(&samples, RATE)
 }
 
-/// The reroute ou-2 makes: a DRO, today played through `PlayerEngine`, projected
+/// The reroute ou-2 makes: a DRO, today played through `DroEngine`, projected
 /// to a `VgmFile` ([`convert::opl_song_to_vgm_file`]) and played through
 /// `VgmEngine` -- the path the transport takes once OPL documents route to the
 /// generic engine. Proves that round trip is audio-clean before any transport
@@ -65,7 +65,7 @@ fn drain_secs(mut engine: VgmEngine, secs: usize) -> Render {
 /// An OPL VGM plays byte-identically through the two engines (both drive the same
 /// Nuked OPL3 core off the same command stream). The DRO path instead re-quantizes
 /// its delays: a DRO's
-/// native timing is **milliseconds**, and `PlayerEngine` renders those straight
+/// native timing is **milliseconds**, and `DroEngine` renders those straight
 /// to output frames (one rounding), whereas the projection expands them to VGM
 /// **sample** delays at 44100 (`dro_to_vgm`) and the engine then rounds those to
 /// output frames -- two roundings through an intermediate rate the direct path
@@ -86,8 +86,8 @@ fn a_dro_sounds_the_same_projected_through_the_vgm_engine() {
     let dro =
         vgms_core::io::read_song("lsl3_score_up_dro2.dro", &bytes[..]).expect("the DRO reads");
 
-    // Today's path: the DRO through PlayerEngine (what render_wav drives).
-    let wav = vgms_synth::render_wav(&dro, RATE, 16).expect("the DRO renders");
+    // Today's path: the DRO through DroEngine (what render_dro_wav drives).
+    let wav = vgms_synth::render_dro_wav(&dro, RATE, 16).expect("the DRO renders");
     let (samples, wav_rate) = parity::reference::read_wav(&wav).expect("a valid WAV");
     let wanted = RATE as usize * MAX_SECONDS * 2;
     let player = Render::from_interleaved_i16(&samples[..samples.len().min(wanted)], wav_rate);
@@ -128,9 +128,9 @@ fn a_dro_sounds_the_same_projected_through_the_vgm_engine() {
 /// and no two solos are the same audio -- which a gate that leaked or mapped the
 /// wrong row would fail.
 ///
-/// This once held the gate against a `PlayerEngine` A/B reference built from the
+/// This once held the gate against a `DroEngine` A/B reference built from the
 /// OPL projection; that reference was the projection, now retired. `VgmEngine`
-/// renders OPL identically to `PlayerEngine` (the DRO A/B above pins that), so the
+/// renders OPL identically to `DroEngine` (the DRO A/B above pins that), so the
 /// gate's own contract is checked directly on the one engine that remains.
 #[test]
 fn the_opl_channel_gate_isolates_channels_through_the_vgm_engine() {

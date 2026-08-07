@@ -377,7 +377,7 @@ fn unknown(path: &Path) -> String {
     format!("{} is not an open zip pack", path.display())
 }
 
-/// Owns the platform's audio output and the `PlayerEngine` behind it.
+/// Owns the platform's audio output and the `DroEngine` behind it.
 ///
 /// The native implementation wraps `vgms-audio-native`'s cpal stream; the web
 /// implementation talks to an `AudioWorklet`. Errors are strings

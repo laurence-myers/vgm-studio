@@ -1,4 +1,4 @@
-//! Real-chip panning: drive `PlayerEngine` with the actual `NukedOpl3` core and
+//! Real-chip panning: drive `DroEngine` with the actual `NukedOpl3` core and
 //! assert the `stereo-ext` panpots really steer the output, and that a
 //! `Custom` -> `Original` round-trip returns to bit-identical disengaged audio
 //! (the same guarantee the `golden_opl` hash pins at the chip level).
@@ -7,7 +7,7 @@
 #![cfg(feature = "nuked-opl")]
 
 use vgms_core::{DroDataV1, DroSong, OplType};
-use vgms_synth::{Muting, NATIVE_SAMPLE_RATE, Panning, PlayerEngine};
+use vgms_synth::{DroEngine, Muting, NATIVE_SAMPLE_RATE, Panning};
 
 /// A sustained OPL2 tone: instruments, key-on, then a long delay and no key-off,
 /// so every rendered frame is audible and a pan asymmetry is unambiguous.
@@ -70,7 +70,7 @@ fn song_writing_a_pan_register() -> DroSong {
     )
 }
 
-fn render(engine: &mut PlayerEngine<&DroSong>, frames: usize) -> Vec<i16> {
+fn render(engine: &mut DroEngine<&DroSong>, frames: usize) -> Vec<i16> {
     let mut out = vec![0i16; frames * 2];
     engine.render(&mut out);
     out
@@ -87,7 +87,7 @@ fn right_channel_has_signal(pcm: &[i16]) -> bool {
 #[test]
 fn hard_left_silences_the_right_channel() {
     let song = sustained_tone();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x00; 18])); // 0x00 = hard left
     let pcm = render(&mut engine, 8192);
 
@@ -104,7 +104,7 @@ fn hard_left_silences_the_right_channel() {
 #[test]
 fn hard_right_silences_the_left_channel() {
     let song = sustained_tone();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0xFF; 18])); // 0xFF = hard right
     let pcm = render(&mut engine, 8192);
 
@@ -121,7 +121,7 @@ fn hard_right_silences_the_left_channel() {
 #[test]
 fn center_pan_feeds_both_channels() {
     let song = sustained_tone();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x80; 18])); // 0x80 = centre
     let pcm = render(&mut engine, 8192);
 
@@ -141,10 +141,10 @@ fn center_custom_pan_matches_the_disengaged_level() {
     // so engaging it must not change any channel's level -- bit-identical to the
     // disengaged output. (The upstream constant-power law dropped centre ~3 dB.)
     let song = sustained_tone();
-    let mut original = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut original = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     let expected = render(&mut original, 8192);
 
-    let mut custom = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut custom = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     custom.set_panning(Panning::Custom([0x80; 18])); // centre
     let actual = render(&mut custom, 8192);
 
@@ -160,7 +160,7 @@ fn seek_keeps_custom_panning_engaged() {
     // seek the right channel must still sound, i.e. the replay must keep stereo-ext
     // engaged rather than fall back to the song's left-only C0 image.
     let song = opl3_left_tone();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x80; 18])); // centre overrides the C0 image
 
     let before = render(&mut engine, 4096);
@@ -183,7 +183,7 @@ fn a_songs_own_pan_register_writes_do_not_override_custom() {
     // left), but with Custom centre engaged the engine must drop that write so
     // both channels stay audible.
     let song = song_writing_a_pan_register();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x80; 18])); // centre
     let pcm = render(&mut engine, 8192);
     assert!(left_channel_has_signal(&pcm), "left channel audible");
@@ -200,7 +200,7 @@ fn first_play_after_enabling_custom_keeps_the_pan() {
     // stereo-ext); the following SetPanning(Custom) must re-engage it, so playback
     // is centred, not hard left.
     let song = opl3_left_tone();
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.seek_to_pos(14); // play()'s seek: engine.panning still Original here
     engine.set_muting(Muting::all());
     engine.set_panning(Panning::Custom([0x80; 18]));
@@ -216,12 +216,12 @@ fn custom_then_original_round_trip_is_bit_identical() {
     let song = sustained_tone();
 
     // A never-touched engine is the reference.
-    let mut reference = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut reference = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     let expected = render(&mut reference, 8192);
 
     // Engage Custom, render some panned audio, then return to Original and rewind:
     // the disengaged render must match the reference sample for sample.
-    let mut engine = PlayerEngine::new(&song, NATIVE_SAMPLE_RATE);
+    let mut engine = DroEngine::new(&song, NATIVE_SAMPLE_RATE);
     engine.set_panning(Panning::Custom([0x12; 18]));
     render(&mut engine, 4096);
     engine.set_panning(Panning::Original);

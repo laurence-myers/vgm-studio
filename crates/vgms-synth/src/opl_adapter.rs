@@ -2,7 +2,7 @@
 //! [`OplChip`] → [`ChipCore`] adapter (Stage K / ou-1).
 //!
 //! The two engines were deliberately separate — `VgmEngine` pulls samples from a
-//! [`ChipCore`], `PlayerEngine` drives an [`OplChip`] through its own muting,
+//! [`ChipCore`], `DroEngine` drives an [`OplChip`] through its own muting,
 //! panning and buffered-write policy — so an OPL VGM through `VgmEngine` rendered
 //! silence (there was no OPL `ChipCore` to host). This adapter closes that gap:
 //! it presents an `OplChip` as a `ChipCore`, so the generic engine can play the
@@ -22,7 +22,7 @@
 //! ## Writes
 //!
 //! A live write takes the [buffered path](OplChip::write_reg_buffered) — the
-//! same one `PlayerEngine` uses for live playback — so a back-to-back key
+//! same one `DroEngine` uses for live playback — so a back-to-back key
 //! off/on with no samples between still retriggers the note, matching real
 //! hardware. A seek's bulk replay takes the immediate path
 //! ([`replay_write`](ChipCore::replay_write)) instead: only the final register
@@ -36,7 +36,7 @@
 //! gate-covered, non-native-mute core in a `GatedCore` that filters the writes.
 //! So the adapter itself keeps the trait's no-op mute.
 //!
-//! Per-channel panning is the OPL stereo-ext register policy `PlayerEngine`
+//! Per-channel panning is the OPL stereo-ext register policy `DroEngine`
 //! owns, ported here behind [`set_channel_pans`](ChipCore::set_channel_pans):
 //! engaging it forces `0x105`'s stereo-ext bit on (shadowing the song's `newm`
 //! bit), writes the panpots (`0x0D0`-`0x0D8` low bank, `0x1D0`-`0x1D8` high), and
@@ -46,7 +46,7 @@
 //! "return to the song's own stereo" call (a channel is a position, not a mode),
 //! so once engaged the adapter stays engaged until [`reset`](ChipCore::reset);
 //! disengaging mid-playback (the OPL panel's Original-vs-Custom that
-//! `PlayerEngine` resyncs through a `0xC0` shadow) is left to ou-2, when OPL
+//! `DroEngine` resyncs through a `0xC0` shadow) is left to ou-2, when OPL
 //! documents route here and that vocabulary arrives.
 
 use crate::NATIVE_SAMPLE_RATE;
@@ -62,7 +62,7 @@ pub struct OplCoreAdapter {
     scratch: Vec<i16>,
     /// Custom per-channel panning is engaged (the stereo-ext panpots). While it
     /// is, the song's own `0xD0`-`0xD8` writes are suppressed and the enable bit
-    /// forced on -- the same register policy `PlayerEngine` owns.
+    /// forced on -- the same register policy `DroEngine` owns.
     panned: bool,
     /// The song's OPL3 `newm` bit (`0x105` bit 0), shadowed so forcing the
     /// stereo-ext enable (bit 1) never disturbs OPL3 mode.
@@ -153,7 +153,7 @@ impl ChipCore for OplCoreAdapter {
         // The OPL resamples to the rate it is reset at; the engine's Voice
         // resampler does the output conversion, so reset at the native rate. The
         // header clock is not used -- Nuked assumes the standard YMF262 clock,
-        // exactly as `PlayerEngine` does.
+        // exactly as `DroEngine` does.
         self.opl.reset(NATIVE_SAMPLE_RATE);
         // A fresh chip is un-panned; the engine restates the pans afterward (its
         // `apply_mix`), so a loop's rewind keeps custom panning.

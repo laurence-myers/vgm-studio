@@ -500,7 +500,7 @@ fn the_volume_ceiling_ratchets_down_to_the_lowest_clipping_level() {
 #[test]
 fn match_volume_measures_the_peak_and_sets_the_volume() {
     // An inline task service runs the scan synchronously, so the whole chain --
-    // button -> VolumeScan task -> measure_peak -> set volume -> persist -- runs
+    // button -> VolumeScan task -> measure_dro_peak -> set volume -> persist -- runs
     // for real on the song.
     let song = tone_song();
     // build(initial, inline_tasks, wgpu): inline runs the scan synchronously.
@@ -536,7 +536,7 @@ fn match_volume_measures_the_peak_and_sets_the_volume() {
     // Recompute the scan's peak here to pin the exact ladder volume the app must
     // have chosen and persisted.
     let rate = harness.state().config.audio.frequency;
-    let peak = vgms_synth::measure_peak(&song, rate);
+    let peak = vgms_synth::measure_dro_peak(&song, rate);
     let expected = vgms_core::volume_modifier_factor(vgms_core::nearest_volume_modifier(
         vgms_core::boost_for_peak(peak.max_level),
     ));

@@ -71,7 +71,7 @@ pub fn run(args: &Args) -> Result<()> {
     let choices = crate::cli::core_choices(&args.core);
     let wav = vgms_synth::with_render_choices(Some(choices), || -> Result<Vec<u8>> {
         Ok(match song {
-            LoadedSong::Dro(song) => vgms_synth::render_wav_boosted_with_progress(
+            LoadedSong::Dro(song) => vgms_synth::render_dro_wav_boosted_with_progress(
                 &song,
                 freq,
                 config.audio.bit_depth,

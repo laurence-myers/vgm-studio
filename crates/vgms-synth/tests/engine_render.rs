@@ -1,4 +1,4 @@
-//! End-to-end: the real `PlayerEngine` driving the real `NukedOpl3` over the real
+//! End-to-end: the real `DroEngine` driving the real `NukedOpl3` over the real
 //! DRO fixture, checked to render exactly what a straightforward reference loop
 //! does -- so its delay accounting and mid-buffer pausing are correct on real data.
 // This file drives an OPL core; a `--no-default-features` build has none by
@@ -11,7 +11,7 @@ use common::{Op, render_buffered};
 use vgms_core::io::read_song;
 use vgms_core::{DroSong, Instruction};
 use vgms_synth::{
-    NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, PlayerEngine, render_wav, render_waveform,
+    DroEngine, NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, render_dro_wav, render_dro_waveform,
 };
 
 const DRO_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
@@ -22,7 +22,7 @@ fn fixture_song() -> DroSong {
 
 /// Renders a song to the end through the engine, collecting the PCM.
 fn engine_pcm(song: &DroSong, sample_rate: u32, chunk_frames: usize) -> Vec<i16> {
-    let mut engine = PlayerEngine::new(song, sample_rate);
+    let mut engine = DroEngine::new(song, sample_rate);
     let mut out = vec![0i16; chunk_frames * 2];
     let mut pcm = Vec::new();
     loop {
@@ -95,7 +95,7 @@ fn engine_output_is_chunk_invariant_on_real_data() {
 #[test]
 fn wav_export_of_the_fixture_is_the_right_length_and_audible() {
     let song = fixture_song();
-    let bytes = render_wav(&song, 48_000, 16).unwrap();
+    let bytes = render_dro_wav(&song, 48_000, 16).unwrap();
     let reader = hound::WavReader::new(std::io::Cursor::new(&bytes)).unwrap();
     let spec = reader.spec();
     assert_eq!(spec.channels, 2);
@@ -113,7 +113,7 @@ fn wav_export_of_the_fixture_is_the_right_length_and_audible() {
 #[test]
 fn waveform_of_the_fixture_is_shaped() {
     let song = fixture_song();
-    let buckets = render_waveform(&song, 200, 48_000);
+    let buckets = render_dro_waveform(&song, 200, 48_000);
     assert_eq!(buckets.len(), 200);
     let peak = buckets.iter().map(|b| b.max).max().unwrap();
     let trough = buckets.iter().map(|b| b.min).min().unwrap();

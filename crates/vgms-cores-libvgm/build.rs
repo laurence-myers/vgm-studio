@@ -353,7 +353,7 @@ const DEVICES: &[Device] = &[
 /// Still absent, deliberately:
 ///
 /// - **The OPL family as chips of their own** (`YM3812`, `YM3526`, `Y8950`) --
-///   out of scope by the owner's decision: OPL plays through `PlayerEngine`.
+///   out of scope by the owner's decision: OPL plays through `DroEngine`.
 ///   `YMF262` is compiled only as the OPL4's linked FM half; no OPL chip is
 ///   registered from this crate.
 /// - **C219** rides the `C140` spec: the header's type byte picks the device

@@ -54,7 +54,7 @@ impl OplChip for CqmOpl3 {
     }
 
     /// Same write-buffer semantics as Nuked-OPL3, so it drops into
-    /// `PlayerEngine` unchanged.
+    /// `DroEngine` unchanged.
     ///
     /// Both cores resolve key-on/off edges at sample-generation time, so two
     /// writes with no samples between them collapse and a fast retrigger is
@@ -119,7 +119,7 @@ mod tests {
         );
     }
 
-    /// The property `PlayerEngine`'s buffered path depends on, checked because
+    /// The property `DroEngine`'s buffered path depends on, checked because
     /// the engine's write spacing was written for Nuked-OPL3 and this is a
     /// different chip behind the same registers.
     ///

@@ -1,7 +1,7 @@
 //! Turning a measured peak into a suggested loudness.
 //!
 //! Two pure, dependency-free helpers translate the peak level a render reached
-//! (see `vgms_synth::measure_peak`) into the two loudness levers this app
+//! (see `vgms_synth::measure_dro_peak`) into the two loudness levers this app
 //! exposes:
 //!
 //! - [`suggest_volume_modifier`] -- the VGM header `Volume Modifier` byte

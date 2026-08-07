@@ -20,7 +20,7 @@
 use egui::{Color32, Sense};
 use vgms_core::DroSong;
 use vgms_core::config::ThemeChoice;
-use vgms_synth::render_waveform;
+use vgms_synth::render_dro_waveform;
 
 use crate::dialogs::GotoDialog;
 use crate::editor::Editor;
@@ -60,7 +60,7 @@ impl ShowcaseState {
         let song = tone_song();
         // Same integer DSP the app renders through, so the wave is bit-faithful
         // to a real render (and stable across platforms, unlike an f32 synthetic).
-        let buckets = render_waveform(&song, NUM_BUCKETS, FREQUENCY);
+        let buckets = render_dro_waveform(&song, NUM_BUCKETS, FREQUENCY);
 
         let mut editor = Editor::new();
         editor.load(picked(&song)).expect("the tone fixture parses");
