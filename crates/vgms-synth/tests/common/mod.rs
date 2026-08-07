@@ -2,7 +2,7 @@
 
 #![allow(dead_code)] // Each integration test uses a different subset.
 
-use vgms_core::{DroDataV2, Instruction, SongData};
+use vgms_core::{DroDataV2, DroSongData, Instruction};
 use vgms_synth::{FrameClock, OplChip};
 
 /// The committed `tests/lsl3_score_up_dro2.dro` fixture.
@@ -57,7 +57,7 @@ pub(crate) fn decode_fixture() -> Vec<Op> {
     assert_eq!(length_ms, FIXTURE_MS);
     assert_eq!(length_pairs, 299);
 
-    let data = SongData::V2(
+    let data = DroSongData::V2(
         DroDataV2::new(data, codemap, short_delay_code, long_delay_code)
             .expect("the fixture is a valid DRO v2 file"),
     );

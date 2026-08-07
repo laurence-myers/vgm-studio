@@ -124,7 +124,7 @@ impl VgmStudioApp {
                 chips,
             })
         } else {
-            let song = self.editor.song()?;
+            let song = self.editor.dro_song()?;
             Some(crate::dialogs::SongContext {
                 name: song.name.clone(),
                 chips: vec![vgms_core::vgm::ChipKind::Ymf262],

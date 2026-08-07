@@ -4,7 +4,7 @@ impl VgmStudioApp {
     /// Gates an action on a loaded song, setting a status message asking the
     /// user to open a file when none is loaded.
     pub(super) fn require_song(&mut self) -> bool {
-        if self.editor.has_song() {
+        if self.editor.has_dro() {
             true
         } else {
             // The features still behind this gate are genuinely OPL-only: DRO
@@ -27,7 +27,7 @@ impl VgmStudioApp {
     pub(super) fn output_renders_samples(&self) -> bool {
         // "Not an OPL document" is the always-metered case: a non-OPL VGM never
         // reaches the board. An OPL VGM *can* (RetroWave), so it defers to the
-        // config -- hence is_opl(), not has_song() (which is a DRO alone now).
+        // config -- hence is_opl(), not has_dro() (which is a DRO alone now).
         self.config.audio.renders_samples() || !self.editor.is_opl()
     }
 

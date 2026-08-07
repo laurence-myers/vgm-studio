@@ -1,7 +1,7 @@
 //! A marked-out range of instructions: the loop region today, and whatever a
 //! crop/trim comes to need tomorrow.
 //!
-//! Deliberately *not* stored in the `Song`. Dropping a marker is a view onto the
+//! Deliberately *not* stored in the `DroSong`. Dropping a marker is a view onto the
 //! song, not an edit of it -- writing it into the file is the explicit
 //! apply-to-metadata step -- so this lives beside [`Selection`](crate::selection)
 //! in the editor, tracked through edits the same way.
@@ -12,7 +12,7 @@
 //! `start < end <= len` holds for every operation below (bar the degenerate empty
 //! song, where everything collapses to `0..0`).
 
-use vgms_core::{Song, slide_index_past_deletion};
+use vgms_core::{DroSong, slide_index_past_deletion};
 
 /// A half-open instruction range, `start..end`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -34,7 +34,7 @@ impl RangeMarkers {
     /// also the region "play looped" would repeat, so the default needs no
     /// special-casing downstream.
     #[must_use]
-    pub fn from_song(song: &Song) -> Self {
+    pub fn from_song(song: &DroSong) -> Self {
         // A DRO stores no loop, so it opens marked end to end.
         Self::full(song.len())
     }

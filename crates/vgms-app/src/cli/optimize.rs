@@ -182,7 +182,7 @@ mod tests {
     use super::*;
     use vgms_core::io::write_song;
     use vgms_core::vgm::io::synthesise_header;
-    use vgms_core::{DroDataV1, OplType, Song};
+    use vgms_core::{DroDataV1, DroSong, OplType};
 
     /// A distinct temp path per test, namespaced by the process so parallel runs
     /// of the binary cannot collide.
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn refuses_a_dro() {
         let input = temp_path("in.dro");
-        let dro = Song::dro_v1(
+        let dro = DroSong::dro_v1(
             "x.dro".to_owned(),
             DroDataV1::new(vec![0x20, 0x01]).unwrap(),
             0,

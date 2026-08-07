@@ -29,7 +29,7 @@
 
 use std::collections::HashMap;
 
-use crate::Song;
+use crate::DroSong;
 use crate::song::{Bank, Instruction};
 
 /// FNV-64's prime, used as the rolling hash base. Any odd base gives a
@@ -116,7 +116,7 @@ fn normalize(instruction: Instruction) -> Option<u32> {
 /// reports only the *start* of each maximal matching run, so a body that repeats
 /// does not surface as one candidate per offset within it.
 pub fn find_loops(
-    song: &Song,
+    song: &DroSong,
     min_len_commands: usize,
     emit: &mut dyn FnMut(Candidate),
     is_cancelled: &dyn Fn() -> bool,
@@ -283,7 +283,7 @@ pub fn rank(candidates: &mut [Candidate]) {
 /// results. The convenient entry point for tests and one-shot searches; the UI
 /// uses [`find_loops`] directly so it can stream and cancel.
 #[must_use]
-pub fn find_loops_ranked(song: &Song, min_len_commands: usize) -> Vec<Candidate> {
+pub fn find_loops_ranked(song: &DroSong, min_len_commands: usize) -> Vec<Candidate> {
     let mut candidates = Vec::new();
     find_loops(
         song,
@@ -314,9 +314,9 @@ mod tests {
         [0x01, word as u8, (word >> 8) as u8]
     }
 
-    fn dro_song(stream: Vec<u8>) -> Song {
+    fn dro_song(stream: Vec<u8>) -> DroSong {
         let data = DroDataV1::new(stream).expect("valid DRO v1 stream");
-        Song::dro_v1("loop.dro".to_owned(), data, 0, OplType::Opl2)
+        DroSong::dro_v1("loop.dro".to_owned(), data, 0, OplType::Opl2)
     }
 
     /// Four distinct register writes with delays between them: one loop body.

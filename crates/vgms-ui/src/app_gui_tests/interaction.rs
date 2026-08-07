@@ -10,7 +10,7 @@ fn starts_with_placeholder() {
         harness.query_by_label_contains("Open a DRO").is_some(),
         "the empty-state placeholder should be shown"
     );
-    assert!(!harness.state().editor.has_song());
+    assert!(!harness.state().editor.has_dro());
     assert_eq!(handles.audio.borrow().load_count, 0);
     assert!(handles.tasks.borrow().submitted.is_empty());
 }

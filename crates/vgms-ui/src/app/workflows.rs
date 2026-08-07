@@ -46,7 +46,7 @@ impl VgmStudioApp {
                 // there is no core for is not a broken file -- it opens for
                 // trimming, with the panels that need an OPL stream gone -- so
                 // the difference is which of these two runs, not an error.
-                match self.editor.song() {
+                match self.editor.dro_song() {
                     Some(song) => {
                         // A fresh song starts with every channel audible and
                         // panning reset to Original (pans seeded from the song

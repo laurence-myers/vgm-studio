@@ -342,7 +342,7 @@ impl DroDataV2 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::song::SongData;
+    use crate::song::DroSongData;
     use crate::song::fixtures::{dro_data_v1 as v1_fixture, dro_data_v2 as v2_fixture};
 
     #[test]
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn v2_iter_yields_every_instruction() {
-        let data = SongData::V2(v2_fixture());
+        let data = DroSongData::V2(v2_fixture());
         let instructions: Vec<_> = data.iter().collect();
         assert_eq!(instructions.len(), 14);
         assert_eq!(instructions[0], data.get(0).unwrap());
@@ -569,7 +569,7 @@ mod tests {
 
     /// The reference implementation: delete one index at a time, back to front.
     /// Whatever the fast path does, it must agree with this.
-    fn naive_delete(data: &SongData, indices: &[usize]) -> Vec<u8> {
+    fn naive_delete(data: &DroSongData, indices: &[usize]) -> Vec<u8> {
         let mut sorted: Vec<usize> = indices
             .iter()
             .copied()
@@ -581,8 +581,10 @@ mod tests {
         let mut raw = data.raw().to_vec();
         for &index in sorted.iter().rev() {
             let span = match data {
-                SongData::V1(v1) => v1.byte_offset(index)..v1.byte_offset(index + 1),
-                SongData::V2(_) => DroDataV2::byte_offset(index)..DroDataV2::byte_offset(index + 1),
+                DroSongData::V1(v1) => v1.byte_offset(index)..v1.byte_offset(index + 1),
+                DroSongData::V2(_) => {
+                    DroDataV2::byte_offset(index)..DroDataV2::byte_offset(index + 1)
+                }
             };
             raw.drain(span);
         }
@@ -591,7 +593,7 @@ mod tests {
 
     #[test]
     fn v2_delete_single() {
-        let mut data = SongData::V2(v2_fixture());
+        let mut data = DroSongData::V2(v2_fixture());
         data.delete_many(&[0]);
         assert_eq!(data.len(), 13);
         assert_eq!(data.raw_len(), 26);
@@ -600,7 +602,7 @@ mod tests {
 
     #[test]
     fn v2_delete_contiguous_range() {
-        let mut data = SongData::V2(v2_fixture());
+        let mut data = DroSongData::V2(v2_fixture());
         data.delete_many(&[0]);
         // Deleting [1, 2] removes logical indices 1 AND 2.
         data.delete_many(&[1, 2]);
@@ -625,7 +627,7 @@ mod tests {
             &[5, 99],      // partially out of range
         ];
         for selection in selections {
-            let v2 = SongData::V2(v2_fixture());
+            let v2 = DroSongData::V2(v2_fixture());
             let expected = naive_delete(&v2, selection);
             let mut actual = v2.clone();
             actual.delete_many(selection);
@@ -637,7 +639,7 @@ mod tests {
 
             // Out-of-range indices are ignored on both sides, so the same
             // selections exercise the shorter v1 fixture too.
-            let v1 = SongData::V1(v1_fixture());
+            let v1 = DroSongData::V1(v1_fixture());
             let expected = naive_delete(&v1, selection);
             let mut actual = v1.clone();
             actual.delete_many(selection);
@@ -651,9 +653,9 @@ mod tests {
 
     #[test]
     fn v1_delete_rebuilds_the_index_map() {
-        let mut data = SongData::V1(v1_fixture());
+        let mut data = DroSongData::V1(v1_fixture());
         data.delete_many(&[1, 2]); // the short and long delays
-        let SongData::V1(v1) = &data else {
+        let DroSongData::V1(v1) = &data else {
             unreachable!()
         };
         assert_eq!(v1.index_map, vec![0, 2, 3, 4, 7]);
@@ -671,7 +673,7 @@ mod tests {
 
     #[test]
     fn delete_all_leaves_nothing() {
-        for mut data in [SongData::V2(v2_fixture()), SongData::V1(v1_fixture())] {
+        for mut data in [DroSongData::V2(v2_fixture()), DroSongData::V1(v1_fixture())] {
             let all: Vec<usize> = (0..data.len()).collect();
             data.delete_many(&all);
             assert_eq!(data.len(), 0);
@@ -682,7 +684,7 @@ mod tests {
 
     // -- insertion (undo) --------------------------------------------------
 
-    fn capture(data: &SongData, indices: &[usize]) -> Vec<InsertEntry> {
+    fn capture(data: &DroSongData, indices: &[usize]) -> Vec<InsertEntry> {
         let mut sorted = indices.to_vec();
         sorted.sort_unstable();
         sorted.dedup();
@@ -708,14 +710,14 @@ mod tests {
             &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
         ];
         for selection in selections {
-            let original = SongData::V2(v2_fixture());
+            let original = DroSongData::V2(v2_fixture());
             let entries = capture(&original, selection);
             let mut data = original.clone();
             data.delete_many(selection);
             data.insert_many(&entries);
             assert_eq!(data, original, "v2 selection {selection:?}");
 
-            let original = SongData::V1(v1_fixture());
+            let original = DroSongData::V1(v1_fixture());
             let selection: Vec<usize> = selection.iter().copied().filter(|&i| i < 7).collect();
             let entries = capture(&original, &selection);
             let mut data = original.clone();
@@ -727,7 +729,7 @@ mod tests {
 
     #[test]
     fn insert_many_is_a_no_op_for_no_entries() {
-        let mut data = SongData::V2(v2_fixture());
+        let mut data = DroSongData::V2(v2_fixture());
         let before = data.clone();
         data.insert_many(&[]);
         assert_eq!(data, before);
@@ -737,7 +739,7 @@ mod tests {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod proptests {
     use super::*;
-    use crate::song::SongData;
+    use crate::song::DroSongData;
     use crate::song::fixtures::{dro_data_v1 as v1_fixture, dro_data_v2 as v2_fixture};
     use proptest::prelude::*;
 
@@ -750,7 +752,7 @@ mod proptests {
         /// selection -- fragmented, duplicated, or in any order.
         #[test]
         fn v2_delete_then_insert_restores_the_original(selection in arbitrary_selection(14)) {
-            let original = SongData::V2(v2_fixture());
+            let original = DroSongData::V2(v2_fixture());
             let mut sorted = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
@@ -769,7 +771,7 @@ mod proptests {
 
         #[test]
         fn v1_delete_then_insert_restores_the_original(selection in arbitrary_selection(7)) {
-            let original = SongData::V1(v1_fixture());
+            let original = DroSongData::V1(v1_fixture());
             let mut sorted = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
@@ -790,13 +792,13 @@ mod proptests {
         /// index at a time, back to front.
         #[test]
         fn v1_single_pass_delete_matches_a_naive_reference(selection in arbitrary_selection(7)) {
-            let original = SongData::V1(v1_fixture());
+            let original = DroSongData::V1(v1_fixture());
 
             let mut sorted: Vec<usize> = selection.clone();
             sorted.sort_unstable();
             sorted.dedup();
             let mut expected = original.raw().to_vec();
-            let SongData::V1(v1) = &original else { unreachable!() };
+            let DroSongData::V1(v1) = &original else { unreachable!() };
             for &index in sorted.iter().rev() {
                 expected.drain(v1.byte_offset(index)..v1.byte_offset(index + 1));
             }

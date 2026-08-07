@@ -16,7 +16,7 @@ use egui::{Key, Modifiers};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT as _, Queryable as _};
 
-use vgms_core::Song;
+use vgms_core::DroSong;
 use vgms_core::config::{AppConfig, ThemeChoice};
 use vgms_synth::LoopCount;
 
@@ -50,7 +50,7 @@ struct Handles {
 
 /// Serialise a fixture song back to bytes and wrap it as a picked file, exactly
 /// as the editor's own unit tests do. The path gives Save somewhere to land.
-fn picked(song: &Song) -> PickedFile {
+fn picked(song: &DroSong) -> PickedFile {
     PickedFile {
         name: song.name.clone(),
         path: Some(PathBuf::from(format!("C:/songs/{}", song.name))),
@@ -144,7 +144,7 @@ fn empty_harness() -> (Harness<'static, VgmStudioApp>, Handles) {
 }
 
 /// Interaction harness with `song` already loaded (via the first-frame open).
-fn harness_with_song(song: &Song) -> (Harness<'static, VgmStudioApp>, Handles) {
+fn harness_with_song(song: &DroSong) -> (Harness<'static, VgmStudioApp>, Handles) {
     build(Some(picked(song)), false, false)
 }
 

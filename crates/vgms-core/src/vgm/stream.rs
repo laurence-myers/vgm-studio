@@ -599,7 +599,7 @@ pub struct VgmStream {
     version: u32,
     /// Cumulative delay in samples: entry `i` is the samples waited before
     /// command `i`, and the last entry (index `len`) is the stream's total.
-    /// The counterpart of `Song::delay_prefix`, and what makes the timeline
+    /// The counterpart of `DroSong::delay_prefix`, and what makes the timeline
     /// questions -- "when does row N play", "what plays at 40%" -- O(log n)
     /// instead of a stream walk. Rebuilt with the index on every splice.
     wait_prefix: Vec<u64>,
@@ -788,7 +788,7 @@ impl VgmStream {
     /// delay, stopping on that delay rather than overshooting; a target on a
     /// boundary lands on the first command at that time. May return `len()`,
     /// meaning "past the last command". The same rule as
-    /// [`Song::seek_index_for_ms`](crate::Song::seek_index_for_ms), so the two
+    /// [`DroSong::seek_index_for_ms`](crate::DroSong::seek_index_for_ms), so the two
     /// engines agree about what seeking means.
     #[must_use]
     pub fn seek_index_for_samples(&self, target: u64) -> usize {
@@ -808,7 +808,7 @@ impl VgmStream {
     /// The returned samples always equal `samples_before(index)`, so selecting
     /// the row and seeking to it agree. `None` for an empty stream or a
     /// non-finite percentage. The counterpart of
-    /// [`Song::index_and_ms_offset_at_pct`](crate::Song::index_and_ms_offset_at_pct),
+    /// [`DroSong::index_and_ms_offset_at_pct`](crate::DroSong::index_and_ms_offset_at_pct),
     /// with the same boundary rules.
     #[must_use]
     pub fn index_at_pct(&self, position_pct: f64) -> Option<(usize, u64)> {
@@ -871,7 +871,7 @@ impl VgmStream {
     /// The next command matching `target`, strictly after (or before) `start`.
     ///
     /// The multichip counterpart of
-    /// [`Song::find_next_instruction`](crate::Song::find_next_instruction),
+    /// [`DroSong::find_next_instruction`](crate::DroSong::find_next_instruction),
     /// with the same "strictly after / strictly before" boundary so repeated
     /// Find Next walks the stream without sticking.
     #[must_use]
@@ -1452,7 +1452,7 @@ mod tests {
         VgmStream::parse(bytes, 0x151).unwrap()
     }
 
-    /// The seek rule `Song` established: a target inside a delay stops *on*
+    /// The seek rule `DroSong` established: a target inside a delay stops *on*
     /// that delay, a boundary target lands on the first command at that time.
     #[test]
     fn seeking_by_samples_stops_on_the_delay() {

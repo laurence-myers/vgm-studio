@@ -24,7 +24,7 @@
 //! behind [`slide_index_past_deletion`](crate::slide_index_past_deletion) cannot
 //! express. [`ReplaceStream`](crate::undo::ReplaceStream) makes that undoable.
 
-use crate::song::{DroDataV1, DroDataV2, Song, SongData, StreamSnapshot};
+use crate::song::{DroDataV1, DroDataV2, DroSong, DroSongData, StreamSnapshot};
 use crate::state_patch::{StateFold, append_patch};
 
 /// A rebuilt stream and everything derived from it, ready to install.
@@ -34,7 +34,7 @@ use crate::state_patch::{StateFold, append_patch};
 #[derive(Debug, Clone)]
 pub struct CropOutcome {
     /// The rebuilt stream, in the same encoding as the source's.
-    pub data: SongData,
+    pub data: DroSongData,
     /// The summed delay of what was kept: the DRO header field.
     pub ms_length: u32,
     /// How many instructions the state patch contributed -- the register writes
@@ -59,7 +59,7 @@ impl CropOutcome {
     }
 
     /// Installs this outcome into `song`, which must be the song it came from.
-    pub fn install(self, song: &mut Song) {
+    pub fn install(self, song: &mut DroSong) {
         song.replace_data(self.into());
     }
 }
@@ -79,7 +79,7 @@ impl From<CropOutcome> for StreamSnapshot {
 /// Returns `None` when there is nothing to do: an empty or inverted range, one
 /// reaching past the end of the song, or one that already covers all of it.
 #[must_use]
-pub fn crop_to_region(song: &Song, start: usize, end: usize) -> Option<CropOutcome> {
+pub fn crop_to_region(song: &DroSong, start: usize, end: usize) -> Option<CropOutcome> {
     let len = song.len();
     if start >= end || end > len || (start == 0 && end == len) {
         return None;
@@ -111,7 +111,7 @@ pub fn crop_to_region(song: &Song, start: usize, end: usize) -> Option<CropOutco
 /// -- an empty song is not a useful thing to arrive at, and the same guard on
 /// [`crop_to_region`] declines the mirror-image no-op.
 #[must_use]
-pub fn delete_region(song: &Song, start: usize, end: usize) -> Option<CropOutcome> {
+pub fn delete_region(song: &DroSong, start: usize, end: usize) -> Option<CropOutcome> {
     let len = song.len();
     if start >= end || end > len || (start == 0 && end == len) {
         return None;
@@ -141,7 +141,7 @@ pub fn delete_region(song: &Song, start: usize, end: usize) -> Option<CropOutcom
 }
 
 /// Appends `song`'s instructions `[from, to)`, byte for byte from its stream.
-fn append_range(bytes: &mut Vec<u8>, song: &Song, from: usize, to: usize) {
+fn append_range(bytes: &mut Vec<u8>, song: &DroSong, from: usize, to: usize) {
     for index in from..to {
         bytes.extend_from_slice(
             song.data()
@@ -152,7 +152,7 @@ fn append_range(bytes: &mut Vec<u8>, song: &Song, from: usize, to: usize) {
 }
 
 /// The summed delay of instructions `[from, to)`, in milliseconds.
-fn span_ms(song: &Song, from: usize, to: usize) -> u32 {
+fn span_ms(song: &DroSong, from: usize, to: usize) -> u32 {
     let at = |index: usize| {
         song.ms_offset_at(index)
             .unwrap_or_else(|| song.total_delay_ms())
@@ -164,12 +164,12 @@ fn span_ms(song: &Song, from: usize, to: usize) -> u32 {
 ///
 /// Every byte came from that stream (or, for a v1 bank switch, is a fixed opcode),
 /// so each constructor is being handed instructions it already knows how to index.
-fn rebuild(song: &Song, bytes: Vec<u8>) -> SongData {
+fn rebuild(song: &DroSong, bytes: Vec<u8>) -> DroSongData {
     match song.data() {
-        SongData::V1(_) => SongData::V1(
+        DroSongData::V1(_) => DroSongData::V1(
             DroDataV1::new(bytes).expect("the bytes are whole instructions from a v1 stream"),
         ),
-        SongData::V2(source) => SongData::V2(
+        DroSongData::V2(source) => DroSongData::V2(
             DroDataV2::new(
                 bytes,
                 source.codemap().to_vec(),
@@ -187,7 +187,7 @@ mod tests {
     use crate::song::Bank;
     use crate::state_patch::{state_after_writes, state_over};
 
-    fn apply(song: &Song, outcome: Option<CropOutcome>) -> (Song, usize) {
+    fn apply(song: &DroSong, outcome: Option<CropOutcome>) -> (DroSong, usize) {
         let outcome = outcome.expect("the edit was expected to do something");
         let patch_len = outcome.patch_len;
         let mut edited = song.clone();
@@ -195,17 +195,17 @@ mod tests {
         (edited, patch_len)
     }
 
-    fn cropped(song: &Song, start: usize, end: usize) -> (Song, usize) {
+    fn cropped(song: &DroSong, start: usize, end: usize) -> (DroSong, usize) {
         apply(song, crop_to_region(song, start, end))
     }
 
-    fn deleted(song: &Song, start: usize, end: usize) -> (Song, usize) {
+    fn deleted(song: &DroSong, start: usize, end: usize) -> (DroSong, usize) {
         apply(song, delete_region(song, start, end))
     }
 
     /// Through the writer and back, so every assertion also proves the rebuilt
     /// stream is a file the reader accepts and decodes to the same instructions.
-    fn round_trip(song: &Song) -> Song {
+    fn round_trip(song: &DroSong) -> DroSong {
         let bytes = write_song(song).expect("an edited song writes");
         read_song(&song.name, &bytes).expect("and reads back")
     }

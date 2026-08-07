@@ -40,7 +40,7 @@ pub use loopfind::{Candidate, find_loops, find_loops_ranked, rank};
 pub use opl_state::OplState;
 pub use pack::{PackMeta, TrackEntry};
 pub use song::{
-    Bank, DelayKind, DroDataV1, DroDataV2, FindTarget, Instruction, OplType, Song, SongData,
+    Bank, DelayKind, DroDataV1, DroDataV2, DroSong, DroSongData, FindTarget, Instruction, OplType,
     SongFileType, StreamSnapshot, slide_index_past_deletion,
 };
 pub use split_songs::{Segment, detect_segments};

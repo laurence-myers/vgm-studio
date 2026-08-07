@@ -15,12 +15,12 @@ const RATE: u32 = vgms_synth::NATIVE_SAMPLE_RATE;
 /// A real single-chip OPL capture as a DRO song -- what the WAV render renders
 /// for an OPL document through `PlayerEngine` (the per-render core override the
 /// rc-1 feature scopes applies on this path).
-fn opl_song() -> vgms_core::Song {
+fn opl_song() -> vgms_core::DroSong {
     let bytes = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
     vgms_core::io::read_song("lsl3_score_up_dro2.dro", bytes).expect("the DRO reads")
 }
 
-fn render(song: &vgms_core::Song, choices: Option<CoreChoices>) -> Vec<u8> {
+fn render(song: &vgms_core::DroSong, choices: Option<CoreChoices>) -> Vec<u8> {
     with_render_choices(choices, || {
         vgms_synth::render_wav(song, RATE, 16).expect("the render succeeds")
     })

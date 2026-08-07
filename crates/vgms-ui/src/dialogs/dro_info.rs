@@ -5,7 +5,7 @@
 //! the undoable [`EditAction::UpdateHeader`] and the dialog stays open in edit mode
 //! afterwards.
 
-use vgms_core::{OplType, Song};
+use vgms_core::{DroSong, OplType};
 
 use crate::action::{Action, EditAction, UiAction};
 use crate::theme::{Palette, bevel};
@@ -27,7 +27,7 @@ pub struct DroInfoDialog {
 
 impl DroInfoDialog {
     #[must_use]
-    pub fn new(song: &Song, edit_allowed: bool) -> Self {
+    pub fn new(song: &DroSong, edit_allowed: bool) -> Self {
         Self {
             file_version: song.file_version,
             opl_type: song.opl_type,

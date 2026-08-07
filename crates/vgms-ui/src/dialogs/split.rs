@@ -17,7 +17,7 @@ const MAX_BOOST: f32 = 16.0;
 #[derive(Debug)]
 pub struct SplitDialog {
     format: SplitFormat,
-    /// Whether the Song format is offered: an OPL document always is (its
+    /// Whether the DroSong format is offered: an OPL document always is (its
     /// projection splits to a per-channel VGM), and a generic VGM is when at
     /// least one of its chips has a write-gate table (see [`ChannelGate::exists`]).
     /// When false, the split is WAV-only and the format radio is replaced by a
@@ -57,7 +57,7 @@ impl Default for SplitDialog {
 
 impl SplitDialog {
     /// The dialog for the loaded document. `is_opl` marks an OPL document, which
-    /// is always Song-capable; the Song format is otherwise offered for a VGM
+    /// is always DroSong-capable; the DroSong format is otherwise offered for a VGM
     /// whose chips a write-gate covers. `current_boost` seeds the boost field from
     /// live playback. `chips` are the document's chip slots and `settings_cores`
     /// the current Settings core map; together they seed the per-render core
@@ -93,7 +93,7 @@ impl SplitDialog {
             "Split Channels",
             palette,
             |ui| {
-                // The format radio is offered when a Song split is possible (an
+                // The format radio is offered when a DroSong split is possible (an
                 // OPL document, or a VGM with a gate-covered chip); otherwise the
                 // split is WAV-only.
                 if self.song_capable {
@@ -355,7 +355,7 @@ mod tests {
         }
     }
 
-    /// An OPL document offers the Song format; so does a VGM with a gate-covered
+    /// An OPL document offers the DroSong format; so does a VGM with a gate-covered
     /// chip; a VGM with none is WAV-only.
     #[test]
     fn the_song_format_is_offered_when_a_channel_can_be_rewritten() {
@@ -380,7 +380,7 @@ mod tests {
         );
     }
 
-    /// An OPL document is always Song-capable (its projection splits to a
+    /// An OPL document is always DroSong-capable (its projection splits to a
     /// per-channel VGM); a non-OPL document with no gate-covered chip is WAV-only.
     #[test]
     fn an_opl_document_is_song_capable() {

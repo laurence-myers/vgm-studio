@@ -2,7 +2,7 @@
 //!
 //! Produces the *changed-bits* description for the instruction table -- which
 //! fields of a register a write actually altered. (The bank and ms offset an
-//! instruction needs come from elsewhere: [`Song::ms_offset_at`] and bank-switch
+//! instruction needs come from elsewhere: [`DroSong::ms_offset_at`] and bank-switch
 //! tracking.)
 //!
 //! This is a lazy replay **cursor**, not the eager list. It holds the chip's
@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
-use crate::song::{Bank, Instruction, Song};
+use crate::song::{Bank, DroSong, Instruction};
 use crate::vgm::projection::project;
 use crate::vgm::stream::VgmStream;
 
@@ -78,12 +78,12 @@ impl RegisterAnalyzer {
     /// Returns `None` iff `index` is out of range. Querying rows in ascending
     /// order (as a virtual table paints them) is `O(1)` amortised; a lower
     /// `index` than the last resets the cursor and replays from `0`.
-    pub fn row(&mut self, song: &Song, index: usize) -> Option<RowAnalysis> {
+    pub fn row(&mut self, song: &DroSong, index: usize) -> Option<RowAnalysis> {
         self.row_with(song.len(), index, |at| song.instruction(at))
     }
 
     /// [`Self::row`] for an OPL VGM, read straight from its command stream rather
-    /// than a projected [`Song`].
+    /// than a projected [`DroSong`].
     ///
     /// Each command is decoded by the same [`project`] the projection used, so a
     /// row's analysis is identical whether it is walked here or through the
@@ -132,7 +132,7 @@ impl RegisterAnalyzer {
     /// once -- tests, or a caller that prefers to precompute everything. The GUI
     /// queries `row` per visible line instead.
     #[must_use]
-    pub fn analyze_all(song: &Song) -> Vec<RowAnalysis> {
+    pub fn analyze_all(song: &DroSong) -> Vec<RowAnalysis> {
         let mut analyzer = Self::new();
         (0..song.len())
             .map(|index| {
@@ -233,7 +233,7 @@ impl fmt::Debug for RegisterAnalyzer {
 /// exists (`0x104` Four-Operator Enable, `0x105` OPL3 Mode Enable), otherwise to
 /// the shared register.
 ///
-/// This is the reverse of [`Song::instruction_description`], which resolves the
+/// This is the reverse of [`DroSong::instruction_description`], which resolves the
 /// low bank first to feed the table's "all register options" column. Here the
 /// high bank is tried first (`0x100 | reg`).
 fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
@@ -263,7 +263,7 @@ impl RegisterUsage {
     /// kept exact, not just zero/non-zero, so tests asserting a specific count
     /// still pin it.
     #[must_use]
-    pub fn analyze(song: &Song, detailed_percussion: bool) -> Self {
+    pub fn analyze(song: &DroSong, detailed_percussion: bool) -> Self {
         let mut usage = Self::default();
         let mut bank = Bank::Low;
         for instruction in song.data().iter() {
@@ -317,12 +317,12 @@ impl RegisterUsage {
 /// (`0x80`), and only the **first** write to each slot is honoured, capturing the
 /// song's initial stereo image rather than a later repan.
 #[must_use]
-pub fn initial_channel_pans(song: &Song) -> [u8; 18] {
+pub fn initial_channel_pans(song: &DroSong) -> [u8; 18] {
     channel_pans_from(song.data().iter())
 }
 
 /// [`initial_channel_pans`] for an OPL VGM, read from its command stream rather
-/// than a projected [`Song`].
+/// than a projected [`DroSong`].
 ///
 /// A command that is not an OPL instruction (a data block in an otherwise-OPL
 /// rip) carries no pan and is skipped -- the projection dropped it the same way.
@@ -374,7 +374,7 @@ mod tests {
     /// a repeat (no changes), a partial change, a high-bank `0x04` (Four-Operator
     /// Enable, *not* Timer Control), a separate low-bank `0x04` (Timer Control),
     /// an unknown register, and a delay.
-    fn synthetic_v1() -> Song {
+    fn synthetic_v1() -> DroSong {
         let data = DroDataV1::new(vec![
             0x20, 0x01, // 0: reg 0x20 = 0x01 (low)  -- first write, all fields
             0x20, 0x01, // 1: reg 0x20 = 0x01 (low)  -- no changes
@@ -388,12 +388,12 @@ mod tests {
             0x00, 0xB0, // 9: short delay, 0xB0 + 1 = 177 ms
         ])
         .expect("synthetic stream is well-formed v1");
-        Song::dro_v1("synthetic.dro".to_owned(), data, 177, OplType::Opl3)
+        DroSong::dro_v1("synthetic.dro".to_owned(), data, 177, OplType::Opl3)
     }
 
     /// An independent oracle: the same algorithm written plainly, with a
     /// `HashMap` for state, sharing no code with [`RegisterAnalyzer`].
-    fn reference_rows(song: &Song) -> Vec<(Bank, String)> {
+    fn reference_rows(song: &DroSong) -> Vec<(Bank, String)> {
         use std::collections::HashMap;
 
         let mut bank = Bank::Low;
@@ -638,7 +638,7 @@ mod tests {
     #[test]
     fn register_usage_tracks_the_bank_across_switches() {
         // reg 0x20 written twice on the low bank, once on the high bank.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "t.dro".to_owned(),
             DroDataV1::new(vec![0x20, 0x01, 0x03, 0x20, 0x02, 0x02, 0x20, 0x03]).unwrap(),
             0,
@@ -653,7 +653,7 @@ mod tests {
     #[test]
     fn detailed_percussion_records_only_set_bits() {
         // 0xBD = 0x31 = percussion mode (0x20) | BD (0x10) | HH (0x01).
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "t.dro".to_owned(),
             DroDataV1::new(vec![0xBD, 0x31]).unwrap(),
             0,
@@ -674,7 +674,7 @@ mod tests {
     fn initial_channel_pans_map_speaker_bits_and_track_the_bank() {
         // Low bank: left-only, right-only, both, neither; a repan of ch0 that must
         // be ignored (first write wins); then a high-bank ch0 right-only write.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "pans.dro".to_owned(),
             DroDataV1::new(vec![
                 0xC0, 0x10, // ch0 low: left only  -> 0x00
@@ -711,7 +711,7 @@ mod tests {
     #[test]
     fn initial_channel_pans_vgm_matches_the_projection() {
         // A DRO writing speaker bits on both banks, converted to an OPL3 VGM.
-        let dro = Song::dro_v1(
+        let dro = DroSong::dro_v1(
             "pans.dro".to_owned(),
             DroDataV1::new(vec![
                 0xC0, 0x10, // ch0 low: left only  -> 0x00
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn initial_channel_pans_default_to_centre_without_c0_writes() {
         // A song that writes no 0xC0..=0xC8 leaves every channel centred.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "nopan.dro".to_owned(),
             DroDataV1::new(vec![0x20, 0x01, 0xB0, 0x31]).unwrap(),
             0,

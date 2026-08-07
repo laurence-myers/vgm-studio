@@ -506,7 +506,7 @@ pub fn generate_description(meta: &PackMeta, tracks: &[TrackEntry]) -> String {
         lines.push(String::new());
     }
 
-    // Song list.
+    // DroSong list.
     lines.push(meta.song_list_heading.trim_end().to_owned());
     lines.push(format!("{:<width$}Length:", "Song name", width = 36));
     lines.push(format!("{:<width$}Total  Loop", "", width = 36));

@@ -95,7 +95,7 @@ const SILENCE_DIVISOR: i32 = 1000;
 ///
 /// A whole chip instance the stream never writes is skipped without work (the
 /// pre-filter). A chip that cannot be isolated in the chosen format -- a WAV core
-/// that can neither mute natively nor be gated, or a Song chip with no gate table
+/// that can neither mute natively nor be gated, or a DroSong chip with no gate table
 /// -- is skipped per instance with a warning, rather than writing N identical or
 /// impossible files. `on_skip` names every channel dropped so the CLI can report
 /// it.
@@ -132,7 +132,7 @@ pub fn split_vgm_cancellable(
         // Whether this chip's channels can be isolated in the chosen format.
         // WAV: a core that can neither mute natively nor be write-gated renders
         // the same full mix for every "solo", so N identical files -- the offline
-        // choice is what the render below resolves. Song: a rewrite needs a gate
+        // choice is what the render below resolves. DroSong: a rewrite needs a gate
         // table; native mute is a render-time trick, no help here.
         let isolable = match options.format {
             SplitFormat::Wav => {

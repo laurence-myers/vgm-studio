@@ -514,7 +514,7 @@ fn a_failed_preview_load_does_not_wedge_the_editors_audio() {
     // on an empty output (the "No song is loaded" wedge).
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
-    let editor_name = harness.state().editor.song().unwrap().name.clone();
+    let editor_name = harness.state().editor.dro_song().unwrap().name.clone();
     open_folder(&mut harness, &handles, single_track_folder());
 
     // Make the editor's audio current, as if it had just played.
@@ -552,7 +552,7 @@ fn a_failed_preview_play_reloads_the_editor_song_not_the_pack_track() {
     // had loaded.
     let song = tone_song();
     let (mut harness, handles) = harness_with_song(&song);
-    let editor_name = harness.state().editor.song().unwrap().name.clone();
+    let editor_name = harness.state().editor.dro_song().unwrap().name.clone();
     open_folder(&mut harness, &handles, single_track_folder());
 
     harness.state_mut().active_tab = AppTab::Editor;
@@ -2817,7 +2817,7 @@ fn applying_album_levels_from_the_menu_arms_the_album_latch() {
 
 #[test]
 fn in_the_editor_file_carries_the_song_commands_and_both_openers() {
-    // With a song loaded: the empty state's hint names File > Open Song... too,
+    // With a song loaded: the empty state's hint names File > Open DroSong... too,
     // and would match the menu item's query twice over.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     harness.get_by_label("File").click();

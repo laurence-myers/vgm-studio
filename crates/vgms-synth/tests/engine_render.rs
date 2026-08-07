@@ -9,19 +9,19 @@ mod common;
 
 use common::{Op, render_buffered};
 use vgms_core::io::read_song;
-use vgms_core::{Instruction, Song};
+use vgms_core::{DroSong, Instruction};
 use vgms_synth::{
     NATIVE_SAMPLE_RATE, NukedOpl3, OplChip, PlayerEngine, render_wav, render_waveform,
 };
 
 const DRO_FIXTURE: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
 
-fn fixture_song() -> Song {
+fn fixture_song() -> DroSong {
     read_song("lsl3_score_up_dro2.dro", DRO_FIXTURE).expect("the fixture reads")
 }
 
 /// Renders a song to the end through the engine, collecting the PCM.
-fn engine_pcm(song: &Song, sample_rate: u32, chunk_frames: usize) -> Vec<i16> {
+fn engine_pcm(song: &DroSong, sample_rate: u32, chunk_frames: usize) -> Vec<i16> {
     let mut engine = PlayerEngine::new(song, sample_rate);
     let mut out = vec![0i16; chunk_frames * 2];
     let mut pcm = Vec::new();
@@ -37,7 +37,7 @@ fn engine_pcm(song: &Song, sample_rate: u32, chunk_frames: usize) -> Vec<i16> {
 
 /// The fixture's instructions as the reference loop's ops, so both paths render
 /// exactly the same register stream.
-fn fixture_ops(song: &Song) -> Vec<Op> {
+fn fixture_ops(song: &DroSong) -> Vec<Op> {
     song.data()
         .iter()
         .map(|instruction| match instruction {

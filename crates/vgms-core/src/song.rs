@@ -21,9 +21,9 @@ pub const DRO_FILE_V2: u32 = 2;
 ///
 /// A closed enum fits: there are exactly two DRO encodings, and dispatch on the
 /// table-paint path becomes a jump rather than a vtable call. A VGM document is a
-/// [`VgmFile`](crate::VgmFile), not a `Song`, so it has no arm here.
+/// [`VgmFile`](crate::VgmFile), not a `DroSong`, so it has no arm here.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SongData {
+pub enum DroSongData {
     V1(DroDataV1),
     V2(DroDataV2),
 }
@@ -37,12 +37,12 @@ pub enum SongData {
 /// install-and-revert path rather than growing their own.
 #[derive(Debug, Clone)]
 pub struct StreamSnapshot {
-    pub data: SongData,
+    pub data: DroSongData,
     /// The DRO's header length.
     pub ms_length: u32,
 }
 
-impl SongData {
+impl DroSongData {
     /// The number of instructions.
     #[must_use]
     pub fn len(&self) -> usize {
@@ -232,26 +232,26 @@ impl fmt::Display for OplType {
 ///
 /// The prefix is built at load, in one cheap pass.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Song {
+pub struct DroSong {
     pub file_type: SongFileType,
     /// `1` or `2` for DRO.
     pub file_version: u32,
     pub name: String,
     pub opl_type: OplType,
     /// The length recorded in the file header. Not necessarily equal to
-    /// [`Song::total_delay_ms`] -- a mismatch is what the trim warning reports.
+    /// [`DroSong::total_delay_ms`] -- a mismatch is what the trim warning reports.
     pub ms_length: u32,
-    data: SongData,
+    data: DroSongData,
     delay_prefix: Vec<u32>,
 }
 
-impl Song {
+impl DroSong {
     #[must_use]
     pub fn new(
         file_type: SongFileType,
         file_version: u32,
         name: String,
-        data: SongData,
+        data: DroSongData,
         ms_length: u32,
         opl_type: OplType,
     ) -> Self {
@@ -274,7 +274,7 @@ impl Song {
             SongFileType::Dro,
             DRO_FILE_V1,
             name,
-            SongData::V1(data),
+            DroSongData::V1(data),
             ms_length,
             opl_type,
         )
@@ -286,14 +286,14 @@ impl Song {
             SongFileType::Dro,
             DRO_FILE_V2,
             name,
-            SongData::V2(data),
+            DroSongData::V2(data),
             ms_length,
             opl_type,
         )
     }
 
     #[must_use]
-    pub fn data(&self) -> &SongData {
+    pub fn data(&self) -> &DroSongData {
         &self.data
     }
 
@@ -567,7 +567,7 @@ impl Instruction {
     }
 }
 
-impl fmt::Display for Song {
+impl fmt::Display for DroSong {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -770,7 +770,7 @@ mod tests {
         assert_eq!(song.index_and_ms_offset_at_pct(f64::NAN), None);
         assert_eq!(song.index_and_ms_offset_at_pct(f64::INFINITY), None);
 
-        let empty = Song::dro_v2(
+        let empty = DroSong::dro_v2(
             "empty.dro".to_owned(),
             DroDataV2::new(vec![], vec![0x10], 0xFE, 0xFF).unwrap(),
             0,

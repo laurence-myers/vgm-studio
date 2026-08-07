@@ -29,7 +29,7 @@
 //! dual OPL2 is two `Ym3812` cells for the same reason.
 
 use vgms_core::vgm::ChipKind;
-use vgms_core::{OplType, Song, VgmFile};
+use vgms_core::{DroSong, OplType, VgmFile};
 use vgms_synth::{ChipMuting, ChipPanning, ChipTrims, Muting, Panning, opl_muting_from_chip};
 
 use super::chip_channels::{ChannelsResponse, GenericChannelPanel};
@@ -91,7 +91,7 @@ impl ChipPanels {
 
     /// The deck for an OPL song: the chip(s) its type projects to.
     #[must_use]
-    pub(crate) fn for_song(song: &Song) -> Self {
+    pub(crate) fn for_song(song: &DroSong) -> Self {
         Self {
             entries: opl_entries(song.opl_type),
             selected: 0,
@@ -460,7 +460,7 @@ fn dual_opl2_image() -> [u8; 18] {
 /// The default OPL panning image a fresh `song` plays, for callers (a pack
 /// preview) that want the song's own default rather than the editor's live mix.
 #[must_use]
-pub(crate) fn default_opl_panning(song: &Song) -> Panning {
+pub(crate) fn default_opl_panning(song: &DroSong) -> Panning {
     match song.opl_type {
         OplType::DualOpl2 => Panning::Custom(dual_opl2_image()),
         _ => Panning::Original,

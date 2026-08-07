@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use vgms_core::chip_docs::ChipAnalyzer;
 use vgms_core::vgm::VgmStream;
-use vgms_core::{RegisterAnalyzer, RowAnalysis, Song};
+use vgms_core::{DroSong, RegisterAnalyzer, RowAnalysis};
 
 #[derive(Debug, Default)]
 pub struct AnalysisCache {
@@ -45,7 +45,7 @@ impl AnalysisCache {
     }
 
     /// The Bank and Description columns for `index`, or `None` out of range.
-    pub fn row(&mut self, song: &Song, index: usize) -> Option<RowAnalysis> {
+    pub fn row(&mut self, song: &DroSong, index: usize) -> Option<RowAnalysis> {
         if let Some(row) = self.rows.get(&index) {
             return Some(row.clone());
         }
@@ -58,7 +58,7 @@ impl AnalysisCache {
     }
 
     /// [`Self::row`] for an OPL VGM, read from its command stream rather than a
-    /// projected `Song`. Shares the cursor and memo with [`Self::row`]: only one of
+    /// projected `DroSong`. Shares the cursor and memo with [`Self::row`]: only one of
     /// the two is ever queried for a given loaded document (a DRO uses `row`, an OPL
     /// VGM `row_vgm`), so their index keys never collide.
     pub fn row_vgm(&mut self, stream: &VgmStream, index: usize) -> Option<RowAnalysis> {

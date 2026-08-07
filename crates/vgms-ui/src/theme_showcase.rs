@@ -18,7 +18,7 @@
 //! therefore GPU/OS-specific; regenerate them there (see `DEVELOPMENT.md`).
 
 use egui::{Color32, Sense};
-use vgms_core::Song;
+use vgms_core::DroSong;
 use vgms_core::config::ThemeChoice;
 use vgms_synth::render_waveform;
 
@@ -120,7 +120,7 @@ impl ShowcaseState {
 
 /// Serialise a fixture song and wrap it as a picked file (no path -- the
 /// showcase never saves), the same trick the editor's own tests use.
-fn picked(song: &Song) -> PickedFile {
+fn picked(song: &DroSong) -> PickedFile {
     PickedFile {
         name: song.name.clone(),
         path: None,

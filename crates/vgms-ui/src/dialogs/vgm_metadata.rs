@@ -35,7 +35,7 @@ pub struct VgmMetadataDialog {
 impl VgmMetadataDialog {
     /// The dialog for a document held as a VGM, whose fields are in the header
     /// itself and whose row times come from its own waits. (A DRO carries no VGM
-    /// metadata, so there is no `Song`-based constructor.)
+    /// metadata, so there is no `DroSong`-based constructor.)
     #[must_use]
     pub fn for_vgm(file: &vgms_core::VgmFile) -> Option<Self> {
         let stream = file.stream()?;

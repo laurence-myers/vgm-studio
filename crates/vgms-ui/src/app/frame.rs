@@ -624,7 +624,7 @@ impl VgmStudioApp {
     /// for a DRO, which carries no modifier. What an unlocked song starts at, in
     /// the editor and in a pack preview. (A VGM's own modifier is applied on the
     /// `VgmFile` path.)
-    pub(super) fn modifier_boost(_song: &vgms_core::Song) -> f32 {
+    pub(super) fn modifier_boost(_song: &vgms_core::DroSong) -> f32 {
         1.0
     }
 
@@ -638,7 +638,7 @@ impl VgmStudioApp {
         if let Some(file) = self.editor.vgm() {
             vgms_core::volume_modifier_factor(file.header.volume_modifier())
         } else {
-            self.editor.song().map_or(1.0, Self::modifier_boost)
+            self.editor.dro_song().map_or(1.0, Self::modifier_boost)
         }
     }
 

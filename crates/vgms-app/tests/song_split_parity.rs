@@ -92,7 +92,7 @@ fn native_solo(file: &Arc<VgmFile>, channel: u8) -> Render {
     drain(engine)
 }
 
-/// Song-splits `file` and returns the stem VGM for SN76489 channel `channel`.
+/// DroSong-splits `file` and returns the stem VGM for SN76489 channel `channel`.
 fn song_stem(file: &Arc<VgmFile>, channel: usize) -> Arc<VgmFile> {
     let options = VgmSplitOptions {
         format: SplitFormat::Song,

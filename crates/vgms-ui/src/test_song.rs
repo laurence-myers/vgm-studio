@@ -2,13 +2,13 @@
 //! (`vgms-core`'s own fixtures are `pub(crate)` to it).
 
 use vgms_core::vgm::io::synthesise_header;
-use vgms_core::{DroDataV1, DroDataV2, OplType, Song, VgmFile};
+use vgms_core::{DroDataV1, DroDataV2, DroSong, OplType, VgmFile};
 
 /// Wraps an OPL2 command stream in a real VGM container: a synthesised v1.51
 /// header with the YM3812 clock (offset 0x50, spec-stable), the stream, an end
 /// marker, then canonicalised through the reader/writer. VGM documents are held
 /// as [`VgmFile`]s now, so the OPL test fixtures assemble bytes rather than a
-/// VGM-flavoured `Song`.
+/// VGM-flavoured `DroSong`.
 fn assemble_opl2_vgm(name: &str, stream: &[u8]) -> Vec<u8> {
     let mut bytes = synthesise_header();
     bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
@@ -22,8 +22,8 @@ fn assemble_opl2_vgm(name: &str, stream: &[u8]) -> Vec<u8> {
 
 /// A 300 ms OPL2 tone: instruments, key-on, 200 ms of sound, key-off, 100 ms of
 /// silence. Same stream as `vgms-synth`'s waveform test song.
-pub(crate) fn tone_song() -> Song {
-    Song::dro_v1(
+pub(crate) fn tone_song() -> DroSong {
+    DroSong::dro_v1(
         "tone.dro".to_owned(),
         DroDataV1::new(vec![
             0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)
@@ -42,8 +42,8 @@ pub(crate) fn tone_song() -> Song {
 /// The tone song as a dual-OPL2 file, so the strip's fixed hard-L/R Original
 /// panning image can be exercised. The instruction stream is identical to
 /// [`tone_song`]; only the declared chip type differs.
-pub(crate) fn dual_tone_song() -> Song {
-    Song::dro_v1(
+pub(crate) fn dual_tone_song() -> DroSong {
+    DroSong::dro_v1(
         "dual.dro".to_owned(),
         DroDataV1::new(vec![
             0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)
@@ -66,7 +66,7 @@ pub(crate) fn dual_tone_song() -> Song {
 /// instructions shares a timestamp of zero and any marked region among them
 /// collapses onto the left edge. This one carries time across its whole width,
 /// which is what a range drawn over the waveform needs to be visible at all.
-pub(crate) fn paced_song() -> Song {
+pub(crate) fn paced_song() -> DroSong {
     let mut data = vec![
         0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)
         0x23, 0x01, 0x43, 0x00, 0x63, 0xF0, 0x83, 0x7F, // carrier (fast release)
@@ -80,7 +80,7 @@ pub(crate) fn paced_song() -> Song {
             0x00, 0x31, // 50 ms of silence
         ]);
     }
-    Song::dro_v1(
+    DroSong::dro_v1(
         "paced.dro".to_owned(),
         DroDataV1::new(data).unwrap(),
         600,
@@ -91,11 +91,11 @@ pub(crate) fn paced_song() -> Song {
 /// The `vgms-core` v2 fixture rebuilt via public constructors: five register
 /// writes, a short delay (177 ms), a long delay (49408 ms), then the same
 /// fourteen instructions again. Total delay 99170 ms.
-pub(crate) fn dro_song_v2() -> Song {
+pub(crate) fn dro_song_v2() -> DroSong {
     let mut data: Vec<u8> = (0..10).collect();
     data.extend_from_slice(&[0xFE, 0xB0, 0xFF, 0xC0]);
     data.extend_from_within(..);
-    Song::dro_v2(
+    DroSong::dro_v2(
         "test.dro".to_owned(),
         DroDataV2::new(
             data,
@@ -172,7 +172,7 @@ pub(crate) fn multi_song_capture() -> VgmFile {
 /// song sets a distinct register before its note, so a later piece's state-replay
 /// prelude has earlier writes to restore. The DRO counterpart to
 /// [`multi_song_capture`].
-pub(crate) fn multi_song_capture_dro() -> Song {
+pub(crate) fn multi_song_capture_dro() -> DroSong {
     // Codemap slots: 0x20, 0x40, 0xB0, 0x21, 0xB1, 0x22, 0xB2.
     let codemap = vec![0x20, 0x40, 0xB0, 0x21, 0xB1, 0x22, 0xB2];
     let (short, long) = (0xFE, 0xFF);
@@ -185,7 +185,7 @@ pub(crate) fn multi_song_capture_dro() -> Song {
     data.extend_from_slice(&[long, 3]); // gap
     data.extend_from_slice(&[5, 0x03, short, 99, 6, 0x33]); // song 3
 
-    Song::dro_v2(
+    DroSong::dro_v2(
         "capture.dro".to_owned(),
         DroDataV2::new(data, codemap, short, long).unwrap(),
         2348, // 3 x 100 ms + 2 x 1024 ms
@@ -226,8 +226,8 @@ pub(crate) fn looping_vgm() -> VgmFile {
 
 /// A DRO v2 song whose first instruction is a delay and whose header length
 /// disagrees with the summed delays -- both load-time warnings at once.
-pub(crate) fn bogus_leading_delay_song() -> Song {
-    Song::dro_v2(
+pub(crate) fn bogus_leading_delay_song() -> DroSong {
+    DroSong::dro_v2(
         "bogus.dro".to_owned(),
         DroDataV2::new(
             vec![

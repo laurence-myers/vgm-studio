@@ -81,9 +81,9 @@ impl VgmStudioApp {
             return;
         }
         // Where the seam is, in milliseconds. Either representation can say:
-        // a `Song` has the prefix sums already, and a VGM's is its own waits.
+        // a `DroSong` has the prefix sums already, and a VGM's is its own waits.
         let end = self.editor.markers.end();
-        let Some(end_ms) = self.editor.song().map_or_else(
+        let Some(end_ms) = self.editor.dro_song().map_or_else(
             || {
                 self.editor.vgm().map(|file| {
                     let elapsed = file.stream().map_or(0, |stream| {
@@ -179,7 +179,7 @@ impl VgmStudioApp {
         }
         // An OPL document searches its instruction stream; any other VGM
         // searches its command stream. Both step through the delays.
-        let found = if self.editor.has_song() {
+        let found = if self.editor.has_dro() {
             self.editor.find_next(FindTarget::AnyDelay, backwards)
         } else {
             self.editor

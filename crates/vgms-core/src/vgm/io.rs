@@ -19,7 +19,7 @@ pub const GD3_MAGIC: &[u8; 4] = b"Gd3 ";
 
 /// v1.51 is the first version with the OPL chip clock fields this app needs.
 pub const MINIMUM_SUPPORTED_VERSION: u32 = 0x0000_0151;
-/// The version [`Song::to_vgm`](crate::convert::dro_to_vgm) emits.
+/// The version [`DroSong::to_vgm`](crate::convert::dro_to_vgm) emits.
 pub const CONVERSION_VERSION: u32 = 0x0000_0151;
 const GD3_SUPPORTED_VERSION: u32 = 0x0000_0100;
 const GD3_ENCODING_UNITS: usize = 2;

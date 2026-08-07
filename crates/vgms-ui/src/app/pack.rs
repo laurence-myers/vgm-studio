@@ -304,7 +304,7 @@ impl VgmStudioApp {
         }
         self.active_tab = tab;
         if tab == AppTab::Pack {
-            // Song-bound dialogs (Find Register, DRO Info, GD3, VGM metadata)
+            // DroSong-bound dialogs (Find Register, DRO Info, GD3, VGM metadata)
             // and Goto don't belong on the pack tab -- mirror the menu gating
             // that disables them there.
             self.close_song_dialogs();

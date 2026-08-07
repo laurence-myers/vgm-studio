@@ -353,7 +353,7 @@ fn a_non_opl_vgms_header_modifier_sets_the_load_volume() {
     let mut picked = sms_vgm_file();
     picked.bytes[0x7C] = 0x20; // header modifier: 2x
     let (mut harness, _handles) = build(Some(picked), false, false);
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     let expected = vgms_core::volume_modifier_factor(0x20);
     assert!((expected - 2.0).abs() < 1e-4, "sanity: 0x20 is 2x");
@@ -596,7 +596,7 @@ fn match_volume_without_a_song_submits_no_scan() {
 #[test]
 fn match_volume_measures_a_non_opl_vgm() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     act(&mut harness, Action::Mixer(MixerAction::MatchVolume));
     for _ in 0..4 {
@@ -636,7 +636,7 @@ fn match_volume_measures_a_non_opl_vgm() {
 #[test]
 fn measuring_the_modifier_fills_for_a_non_opl_vgm() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     act(&mut harness, Action::Edit(EditAction::OpenVgmMetadata));
     assert!(

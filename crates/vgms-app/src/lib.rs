@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use vgms_core::io::read_song;
-use vgms_core::{ChipKind, Song, VgmFile};
+use vgms_core::{ChipKind, DroSong, VgmFile};
 
 pub mod cli;
 pub mod config;
@@ -46,7 +46,7 @@ pub fn install_cores() {
     }
 }
 
-/// A song a subcommand opened: a DRO as its editable [`Song`], or any VGM --
+/// A song a subcommand opened: a DRO as its editable [`DroSong`], or any VGM --
 /// OPL or not -- as its whole file.
 ///
 /// The two arms take different code paths, exactly as the GUI's
@@ -55,7 +55,7 @@ pub fn install_cores() {
 /// VGM takes the `Vgm` arm like every other VGM (Stage K retired the projection).
 #[derive(Debug)]
 pub enum LoadedSong {
-    Dro(Song),
+    Dro(DroSong),
     Vgm(Box<VgmFile>),
 }
 
@@ -79,7 +79,7 @@ impl LoadedSong {
     }
 
     /// The banner a subcommand prints on opening, mirroring
-    /// [`Song::pretty_string`] for the generic arm.
+    /// [`DroSong::pretty_string`] for the generic arm.
     #[must_use]
     pub fn pretty_string(&self) -> String {
         match self {
@@ -148,8 +148,8 @@ fn chip_names(chips: &[ChipKind]) -> String {
 ///
 /// A VGM goes through the multichip reader and comes back whole as a [`VgmFile`],
 /// OPL or not -- the engine plays, renders and splits an OPL VGM straight from
-/// its own stream now, so there is no projected `Song` to hand back. A DRO comes
-/// back as the OPL [`Song`] it is.
+/// its own stream now, so there is no projected `DroSong` to hand back. A DRO comes
+/// back as the OPL [`DroSong`] it is.
 ///
 /// # Errors
 /// If the file cannot be read, or is not a song `vgms_core` can parse.
@@ -164,7 +164,7 @@ pub fn read_any_song_from_path(path: &Path) -> Result<LoadedSong> {
         let file = vgms_core::vgm::file::read(name, &bytes)?;
         // Every VGM comes back whole, OPL or not: an OPL VGM plays, renders and
         // splits through the same VgmEngine path as any other now (Stage K), so
-        // there is no reason to hand the CLI a projected `Song` it would only
+        // there is no reason to hand the CLI a projected `DroSong` it would only
         // route back to the engine. Only a DRO -- which has no VGM container --
         // is an `Opl` song.
         return Ok(LoadedSong::Vgm(Box::new(file)));
@@ -229,7 +229,7 @@ mod loaded_song_tests {
     }
 
     /// An OPL VGM now loads whole, as its own file (Stage K): the CLI routes it
-    /// through the same VgmEngine path as any VGM rather than a projected `Song`.
+    /// through the same VgmEngine path as any VGM rather than a projected `DroSong`.
     #[test]
     fn an_opl_vgm_loads_whole_as_its_own_file() {
         let path = temp_path("opl.vgm");

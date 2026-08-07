@@ -1,7 +1,7 @@
 //! Test data shared across the crate's unit tests.
 
 use crate::song::dro_data::{DroDataV1, DroDataV2};
-use crate::song::{OplType, Song};
+use crate::song::{DroSong, OplType};
 
 /// `(0xB1 + 0xC100) * 2` -- the v2 fixture's two short delays plus two long ones.
 pub(crate) const SONG_LENGTH: u32 = (0xB1 + 0xC100) * 2;
@@ -21,8 +21,8 @@ pub(crate) fn dro_data_v2() -> DroDataV2 {
     .expect("fixture is well-formed")
 }
 
-pub(crate) fn dro_song_v2() -> Song {
-    Song::dro_v2(
+pub(crate) fn dro_song_v2() -> DroSong {
+    DroSong::dro_v2(
         "test.dro".to_owned(),
         dro_data_v2(),
         SONG_LENGTH,
@@ -48,8 +48,8 @@ pub(crate) fn dro_data_v1() -> DroDataV1 {
 /// The delays in [`dro_data_v1`]: 177 ms + 4661 ms.
 pub(crate) const V1_SONG_LENGTH: u32 = 177 + 0x1234 + 1;
 
-pub(crate) fn dro_song_v1() -> Song {
-    Song::dro_v1(
+pub(crate) fn dro_song_v1() -> DroSong {
+    DroSong::dro_v1(
         "test_v1.dro".to_owned(),
         dro_data_v1(),
         V1_SONG_LENGTH,

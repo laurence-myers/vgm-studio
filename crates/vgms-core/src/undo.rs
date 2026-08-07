@@ -5,7 +5,7 @@
 
 use core::fmt;
 
-use crate::song::{InsertEntry, OplType, Song, StreamSnapshot};
+use crate::song::{DroSong, InsertEntry, OplType, StreamSnapshot};
 use crate::vgm::VgmFile;
 
 /// A reversible edit.
@@ -175,12 +175,12 @@ impl DeleteInstructions {
     }
 }
 
-impl UndoableCommand<Song> for DeleteInstructions {
+impl UndoableCommand<DroSong> for DeleteInstructions {
     fn description(&self) -> &str {
         "Delete Instruction(s)"
     }
 
-    fn apply(&mut self, song: &mut Song) {
+    fn apply(&mut self, song: &mut DroSong) {
         self.indices.retain(|&index| index < song.len());
         self.previous_ms_length = song.ms_length;
 
@@ -205,7 +205,7 @@ impl UndoableCommand<Song> for DeleteInstructions {
         song.ms_length = self.previous_ms_length.saturating_sub(removed_ms);
     }
 
-    fn revert(&mut self, song: &mut Song) {
+    fn revert(&mut self, song: &mut DroSong) {
         song.insert_instructions(&self.deleted);
         // Restore the header verbatim rather than adding the delay back: exact,
         // and it survives a `saturating_sub` that clamped at zero.
@@ -218,7 +218,7 @@ impl UndoableCommand<Song> for DeleteInstructions {
 ///
 /// The sibling of [`DeleteInstructions`], for the other document kind. It is a
 /// separate type rather than a generalisation because the two targets keep
-/// their derived state in different places: a [`Song`] holds its loop as
+/// their derived state in different places: a [`DroSong`] holds its loop as
 /// instruction indices and re-derives its length, while a [`VgmFile`] keeps
 /// both in the header bytes it will be written from.
 #[derive(Debug, Default)]
@@ -372,20 +372,20 @@ impl UpdateHeader {
     }
 }
 
-impl UndoableCommand<Song> for UpdateHeader {
+impl UndoableCommand<DroSong> for UpdateHeader {
     fn description(&self) -> &str {
         // The description string, so the status bar says
         // "Undone: DRO Header Changes".
         "DRO Header Changes"
     }
 
-    fn apply(&mut self, song: &mut Song) {
+    fn apply(&mut self, song: &mut DroSong) {
         self.previous = Some((song.opl_type, song.ms_length));
         song.opl_type = self.new_opl_type;
         song.ms_length = self.new_ms_length;
     }
 
-    fn revert(&mut self, song: &mut Song) {
+    fn revert(&mut self, song: &mut DroSong) {
         let (opl_type, ms_length) = self
             .previous
             .expect("the controller only reverts a command it has applied");
@@ -431,17 +431,17 @@ impl ReplaceStream {
     }
 }
 
-impl UndoableCommand<Song> for ReplaceStream {
+impl UndoableCommand<DroSong> for ReplaceStream {
     fn description(&self) -> &str {
         self.description
     }
 
-    fn apply(&mut self, song: &mut Song) {
+    fn apply(&mut self, song: &mut DroSong) {
         self.before = Some(song.capture_stream());
         song.replace_data(self.after.clone());
     }
 
-    fn revert(&mut self, song: &mut Song) {
+    fn revert(&mut self, song: &mut DroSong) {
         song.replace_data(
             self.before
                 .clone()
@@ -599,7 +599,7 @@ mod tests {
             0x00, 0x01, // deleted instruction 1 (0x04, 0x05)
             0xFE, 0xB0, 0x00, 0x01, 0x02, 0x03,
         ];
-        let head = |song: &Song| song.data().raw()[..8].to_vec();
+        let head = |song: &DroSong| song.data().raw()[..8].to_vec();
 
         assert_eq!(song.len(), 14);
         assert_eq!(head(&song), expected_1);
@@ -772,7 +772,7 @@ mod tests {
 
     /// Both DRO formats, so the snapshot is exercised against a stored header
     /// length and a v2's codemap.
-    fn every_format() -> Vec<Song> {
+    fn every_format() -> Vec<DroSong> {
         vec![dro_song_v1(), dro_song_v2()]
     }
 

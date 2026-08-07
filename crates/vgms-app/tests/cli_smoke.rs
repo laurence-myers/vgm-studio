@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use vgms_core::io::write_song;
-use vgms_core::{DroDataV1, OplType, Song};
+use vgms_core::{DroDataV1, DroSong, OplType};
 
 /// The executable under test, built by cargo before the test runs.
 const VGMSTUDIO: &str = env!("CARGO_BIN_EXE_vgmstudio");
@@ -28,7 +28,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 /// A short OPL2 song touching channels 0 and 1 and the percussion register, so a
 /// split produces a handful of outputs and a render finishes in milliseconds.
 fn small_song_bytes() -> Vec<u8> {
-    let song = Song::dro_v1(
+    let song = DroSong::dro_v1(
         "small.dro".to_owned(),
         DroDataV1::new(vec![
             // Two sustained FM notes, each a modulator + carrier with a fast

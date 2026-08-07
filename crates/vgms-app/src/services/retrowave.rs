@@ -80,7 +80,7 @@ impl AudioService for RetroWaveAudioService {
         self.unload();
         // The hardware is an OPL3, driven through the same `VgmEngine` every chip
         // plays through, so it needs an OPL `VgmFile`. Build one from whichever
-        // arm the source is -- a DRO's OPL `Song` projected, or an OPL VGM taken
+        // arm the source is -- a DRO's OPL `DroSong` projected, or an OPL VGM taken
         // as it is -- and carry the OPL type when (and only when) the document is
         // a DRO, whose panel speaks the OPL `Muting`/`Panning` vocabulary the
         // pump must translate. An OPL VGM speaks the generic per-chip vocabulary
@@ -186,7 +186,7 @@ impl AudioService for RetroWaveAudioService {
 
     /// The any-chip mutes an OPL VGM's generic mixer emits. Kept for the next
     /// [`play`](Self::play) and forwarded live; the pump applies it only when the
-    /// loaded document is an OPL VGM (an OPL `Song` mutes through [`set_muting`]).
+    /// loaded document is an OPL VGM (an OPL `DroSong` mutes through [`set_muting`]).
     fn set_chip_muting(&mut self, muting: ChipMuting) {
         self.chip_muting = muting.clone();
         if let Some(audio) = &mut self.audio {
@@ -317,7 +317,7 @@ impl AudioService for SwitchingAudioService {
         // this app can perfectly well render. The setting is about *OPL* output;
         // it was never a claim about every chip. An OPL VGM now travels as the
         // `Vgm` arm (its `opl()` is `None`), so the OPL test is `is_opl()` -- the
-        // hardware service reconstructs the board's `Song` from the file at load.
+        // hardware service reconstructs the board's `DroSong` from the file at load.
         let wanted = if source.is_opl() {
             config.output_backend()
         } else {
@@ -435,13 +435,13 @@ impl AudioService for SwitchingAudioService {
 mod tests {
     use std::sync::Arc;
 
-    use vgms_core::Song;
+    use vgms_core::DroSong;
 
     use super::*;
     use vgms_core::{DroDataV2, OplType};
 
-    fn song() -> Arc<Song> {
-        Arc::new(Song::dro_v2(
+    fn song() -> Arc<DroSong> {
+        Arc::new(DroSong::dro_v2(
             "test.dro".to_owned(),
             DroDataV2::new(vec![0x00, 0x01], vec![0x20], 0xFE, 0xFF).expect("a valid fixture"),
             0,

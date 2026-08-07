@@ -13,7 +13,7 @@
 //! the chosen part.
 
 use crate::song::dro_data::v1_opcode;
-use crate::song::{DroDataV1, DroDataV2, Song, SongData};
+use crate::song::{DroDataV1, DroDataV2, DroSong, DroSongData};
 use crate::state_patch::{StateFold, append_patch};
 use crate::vgm::VgmFile;
 #[cfg(test)]
@@ -52,7 +52,7 @@ pub struct Segment {
 /// threshold to and from seconds. (A VGM capture splits through
 /// [`detect_segments_in_vgm`], which works in samples.)
 #[must_use]
-pub const fn native_rate(_song: &Song) -> u32 {
+pub const fn native_rate(_song: &DroSong) -> u32 {
     1000
 }
 
@@ -87,7 +87,7 @@ impl Segment {
 /// register writes at all, yields none. A `threshold` of zero is treated as one
 /// unit, so a piece is never split where no time actually passes.
 #[must_use]
-pub fn detect_segments(song: &Song, threshold: u32) -> Vec<Segment> {
+pub fn detect_segments(song: &DroSong, threshold: u32) -> Vec<Segment> {
     detect(song.len(), threshold, |index| {
         let instruction = song.instruction(index).expect("index < len");
         (instruction.delay_ms(), instruction.is_delay())
@@ -206,7 +206,12 @@ fn push_segment(
 /// [`write_song`](crate::io::write_song) writes it uncompressed; the caller names
 /// the file separately.
 #[must_use]
-pub fn materialise(song: &Song, segment: &Segment, state_replay: bool, trailing_tail: u32) -> Song {
+pub fn materialise(
+    song: &DroSong,
+    segment: &Segment,
+    state_replay: bool,
+    trailing_tail: u32,
+) -> DroSong {
     let mut bytes = Vec::new();
 
     if state_replay {
@@ -268,7 +273,7 @@ pub fn materialise_vgm(
 /// recreate it -- the patch from a blank chip to the state at `start`. See
 /// [`append_patch`](crate::state_patch::append_patch) for how it is emitted, and
 /// how a DRO v1's bank switches are handled.
-fn append_state_prelude(bytes: &mut Vec<u8>, song: &Song, start: usize) {
+fn append_state_prelude(bytes: &mut Vec<u8>, song: &DroSong, start: usize) {
     append_patch(
         bytes,
         song,
@@ -279,9 +284,9 @@ fn append_state_prelude(bytes: &mut Vec<u8>, song: &Song, start: usize) {
 
 /// Appends a delay of `native` units (VGM samples, DRO milliseconds) encoded in
 /// `song`'s own format.
-fn append_delay(bytes: &mut Vec<u8>, song: &Song, native: u32) {
+fn append_delay(bytes: &mut Vec<u8>, song: &DroSong, native: u32) {
     match song.data() {
-        SongData::V1(_) => {
+        DroSongData::V1(_) => {
             // `0x01 lo hi` waits (word + 1) ms, up to 65536; chunk longer waits.
             let mut ms = native;
             while ms > 0 {
@@ -291,7 +296,7 @@ fn append_delay(bytes: &mut Vec<u8>, song: &Song, native: u32) {
                 ms -= chunk;
             }
         }
-        SongData::V2(data) => append_v2_delay(bytes, native, data),
+        DroSongData::V2(data) => append_v2_delay(bytes, native, data),
     }
 }
 
@@ -316,16 +321,16 @@ fn append_v2_delay(bytes: &mut Vec<u8>, mut ms: u32, data: &DroDataV2) {
 /// carrying its `opl_type` (and, for VGM, its GD3 with the title blanked; for
 /// DRO v2, its codemap). `total_native` is the piece's total delay, which a DRO
 /// header records in milliseconds.
-fn build_piece(song: &Song, bytes: Vec<u8>, total_native: u32) -> Song {
+fn build_piece(song: &DroSong, bytes: Vec<u8>, total_native: u32) -> DroSong {
     let name = piece_name(&song.name, "dro");
     match song.data() {
-        SongData::V1(_) => Song::dro_v1(
+        DroSongData::V1(_) => DroSong::dro_v1(
             name,
             DroDataV1::new(bytes).expect("materialise only emits whole v1 instructions"),
             total_native,
             song.opl_type,
         ),
-        SongData::V2(source) => Song::dro_v2(
+        DroSongData::V2(source) => DroSong::dro_v2(
             name,
             DroDataV2::new(
                 bytes,
@@ -522,7 +527,7 @@ mod tests {
 
     /// A three-song DRO v2 capture: registers via a shared codemap, 100 ms
     /// internal delays, 1024 ms gaps (over a 750 ms threshold).
-    fn dro_v2_capture() -> Song {
+    fn dro_v2_capture() -> DroSong {
         let codemap = vec![0x20, 0x40, 0xB0, 0x21, 0xB1, 0x22, 0xB2];
         let (short, long) = (0xFE, 0xFF);
         // A 100 ms short delay is `[short, 99]`; a 1024 ms long delay is
@@ -533,7 +538,7 @@ mod tests {
         data.extend_from_slice(&[3, 0x02, short, 99, 4, 0x32]); // song 1
         data.extend_from_slice(&[long, 3]); // gap
         data.extend_from_slice(&[5, 0x03, short, 99, 6, 0x33]); // song 2
-        Song::dro_v2(
+        DroSong::dro_v2(
             "capture.dro".to_owned(),
             DroDataV2::new(data, codemap, short, long).unwrap(),
             0,
@@ -543,7 +548,7 @@ mod tests {
 
     /// A two-song DRO v1 capture whose first song writes the high bank (via
     /// bank-switch opcodes), so the second song's prelude must restore it.
-    fn dro_v1_capture() -> Song {
+    fn dro_v1_capture() -> DroSong {
         let mut data = Vec::new();
         // song 0: low 0x20=0x01, high 0x40=0x10, back to low, 100 ms, low 0xB0=0x31
         data.extend_from_slice(&[0x20, 0x01]);
@@ -555,7 +560,7 @@ mod tests {
         data.extend_from_slice(&[0x01, 0xFF, 0x03]); // 1024 ms long-delay gap
         // song 1: low 0x21=0x02, 100 ms, low 0xB1=0x32
         data.extend_from_slice(&[0x21, 0x02, 0x00, 99, 0xB1, 0x32]);
-        Song::dro_v1(
+        DroSong::dro_v1(
             "capture.dro".to_owned(),
             DroDataV1::new(data).unwrap(),
             0,
@@ -594,7 +599,7 @@ mod tests {
         let segments = detect_segments(&song, 750);
         assert_eq!(segments.len(), 2);
 
-        // Song 0 touched the low bank (0x20, 0xB0) and the high bank (0x40).
+        // DroSong 0 touched the low bank (0x20, 0xB0) and the high bank (0x40).
         let expected = state_over(&song, segments[1].start);
         assert_eq!(expected.len(), 3);
         assert!(

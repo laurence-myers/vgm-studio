@@ -11,7 +11,7 @@
 use std::borrow::Borrow;
 use std::sync::Arc;
 
-use vgms_core::{Song, VgmFile};
+use vgms_core::{DroSong, VgmFile};
 
 use crate::engine::PlayerEngine;
 use crate::resample::ResampleMode;
@@ -63,7 +63,7 @@ impl Peak {
 /// This is the uncancellable shorthand; [`measure_peak_cancellable`] is the one
 /// with progress reporting and cancellation.
 #[must_use]
-pub fn measure_peak<B: Borrow<Song>>(song: B, sample_rate: u32) -> Peak {
+pub fn measure_peak<B: Borrow<DroSong>>(song: B, sample_rate: u32) -> Peak {
     measure_peak_cancellable(song, sample_rate, &mut |_| {}, &mut || true)
         .expect("a measurement that is never cancelled always completes")
 }
@@ -77,7 +77,7 @@ pub fn measure_peak<B: Borrow<Song>>(song: B, sample_rate: u32) -> Peak {
 /// [`render_wav_cancellable`](crate::render_wav_cancellable), so the task
 /// service drives a volume scan exactly as it drives a WAV export.
 #[must_use]
-pub fn measure_peak_cancellable<B: Borrow<Song>>(
+pub fn measure_peak_cancellable<B: Borrow<DroSong>>(
     song: B,
     sample_rate: u32,
     on_progress: &mut dyn FnMut(u64),
@@ -108,7 +108,7 @@ pub fn measure_peak_cancellable<B: Borrow<Song>>(
 
 /// Measures the peak of a full render of `file` at `sample_rate`, through the
 /// generic multichip engine -- the [`VgmEngine`] counterpart of
-/// [`measure_peak`], for a VGM whose chips are not OPL and so has no [`Song`].
+/// [`measure_peak`], for a VGM whose chips are not OPL and so has no [`DroSong`].
 ///
 /// One pass, like [`measure_peak`]: a freshly built [`VgmEngine`] has no
 /// [`LoopConfig`](crate::LoopConfig) and never wraps, and every sample a loop
@@ -165,8 +165,8 @@ mod tests {
 
     /// The same little keyed-on-then-off DRO the WAV render tests use, so a peak
     /// measured here can be checked against that render's samples.
-    fn small_song() -> Song {
-        Song::dro_v1(
+    fn small_song() -> DroSong {
+        DroSong::dro_v1(
             "small.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x77, // operator setup
@@ -182,7 +182,7 @@ mod tests {
     }
 
     /// The loudest `|sample|` in a rendered 16-bit WAV, as a `u32`.
-    fn render_abs_peak(song: &Song) -> u32 {
+    fn render_abs_peak(song: &DroSong) -> u32 {
         let bytes = render_wav(song, 48_000, 16).unwrap();
         let reader = hound::WavReader::new(Cursor::new(bytes)).unwrap();
         reader

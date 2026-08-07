@@ -13,7 +13,7 @@
 //! seconds of music whatever the song's tempo.
 
 use egui_extras::{Column, TableBuilder};
-use vgms_core::{Candidate, Song};
+use vgms_core::{Candidate, DroSong};
 
 use crate::action::{Action, LoopAction, PlaybackAction};
 use crate::theme::{Palette, bevel};
@@ -28,8 +28,8 @@ const MAX_SECS: f32 = 30.0;
 /// What the dialog needs to know about the document being searched.
 ///
 /// Not the document itself: all it ever wanted was a time against each row and
-/// a sense of how dense the commands are. Taking those instead of a [`Song`]
-/// is what lets the dialog serve a VGM for any chip, which has no `Song` to
+/// a sense of how dense the commands are. Taking those instead of a [`DroSong`]
+/// is what lets the dialog serve a VGM for any chip, which has no `DroSong` to
 /// give it.
 #[derive(Debug, Clone)]
 pub struct LoopSearchDoc {
@@ -48,7 +48,7 @@ pub struct LoopSearchDoc {
 
 impl LoopSearchDoc {
     #[must_use]
-    pub fn from_song(song: &Song) -> Self {
+    pub fn from_song(song: &DroSong) -> Self {
         Self {
             row_ms: (0..song.len())
                 .map(|index| song.ms_offset_at(index).unwrap_or(0))
@@ -420,7 +420,7 @@ mod tests {
         FindLoopDialog::new(LoopSearchDoc::from_vgm(&file))
     }
 
-    fn dialog_dro(song: Song) -> FindLoopDialog {
+    fn dialog_dro(song: DroSong) -> FindLoopDialog {
         FindLoopDialog::new(LoopSearchDoc::from_song(&song))
     }
 

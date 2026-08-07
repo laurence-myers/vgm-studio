@@ -149,7 +149,7 @@ fn opening_a_vgm_for_other_chips_opens_it_for_trimming() {
     let app = harness.state();
 
     assert!(app.editor.vgm().is_some(), "it opened");
-    assert!(app.editor.song().is_none(), "but not as a song");
+    assert!(app.editor.dro_song().is_none(), "but not as a song");
     assert!(app.dialogs.unwalkable_vgm.is_none(), "no dialog was needed");
     assert!(app.alerts.is_empty(), "and no error: {:?}", app.alerts);
     assert_eq!(app.editor.len(), 4, "four commands, the end marker aside");
@@ -503,7 +503,7 @@ fn delay_navigation_and_find_register_work_on_a_non_opl_vgm() {
 
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
     harness.run();
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     // ArrowRight steps to the first delay (row 1), then the second (row 3).
     act(&mut harness, Action::Playback(PlaybackAction::NextDelay));
@@ -620,7 +620,7 @@ fn a_non_opl_document_can_have_a_region_deleted() {
 }
 
 /// Selecting rows, deleting them and saving the result on a document held as a
-/// VGM: none of it is an OPL idea, so it works without a `Song`.
+/// VGM: none of it is an OPL idea, so it works without a `DroSong`.
 #[test]
 fn a_non_opl_document_can_be_edited_and_saved() {
     let (mut harness, handles) = build(Some(other_chip_vgm_file()), false, false);
@@ -644,7 +644,7 @@ fn a_non_opl_document_can_be_edited_and_saved() {
 #[test]
 fn editing_a_non_opl_vgm_keeps_the_position_length_current() {
     let (mut harness, _handles) = build(Some(other_chip_vgm_file()), false, false);
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     let before = harness
         .state()
@@ -876,7 +876,7 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
     let (mut harness, _handles) = build(Some(file), false, false);
 
     // It opened as an OPL VGM -- transport, waveform, the lot -- held as its own
-    // file (no projected Song behind it any more).
+    // file (no projected DroSong behind it any more).
     assert!(
         harness
             .state()
@@ -884,7 +884,7 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
             .vgm()
             .is_some_and(|file| file.is_opl())
     );
-    assert!(harness.state().editor.song().is_none());
+    assert!(harness.state().editor.dro_song().is_none());
     assert!(harness.state().editor.capabilities().playable);
 
     assert_eq!(
@@ -908,7 +908,7 @@ fn opening_an_opl_vgm_and_saving_it_returns_the_same_bytes() {
 fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
     assert!(
-        harness.state().editor.song().is_none(),
+        harness.state().editor.dro_song().is_none(),
         "held as a VGM, with no OPL projection"
     );
     assert!(
@@ -1023,7 +1023,7 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
 #[test]
 fn render_to_wav_dialog_opens_for_a_non_opl_vgm() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), false, false);
-    assert!(harness.state().editor.song().is_none(), "held as a VGM");
+    assert!(harness.state().editor.dro_song().is_none(), "held as a VGM");
 
     act(&mut harness, Action::File(FileAction::OpenRenderWav));
     assert!(
@@ -1071,7 +1071,7 @@ fn an_empty_editor_still_offers_render_to_wav() {
 fn a_vgm_this_app_can_play_gets_its_transport_back() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
     assert!(
-        harness.state().editor.song().is_none(),
+        harness.state().editor.dro_song().is_none(),
         "no OPL projection..."
     );
     assert!(
@@ -1109,7 +1109,7 @@ fn a_non_opl_vgm_waveform_click_seeks() {
     let (mut harness, _handles) = build(Some(sms_vgm_file()), true, false);
     harness.run();
     assert!(
-        harness.state().editor.song().is_none(),
+        harness.state().editor.dro_song().is_none(),
         "held as a VGM, no projection"
     );
     assert!(
@@ -1376,14 +1376,14 @@ fn non_opl_looping_vgm() -> PickedFile {
 
 /// The loop search reaches a chip this app has no core for -- a repeated block
 /// is a repeated block -- and applying what it finds writes the loop into the
-/// file. The whole path, dialog included: a non-OPL document has no `Song` to
+/// file. The whole path, dialog included: a non-OPL document has no `DroSong` to
 /// take a candidate's time from, so the times come from its own waits.
 #[test]
 fn a_non_opl_document_can_have_its_loop_found_and_applied() {
     // Inline tasks so the background search runs synchronously on submit.
     let (mut harness, _handles) = build(Some(non_opl_looping_vgm()), true, false);
     assert!(
-        harness.state().editor.song().is_none(),
+        harness.state().editor.dro_song().is_none(),
         "held as a VGM, with no OPL projection"
     );
 
@@ -1530,7 +1530,7 @@ fn snapshot_split_dialog() {
 }
 
 /// The Split dialog for a generic VGM whose chips a write-gate covers now offers
-/// the WAV/Song format radio -- but not the OPL-only percussion option.
+/// the WAV/DroSong format radio -- but not the OPL-only percussion option.
 #[test]
 fn snapshot_split_dialog_vgm() {
     let (mut harness, _handles) = build(Some(mega_drive_vgm_file()), false, true);
@@ -1586,7 +1586,7 @@ fn opening_a_file_over_unsaved_changes_prompts_first() {
     harness.get_by_label("OK").click();
     harness.run();
     assert!(harness.state().pending_load.is_none());
-    assert_eq!(harness.state().editor.song().unwrap().name, other_name);
+    assert_eq!(harness.state().editor.dro_song().unwrap().name, other_name);
     assert!(!harness.state().editor.is_dirty(), "freshly loaded = clean");
 }
 
@@ -1606,7 +1606,7 @@ fn opening_a_file_with_no_unsaved_changes_loads_immediately() {
         harness.state().pending_load.is_none(),
         "loaded directly, nothing stashed"
     );
-    assert_eq!(harness.state().editor.song().unwrap().name, other_name);
+    assert_eq!(harness.state().editor.dro_song().unwrap().name, other_name);
 }
 
 #[test]

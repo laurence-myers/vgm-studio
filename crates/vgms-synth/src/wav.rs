@@ -12,7 +12,7 @@ use std::borrow::Borrow;
 use std::io::Cursor;
 
 use hound::{SampleFormat, WavSpec, WavWriter};
-use vgms_core::Song;
+use vgms_core::DroSong;
 
 use crate::chip_mix::{ChipMuting, ChipPanning};
 use crate::engine::{Muting, Panning, PlayerEngine};
@@ -60,7 +60,11 @@ impl Default for RenderMix {
 /// # Errors
 /// If the `hound` writer fails. Writing to an in-memory `Cursor` does not fail in
 /// practice, so this is effectively infallible.
-pub fn render_wav(song: &Song, sample_rate: u32, bit_depth: u16) -> Result<Vec<u8>, hound::Error> {
+pub fn render_wav(
+    song: &DroSong,
+    sample_rate: u32,
+    bit_depth: u16,
+) -> Result<Vec<u8>, hound::Error> {
     render_uncancelled(
         song,
         RenderMix::default(),
@@ -77,7 +81,7 @@ pub fn render_wav(song: &Song, sample_rate: u32, bit_depth: u16) -> Result<Vec<u
 ///
 /// # Errors
 /// See [`render_wav`].
-pub fn render_wav_mixed<B: Borrow<Song>>(
+pub fn render_wav_mixed<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -96,7 +100,7 @@ pub fn render_wav_mixed<B: Borrow<Song>>(
 ///
 /// # Errors
 /// See [`render_wav`].
-pub fn render_wav_cancellable<B: Borrow<Song>>(
+pub fn render_wav_cancellable<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -117,7 +121,7 @@ pub fn render_wav_cancellable<B: Borrow<Song>>(
 /// # Errors
 /// See [`render_wav`].
 pub fn render_wav_boosted_with_progress(
-    song: &Song,
+    song: &DroSong,
     sample_rate: u32,
     bit_depth: u16,
     boost: f32,
@@ -132,7 +136,7 @@ pub fn render_wav_boosted_with_progress(
 
 /// [`render_wav_impl`] for the entry points that cannot be cancelled, which is
 /// every one but [`render_wav_cancellable`].
-fn render_uncancelled<B: Borrow<Song>>(
+fn render_uncancelled<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -149,7 +153,7 @@ fn render_uncancelled<B: Borrow<Song>>(
 ///
 /// Returns `Ok(None)` when `keep_going` asks it to stop; the callers that cannot
 /// be cancelled go through [`render_uncancelled`].
-fn render_wav_impl<B: Borrow<Song>>(
+fn render_wav_impl<B: Borrow<DroSong>>(
     song: B,
     mix: RenderMix,
     sample_rate: u32,
@@ -196,7 +200,7 @@ fn render_wav_impl<B: Borrow<Song>>(
 /// The muting/panning setup and render loop shared by the OPL render's default
 /// and per-render-core paths, generic over the chip type so a boxed chosen chip
 /// and the engine's own default chip go through one body.
-fn run_player<B: Borrow<Song>, C: OplChip>(
+fn run_player<B: Borrow<DroSong>, C: OplChip>(
     mut engine: PlayerEngine<B, C>,
     mix: RenderMix,
     spec: WavSpec,
@@ -507,8 +511,8 @@ mod tests {
         assert!(outcome.is_none(), "an abandoned render produces no file");
     }
 
-    fn small_song() -> Song {
-        Song::dro_v1(
+    fn small_song() -> DroSong {
+        DroSong::dro_v1(
             "small.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x77, // operator setup

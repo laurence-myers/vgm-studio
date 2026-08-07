@@ -119,7 +119,7 @@ fn read_source(name: &str, bytes: &[u8]) -> Result<AudioSource, String> {
         // Every VGM travels as the `Vgm` arm now -- an OPL VGM included, exactly
         // as the native reader routes it. The engine plays it straight from its
         // own stream (its mutes/pans are the generic per-chip vocabulary), so it
-        // no longer projects to a VGM-flavoured `Song` through `to_song`.
+        // no longer projects to a VGM-flavoured `DroSong` through `to_song`.
         let file = vgms_core::vgm::file::read(name, bytes).map_err(|error| error.to_string())?;
         Ok(AudioSource::Vgm(Arc::new(file)))
     } else {

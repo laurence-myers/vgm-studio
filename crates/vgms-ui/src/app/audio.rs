@@ -146,7 +146,7 @@ impl VgmStudioApp {
         let markers = self.editor.markers;
         let config = self
             .loop_enabled
-            .then(|| match (self.editor.song(), self.editor.vgm()) {
+            .then(|| match (self.editor.dro_song(), self.editor.vgm()) {
                 (Some(song), _) => Some(LoopConfig::for_song(
                     song,
                     markers.start(),
@@ -207,10 +207,10 @@ impl VgmStudioApp {
             // (Edit Tag, VGM Metadata, Optimize, Fix Header) apply either way.
             song_type: self
                 .editor
-                .song()
+                .dro_song()
                 .map(|song| song.file_type)
                 .or_else(|| self.editor.vgm().map(|_| SongFileType::Vgm)),
-            is_dro_v2: self.editor.song().is_some_and(|song| {
+            is_dro_v2: self.editor.dro_song().is_some_and(|song| {
                 song.file_type == SongFileType::Dro && song.file_version == DRO_FILE_V2
             }),
             // Shown for an empty editor too, so the File menu looks as it always

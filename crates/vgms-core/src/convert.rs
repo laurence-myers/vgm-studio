@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, DelayKind, DroDataV1, Instruction, OplType, Song, SongData};
+use crate::song::{Bank, DelayKind, DroDataV1, DroSong, DroSongData, Instruction, OplType};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::VgmFile;
 use crate::vgm::data::command;
@@ -78,7 +78,7 @@ impl VgmStream {
     }
 
     /// The raw command bytes, for a caller that assembles the VGM container
-    /// itself ([`dro_to_vgm`]) rather than wrapping them in a `Song`.
+    /// itself ([`dro_to_vgm`]) rather than wrapping them in a `DroSong`.
     fn into_bytes(self) -> Vec<u8> {
         self.out
     }
@@ -96,14 +96,14 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// here -- a synthesised header with the OPL chip clocks, total-sample count and
 /// EOF patched in, then the stream and an end marker -- and read straight back
 /// through [`vgm::file::read`](crate::vgm::file::read), so the result is a real
-/// `VgmFile` rather than a VGM-flavoured `Song`. That assembled byte image is
+/// `VgmFile` rather than a VGM-flavoured `DroSong`. That assembled byte image is
 /// exactly what `dro2vgm` emits (pinned byte-for-byte against the fixture), which
-/// is why the conversion carries no `Song::vgm` intermediate.
+/// is why the conversion carries no `DroSong::vgm` intermediate.
 ///
 /// # Errors
 /// If `song` is already a VGM, or the synthesised header cannot hold the OPL
 /// clocks, or the assembled bytes do not read back.
-pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
+pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
@@ -159,7 +159,7 @@ pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
 /// playback through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine)
 /// (ou-2).
 ///
-/// A `Song` is always a DRO now, so this is [`dro_to_vgm`]: the register writes
+/// A `DroSong` is always a DRO now, so this is [`dro_to_vgm`]: the register writes
 /// and millisecond delays become a real `VgmFile` whose header the generic engine
 /// builds voices from. This is the same round trip
 /// [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time rather than
@@ -167,7 +167,7 @@ pub fn dro_to_vgm(song: &Song) -> Result<VgmFile> {
 ///
 /// # Errors
 /// If the song will not convert, or the assembled VGM does not read back.
-pub fn opl_song_to_vgm_file(song: &Song) -> Result<VgmFile> {
+pub fn opl_song_to_vgm_file(song: &DroSong) -> Result<VgmFile> {
     dro_to_vgm(song)
 }
 
@@ -190,8 +190,8 @@ const fn write_command(opl_type: OplType, bank: Bank) -> u8 {
 ///
 /// # Errors
 /// If `song` is not a DRO v2 song, or a delay does not fit v1's encoding.
-pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
-    let SongData::V2(_) = song.data() else {
+pub fn dro2_to_dro1(song: &DroSong) -> Result<DroSong> {
+    let DroSongData::V2(_) = song.data() else {
         return Err(Error::file(
             "Only DRO v2 files can be converted to DRO v1".to_owned(),
         ));
@@ -248,7 +248,7 @@ pub fn dro2_to_dro1(song: &Song) -> Result<Song> {
         }
     }
 
-    Ok(Song::dro_v1(
+    Ok(DroSong::dro_v1(
         song.name.clone(),
         DroDataV1::new(out)?,
         song.ms_length,
@@ -359,8 +359,8 @@ mod tests {
         assert_eq!(u64::from(reread.header.total_samples()), samples);
     }
 
-    fn build_dro_v1(data: &[u8]) -> Song {
-        Song::dro_v1(
+    fn build_dro_v1(data: &[u8]) -> DroSong {
+        DroSong::dro_v1(
             "t.dro".to_owned(),
             DroDataV1::new(data.to_vec()).unwrap(),
             0,
@@ -390,7 +390,7 @@ mod tests {
     /// DRO v1 bank switches must steer the VGM opcode.
     #[test]
     fn v1_bank_switches_select_the_port() {
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "t.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, // low bank register
@@ -507,7 +507,7 @@ mod tests {
             0xFF,
         )
         .unwrap();
-        let v2 = Song::dro_v2("t.dro".to_owned(), data, 257, OplType::Opl3);
+        let v2 = DroSong::dro_v2("t.dro".to_owned(), data, 257, OplType::Opl3);
         let v1 = dro2_to_dro1(&v2).unwrap();
 
         assert_eq!(

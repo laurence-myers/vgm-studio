@@ -9,7 +9,7 @@ use core::time::Duration;
 use std::sync::Arc;
 
 #[cfg(test)]
-use vgms_core::Song;
+use vgms_core::DroSong;
 use vgms_core::io::write_song;
 use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::naming::track_file_name;
@@ -207,7 +207,7 @@ pub enum TaskResult {
     /// that follows.
     Wav(Result<(String, Vec<u8>), String>),
     /// One `(name, bytes)` per channel the song uses, ready to write, or why the
-    /// split failed. Song-format outputs are serialised inside the task, so the
+    /// split failed. DroSong-format outputs are serialised inside the task, so the
     /// app never has to know a DRO from a VGM to save them.
     Split(SplitFiles),
     /// One `(name, bytes)` per included song in the capture, ready to write, or
@@ -269,7 +269,7 @@ pub trait TaskService {
 /// emits progressive snapshots as it fills in, then the finished buckets -- and
 /// emits nothing more once cancelled.
 /// Measures a peak through whichever engine would render `source`: the OPL
-/// player for a `Song`, the multichip engine for a `VgmFile`. `None` iff the
+/// player for a `DroSong`, the multichip engine for a `VgmFile`. `None` iff the
 /// scan was cancelled. Shared by the single and pack scans.
 fn measure_source(
     source: &AudioSource,
@@ -573,7 +573,7 @@ mod tests {
     use crate::test_song::tone_song;
     use vgms_synth::{render_wav_mixed, render_waveform};
 
-    fn request(song: Song) -> TaskRequest {
+    fn request(song: DroSong) -> TaskRequest {
         TaskRequest::RenderWaveform {
             source: AudioSource::Dro(Arc::new(song)),
             num_buckets: 32,

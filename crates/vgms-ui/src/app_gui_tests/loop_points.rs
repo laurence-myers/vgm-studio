@@ -81,7 +81,7 @@ fn an_edit_that_outruns_the_playback_start_snaps_it_back_to_the_top() {
     // that ends well before it: playing from there would seek past the end.
     let (mut harness, _handles) = harness_with_song(&tone_song());
     let len = harness.state().editor.len();
-    let length_ms = harness.state().editor.song().unwrap().total_delay_ms();
+    let length_ms = harness.state().editor.dro_song().unwrap().total_delay_ms();
     act(
         &mut harness,
         Action::Playback(PlaybackAction::WaveformClicked {
@@ -315,7 +315,7 @@ fn applying_a_loop_writes_the_vgm_metadata() {
 fn play_tail_seeks_near_the_end_of_a_non_opl_vgm() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), false, false);
     assert!(
-        harness.state().editor.song().is_none(),
+        harness.state().editor.dro_song().is_none(),
         "held as a VGM, with no OPL projection"
     );
     // A tail shorter than the song, so the seek lands inside it rather than at 0.

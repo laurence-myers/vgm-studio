@@ -2,7 +2,7 @@
 //!
 //! A job that renders, plays, loop-searches or splits a document does not care
 //! which format it came from -- it cares only "here is the document, in the shape
-//! I can work with". That shape is one of two: a DRO [`Song`], or a [`VgmFile`]
+//! I can work with". That shape is one of two: a DRO [`DroSong`], or a [`VgmFile`]
 //! (any VGM, OPL or not). This one type carries either, so the audio backend, the
 //! WAV render, the loop search and the song split share it rather than each
 //! declaring its own identical pair.
@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::song::Song;
+use crate::song::DroSong;
 use crate::split_songs::{Segment, detect_segments, detect_segments_in_vgm, native_rate};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::VgmFile;
@@ -24,7 +24,7 @@ use crate::vgm::VgmFile;
 /// background job is a reference-count bump, not a copy.
 #[derive(Debug, Clone)]
 pub enum DocSource {
-    Dro(Arc<Song>),
+    Dro(Arc<DroSong>),
     Vgm(Arc<VgmFile>),
 }
 
@@ -44,7 +44,7 @@ impl DocSource {
     /// on the OPL board" ask [`Self::is_opl`] instead, which an OPL VGM answers
     /// `true`.
     #[must_use]
-    pub fn dro(&self) -> Option<&Arc<Song>> {
+    pub fn dro(&self) -> Option<&Arc<DroSong>> {
         match self {
             Self::Dro(song) => Some(song),
             Self::Vgm(_) => None,
@@ -75,7 +75,7 @@ impl DocSource {
     }
 
     /// The songs in the capture at `threshold` native units -- the OPL detector
-    /// over a `Song`, the chip-generic one over a `VgmFile`.
+    /// over a `DroSong`, the chip-generic one over a `VgmFile`.
     #[must_use]
     pub fn detect(&self, threshold: u32) -> Vec<Segment> {
         match self {

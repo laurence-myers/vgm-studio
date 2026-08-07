@@ -19,7 +19,7 @@
 
 use std::path::PathBuf;
 
-use vgms_core::{Bank, DroDataV1, OplType, Song};
+use vgms_core::{Bank, DroDataV1, DroSong, OplType};
 use vgms_synth::{Muting, Panning, RenderMix, render_wav, render_wav_mixed};
 
 /// The render every fixture uses: the app's own defaults.
@@ -36,8 +36,8 @@ fn fixture_dir() -> PathBuf {
 /// The pitches differ so that muting, panning and splitting produce audibly --
 /// and bytewise -- distinct results: were both channels identical, a test that
 /// muted one could pass while muting the wrong one.
-fn regression_song() -> Song {
-    Song::dro_v1(
+fn regression_song() -> DroSong {
+    DroSong::dro_v1(
         "regress.dro".to_owned(),
         DroDataV1::new(vec![
             // Channel 0: operator envelope, then a high note keyed on.

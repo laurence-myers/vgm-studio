@@ -1,4 +1,4 @@
-//! Song-format channel split: rewriting a VGM's command stream so that only one
+//! DroSong-format channel split: rewriting a VGM's command stream so that only one
 //! chip channel sounds, producing a standalone VGM.
 //!
 //! The WAV split ([`split_vgm_cancellable`](crate::split_vgm_cancellable))

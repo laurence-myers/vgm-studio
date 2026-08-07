@@ -174,7 +174,7 @@ pub fn bar(ui: &mut egui::Ui, palette: &Palette, state: &MenuState, actions: &mu
             }
             // A pack that lives in a .zip: the same project, edited in memory.
             // Offered beside the folder opener rather than hidden behind "Open
-            // Song", which is where a .zip would otherwise have to be found.
+            // DroSong", which is where a .zip would otherwise have to be found.
             if item(ui, "Open Pack Zip...", None) {
                 actions.push(Action::Pack(PackAction::OpenZip));
             }

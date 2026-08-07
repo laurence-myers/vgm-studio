@@ -8,7 +8,7 @@
 pub mod dro;
 
 use crate::error::{Error, Result};
-use crate::song::Song;
+use crate::song::DroSong;
 
 /// Reads a DRO song.
 ///
@@ -19,7 +19,7 @@ use crate::song::Song;
 ///
 /// # Errors
 /// If the extension is not `.dro`, or the bytes do not parse as a DRO.
-pub fn read_song(name: &str, bytes: &[u8]) -> Result<Song> {
+pub fn read_song(name: &str, bytes: &[u8]) -> Result<DroSong> {
     let lower = name.to_ascii_lowercase();
     if lower.ends_with(".dro") {
         dro::read(name, bytes)
@@ -32,13 +32,13 @@ pub fn read_song(name: &str, bytes: &[u8]) -> Result<Song> {
 
 /// Serialises a DRO song in its own format.
 ///
-/// A [`Song`] is always a DRO now; a VGM document is a
+/// A [`DroSong`] is always a DRO now; a VGM document is a
 /// [`VgmFile`](crate::VgmFile), written through
 /// [`vgm::file::write`](crate::vgm::file::write).
 ///
 /// # Errors
 /// If the song's data and its declared version disagree.
-pub fn write_song(song: &Song) -> Result<Vec<u8>> {
+pub fn write_song(song: &DroSong) -> Result<Vec<u8>> {
     dro::write(song)
 }
 

@@ -178,7 +178,7 @@ impl PackArchive {
         }
         // Check for a collision unconditionally. The old `eq_ignore_ascii_case`
         // short-circuit meant a case-only rename skipped the check -- but this map
-        // is case-sensitive and can hold both "Song.vgm" and "song.vgm" at once,
+        // is case-sensitive and can hold both "DroSong.vgm" and "song.vgm" at once,
         // so renaming one onto the other would silently clobber it. It also only
         // recognised ASCII case, which an unconditional check sidesteps.
         if self.entries.contains_key(to) {

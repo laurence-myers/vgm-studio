@@ -88,7 +88,7 @@ impl PackTrack {
     ///
     /// Asks [`preview_source`](Self::preview_source)'s question without building
     /// its answer. **The table asks this once per row per frame**, and
-    /// `preview_source` materialises a whole [`Song`](vgms_core::Song) -- a copy
+    /// `preview_source` materialises a whole [`DroSong`](vgms_core::DroSong) -- a copy
     /// of every command byte and every offset in the file -- to say yes. A pack
     /// of 38 OPL rips spent 9 ms of every frame on that in release and 150 ms in
     /// a dev build, which is the whole of the Tracks view's slowdown.

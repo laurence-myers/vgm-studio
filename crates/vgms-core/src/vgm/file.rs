@@ -180,7 +180,7 @@ impl VgmFile {
 
     /// The time at which command `index` plays, in milliseconds.
     ///
-    /// The counterpart of [`Song::ms_offset_at`](crate::Song::ms_offset_at);
+    /// The counterpart of [`DroSong::ms_offset_at`](crate::DroSong::ms_offset_at);
     /// `None` when the body holds no parsed stream or `index` is past its end.
     #[must_use]
     pub fn ms_offset_at(&self, index: usize) -> Option<u32> {
@@ -200,7 +200,7 @@ impl VgmFile {
     /// The returned milliseconds always equal [`ms_offset_at`](Self::ms_offset_at)
     /// of the returned index, so selecting the row and seeking to it agree --
     /// the same contract as
-    /// [`Song::index_and_ms_offset_at_pct`](crate::Song::index_and_ms_offset_at_pct).
+    /// [`DroSong::index_and_ms_offset_at_pct`](crate::DroSong::index_and_ms_offset_at_pct).
     #[must_use]
     pub fn index_and_ms_offset_at_pct(&self, position_pct: f64) -> Option<(usize, u32)> {
         let stream = self.stream()?;

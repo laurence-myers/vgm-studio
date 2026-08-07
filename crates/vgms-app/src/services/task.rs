@@ -232,12 +232,12 @@ impl TaskService for ThreadTaskService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use vgms_core::{DroDataV1, OplType, Song};
+    use vgms_core::{DroDataV1, DroSong, OplType};
 
     fn request(ms_length: u32) -> TaskRequest {
         // A trivially short song; the delay's length labels the request so a
         // test can tell whose result arrived.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "task.dro".to_owned(),
             DroDataV1::new(vec![0x20, 0x01, 0x00, (ms_length - 1) as u8]).unwrap(),
             ms_length,

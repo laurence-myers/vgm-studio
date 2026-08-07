@@ -92,7 +92,7 @@ fn converting_to_dro_v1_renames_the_song_and_clears_its_path() {
     harness.run();
 
     let state = harness.state();
-    let song = state.editor.song().expect("still loaded");
+    let song = state.editor.dro_song().expect("still loaded");
     assert_eq!(song.file_version, vgms_core::song::DRO_FILE_V1);
     // The `_1` output name, so a Save As cannot overwrite the v2 source...
     assert_eq!(song.name, "test_1.dro");

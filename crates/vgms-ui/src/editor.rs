@@ -9,8 +9,8 @@ use vgms_core::undo::{
     DeleteCommands, DeleteInstructions, ReplaceStream, ReplaceVgm, UpdateHeader,
 };
 use vgms_core::{
-    CropOutcome, FindTarget, Instruction, OplType, RowAnalysis, Song, SongFileType, UndoController,
-    UndoableCommand, VgmCommand, VgmFile, convert, io,
+    CropOutcome, DroSong, FindTarget, Instruction, OplType, RowAnalysis, SongFileType,
+    UndoController, UndoableCommand, VgmCommand, VgmFile, convert, io,
 };
 
 use crate::analysis::AnalysisCache;
@@ -46,7 +46,7 @@ pub struct RowCells {
 /// cannot put the cursor where the audio is not.
 #[derive(Debug, Clone, Copy)]
 pub enum TimeSource<'a> {
-    Song(&'a Song),
+    Song(&'a DroSong),
     Vgm(&'a VgmFile),
 }
 
@@ -97,7 +97,7 @@ pub struct DocCapabilities {
 /// The "every option this register has" hover text for a multichip write, or
 /// empty when the chip or register is undocumented.
 ///
-/// The counterpart of [`Song::instruction_description`] for a VGM row: the
+/// The counterpart of [`DroSong::instruction_description`] for a VGM row: the
 /// register's full meaning (its name and every field), distinct from the
 /// Description column, which names only the fields a write changed.
 fn register_hover(kind: vgms_core::vgm::ChipKind, port: u8, addr: u16) -> String {
@@ -150,7 +150,7 @@ pub struct LoadReport {
 #[derive(Debug, Default)]
 pub struct Editor {
     /// A DRO, the only format this app still holds as a decoded OPL stream.
-    dro: Option<Song>,
+    dro: Option<DroSong>,
     /// A VGM -- every VGM, whatever its chips. **At most one of `dro` and `vgm`
     /// is ever `Some`**; a load clears both before installing either.
     ///
@@ -164,7 +164,7 @@ pub struct Editor {
     /// per edit is what lets [`Self::doc_source`] hand it to a background job as a
     /// reference-count bump rather than a fresh clone every time.
     ///
-    /// A VGM has no projected `Song` any longer: every OPL-stream reading (the
+    /// A VGM has no projected `DroSong` any longer: every OPL-stream reading (the
     /// analyser, the audio, the render) works off this file's own command stream,
     /// so an OPL VGM takes exactly the path any other VGM does.
     vgm_source: Option<Arc<VgmFile>>,
@@ -173,7 +173,7 @@ pub struct Editor {
     /// falls through to Save As rather than writing VGM bytes over the
     /// original `.dro`.
     pub path: Option<PathBuf>,
-    undo: UndoController<Song>,
+    undo: UndoController<DroSong>,
     /// The VGM-held document's own history. Separate because the two stacks
     /// hold commands over different targets, and only one document is ever
     /// loaded, so they can never both be live.
@@ -213,28 +213,28 @@ impl Editor {
     /// The loaded document as an OPL instruction stream, if it is a DRO.
     ///
     /// `None` for a VGM of any chips, OPL included: a VGM is played, rendered and
-    /// analysed straight from its own command stream now, not a `Song` projected
+    /// analysed straight from its own command stream now, not a `DroSong` projected
     /// off it. The OPL-stream questions a VGM can still answer are asked of its
     /// [`VgmFile`] (`stream()`, [`Self::row_analysis`], [`VgmFile::is_opl`]).
     #[must_use]
-    pub fn song(&self) -> Option<&Song> {
+    pub fn dro_song(&self) -> Option<&DroSong> {
         self.dro.as_ref()
     }
 
-    /// Whether a DRO is loaded -- the document that *is* an editable OPL `Song`.
+    /// Whether a DRO is loaded -- the document that *is* an editable OPL `DroSong`.
     ///
     /// This is the "DRO-only" gate: DRO Info, Convert to VGM/DRO, and the delay
     /// navigation's OPL-instruction search key off it. For "does this document
     /// have any OPL reading at all, DRO or OPL VGM" ask [`Self::is_opl`].
     #[must_use]
-    pub fn has_song(&self) -> bool {
-        self.song().is_some()
+    pub fn has_dro(&self) -> bool {
+        self.dro_song().is_some()
     }
 
     /// Whether the loaded document is OPL -- a DRO, or a VGM whose chips are an
     /// OPL set. This is the "reaches the OPL board / has the OPL mixer vocabulary"
-    /// question, true for both a DRO and an OPL VGM (unlike [`Self::has_song`],
-    /// which is a DRO alone now that a VGM keeps no projected `Song`).
+    /// question, true for both a DRO and an OPL VGM (unlike [`Self::has_dro`],
+    /// which is a DRO alone now that a VGM keeps no projected `DroSong`).
     #[must_use]
     pub fn is_opl(&self) -> bool {
         self.dro.is_some() || self.vgm.as_ref().is_some_and(VgmFile::is_opl)
@@ -250,8 +250,8 @@ impl Editor {
     /// job and the audio backend take, instead of five `match (snapshot, vgm)`
     /// triads each cloning the file.
     ///
-    /// A DRO hands out its `Song` (the `Dro` arm); every VGM, OPL included, hands
-    /// out its file (the `Vgm` arm) -- there is no projected `Song` behind a VGM
+    /// A DRO hands out its `DroSong` (the `Dro` arm); every VGM, OPL included, hands
+    /// out its file (the `Vgm` arm) -- there is no projected `DroSong` behind a VGM
     /// any more. Split and Crop want the file *first*, to keep its header -- they
     /// ask [`Self::vgm_arc`]. `None` with nothing loaded. The `Vgm` arm is the
     /// cached `Arc` ([`Self::refresh_vgm_views`]), so either arm is a cheap clone.
@@ -276,7 +276,7 @@ impl Editor {
     /// too. `None` only when nothing is open.
     #[must_use]
     pub fn timeline(&self) -> Option<TimeSource<'_>> {
-        if let Some(song) = self.song() {
+        if let Some(song) = self.dro_song() {
             Some(TimeSource::Song(song))
         } else {
             self.vgm.as_ref().map(TimeSource::Vgm)
@@ -286,7 +286,7 @@ impl Editor {
     /// Whether anything at all is open, of either kind.
     ///
     /// Use this for "is there a document" questions -- the row count, the dirty
-    /// prompt, whether Save means anything. [`Self::has_song`] stays the
+    /// prompt, whether Save means anything. [`Self::has_dro`] stays the
     /// narrower question: is there a *song*, with instructions to analyse and
     /// audio to render.
     #[must_use]
@@ -328,7 +328,7 @@ impl Editor {
     /// Whether anything would be heard from the loaded document: an OPL stream,
     /// or a VGM with at least one chip this app has a core for.
     fn renderable(&self) -> bool {
-        self.has_song()
+        self.has_dro()
             || self.vgm.as_ref().is_some_and(|file| {
                 let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
                 vgms_synth::playability(&chips).can_play()
@@ -369,10 +369,10 @@ impl Editor {
     /// background tasks. A full clone: snapshots must not alias the editable
     /// song.
     #[must_use]
-    pub fn snapshot(&self) -> Option<Arc<Song>> {
+    pub fn snapshot(&self) -> Option<Arc<DroSong>> {
         // A DRO only: it *is* the editable document, so a snapshot must not alias
         // it. A VGM is snapshotted as its own file ([`Self::vgm_arc`]); there is
-        // no projected `Song` behind one any more.
+        // no projected `DroSong` behind one any more.
         self.dro.clone().map(Arc::new)
     }
 
@@ -526,7 +526,7 @@ impl Editor {
     pub fn save_bytes(&self) -> Result<Vec<u8>, String> {
         if let Some(file) = self.vgm.as_ref() {
             // Its own writer, never the OPL one: that re-derives the chip
-            // clocks from a `Song`'s OPL type, which this file does not have.
+            // clocks from a `DroSong`'s OPL type, which this file does not have.
             let bytes = if file.name.to_ascii_lowercase().ends_with(".vgz") {
                 vgms_core::vgm::file::write_gzipped(file)
             } else {
@@ -736,7 +736,7 @@ impl Editor {
     fn replace_stream(
         &mut self,
         description: &'static str,
-        edit: fn(&Song, usize, usize) -> Option<CropOutcome>,
+        edit: fn(&DroSong, usize, usize) -> Option<CropOutcome>,
     ) -> Option<(usize, usize)> {
         if self.vgm.is_some() {
             return self.replace_vgm_stream(description);
@@ -1026,7 +1026,7 @@ impl Editor {
     /// selected.
     #[must_use]
     pub fn find_next(&self, target: FindTarget, look_backwards: bool) -> Option<usize> {
-        let song = self.song()?;
+        let song = self.dro_song()?;
         let start = self.selection.last().unwrap_or(0);
         song.find_next_instruction(start, target, look_backwards)
     }
@@ -1048,14 +1048,14 @@ impl Editor {
     /// The Bank and Description columns for one table row.
     ///
     /// The two arms are the same call; they are written out because each has to
-    /// borrow a different field alongside the cache, and `song()` borrows the
+    /// borrow a different field alongside the cache, and `dro_song()` borrows the
     /// whole editor.
     fn row_analysis(&mut self, index: usize) -> Option<RowAnalysis> {
         if let Some(song) = self.dro.as_ref() {
             return self.analysis.row(song, index);
         }
         // An OPL VGM's rows are analysed straight from its command stream, not a
-        // projected `Song`. This arm is only reached for an OPL VGM -- a non-OPL
+        // projected `DroSong`. This arm is only reached for an OPL VGM -- a non-OPL
         // VGM takes the chip-row path in `row_cells`, and a DRO returned above.
         let stream = self.vgm.as_ref()?.stream()?;
         self.analysis.row_vgm(stream, index)
@@ -1101,7 +1101,7 @@ impl Editor {
 
     /// The cells of row `index`, whichever kind of document is loaded.
     ///
-    /// The table asks for these rather than reaching into a `Song`, so it does
+    /// The table asks for these rather than reaching into a `DroSong`, so it does
     /// not have to know which kind it is drawing.
     #[must_use]
     pub fn row_cells(&mut self, index: usize) -> RowCells {
@@ -1145,7 +1145,7 @@ impl Editor {
         // The OPL instruction at this row: a DRO decodes its own; an OPL VGM
         // decodes the command straight from its stream (the same projection the
         // analyser walks). Both feed the identical display helpers, so a row reads
-        // the same however the document is held -- there is no projected `Song`.
+        // the same however the document is held -- there is no projected `DroSong`.
         let instruction = if let Some(song) = self.dro.as_ref() {
             song.instruction(index)
         } else {
@@ -1214,7 +1214,7 @@ mod tests {
     use crate::selection::ClickModifiers;
     use crate::test_song::{bogus_leading_delay_song, dro_song_v2, tone_song};
 
-    fn picked(song: &Song) -> PickedFile {
+    fn picked(song: &DroSong) -> PickedFile {
         PickedFile {
             name: song.name.clone(),
             path: Some(PathBuf::from(format!("C:/songs/{}", song.name))),
@@ -1222,7 +1222,7 @@ mod tests {
         }
     }
 
-    fn loaded(song: &Song) -> (Editor, LoadReport) {
+    fn loaded(song: &DroSong) -> (Editor, LoadReport) {
         let mut editor = Editor::new();
         let report = editor.load(picked(song)).unwrap();
         (editor, report)
@@ -1256,7 +1256,7 @@ mod tests {
         assert!(report.auto_trimmed);
         assert!(report.delay_mismatch, "999 in the header, 200 measured");
         // The delay is gone, and the trim is not undoable.
-        let song = editor.song().unwrap();
+        let song = editor.dro_song().unwrap();
         assert_eq!(song.len(), 2);
         assert!(!song.instruction(0).unwrap().is_delay());
         assert!(!editor.can_undo());
@@ -1272,7 +1272,7 @@ mod tests {
         let (editor, report) = loaded(&source);
         assert!(report.auto_trimmed);
         assert!(!report.delay_mismatch);
-        assert_eq!(editor.song().unwrap().ms_length, 200);
+        assert_eq!(editor.dro_song().unwrap().ms_length, 200);
     }
 
     #[test]
@@ -1353,13 +1353,13 @@ mod tests {
             .expect("it opens");
 
         assert_eq!(editor.vgm().expect("held as a VGM").chip_list(), "YM2612");
-        assert!(editor.song().is_none(), "and has no OPL projection");
+        assert!(editor.dro_song().is_none(), "and has no OPL projection");
         assert!(!editor.capabilities().playable);
         assert_eq!(editor.path, Some(PathBuf::from("C:/rips/Sonic/sonic.vgm")));
     }
 
-    /// An OPL VGM is held only as a VGM: there is no projected `Song` behind it
-    /// any more (`song()` is `None`), yet it is playable and analysed straight
+    /// An OPL VGM is held only as a VGM: there is no projected `DroSong` behind it
+    /// any more (`dro_song()` is `None`), yet it is playable and analysed straight
     /// from its own stream -- exactly the path any other VGM takes.
     #[test]
     fn an_opl_vgm_is_held_as_a_vgm_with_no_projection() {
@@ -1367,7 +1367,10 @@ mod tests {
         let (editor, _) = loaded_vgm(&vgm);
 
         assert!(editor.vgm().is_some(), "the file itself is the document");
-        assert!(editor.song().is_none(), "and there is no projected Song");
+        assert!(
+            editor.dro_song().is_none(),
+            "and there is no projected Song"
+        );
         assert!(editor.vgm().unwrap().is_opl(), "but it is an OPL VGM");
         assert!(editor.capabilities().playable);
     }
@@ -1493,7 +1496,10 @@ mod tests {
                 bytes: mega_drive_vgm(),
             })
             .expect("it opens");
-        assert!(editor.song().is_none(), "no OPL projection to fall back on");
+        assert!(
+            editor.dro_song().is_none(),
+            "no OPL projection to fall back on"
+        );
         assert_eq!(editor.document_name(), Some("md.vgm"));
     }
 
@@ -1543,12 +1549,12 @@ mod tests {
     #[test]
     fn undo_and_redo_round_trip_with_descriptions() {
         let (mut editor, _) = loaded(&dro_song_v2());
-        let original = editor.song().unwrap().clone();
+        let original = editor.dro_song().unwrap().clone();
         editor.selection.select_only(0);
         editor.delete_selection();
 
         assert_eq!(editor.undo(), Some("Delete Instruction(s)".to_owned()));
-        assert_eq!(editor.song().unwrap(), &original);
+        assert_eq!(editor.dro_song().unwrap(), &original);
         assert_eq!(editor.redo(), Some("Delete Instruction(s)".to_owned()));
         assert_eq!(editor.len(), 13);
         assert_eq!(editor.redo(), None);
@@ -1558,14 +1564,14 @@ mod tests {
     fn header_edits_are_undoable() {
         let (mut editor, _) = loaded(&dro_song_v2());
         editor.update_header(OplType::Opl2, 42);
-        let song = editor.song().unwrap();
+        let song = editor.dro_song().unwrap();
         assert_eq!(song.opl_type, OplType::Opl2);
         assert_eq!(song.ms_length, 42);
 
         // Undo must restore the original ms_length, not the new value; this
         // pins that.
         assert_eq!(editor.undo(), Some("DRO Header Changes".to_owned()));
-        let song = editor.song().unwrap();
+        let song = editor.dro_song().unwrap();
         assert_eq!(song.opl_type, OplType::Opl3);
         assert_eq!(song.ms_length, 99_170);
     }
@@ -1578,7 +1584,7 @@ mod tests {
 
         let file = editor.vgm().expect("converting installs a VGM file");
         assert!(file.name.ends_with(".vgm"));
-        assert!(editor.song().is_none(), "no projected Song behind it");
+        assert!(editor.dro_song().is_none(), "no projected Song behind it");
         // Save does not write VGM bytes over the original .dro path -- the
         // converted song has no path until Save As.
         assert!(editor.path.is_none());
@@ -1592,11 +1598,11 @@ mod tests {
     fn convert_to_dro1_downgrades_the_song_and_renames_it() {
         let (mut editor, _) = loaded(&dro_song_v2());
         editor.selection.select_only(2);
-        let before = editor.song().unwrap().total_delay_ms();
+        let before = editor.dro_song().unwrap().total_delay_ms();
 
         editor.convert_to_dro1().unwrap();
 
-        let song = editor.song().unwrap();
+        let song = editor.dro_song().unwrap();
         assert_eq!(song.file_version, vgms_core::song::DRO_FILE_V1);
         // The name `vgmstudio convert` would have written, so Save As cannot
         // silently overwrite the v2 the conversion came from.
@@ -1771,7 +1777,7 @@ mod tests {
     fn both_edits_undo_back_to_the_original_song() {
         for crop in [true, false] {
             let (mut editor, _) = loaded(&dro_song_v2());
-            let original = editor.song().unwrap().clone();
+            let original = editor.dro_song().unwrap().clone();
             let len = editor.len();
             editor.markers.set_start(2, len);
             editor.markers.set_end(10, len);
@@ -1782,11 +1788,11 @@ mod tests {
                 editor.delete_marked_region()
             };
             assert!(done.is_some());
-            assert_ne!(editor.song().unwrap(), &original);
+            assert_ne!(editor.dro_song().unwrap(), &original);
 
             editor.undo();
             assert_eq!(
-                editor.song().unwrap(),
+                editor.dro_song().unwrap(),
                 &original,
                 "undo must restore the song exactly (crop: {crop})"
             );
@@ -1795,7 +1801,7 @@ mod tests {
             assert!(editor.markers.end() <= editor.len());
 
             editor.redo();
-            assert_ne!(editor.song().unwrap(), &original);
+            assert_ne!(editor.dro_song().unwrap(), &original);
         }
     }
 
@@ -1856,7 +1862,7 @@ mod tests {
         assert_eq!(removed, 8);
         assert!(bridged > 0, "the whole reached state has to be replayed");
         // Every register the intro had set is restored ahead of the tail.
-        let song = editor.song().unwrap();
+        let song = editor.dro_song().unwrap();
         assert_eq!(editor.len(), len - removed + bridged);
         assert!(song.instruction(0).is_some_and(|i| !i.is_delay()));
     }

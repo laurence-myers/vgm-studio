@@ -5,7 +5,7 @@ use super::*;
 /// The names a WAV split of `dual_tone_song` writes, in order -- computed the way
 /// the app does now (ou-4): the OPL document projects to a VGM and splits through
 /// the generic splitter, so the stems carry the chip's roster names.
-fn split_names(song: &Song) -> Vec<String> {
+fn split_names(song: &DroSong) -> Vec<String> {
     let file = std::sync::Arc::new(
         vgms_core::convert::opl_song_to_vgm_file(song).expect("the OPL song projects"),
     );

@@ -8,7 +8,7 @@
 //! [`FindTarget`], a VGM a [`VgmFindTarget`] (see [`Emit`]).
 
 use vgms_core::vgm::{ChipKind, VgmFile, VgmFindTarget};
-use vgms_core::{FindTarget, OplType, Song, chip_docs};
+use vgms_core::{DroSong, FindTarget, OplType, chip_docs};
 
 use crate::action::{Action, EditAction, FindQuery};
 use crate::theme::{Palette, bevel};
@@ -81,7 +81,7 @@ struct Find {
 impl FindRegDialog {
     /// The dialog for a DRO: its single OPL chip.
     #[must_use]
-    pub fn new(song: &Song) -> Self {
+    pub fn new(song: &DroSong) -> Self {
         let kind = opl_find_kind(song.opl_type);
         let chips = vec![ChipChoice {
             label: kind.name().to_owned(),

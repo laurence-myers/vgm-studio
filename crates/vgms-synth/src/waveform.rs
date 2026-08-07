@@ -8,7 +8,7 @@
 use std::borrow::Borrow;
 
 use vgms_core::util::VGM_SAMPLE_RATE;
-use vgms_core::{Instruction, Song};
+use vgms_core::{DroSong, Instruction};
 
 use std::sync::Arc;
 
@@ -134,7 +134,11 @@ const PROGRESSIVE_UPDATES: usize = 32;
 
 /// Renders `song` and buckets it into `num_buckets` min/max slices for drawing.
 #[must_use]
-pub fn render_waveform(song: &Song, num_buckets: usize, sample_rate: u32) -> Vec<WaveformBucket> {
+pub fn render_waveform(
+    song: &DroSong,
+    num_buckets: usize,
+    sample_rate: u32,
+) -> Vec<WaveformBucket> {
     render_waveform_cancellable(song, num_buckets, sample_rate, || true)
         .expect("a render that is never cancelled always completes")
 }
@@ -143,7 +147,7 @@ pub fn render_waveform(song: &Song, num_buckets: usize, sample_rate: u32) -> Vec
 /// background task can abandon a stale render mid-song (the GUI resubmits the
 /// render on every edit). Returns `None` iff `keep_going` returned `false`.
 pub fn render_waveform_cancellable(
-    song: &Song,
+    song: &DroSong,
     num_buckets: usize,
     sample_rate: u32,
     mut keep_going: impl FnMut() -> bool,
@@ -173,7 +177,7 @@ pub fn render_waveform_cancellable(
 /// pacing is by bucket progress, not wall-clock, so this stays wasm-clean and
 /// deterministic.
 pub fn render_waveform_progressive(
-    song: &Song,
+    song: &DroSong,
     num_buckets: usize,
     sample_rate: u32,
     keep_going: &mut dyn FnMut() -> bool,
@@ -290,9 +294,9 @@ pub fn render_vgm_waveform(
 /// The number of output frames [`PlayerEngine`] will render for the whole song,
 /// used to size the buckets. Mirrors the engine's own frame accounting: the
 /// delays, through the same [`FrameClock`]. Register writes cost no frames.
-fn total_output_frames<B: Borrow<Song>>(song: B, sample_rate: u32) -> u64 {
+fn total_output_frames<B: Borrow<DroSong>>(song: B, sample_rate: u32) -> u64 {
     let song = song.borrow();
-    // A `Song` is always a DRO, whose delays are milliseconds.
+    // A `DroSong` is always a DRO, whose delays are milliseconds.
     let delay_unit = 1000;
     let mut clock = FrameClock::new(sample_rate, delay_unit);
     let mut frames = 0u64;
@@ -311,8 +315,8 @@ mod tests {
     use super::*;
     use vgms_core::{DroDataV1, OplType};
 
-    fn tone_song() -> Song {
-        Song::dro_v1(
+    fn tone_song() -> DroSong {
+        DroSong::dro_v1(
             "tone.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator (fast release)

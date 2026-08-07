@@ -6,13 +6,13 @@
 // design (the only core available is LGPL). See `licenses/README.md`.
 #![cfg(feature = "nuked-opl")]
 
-use vgms_core::{DroDataV1, OplType, Song};
+use vgms_core::{DroDataV1, DroSong, OplType};
 use vgms_synth::{Muting, NATIVE_SAMPLE_RATE, Panning, PlayerEngine};
 
 /// A sustained OPL2 tone: instruments, key-on, then a long delay and no key-off,
 /// so every rendered frame is audible and a pan asymmetry is unambiguous.
-fn sustained_tone() -> Song {
-    Song::dro_v1(
+fn sustained_tone() -> DroSong {
+    DroSong::dro_v1(
         "tone.dro".to_owned(),
         DroDataV1::new(vec![
             0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator
@@ -30,8 +30,8 @@ fn sustained_tone() -> Song {
 /// (bit 4 set, bit 5 clear). With stereo-ext disengaged the song plays hard left;
 /// a Custom centre pan must override that, and must keep overriding it after a
 /// seek. New OPL3 mode is enabled first (`0x105 = 0x01` on the high bank).
-fn opl3_left_tone() -> Song {
-    Song::dro_v1(
+fn opl3_left_tone() -> DroSong {
+    DroSong::dro_v1(
         "opl3left.dro".to_owned(),
         DroDataV1::new(vec![
             0x03, // bank switch high
@@ -54,8 +54,8 @@ fn opl3_left_tone() -> Song {
 /// unused no-op, but the stereo-ext chip reads it as a hard-left pan, so the
 /// engine must drop it while Custom is engaged. Runs in newm=0 (OPL2-compat),
 /// like the real song.
-fn song_writing_a_pan_register() -> Song {
-    Song::dro_v1(
+fn song_writing_a_pan_register() -> DroSong {
+    DroSong::dro_v1(
         "pan_reg.dro".to_owned(),
         DroDataV1::new(vec![
             0x20, 0x01, 0x40, 0x10, 0x60, 0xF0, 0x80, 0x7F, // modulator
@@ -70,7 +70,7 @@ fn song_writing_a_pan_register() -> Song {
     )
 }
 
-fn render(engine: &mut PlayerEngine<&Song>, frames: usize) -> Vec<i16> {
+fn render(engine: &mut PlayerEngine<&DroSong>, frames: usize) -> Vec<i16> {
     let mut out = vec![0i16; frames * 2];
     engine.render(&mut out);
     out

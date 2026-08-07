@@ -8,7 +8,7 @@
 //! The engine is the same one every other chip plays through: it hosts the board's
 //! [`SerialOpl3Chip`] as an [`OplCoreAdapter`](vgms_synth::OplCoreAdapter) (Stage K
 //! / ou-1), so the OPL family is no longer a separate `PlayerEngine` path -- an OPL
-//! `Song` is projected to a VGM and driven here exactly as a native OPL VGM is. The
+//! `DroSong` is projected to a VGM and driven here exactly as a native OPL VGM is. The
 //! samples the engine renders are discarded; the register writes it makes to the
 //! shared chip are the point, and the shadow/`hw` model in [`SerialOpl3Chip`] turns
 //! them into the minimal wire traffic the board needs.
@@ -182,7 +182,7 @@ pub struct RetroWaveAudio {
 impl RetroWaveAudio {
     /// Starts a pump for `file` on `device`, paused.
     ///
-    /// `file` is an OPL VGM -- a native one, or the projection of an OPL `Song`
+    /// `file` is an OPL VGM -- a native one, or the projection of an OPL `DroSong`
     /// the service made. `opl` is `Some(type)` when the document is a DRO, whose
     /// OPL panel speaks the [`Muting`]/[`Panning`] vocabulary the pump must
     /// translate; `None` when it is an OPL VGM, which the generic per-chip mixer
@@ -530,7 +530,7 @@ mod tests {
         sync::mpsc::{Sender, channel},
     };
     use vgms_core::vgm::ChipKind;
-    use vgms_core::{DroDataV2, OplType, Song};
+    use vgms_core::{DroDataV2, DroSong, OplType};
 
     /// Reports every write with the time it arrived, so tests can check pacing.
     #[derive(Debug)]
@@ -551,7 +551,7 @@ mod tests {
 
     /// Projects a DRO fixture the way the service does, tagging it as an OPL
     /// document (the `Some(opl_type)` vocabulary the pump translates).
-    fn dro(song: Song) -> (Arc<VgmFile>, Option<OplType>) {
+    fn dro(song: DroSong) -> (Arc<VgmFile>, Option<OplType>) {
         let opl_type = song.opl_type;
         let file = vgms_core::convert::opl_song_to_vgm_file(&song).expect("a DRO projects");
         (Arc::new(file), Some(opl_type))
@@ -570,7 +570,7 @@ mod tests {
             0x00,
             0x02, // register 0x20 = 0x02
         ];
-        dro(Song::dro_v2(
+        dro(DroSong::dro_v2(
             "test".to_owned(),
             DroDataV2::new(data, vec![0x20, 0x40], SHORT_DELAY, LONG_DELAY)
                 .expect("a well-formed fixture"),
@@ -589,7 +589,7 @@ mod tests {
             SHORT_DELAY,
             (hold_ms - 1) as u8,
         ];
-        dro(Song::dro_v2(
+        dro(DroSong::dro_v2(
             "held.dro".to_owned(),
             DroDataV2::new(data, vec![0xB0, 0x20], SHORT_DELAY, LONG_DELAY)
                 .expect("a well-formed fixture"),

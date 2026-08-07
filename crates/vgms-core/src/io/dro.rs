@@ -7,7 +7,7 @@
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
 use crate::song::dro_data::{DroDataV1, DroDataV2};
-use crate::song::{OplType, Song, SongData};
+use crate::song::{DroSong, DroSongData, OplType};
 
 /// `DBRAWOPL`.
 pub const MAGIC: &[u8; 8] = b"DBRAWOPL";
@@ -23,13 +23,13 @@ const WRITE_CHAR_OPL: bool = false;
 
 /// Parses a DRO file of either version.
 ///
-/// `name` is carried on the returned [`Song`] for the title bar and for
+/// `name` is carried on the returned [`DroSong`] for the title bar and for
 /// `Save`; it is never opened.
 ///
 /// # Errors
 /// If the magic or version is wrong, if the file is truncated, or if the data
 /// stream is malformed in a way that cannot be recovered from.
-pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
+pub fn read(name: &str, bytes: &[u8]) -> Result<DroSong> {
     let mut reader = ByteReader::new(bytes);
 
     let magic = reader.take(8)?;
@@ -56,10 +56,10 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<Song> {
 ///
 /// # Errors
 /// Never fails today; the `Result` keeps the writer signatures uniform.
-pub fn write(song: &Song) -> Result<Vec<u8>> {
+pub fn write(song: &DroSong) -> Result<Vec<u8>> {
     match song.data() {
-        SongData::V1(_) => Ok(write_v1(song)),
-        SongData::V2(data) => Ok(write_v2(song, data)),
+        DroSongData::V1(_) => Ok(write_v1(song)),
+        DroSongData::V2(data) => Ok(write_v2(song, data)),
     }
 }
 
@@ -67,7 +67,7 @@ pub fn write(song: &Song) -> Result<Vec<u8>> {
 // v1
 // ---------------------------------------------------------------------------
 
-fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
+fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<DroSong> {
     let ms_length = reader.u32_le()?;
     let byte_length = reader.u32_le()? as usize;
 
@@ -115,10 +115,10 @@ fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
         log::warn!("DRO v1 data ends mid-instruction; dropping the last {dropped} byte(s)");
     }
 
-    Ok(Song::dro_v1(name.to_owned(), data, ms_length, opl_type))
+    Ok(DroSong::dro_v1(name.to_owned(), data, ms_length, opl_type))
 }
 
-fn write_v1(song: &Song) -> Vec<u8> {
+fn write_v1(song: &DroSong) -> Vec<u8> {
     let raw = song.data().raw();
     debug_assert!(
         u32::try_from(raw.len()).is_ok(),
@@ -148,7 +148,7 @@ fn write_v1(song: &Song) -> Vec<u8> {
 // v2
 // ---------------------------------------------------------------------------
 
-fn read_v2(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
+fn read_v2(name: &str, mut reader: ByteReader<'_>) -> Result<DroSong> {
     let length_pairs = reader.u32_le()?;
     let ms_length = reader.u32_le()?;
     let hardware_type = reader.u8()?;
@@ -200,10 +200,10 @@ fn read_v2(name: &str, mut reader: ByteReader<'_>) -> Result<Song> {
     }
 
     let data = DroDataV2::new(raw, codemap, short_delay_code, long_delay_code)?;
-    Ok(Song::dro_v2(name.to_owned(), data, ms_length, opl_type))
+    Ok(DroSong::dro_v2(name.to_owned(), data, ms_length, opl_type))
 }
 
-fn write_v2(song: &Song, data: &DroDataV2) -> Vec<u8> {
+fn write_v2(song: &DroSong, data: &DroDataV2) -> Vec<u8> {
     let raw = data.raw();
     let codemap = data.codemap();
     debug_assert!(
@@ -276,7 +276,7 @@ mod tests {
         assert_eq!(song.name, "lsl3_score_up_dro2.dro");
         assert_eq!(song.len(), 299);
 
-        let SongData::V2(data) = song.data() else {
+        let DroSongData::V2(data) = song.data() else {
             panic!("expected a v2 song")
         };
         assert_eq!(data.short_delay_code(), 122);

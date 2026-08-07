@@ -4,7 +4,7 @@
 //!
 //! A `Worker` shares no memory with the page, so a task's inputs have to be
 //! serialised. There is no serde here on purpose: the request carries whole
-//! documents (`Song`, `VgmFile`), which already have exact readers and writers of
+//! documents (`DroSong`, `VgmFile`), which already have exact readers and writers of
 //! their own, so they ride as their file bytes and read back by name -- the
 //! round-trip `vgms-core` already tests to the byte. Everything else is a handful
 //! of scalars, length-prefixed. `AudioConfig` rides its INI text, the same string
@@ -20,7 +20,7 @@ use vgms_core::config::AudioConfig;
 use vgms_core::config::OptimizerChoice;
 use vgms_core::loopfind::Candidate;
 use vgms_core::vgm::ChipKind;
-use vgms_core::{Song, VgmFile};
+use vgms_core::{DroSong, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
     AudioSource, ChipMuting, ChipPanning, CoreChoices, Muting, Panning, Peak, RenderMix,
@@ -164,10 +164,10 @@ impl<'a> Reader<'a> {
 
 // -- documents ------------------------------------------------------------------
 
-/// Encodes a [`Song`] as `(name, file-bytes)`: its own writer produces the bytes,
+/// Encodes a [`DroSong`] as `(name, file-bytes)`: its own writer produces the bytes,
 /// and the name's extension picks the reader back. This is the exact byte the app
 /// would save, so the round-trip is the one `vgms-core` already pins.
-fn write_song(writer: &mut Writer, song: &Song) -> Result<()> {
+fn write_song(writer: &mut Writer, song: &DroSong) -> Result<()> {
     let bytes =
         vgms_core::io::write_song(song).map_err(|error| CodecError::Document(error.to_string()))?;
     writer.str(&song.name);
@@ -175,7 +175,7 @@ fn write_song(writer: &mut Writer, song: &Song) -> Result<()> {
     Ok(())
 }
 
-fn read_song(reader: &mut Reader) -> Result<Song> {
+fn read_song(reader: &mut Reader) -> Result<DroSong> {
     let name = reader.str("song.name")?;
     let bytes = reader.bytes("song.bytes")?;
     vgms_core::io::read_song(&name, bytes).map_err(|error| CodecError::Document(error.to_string()))
@@ -1010,9 +1010,9 @@ mod tests {
     const OPL_VGM: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
     const OPL_DRO: &[u8] = include_bytes!("../../../tests/lsl3_score_up_dro2.dro");
 
-    // The codec's Opl-document arm carries a DRO `Song` now (an OPL VGM travels as
-    // a `VgmFile` on the Vgm arm); a `Song` is always a DRO.
-    fn sample_song() -> Arc<Song> {
+    // The codec's Opl-document arm carries a DRO `DroSong` now (an OPL VGM travels as
+    // a `VgmFile` on the Vgm arm); a `DroSong` is always a DRO.
+    fn sample_song() -> Arc<DroSong> {
         Arc::new(
             vgms_core::io::read_song("lsl3_score_up_dro2.dro", OPL_DRO).expect("fixture parses"),
         )

@@ -21,7 +21,7 @@
 
 use crate::opl_state::OplState;
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, Instruction, Song, SongData};
+use crate::song::{Bank, DroSong, DroSongData, Instruction};
 
 /// The size of one OPL register file (low or high).
 const REGISTER_COUNT: usize = 256;
@@ -55,7 +55,7 @@ impl StateFold {
     }
 
     /// The state `song` has reached after its first `upto` instructions.
-    pub(crate) fn over(song: &Song, upto: usize) -> Self {
+    pub(crate) fn over(song: &DroSong, upto: usize) -> Self {
         let mut fold = Self::blank();
         fold.advance(song, 0, upto);
         fold
@@ -64,7 +64,7 @@ impl StateFold {
     /// Folds `song`'s instructions `[from, to)` into the state, so a fold taken
     /// at one point can be carried on to a later one without re-walking the
     /// stream from the beginning.
-    pub(crate) fn advance(&mut self, song: &Song, from: usize, to: usize) {
+    pub(crate) fn advance(&mut self, song: &DroSong, from: usize, to: usize) {
         for index in from..to.min(song.len()) {
             match song.instruction(index) {
                 Some(Instruction::Register { reg, value, bank }) => {
@@ -102,11 +102,11 @@ impl StateFold {
 /// no switches are emitted at all.
 pub(crate) fn append_patch(
     bytes: &mut Vec<u8>,
-    song: &Song,
+    song: &DroSong,
     from: &StateFold,
     to: &StateFold,
 ) -> usize {
-    let is_v1 = matches!(song.data(), SongData::V1(_));
+    let is_v1 = matches!(song.data(), DroSongData::V1(_));
     let mut emit_bank = from.bank;
     let mut appended = 0;
 
@@ -157,7 +157,7 @@ fn bank_switch_bytes(bank: Bank) -> &'static [u8] {
 /// as `(bank, reg, value)` replay triples -- the reference a patched stream must
 /// reproduce.
 #[cfg(test)]
-pub(crate) fn state_over(song: &Song, upto: usize) -> Vec<(Bank, u8, u8)> {
+pub(crate) fn state_over(song: &DroSong, upto: usize) -> Vec<(Bank, u8, u8)> {
     StateFold::over(song, upto).state.replay_writes()
 }
 
@@ -167,7 +167,7 @@ pub(crate) fn state_over(song: &Song, upto: usize) -> Vec<(Bank, u8, u8)> {
 /// This is how a patched stream is checked: the patch is `n` writes long, so
 /// folding exactly that many says what state the body opens on.
 #[cfg(test)]
-pub(crate) fn state_after_writes(song: &Song, n: usize) -> Vec<(Bank, u8, u8)> {
+pub(crate) fn state_after_writes(song: &DroSong, n: usize) -> Vec<(Bank, u8, u8)> {
     let mut fold = StateFold::blank();
     let mut seen = 0;
     for index in 0..song.len() {
@@ -189,7 +189,7 @@ mod tests {
 
     /// The patch bytes carrying `song` from state-at-`from` to state-at-`to`,
     /// and the instruction count reported.
-    fn patch_between(song: &Song, from: usize, to: usize) -> (Vec<u8>, usize) {
+    fn patch_between(song: &DroSong, from: usize, to: usize) -> (Vec<u8>, usize) {
         let mut bytes = Vec::new();
         let count = append_patch(
             &mut bytes,
@@ -213,7 +213,7 @@ mod tests {
     }
 
     /// A v1 stream: low 0x20=0x01, switch high, 0x40=0x10, switch low, 0xB0=0x31.
-    fn v1_song() -> Song {
+    fn v1_song() -> DroSong {
         let data = [
             v1_write(0x20, 0x01),
             switch(Bank::High),
@@ -222,7 +222,7 @@ mod tests {
             v1_write(0xB0, 0x31),
         ]
         .concat();
-        Song::dro_v1(
+        DroSong::dro_v1(
             "t.dro".to_owned(),
             crate::song::DroDataV1::new(data).unwrap(),
             0,
@@ -236,7 +236,7 @@ mod tests {
         // latest, so the patch carries 0x99 rather than the stale 0x11. A fold
         // that kept the first write would silently re-emit the old value.
         let data = [v1_write(0x20, 0x11), v1_write(0x20, 0x99)].concat();
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "rewrite.dro".to_owned(),
             crate::song::DroDataV1::new(data).unwrap(),
             0,

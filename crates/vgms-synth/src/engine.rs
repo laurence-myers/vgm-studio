@@ -19,7 +19,7 @@ use std::borrow::Borrow;
 use vgms_core::regdata::PERCUSSION_REGISTER;
 use vgms_core::song::DRO_FILE_V1;
 use vgms_core::util::VGM_SAMPLE_RATE;
-use vgms_core::{Bank, Instruction, Song, SongFileType};
+use vgms_core::{Bank, DroSong, Instruction, SongFileType};
 
 use crate::opl::{DefaultOplChip, OplChip};
 
@@ -285,9 +285,9 @@ impl LoopConfig {
     /// both floor the same `delays * rate / unit`, so the seam lands on the frame
     /// forward playback would have been on.
     #[must_use]
-    pub fn for_song(song: &Song, start: usize, end: usize, count: LoopCount, rate: u32) -> Self {
+    pub fn for_song(song: &DroSong, start: usize, end: usize, count: LoopCount, rate: u32) -> Self {
         let rate = u64::from(rate);
-        // A `Song` is always a DRO, whose delays are milliseconds.
+        // A `DroSong` is always a DRO, whose delays are milliseconds.
         let start_frames = u64::from(song.ms_offset_at(start).unwrap_or(0)) * rate / 1000;
         Self {
             start,
@@ -338,7 +338,7 @@ pub struct Position {
     pub elapsed_ms: u32,
     /// The next instruction the engine will execute. While a delay is playing
     /// this already points *past* that delay; the sounding row is
-    /// [`Song::seek_index_for_ms`] of `elapsed_ms`.
+    /// [`DroSong::seek_index_for_ms`] of `elapsed_ms`.
     pub next_instruction: usize,
     /// How many times playback has jumped back to the loop start since the last
     /// seek. `0` unless a loop is set.
@@ -382,11 +382,11 @@ impl Position {
 
 /// The pull-based playback state machine.
 ///
-/// Generic over the song container (`&Song` for a one-shot offline render,
-/// `Arc<Song>` for the audio thread) and the OPL core (a mock in tests). Build one
+/// Generic over the song container (`&DroSong` for a one-shot offline render,
+/// `Arc<DroSong>` for the audio thread) and the OPL core (a mock in tests). Build one
 /// with [`PlayerEngine::new`]; drive it with [`PlayerEngine::render`].
 #[derive(Debug)]
-pub struct PlayerEngine<B = std::sync::Arc<Song>, C = DefaultOplChip> {
+pub struct PlayerEngine<B = std::sync::Arc<DroSong>, C = DefaultOplChip> {
     song: B,
     chip: C,
     sample_rate: u32,
@@ -422,7 +422,7 @@ pub struct PlayerEngine<B = std::sync::Arc<Song>, C = DefaultOplChip> {
     loops_done: u32,
 }
 
-impl<B: Borrow<Song>> PlayerEngine<B, DefaultOplChip> {
+impl<B: Borrow<DroSong>> PlayerEngine<B, DefaultOplChip> {
     /// Builds an engine for `song`, rendering at `sample_rate` Hz. The chip is
     /// reset and positioned at the start of the song.
     #[must_use]
@@ -432,12 +432,12 @@ impl<B: Borrow<Song>> PlayerEngine<B, DefaultOplChip> {
     }
 }
 
-impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
+impl<B: Borrow<DroSong>, C: OplChip> PlayerEngine<B, C> {
     /// As [`PlayerEngine::new`], but with a caller-provided chip (for tests, or a
     /// different [`OplChip`]).
     #[must_use]
     pub fn with_chip(song: B, chip: C, sample_rate: u32) -> Self {
-        // A `Song` is always a DRO, whose delays are milliseconds.
+        // A `DroSong` is always a DRO, whose delays are milliseconds.
         let delay_unit = 1000;
         let mut engine = Self {
             song,
@@ -460,7 +460,7 @@ impl<B: Borrow<Song>, C: OplChip> PlayerEngine<B, C> {
         engine
     }
 
-    fn song(&self) -> &Song {
+    fn song(&self) -> &DroSong {
         self.song.borrow()
     }
 
@@ -795,11 +795,11 @@ mod tests {
 
     // `vgms-core`'s own fixtures are `pub(crate)`, so rebuild the two the tests
     // need through the public constructors. These match `song/fixtures.rs`.
-    fn dro_song_v2() -> Song {
+    fn dro_song_v2() -> DroSong {
         let mut data: Vec<u8> = (0..10).collect();
         data.extend_from_slice(&[0xFE, 0xB0, 0xFF, 0xC0]);
         data.extend_from_within(..);
-        Song::dro_v2(
+        DroSong::dro_v2(
             "test.dro".to_owned(),
             DroDataV2::new(
                 data,
@@ -813,8 +813,8 @@ mod tests {
         )
     }
 
-    fn dro_song_v1() -> Song {
-        Song::dro_v1(
+    fn dro_song_v1() -> DroSong {
+        DroSong::dro_v1(
             "test_v1.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, // 0: register 0x20 = 0x01
@@ -834,8 +834,8 @@ mod tests {
     /// A v1 stream that turns on OPL3 new mode (`0x105 = 0x01`) and pans channel
     /// 0's `0xC0` to the right speaker only, so the newm tracking and the `0xC0`
     /// shadow can be asserted through the panning paths.
-    fn panning_probe_song() -> Song {
-        Song::dro_v1(
+    fn panning_probe_song() -> DroSong {
+        DroSong::dro_v1(
             "pan.dro".to_owned(),
             DroDataV1::new(vec![
                 0x03, // bank switch high
@@ -852,8 +852,8 @@ mod tests {
 
     /// A tiny song (8 ms total) for the frame-counting tests, so they do not
     /// render the 99-second `dro_song_v2` fixture.
-    fn small_song() -> Song {
-        Song::dro_v1(
+    fn small_song() -> DroSong {
+        DroSong::dro_v1(
             "small.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, // register write
@@ -892,7 +892,7 @@ mod tests {
         }
     }
 
-    fn recording_engine(song: &Song) -> PlayerEngine<&Song, RecordingChip> {
+    fn recording_engine(song: &DroSong) -> PlayerEngine<&DroSong, RecordingChip> {
         PlayerEngine::with_chip(song, RecordingChip::default(), 48_000)
     }
 
@@ -927,7 +927,7 @@ mod tests {
     }
 
     /// Renders an engine to the end and returns the total frames rendered.
-    fn render_to_end<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
+    fn render_to_end<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
         let mut out = vec![0i16; 65_536 * 2];
         while engine.render(&mut out) == out.len() / 2 {}
         engine.position().frames_rendered
@@ -1018,7 +1018,7 @@ mod tests {
         // A synthetic v1 stream: set up channel 0 then key it on (0xB0), and key
         // on channel 1 (0xB1). Muting channel 0xB0 must drop the 0xB0 write but
         // keep 0xB1 and all the operator writes.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "mute.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, // operator write (always passes)
@@ -1048,7 +1048,7 @@ mod tests {
     fn percussion_writes_are_and_masked() {
         // reg 0xBD with all drums on; a 0xE0 mask keeps the control bits, drops
         // the drums.
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "perc.dro".to_owned(),
             DroDataV1::new(vec![0xBD, 0xFF, 0x00, 0x00]).unwrap(),
             1,
@@ -1072,7 +1072,7 @@ mod tests {
     /// still-passing 0xA0 writes move fnum under a frozen block.
     #[test]
     fn a_seek_replay_never_arms_a_muted_channels_key() {
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "seek-muted.dro".to_owned(),
             DroDataV1::new(vec![
                 0x20, 0x01, // operator write
@@ -1115,7 +1115,7 @@ mod tests {
 
     #[test]
     fn a_seek_replay_masks_percussion_like_playback_would() {
-        let song = Song::dro_v1(
+        let song = DroSong::dro_v1(
             "seek-perc.dro".to_owned(),
             DroDataV1::new(vec![0xBD, 0x3F, 0x00, 0x00]).unwrap(),
             1,
@@ -1399,7 +1399,7 @@ mod tests {
 
     #[test]
     fn an_empty_song_renders_nothing() {
-        let song = Song::dro_v2(
+        let song = DroSong::dro_v2(
             "empty.dro".to_owned(),
             DroDataV2::new(vec![], vec![0x10], 0xFE, 0xFF).unwrap(),
             0,
@@ -1419,11 +1419,11 @@ mod tests {
     // frame 240 and the whole song is 384 frames.
 
     fn looping_engine(
-        song: &Song,
+        song: &DroSong,
         start: usize,
         end: usize,
         count: LoopCount,
-    ) -> PlayerEngine<&Song, RecordingChip> {
+    ) -> PlayerEngine<&DroSong, RecordingChip> {
         let mut engine = recording_engine(song);
         engine.set_loop(Some(LoopConfig::for_song(song, start, end, count, 48_000)));
         engine
@@ -1434,7 +1434,7 @@ mod tests {
     /// A wrap rewinds `frames_rendered`, so unlike [`render_to_end`] this totals
     /// what each call returned -- the final position of a looped run is only the
     /// last pass. Never call it on an infinite loop.
-    fn total_rendered<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
+    fn total_rendered<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) -> u64 {
         let mut out = vec![0i16; 4096 * 2];
         let mut total = 0u64;
         loop {
@@ -1447,7 +1447,7 @@ mod tests {
     }
 
     /// Renders until the engine reports one more wrap than it has now.
-    fn render_past_one_wrap<B: Borrow<Song>, C: OplChip>(engine: &mut PlayerEngine<B, C>) {
+    fn render_past_one_wrap<B: Borrow<DroSong>, C: OplChip>(engine: &mut PlayerEngine<B, C>) {
         let target = engine.position().loop_iteration + 1;
         let mut out = vec![0i16; 64 * 2];
         while engine.position().loop_iteration < target {

@@ -124,7 +124,7 @@ impl VgmStudioApp {
             return;
         }
         if self.require_song() {
-            let song = self.editor.song().expect("gated -- a DRO");
+            let song = self.editor.dro_song().expect("gated -- a DRO");
             let edit_allowed = self.config.ui.dro_info_edit_enabled;
             self.dialogs.dro_info = Some(DroInfoDialog::new(song, edit_allowed));
         }
@@ -148,7 +148,7 @@ impl VgmStudioApp {
     fn on_open_find_register(&mut self) {
         // Either document kind: an OPL song gets the token/register
         // list, any other VGM the chip picker.
-        self.dialogs.find_reg = match (self.editor.song(), self.editor.vgm()) {
+        self.dialogs.find_reg = match (self.editor.dro_song(), self.editor.vgm()) {
             (Some(song), _) => Some(FindRegDialog::new(song)),
             (None, Some(file)) => Some(FindRegDialog::for_vgm(file)),
             (None, None) => {
@@ -175,8 +175,8 @@ impl VgmStudioApp {
             self.status = crate::strings::APP_STATUS_OPEN_SONG_FIRST.to_owned();
             return;
         }
-        // Optimize is VGM-only; an editable DRO (`editor.song()`) is refused.
-        if self.editor.song().is_some() {
+        // Optimize is VGM-only; an editable DRO (`editor.dro_song()`) is refused.
+        if self.editor.dro_song().is_some() {
             self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
             return;
         }
@@ -348,7 +348,7 @@ impl VgmStudioApp {
             self.status = crate::strings::APP_STATUS_ALREADY_SPLITTING_CHANNELS.to_owned();
             return;
         }
-        // An OPL document always offers the Song format; a generic VGM
+        // An OPL document always offers the DroSong format; a generic VGM
         // offers it when a gate-covered chip lets a channel be rewritten.
         // Either way the split gets the per-render core picker, seeded
         // from Settings.
