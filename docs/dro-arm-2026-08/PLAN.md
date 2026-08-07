@@ -133,22 +133,33 @@ modules; banner text checked (it already prints format-appropriate detail).
 synth, web, worklet, retrowave. This is wide but mechanical; do it as one
 commit so no intermediate state has both names.
 
-### Stage 4 — the synth DRO family
+### Stage 4 — the synth DRO family ✅ DONE (identifier renames)
 
-4a: extract `FrameClock`/`LoopConfig`/`LoopCount`/`Position` from `engine.rs`
-into `clock.rs` (refactor acceptance pattern: identical test-name set,
-normalized-line diff). 4b: `engine.rs` → `dro_engine.rs`, `PlayerEngine` →
-`DroEngine`, `render_wav*` → `render_dro_wav*`, `measure_peak*` →
-`measure_dro_peak*`, `render_waveform*` → `render_dro_waveform*`; `Muting`/
-`Panning` stay put (D-dro-5) — re-exports keep the public surface compiling in
-one hop.
+`PlayerEngine` → `DroEngine`, `render_wav*` → `render_dro_wav*`,
+`measure_peak*` → `measure_dro_peak*`, `render_waveform*` →
+`render_dro_waveform*`; `Muting`/`Panning` stay put (D-dro-5). Word-boundary
+renames so `render_wav` does not catch `render_waveform`/`render_vgm_wav`, and
+the format-neutral "Render to WAV" dialog/test module stays `render_wav`.
 
-### Stage 5 — the module move
+### Stage 5 — the module file moves — DEFERRED (decision, 2026-08-07)
 
-`song.rs` → `dro_song.rs` (with `song/` → `dro_song/`), include-path bumps per
-the known module-split mechanics. Optional if Stage 3's churn already carried
-the clarity; decide at the time. Acceptance: normalized-line diff, identical
-test-name set, zero snapshot rewrites.
+The remaining Stage 4/5 items are **internal-module reorganization only**, with
+zero public-API effect (every affected type/function is re-exported at the
+crate root, so its physical module is invisible to consumers):
+
+- `FrameClock`/`LoopConfig`/`LoopCount`/`Position` → a neutral `clock.rs`;
+- `engine.rs` → `dro_engine.rs`;
+- `song.rs` → `dro_song.rs` (`song/` → `dro_song/`).
+
+**Deferred, not done.** Rationale: (1) these move the highest volume of lines
+for the least user-visible benefit — no name a consumer types changes; (2) the
+plan already marked the `song.rs` rename optional, and Stage 3 renaming the
+type to `DroSong` carried the clarity; (3) `engine.rs` holds the offline-only
+`DroEngine` that [DIVERGENCE.md §7](DIVERGENCE.md) item 1 proposes to *delete*
+outright — renaming its file first would be churn the follow-on discards. The
+`engine.rs`/`vgm_engine.rs` filename asymmetry is the only visible residue and
+is cosmetic. Fold these moves into the follow-on unification programme, where
+`clock.rs` falls out naturally once `DroEngine` is retired.
 
 ### Stage 6 — the label and comment sweep
 
@@ -177,3 +188,22 @@ programme so the follow-on can delete what it would otherwise re-label.
 - Identical test-name set before/after each stage; zero snapshot rewrites
   outside Stage 6.
 - The wire codec round-trip tests pass untouched (tag bytes, not names).
+
+## Implementation log (2026-08-07)
+
+Stages 1–4 and 6 landed on branch `dro-arm-2026-08`; Stage 5 deferred (above).
+
+| Stage | Commit | What |
+|---|---|---|
+| docs | `319c2f5` | TERMINOLOGY, DIVERGENCE, PLAN |
+| 1 | `c22094b` | `DocSource::Opl` → `Dro`, `opl()` → `dro()` |
+| 2 | `58df37a` | `LoadedSong::Opl` → `Dro` |
+| 3 | `66ddb39` | `Song` → `DroSong`, `SongData` → `DroSongData`, editor `song()`/`has_song()` → `dro_song()`/`has_dro()` |
+| 4 | `fdb294f` | `PlayerEngine` → `DroEngine`, `render_dro_wav*`/`measure_dro_peak*`/`render_dro_waveform*` |
+| 5 | — | deferred (internal file moves) |
+| 6 | *(this branch)* | comment + label sweep |
+
+Each code stage passed `fmt`, native + `wasm32-unknown-unknown` clippy
+(`-D warnings`), and per-crate tests, with zero snapshot rewrites. The
+workspace-test segfault is the known wgpu/audio flake; affected crates pass
+individually.

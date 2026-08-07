@@ -144,8 +144,10 @@ impl VgmStudioApp {
     /// Auditions a resampling mode without saving it: the loaded stream reads
     /// its resampling from the live config at build time, so the config's mode
     /// is set and the stream rebuilt in place. Closing the dialog re-emits the
-    /// saved mode, which reverts this. A DRO plays through the OPL engine, which
-    /// has no resampling, so this is only audible on a VGM.
+    /// saved mode, which reverts this. Every document's live playback resamples
+    /// -- a DRO plays through the generic engine over its projection now (ou-2)
+    /// -- so a preview is audible on either format. (Only the DRO offline
+    /// render/waveform pipelines still ignore the mode.)
     pub(super) fn preview_resampling(&mut self, mode: String) {
         if self.config.audio.resampling == mode {
             return;

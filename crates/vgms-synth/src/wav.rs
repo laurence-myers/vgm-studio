@@ -4,9 +4,10 @@
 //! WAV. The same bytes result on native and web -- the caller writes them to disk
 //! or offers them as a download.
 //!
-//! Two engines, one loop: [`DroEngine`] for a DRO or an OPL VGM (with the
-//! muting and panning that only mean something there), and
-//! [`VgmEngine`](crate::vgm_engine::VgmEngine) for a VGM of any other chips.
+//! Two engines, one loop: [`DroEngine`] for a DRO (with the OPL muting and
+//! panning that only mean something there), and
+//! [`VgmEngine`](crate::vgm_engine::VgmEngine) for any VGM -- an OPL VGM
+//! included, which renders through the generic engine like every other.
 
 use std::borrow::Borrow;
 use std::io::Cursor;

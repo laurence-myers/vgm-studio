@@ -101,8 +101,9 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// is why the conversion carries no `DroSong::vgm` intermediate.
 ///
 /// # Errors
-/// If `song` is already a VGM, or the synthesised header cannot hold the OPL
-/// clocks, or the assembled bytes do not read back.
+/// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
+/// do not read back. (A `DroSong` is always a DRO, so there is no "already a
+/// VGM" case.)
 pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;

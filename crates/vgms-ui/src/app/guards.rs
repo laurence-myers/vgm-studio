@@ -1,17 +1,17 @@
 use super::*;
 
 impl VgmStudioApp {
-    /// Gates an action on a loaded song, setting a status message asking the
+    /// Gates an action on a loaded DRO, setting a status message asking the
     /// user to open a file when none is loaded.
     pub(super) fn require_song(&mut self) -> bool {
         if self.editor.has_dro() {
             true
         } else {
-            // The features still behind this gate are genuinely OPL-only: DRO
-            // Info, Convert to VGM, Convert to DRO v1. All three are menu-gated
-            // to a DRO, so this message only ever fires from a stale shortcut --
-            // a loaded VGM is not "the wrong file", it just is not an OPL one.
-            self.status = crate::strings::APP_STATUS_NEEDS_OPL.to_owned();
+            // The features still behind this gate are DRO-only: DRO Info,
+            // Convert to VGM, Convert to DRO v1. All three are menu-gated to a
+            // DRO, so this message only ever fires from a stale shortcut -- a
+            // loaded VGM is not "the wrong file", it just is not a DRO.
+            self.status = crate::strings::APP_STATUS_NEEDS_DRO.to_owned();
             false
         }
     }

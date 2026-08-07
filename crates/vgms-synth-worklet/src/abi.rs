@@ -215,8 +215,8 @@ pub extern "C" fn vgmsw_set_loop(
     player::set_loop(config);
 }
 
-/// Replaces the OPL muting from its two raw primitives (a no-op on a non-OPL
-/// song). See [`Muting::from_raw`].
+/// Replaces the OPL muting from its two raw primitives (a no-op unless a DRO is
+/// loaded -- an OPL VGM speaks the generic vocabulary). See [`Muting::from_raw`].
 #[unsafe(no_mangle)]
 pub extern "C" fn vgmsw_set_muting(channels: u32, percussion_low: u8, percussion_high: u8) {
     player::set_muting(Muting::from_raw(
@@ -226,7 +226,7 @@ pub extern "C" fn vgmsw_set_muting(channels: u32, percussion_low: u8, percussion
 }
 
 /// Replaces the OPL panning: `mode == 1` reads 18 pan bytes at `pans_ptr` as a
-/// `Custom` image, anything else is `Original` (a no-op on a non-OPL song).
+/// `Custom` image, anything else is `Original` (a no-op unless a DRO is loaded).
 ///
 /// # Safety
 /// When `mode == 1`, `pans_ptr` must point to at least 18 initialised bytes.
