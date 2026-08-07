@@ -157,9 +157,11 @@ impl Playability {
 /// actually declared, honouring the per-chip choice: a one-shot per-render
 /// override ([`with_render_choices`](crate::registry::with_render_choices)) when
 /// one is active on this thread, else the process-wide choice the app installed
-/// with [`set_core_choices`](crate::registry::set_core_choices) -- so the WAV
-/// render, the waveform and the peak scan all build the core the user picked (in
-/// a render dialog, or in Settings), not merely the registry's default.
+/// with [`set_core_choices`](crate::registry::set_core_choices) -- so live
+/// playback, the WAV render, the waveform and the peak scan all build the core
+/// the user picked (in a render dialog, or in Settings), not merely the
+/// registry's default. A below-realtime pick (the LLE die sims) is honoured
+/// too: its picker label carries the warning, and a fast enough CPU plays it.
 ///
 /// OPL now builds too, through the [`OplCoreAdapter`](crate::opl_adapter) (Stage
 /// K / ou-1): `VgmEngine` can host the OPL family like any other chip. `None`
@@ -172,20 +174,6 @@ pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
     let choice =
         crate::registry::render_override(kind).or_else(|| crate::registry::core_choice(kind));
     registry.resolve_choice(kind, choice.as_deref())?.build()
-}
-
-/// As [`core_for`], but never a core that cannot keep up with playback.
-///
-/// What the *transport* builds from: a chosen offline-tier core (the LLE die
-/// sims render slower than realtime by design) falls back to the chip's best
-/// realtime core rather than underrunning the audio callback. Offline renders
-/// keep [`core_for`], which honours the choice as made.
-#[must_use]
-pub fn core_for_realtime(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-    let registry = crate::registry::registry();
-    registry
-        .resolve_choice_realtime(kind, crate::registry::core_choice(kind).as_deref())?
-        .build()
 }
 
 /// What playing a file with these chips through [`VgmEngine`] would sound like.

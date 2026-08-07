@@ -10,7 +10,8 @@
 //! sample period is the mixdown the console's analog path performs, matching
 //! what Nuked-OPN2's wrapper does with its per-cycle outputs.
 //!
-//! `realtime: false`, like every die: render and oracle only.
+//! `realtime: false`, like every die: below realtime on today's CPUs, and
+//! honoured anyway when chosen -- playback included.
 
 use std::collections::VecDeque;
 use vgms_core::vgm::ChipKind;

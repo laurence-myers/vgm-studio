@@ -17,7 +17,8 @@
 //! see [`decode_serial`] -- and the SSG leaves on the analog pin, scaled into
 //! the mix.
 //!
-//! `realtime: false`, like every die: render and oracle only.
+//! `realtime: false`, like every die: below realtime on today's CPUs, and
+//! honoured anyway when chosen -- playback included.
 
 use std::collections::VecDeque;
 use vgms_core::vgm::ChipKind;

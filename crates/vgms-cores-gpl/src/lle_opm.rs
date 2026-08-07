@@ -3,8 +3,9 @@
 //! Nuke.YKT's very-low-level emulators simulate the chip from its decapped die
 //! shot, gate by gate, which buys an oracle to measure the fast cores against.
 //! It costs speed -- the master clock runs two edges at a time through a
-//! die-sized function -- so the registry entry is `realtime: false` and the
-//! core is for offline render and the oracle diff, not playback.
+//! die-sized function -- so the registry entry is `realtime: false`: below
+//! realtime on today's CPUs, which the picker label says. A user who chooses
+//! it anyway is honoured, for render, oracle diff and playback alike.
 //!
 //! # Driving a die instead of an API
 //!

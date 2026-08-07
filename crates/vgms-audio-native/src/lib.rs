@@ -183,15 +183,14 @@ impl NativeAudio {
         config: &AudioConfig,
         buffer_size: cpal::BufferSize,
     ) -> Result<(cpal::Stream, rtrb::Producer<Command>, Arc<SharedState>), AudioError> {
-        // Realtime cores only: a chosen offline-tier core (the LLE die sims)
-        // would underrun the callback, so the transport substitutes the chip's
-        // realtime default. The OPL core choice rides the same registry choice --
+        // The user's core choice, honoured as made -- a below-realtime pick
+        // (the LLE die sims) included. Its picker label says "below realtime";
+        // a CPU that cannot keep up underruns audibly, and one that can hears
+        // the die itself. The OPL core choice rides the same registry choice --
         // the app seeds it from the config at startup -- so the Settings OPL
-        // picker still applies. The WAV render keeps a chosen offline core as
-        // made; it has all the time in the world.
+        // picker still applies.
         let build_vgm = |file: Arc<vgms_core::VgmFile>| {
-            let mut engine =
-                VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for_realtime);
+            let mut engine = VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for);
             // The config's slug, with an unknown spelling falling back to the
             // accurate default -- same policy as an unknown core name.
             engine.set_resample_mode(

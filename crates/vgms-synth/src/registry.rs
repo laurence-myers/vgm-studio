@@ -86,11 +86,13 @@ pub struct CoreInfo {
     pub license: &'static str,
     /// Where the source lives; empty for a clean-room core with no upstream.
     pub upstream: &'static str,
-    /// Whether it can keep up with playback. `false` marks the LLE tier:
-    /// offline render and oracle use only, never the transport.
-    /// [`playability`](crate::chip::playability) filters on it (the transport
-    /// must not offer a core that cannot keep up), while the WAV render does
-    /// not (it has all the time in the world).
+    /// Whether it can keep up with playback on today's CPUs. `false` marks the
+    /// LLE tier: the die sims render below realtime, so their labels say so and
+    /// the parity harness leaves them out of its calibration set. **Advisory,
+    /// not a gate**: a chosen below-realtime core is honoured everywhere, live
+    /// playback included -- the audio callback will underrun audibly on a CPU
+    /// that cannot keep up, which is the user's trade to make (and a fast
+    /// enough CPU makes it no trade at all).
     pub realtime: bool,
     /// Whether this core can place individual channels in the stereo image --
     /// [`ChipCore::set_channel_pans`](crate::ChipCore::set_channel_pans) for a
@@ -653,9 +655,8 @@ impl CoreRegistry {
     }
 
     /// Builds the generic core for `kind` honouring an explicit per-render
-    /// [`CoreChoices`] map, resolved *offline* -- a non-realtime LLE core is a
-    /// legitimate render pick even though the transport could not play it, which
-    /// is the whole point of a per-render override.
+    /// [`CoreChoices`] map -- a below-realtime LLE core is as legitimate a
+    /// render pick as any, which is the whole point of a per-render override.
     ///
     /// A slot the map does not name falls back to the registry default, so an
     /// empty map builds exactly the registry's defaults. `None` for a chip with
@@ -673,58 +674,30 @@ impl CoreRegistry {
             .build()
     }
 
-    /// As [`resolve_choice`](Self::resolve_choice), but never a core that
-    /// cannot keep up with playback.
-    ///
-    /// The transport's half of the [`CoreInfo::realtime`] split: an offline
-    /// tier core (the LLE die sims) may be *chosen*, and the WAV render
-    /// honours that choice, but live playback substituting it would underrun
-    /// the audio callback -- so the transport falls back to the chip's best
-    /// realtime core instead, exactly as it falls back from a core this build
-    /// does not have.
-    #[must_use]
-    pub fn resolve_choice_realtime(
-        &self,
-        chip: ChipKind,
-        choice: Option<&str>,
-    ) -> Option<&CoreInfo> {
-        let resolved = self.resolve_choice(chip, choice)?;
-        if resolved.realtime {
-            return Some(resolved);
-        }
-        log::debug!(
-            "{} is offline-only; live playback uses {}'s realtime default instead",
-            resolved.id,
-            chip.name()
-        );
-        self.for_chip(chip)
-            .find(|info| info.realtime && matches!(info.make, CoreMaker::Generic(_)))
-    }
-
     /// Whether the core live playback would actually use for `chip` can place
     /// individual channels in the stereo image.
     ///
-    /// Asks the *resolved* choice -- the user's pick, through the realtime
-    /// fallback -- because that is the core whose knobs the UI would be
+    /// Asks the *resolved* choice -- the user's pick, a below-realtime die sim
+    /// included -- because that is the core whose knobs the UI would be
     /// drawing. `false` for a chip with no core at all.
     #[must_use]
     pub fn pan_capable(&self, chip: ChipKind) -> bool {
-        self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
+        self.resolve_choice(chip, core_choice(chip).as_deref())
             .is_some_and(|info| info.channel_pan)
     }
 
     /// Whether the core the transport would build for `chip` honours per-channel
     /// muting -- either natively, or through the write-gate the build wraps it in.
     ///
-    /// Mirrors [`pan_capable`](Self::pan_capable): the resolved realtime core is
-    /// the one whose mute toggles the UI would draw. A generic core with no native
+    /// Mirrors [`pan_capable`](Self::pan_capable): the resolved core is the one
+    /// whose mute toggles the UI would draw. A generic core with no native
     /// mute is muteable all the same when the gate covers its chip, because
     /// [`CoreInfo::build`] wraps it in a [`ChannelGate`] -- so the UI enables the
     /// toggles for exactly the cores [`build`](CoreInfo::build) makes muteable.
     /// `false` for a chip with no core at all.
     #[must_use]
     pub fn mute_capable(&self, chip: ChipKind) -> bool {
-        self.resolve_choice_realtime(chip, core_choice(chip).as_deref())
+        self.resolve_choice(chip, core_choice(chip).as_deref())
             .is_some_and(|info| {
                 // Mirror `build`: it wraps ANY buildable maker (Generic or the OPL
                 // adapter) in a gate when the chip has a table and no native mute.
@@ -1123,11 +1096,14 @@ mod tests {
         out
     }
 
-    /// The transport's half of the `realtime` split: a chosen offline-tier
-    /// core resolves to the chip's best realtime one instead, while the
-    /// choice-honouring resolver keeps it -- the WAV render's half.
+    /// `realtime` is advisory, not a gate: a chosen below-realtime core (the
+    /// LLE die sims) resolves as chosen for every purpose, live playback
+    /// included. There used to be a transport-side fallback to the chip's best
+    /// realtime core; a user with a fast enough CPU wants the die itself, so
+    /// the choice is now honoured and the flag only informs the picker's label
+    /// and the parity harness's calibration set.
     #[test]
-    fn an_offline_choice_falls_back_to_realtime_for_the_transport_only() {
+    fn a_below_realtime_choice_is_honoured_as_made() {
         let mut registry = CoreRegistry::new();
         registry.register(tone_info("sn76489.fast", LEVEL_UNITY));
         registry.register(CoreInfo {
@@ -1136,24 +1112,18 @@ mod tests {
             ..tone_info("sn76489.die", LEVEL_UNITY)
         });
 
-        // The offline render honours the choice as made...
-        assert_eq!(
-            registry
-                .resolve_choice(ChipKind::Sn76489, Some("die"))
-                .map(|info| info.id),
-            Some("sn76489.die")
+        let resolved = registry
+            .resolve_choice(ChipKind::Sn76489, Some("die"))
+            .expect("the die row resolves");
+        assert_eq!(resolved.id, "sn76489.die");
+        assert!(
+            !resolved.realtime,
+            "the flag still marks the tier for the label and the harness"
         );
-        // ...the transport substitutes the realtime default...
+        // And a realtime choice resolves the same way it always did.
         assert_eq!(
             registry
-                .resolve_choice_realtime(ChipKind::Sn76489, Some("die"))
-                .map(|info| info.id),
-            Some("sn76489.fast")
-        );
-        // ...and a realtime choice passes through untouched.
-        assert_eq!(
-            registry
-                .resolve_choice_realtime(ChipKind::Sn76489, Some("fast"))
+                .resolve_choice(ChipKind::Sn76489, Some("fast"))
                 .map(|info| info.id),
             Some("sn76489.fast")
         );

@@ -341,12 +341,11 @@ impl Engine {
         sample_rate: u32,
         resample: ResampleMode,
     ) -> Result<Self, String> {
-        // Realtime cores only, as the native transport does -- an offline LLE
-        // die-sim would underrun the audio thread. The OPL core choice rides the
-        // same registry choice the native builder consults.
+        // The user's core choice, honoured as made -- a below-realtime LLE
+        // die-sim included, exactly as the native transport does. The OPL core
+        // choice rides the same registry choice the native builder consults.
         let build_vgm = |file: Arc<vgms_core::VgmFile>| {
-            let mut engine =
-                VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for_realtime);
+            let mut engine = VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for);
             engine.set_resample_mode(resample);
             engine
         };
