@@ -75,8 +75,8 @@ fn every_cored_chip_is_audible_on_corpus_files() {
     vgms_app::install_cores();
     let index = ChipIndex::open_or_build(&root, &corpus::cache_path(&root));
 
-    // Only the chips this build can actually drive through `VgmEngine`. OPL
-    // plays through `DroEngine` instead, so it is not this test's business.
+    // Only the chips this build can actually drive through `VgmEngine`. OPL is
+    // among them now -- its adapter hosts it as a `ChipCore` like any other chip.
     let registry = vgms_synth::registry::registry();
     let cored: Vec<ChipKind> = ChipKind::all()
         .filter(|&chip| registry.can_build(chip))

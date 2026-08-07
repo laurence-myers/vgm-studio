@@ -24,8 +24,9 @@
 //! # What is not here
 //!
 //! **OPL, by the owner's decision.** libvgm's YM3812/YM3526/Y8950/YMF262 cores
-//! are not compiled: OPL plays through `DroEngine`, which carries the
-//! buffered-write spacing, muting and panning the DRO editor depends on.
+//! are not compiled: OPL plays through our own OPL path (`VgmEngine`'s
+//! `OplCoreAdapter`), which carries the buffered-write spacing, muting and
+//! panning the DRO editor depends on.
 //!
 //! **libvgm's own Nuked cores**, which our submodules already serve -- see
 //! `build.rs`'s `CORES_SERVED_ELSEWHERE`.

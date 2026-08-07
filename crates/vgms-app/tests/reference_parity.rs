@@ -34,8 +34,8 @@ const SAMPLE: usize = 12;
 /// Renders `path` the way the app would.
 ///
 /// Every VGM, OPL included, renders through `VgmEngine` over the registered cores
-/// -- an OPL file's chip is hosted by the `OplCoreAdapter` (ou-1), so it no longer
-/// needs a separate `DroEngine` path here.
+/// -- an OPL file's chip is hosted by the `OplCoreAdapter` (ou-1), so it takes the
+/// same path here as every other chip.
 fn render_ours(path: &Path) -> Option<Render> {
     render_ours_at(path, RATE)
 }

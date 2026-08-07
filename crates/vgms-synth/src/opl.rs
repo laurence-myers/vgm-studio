@@ -140,11 +140,12 @@ impl OplChip for Box<dyn OplChip> {
 /// The OPL core a build without one has: silence.
 ///
 /// Only reachable with the `nuked-opl` feature off. The point is that turning
-/// the feature off must not delete the OPL *path* -- muting, panning, seeking,
-/// the channel split and the whole `DroEngine` state machine are file-format
-/// logic, not emulation, and a permissive consumer wants all of it. So the chip
-/// goes quiet and everything else keeps working. The registry registers no OPL
-/// core in that build, so the UI reports the silence rather than implying sound.
+/// the feature off must not delete the OPL *path* -- muting, panning, seeking
+/// and the channel split are file-format logic carried by the projection and
+/// `VgmEngine`, not emulation, and a permissive consumer wants all of it. So the
+/// chip goes quiet and everything else keeps working. The registry registers no
+/// OPL core in that build, so the UI reports the silence rather than implying
+/// sound.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SilentOpl;
 
@@ -165,18 +166,6 @@ impl OplChip for SilentOpl {
         buffer.fill(0);
     }
 }
-
-/// The OPL core [`DroEngine::new`](crate::engine::DroEngine::new) builds.
-///
-/// A type alias rather than a `cfg` on the engine itself, so the engine has one
-/// definition whichever way the feature falls.
-#[cfg(feature = "nuked-opl")]
-pub type DefaultOplChip = NukedOpl3;
-
-/// The OPL core [`DroEngine::new`](crate::engine::DroEngine::new) builds
-/// when this crate is compiled without an OPL emulator.
-#[cfg(not(feature = "nuked-opl"))]
-pub type DefaultOplChip = SilentOpl;
 
 /// The original Nuked-OPL3 **C** sources, compiled by `opl3-rs`.
 ///

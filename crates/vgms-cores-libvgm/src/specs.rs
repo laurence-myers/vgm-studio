@@ -279,7 +279,7 @@ chip_specs! {
     make_ymf271: "ymf271.libvgm" / "libvgm" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
-    // Not an OPL row -- the OPL family's own chips stay on `DroEngine`.
+    // Not an OPL row -- the OPL family's own chips stay on our OPL adapter path.
     // Known gap: rips that lean on the YRW801 wave ROM without embedding it
     // (some MSX MoonSound rips) play only their FM half -- VGMPlay side-loads
     // `yrw801.rom` from disk, and that ROM is not ours to ship.

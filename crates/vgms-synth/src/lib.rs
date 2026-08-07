@@ -46,7 +46,7 @@ pub use limiter::BoostLimiter;
 pub use opl::CReferenceOpl3;
 #[cfg(feature = "nuked-opl")]
 pub use opl::NukedOpl3;
-pub use opl::{DefaultOplChip, OplChip, SilentOpl};
+pub use opl::{OplChip, SilentOpl};
 pub use opl_adapter::OplCoreAdapter;
 pub use opl_chip_mix::{
     opl_chip_muting, opl_chip_panning, opl_muting_from_chip, opl_projection_kind,

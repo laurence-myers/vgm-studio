@@ -255,9 +255,10 @@ impl LoopCount {
 
 /// A region to loop over, and how often.
 ///
-/// `start_frames` is carried rather than derived because [`DroEngine::set_loop`]
-/// runs inside the audio callback, where walking the song to sum its delays would
-/// be real-time work. Build one with [`LoopConfig::for_song`] off the audio thread.
+/// `start_frames` is carried rather than derived because
+/// [`VgmEngine::set_loop`](crate::vgm_engine::VgmEngine::set_loop) runs inside the
+/// audio callback, where walking the song to sum its delays would be real-time
+/// work. Build one with [`LoopConfig::for_song`] off the audio thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LoopConfig {
     /// The instruction playback jumps back to.

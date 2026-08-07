@@ -71,10 +71,11 @@ pub(crate) const DEVID_YM2203: u8 = 0x06;
 pub(crate) const DEVID_YM2608: u8 = 0x07;
 pub(crate) const DEVID_YM2610: u8 = 0x08;
 /// The OPL3. Never registered as a chip from this crate -- OPL plays through
-/// `DroEngine` -- compiled and declared only as the OPL4's linked FM half.
+/// our own OPL adapter path -- compiled and declared only as the OPL4's linked
+/// FM half.
 pub(crate) const DEVID_YMF262: u8 = 0x0C;
-/// The OPL4. Not an OPL row here -- the OPL family plays through
-/// `DroEngine` -- but the OPL4's own wave half is this device, which links
+/// The OPL4. Not an OPL row here -- the OPL family plays through our own OPL
+/// adapter path -- but the OPL4's own wave half is this device, which links
 /// a YMF262 child for its FM half.
 pub(crate) const DEVID_YMF278B: u8 = 0x0D;
 pub(crate) const DEVID_YMF271: u8 = 0x0E;

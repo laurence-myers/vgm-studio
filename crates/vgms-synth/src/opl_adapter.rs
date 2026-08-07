@@ -1,12 +1,12 @@
 //! Hosting an OPL chip inside [`VgmEngine`](crate::vgm_engine::VgmEngine): the
 //! [`OplChip`] → [`ChipCore`] adapter (Stage K / ou-1).
 //!
-//! The two engines were deliberately separate — `VgmEngine` pulls samples from a
-//! [`ChipCore`], `DroEngine` drives an [`OplChip`] through its own muting,
-//! panning and buffered-write policy — so an OPL VGM through `VgmEngine` rendered
-//! silence (there was no OPL `ChipCore` to host). This adapter closes that gap:
-//! it presents an `OplChip` as a `ChipCore`, so the generic engine can play the
-//! OPL family like any other chip.
+//! `VgmEngine` pulls samples from a [`ChipCore`], but an OPL chip is an
+//! [`OplChip`] with its own muting, panning and buffered-write policy, so an OPL
+//! VGM through `VgmEngine` once rendered silence — there was no OPL `ChipCore` to
+//! host. This adapter closes that gap: it presents an `OplChip` as a `ChipCore`,
+//! so the one engine plays the OPL family like any other chip. With the separate
+//! OPL engine retired, this is the OPL family's only playback path.
 //!
 //! ## Rate
 //!
@@ -22,7 +22,7 @@
 //! ## Writes
 //!
 //! A live write takes the [buffered path](OplChip::write_reg_buffered) — the
-//! same one `DroEngine` uses for live playback — so a back-to-back key
+//! spacing Nuked's write buffer needs — so a back-to-back key
 //! off/on with no samples between still retriggers the note, matching real
 //! hardware. A seek's bulk replay takes the immediate path
 //! ([`replay_write`](ChipCore::replay_write)) instead: only the final register
@@ -36,18 +36,18 @@
 //! gate-covered, non-native-mute core in a `GatedCore` that filters the writes.
 //! So the adapter itself keeps the trait's no-op mute.
 //!
-//! Per-channel panning is the OPL stereo-ext register policy `DroEngine`
-//! owns, ported here behind [`set_channel_pans`](ChipCore::set_channel_pans):
+//! Per-channel panning is the OPL stereo-ext register policy, implemented here
+//! behind [`set_channel_pans`](ChipCore::set_channel_pans):
 //! engaging it forces `0x105`'s stereo-ext bit on (shadowing the song's `newm`
 //! bit), writes the panpots (`0x0D0`-`0x0D8` low bank, `0x1D0`-`0x1D8` high), and
 //! thereafter suppresses the song's own `0xD0`-`0xD8` writes so they cannot
 //! clobber the applied pan. Un-panned, the song's own `0xC0`-`0xC8` stereo bits
 //! pass straight through. **One limitation:** the `ChipCore` pan API has no
 //! "return to the song's own stereo" call (a channel is a position, not a mode),
-//! so once engaged the adapter stays engaged until [`reset`](ChipCore::reset);
-//! disengaging mid-playback (the OPL panel's Original-vs-Custom that
-//! `DroEngine` resyncs through a `0xC0` shadow) is left to ou-2, when OPL
-//! documents route here and that vocabulary arrives.
+//! so once engaged the adapter stays engaged until [`reset`](ChipCore::reset).
+//! Disengaging mid-playback (the OPL panel's Original-vs-Custom, which the
+//! retired OPL engine resynced through a `0xC0` shadow) still costs a reset: a
+//! channel returned to the song's own stereo keeps its applied pan until then.
 
 use crate::NATIVE_SAMPLE_RATE;
 use crate::chip::ChipCore;
@@ -62,7 +62,7 @@ pub struct OplCoreAdapter {
     scratch: Vec<i16>,
     /// Custom per-channel panning is engaged (the stereo-ext panpots). While it
     /// is, the song's own `0xD0`-`0xD8` writes are suppressed and the enable bit
-    /// forced on -- the same register policy `DroEngine` owns.
+    /// forced on -- this adapter's OPL stereo-ext register policy.
     panned: bool,
     /// The song's OPL3 `newm` bit (`0x105` bit 0), shadowed so forcing the
     /// stereo-ext enable (bit 1) never disturbs OPL3 mode.
@@ -152,8 +152,7 @@ impl ChipCore for OplCoreAdapter {
     fn reset(&mut self, _clock: u32, _variant: bool) {
         // The OPL resamples to the rate it is reset at; the engine's Voice
         // resampler does the output conversion, so reset at the native rate. The
-        // header clock is not used -- Nuked assumes the standard YMF262 clock,
-        // exactly as `DroEngine` does.
+        // header clock is not used -- Nuked assumes the standard YMF262 clock.
         self.opl.reset(NATIVE_SAMPLE_RATE);
         // A fresh chip is un-panned; the engine restates the pans afterward (its
         // `apply_mix`), so a loop's rewind keeps custom panning.

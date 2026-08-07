@@ -106,10 +106,11 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// A DRO v1 (OPL2) capture is the one exception: it assumes waveform-select was
 /// enabled (`0x01 = 0x20`) before it ran -- DOSBox set the bit before recording,
 /// so the write is not in the file -- and without it the capture's non-sine
-/// timbres collapse to sine. So this primes it, matching the offline render
-/// ([`DroEngine::reset_chip`](../../vgms_synth)) and every playback projection.
-/// The prime is deliberately absent from `dro2vgm`'s own v1 output, so a v1
-/// conversion trades exact parity with that tool for a correct-sounding file.
+/// timbres collapse to sine. So this primes it, and since this projection is the
+/// only OPL playback path a v1 file's playback, export and conversion all sound
+/// the same. The prime is deliberately absent from `dro2vgm`'s own v1 output, so
+/// a v1 conversion trades exact parity with that tool for a correct-sounding
+/// file.
 ///
 /// # Errors
 /// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
@@ -126,10 +127,10 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     // DRO v1 (OPL2) captures assume waveform-select is already enabled
     // (`0x01 = 0x20`): DOSBox's chip had the bit set before recording began, so
     // the write is not in the file, and without it the capture's non-sine
-    // timbres collapse to sine. `DroEngine::reset_chip` primes it for the offline
-    // render; prime it here so a converted file and every playback projection
-    // sound the same. A zero-delay low-bank write, so the timing and total-sample
-    // count are unchanged. (A v2 capture records the write itself.)
+    // timbres collapse to sine. Prime it here -- this projection is the only OPL
+    // playback path, so a v1 file's playback, export and conversion all sound the
+    // same. A zero-delay low-bank write, so the timing and total-sample count are
+    // unchanged. (A v2 capture records the write itself.)
     if song.file_version == DRO_FILE_V1 {
         stream.write(Bank::Low, 0x01, 0x20);
     }
@@ -396,10 +397,9 @@ mod tests {
         )
     }
 
-    /// The playback/split projection primes the DRO v1 waveform-select-enable
-    /// register (`0x01 = 0x20`) before the song's own writes, matching
-    /// `DroEngine::reset_chip`. The peer of the engine's
-    /// `the_v1_waveform_select_hack_is_primed_on_reset`.
+    /// The projection primes the DRO v1 waveform-select-enable register
+    /// (`0x01 = 0x20`) before the song's own writes, so a v1 capture's non-sine
+    /// timbres survive -- this projection being the only OPL playback path.
     #[test]
     fn the_playback_projection_primes_the_v1_waveform_select() {
         let song = build_dro_v1(&[0x20, 0x01]); // one write: reg 0x20 = 0x01

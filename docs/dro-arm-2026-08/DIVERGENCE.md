@@ -7,6 +7,13 @@ completeness critic; 148 findings + 9 critic corrections/gaps, condensed here.
 Companion documents: [PLAN.md](PLAN.md) (the naming refactor),
 [TERMINOLOGY.md](../../TERMINOLOGY.md) (the controlled vocabulary).
 
+**Status update (post-audit).** Backlog item [§7.1](#7-the-unification-backlog-ranked)
+(retire `PlayerEngine`) is now implemented — see branch `dro-engine-2026-08`
+([PLAN](../dro-engine-2026-08/PLAN.md)). The offline `DroEngine` path described
+below (the renamed `PlayerEngine`) no longer exists: every document renders and
+scans through `VgmEngine` over its projection, so live and offline share one
+engine. The snapshot prose is kept as audited; read it with that item ticked.
+
 ## The three axes
 
 Every divergence in the tree falls on one of three axes, and conflating them
@@ -200,9 +207,11 @@ open/save pickers and drag-drop, web/native task parity, and
 
 ## 7. The unification backlog (ranked)
 
-1. **Retire `PlayerEngine`**: move DRO WAV/peak/waveform/CLI-render onto the
-   projected VGM pipeline → kills the hear-vs-export gap, the core-choice
-   asymmetries, the loaded `DelaySamples` trap, and stage-4 renames shrink.
+1. ✅ **Done — Retire `PlayerEngine`**: DRO WAV/peak/waveform/CLI-render moved
+   onto the projected VGM pipeline (branch `dro-engine-2026-08`). `DroEngine`
+   (the renamed `PlayerEngine`) and the `render_dro_*`/`measure_dro_peak*`
+   family are deleted; this killed the hear-vs-export gap, the core-choice
+   asymmetries, and the loaded `DelaySamples` trap.
 2. **One mixer vocabulary**: DRO panel speaks `ChipMuting`/`ChipPanning`
    natively; delete `opl_chip_mix` round-trips, the double-send in every
    service, and the worklet's dual ABI.

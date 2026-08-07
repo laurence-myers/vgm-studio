@@ -500,8 +500,8 @@ fn the_volume_ceiling_ratchets_down_to_the_lowest_clipping_level() {
 #[test]
 fn match_volume_measures_the_peak_and_sets_the_volume() {
     // An inline task service runs the scan synchronously, so the whole chain --
-    // button -> VolumeScan task -> measure_dro_peak -> set volume -> persist -- runs
-    // for real on the song.
+    // button -> VolumeScan task -> project + measure_vgm_peak -> set volume ->
+    // persist -- runs for real on the song.
     let song = tone_song();
     // build(initial, inline_tasks, wgpu): inline runs the scan synchronously.
     let (mut harness, handles) = build(Some(picked(&song)), true, false);

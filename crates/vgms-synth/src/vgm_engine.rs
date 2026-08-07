@@ -1,17 +1,15 @@
 //! Playing a VGM for whatever chips it declares.
 //!
-//! [`DroEngine`](crate::engine::DroEngine) plays the OPL path and keeps
-//! its OPL policy -- muting, panning, the buffered-write spacing Nuked needs.
-//! This engine knows no chip at all. It walks the command stream, hands each
-//! write to whichever [`ChipCore`] the header says owns it, counts out the
-//! waits, and mixes what the cores render. Everything chip-specific is behind
-//! the trait.
+//! The one playback engine, and it knows no chip at all: it walks the command
+//! stream, hands each write to whichever [`ChipCore`] the header says owns it,
+//! counts out the waits, and mixes what the cores render. Everything
+//! chip-specific is behind the trait. A DRO reaches here too, projected to its
+//! VGM at the seam, so OPL playback is the same code path as everything else.
 //!
 //! Cores render at their own rates, so each is resampled to the output rate on
-//! the way into the mix. The pull contract is
-//! [`DroEngine`](crate::engine::DroEngine)'s exactly -- `render(&mut
-//! [i16]) -> usize` -- so the native audio thread, the WAV renderer and the
-//! waveform renderer drive either without knowing which they have.
+//! the way into the mix. The pull contract is `render(&mut [i16]) -> usize`, so
+//! the native audio thread, the WAV renderer and the waveform renderer all drive
+//! it the same way whatever the document.
 //!
 //! Routing, banks and timing are all testable against
 //! [`RecordingChip`](crate::chip::RecordingChip) without an emulator in sight,
@@ -374,9 +372,7 @@ impl VgmEngine {
     /// command is read, but that command is usually a wait, and its frames (a
     /// held final note, the tail of a fade) have still to be rendered. Reporting
     /// "finished" while they are pending would cut them off -- which is exactly
-    /// what the hardware pump does with this signal, and it is the same
-    /// `pending_frames == 0` rule [`DroEngine::is_finished`](crate::DroEngine)
-    /// applies, so the two engines agree about when a song is over.
+    /// what the hardware pump does with this signal.
     #[must_use]
     pub const fn is_finished(&self) -> bool {
         self.finished && self.pending == 0
@@ -479,9 +475,8 @@ impl VgmEngine {
 
     /// Jumps to the row playing at `ms`, for a transport that seeks by time.
     ///
-    /// A target inside a delay stops on that delay, never after it -- the same
-    /// prefix-sum rule as [`DroEngine::seek_to_ms`](crate::DroEngine),
-    /// so the two engines agree about what seeking means.
+    /// A target inside a delay stops on that delay, never after it -- a
+    /// prefix-sum over the command stream's waits.
     pub fn seek_to_ms(&mut self, ms: u32) {
         let Some(stream) = self.file.stream() else {
             return;

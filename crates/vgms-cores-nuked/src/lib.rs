@@ -38,8 +38,12 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             upstream: "https://github.com/nukeykt/Nuked-CQM",
             realtime: true,
             channel_pan: false,
-            // An OPL core: muting is register-gated by `DroEngine`, not the
-            // `ChipCore` path, so it always works.
+            // An OPL core, hosted through the `OplCoreAdapter` for `VgmEngine`.
+            // Whole-chip Mute/Solo is the engine's own job and holds here.
+            // FIXME: per-channel muting wants the write-gating `GatedCore`
+            // (`channel_mute: false`, as Nuked-OPL3 uses); this `true` predates
+            // the adapter -- it once meant "register-gated, not the `ChipCore`
+            // path" -- and now leaves per-channel mute a no-op.
             channel_mute: true,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Opl(|rate| Box::new(CqmOpl3::new(rate))),
