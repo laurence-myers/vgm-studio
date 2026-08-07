@@ -155,7 +155,7 @@ impl VgmStudioApp {
     /// header chips. Empty with nothing loaded.
     pub(super) fn document_chips(&self) -> Vec<vgms_core::vgm::ChipKind> {
         match self.editor.doc_source() {
-            Some(vgms_core::DocSource::Opl(_)) => vec![vgms_core::vgm::ChipKind::Ymf262],
+            Some(vgms_core::DocSource::Dro(_)) => vec![vgms_core::vgm::ChipKind::Ymf262],
             Some(vgms_core::DocSource::Vgm(file)) => {
                 file.header.chips().iter().map(|chip| chip.kind).collect()
             }

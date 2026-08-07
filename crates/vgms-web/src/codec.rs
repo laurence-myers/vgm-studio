@@ -463,7 +463,7 @@ fn read_vgm_split_options(reader: &mut Reader) -> Result<VgmSplitOptions> {
 
 fn write_audio_source(writer: &mut Writer, source: &AudioSource) -> Result<()> {
     match source {
-        AudioSource::Opl(song) => {
+        AudioSource::Dro(song) => {
             writer.u8(0);
             write_song(writer, song)
         }
@@ -476,7 +476,7 @@ fn write_audio_source(writer: &mut Writer, source: &AudioSource) -> Result<()> {
 
 fn read_audio_source(reader: &mut Reader) -> Result<AudioSource> {
     match reader.u8("audio-source")? {
-        0 => Ok(AudioSource::Opl(std::sync::Arc::new(read_song(reader)?))),
+        0 => Ok(AudioSource::Dro(std::sync::Arc::new(read_song(reader)?))),
         1 => Ok(AudioSource::Vgm(std::sync::Arc::new(read_vgm(reader)?))),
         other => Err(CodecError::Tag("audio-source", other)),
     }
@@ -513,7 +513,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             // the generic arm a `VgmRenderMix`, so the pair cannot desync on the
             // wire (they are always built together app-side).
             match (source, mix) {
-                (WavSource::Opl(song), RenderWavMix::Opl(mix)) => {
+                (WavSource::Dro(song), RenderWavMix::Opl(mix)) => {
                     writer.u8(0);
                     write_song(&mut writer, song)?;
                     write_mix(&mut writer, *mix);
@@ -587,7 +587,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
         } => {
             writer.u8(6);
             match source {
-                LoopSearchSource::Opl(song) => {
+                LoopSearchSource::Dro(song) => {
                     writer.u8(0);
                     write_song(&mut writer, song)?;
                 }
@@ -604,7 +604,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
 
 fn write_split_source(writer: &mut Writer, source: &SplitSource) -> Result<()> {
     match source {
-        SplitSource::Opl(song) => {
+        SplitSource::Dro(song) => {
             writer.u8(0);
             write_song(writer, song)
         }
@@ -617,7 +617,7 @@ fn write_split_source(writer: &mut Writer, source: &SplitSource) -> Result<()> {
 
 fn read_split_source(reader: &mut Reader) -> Result<SplitSource> {
     match reader.u8("split-source")? {
-        0 => Ok(SplitSource::Opl(std::sync::Arc::new(read_song(reader)?))),
+        0 => Ok(SplitSource::Dro(std::sync::Arc::new(read_song(reader)?))),
         1 => Ok(SplitSource::Vgm(std::sync::Arc::new(read_vgm(reader)?))),
         other => Err(CodecError::Tag("split-source", other)),
     }
@@ -638,7 +638,7 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
                 0 => {
                     let song = std::sync::Arc::new(read_song(&mut reader)?);
                     let mix = RenderWavMix::Opl(read_mix(&mut reader)?);
-                    (WavSource::Opl(song), mix)
+                    (WavSource::Dro(song), mix)
                 }
                 1 => {
                     let file = std::sync::Arc::new(read_vgm(&mut reader)?);
@@ -699,7 +699,7 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
         }
         6 => {
             let source = match reader.u8("loop-source")? {
-                0 => LoopSearchSource::Opl(std::sync::Arc::new(read_song(&mut reader)?)),
+                0 => LoopSearchSource::Dro(std::sync::Arc::new(read_song(&mut reader)?)),
                 1 => LoopSearchSource::Vgm(std::sync::Arc::new(read_vgm(&mut reader)?)),
                 other => return Err(CodecError::Tag("loop-source", other)),
             };
@@ -1104,7 +1104,7 @@ mod tests {
     fn every_request_variant_round_trips() {
         let requests = [
             TaskRequest::RenderWaveform {
-                source: AudioSource::Opl(sample_song()),
+                source: AudioSource::Dro(sample_song()),
                 num_buckets: 4096,
                 sample_rate: 48_000,
                 resampling: ResampleMode::Sinc,
@@ -1118,7 +1118,7 @@ mod tests {
             // A non-empty core map on this RenderWav case, empty on the next, so
             // both branches of the core-choices codec are exercised.
             TaskRequest::RenderWav {
-                source: WavSource::Opl(sample_song()),
+                source: WavSource::Dro(sample_song()),
                 mix: RenderWavMix::Opl(sample_mix()),
                 sample_rate: 49_716,
                 bit_depth: 24,
@@ -1150,13 +1150,13 @@ mod tests {
                 },
             },
             TaskRequest::SplitSongs {
-                source: SplitSource::Opl(sample_song()),
+                source: SplitSource::Dro(sample_song()),
                 threshold_native: 33_075,
                 included: vec![true, false, true, true],
                 trailing_tail: 4410,
             },
             TaskRequest::VolumeScan {
-                source: AudioSource::Opl(sample_song()),
+                source: AudioSource::Dro(sample_song()),
                 sample_rate: 48_000,
                 resampling: ResampleMode::Sinc,
             },
@@ -1169,7 +1169,7 @@ mod tests {
             },
             TaskRequest::PackVolumeScan {
                 tracks: vec![
-                    ("01 first.vgm".to_owned(), AudioSource::Opl(sample_song())),
+                    ("01 first.vgm".to_owned(), AudioSource::Dro(sample_song())),
                     ("02 second.vgm".to_owned(), AudioSource::Vgm(sample_vgm())),
                 ],
                 sample_rate: 44_100,
@@ -1190,7 +1190,7 @@ mod tests {
         // The byte-stable round-trip proves faithfulness structurally; this pins
         // that the scalars are the actual values, not just self-consistent ones.
         let bytes = encode_request(&TaskRequest::VolumeScan {
-            source: AudioSource::Opl(sample_song()),
+            source: AudioSource::Dro(sample_song()),
             sample_rate: 12_345,
             resampling: ResampleMode::Sinc,
         })
@@ -1201,7 +1201,7 @@ mod tests {
         assert_eq!(sample_rate, 12_345);
 
         let bytes = encode_request(&TaskRequest::SplitSongs {
-            source: SplitSource::Opl(sample_song()),
+            source: SplitSource::Dro(sample_song()),
             threshold_native: 7,
             included: vec![false, true, false],
             trailing_tail: 99,
@@ -1328,7 +1328,7 @@ mod tests {
     #[test]
     fn a_truncated_buffer_errors_rather_than_panics() {
         let bytes = encode_request(&TaskRequest::VolumeScan {
-            source: AudioSource::Opl(sample_song()),
+            source: AudioSource::Dro(sample_song()),
             sample_rate: 48_000,
             resampling: ResampleMode::Sinc,
         })

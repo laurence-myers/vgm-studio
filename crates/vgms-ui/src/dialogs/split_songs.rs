@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn a_dro_threshold_is_in_milliseconds() {
-        let dialog = SplitSongsDialog::new(SplitSource::Opl(Arc::new(multi_song_capture_dro())));
+        let dialog = SplitSongsDialog::new(SplitSource::Dro(Arc::new(multi_song_capture_dro())));
         assert_eq!(dialog.rate, 1000);
         assert_eq!(dialog.threshold_native(), 750, "0.75 s = 750 ms");
         assert_eq!(dialog.segments.len(), 3, "three DRO songs at 0.75 s");
@@ -339,7 +339,7 @@ mod tests {
         // A plain single tone converted to VGM has no gaps: one segment.
         let mut song = tone_song();
         song.name = "tone.vgm".to_owned();
-        let dialog = SplitSongsDialog::new(SplitSource::Opl(Arc::new(song)));
+        let dialog = SplitSongsDialog::new(SplitSource::Dro(Arc::new(song)));
         assert!(dialog.segments.len() <= 1);
     }
 }

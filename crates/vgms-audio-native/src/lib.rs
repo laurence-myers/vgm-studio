@@ -201,7 +201,7 @@ impl NativeAudio {
             engine
         };
         let engine = match source {
-            AudioSource::Opl(song) => {
+            AudioSource::Dro(song) => {
                 // ou-2: an OPL document plays through the generic engine, over a
                 // VGM projection of its register stream, so its muting, panning
                 // and split ride the same per-chip path every other chip does.

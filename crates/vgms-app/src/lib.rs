@@ -64,7 +64,7 @@ impl LoadedSong {
     #[must_use]
     pub fn audio_source(self) -> vgms_synth::AudioSource {
         match self {
-            Self::Opl(song) => vgms_synth::AudioSource::Opl(Arc::new(song)),
+            Self::Opl(song) => vgms_synth::AudioSource::Dro(Arc::new(song)),
             Self::Vgm(file) => vgms_synth::AudioSource::Vgm(Arc::new(*file)),
         }
     }

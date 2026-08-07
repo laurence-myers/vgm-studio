@@ -23,7 +23,7 @@ impl VgmStudioApp {
         // describe. Each opt-in off means that dimension's neutral value, so the
         // all-off render stays byte-identical to `vgmstudio render`.
         let mix = match &source {
-            WavSource::Opl(_) => RenderWavMix::Opl(RenderMix {
+            WavSource::Dro(_) => RenderWavMix::Opl(RenderMix {
                 muting: if use_toggles {
                     self.channels.muting()
                 } else {
@@ -109,7 +109,7 @@ impl VgmStudioApp {
         // through to the OPL path.
         match (self.editor.vgm_arc(), self.editor.snapshot()) {
             (Some(file), _) => Some(crate::tasks::SplitSource::Vgm(file)),
-            (_, Some(song)) => Some(crate::tasks::SplitSource::Opl(song)),
+            (_, Some(song)) => Some(crate::tasks::SplitSource::Dro(song)),
             (None, None) => None,
         }
     }

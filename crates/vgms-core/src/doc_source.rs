@@ -19,12 +19,12 @@ use crate::vgm::VgmFile;
 
 /// The loaded document as whichever of the two shapes a job needs.
 ///
-/// The `Opl` arm is the DRO a document is; the `Vgm` arm is the file itself (any
-/// VGM, OPL or not). Both wrap an [`Arc`] so handing the document to a background
-/// job is a reference-count bump, not a copy.
+/// The `Dro` arm carries the DRO the document is; the `Vgm` arm carries the file
+/// itself (any VGM, OPL or not). Both wrap an [`Arc`] so handing the document to a
+/// background job is a reference-count bump, not a copy.
 #[derive(Debug, Clone)]
 pub enum DocSource {
-    Opl(Arc<Song>),
+    Dro(Arc<Song>),
     Vgm(Arc<VgmFile>),
 }
 
@@ -34,29 +34,31 @@ impl DocSource {
     #[must_use]
     pub fn name(&self) -> &str {
         match self {
-            Self::Opl(song) => &song.name,
+            Self::Dro(song) => &song.name,
             Self::Vgm(file) => &file.name,
         }
     }
 
-    /// The OPL song, when there is one. A backend that can only play OPL -- the
-    /// RetroWave hardware -- asks this and refuses when the answer is `None`.
+    /// The DRO song, when the document is one; `None` for any VGM (OPL included,
+    /// since an OPL VGM travels as the `Vgm` arm). For "does this document belong
+    /// on the OPL board" ask [`Self::is_opl`] instead, which an OPL VGM answers
+    /// `true`.
     #[must_use]
-    pub fn opl(&self) -> Option<&Arc<Song>> {
+    pub fn dro(&self) -> Option<&Arc<Song>> {
         match self {
-            Self::Opl(song) => Some(song),
+            Self::Dro(song) => Some(song),
             Self::Vgm(_) => None,
         }
     }
 
     /// Whether this document is OPL -- a DRO, or an OPL VGM. The hardware-routing
-    /// decision keys on this rather than [`Self::opl`], because an OPL VGM now
-    /// travels as the `Vgm` arm (its `opl()` is `None`) yet still belongs on the
-    /// OPL board, which the RetroWave service drives from the `VgmFile`.
+    /// decision keys on this rather than [`Self::dro`], because an OPL VGM travels
+    /// as the `Vgm` arm (its [`Self::dro`] is `None`) yet still belongs on the OPL
+    /// board, which the RetroWave service drives from the `VgmFile`.
     #[must_use]
     pub fn is_opl(&self) -> bool {
         match self {
-            Self::Opl(_) => true,
+            Self::Dro(_) => true,
             Self::Vgm(file) => file.is_opl(),
         }
     }
@@ -67,7 +69,7 @@ impl DocSource {
     #[must_use]
     pub fn rate(&self) -> u32 {
         match self {
-            Self::Opl(song) => native_rate(song),
+            Self::Dro(song) => native_rate(song),
             Self::Vgm(_) => VGM_SAMPLE_RATE,
         }
     }
@@ -77,7 +79,7 @@ impl DocSource {
     #[must_use]
     pub fn detect(&self, threshold: u32) -> Vec<Segment> {
         match self {
-            Self::Opl(song) => detect_segments(song, threshold),
+            Self::Dro(song) => detect_segments(song, threshold),
             Self::Vgm(file) => detect_segments_in_vgm(file, threshold),
         }
     }
@@ -86,8 +88,7 @@ impl DocSource {
     #[must_use]
     pub fn stem_and_extension(&self) -> (&str, &'static str) {
         let (name, extension) = match self {
-            // An Opl document is always a DRO now.
-            Self::Opl(song) => (song.name.as_str(), "dro"),
+            Self::Dro(song) => (song.name.as_str(), "dro"),
             Self::Vgm(file) => (file.name.as_str(), "vgm"),
         };
         let stem = name

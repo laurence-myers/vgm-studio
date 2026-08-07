@@ -452,7 +452,7 @@ impl VgmStudioApp {
         // mixer instead. Both are sent below; the service applies whichever the
         // source speaks and ignores the other, exactly as the editor's load does.
         let preview_panning = source
-            .opl()
+            .dro()
             .map(|song| crate::widgets::chip_panels::default_opl_panning(song));
         // `load` below tears down the editor's stream the instant it runs --
         // success or not -- so the editor's audio snapshot is gone regardless.
@@ -473,7 +473,7 @@ impl VgmStudioApp {
         let mut preview_config = self.config.audio.clone();
         if !preview_config.lock_boost {
             preview_config.boost = match &source {
-                vgms_synth::AudioSource::Opl(song) => Self::modifier_boost(song),
+                vgms_synth::AudioSource::Dro(song) => Self::modifier_boost(song),
                 vgms_synth::AudioSource::Vgm(file) => {
                     vgms_core::volume_modifier_factor(file.header.volume_modifier())
                 }

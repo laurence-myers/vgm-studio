@@ -89,7 +89,7 @@ impl AudioService for RetroWaveAudioService {
         let (file, opl): (Arc<VgmFile>, Option<OplType>) = match &source {
             // A DRO: project it (a DRO is always canonical-clock, so the
             // projection is faithful), and tag it as an OPL document.
-            AudioSource::Opl(song) => (
+            AudioSource::Dro(song) => (
                 Arc::new(
                     vgms_core::convert::opl_song_to_vgm_file(song).map_err(|error| {
                         format!(
@@ -526,7 +526,7 @@ mod tests {
             ..AudioConfig::default()
         };
         let error = service
-            .load(AudioSource::Opl(song()), &config)
+            .load(AudioSource::Dro(song()), &config)
             .expect_err("opening a nonexistent port must fail");
         assert!(!error.is_empty());
         assert_eq!(service.active, OutputBackend::RetroWave);

@@ -178,7 +178,7 @@ fn num(value: f64) -> JsValue {
 /// worklet reads back by name.
 fn source_bytes(source: &AudioSource) -> Result<(String, Vec<u8>), String> {
     match source {
-        AudioSource::Opl(song) => Ok((
+        AudioSource::Dro(song) => Ok((
             song.name.clone(),
             vgms_core::io::write_song(song).map_err(|error| error.to_string())?,
         )),

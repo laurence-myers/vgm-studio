@@ -171,7 +171,7 @@ pub type SplitSource = vgms_core::DocSource;
 pub(crate) fn can_preview(source: &vgms_core::DocSource) -> bool {
     use vgms_core::DocSource;
     match source {
-        DocSource::Opl(_) => true,
+        DocSource::Dro(_) => true,
         DocSource::Vgm(file) => {
             // An OPL VGM plays through the same VgmEngine path as any VGM now, so
             // its chips answer `playability` like the rest -- no projection probe.
@@ -278,7 +278,7 @@ fn measure_source(
     is_cancelled: &dyn Fn() -> bool,
 ) -> Option<Peak> {
     match source {
-        AudioSource::Opl(song) => {
+        AudioSource::Dro(song) => {
             measure_peak_cancellable(Arc::clone(song), sample_rate, &mut |_| {}, &mut || {
                 !is_cancelled()
             })
@@ -308,7 +308,7 @@ pub fn run_task(
             // A waveform is a picture of the audio, so it comes from whichever
             // engine would make that audio.
             match source {
-                AudioSource::Opl(song) => {
+                AudioSource::Dro(song) => {
                     render_waveform_progressive(
                         song,
                         *num_buckets,
@@ -345,7 +345,7 @@ pub fn run_task(
             // untouched. An empty map behaves exactly as the configured cores.
             let rendered = vgms_synth::with_render_choices(Some(core_choices.clone()), || {
                 match (source, mix) {
-                    (WavSource::Opl(song), RenderWavMix::Opl(mix)) => Some(render_wav_cancellable(
+                    (WavSource::Dro(song), RenderWavMix::Opl(mix)) => Some(render_wav_cancellable(
                         Arc::clone(song),
                         *mix,
                         *sample_rate,
@@ -454,7 +454,7 @@ pub fn run_task(
                 }
             };
             match source {
-                LoopSearchSource::Opl(song) => {
+                LoopSearchSource::Dro(song) => {
                     find_loops(song, *min_len_commands, &mut on_candidate, is_cancelled);
                 }
                 LoopSearchSource::Vgm(file) => {
@@ -507,7 +507,7 @@ fn split_songs_to_bytes(
             continue;
         }
         let bytes = match source {
-            SplitSource::Opl(song) => {
+            SplitSource::Dro(song) => {
                 let piece = materialise(song, &segment, true, trailing_tail);
                 write_song(&piece).map_err(|error| error.to_string())
             }
@@ -575,7 +575,7 @@ mod tests {
 
     fn request(song: Song) -> TaskRequest {
         TaskRequest::RenderWaveform {
-            source: AudioSource::Opl(Arc::new(song)),
+            source: AudioSource::Dro(Arc::new(song)),
             num_buckets: 32,
             sample_rate: 48_000,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
@@ -611,7 +611,7 @@ mod tests {
         let song = tone_song();
         let expected = vgms_synth::measure_peak(&song, 48_000);
         let scan = TaskRequest::VolumeScan {
-            source: AudioSource::Opl(Arc::new(song)),
+            source: AudioSource::Dro(Arc::new(song)),
             sample_rate: 48_000,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
         };
@@ -741,8 +741,8 @@ mod tests {
         let expected = vgms_synth::measure_peak(&*song, 48_000);
         let scan = TaskRequest::PackVolumeScan {
             tracks: vec![
-                ("01.vgm".to_owned(), AudioSource::Opl(Arc::clone(&song))),
-                ("02.vgm".to_owned(), AudioSource::Opl(Arc::clone(&song))),
+                ("01.vgm".to_owned(), AudioSource::Dro(Arc::clone(&song))),
+                ("02.vgm".to_owned(), AudioSource::Dro(Arc::clone(&song))),
             ],
             sample_rate: 48_000,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
@@ -766,7 +766,7 @@ mod tests {
     #[test]
     fn a_cancelled_export_emits_nothing() {
         let wav = TaskRequest::RenderWav {
-            source: WavSource::Opl(Arc::new(tone_song())),
+            source: WavSource::Dro(Arc::new(tone_song())),
             mix: RenderWavMix::Opl(RenderMix::default()),
             sample_rate: 48_000,
             bit_depth: 16,
@@ -800,7 +800,7 @@ mod tests {
 
         let results = collect(
             &TaskRequest::RenderWav {
-                source: WavSource::Opl(Arc::new(song)),
+                source: WavSource::Dro(Arc::new(song)),
                 mix: RenderWavMix::Opl(RenderMix::default()),
                 sample_rate: 48_000,
                 bit_depth: 16,
@@ -867,7 +867,7 @@ mod tests {
         // A DRO capture yields `.dro` pieces (threshold and tail in milliseconds).
         let song = crate::test_song::multi_song_capture_dro();
         let files = split_songs_to_bytes(
-            &SplitSource::Opl(Arc::new(song.clone())),
+            &SplitSource::Dro(Arc::new(song.clone())),
             750,
             &[true, true, true],
             0,

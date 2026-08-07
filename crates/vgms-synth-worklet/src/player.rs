@@ -124,7 +124,7 @@ fn read_source(name: &str, bytes: &[u8]) -> Result<AudioSource, String> {
         Ok(AudioSource::Vgm(Arc::new(file)))
     } else {
         let song = vgms_core::io::read_song(name, bytes).map_err(|error| error.to_string())?;
-        Ok(AudioSource::Opl(Arc::new(song)))
+        Ok(AudioSource::Dro(Arc::new(song)))
     }
 }
 
@@ -351,7 +351,7 @@ impl Engine {
             engine
         };
         Ok(match source {
-            AudioSource::Opl(song) => {
+            AudioSource::Dro(song) => {
                 // ou-2: an OPL document plays through the generic engine over a
                 // VGM projection of its register stream. `opl` carries the type
                 // so the panel's Muting/Panning translate to the generic path.

@@ -250,15 +250,15 @@ impl Editor {
     /// job and the audio backend take, instead of five `match (snapshot, vgm)`
     /// triads each cloning the file.
     ///
-    /// OPL-first: a DRO, or an OPL VGM through its projection, hands out its
-    /// `Song` (still what the OPL engine plays); only a non-OPL VGM hands out its
-    /// file. Split and Crop want the file *first*, to keep its header -- they ask
-    /// [`Self::vgm_arc`]. `None` with nothing loaded. The `Vgm` arm is the cached
-    /// `Arc` ([`Self::refresh_vgm_views`]), so either arm is a cheap clone.
+    /// A DRO hands out its `Song` (the `Dro` arm); every VGM, OPL included, hands
+    /// out its file (the `Vgm` arm) -- there is no projected `Song` behind a VGM
+    /// any more. Split and Crop want the file *first*, to keep its header -- they
+    /// ask [`Self::vgm_arc`]. `None` with nothing loaded. The `Vgm` arm is the
+    /// cached `Arc` ([`Self::refresh_vgm_views`]), so either arm is a cheap clone.
     #[must_use]
     pub fn doc_source(&self) -> Option<vgms_core::DocSource> {
         self.snapshot()
-            .map(vgms_core::DocSource::Opl)
+            .map(vgms_core::DocSource::Dro)
             .or_else(|| self.vgm_source.clone().map(vgms_core::DocSource::Vgm))
     }
 
