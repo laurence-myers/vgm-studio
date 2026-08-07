@@ -2,7 +2,9 @@
 
 use crate::error::{Error, Result};
 use crate::song::dro_data::v1_opcode;
-use crate::song::{Bank, DelayKind, DroDataV1, DroSong, DroSongData, Instruction, OplType};
+use crate::song::{
+    Bank, DRO_FILE_V1, DelayKind, DroDataV1, DroSong, DroSongData, Instruction, OplType,
+};
 use crate::util::VGM_SAMPLE_RATE;
 use crate::vgm::VgmFile;
 use crate::vgm::data::command;
@@ -105,12 +107,38 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// do not read back. (A `DroSong` is always a DRO, so there is no "already a
 /// VGM" case.)
 pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
+    // Byte-exact to `dro2vgm`: no synthetic prime (see [`dro_to_vgm_inner`]).
+    dro_to_vgm_inner(song, false)
+}
+
+/// The shared DRO -> VGM conversion, optionally priming the DRO v1
+/// waveform-select-enable register the way [`DroEngine`](../../vgms_synth) does on
+/// reset.
+///
+/// `prime_wse` is `false` for [`dro_to_vgm`] (which must stay byte-for-byte with
+/// `dro2vgm`) and `true` only for a v1 source through the playback/split
+/// projection ([`opl_song_to_vgm_file`]).
+///
+/// # Errors
+/// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
+/// do not read back.
+fn dro_to_vgm_inner(song: &DroSong, prime_wse: bool) -> Result<VgmFile> {
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
     // The header's `total # samples` field; accumulated here because the stream
     // holds only the (chunked) wait commands, not their sum.
     let mut total_samples = 0u64;
+
+    // DRO v1 (OPL2) captures assume waveform-select is already enabled
+    // (`0x01 = 0x20`): DOSBox's chip had the bit set before recording began, so
+    // the write is not in the file. `DroEngine::reset_chip` primes it for the
+    // offline render; the playback projection primes it here, or a v1 file's
+    // non-sine timbres collapse to sine. A zero-delay low-bank write, so the
+    // timing and total-sample count are unchanged.
+    if prime_wse {
+        stream.write(Bank::Low, 0x01, 0x20);
+    }
 
     for instruction in song.data().iter() {
         match instruction {
@@ -160,16 +188,22 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
 /// playback through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine)
 /// (ou-2).
 ///
-/// A `DroSong` is always a DRO now, so this is [`dro_to_vgm`]: the register writes
-/// and millisecond delays become a real `VgmFile` whose header the generic engine
-/// builds voices from. This is the same round trip
+/// The register writes and millisecond delays become a real `VgmFile` whose
+/// header the generic engine builds voices from -- the same round trip
 /// [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time rather than
 /// on a user's explicit convert.
+///
+/// Unlike that explicit convert ([`dro_to_vgm`]), this primes the DRO v1
+/// waveform-select-enable register (`0x01 = 0x20`): a v1 (OPL2) capture assumes
+/// the bit was set before it ran, so without the prime its non-sine timbres
+/// collapse to sine on playback -- the projection must match what the offline
+/// render ([`DroEngine::reset_chip`](../../vgms_synth)) does. A v2 capture records
+/// the write itself and is not primed.
 ///
 /// # Errors
 /// If the song will not convert, or the assembled VGM does not read back.
 pub fn opl_song_to_vgm_file(song: &DroSong) -> Result<VgmFile> {
-    dro_to_vgm(song)
+    dro_to_vgm_inner(song, song.file_version == DRO_FILE_V1)
 }
 
 /// The VGM opcode that writes an OPL register on the given chip and bank.
@@ -369,6 +403,59 @@ mod tests {
         )
     }
 
+    /// The playback/split projection primes the DRO v1 waveform-select-enable
+    /// register (`0x01 = 0x20`) before the song's own writes, matching
+    /// `DroEngine::reset_chip`. The peer of the engine's
+    /// `the_v1_waveform_select_hack_is_primed_on_reset`.
+    #[test]
+    fn the_playback_projection_primes_the_v1_waveform_select() {
+        let song = build_dro_v1(&[0x20, 0x01]); // one write: reg 0x20 = 0x01
+        assert_eq!(song.file_version, DRO_FILE_V1);
+
+        let vgm = opl_song_to_vgm_file(&song).unwrap();
+        let raw = vgm.body.raw();
+        assert_eq!(
+            &raw[0..3],
+            &[command::YM3812, 0x01, 0x20],
+            "the WSE prime is the first command"
+        );
+        assert_eq!(
+            &raw[3..6],
+            &[command::YM3812, 0x20, 0x01],
+            "the song's own write follows the prime"
+        );
+    }
+
+    /// Convert to VGM stays byte-exact to `dro2vgm`: no prime, even for v1.
+    #[test]
+    fn the_explicit_convert_does_not_prime_the_v1_waveform_select() {
+        let song = build_dro_v1(&[0x20, 0x01]);
+        let vgm = dro_to_vgm(&song).unwrap();
+        assert_eq!(
+            &vgm.body.raw()[0..3],
+            &[command::YM3812, 0x20, 0x01],
+            "the song's own write is first; no prime"
+        );
+    }
+
+    /// A v2 capture records its own waveform-select if it needs one, so the
+    /// projection adds no prime.
+    #[test]
+    fn a_v2_capture_is_not_primed() {
+        use crate::song::DroDataV2;
+        // codemap: code 0 -> register 0x20; data: one low-bank write 0x20 = 0x01.
+        let data = DroDataV2::new(vec![0x00, 0x01], vec![0x20], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::Opl2);
+        assert_ne!(song.file_version, DRO_FILE_V1);
+
+        let vgm = opl_song_to_vgm_file(&song).unwrap();
+        assert_eq!(
+            &vgm.body.raw()[0..3],
+            &[command::YM3812, 0x20, 0x01],
+            "no prime is added for a v2 capture"
+        );
+    }
+
     #[test]
     fn write_commands_follow_the_chip_and_bank() {
         assert_eq!(write_command(OplType::Opl2, Bank::Low), command::YM3812);
@@ -451,7 +538,7 @@ mod tests {
         let v2 = dro::read("f.dro", DRO_V2_FIXTURE).unwrap();
         let v1 = dro2_to_dro1(&v2).unwrap();
 
-        assert_eq!(v1.file_version, crate::song::DRO_FILE_V1);
+        assert_eq!(v1.file_version, DRO_FILE_V1);
         assert_eq!(v1.opl_type, v2.opl_type);
         assert_eq!(v1.ms_length, v2.ms_length);
         assert_eq!(v1.total_delay_ms(), v2.total_delay_ms());
