@@ -25,3 +25,9 @@
 [submodule "vendor/upstream/vgmtools"]
 	path = vendor/upstream/vgmtools
 	url = https://github.com/vgmrips/vgmtools.git
+[submodule "vendor/upstream/ym3812-lle"]
+	path = vendor/upstream/ym3812-lle
+	url = https://github.com/nukeykt/YM3812-LLE.git
+[submodule "vendor/upstream/ymf262-lle"]
+	path = vendor/upstream/ymf262-lle
+	url = https://github.com/nukeykt/YMF262-LLE.git

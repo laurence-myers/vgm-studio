@@ -30,6 +30,12 @@ fn main() {
         println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
     }
 
+    let opl2_lle = PathBuf::from(UPSTREAM).join("ym3812-lle");
+    require_submodule(&opl2_lle, "ym3812-lle", "fmopl2.c");
+    for file in ["fmopl2.c", "fmopl2.h"] {
+        println!("cargo::rerun-if-changed={}", opl2_lle.join(file).display());
+    }
+
     // The OPN-family dies: one implementation compiled per chip macro. The
     // 2612 and 2608 dies are wrapped; the 2610 configuration does not compile
     // upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
@@ -52,15 +58,18 @@ fn main() {
         .file(opll.join("opll.c"))
         .file(psg.join("ympsg.c"))
         .file(opm_lle.join("fmopm.c"))
+        .file(opl2_lle.join("fmopl2.c"))
         .file(opna_lle.join("fmopna_2612.c"))
         .file(opna_lle.join("fmopna_2608.c"))
         .file("shim/layout.c")
         .file("shim/lle_opm.c")
+        .file("shim/lle_opl2.c")
         .file("shim/lle_opn2.c")
         .file("shim/lle_opna.c")
         .include(&opll)
         .include(&psg)
         .include(&opm_lle)
+        .include(&opl2_lle)
         .include(&opna_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
