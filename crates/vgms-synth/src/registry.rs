@@ -43,9 +43,8 @@ use crate::opl_adapter::OplCoreAdapter;
 pub enum CoreMaker {
     /// Built here and driven by `VgmEngine`.
     Generic(fn() -> Box<dyn ChipCore>),
-    /// An OPL core. Built as an [`OplChip`] for `DroEngine`
-    /// ([`build_opl`](CoreInfo::build_opl)) and, wrapped in an
-    /// [`OplCoreAdapter`], as a `ChipCore` for `VgmEngine`
+    /// An OPL core. Built as an [`OplChip`], then wrapped in an
+    /// [`OplCoreAdapter`] as a `ChipCore` for `VgmEngine`
     /// ([`build`](CoreInfo::build)). Takes the sample rate, because an OPL core
     /// resamples to it rather than declaring its own.
     Opl(fn(u32) -> Box<dyn OplChip>),
@@ -177,20 +176,6 @@ impl CoreInfo {
             core
         };
         Some(Leveled::wrap(core, self.level))
-    }
-
-    /// Builds this core as an OPL chip, or `None` when it is not one.
-    ///
-    /// Separate from [`build`](Self::build) because the two engines are
-    /// separate: `VgmEngine` pulls samples from a `ChipCore`, `DroEngine`
-    /// drives an `OplChip` through muting, panning and buffered writes. A core
-    /// answers to one or the other, never both.
-    #[must_use]
-    pub fn build_opl(&self, sample_rate: u32) -> Option<Box<dyn OplChip>> {
-        match self.make {
-            CoreMaker::Opl(make) => Some(make(sample_rate)),
-            CoreMaker::Generic(_) | CoreMaker::Routed => None,
-        }
     }
 }
 
@@ -657,17 +642,6 @@ impl CoreRegistry {
     pub fn resolve_choice(&self, chip: ChipKind, choice: Option<&str>) -> Option<&CoreInfo> {
         let id = choice.map(|choice| format!("{}.{}", slot_slug(chip), choice));
         self.resolve(chip, id.as_deref())
-    }
-
-    /// Builds the OPL core the config names, at `sample_rate`.
-    ///
-    /// `None` when the choice is a routed one (hardware) or this build has no
-    /// OPL core at all -- both mean "`DroEngine` must fall back to its
-    /// default chip", which is what the caller does.
-    #[must_use]
-    pub fn build_opl(&self, choice: Option<&str>, sample_rate: u32) -> Option<Box<dyn OplChip>> {
-        self.resolve_choice(ChipKind::Ymf262, choice)?
-            .build_opl(sample_rate)
     }
 
     /// Builds the generic core for `chip`, honouring a configured id.

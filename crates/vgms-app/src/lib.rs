@@ -356,23 +356,4 @@ mod core_registry_tests {
         // than the number of *cores*.
         assert!(cored >= 16, "only {cored} chips have a core");
     }
-
-    /// The whole point of the registry reaching playback: a core the user picks
-    /// is a core that gets built. `Routed` entries (the board) are the app's to
-    /// interpret and correctly build nothing here.
-    #[test]
-    fn a_picked_opl_core_is_the_one_that_gets_built() {
-        let mut registry = vgms_synth::CoreRegistry::with_builtins();
-        vgms_cores_nuked::register(&mut registry);
-        vgms_retrowave::register(&mut registry);
-
-        assert!(registry.build_opl(Some("cqm"), 49_716).is_some());
-        assert!(registry.build_opl(Some("nuked"), 49_716).is_some());
-        assert!(
-            registry.build_opl(Some("retrowave"), 49_716).is_none(),
-            "the board is a whole audio service, not a chip the engine pulls from"
-        );
-        // An unknown name falls back to the default, which does build.
-        assert!(registry.build_opl(Some("nonesuch"), 49_716).is_some());
-    }
 }

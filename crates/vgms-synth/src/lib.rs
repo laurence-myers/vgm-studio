@@ -40,7 +40,7 @@ pub use chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 pub use credits::{CoreCredit, credits, credits_text};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{DecompressionTable, decompress};
-pub use engine::{DroEngine, FrameClock, LoopConfig, LoopCount, Muting, Panning, Position};
+pub use engine::{FrameClock, LoopConfig, LoopCount, Muting, Panning, Position};
 pub use limiter::BoostLimiter;
 #[cfg(feature = "c-parity")]
 pub use opl::CReferenceOpl3;
@@ -51,10 +51,7 @@ pub use opl_adapter::OplCoreAdapter;
 pub use opl_chip_mix::{
     opl_chip_muting, opl_chip_panning, opl_muting_from_chip, opl_projection_kind,
 };
-pub use peak::{
-    Peak, measure_dro_peak, measure_dro_peak_cancellable, measure_vgm_peak,
-    measure_vgm_peak_cancellable,
-};
+pub use peak::{Peak, measure_vgm_peak, measure_vgm_peak_cancellable};
 pub use registry::{
     CoreChoices, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, gate_without_forwarding, install,
     opl_hardware_core, registry, with_render_choices,
@@ -62,22 +59,18 @@ pub use registry::{
 pub use split::{SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable};
 pub use vgm_engine::VgmEngine;
 pub use wav::{
-    RenderMix, VgmRenderMix, render_dro_wav, render_dro_wav_boosted_with_progress,
-    render_dro_wav_cancellable, render_dro_wav_mixed, render_vgm_wav, render_vgm_wav_cancellable,
-    render_vgm_wav_mixed_cancellable,
+    VgmRenderMix, render_vgm_wav, render_vgm_wav_cancellable, render_vgm_wav_mixed_cancellable,
 };
 pub use waveform::{
-    WaveformBucket, WaveformBucketer, render_dro_waveform, render_dro_waveform_cancellable,
-    render_dro_waveform_progressive, render_vgm_waveform, render_vgm_waveform_progressive,
+    WaveformBucket, WaveformBucketer, render_vgm_waveform, render_vgm_waveform_progressive,
 };
 pub use write_queue::WriteQueue;
 
 /// What is being played: a decoded OPL stream, or a VGM for any chips.
 ///
-/// The two go to different engines -- [`DroEngine`] carries the OPL register
-/// policy (muting, panning, the buffered-write spacing), [`VgmEngine`] carries
-/// none at all -- so an audio backend has to know which it has. This is that
-/// question, asked once and answered where the backend can see it.
+/// Both go through the one [`VgmEngine`] now -- a DRO is projected to a VGM
+/// (`opl_song_to_vgm_file`) at the seam -- so this only records which shape the
+/// document arrived in; the backend projects a DRO before playing it.
 ///
 /// It is [`vgms_core::DocSource`] under the name the synth's public API has
 /// always used. The type lives in the core so the UI's loop-search, WAV and

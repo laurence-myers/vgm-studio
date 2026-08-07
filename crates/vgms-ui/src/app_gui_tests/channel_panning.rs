@@ -534,9 +534,14 @@ fn match_volume_measures_the_peak_and_sets_the_volume() {
     );
 
     // Recompute the scan's peak here to pin the exact ladder volume the app must
-    // have chosen and persisted.
+    // have chosen and persisted -- through the one engine, projecting the DRO
+    // exactly as the scan task does.
     let rate = harness.state().config.audio.frequency;
-    let peak = vgms_synth::measure_dro_peak(&song, rate);
+    let resampling =
+        vgms_synth::resample::ResampleMode::from_slug(&harness.state().config.audio.resampling)
+            .unwrap_or_default();
+    let file = std::sync::Arc::new(vgms_core::convert::opl_song_to_vgm_file(&song).unwrap());
+    let peak = vgms_synth::measure_vgm_peak(file, rate, resampling);
     let expected = vgms_core::volume_modifier_factor(vgms_core::nearest_volume_modifier(
         vgms_core::boost_for_peak(peak.max_level),
     ));
