@@ -10,6 +10,7 @@
 
 mod ffi;
 mod lle_opl2;
+mod lle_opl3;
 mod lle_opm;
 mod lle_opn2;
 mod lle_opna;
@@ -17,6 +18,7 @@ mod opll;
 mod psg;
 
 pub use lle_opl2::Ym3812Lle;
+pub use lle_opl3::Ymf262Lle;
 pub use lle_opm::Ym2151Lle;
 pub use lle_opn2::Ym2612Lle;
 pub use lle_opna::Ym2608Lle;
@@ -129,6 +131,24 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym3812Lle::new())),
         });
     }
+    for chip in lle_opl3::CHIPS {
+        registry.register(vgms_synth::CoreInfo {
+            id: lle_opl3::CORE_ID,
+            chip,
+            label: "YMF262-LLE (die sim, below realtime)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/YMF262-LLE",
+            realtime: false,
+            // The stereo-ext panpots are Nuked-OPL3's extension; the real die
+            // has no such registers.
+            channel_pan: false,
+            // As the OPL2 die: `false` engages the OPL write gate.
+            channel_mute: false,
+            level: vgms_synth::LEVEL_UNITY,
+            make: vgms_synth::CoreMaker::Generic(|| Box::new(Ymf262Lle::new())),
+        });
+    }
 }
 
 #[cfg(test)]
@@ -183,6 +203,35 @@ mod tests {
                 .any(|info| info.id == super::lle_opl2::CORE_ID),
             "the YMF262 has banked registers the OPL2 die cannot address"
         );
+    }
+
+    /// The OPL3 die serves the whole family (an OPL2 song on OPL3 silicon is
+    /// the SB16 experience), as an alternative behind the modelled default.
+    #[test]
+    fn the_opl3_die_is_offered_for_the_whole_family_behind_the_default() {
+        let mut registry = vgms_synth::CoreRegistry::with_builtins();
+        super::register(&mut registry);
+
+        for chip in [
+            ChipKind::Ymf262,
+            ChipKind::Ym3812,
+            ChipKind::Ym3526,
+            ChipKind::Y8950,
+        ] {
+            assert!(
+                registry
+                    .for_chip(chip)
+                    .any(|info| info.id == super::lle_opl3::CORE_ID),
+                "{} should offer the OPL3 die",
+                chip.name()
+            );
+            assert_ne!(
+                registry.default_for(chip).map(|info| info.id),
+                Some(super::lle_opl3::CORE_ID),
+                "{} must not default to a below-realtime die",
+                chip.name()
+            );
+        }
     }
 
     /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers first

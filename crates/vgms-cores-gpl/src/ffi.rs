@@ -61,6 +61,20 @@ unsafe extern "C" {
     fn vgms_fmopl2_out_mo(chip: *const c_void) -> i32;
     fn vgms_fmopl2_out_sy(chip: *const c_void) -> i32;
 
+    fn vgms_fmopl3_sizeof() -> usize;
+    fn vgms_fmopl3_alignof() -> usize;
+    fn vgms_fmopl3_set_pins(
+        chip: *mut c_void,
+        ic: i32,
+        cs: i32,
+        wr: i32,
+        a0: i32,
+        a1: i32,
+        data: i32,
+    );
+    fn vgms_fmopl3_clock(chip: *mut c_void, mclk: i32);
+    fn vgms_fmopl3_dac_pins(chip: *const c_void) -> i32;
+
     fn vgms_fmopna2608_sizeof() -> usize;
     fn vgms_fmopna2608_alignof() -> usize;
     fn vgms_fmopna2608_set_pins(
@@ -398,6 +412,87 @@ impl Opl2LleChip {
     }
 }
 
+/// The YMF262-LLE die simulation, driven by its pins.
+///
+/// The OPL3 package: two address lines (`a0` address/value, `a1` the register
+/// bank) and a four-channel serial DAC -- the YAC512's 16-bit linear words on
+/// two data lines (`DOAB` time-multiplexes the A and B words, `DOCD` the C
+/// and D), paced by the `SY` bit clock and framed by the two sample strobes.
+#[derive(Debug)]
+pub(crate) struct Opl3LleChip {
+    state: OpaqueChip,
+}
+
+/// The OPL3 serial DAC pins after a clock edge.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Opl3DacPins {
+    /// The data line carrying the A and B words.
+    pub doab: bool,
+    /// The data line carrying the C and D words.
+    pub docd: bool,
+    /// The serial bit clock.
+    pub sy: bool,
+    /// The strobe framing the A and C words.
+    pub smpac: bool,
+    /// The strobe framing the B and D words.
+    pub smpbd: bool,
+}
+
+impl Opl3LleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (vgms_fmopl3_sizeof(), vgms_fmopl3_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Zeroes the die, as power-off does; the electrical reset is the
+    /// wrapper's job.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+    }
+
+    /// The bus pins; `a1` of [`Opn2Pins`] selects the register bank, exactly
+    /// the meaning the OPN2 package gives it.
+    pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            vgms_fmopl3_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.a1),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// One half of the master clock: `high` is the level of the clk pin.
+    ///
+    /// As the OPL2 upstream: the clock pin's level lives in the input struct,
+    /// so the shim presents it and clocks in one call.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopl3_t)`.
+        unsafe { vgms_fmopl3_clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The serial DAC pins after the last edge.
+    pub(crate) fn dac_pins(&mut self) -> Opl3DacPins {
+        // SAFETY: the shim reads five fields of the sized block.
+        let packed = unsafe { vgms_fmopl3_dac_pins(self.state.as_ptr()) };
+        Opl3DacPins {
+            doab: packed & 1 != 0,
+            docd: packed & 2 != 0,
+            sy: packed & 4 != 0,
+            smpac: packed & 8 != 0,
+            smpbd: packed & 16 != 0,
+        }
+    }
+}
+
 /// The YM2612 die of YM2608-LLE, driven by its pins.
 ///
 /// Same idea as [`OpmLleChip`], different package: two bank-select address
@@ -623,6 +718,11 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (vgms_fmopl2_sizeof(), vgms_fmopl2_alignof()) };
         assert!(size > 1024, "fmopl2_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (vgms_fmopl3_sizeof(), vgms_fmopl3_alignof()) };
+        assert!(size > 1024, "fmopl3_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }
