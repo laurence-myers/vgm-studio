@@ -670,7 +670,7 @@ impl CoreRegistry {
     /// threading the map through every signature.
     #[must_use]
     pub fn build_with(&self, choices: &CoreChoices, kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-        self.resolve_choice(kind, choices.get(slot_slug(kind)).map(String::as_str))?
+        self.resolve_choice(kind, named_choice(choices, kind).map(String::as_str))?
             .build()
     }
 
@@ -726,10 +726,51 @@ pub const NUKED_OPL_ID: &str = "opl3.nuked";
 /// The config slug the OPL family shares, rather than one key per OPL chip.
 pub const OPL_SLOT_SLUG: &str = "opl3";
 
+/// The *optional* config slug that splits the OPL2 generation off the shared
+/// `opl3` slot.
+///
+/// Absent, the whole family reads `opl3` -- one core for everything, the
+/// default. Present, the [`OPL2_GENERATION_CHIPS`] read this slug instead, so
+/// a user can put an OPL2-only core (the YM3812 die sim) under their OPL2
+/// captures while OPL3 material keeps its own choice. A *choice* slug only:
+/// core **ids** stay `opl3.*` for every family member, so this never touches
+/// what `vgmstudio.ini` calls a core, merely which key names it.
+pub const OPL2_SLOT_SLUG: &str = "opl2";
+
+/// The OPL2-generation chips: the ones the `opl2` split slot governs when it
+/// is present. The YMF262 alone stays on the family slot.
+pub const OPL2_GENERATION_CHIPS: [ChipKind; 3] =
+    [ChipKind::Ym3812, ChipKind::Ym3526, ChipKind::Y8950];
+
 /// Whether `chip` is governed by the single OPL selector.
 #[must_use]
 pub fn is_opl(chip: ChipKind) -> bool {
     OPL_CHIPS.contains(&chip)
+}
+
+/// Whether `chip` reads the optional `opl2` split slot before the family's.
+#[must_use]
+pub fn is_opl2_generation(chip: ChipKind) -> bool {
+    OPL2_GENERATION_CHIPS.contains(&chip)
+}
+
+/// The name `map` holds for `chip`: an OPL2-generation chip reads the optional
+/// [`OPL2_SLOT_SLUG`] split slot first, then falls back to its shared slot.
+///
+/// The one place the split is resolved -- [`core_choice`], [`render_override`]
+/// and [`CoreRegistry::build_with`] all go through here, so the process-wide
+/// choices, a render's one-shot override and a pinned single build cannot
+/// disagree about what a split map means.
+fn named_choice(
+    map: &std::collections::BTreeMap<String, String>,
+    chip: ChipKind,
+) -> Option<&String> {
+    if is_opl2_generation(chip)
+        && let Some(name) = map.get(OPL2_SLOT_SLUG)
+    {
+        return Some(name);
+    }
+    map.get(slot_slug(chip))
 }
 
 /// The config slug that decides `chip`'s core: its own, or `"opl3"` for any of
@@ -779,14 +820,11 @@ pub fn set_core_choices(choices: std::collections::BTreeMap<String, String>) {
     *CHOICES.write().expect("not poisoned") = choices;
 }
 
-/// The configured short name for `chip`'s slot, if the user chose one.
+/// The configured short name for `chip`'s slot, if the user chose one -- an
+/// OPL2-generation chip reading the optional `opl2` split slot first.
 #[must_use]
 pub fn core_choice(chip: ChipKind) -> Option<String> {
-    CHOICES
-        .read()
-        .expect("not poisoned")
-        .get(slot_slug(chip))
-        .cloned()
+    named_choice(&CHOICES.read().expect("not poisoned"), chip).cloned()
 }
 
 thread_local! {
@@ -833,7 +871,7 @@ pub fn render_override(chip: ChipKind) -> Option<String> {
     RENDER_OVERRIDE.with(|slot| {
         slot.borrow()
             .as_ref()
-            .and_then(|choices| choices.get(slot_slug(chip)).cloned())
+            .and_then(|choices| named_choice(choices, chip).cloned())
     })
 }
 
@@ -1013,9 +1051,49 @@ mod tests {
     #[test]
     fn the_config_and_the_registry_agree_on_the_opl_slot() {
         assert_eq!(OPL_SLOT_SLUG, vgms_core::config::OPL_SLOT);
+        assert_eq!(OPL2_SLOT_SLUG, vgms_core::config::OPL2_SLOT);
         assert_eq!(
             NUKED_OPL_ID,
             format!("{}.{}", OPL_SLOT_SLUG, vgms_core::config::NUKED_CORE)
+        );
+    }
+
+    /// The optional `opl2` split slot: present, the OPL2 generation reads it
+    /// and the YMF262 keeps the family slot; absent, everyone shares `opl3` --
+    /// the combined default, and what every pre-split config still means.
+    #[test]
+    fn the_opl2_split_slot_overrides_the_family_slot_for_its_generation() {
+        let combined = CoreChoices::from([("opl3".to_owned(), "cqm".to_owned())]);
+        for chip in OPL_CHIPS {
+            assert_eq!(
+                named_choice(&combined, chip),
+                Some(&"cqm".to_owned()),
+                "{} shares the family slot when unsplit",
+                chip.name()
+            );
+        }
+
+        let split = CoreChoices::from([
+            ("opl3".to_owned(), "cqm".to_owned()),
+            ("opl2".to_owned(), "ym3812-lle".to_owned()),
+        ]);
+        for chip in OPL2_GENERATION_CHIPS {
+            assert_eq!(
+                named_choice(&split, chip),
+                Some(&"ym3812-lle".to_owned()),
+                "{} reads the split slot",
+                chip.name()
+            );
+        }
+        assert_eq!(
+            named_choice(&split, ChipKind::Ymf262),
+            Some(&"cqm".to_owned()),
+            "the YMF262 stays on the family slot"
+        );
+        assert_eq!(
+            named_choice(&split, ChipKind::Sn76489),
+            None,
+            "a non-OPL chip never sees either OPL slot"
         );
     }
 

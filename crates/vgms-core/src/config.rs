@@ -108,6 +108,20 @@ pub struct AudioConfig {
 /// asserts the two agree.
 pub const OPL_SLOT: &str = "opl3";
 
+/// The *optional* slot splitting the OPL2 generation (YM3812, YM3526, Y8950)
+/// off the family's shared `opl3` slot.
+///
+/// Absent -- the default -- the whole family reads `opl3`: one core for both
+/// generations. Present, the OPL2-generation chips read this key instead, so
+/// an OPL2-only core can sit under OPL2 captures while OPL3 material keeps
+/// its own. [`AudioConfig::output_backend`] deliberately keeps reading the
+/// family slot alone: hardware output is a whole-family routing decision, not
+/// a per-generation core.
+///
+/// Duplicated from `vgms_synth::registry::OPL2_SLOT_SLUG`, as [`OPL_SLOT`] is
+/// from its twin; a test in vgms-synth asserts the two agree.
+pub const OPL2_SLOT: &str = "opl2";
+
 /// The core name meaning "a RetroWave OPL3 board", in the `opl3` slot.
 pub const RETROWAVE_CORE: &str = "retrowave";
 

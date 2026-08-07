@@ -199,7 +199,7 @@ fn core_picker(
     chips: &[ChipKind],
     cores: &mut BTreeMap<String, String>,
 ) {
-    let plan = chip_output::plan(chips);
+    let plan = chip_output::plan(chips, chip_output::opl_split(cores));
     let choosable: Vec<&chip_output::SongChipRow> = plan
         .song
         .iter()
@@ -222,7 +222,7 @@ fn core_picker(
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
             for entry in choosable {
-                chip_output::song_chip_row(ui, palette, "split", cores, entry);
+                chip_output::song_chip_row(ui, palette, "split", cores, entry, false);
             }
         });
 }

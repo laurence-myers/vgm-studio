@@ -899,6 +899,13 @@ pub(crate) fn waveform_hover(ms: u32) -> String {
 // ============================================================================
 
 pub(crate) const CHIP_OUTPUT_NO_CORE: &str = "no core yet";
+pub(crate) const CHIP_OUTPUT_SPLIT_OPL: &str = "Choose OPL2 and OPL3 cores separately";
+pub(crate) const CHIP_OUTPUT_SPLIT_OPL_HOVER: &str = "Give the OPL2-generation chips (OPL2, \
+     YM3526, Y8950) their own core \u{2014} e.g. the YM3812 die sim \u{2014} while OPL3 keeps \
+     this one. Hardware output stays a whole-family choice on the OPL3 selector.";
+pub(crate) const CHIP_OUTPUT_MERGE_OPL: &str = "Use one core for OPL2 and OPL3";
+pub(crate) const CHIP_OUTPUT_MERGE_OPL_HOVER: &str =
+    "Go back to a single core choice for the whole OPL family.";
 
 // ============================================================================
 // widgets/position_panel.rs

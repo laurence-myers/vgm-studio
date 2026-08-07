@@ -161,6 +161,13 @@ impl SettingsDialog {
         self.cores.insert(slot.to_owned(), core.to_owned());
     }
 
+    /// The pending core map, read-only -- for the GUI tests, which drive the
+    /// picker through clicks and then assert what those clicks wrote.
+    #[cfg(test)]
+    pub(crate) fn cores(&self) -> &BTreeMap<String, String> {
+        &self.cores
+    }
+
     /// The OPL slot as a backend: hardware, or anything else.
     fn backend(&self) -> OutputBackend {
         match self
@@ -270,7 +277,7 @@ impl SettingsDialog {
             .on_hover_text(crate::strings::SETTINGS_OUTPUT_CORE_HOVER);
         ui.add_space(4.0);
 
-        let plan = chip_output::plan(self.song_chips());
+        let plan = chip_output::plan(self.song_chips(), chip_output::opl_split(&self.cores));
 
         // "Current": the loaded file's chips, so tuning what you hear is a
         // couple of rows rather than a hunt down the whole roster.
@@ -284,7 +291,14 @@ impl SettingsDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for entry in &plan.song {
-                        chip_output::song_chip_row(ui, palette, "settings", &mut self.cores, entry);
+                        chip_output::song_chip_row(
+                            ui,
+                            palette,
+                            "settings",
+                            &mut self.cores,
+                            entry,
+                            true,
+                        );
                     }
                 });
             ui.add_space(8.0);
@@ -328,7 +342,7 @@ impl SettingsDialog {
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for row in &plan.all {
-                        chip_output::chip_row(ui, palette, "settings", &mut self.cores, row);
+                        chip_output::chip_row(ui, palette, "settings", &mut self.cores, row, true);
                     }
                 });
         }
@@ -855,6 +869,32 @@ mod tests {
             saved.audio.output_backend(),
             OutputBackend::Emulated,
             "another chip's core must not disturb where OPL plays"
+        );
+    }
+
+    /// The optional `opl2` split slot travels the same cores map as everything
+    /// else: a split choice reaches the saved config beside the family's, and
+    /// the backend still keys off the family slot alone.
+    #[test]
+    fn a_split_opl2_choice_reaches_the_saved_config() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        dialog.choose_core(vgms_core::config::OPL_SLOT, "nuked");
+        dialog.choose_core(vgms_core::config::OPL2_SLOT, "ym3812-lle");
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(
+            saved.audio.core(vgms_core::config::OPL2_SLOT),
+            Some("ym3812-lle")
+        );
+        assert_eq!(saved.audio.core(vgms_core::config::OPL_SLOT), Some("nuked"));
+        assert_eq!(
+            saved.audio.output_backend(),
+            OutputBackend::Emulated,
+            "the split slot must not disturb where OPL plays"
         );
     }
 

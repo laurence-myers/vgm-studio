@@ -25,6 +25,43 @@ fn snapshot_settings_output_per_chip() {
     settled_snapshot(&mut harness, "settings_output_per_chip");
 }
 
+/// Clicking "choose separately" splits the OPL selector into OPL2 and OPL3
+/// rows -- the OPL2 row offering the OPL2-only die -- and the split lands in
+/// the dialog's cores map as the optional `opl2` slot.
+#[test]
+fn snapshot_settings_output_split_opl() {
+    crate::widgets::chip_output::install_test_cores();
+    let (mut harness, _handles) = build(Some(picked(&tone_song())), false, true);
+    let config = harness.state().config.clone();
+    harness.state_mut().dialogs.settings = Some(
+        crate::dialogs::SettingsDialog::new(&config, Vec::new()).with_song(
+            crate::dialogs::SongContext {
+                name: "tone.dro".to_owned(),
+                chips: vec![vgms_core::vgm::ChipKind::Ym3812],
+            },
+        ),
+    );
+    harness.run();
+    harness
+        .get_by_label(crate::strings::CHIP_OUTPUT_SPLIT_OPL)
+        .click();
+    harness.run();
+
+    // The song is an OPL2 capture, so its Current row is now the OPL2 half,
+    // and the map carries the split slot.
+    let dialog = harness
+        .state()
+        .dialogs
+        .settings
+        .as_ref()
+        .expect("the dialog is open");
+    assert!(
+        crate::widgets::chip_output::opl_split(dialog.cores()),
+        "the click writes the opl2 slot"
+    );
+    settled_snapshot(&mut harness, "settings_output_split_opl");
+}
+
 #[test]
 fn snapshot_empty_app() {
     let (mut harness, _handles) = build(None, false, true);
