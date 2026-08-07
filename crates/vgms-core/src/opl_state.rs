@@ -1,5 +1,5 @@
-//! The OPL register-file model shared by the optimiser and the multi-song
-//! splitter.
+//! The OPL register-file model the multi-song splitter and the crop edit build
+//! their state patches on.
 //!
 //! Every OPL register is a level-sensitive latch: the chip holds whatever value
 //! was last written to it. Two 256-entry files cover every OPL this app reads --
@@ -8,12 +8,14 @@
 //! and the reader has already routed each write opcode onto the right file (via
 //! its decoded [`Bank`]), so keying on the bank never conflates them.
 //!
-//! [`optimize`](crate::optimize) uses it to spot a write that changes nothing
-//! (the cached value already equals the one being written); [`split_songs`] uses
-//! it to capture the register state reached at a segment boundary and replay it
-//! as the minimal set of writes that recreates it.
+//! [`split_songs`] and [`crop`] use it -- via the crate-private `state_patch`
+//! fold -- to capture the register state a stream has reached at a cut point
+//! and diff two such states into the writes that carry the chip from one to
+//! the other. (VGM optimisation never touches it: that lives in
+//! [`chip_state`](crate::chip_state), which models every chip, not just OPL.)
 //!
 //! [`split_songs`]: crate::split_songs
+//! [`crop`]: crate::crop
 
 use crate::song::Bank;
 
@@ -24,9 +26,8 @@ const REGISTER_COUNT: usize = 256;
 
 /// The last value written to every OPL register, per file.
 ///
-/// An entry is `None` until its register is first written -- since construction,
-/// or since the last [`reset`](Self::reset). Power-on defaults are never assumed,
-/// so the first write to a register is always significant.
+/// An entry is `None` until its register is first written. Power-on defaults are
+/// never assumed, so the first write to a register is always significant.
 #[derive(Debug, Clone)]
 pub struct OplState {
     files: [[Option<u8>; REGISTER_COUNT]; FILE_COUNT],
@@ -47,12 +48,6 @@ impl OplState {
         }
     }
 
-    /// Forgets every cached value, so the next write to any register is treated
-    /// as a first write. The optimiser calls this at the loop point.
-    pub fn reset(&mut self) {
-        self.files = [[None; REGISTER_COUNT]; FILE_COUNT];
-    }
-
     /// The file a bank maps to: the low file (`0`) or the high file (`1`).
     ///
     /// A `None` bank -- only DRO v1, which tracks the bank separately and is
@@ -66,18 +61,11 @@ impl OplState {
         self.files[Self::file(bank)][usize::from(reg)] = Some(value);
     }
 
-    /// The value `reg` on `bank` currently holds, or `None` if it has not been
-    /// written since construction or the last [`reset`](Self::reset).
+    /// The value `reg` on `bank` currently holds, or `None` if it has never been
+    /// written.
     #[must_use]
     pub fn get(&self, bank: Option<Bank>, reg: u8) -> Option<u8> {
         self.files[Self::file(bank)][usize::from(reg)]
-    }
-
-    /// Whether `reg` on `bank` already holds `value` -- i.e. writing it would be
-    /// a no-op the optimiser can drop.
-    #[must_use]
-    pub fn is_set(&self, bank: Option<Bank>, reg: u8, value: u8) -> bool {
-        self.get(bank, reg) == Some(value)
     }
 
     /// The minimal set of writes that recreates this state, as `(bank, reg,
@@ -121,12 +109,10 @@ mod tests {
     fn record_latches_the_last_value() {
         let mut state = OplState::new();
         state.record(Some(Bank::Low), 0x20, 0x01);
-        assert!(state.is_set(Some(Bank::Low), 0x20, 0x01));
-        assert!(!state.is_set(Some(Bank::Low), 0x20, 0x02));
+        assert_eq!(state.get(Some(Bank::Low), 0x20), Some(0x01));
         // A rewrite replaces it.
         state.record(Some(Bank::Low), 0x20, 0x02);
         assert_eq!(state.get(Some(Bank::Low), 0x20), Some(0x02));
-        assert!(state.is_set(Some(Bank::Low), 0x20, 0x02));
     }
 
     #[test]
@@ -144,16 +130,8 @@ mod tests {
         let mut state = OplState::new();
         state.record(None, 0x40, 0x3F);
         assert_eq!(state.get(Some(Bank::Low), 0x40), Some(0x3F));
-        assert!(state.is_set(None, 0x40, 0x3F));
-    }
-
-    #[test]
-    fn reset_forgets_everything() {
-        let mut state = OplState::new();
-        state.record(Some(Bank::Low), 0x20, 0x01);
-        state.record(Some(Bank::High), 0x21, 0x02);
-        state.reset();
-        assert!(state.replay_writes().is_empty());
+        // The read side maps a missing bank the same way.
+        assert_eq!(state.get(None, 0x40), Some(0x3F));
     }
 
     #[test]
