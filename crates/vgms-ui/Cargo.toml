@@ -42,6 +42,9 @@ vgms-vgmtools.workspace = true
 # Headless GUI tests (interaction + snapshot). See the workspace manifest for
 # why this is pinned to the 0.32 line.
 egui_kittest.workspace = true
+# Blocks on the async wgpu adapter/device setup when building the one shared
+# snapshot device (see `test_gpu`). Already in the tree via egui-wgpu.
+pollster = "0.4"
 
 [lints]
 workspace = true

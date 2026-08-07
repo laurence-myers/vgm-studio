@@ -604,7 +604,9 @@ fn snapshot_theme_showcase() {
             // footer buttons and all.
             .with_size(egui::vec2(1024.0, 1780.0))
             .with_max_steps(64)
-            .wgpu()
+            // Share the one DX12/WARP device with the app snapshot tests -- see
+            // `crate::test_gpu`.
+            .wgpu_setup(crate::test_gpu::shared_wgpu_setup())
             .build_ui_state(
                 move |ui, state: &mut ShowcaseState| show(ui, state, choice),
                 ShowcaseState::new(),
@@ -626,6 +628,8 @@ fn snapshot_theme_showcase() {
         // into the baseline, then re-render and capture.
         harness.remove_cursor();
         harness.run();
+        // Share the render-concurrency cap with the app snapshot tests.
+        let _permit = crate::test_gpu::render_permit();
         results.add(harness.try_snapshot(format!("theme_showcase_{choice}")));
     }
     results.unwrap();

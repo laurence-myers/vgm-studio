@@ -130,7 +130,11 @@ fn build_sized(
     // still avoid `run`.
     let builder = Harness::builder().with_size(size).with_max_steps(64);
     let mut harness = if wgpu {
-        builder.wgpu().build_eframe(app_builder)
+        // One shared DX12/WARP device for every snapshot test, in place of
+        // kittest's per-test device -- see `crate::test_gpu`.
+        builder
+            .wgpu_setup(crate::test_gpu::shared_wgpu_setup())
+            .build_eframe(app_builder)
     } else {
         builder.build_eframe(app_builder)
     };
@@ -194,6 +198,9 @@ fn open_split_songs_dialog(harness: &mut Harness<'static, VgmStudioApp>) {
 fn settled_snapshot(harness: &mut Harness<'static, VgmStudioApp>, name: &str) {
     harness.remove_cursor();
     harness.run();
+    // Cap concurrent GPU renders on the shared device; the permit is handed back
+    // when this scope ends, even if the snapshot comparison panics on a mismatch.
+    let _permit = crate::test_gpu::render_permit();
     harness.snapshot(name);
 }
 

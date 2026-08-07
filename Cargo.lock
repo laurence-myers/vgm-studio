@@ -4840,6 +4840,7 @@ dependencies = [
  "egui_kittest",
  "image",
  "log",
+ "pollster",
  "vgms-core",
  "vgms-pack-archive",
  "vgms-synth",

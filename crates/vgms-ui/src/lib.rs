@@ -25,6 +25,8 @@ pub mod selection;
 pub(crate) mod strings;
 pub mod tasks;
 #[cfg(test)]
+mod test_gpu;
+#[cfg(test)]
 mod test_song;
 #[cfg(test)]
 mod test_support;
