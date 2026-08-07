@@ -121,18 +121,25 @@ both. Retirement fixes that asymmetry by construction.
 
 ## Decisions
 
-- **D-de-1 — fix the v1 prime first, as its own shippable commit.** It is a
-  live-playback bug on its own merits; ship it whether or not the retirement
-  proceeds. Prime in the **playback/render projection**
-  (`opl_song_to_vgm_file`), not in `dro_to_vgm`.
-- **D-de-1b — `dro_to_vgm` stays byte-exact to `dro2vgm` (open question).**
-  `dro_to_vgm`'s output is pinned byte-for-byte against the external `dro2vgm`
-  fixture ([convert.rs:100](../../crates/vgms-core/src/convert.rs)), so adding a
-  prime write there would break that pin — and `dro2vgm`'s own output presumably
-  has the same omission. Recommendation: keep the pin, prime only in the
-  playback projection, and treat "should *Convert to VGM* emit the prime, at the
-  cost of reference parity?" as an **owner decision**, since it trades fidelity
-  to the reference tool against musical correctness of converted files.
+- **D-de-1 — fix the v1 prime first, as its own shippable commit. ✅ DONE.**
+  It is a live-playback bug on its own merits; shipped whether or not the
+  retirement proceeds. Prime in the DRO → VGM conversion (`2fcaf50` primed the
+  playback projection; see D-de-1b for the extension to Convert-to-VGM).
+- **D-de-1b — Convert to VGM primes too (owner decision, resolved). ✅ DONE.**
+  The open question was whether the explicit *Convert to VGM* (`dro_to_vgm`)
+  should also emit the prime, at the cost of byte-parity with the external
+  `dro2vgm` tool. **The owner chose correctness: it primes.** The cost turned out
+  to be nil — the `dro2vgm` parity test pins a **v2** fixture
+  ([convert.rs](../../crates/vgms-core/src/convert.rs), `lsl3_score_up_dro2.dro`),
+  and the prime is v1-only, so the pin still holds byte-for-byte; there is no v1
+  `dro2vgm` reference to diverge from. `dro_to_vgm` and `opl_song_to_vgm_file`
+  now share one primed path, so a converted file, a split stem, and live playback
+  all sound the same. The prime prepends command 0 for a v1 source, which shifts
+  index-based assertions — a handful of v1 conversion tests (the long-delay and
+  bank-switch byte checks, and the `loop_overlay` snapshot whose loop markers are
+  set by row) were updated to match; the `loop_overlay.png` re-bless is only the
+  prime appearing as a new first row in the instruction table (verified against
+  the diff image — the waveform and overlay are unchanged).
 - **D-de-2 — accept that offline renders change at non-native rates; that is the
   point.** Exports start matching playback, honour `ResampleMode`, and honour
   the Settings core. Re-bless deliberately and list the diffs.

@@ -456,10 +456,12 @@ fn snapshot_loop_overlay() {
     // VGM with nothing stored, so the flags are hollow -- the unapplied cue.
     let (mut harness, _handles) = build(Some(picked(&paced_song())), true, true);
     harness.state_mut().editor.convert_to_vgm().unwrap();
-    // Instruction 9 opens the first burst and every fourth one after it starts
-    // the next 100 ms, so 13..25 is the region from 100 ms to 400 ms of 600.
-    act(&mut harness, Action::Loop(LoopAction::SetStart(13)));
-    act(&mut harness, Action::Loop(LoopAction::SetEnd(25)));
+    // The v1 waveform-select prime is command 0 of the converted VGM, so the
+    // song's own writes shift up one: instruction 10 opens the first burst and
+    // every fourth one after it starts the next 100 ms, so 14..26 is the region
+    // from 100 ms to 400 ms of 600.
+    act(&mut harness, Action::Loop(LoopAction::SetStart(14)));
+    act(&mut harness, Action::Loop(LoopAction::SetEnd(26)));
     act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
     act(
         &mut harness,

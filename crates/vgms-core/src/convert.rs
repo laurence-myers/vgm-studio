@@ -99,30 +99,23 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// EOF patched in, then the stream and an end marker -- and read straight back
 /// through [`vgm::file::read`](crate::vgm::file::read), so the result is a real
 /// `VgmFile` rather than a VGM-flavoured `DroSong`. That assembled byte image is
-/// exactly what `dro2vgm` emits (pinned byte-for-byte against the fixture), which
-/// is why the conversion carries no `DroSong::vgm` intermediate.
+/// exactly what `dro2vgm` emits, byte for byte, for a v2 capture (pinned against
+/// the fixture), which is why the conversion carries no `DroSong::vgm`
+/// intermediate.
+///
+/// A DRO v1 (OPL2) capture is the one exception: it assumes waveform-select was
+/// enabled (`0x01 = 0x20`) before it ran -- DOSBox set the bit before recording,
+/// so the write is not in the file -- and without it the capture's non-sine
+/// timbres collapse to sine. So this primes it, matching the offline render
+/// ([`DroEngine::reset_chip`](../../vgms_synth)) and every playback projection.
+/// The prime is deliberately absent from `dro2vgm`'s own v1 output, so a v1
+/// conversion trades exact parity with that tool for a correct-sounding file.
 ///
 /// # Errors
 /// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
 /// do not read back. (A `DroSong` is always a DRO, so there is no "already a
 /// VGM" case.)
 pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
-    // Byte-exact to `dro2vgm`: no synthetic prime (see [`dro_to_vgm_inner`]).
-    dro_to_vgm_inner(song, false)
-}
-
-/// The shared DRO -> VGM conversion, optionally priming the DRO v1
-/// waveform-select-enable register the way [`DroEngine`](../../vgms_synth) does on
-/// reset.
-///
-/// `prime_wse` is `false` for [`dro_to_vgm`] (which must stay byte-for-byte with
-/// `dro2vgm`) and `true` only for a v1 source through the playback/split
-/// projection ([`opl_song_to_vgm_file`]).
-///
-/// # Errors
-/// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
-/// do not read back.
-fn dro_to_vgm_inner(song: &DroSong, prime_wse: bool) -> Result<VgmFile> {
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
@@ -132,11 +125,12 @@ fn dro_to_vgm_inner(song: &DroSong, prime_wse: bool) -> Result<VgmFile> {
 
     // DRO v1 (OPL2) captures assume waveform-select is already enabled
     // (`0x01 = 0x20`): DOSBox's chip had the bit set before recording began, so
-    // the write is not in the file. `DroEngine::reset_chip` primes it for the
-    // offline render; the playback projection primes it here, or a v1 file's
-    // non-sine timbres collapse to sine. A zero-delay low-bank write, so the
-    // timing and total-sample count are unchanged.
-    if prime_wse {
+    // the write is not in the file, and without it the capture's non-sine
+    // timbres collapse to sine. `DroEngine::reset_chip` primes it for the offline
+    // render; prime it here so a converted file and every playback projection
+    // sound the same. A zero-delay low-bank write, so the timing and total-sample
+    // count are unchanged. (A v2 capture records the write itself.)
+    if song.file_version == DRO_FILE_V1 {
         stream.write(Bank::Low, 0x01, 0x20);
     }
 
@@ -188,22 +182,15 @@ fn dro_to_vgm_inner(song: &DroSong, prime_wse: bool) -> Result<VgmFile> {
 /// playback through the multichip [`VgmEngine`](../../vgms_synth/vgm_engine)
 /// (ou-2).
 ///
-/// The register writes and millisecond delays become a real `VgmFile` whose
-/// header the generic engine builds voices from -- the same round trip
-/// [`Editor::convert_to_vgm`](../../vgms_ui) makes, done at play time rather than
-/// on a user's explicit convert.
-///
-/// Unlike that explicit convert ([`dro_to_vgm`]), this primes the DRO v1
-/// waveform-select-enable register (`0x01 = 0x20`): a v1 (OPL2) capture assumes
-/// the bit was set before it ran, so without the prime its non-sine timbres
-/// collapse to sine on playback -- the projection must match what the offline
-/// render ([`DroEngine::reset_chip`](../../vgms_synth)) does. A v2 capture records
-/// the write itself and is not primed.
+/// Identical to [`dro_to_vgm`] -- the same round trip
+/// [`Editor::convert_to_vgm`](../../vgms_ui) makes, v1 waveform-select prime
+/// included, done at play time rather than on a user's explicit convert. Kept as
+/// the distinct name the play-time and split call sites read by.
 ///
 /// # Errors
 /// If the song will not convert, or the assembled VGM does not read back.
 pub fn opl_song_to_vgm_file(song: &DroSong) -> Result<VgmFile> {
-    dro_to_vgm_inner(song, song.file_version == DRO_FILE_V1)
+    dro_to_vgm(song)
 }
 
 /// The VGM opcode that writes an OPL register on the given chip and bank.
@@ -383,10 +370,16 @@ mod tests {
 
         let song = build_dro_v1(&[0x01, 0xCF, 0x07]); // long delay: 0x07CF + 1 = 2000 ms
         let vgm = dro_to_vgm(&song).unwrap();
-        assert_eq!(vgm.len(), 2, "one wait cannot express 88200 samples");
+        assert_eq!(
+            vgm.len(),
+            3,
+            "the v1 WSE prime, then two waits -- one cannot express 88200 samples"
+        );
         assert_eq!(u64::from(vgm.header.total_samples()), samples);
-        assert_eq!(vgm.body.raw()[0], command::WAIT);
-        assert_eq!(vgm.body.raw()[3], command::WAIT, "the opcode repeats");
+        // Command 0 is the v1 waveform-select prime; the two waits follow it.
+        assert_eq!(&vgm.body.raw()[0..3], &[command::YM3812, 0x01, 0x20]);
+        assert_eq!(vgm.body.raw()[3], command::WAIT);
+        assert_eq!(vgm.body.raw()[6], command::WAIT, "the opcode repeats");
 
         // ... and it survives a round trip through the writer and reader.
         let written = crate::vgm::file::write(&vgm).unwrap();
@@ -426,15 +419,21 @@ mod tests {
         );
     }
 
-    /// Convert to VGM stays byte-exact to `dro2vgm`: no prime, even for v1.
+    /// Convert to VGM primes a v1 capture's waveform-select too, so a converted
+    /// file plays like its source; it deliberately diverges from `dro2vgm` here.
     #[test]
-    fn the_explicit_convert_does_not_prime_the_v1_waveform_select() {
+    fn the_explicit_convert_also_primes_the_v1_waveform_select() {
         let song = build_dro_v1(&[0x20, 0x01]);
         let vgm = dro_to_vgm(&song).unwrap();
         assert_eq!(
             &vgm.body.raw()[0..3],
+            &[command::YM3812, 0x01, 0x20],
+            "the WSE prime is the first command"
+        );
+        assert_eq!(
+            &vgm.body.raw()[3..6],
             &[command::YM3812, 0x20, 0x01],
-            "the song's own write is first; no prime"
+            "the song's own write follows the prime"
         );
     }
 
@@ -497,6 +496,10 @@ mod tests {
         assert_eq!(
             vgm.body.raw(),
             [
+                // The v1 waveform-select prime leads, on the low bank.
+                command::YMF262_PORT_0,
+                0x01,
+                0x20,
                 command::YMF262_PORT_0,
                 0x20,
                 0x01,
@@ -509,7 +512,11 @@ mod tests {
                 command::END,
             ]
         );
-        assert_eq!(vgm.len(), 3, "bank switches leave no VGM command behind");
+        assert_eq!(
+            vgm.len(),
+            4,
+            "the WSE prime plus three writes; bank switches leave no VGM command behind"
+        );
     }
 
     #[test]
