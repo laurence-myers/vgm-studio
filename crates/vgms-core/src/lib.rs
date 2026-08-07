@@ -29,9 +29,7 @@ pub mod util;
 pub mod vgm;
 pub mod volume;
 
-pub use analysis::{
-    RegisterAnalyzer, RegisterUsage, RowAnalysis, initial_channel_pans, initial_channel_pans_vgm,
-};
+pub use analysis::{RegisterAnalyzer, RowAnalysis};
 pub use chip_state::ChipState;
 pub use crop::{CropOutcome, crop_to_region, delete_region};
 pub use doc_source::DocSource;

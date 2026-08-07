@@ -12,7 +12,6 @@
 //! queried directly while painting.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::regdata::{self, RegisterKind};
@@ -233,7 +232,7 @@ impl fmt::Debug for RegisterAnalyzer {
 /// exists (`0x104` Four-Operator Enable, `0x105` OPL3 Mode Enable), otherwise to
 /// the shared register.
 ///
-/// This is the reverse of [`DroSong::instruction_description`], which resolves the
+/// This is the reverse of [`Song::instruction_description`], which resolves the
 /// low bank first to feed the table's "all register options" column. Here the
 /// high bank is tried first (`0x100 | reg`).
 fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
@@ -242,122 +241,6 @@ fn kind_for(bank: Bank, reg: u8) -> Option<RegisterKind> {
         Bank::High => regdata::register_kind(0x100 | reg).or_else(|| regdata::register_kind(reg)),
         Bank::Low => regdata::register_kind(reg),
     }
-}
-
-/// Which registers, and which percussion voices, a song writes.
-///
-/// The register analyser reads this to report a song's used voices. Keys are
-/// `(bank << 8) | reg`; the bank is tracked across DRO v1 bank switches and DRO
-/// v2 / VGM per-write banks.
-#[derive(Debug, Clone, Default)]
-pub struct RegisterUsage {
-    counts: BTreeMap<u16, u32>,
-    percussion: BTreeSet<u16>,
-}
-
-impl RegisterUsage {
-    /// Counts every register write, keyed by `(bank << 8) | reg`.
-    ///
-    /// With `detailed_percussion`, also records which percussion bits were ever
-    /// set in a write to `0xBD`, keyed by `(bank << 8) | bitmask`. The count is
-    /// kept exact, not just zero/non-zero, so tests asserting a specific count
-    /// still pin it.
-    #[must_use]
-    pub fn analyze(song: &DroSong, detailed_percussion: bool) -> Self {
-        let mut usage = Self::default();
-        let mut bank = Bank::Low;
-        for instruction in song.data().iter() {
-            if let Some(selected) = instruction.selected_bank() {
-                bank = selected;
-            }
-            if let Instruction::Register { reg, value, .. } = instruction {
-                let key = (u16::from(bank.index()) << 8) | u16::from(reg);
-                *usage.counts.entry(key).or_default() += 1;
-                if detailed_percussion && reg == regdata::PERCUSSION_REGISTER {
-                    for bitmask in RegisterKind::PercussionControl.bitmasks() {
-                        if value & bitmask.mask != 0 {
-                            let perc_key = (u16::from(bank.index()) << 8) | u16::from(bitmask.mask);
-                            usage.percussion.insert(perc_key);
-                        }
-                    }
-                }
-            }
-        }
-        usage
-    }
-
-    /// How many times register `key` (`(bank << 8) | reg`) was written.
-    #[must_use]
-    pub fn count(&self, key: u16) -> u32 {
-        self.counts.get(&key).copied().unwrap_or(0)
-    }
-
-    /// Whether percussion bit `key` (`(bank << 8) | bitmask`) was ever set in a
-    /// `0xBD` write.
-    #[must_use]
-    pub fn percussion_used(&self, key: u16) -> bool {
-        self.percussion.contains(&key)
-    }
-}
-
-/// The per-channel pan byte each melodic channel's **first** `0xC0..=0xC8` write
-/// implies, for seeding the GUI's Custom-pan defaults on an OPL3 song.
-///
-/// Register `0xC0+n` carries the OPL3 speaker-enable bits: bit 4 (`0x10`) routes
-/// the channel to the left output, bit 5 (`0x20`) to the right. These map onto the
-/// `0x00` (hard left) .. `0x80` (centre) .. `0xFF` (hard right) scale the
-/// `stereo-ext` panpots use:
-///
-/// - left only  -> `0x00`
-/// - right only -> `0xFF`
-/// - both set, or neither -> `0x80` (centre)
-///
-/// Indexed `bank.index() * 9 + (reg - 0xC0)` -- slots `0..=8` are the low bank,
-/// `9..=17` the high. A channel the song never writes `0xC0` for stays centred
-/// (`0x80`), and only the **first** write to each slot is honoured, capturing the
-/// song's initial stereo image rather than a later repan.
-#[must_use]
-pub fn initial_channel_pans(song: &DroSong) -> [u8; 18] {
-    channel_pans_from(song.data().iter())
-}
-
-/// [`initial_channel_pans`] for an OPL VGM, read from its command stream rather
-/// than a projected [`DroSong`].
-///
-/// A command that is not an OPL instruction (a data block in an otherwise-OPL
-/// rip) carries no pan and is skipped -- the projection dropped it the same way.
-#[must_use]
-pub fn initial_channel_pans_vgm(stream: &VgmStream) -> [u8; 18] {
-    channel_pans_from(
-        (0..stream.len()).filter_map(|index| stream.raw_command(index).and_then(project)),
-    )
-}
-
-/// The shared scan behind both [`initial_channel_pans`] entry points: the first
-/// `0xC0..=0xC8` write per slot decides its pan; later repans are ignored.
-fn channel_pans_from(instructions: impl Iterator<Item = Instruction>) -> [u8; 18] {
-    let mut pans = [0x80u8; 18];
-    let mut seen = [false; 18];
-    let mut bank = Bank::Low;
-    for instruction in instructions {
-        if let Some(selected) = instruction.selected_bank() {
-            bank = selected;
-        }
-        if let Instruction::Register { reg, value, .. } = instruction
-            && (0xC0..=0xC8).contains(&reg)
-        {
-            let slot = usize::from(bank.index()) * 9 + usize::from(reg - 0xC0);
-            if !seen[slot] {
-                seen[slot] = true;
-                pans[slot] = match (value & 0x10 != 0, value & 0x20 != 0) {
-                    (true, false) => 0x00,
-                    (false, true) => 0xFF,
-                    _ => 0x80,
-                };
-            }
-        }
-    }
-    pans
 }
 
 #[cfg(test)]
@@ -631,121 +514,5 @@ mod tests {
     fn delay_sums_match_the_fixture_header() {
         let song = io::read_song("lsl3_score_up_dro2.dro", DRO_V2_FIXTURE).unwrap();
         assert_eq!(song.total_delay_ms(), song.ms_length);
-    }
-
-    // -- register usage -----------------------------------------------------
-
-    #[test]
-    fn register_usage_tracks_the_bank_across_switches() {
-        // reg 0x20 written twice on the low bank, once on the high bank.
-        let song = DroSong::dro_v1(
-            "t.dro".to_owned(),
-            DroDataV1::new(vec![0x20, 0x01, 0x03, 0x20, 0x02, 0x02, 0x20, 0x03]).unwrap(),
-            0,
-            OplType::Opl3,
-        );
-        let usage = RegisterUsage::analyze(&song, false);
-        assert_eq!(usage.count(0x020), 2, "low bank, twice");
-        assert_eq!(usage.count(0x120), 1, "high bank, once");
-        assert_eq!(usage.count(0x040), 0, "never written");
-    }
-
-    #[test]
-    fn detailed_percussion_records_only_set_bits() {
-        // 0xBD = 0x31 = percussion mode (0x20) | BD (0x10) | HH (0x01).
-        let song = DroSong::dro_v1(
-            "t.dro".to_owned(),
-            DroDataV1::new(vec![0xBD, 0x31]).unwrap(),
-            0,
-            OplType::Opl3,
-        );
-        let usage = RegisterUsage::analyze(&song, true);
-        assert!(usage.percussion_used(0x20));
-        assert!(usage.percussion_used(0x10));
-        assert!(usage.percussion_used(0x01));
-        assert!(!usage.percussion_used(0x08), "SD was not set");
-        // Without the detailed pass, no percussion is recorded at all.
-        assert!(!RegisterUsage::analyze(&song, false).percussion_used(0x20));
-    }
-
-    // -- initial_channel_pans ------------------------------------------------
-
-    #[test]
-    fn initial_channel_pans_map_speaker_bits_and_track_the_bank() {
-        // Low bank: left-only, right-only, both, neither; a repan of ch0 that must
-        // be ignored (first write wins); then a high-bank ch0 right-only write.
-        let song = DroSong::dro_v1(
-            "pans.dro".to_owned(),
-            DroDataV1::new(vec![
-                0xC0, 0x10, // ch0 low: left only  -> 0x00
-                0xC1, 0x20, // ch1 low: right only -> 0xFF
-                0xC2, 0x30, // ch2 low: both       -> 0x80
-                0xC3, 0x00, // ch3 low: neither    -> 0x80
-                0xC0, 0x20, // ch0 low again: first-write-wins, ignored
-                0x03, // bank switch high
-                0xC0, 0x20, // ch0 high: right only -> slot 9 = 0xFF
-            ])
-            .unwrap(),
-            0,
-            OplType::Opl3,
-        );
-
-        let pans = initial_channel_pans(&song);
-        assert_eq!(pans[0], 0x00, "left only");
-        assert_eq!(pans[1], 0xFF, "right only");
-        assert_eq!(pans[2], 0x80, "both speakers -> centre");
-        assert_eq!(pans[3], 0x80, "neither -> centre");
-        assert_eq!(pans[9], 0xFF, "high-bank ch0, right only");
-        // Every channel the song never wrote 0xC0 for stays centred.
-        for (slot, &pan) in pans.iter().enumerate() {
-            if matches!(slot, 4..=8 | 10..=17) {
-                assert_eq!(pan, 0x80, "unwritten slot {slot} stays centred");
-            }
-        }
-    }
-
-    /// The OPL-VGM pan seed read from a stream matches the one read from the
-    /// projection of the same file -- the k-3 equivalence for `initial_channel_pans`,
-    /// and the first test to exercise the OPL3-VGM pan path at all (every other pan
-    /// test is a DRO).
-    #[test]
-    fn initial_channel_pans_vgm_matches_the_projection() {
-        // A DRO writing speaker bits on both banks, converted to an OPL3 VGM.
-        let dro = DroSong::dro_v1(
-            "pans.dro".to_owned(),
-            DroDataV1::new(vec![
-                0xC0, 0x10, // ch0 low: left only  -> 0x00
-                0xC1, 0x20, // ch1 low: right only -> 0xFF
-                0x03, // bank switch high
-                0xC0, 0x20, // ch0 high: right only -> slot 9 = 0xFF
-            ])
-            .unwrap(),
-            0,
-            OplType::Opl3,
-        );
-        let file = crate::convert::opl_song_to_vgm_file(&dro).expect("the DRO converts");
-        let stream = file.stream().expect("the VGM has a stream");
-
-        let from_stream = initial_channel_pans_vgm(stream);
-        assert_eq!(
-            from_stream,
-            initial_channel_pans(&dro),
-            "the stream reproduces the source DRO's pan seed"
-        );
-        assert_eq!(from_stream[0], 0x00, "ch0 left");
-        assert_eq!(from_stream[1], 0xFF, "ch1 right");
-        assert_eq!(from_stream[9], 0xFF, "high-bank ch0 right");
-    }
-
-    #[test]
-    fn initial_channel_pans_default_to_centre_without_c0_writes() {
-        // A song that writes no 0xC0..=0xC8 leaves every channel centred.
-        let song = DroSong::dro_v1(
-            "nopan.dro".to_owned(),
-            DroDataV1::new(vec![0x20, 0x01, 0xB0, 0x31]).unwrap(),
-            0,
-            OplType::Opl2,
-        );
-        assert_eq!(initial_channel_pans(&song), [0x80; 18]);
     }
 }
