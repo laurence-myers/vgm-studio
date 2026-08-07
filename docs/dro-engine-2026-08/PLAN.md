@@ -4,9 +4,9 @@
 · **Status:** implemented (Stages 1–8). `DroEngine` and the
 `render_dro_*`/`measure_dro_peak*`/`render_dro_waveform*` families are deleted;
 every document renders, scans and exports through `VgmEngine` over its
-projection, so a DRO's export now matches its playback. One Stage-6 sub-item is
-tracked as its own follow-up: renaming the now-engine-less `engine.rs` to
-`clock.rs` (retires the [dro-arm Stage 5](../dro-arm-2026-08/PLAN.md) deferral).
+projection, so a DRO's export now matches its playback. The now-engine-less
+`engine.rs` was renamed `clock.rs`, which retires the
+[dro-arm Stage 5](../dro-arm-2026-08/PLAN.md) deferral.
 · **Backlog origin:** [DIVERGENCE.md §7 item 1](../dro-arm-2026-08/DIVERGENCE.md).
 
 ## Why

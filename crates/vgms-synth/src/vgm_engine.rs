@@ -24,9 +24,9 @@ use vgms_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header, stream_owner};
 use crate::chip::{ChipCore, core_for};
 use crate::chip_mix::{ChipMuting, ChipPanning, ChipTrims};
+use crate::clock::{FrameClock, LoopConfig, Position};
 use crate::dac_stream::{DacStreams, PendingWrite};
 use crate::decompress::{DecompressionTable, decompress};
-use crate::engine::{FrameClock, LoopConfig, Position};
 use crate::resample::{ResampleMode, Resampler};
 
 /// One chip instance, with the resampler that brings it to the output rate.
@@ -1651,7 +1651,7 @@ mod tests {
             &file,
             2,
             4,
-            crate::engine::LoopCount::Times(2),
+            crate::clock::LoopCount::Times(2),
             44_100,
         )));
 
@@ -1668,7 +1668,7 @@ mod tests {
             &file,
             2,
             4,
-            crate::engine::LoopCount::Times(2),
+            crate::clock::LoopCount::Times(2),
             44_100,
         )));
 
@@ -1694,7 +1694,7 @@ mod tests {
             &file,
             0,
             file.len(),
-            crate::engine::LoopCount::Infinite,
+            crate::clock::LoopCount::Infinite,
             44_100,
         )));
 
@@ -1714,7 +1714,7 @@ mod tests {
             &file,
             0,
             1,
-            crate::engine::LoopCount::Infinite,
+            crate::clock::LoopCount::Infinite,
             44_100,
         )));
         let frames = drain(&mut engine, 44_100 * 30);
@@ -1731,7 +1731,7 @@ mod tests {
                 &file,
                 start,
                 end,
-                crate::engine::LoopCount::Infinite,
+                crate::clock::LoopCount::Infinite,
                 44_100,
             )));
             assert!(engine.loop_config().is_none(), "accepted {start}..{end}");

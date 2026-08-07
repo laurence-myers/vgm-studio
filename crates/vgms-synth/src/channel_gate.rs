@@ -2,8 +2,9 @@
 //! register writes bound for it, for the cores that have no native mute of their
 //! own.
 //!
-//! The OPL player already does this ([`Muting::gate`](crate::engine::Muting::gate)):
-//! it drops a muted channel's key-on writes and masks its rhythm register. A
+//! The OPL `Muting` vocabulary already expresses this
+//! ([`Muting::gate`](crate::clock::Muting::gate)): it drops a muted channel's
+//! key-on writes and masks its rhythm register. A
 //! [`ChannelGate`] is the same idea generalised to any chip and hosted behind a
 //! [`ChipCore`](crate::ChipCore) wrapper, so per-channel muting works even on a
 //! core (Nuked-OPM, Nuked-PSG, the LLE tier) whose emulator offers no mute of its

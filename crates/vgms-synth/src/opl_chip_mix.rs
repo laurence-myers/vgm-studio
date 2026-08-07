@@ -30,7 +30,7 @@ use vgms_core::vgm::ChipKind;
 use vgms_core::{Bank, OplType};
 
 use crate::chip_mix::{ChipMuting, ChipPanning, PAN_CENTER};
-use crate::engine::{Muting, Panning};
+use crate::clock::{Muting, Panning};
 
 /// How many melodic channels one OPL bank carries (`0xB0`..=`0xB8`).
 const BANK_CHANNELS: usize = 9;

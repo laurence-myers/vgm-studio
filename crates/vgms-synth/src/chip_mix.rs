@@ -1,6 +1,6 @@
 //! Which channels of which chips are muted or panned: the multichip
-//! counterpart of the OPL [`Muting`](crate::engine::Muting) /
-//! [`Panning`](crate::engine::Panning) pair.
+//! counterpart of the OPL [`Muting`](crate::clock::Muting) /
+//! [`Panning`](crate::clock::Panning) pair.
 //!
 //! Where the OPL engine gates register writes, these travel to the cores:
 //! [`ChipCore::set_channel_mutes`](crate::ChipCore::set_channel_mutes) and

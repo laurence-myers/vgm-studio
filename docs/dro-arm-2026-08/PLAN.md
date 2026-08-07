@@ -161,6 +161,12 @@ outright — renaming its file first would be churn the follow-on discards. The
 is cosmetic. Fold these moves into the follow-on unification programme, where
 `clock.rs` falls out naturally once `DroEngine` is retired.
 
+**Update (resolved).** The follow-on programme did exactly this:
+[`dro-engine-2026-08`](../dro-engine-2026-08/PLAN.md) deleted `DroEngine` and
+renamed the now-engine-less `engine.rs` to `clock.rs`. The filename asymmetry
+is gone; the `dro_engine.rs`/`dro_song.rs` renames stayed moot (both types were
+deleted or already renamed).
+
 ### Stage 6 — the label and comment sweep
 
 Consume the divergence-audit report's list of user-visible strings and
