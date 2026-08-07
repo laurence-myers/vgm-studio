@@ -10,15 +10,29 @@ use std::sync::Arc;
 
 #[cfg(test)]
 use vgms_core::DroSong;
+use vgms_core::VgmFile;
+use vgms_core::convert::opl_song_to_vgm_file;
 use vgms_core::io::write_song;
 use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::naming::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
     AudioSource, CoreChoices, Peak, RenderMix, SplitData, VgmRenderMix, VgmSplitOptions,
-    WaveformBucket, measure_dro_peak_cancellable, measure_vgm_peak_cancellable,
-    render_dro_wav_cancellable, render_dro_waveform_progressive, split_vgm_cancellable,
+    WaveformBucket, measure_vgm_peak_cancellable, render_dro_wav_cancellable,
+    render_vgm_waveform_progressive, split_vgm_cancellable,
 };
+
+/// Projects a source to the VGM the one engine plays: a DRO becomes its
+/// primed OPL VGM ([`opl_song_to_vgm_file`]), a VGM is taken as is. So every
+/// background render/scan runs the same code path live playback does, and a
+/// DRO's export matches what it sounds like. `None` only if a (valid) DRO
+/// somehow fails to project.
+fn as_vgm(source: &AudioSource) -> Option<Arc<VgmFile>> {
+    match source {
+        AudioSource::Vgm(file) => Some(Arc::clone(file)),
+        AudioSource::Dro(song) => opl_song_to_vgm_file(song).ok().map(Arc::new),
+    }
+}
 
 /// Identifies a task for cancel-on-resubmit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -145,7 +159,7 @@ pub enum RenderWavMix {
 #[derive(Debug, Clone)]
 pub enum SplitTaskSource {
     Vgm {
-        file: Arc<vgms_core::VgmFile>,
+        file: Arc<VgmFile>,
         options: VgmSplitOptions,
     },
 }
@@ -268,29 +282,22 @@ pub trait TaskService {
 /// Worker. A task may `emit` more than once -- the waveform render
 /// emits progressive snapshots as it fills in, then the finished buckets -- and
 /// emits nothing more once cancelled.
-/// Measures a peak through whichever engine would render `source`: the OPL
-/// player for a `DroSong`, the multichip engine for a `VgmFile`. `None` iff the
-/// scan was cancelled. Shared by the single and pack scans.
+/// Measures a peak through the one engine that renders `source` -- a DRO via
+/// its projection ([`as_vgm`]), a VGM directly. `None` iff the scan was
+/// cancelled, or a DRO fails to project. Shared by the single and pack scans.
 fn measure_source(
     source: &AudioSource,
     sample_rate: u32,
     resampling: vgms_synth::resample::ResampleMode,
     is_cancelled: &dyn Fn() -> bool,
 ) -> Option<Peak> {
-    match source {
-        AudioSource::Dro(song) => {
-            measure_dro_peak_cancellable(Arc::clone(song), sample_rate, &mut |_| {}, &mut || {
-                !is_cancelled()
-            })
-        }
-        AudioSource::Vgm(file) => measure_vgm_peak_cancellable(
-            Arc::clone(file),
-            sample_rate,
-            resampling,
-            &mut |_| {},
-            &mut || !is_cancelled(),
-        ),
-    }
+    measure_vgm_peak_cancellable(
+        as_vgm(source)?,
+        sample_rate,
+        resampling,
+        &mut |_| {},
+        &mut || !is_cancelled(),
+    )
 }
 
 pub fn run_task(
@@ -305,29 +312,17 @@ pub fn run_task(
             sample_rate,
             resampling,
         } => {
-            // A waveform is a picture of the audio, so it comes from whichever
-            // engine would make that audio.
-            match source {
-                AudioSource::Dro(song) => {
-                    render_dro_waveform_progressive(
-                        song,
-                        *num_buckets,
-                        *sample_rate,
-                        &mut || !is_cancelled(),
-                        &mut |buckets| emit(TaskResult::Waveform(buckets)),
-                    );
-                }
-                AudioSource::Vgm(file) => {
-                    vgms_synth::render_vgm_waveform_progressive(
-                        Arc::clone(file),
-                        *num_buckets,
-                        *sample_rate,
-                        *resampling,
-                        &mut || !is_cancelled(),
-                        &mut |buckets| emit(TaskResult::Waveform(buckets)),
-                    );
-                }
-            }
+            // A waveform is a picture of the audio, so it comes from the one
+            // engine that makes that audio -- a DRO through its projection.
+            let Some(file) = as_vgm(source) else { return };
+            render_vgm_waveform_progressive(
+                file,
+                *num_buckets,
+                *sample_rate,
+                *resampling,
+                &mut || !is_cancelled(),
+                &mut |buckets| emit(TaskResult::Waveform(buckets)),
+            );
         }
         TaskRequest::RenderWav {
             source,
@@ -573,7 +568,7 @@ fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> 
 mod tests {
     use super::*;
     use crate::test_song::tone_song;
-    use vgms_synth::{render_dro_wav_mixed, render_dro_waveform};
+    use vgms_synth::{measure_vgm_peak, render_dro_wav_mixed, render_vgm_waveform};
 
     fn request(song: DroSong) -> TaskRequest {
         TaskRequest::RenderWaveform {
@@ -593,7 +588,10 @@ mod tests {
     #[test]
     fn the_waveform_task_ends_at_the_batch_render() {
         let song = tone_song();
-        let expected = render_dro_waveform(&song, 32, 48_000);
+        // The task projects the DRO and renders through the one engine, so the
+        // oracle is that same projected waveform.
+        let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
+        let expected = render_vgm_waveform(file, 32, 48_000, vgms_synth::resample::ResampleMode::Sinc);
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());
@@ -611,7 +609,8 @@ mod tests {
     #[test]
     fn the_volume_scan_emits_the_songs_peak() {
         let song = tone_song();
-        let expected = vgms_synth::measure_dro_peak(&song, 48_000);
+        let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
+        let expected = measure_vgm_peak(file, 48_000, vgms_synth::resample::ResampleMode::Sinc);
         let scan = TaskRequest::VolumeScan {
             source: AudioSource::Dro(Arc::new(song)),
             sample_rate: 48_000,
@@ -627,7 +626,7 @@ mod tests {
     }
 
     /// A minimal SN76489 VGM held as a file, for the generic scan arm.
-    fn sms_vgm_file() -> Arc<vgms_core::VgmFile> {
+    fn sms_vgm_file() -> Arc<VgmFile> {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -671,7 +670,7 @@ mod tests {
 
     /// Two copies of one loop body, as an OPL VGM `VgmFile`, so the search has a
     /// repeat to find.
-    fn looping_vgm() -> vgms_core::VgmFile {
+    fn looping_vgm() -> VgmFile {
         use vgms_core::vgm::io::synthesise_header;
         let mut stream = Vec::new();
         for _ in 0..2 {
@@ -740,7 +739,8 @@ mod tests {
     #[test]
     fn the_pack_volume_scan_emits_a_peak_per_track() {
         let song = Arc::new(tone_song());
-        let expected = vgms_synth::measure_dro_peak(&*song, 48_000);
+        let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
+        let expected = measure_vgm_peak(file, 48_000, vgms_synth::resample::ResampleMode::Sinc);
         let scan = TaskRequest::PackVolumeScan {
             tracks: vec![
                 ("01.vgm".to_owned(), AudioSource::Dro(Arc::clone(&song))),
@@ -777,7 +777,7 @@ mod tests {
         };
         assert!(collect(&wav, || true).is_empty());
 
-        let file = vgms_core::convert::opl_song_to_vgm_file(&tone_song()).unwrap();
+        let file = opl_song_to_vgm_file(&tone_song()).unwrap();
         let split = TaskRequest::Split {
             source: SplitTaskSource::Vgm {
                 file: Arc::new(file),
