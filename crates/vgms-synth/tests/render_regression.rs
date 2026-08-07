@@ -19,8 +19,15 @@
 
 use std::path::PathBuf;
 
+use std::sync::Arc;
+
+use vgms_core::convert::opl_song_to_vgm_file;
 use vgms_core::{Bank, DroDataV1, DroSong, OplType};
-use vgms_synth::{Muting, Panning, RenderMix, render_dro_wav, render_dro_wav_mixed};
+use vgms_synth::resample::ResampleMode;
+use vgms_synth::{
+    Muting, Panning, VgmRenderMix, opl_chip_muting, opl_chip_panning,
+    render_vgm_wav_mixed_cancellable,
+};
 
 /// The render every fixture uses: the app's own defaults.
 const SAMPLE_RATE: u32 = 48_000;
@@ -99,9 +106,33 @@ fn assert_matches_fixture(name: &str, actual: &[u8]) {
     );
 }
 
+/// Renders `regression_song` through the one engine the app ships: the DRO
+/// projected to its VGM (`opl_song_to_vgm_file`, primed), the OPL mix translated
+/// to the per-chip vocabulary `VgmEngine` takes -- exactly the path live
+/// playback and the GUI/CLI export now run.
+fn render(muting: Muting, panning: Panning, boost: f32) -> Vec<u8> {
+    let file = Arc::new(opl_song_to_vgm_file(&regression_song()).unwrap());
+    let mix = VgmRenderMix {
+        muting: opl_chip_muting(&muting, OplType::Opl2),
+        panning: opl_chip_panning(&panning, OplType::Opl2),
+        boost,
+    };
+    render_vgm_wav_mixed_cancellable(
+        file,
+        SAMPLE_RATE,
+        BIT_DEPTH,
+        &mix,
+        ResampleMode::Sinc,
+        &mut |_| {},
+        &mut || true,
+    )
+    .unwrap()
+    .unwrap()
+}
+
 #[test]
 fn the_full_mix_is_unchanged() {
-    let wav = render_dro_wav(&regression_song(), SAMPLE_RATE, BIT_DEPTH).unwrap();
+    let wav = render(Muting::all(), Panning::Original, 1.0);
     assert_matches_fixture("full.wav", &wav);
 }
 
@@ -109,31 +140,13 @@ fn the_full_mix_is_unchanged() {
 fn a_muted_channel_is_unchanged() {
     let mut muting = Muting::all();
     muting.mute_channel(Bank::Low, 0xB1); // channel 1 silent, channel 0 and the drums stay
-    let wav = render_dro_wav_mixed(
-        regression_song(),
-        RenderMix {
-            muting,
-            ..RenderMix::default()
-        },
-        SAMPLE_RATE,
-        BIT_DEPTH,
-    )
-    .unwrap();
+    let wav = render(muting, Panning::Original, 1.0);
     assert_matches_fixture("muted.wav", &wav);
 }
 
 #[test]
 fn a_boosted_render_is_unchanged() {
-    let wav = render_dro_wav_mixed(
-        regression_song(),
-        RenderMix {
-            boost: 2.0,
-            ..RenderMix::default()
-        },
-        SAMPLE_RATE,
-        BIT_DEPTH,
-    )
-    .unwrap();
+    let wav = render(Muting::all(), Panning::Original, 2.0);
     assert_matches_fixture("boosted.wav", &wav);
 }
 
@@ -143,16 +156,7 @@ fn a_panned_render_is_unchanged() {
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
     pans[1] = 0xFF;
-    let wav = render_dro_wav_mixed(
-        regression_song(),
-        RenderMix {
-            panning: Panning::Custom(pans),
-            ..RenderMix::default()
-        },
-        SAMPLE_RATE,
-        BIT_DEPTH,
-    )
-    .unwrap();
+    let wav = render(Muting::all(), Panning::Custom(pans), 1.0);
     assert_matches_fixture("panned.wav", &wav);
 }
 
@@ -163,18 +167,7 @@ fn a_fully_mixed_render_is_unchanged() {
     muting.mute_channel(Bank::Low, 0xB1);
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
-
-    let wav = render_dro_wav_mixed(
-        regression_song(),
-        RenderMix {
-            muting,
-            panning: Panning::Custom(pans),
-            boost: 2.0,
-        },
-        SAMPLE_RATE,
-        BIT_DEPTH,
-    )
-    .unwrap();
+    let wav = render(muting, Panning::Custom(pans), 2.0);
     assert_matches_fixture("combined.wav", &wav);
 }
 
@@ -188,38 +181,18 @@ fn a_fully_mixed_render_is_unchanged() {
 /// would pass while testing nothing.
 #[test]
 fn the_scenarios_render_differently_from_one_another() {
-    let song = regression_song();
     let mut muting = Muting::all();
     muting.mute_channel(Bank::Low, 0xB1);
     let mut pans = [0x80u8; 18];
     pans[0] = 0x00;
 
-    let full = render_dro_wav(&song, SAMPLE_RATE, BIT_DEPTH).unwrap();
+    let full = render(Muting::all(), Panning::Original, 1.0);
     let variants = [
-        (
-            "muted",
-            RenderMix {
-                muting,
-                ..RenderMix::default()
-            },
-        ),
-        (
-            "boosted",
-            RenderMix {
-                boost: 2.0,
-                ..RenderMix::default()
-            },
-        ),
-        (
-            "panned",
-            RenderMix {
-                panning: Panning::Custom(pans),
-                ..RenderMix::default()
-            },
-        ),
+        ("muted", render(muting, Panning::Original, 1.0)),
+        ("boosted", render(Muting::all(), Panning::Original, 2.0)),
+        ("panned", render(Muting::all(), Panning::Custom(pans), 1.0)),
     ];
-    for (name, mix) in variants {
-        let rendered = render_dro_wav_mixed(&song, mix, SAMPLE_RATE, BIT_DEPTH).unwrap();
+    for (name, rendered) in variants {
         assert_ne!(rendered, full, "{name} rendered the same as the full mix");
     }
 }
