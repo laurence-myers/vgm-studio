@@ -73,7 +73,7 @@ pub fn run(args: &Args) -> Result<()> {
     // clock of its own, projects to a canonical-clock VGM.
     let file = match song {
         LoadedSong::Vgm(file) => Arc::new(*file),
-        LoadedSong::Opl(song) => Arc::new(
+        LoadedSong::Dro(song) => Arc::new(
             vgms_core::convert::opl_song_to_vgm_file(&song)
                 .context("projecting the DRO for splitting")?,
         ),

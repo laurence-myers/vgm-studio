@@ -46,16 +46,16 @@ pub fn install_cores() {
     }
 }
 
-/// A song a subcommand opened: a DRO as its editable OPL [`Song`], or any VGM --
+/// A song a subcommand opened: a DRO as its editable [`Song`], or any VGM --
 /// OPL or not -- as its whole file.
 ///
-/// The two arms go to different engines, exactly as the GUI's
+/// The two arms take different code paths, exactly as the GUI's
 /// [`vgms_synth::AudioSource`] splits them; this is that split made at the
 /// reading step, where the CLI can still print format-appropriate detail. An OPL
 /// VGM takes the `Vgm` arm like every other VGM (Stage K retired the projection).
 #[derive(Debug)]
 pub enum LoadedSong {
-    Opl(Song),
+    Dro(Song),
     Vgm(Box<VgmFile>),
 }
 
@@ -64,7 +64,7 @@ impl LoadedSong {
     #[must_use]
     pub fn audio_source(self) -> vgms_synth::AudioSource {
         match self {
-            Self::Opl(song) => vgms_synth::AudioSource::Dro(Arc::new(song)),
+            Self::Dro(song) => vgms_synth::AudioSource::Dro(Arc::new(song)),
             Self::Vgm(file) => vgms_synth::AudioSource::Vgm(Arc::new(*file)),
         }
     }
@@ -73,7 +73,7 @@ impl LoadedSong {
     #[must_use]
     pub fn total_ms(&self) -> u32 {
         match self {
-            Self::Opl(song) => song.total_delay_ms(),
+            Self::Dro(song) => song.total_delay_ms(),
             Self::Vgm(file) => file.total_ms(),
         }
     }
@@ -83,7 +83,7 @@ impl LoadedSong {
     #[must_use]
     pub fn pretty_string(&self) -> String {
         match self {
-            Self::Opl(song) => song.pretty_string(),
+            Self::Dro(song) => song.pretty_string(),
             Self::Vgm(file) => format!(
                 "Song: {}\nFormat: VGM v{}\nChips: {}\nLength (ms): {}",
                 file.name,
@@ -99,7 +99,7 @@ impl LoadedSong {
     #[must_use]
     pub fn chips(&self) -> Vec<ChipKind> {
         match self {
-            Self::Opl(_) => Vec::new(),
+            Self::Dro(_) => Vec::new(),
             Self::Vgm(file) => {
                 let mut kinds: Vec<ChipKind> =
                     file.header.chips().iter().map(|chip| chip.kind).collect();
@@ -169,7 +169,7 @@ pub fn read_any_song_from_path(path: &Path) -> Result<LoadedSong> {
         // is an `Opl` song.
         return Ok(LoadedSong::Vgm(Box::new(file)));
     }
-    Ok(LoadedSong::Opl(read_song(name, &bytes)?))
+    Ok(LoadedSong::Dro(read_song(name, &bytes)?))
 }
 
 #[cfg(test)]

@@ -57,7 +57,7 @@ pub fn run(args: &Args) -> Result<()> {
             // vocabulary the pump translates. Same refusal the GUI makes for a
             // VGM of other chips.
             let (file, opl) = match song {
-                LoadedSong::Opl(song) => (
+                LoadedSong::Dro(song) => (
                     Arc::new(
                         vgms_core::convert::opl_song_to_vgm_file(&song)
                             .context("projecting the DRO for the OPL3")?,
