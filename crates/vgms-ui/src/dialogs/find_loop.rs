@@ -284,7 +284,9 @@ impl FindLoopDialog {
                             apply_clicked.set(true);
                         }
                         if !is_vgm {
-                            apply.on_hover_text(crate::strings::FIND_LOOP_APPLY_VGM_ONLY_HINT);
+                            apply.on_disabled_hover_text(
+                                crate::strings::FIND_LOOP_APPLY_VGM_ONLY_HINT,
+                            );
                         }
                     });
                     ui.add_enabled_ui(has_selection, |ui| {

@@ -220,7 +220,7 @@ impl SplitSongsDialog {
                                     }));
                                 }
                                 if !can_preview {
-                                    preview.on_hover_text(
+                                    preview.on_disabled_hover_text(
                                         crate::strings::SPLIT_SONGS_PREVIEW_UNAVAILABLE,
                                     );
                                 }
