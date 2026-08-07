@@ -17,9 +17,8 @@ use vgms_core::loopfind::{Candidate, find_loops, rank};
 use vgms_core::pack::naming::track_file_name;
 use vgms_core::split_songs::{materialise, materialise_vgm};
 use vgms_synth::{
-    AudioSource, CoreChoices, Peak, RenderMix, SplitData, VgmRenderMix, VgmSplitOptions,
-    WaveformBucket, measure_vgm_peak_cancellable, render_dro_wav_cancellable,
-    render_vgm_waveform_progressive, split_vgm_cancellable,
+    AudioSource, CoreChoices, Peak, SplitData, VgmRenderMix, VgmSplitOptions, WaveformBucket,
+    measure_vgm_peak_cancellable, render_vgm_waveform_progressive, split_vgm_cancellable,
 };
 
 /// Projects a source to the VGM the one engine plays: a DRO becomes its
@@ -67,10 +66,10 @@ pub enum TaskRequest {
     },
     RenderWav {
         source: WavSource,
-        /// The mix to bake in, in the vocabulary of the source: an OPL render
-        /// mutes and pans by register policy, a generic one by per-chip masks.
-        /// The arm is built to match `source`'s arm (see [`RenderWavMix`]).
-        mix: RenderWavMix,
+        /// The per-chip mix to bake in -- the channel mutes and pan positions the
+        /// cores apply. A DRO's panel produces this keyed to its projection
+        /// chips, so one vocabulary serves both source arms.
+        mix: VgmRenderMix,
         sample_rate: u32,
         bit_depth: u16,
         /// As on [`TaskRequest::RenderWaveform`]: the export honours the same
@@ -136,19 +135,6 @@ pub type LoopSearchSource = vgms_core::DocSource;
 /// policy, a generic one by per-chip masks the cores apply -- so the choice is
 /// made here rather than inside the renderer.
 pub type WavSource = vgms_core::DocSource;
-
-/// The mix a WAV render bakes in, in the vocabulary of its source.
-///
-/// An OPL render mutes and pans through the register gate ([`RenderMix`]); a
-/// generic VGM render carries per-chip channel masks and pans the cores apply
-/// ([`VgmRenderMix`]). The arm always matches the [`WavSource`] arm it is
-/// submitted with -- they are built together, in `render_to_wav` and the web
-/// codec -- so a job can pair them by their common source without a second tag.
-#[derive(Debug, Clone, PartialEq)]
-pub enum RenderWavMix {
-    Opl(RenderMix),
-    Vgm(VgmRenderMix),
-}
 
 /// What a channel split runs over.
 ///
@@ -339,36 +325,20 @@ pub fn run_task(
             // only (renders run off the UI thread), so playback and Settings are
             // untouched. An empty map behaves exactly as the configured cores.
             let rendered = vgms_synth::with_render_choices(Some(core_choices.clone()), || {
-                match (source, mix) {
-                    (WavSource::Dro(song), RenderWavMix::Opl(mix)) => {
-                        Some(render_dro_wav_cancellable(
-                            Arc::clone(song),
-                            *mix,
-                            *sample_rate,
-                            *bit_depth,
-                            &mut |_| {},
-                            &mut || !is_cancelled(),
-                        ))
-                    }
-                    (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
-                        Some(vgms_synth::render_vgm_wav_mixed_cancellable(
-                            Arc::clone(file),
-                            *sample_rate,
-                            *bit_depth,
-                            mix,
-                            *resampling,
-                            &mut |_| {},
-                            &mut || !is_cancelled(),
-                        ))
-                    }
-                    // Source and mix are built as a matched pair (and the codec
-                    // pairs them by their shared source tag), so a mismatch is
-                    // unrepresentable; render nothing rather than panic in a
-                    // worker.
-                    _ => None,
-                }
+                // One engine, like playback: a DRO renders through its projection,
+                // a VGM directly, both taking the per-chip mix.
+                let file = as_vgm(source)?;
+                Some(vgms_synth::render_vgm_wav_mixed_cancellable(
+                    file,
+                    *sample_rate,
+                    *bit_depth,
+                    mix,
+                    *resampling,
+                    &mut |_| {},
+                    &mut || !is_cancelled(),
+                ))
             });
-            // A mismatched source/mix pair renders nothing at all.
+            // A DRO that fails to project renders nothing at all.
             let Some(rendered) = rendered else { return };
             let rendered = rendered.map_err(crate::strings::tasks_render_wav_failed);
             // A cancelled render emits nothing at all, like the waveform's.
@@ -568,7 +538,7 @@ fn split_to_bytes(source: &SplitTaskSource, is_cancelled: &dyn Fn() -> bool) -> 
 mod tests {
     use super::*;
     use crate::test_song::tone_song;
-    use vgms_synth::{measure_vgm_peak, render_dro_wav_mixed, render_vgm_waveform};
+    use vgms_synth::{measure_vgm_peak, render_vgm_waveform};
 
     fn request(song: DroSong) -> TaskRequest {
         TaskRequest::RenderWaveform {
@@ -591,7 +561,8 @@ mod tests {
         // The task projects the DRO and renders through the one engine, so the
         // oracle is that same projected waveform.
         let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
-        let expected = render_vgm_waveform(file, 32, 48_000, vgms_synth::resample::ResampleMode::Sinc);
+        let expected =
+            render_vgm_waveform(file, 32, 48_000, vgms_synth::resample::ResampleMode::Sinc);
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());
@@ -769,7 +740,11 @@ mod tests {
     fn a_cancelled_export_emits_nothing() {
         let wav = TaskRequest::RenderWav {
             source: WavSource::Dro(Arc::new(tone_song())),
-            mix: RenderWavMix::Opl(RenderMix::default()),
+            mix: VgmRenderMix {
+                muting: vgms_synth::ChipMuting::new(),
+                panning: vgms_synth::ChipPanning::new(),
+                boost: 1.0,
+            },
             sample_rate: 48_000,
             bit_depth: 16,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
@@ -798,12 +773,29 @@ mod tests {
     #[test]
     fn the_wav_task_renders_the_mix_and_names_the_file() {
         let song = tone_song();
-        let expected = render_dro_wav_mixed(&song, RenderMix::default(), 48_000, 16).unwrap();
+        // The task renders the projected VGM through the one engine.
+        let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
+        let mix = VgmRenderMix {
+            muting: vgms_synth::ChipMuting::new(),
+            panning: vgms_synth::ChipPanning::new(),
+            boost: 1.0,
+        };
+        let expected = vgms_synth::render_vgm_wav_mixed_cancellable(
+            file,
+            48_000,
+            16,
+            &mix,
+            vgms_synth::resample::ResampleMode::Sinc,
+            &mut |_| {},
+            &mut || true,
+        )
+        .unwrap()
+        .unwrap();
 
         let results = collect(
             &TaskRequest::RenderWav {
                 source: WavSource::Dro(Arc::new(song)),
-                mix: RenderWavMix::Opl(RenderMix::default()),
+                mix,
                 sample_rate: 48_000,
                 bit_depth: 16,
                 resampling: vgms_synth::resample::ResampleMode::Sinc,

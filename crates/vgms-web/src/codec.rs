@@ -23,11 +23,11 @@ use vgms_core::vgm::ChipKind;
 use vgms_core::{DroSong, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
-    AudioSource, ChipMuting, ChipPanning, CoreChoices, Muting, Panning, Peak, RenderMix,
-    SplitFormat, VgmRenderMix, VgmSplitOptions, WaveformBucket,
+    AudioSource, ChipMuting, ChipPanning, CoreChoices, Peak, SplitFormat, VgmRenderMix,
+    VgmSplitOptions, WaveformBucket,
 };
 use vgms_ui::tasks::{
-    LoopSearchSource, RenderWavMix, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
+    LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
 };
 use vgms_ui::{PackEntry, PackEntryKind, PackJobOutcome, PackJobRequest, TaskRequest};
 
@@ -291,60 +291,6 @@ fn read_resample(reader: &mut Reader) -> Result<ResampleMode> {
     }
 }
 
-fn write_muting(writer: &mut Writer, muting: Muting) {
-    writer.u32(muting.channels_raw());
-    let [low, high] = muting.percussion_raw();
-    writer.u8(low);
-    writer.u8(high);
-}
-
-fn read_muting(reader: &mut Reader) -> Result<Muting> {
-    let channels = reader.u32("muting.channels")?;
-    let low = reader.u8("muting.perc0")?;
-    let high = reader.u8("muting.perc1")?;
-    Ok(Muting::from_raw(channels, [low, high]))
-}
-
-fn write_panning(writer: &mut Writer, panning: Panning) {
-    match panning {
-        Panning::Original => writer.u8(0),
-        Panning::Custom(pans) => {
-            writer.u8(1);
-            for pan in pans {
-                writer.u8(pan);
-            }
-        }
-    }
-}
-
-fn read_panning(reader: &mut Reader) -> Result<Panning> {
-    match reader.u8("panning")? {
-        0 => Ok(Panning::Original),
-        1 => {
-            let mut pans = [0u8; 18];
-            for pan in &mut pans {
-                *pan = reader.u8("panning.pan")?;
-            }
-            Ok(Panning::Custom(pans))
-        }
-        other => Err(CodecError::Tag("panning", other)),
-    }
-}
-
-fn write_mix(writer: &mut Writer, mix: RenderMix) {
-    write_muting(writer, mix.muting);
-    write_panning(writer, mix.panning);
-    writer.f32(mix.boost);
-}
-
-fn read_mix(reader: &mut Reader) -> Result<RenderMix> {
-    Ok(RenderMix {
-        muting: read_muting(reader)?,
-        panning: read_panning(reader)?,
-        boost: reader.f32("mix.boost")?,
-    })
-}
-
 /// A chip is identified on the wire by its slug -- the same stable string the
 /// config's core map and the worklet ABI use -- so an entry for a chip a future
 /// build drops decodes as "skip", not a hard error.
@@ -509,26 +455,19 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             core_choices,
         } => {
             writer.u8(1);
-            // Source and mix share one arm tag: the OPL arm carries a `RenderMix`,
-            // the generic arm a `VgmRenderMix`, so the pair cannot desync on the
-            // wire (they are always built together app-side).
-            match (source, mix) {
-                (WavSource::Dro(song), RenderWavMix::Opl(mix)) => {
+            // The source keeps its own arm tag -- a DRO projects at render time,
+            // like playback -- while the mix is one per-chip vocabulary for both.
+            match source {
+                WavSource::Dro(song) => {
                     writer.u8(0);
                     write_song(&mut writer, song)?;
-                    write_mix(&mut writer, *mix);
                 }
-                (WavSource::Vgm(file), RenderWavMix::Vgm(mix)) => {
+                WavSource::Vgm(file) => {
                     writer.u8(1);
                     write_vgm(&mut writer, file)?;
-                    write_vgm_mix(&mut writer, mix);
-                }
-                _ => {
-                    return Err(CodecError::Document(
-                        "render mix did not match its source".to_owned(),
-                    ));
                 }
             }
+            write_vgm_mix(&mut writer, mix);
             writer.u32(*sample_rate);
             writer.u16(*bit_depth);
             write_resample(&mut writer, *resampling);
@@ -634,19 +573,12 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
             resampling: read_resample(&mut reader)?,
         },
         1 => {
-            let (source, mix) = match reader.u8("wav-source")? {
-                0 => {
-                    let song = std::sync::Arc::new(read_song(&mut reader)?);
-                    let mix = RenderWavMix::Opl(read_mix(&mut reader)?);
-                    (WavSource::Dro(song), mix)
-                }
-                1 => {
-                    let file = std::sync::Arc::new(read_vgm(&mut reader)?);
-                    let mix = RenderWavMix::Vgm(read_vgm_mix(&mut reader)?);
-                    (WavSource::Vgm(file), mix)
-                }
+            let source = match reader.u8("wav-source")? {
+                0 => WavSource::Dro(std::sync::Arc::new(read_song(&mut reader)?)),
+                1 => WavSource::Vgm(std::sync::Arc::new(read_vgm(&mut reader)?)),
                 other => return Err(CodecError::Tag("wav-source", other)),
             };
+            let mix = read_vgm_mix(&mut reader)?;
             TaskRequest::RenderWav {
                 source,
                 mix,
@@ -1049,22 +981,6 @@ mod tests {
         }
     }
 
-    /// A muting/panning that is neither all-on nor original, so both codec paths
-    /// carry real data.
-    fn sample_mix() -> RenderMix {
-        let mut muting = Muting::all();
-        muting.mute_channel(vgms_core::Bank::High, 0xB2);
-        muting.set_percussion(vgms_core::Bank::Low, 0xE0);
-        let mut pans = [0x80u8; 18];
-        pans[0] = 0x00;
-        pans[17] = 0xFF;
-        RenderMix {
-            muting,
-            panning: Panning::Custom(pans),
-            boost: 1.75,
-        }
-    }
-
     /// A non-neutral generic mix, so the chip-muting/chip-panning codec paths
     /// carry real per-chip data across two instances -- including the
     /// out-of-roster `u32::MAX` mask the channel split deliberately sets, and a
@@ -1119,7 +1035,7 @@ mod tests {
             // both branches of the core-choices codec are exercised.
             TaskRequest::RenderWav {
                 source: WavSource::Dro(sample_song()),
-                mix: RenderWavMix::Opl(sample_mix()),
+                mix: sample_vgm_mix(),
                 sample_rate: 49_716,
                 bit_depth: 24,
                 resampling: ResampleMode::Sinc,
@@ -1127,7 +1043,7 @@ mod tests {
             },
             TaskRequest::RenderWav {
                 source: WavSource::Vgm(sample_vgm()),
-                mix: RenderWavMix::Vgm(sample_vgm_mix()),
+                mix: sample_vgm_mix(),
                 sample_rate: 44_100,
                 bit_depth: 16,
                 resampling: ResampleMode::Linear,

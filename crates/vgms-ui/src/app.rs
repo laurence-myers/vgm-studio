@@ -11,8 +11,8 @@ use vgms_core::config::{AppConfig, ConfigStore, SurfaceChoice, ThemeChoice};
 use vgms_core::song::{DRO_FILE_V2, SongFileType};
 use vgms_core::{FindTarget, Gd3Tag};
 use vgms_synth::{
-    ChipMuting, ChipPanning, ChipTrims, LoopConfig, LoopCount, Muting, Panning, RenderMix,
-    SplitFormat, VgmRenderMix, VgmSplitOptions,
+    ChipMuting, ChipPanning, ChipTrims, LoopConfig, LoopCount, Muting, SplitFormat, VgmRenderMix,
+    VgmSplitOptions,
 };
 
 use crate::action::{
@@ -33,7 +33,7 @@ use crate::platform::{
     AudioService, FileService, OptimizedImage, PackJobOutcome, PackService, PickedFile,
     PickedFolder, SaveOutcome, SaveRequest,
 };
-use crate::tasks::{RenderWavMix, TaskKind, TaskRequest, TaskResult, TaskService, WavSource};
+use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
 use crate::widgets::peak_meter::PeakMeterState;
 use crate::widgets::position_panel::PositionPanel;

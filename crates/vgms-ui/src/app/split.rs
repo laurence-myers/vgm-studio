@@ -18,37 +18,23 @@ impl VgmStudioApp {
             self.status = crate::strings::APP_STATUS_ALREADY_RENDERING.to_owned();
             return;
         }
-        // The mix speaks the source's vocabulary: an OPL document mutes and pans
-        // by register policy, a generic VGM by the per-chip masks its panels
-        // describe. Each opt-in off means that dimension's neutral value, so the
-        // all-off render stays byte-identical to `vgmstudio render`.
-        let mix = match &source {
-            WavSource::Dro(_) => RenderWavMix::Opl(RenderMix {
-                muting: if use_toggles {
-                    self.channels.muting()
-                } else {
-                    Muting::all()
-                },
-                panning: if use_panning {
-                    self.channels.panning()
-                } else {
-                    Panning::Original
-                },
-                boost,
-            }),
-            WavSource::Vgm(_) => RenderWavMix::Vgm(VgmRenderMix {
-                muting: if use_toggles {
-                    self.channels.chip_muting()
-                } else {
-                    ChipMuting::new()
-                },
-                panning: if use_panning {
-                    self.channels.chip_panning()
-                } else {
-                    ChipPanning::new()
-                },
-                boost,
-            }),
+        // One per-chip mix for both source arms: a DRO's panel produces
+        // ChipMuting/ChipPanning keyed to its projection chips (the render
+        // projects the DRO), so it takes the same vocabulary a VGM does. Each
+        // opt-in off is that dimension's neutral value, so the all-off render
+        // stays byte-identical to `vgmstudio render`.
+        let mix = VgmRenderMix {
+            muting: if use_toggles {
+                self.channels.chip_muting()
+            } else {
+                ChipMuting::new()
+            },
+            panning: if use_panning {
+                self.channels.chip_panning()
+            } else {
+                ChipPanning::new()
+            },
+            boost,
         };
         self.tasks.submit(
             TaskRequest::RenderWav {
