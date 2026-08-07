@@ -301,6 +301,13 @@ pub(crate) fn install_test_cores() {
                 upstream: "https://github.com/nukeykt/Nuked-CQM",
                 realtime: true,
                 channel_pan: false,
+                // Deliberately `true` while the real CQM is now `channel_mute:
+                // false` (see `vgms-cores-nuked`). This stand-in is `Routed`,
+                // which bypasses the write-gate, so `mute_capable` here is just
+                // this flag: `false` would report *all four* OPL chips
+                // un-muteable -- a worse divergence than the one Y8950 toggle.
+                // Faithfully matching the app would need a real `make: Opl`
+                // core, which this crate cannot link. Do not "sync" it.
                 channel_mute: true,
                 level: vgms_synth::LEVEL_UNITY,
                 // The real one builds a chip; a stand-in only has to be

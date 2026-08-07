@@ -39,12 +39,12 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             realtime: true,
             channel_pan: false,
             // An OPL core, hosted through the `OplCoreAdapter` for `VgmEngine`.
-            // Whole-chip Mute/Solo is the engine's own job and holds here.
-            // FIXME: per-channel muting wants the write-gating `GatedCore`
-            // (`channel_mute: false`, as Nuked-OPL3 uses); this `true` predates
-            // the adapter -- it once meant "register-gated, not the `ChipCore`
-            // path" -- and now leaves per-channel mute a no-op.
-            channel_mute: true,
+            // The adapter carries no native mute, so per-channel muting takes the
+            // write-gating `GatedCore` -- `false` engages it over the same OPL
+            // `ChannelGate` rows Nuked-OPL3 uses. (Whole-chip Mute/Solo is the
+            // engine's own job either way.) Unlike the OPN2/OPM `Generic` cores
+            // below, which mute natively and so keep `channel_mute: true`.
+            channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Opl(|rate| Box::new(CqmOpl3::new(rate))),
         });
