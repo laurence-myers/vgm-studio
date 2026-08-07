@@ -66,38 +66,35 @@ pub fn run(args: &Args) -> Result<()> {
             let _ = std::io::stdout().flush();
         }
     };
+    // One engine, exactly as playback and the GUI: a DRO renders through its
+    // projection (opl_song_to_vgm_file, primed), a VGM directly. So the DRO
+    // export now honours the resampling choice and warns about coreless chips --
+    // both of which the old OPL render path skipped -- and an export sounds like
+    // what the user hears.
+    let file = match song {
+        LoadedSong::Vgm(file) => *file,
+        LoadedSong::Dro(song) => vgms_core::convert::opl_song_to_vgm_file(&song)
+            .context("projecting the DRO for rendering")?,
+    };
+    let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
+    crate::warn_missing_cores(&chips, "the render would be silence")?;
+    let resampling =
+        vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling).unwrap_or_default();
+    let file = Arc::new(file);
     // Any `--core slot=name` picks are active for this render only, on this
     // thread; an empty map (no flag) renders exactly as the configured cores.
     let choices = crate::cli::core_choices(&args.core);
     let wav = vgms_synth::with_render_choices(Some(choices), || -> Result<Vec<u8>> {
-        Ok(match song {
-            LoadedSong::Dro(song) => vgms_synth::render_dro_wav_boosted_with_progress(
-                &song,
-                freq,
-                config.audio.bit_depth,
-                boost,
-                &mut on_progress,
-            )?,
-            LoadedSong::Vgm(file) => {
-                let chips: Vec<_> = file.header.chips().iter().map(|chip| chip.kind).collect();
-                crate::warn_missing_cores(&chips, "the render would be silence")?;
-                // The render honours the config's resampling choice, exactly as
-                // playback does -- an export sounds like what the user hears.
-                let resampling =
-                    vgms_synth::resample::ResampleMode::from_slug(&config.audio.resampling)
-                        .unwrap_or_default();
-                vgms_synth::render_vgm_wav_cancellable(
-                    Arc::new(*file),
-                    freq,
-                    config.audio.bit_depth,
-                    boost,
-                    resampling,
-                    &mut on_progress,
-                    &mut || true,
-                )?
-                .expect("a render that is never cancelled always completes")
-            }
-        })
+        Ok(vgms_synth::render_vgm_wav_cancellable(
+            Arc::clone(&file),
+            freq,
+            config.audio.bit_depth,
+            boost,
+            resampling,
+            &mut on_progress,
+            &mut || true,
+        )?
+        .expect("a render that is never cancelled always completes"))
     })?;
     println!(); // end the progress line
 
