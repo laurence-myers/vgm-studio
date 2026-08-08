@@ -164,7 +164,14 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
             channel_mute: false,
-            level: vgms_synth::LEVEL_UNITY,
+            // The 276's serial DAC comes out ~2.3x hot against the YM2612
+            // default: measured lvl 2.29 (n=12) over single-chip OPN2 corpus
+            // files, so 256/2.29 = 112 pulls its median to the reference. The
+            // per-file ratio scatters (1.49x, [2.03..3.02]) -- this is a
+            // stand-in die, not the exact 2612 -- so this fixes the gross
+            // loudness, not the last few percent. (The exact YM2612-LLE die
+            // needs no correction: it measured 1.00.)
+            level: 112,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ymf276Lle::new())),
         });
     }
