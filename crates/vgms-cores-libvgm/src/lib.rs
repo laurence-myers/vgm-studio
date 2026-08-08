@@ -70,6 +70,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "the libvgm project and upstream core authors",
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
+            tier: vgms_synth::CoreTier::Behavioural,
+            exact: true,
             realtime: true,
             channel_pan: chip::default_core_pans(spec.kind),
             // libvgm implements `set_channel_mutes` (via `split_mute`), so its

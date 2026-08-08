@@ -53,6 +53,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "SudoMaker (the board); this project (the protocol)",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/SudoMaker/RetroWave",
+            // Real silicon: a genuine YMF262 on the board, playing the OPL2
+            // generation the way an OPL3 card played them -- in compat mode.
+            tier: vgms_synth::CoreTier::Hardware,
+            exact: chip == vgms_core::vgm::ChipKind::Ymf262,
             realtime: true,
             channel_pan: false,
             // An OPL device: muting is register-gated on the shadow chip and

@@ -16,6 +16,9 @@ impl VgmStudioApp {
         // through `core_for`, so the cores the user chose are the cores that
         // actually play.
         vgms_synth::registry::set_core_choices(config.audio.cores.clone());
+        // And the machine-speed ratio beside it, so the picker's core-speed
+        // estimates read as this machine from the first frame.
+        vgms_synth::speed::set_machine_ratio(config.audio.machine_speed);
         let initial_frequency = config.audio.frequency;
         Self {
             editor: Editor::new(),

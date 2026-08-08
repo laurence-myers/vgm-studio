@@ -64,6 +64,39 @@ impl core::fmt::Debug for CoreMaker {
     }
 }
 
+/// Where a core's knowledge of the chip comes from -- the accuracy ladder.
+///
+/// A *provenance* ladder, not a measurement: it records how the emulation was
+/// made, which is the fact a user weighs against speed. Declaration order is
+/// rank order (`Ord`), least authentic first, so the picker's badges and the
+/// fidelity auto-select agree on what "higher" means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CoreTier {
+    /// Reproduces what the chip does (right pitches, envelopes, waveforms)
+    /// without promising every internal step lands on the hardware's clock
+    /// cycle -- the classic emulator tier.
+    Behavioural,
+    /// A hand-written twin verified against the real chip tick by tick.
+    Cycle,
+    /// The decapped die itself, simulated gate by gate from its photographs.
+    DieSim,
+    /// No emulation at all: real silicon on a board.
+    Hardware,
+}
+
+impl CoreTier {
+    /// The picker's badge text.
+    #[must_use]
+    pub fn badge(self) -> &'static str {
+        match self {
+            Self::Behavioural => "MODEL",
+            Self::Cycle => "CYCLE",
+            Self::DieSim => "DIE SIM",
+            Self::Hardware => "HW",
+        }
+    }
+}
+
 /// One core, for one chip.
 ///
 /// A core serving several chips gets one row per chip, because everything a row
@@ -86,6 +119,16 @@ pub struct CoreInfo {
     pub license: &'static str,
     /// Where the source lives; empty for a clean-room core with no upstream.
     pub upstream: &'static str,
+    /// Where this core's knowledge of the chip comes from -- the accuracy
+    /// badge, and half of the fidelity auto-select's sort key.
+    pub tier: CoreTier,
+    /// Whether this row emulates the very chip it is registered for, rather
+    /// than a relative standing in (an OPL3 playing OPL2 in compat mode, a
+    /// clone chip, the YMF276 die rendering a YM2612). Per *row*, because the
+    /// same core is exact for one chip and an approximation for another --
+    /// and it outranks `tier` in the fidelity sort: a behavioural model of
+    /// the right chip beats a die simulation of a neighbouring one.
+    pub exact: bool,
     /// Whether it can keep up with playback on today's CPUs. `false` marks the
     /// LLE tier: the die sims render below realtime, so their labels say so and
     /// the parity harness leaves them out of its calibration set. **Advisory,
@@ -513,6 +556,10 @@ impl CoreRegistry {
                 authors: "Nuke.YKT; Rust port by the nuked-opl3 crate authors",
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",
+                tier: CoreTier::Cycle,
+                // Exact for the YMF262 it models; the OPL2 generation plays
+                // through it as an OPL3 in compat mode would play them.
+                exact: chip == ChipKind::Ymf262,
                 realtime: true,
                 // The OPL3's per-channel pan is the `stereo-ext` register path
                 // the OPL adapter drives (not the `ChipCore` mute/pan API); CQM
@@ -1159,6 +1206,8 @@ mod tests {
             authors: "test",
             license: "MIT",
             upstream: "",
+            tier: CoreTier::Behavioural,
+            exact: true,
             realtime: true,
             channel_pan: false,
             channel_mute: false,
@@ -1569,6 +1618,8 @@ mod tests {
             authors: "test",
             license: "MIT",
             upstream: "",
+            tier: CoreTier::Behavioural,
+            exact: true,
             realtime: true,
             channel_pan: false,
             channel_mute,

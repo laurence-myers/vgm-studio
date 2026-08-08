@@ -93,6 +93,13 @@ pub struct SettingsDialog {
     /// The loaded document, for the Output tab's "This song" section. `None`
     /// when nothing is open.
     song: Option<SongContext>,
+    /// This machine's measured speed relative to the core-speed baseline
+    /// machine -- seeded from the config, replaced by a finished measurement,
+    /// persisted on Save. `None` means unmeasured.
+    machine_speed: Option<f32>,
+    /// A running measurement's result channel: the background thread sends
+    /// once and hangs up. `Some` is what draws the "measuring…" state.
+    measuring: Option<std::sync::mpsc::Receiver<Option<f32>>>,
 }
 
 impl SettingsDialog {
@@ -123,6 +130,8 @@ impl SettingsDialog {
             // No song yet, so the roster is the whole point of the page: shown.
             // `with_song` folds it once a song gives "Current" something to hold.
             all_expanded: true,
+            machine_speed: config.audio.machine_speed,
+            measuring: None,
         }
     }
 
@@ -346,6 +355,62 @@ impl SettingsDialog {
                     }
                 });
         }
+
+        // A finished measurement lands here: install it process-wide at once
+        // (a measurement is a fact about the machine, not a preference -- the
+        // picker's estimates should sharpen immediately), and keep it in the
+        // dialog for Save to persist.
+        if let Some(receiver) = &self.measuring {
+            match receiver.try_recv() {
+                Ok(measured) => {
+                    if let Some(ratio) = measured {
+                        self.machine_speed = Some(ratio);
+                        vgms_synth::speed::set_machine_ratio(Some(ratio));
+                    }
+                    self.measuring = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    // Keep painting while the thread renders.
+                    ui.ctx().request_repaint();
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.measuring = None,
+            }
+        }
+
+        // The fidelity auto-select and the machine measurement that informs it.
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            if ui
+                .button(crate::strings::SETTINGS_AUTO_SELECT)
+                .on_hover_text(crate::strings::SETTINGS_AUTO_SELECT_HOVER)
+                .clicked()
+            {
+                chip_output::auto_select(&mut self.cores);
+            }
+            // Measurement needs a wall clock and a thread; the web build has
+            // neither in reach, and its estimates stay baseline-relative.
+            #[cfg(not(target_arch = "wasm32"))]
+            if self.measuring.is_none()
+                && ui
+                    .button(crate::strings::SETTINGS_MEASURE)
+                    .on_hover_text(crate::strings::SETTINGS_MEASURE_HOVER)
+                    .clicked()
+            {
+                let (sender, receiver) = std::sync::mpsc::channel();
+                std::thread::spawn(move || {
+                    let _ = sender.send(vgms_synth::speed::measure_machine_ratio());
+                });
+                self.measuring = Some(receiver);
+            }
+            let status = if self.measuring.is_some() {
+                crate::strings::SETTINGS_MEASURING.to_owned()
+            } else if let Some(ratio) = self.machine_speed {
+                crate::strings::settings_speed_measured(ratio)
+            } else {
+                crate::strings::SETTINGS_SPEED_UNMEASURED.to_owned()
+            };
+            ui.colored_label(palette.muted, egui::RichText::new(status).small());
+        });
 
         // The output-signal settings sit below the roster and stay visible even
         // when "All chips" is folded -- a separator divides them from the list.
@@ -623,6 +688,7 @@ impl SettingsDialog {
         config.optimizer = self.optimizer;
         let port = self.retrowave_port.trim();
         config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
+        config.audio.machine_speed = self.machine_speed;
         config.ui.tail_length = tail_length;
         config.ui.maximize_window = self.maximize_window;
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
@@ -896,6 +962,22 @@ mod tests {
             OutputBackend::Emulated,
             "the split slot must not disturb where OPL plays"
         );
+    }
+
+    /// A measured machine speed reaches the saved config, and an unmeasured
+    /// one stays honestly absent.
+    #[test]
+    fn the_measured_machine_speed_reaches_the_saved_config() {
+        let mut dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
+        assert_eq!(dialog.machine_speed, None);
+        dialog.machine_speed = Some(2.5);
+
+        let mut actions = Vec::new();
+        assert!(dialog.save(&mut actions));
+        let Some(Action::Settings(SettingsAction::Apply(saved))) = actions.pop() else {
+            panic!("expected the settings to be applied");
+        };
+        assert_eq!(saved.audio.machine_speed, Some(2.5));
     }
 
     /// An unset port means "find one at load time", not a port named "".

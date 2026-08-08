@@ -23,7 +23,7 @@ use vgms_synth::registry::{self, CoreInfo};
 use crate::theme::Palette;
 
 /// One core a row can be set to.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CoreChoice {
     /// What `vgmstudio.ini` stores: the core id without its slot prefix.
     pub(crate) name: String,
@@ -33,10 +33,23 @@ pub(crate) struct CoreChoice {
     /// credits -- but still required of every row, so a core cannot be
     /// registered without its terms on record.
     pub(crate) license: String,
+    /// The provenance tier, shown as the row's badge and half of the
+    /// fidelity auto-select's sort key.
+    pub(crate) tier: vgms_synth::CoreTier,
+    /// Whether this core emulates the very chip of its row (the other half
+    /// of the fidelity sort -- an exact model beats a neighbouring die).
+    pub(crate) exact: bool,
+    /// A routed (hardware) entry: listed and choosable, but never what the
+    /// fidelity auto-select writes -- picking hardware is a backend decision.
+    pub(crate) routed: bool,
+    /// Estimated speed on this machine, ×realtime -- the baseline scaled by
+    /// the measured machine ratio. `None` for a core the speed table does
+    /// not track: comfortably fast, and the row says nothing.
+    pub(crate) speed: Option<f32>,
 }
 
 /// One row: a chip (or a family of them), and the cores it can play through.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ChipOutputRow {
     /// The config slot, e.g. `"opl3"` -- what `core.<slot>=` names.
     pub(crate) slot: &'static str,
@@ -172,6 +185,67 @@ fn choice(info: &CoreInfo) -> CoreChoice {
         name: info.id.strip_prefix(&prefix).unwrap_or(info.id).to_owned(),
         label: info.label.to_owned(),
         license: info.license.to_owned(),
+        tier: info.tier,
+        exact: info.exact,
+        routed: matches!(info.make, vgms_synth::CoreMaker::Routed),
+        speed: vgms_synth::speed::effective_speed(info.id),
+    }
+}
+
+/// A core's speed readout: `~50×`, `~0.4×`. `None` when the table does not
+/// track it -- a comfortably fast core says nothing rather than inventing a
+/// number.
+fn speed_text(core: &CoreChoice) -> Option<String> {
+    core.speed.map(|speed| {
+        if speed >= 10.0 {
+            format!("~{speed:.0}\u{d7}")
+        } else {
+            format!("~{speed:.1}\u{d7}")
+        }
+    })
+}
+
+/// Whether this core's estimate falls below realtime -- the red readout, and
+/// what the fidelity auto-select skips.
+fn below_realtime(core: &CoreChoice) -> bool {
+    core.speed.is_some_and(|speed| speed < 1.0)
+}
+
+/// The headroom the fidelity auto-select demands over bare realtime: an
+/// estimate at 1.0× leaves the audio callback nothing for the rest of the
+/// app, so "holds realtime" means half again over the line.
+const REALTIME_HEADROOM: f32 = 1.5;
+
+/// The highest-fidelity core in `row` that holds realtime: sorted by exact
+/// first, then tier, registry order breaking ties; routed (hardware) rows
+/// never picked; a tracked speed must clear [`REALTIME_HEADROOM`], an
+/// untracked one always does.
+fn fidelity_pick(row: &ChipOutputRow) -> Option<&CoreChoice> {
+    let mut best: Option<&CoreChoice> = None;
+    for core in &row.cores {
+        if core.routed || core.speed.is_some_and(|speed| speed < REALTIME_HEADROOM) {
+            continue;
+        }
+        let beats = best.is_none_or(|held| (core.exact, core.tier) > (held.exact, held.tier));
+        if beats {
+            best = Some(core);
+        }
+    }
+    best
+}
+
+/// Sets every choosable slot to its [`fidelity_pick`]: the auto-select the
+/// Settings button runs. A slot whose row offers no realtime-holding core is
+/// left alone rather than blanked.
+pub(crate) fn auto_select(cores: &mut std::collections::BTreeMap<String, String>) {
+    let split = opl_split(cores);
+    for row in rows(split) {
+        if !row.is_choice() {
+            continue;
+        }
+        if let Some(best) = fidelity_pick(&row) {
+            cores.insert(row.slot.to_owned(), best.name.clone());
+        }
     }
 }
 
@@ -190,7 +264,7 @@ pub(crate) fn without_cores() -> usize {
 
 /// One chip the loaded song uses, as the "Current" section shows it: the chip,
 /// and its roster row when this build has a core for it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SongChipRow {
     /// The chip the file clocks. Named directly (rather than via `row`) so a
     /// chip with no core is still shown -- the file uses it, whether or not this
@@ -202,7 +276,7 @@ pub(crate) struct SongChipRow {
 }
 
 /// The Settings roster, split into the two sections the Output tab shows.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct OutputPlan {
     /// The loaded song's own chips, in file order, deduped by slot -- the
     /// "Current" section. Every chip the file uses is here, whether it offers a
@@ -334,18 +408,43 @@ pub(crate) fn chip_row(
     let selected = selected_name(cores, row);
     if row.is_choice() {
         ui.vertical(|ui| {
-            ui.scope(|ui| {
-                crate::theme::style_dropdown(ui, palette);
-                let mut choice = selected.clone();
-                egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
-                    .selected_text(label_for(row, &choice))
-                    .show_ui(ui, |ui| {
-                        for core in &row.cores {
-                            ui.selectable_value(&mut choice, core.name.clone(), &core.label);
-                        }
-                    });
-                if choice != selected {
-                    cores.insert(row.slot.to_owned(), choice);
+            ui.horizontal(|ui| {
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    let mut choice = selected.clone();
+                    egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
+                        .selected_text(label_for(row, &choice))
+                        .show_ui(ui, |ui| {
+                            for core in &row.cores {
+                                ui.selectable_value(
+                                    &mut choice,
+                                    core.name.clone(),
+                                    option_text(ui, palette, core),
+                                );
+                            }
+                        });
+                    if choice != selected {
+                        cores.insert(row.slot.to_owned(), choice);
+                    }
+                });
+                // Treatment A's closed state: the chosen core's tier badge and
+                // speed readout beside the dropdown, so the trade-off is
+                // visible without opening anything.
+                if let Some(core) = row.cores.iter().find(|core| core.name == selected) {
+                    ui.label(
+                        egui::RichText::new(core.tier.badge())
+                            .small()
+                            .color(palette.muted),
+                    );
+                    if let Some(speed) = speed_text(core) {
+                        let color = if below_realtime(core) {
+                            palette.meter_high
+                        } else {
+                            palette.muted
+                        };
+                        ui.label(egui::RichText::new(speed).small().color(color))
+                            .on_hover_text(crate::strings::CHIP_OUTPUT_SPEED_HOVER);
+                    }
                 }
             });
             if opl_toggle {
@@ -356,6 +455,33 @@ pub(crate) fn chip_row(
         ui.colored_label(palette.muted, &row.cores[0].label);
     }
     ui.end_row();
+}
+
+/// One open-list row's text: the label, then the tier badge and speed readout
+/// in small muted type -- red when the estimate falls below realtime.
+fn option_text(ui: &egui::Ui, palette: &Palette, core: &CoreChoice) -> egui::text::LayoutJob {
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let small = egui::TextStyle::Small.resolve(ui.style());
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        &core.label,
+        0.0,
+        egui::TextFormat::simple(body, ui.visuals().text_color()),
+    );
+    job.append(
+        core.tier.badge(),
+        10.0,
+        egui::TextFormat::simple(small.clone(), palette.muted),
+    );
+    if let Some(speed) = speed_text(core) {
+        let color = if below_realtime(core) {
+            palette.meter_high
+        } else {
+            palette.muted
+        };
+        job.append(&speed, 8.0, egui::TextFormat::simple(small, color));
+    }
+    job
 }
 
 /// The split/merge link under an OPL row's dropdown; a no-op on other rows.
@@ -448,6 +574,8 @@ pub(crate) fn install_test_cores() {
                 authors: "Nuke.YKT",
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-CQM",
+                tier: vgms_synth::CoreTier::Cycle,
+                exact: false,
                 realtime: true,
                 channel_pan: false,
                 // Deliberately `true` while the real CQM is now `channel_mute:
@@ -470,6 +598,8 @@ pub(crate) fn install_test_cores() {
                 authors: "SudoMaker (the board); this project (the protocol)",
                 license: "GPL-2.0-or-later",
                 upstream: "https://github.com/SudoMaker/RetroWave",
+                tier: vgms_synth::CoreTier::Hardware,
+                exact: chip == registry::OPL_CHIPS[0],
                 realtime: true,
                 channel_pan: false,
                 channel_mute: true,
@@ -489,6 +619,8 @@ pub(crate) fn install_test_cores() {
                 authors: "Nuke.YKT",
                 license: "GPL-2.0-or-later",
                 upstream: "https://github.com/nukeykt/YM3812-LLE",
+                tier: vgms_synth::CoreTier::DieSim,
+                exact: chip == ChipKind::Ym3812,
                 realtime: false,
                 channel_pan: false,
                 channel_mute: false,
@@ -509,6 +641,8 @@ pub(crate) fn install_test_cores() {
             authors: "the libvgm project and upstream core authors",
             license: "see PROVENANCE.md -- upstream publishes no grant",
             upstream: "https://github.com/ValleyBell/libvgm",
+            tier: vgms_synth::CoreTier::Behavioural,
+            exact: true,
             realtime: true,
             // As the real one: the SN76489's Maxim core carries `SetPanning`,
             // so this stand-in claims it too and the GUI tests exercise the
@@ -765,6 +899,87 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The fidelity sort: exact beats tier, tier beats registry order,
+    /// hardware is never picked, and a tracked speed must hold realtime with
+    /// headroom -- which is exactly what lets a faster machine promote a die
+    /// sim some day.
+    #[test]
+    fn fidelity_pick_prefers_exact_then_tier_and_respects_the_speed_gate() {
+        fn core(
+            name: &str,
+            tier: vgms_synth::CoreTier,
+            exact: bool,
+            speed: Option<f32>,
+        ) -> CoreChoice {
+            CoreChoice {
+                name: name.to_owned(),
+                label: name.to_owned(),
+                license: "GPL-2.0-or-later".to_owned(),
+                tier,
+                exact,
+                routed: false,
+                speed,
+            }
+        }
+        let mut row = ChipOutputRow {
+            slot: "opl2",
+            label: "OPL2",
+            chip: ChipKind::Ym3812,
+            cores: vec![
+                // The real OPL2 roster's shape: a cycle model of the wrong
+                // generation, a fast exact model, and an exact die sim that
+                // is too slow on this machine.
+                core("nuked", vgms_synth::CoreTier::Cycle, false, Some(50.0)),
+                core(
+                    "opl2-lite",
+                    vgms_synth::CoreTier::Behavioural,
+                    true,
+                    Some(40.0),
+                ),
+                core("ym3812-lle", vgms_synth::CoreTier::DieSim, true, Some(1.2)),
+            ],
+        };
+        assert_eq!(
+            fidelity_pick(&row).map(|core| core.name.as_str()),
+            Some("opl2-lite"),
+            "an exact model beats a wrong-generation cycle model, and the \
+             die sim below the headroom bar is skipped"
+        );
+
+        // The blistering-fast future: the same die sim, now clearing the bar.
+        row.cores[2].speed = Some(3.0);
+        assert_eq!(
+            fidelity_pick(&row).map(|core| core.name.as_str()),
+            Some("ym3812-lle"),
+            "a die sim that holds realtime is the fidelity pick"
+        );
+
+        // Hardware is a backend decision, never auto-picked.
+        row.cores.push(CoreChoice {
+            routed: true,
+            ..core("retrowave", vgms_synth::CoreTier::Hardware, true, None)
+        });
+        assert_eq!(
+            fidelity_pick(&row).map(|core| core.name.as_str()),
+            Some("ym3812-lle")
+        );
+    }
+
+    /// The auto-select writes the pick into every choosable slot and leaves
+    /// the rest of the map alone.
+    #[test]
+    fn auto_select_fills_the_choosable_slots() {
+        install_test_cores();
+        let mut cores = BTreeMap::from([("keep".to_owned(), "me".to_owned())]);
+        auto_select(&mut cores);
+        assert_eq!(
+            cores.get(vgms_core::config::OPL_SLOT).map(String::as_str),
+            Some("nuked"),
+            "the stand-in OPL roster's only non-routed core"
+        );
+        assert_eq!(cores.get("keep").map(String::as_str), Some("me"));
     }
 
     /// The song's chips are hoisted in file order, single-core chips fold, and

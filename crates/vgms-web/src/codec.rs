@@ -250,6 +250,9 @@ fn read_config(reader: &mut Reader) -> Result<AudioConfig> {
         cores,
         resampling,
         retrowave_port,
+        // Not carried over the wire: the worklet renders, it never shows the
+        // picker's speed estimates, and measurement is native-only anyway.
+        machine_speed: None,
     })
 }
 
@@ -978,6 +981,9 @@ mod tests {
             cores,
             resampling: "linear".to_owned(),
             retrowave_port: Some("COM7".to_owned()),
+            // Deliberately default: the codec does not carry it (see
+            // `read_config`), so a non-default value could not round-trip.
+            machine_speed: None,
         }
     }
 

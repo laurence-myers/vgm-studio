@@ -17,6 +17,7 @@ impl VgmStudioApp {
         // Keep the registry's copy of the choices current, so the reload (and
         // every offline render) builds the cores just saved.
         vgms_synth::registry::set_core_choices(config.audio.cores.clone());
+        vgms_synth::speed::set_machine_ratio(config.audio.machine_speed);
         if let Err(error) = self.config_store.save(&config) {
             self.alerts
                 .push_back(Alert::error(crate::strings::app_could_not_save_settings(

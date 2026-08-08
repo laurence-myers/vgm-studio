@@ -36,6 +36,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-CQM",
+            // A cycle model of the *clone* Creative shipped -- accurate to the
+            // Vibra, a flavour beside the real YMF262.
+            tier: vgms_synth::CoreTier::Cycle,
+            exact: false,
             realtime: true,
             channel_pan: false,
             // An OPL core, hosted through the `OplCoreAdapter` for `VgmEngine`.
@@ -57,6 +61,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPN2",
+            tier: vgms_synth::CoreTier::Cycle,
+            exact: true,
             realtime: true,
             channel_pan: false,
             // Muted in the binding's own render gate: the chip's output is one
@@ -77,6 +83,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPM",
+            tier: vgms_synth::CoreTier::Cycle,
+            exact: true,
             realtime: true,
             channel_pan: false,
             // As OPN2: no per-channel mute, so the UI disables its toggles.

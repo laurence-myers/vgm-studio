@@ -45,6 +45,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPLL",
+            tier: vgms_synth::CoreTier::Cycle,
+            exact: true,
             realtime: true,
             channel_pan: false,
             // Muted in the binding's own render gate, cycle by cycle -- the
@@ -62,6 +64,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/Nuked-PSG",
+            // The die trace of the one part inside the Sega VDPs -- a flavour
+            // of the SN76489, not the discrete chip itself.
+            tier: vgms_synth::CoreTier::Cycle,
+            exact: false,
             realtime: true,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -78,6 +84,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2151-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: true,
             realtime: false,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -94,6 +102,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: true,
             realtime: false,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -110,6 +120,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: true,
             realtime: false,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -126,6 +138,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2203-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: true,
             realtime: false,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -142,6 +156,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YMF276-LLE",
+            // The 276 die standing in for a YM2612/YM3438 -- the clean serial
+            // sibling, not the chip the song clocks.
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: false,
             realtime: false,
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
@@ -159,6 +177,10 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPL2-Lite",
+            tier: vgms_synth::CoreTier::Behavioural,
+            // A model of the YM3812 itself; near for its register-compatible
+            // kin, exact only for the 3812.
+            exact: chip == vgms_core::vgm::ChipKind::Ym3812,
             realtime: true,
             // A real OPL2 has no stereo-ext registers to pan with, and this
             // models a real OPL2.
@@ -177,6 +199,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM3812-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: chip == vgms_core::vgm::ChipKind::Ym3812,
             realtime: false,
             // A real OPL2 die has no stereo-ext registers to pan with.
             channel_pan: false,
@@ -196,6 +220,8 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YMF262-LLE",
+            tier: vgms_synth::CoreTier::DieSim,
+            exact: chip == vgms_core::vgm::ChipKind::Ymf262,
             realtime: false,
             // The stereo-ext panpots are Nuked-OPL3's extension; the real die
             // has no such registers.

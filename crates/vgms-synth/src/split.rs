@@ -778,6 +778,7 @@ mod vgm_split_tests {
     /// neither is flagged; a chip with no core (which renders silence) is not.
     #[test]
     fn the_identical_file_guard_flags_only_the_unmuteable() {
+        use crate::registry::CoreTier;
         use crate::{ChipCore, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY};
 
         #[derive(Debug)]
@@ -800,6 +801,8 @@ mod vgm_split_tests {
                 authors: "test",
                 license: "MIT",
                 upstream: "",
+                tier: CoreTier::Behavioural,
+                exact: true,
                 realtime: true,
                 channel_pan: false,
                 channel_mute: native_mute,

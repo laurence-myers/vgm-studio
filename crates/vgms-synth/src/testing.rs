@@ -12,7 +12,7 @@
 use vgms_core::vgm::ChipKind;
 
 use crate::chip::ChipCore;
-use crate::registry::{CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY};
+use crate::registry::{CoreInfo, CoreMaker, CoreRegistry, CoreTier, LEVEL_UNITY};
 
 /// A square wave that obeys the SN76489's volume latches and nothing else.
 ///
@@ -111,6 +111,8 @@ pub(crate) fn install_registry_with_stub() {
         authors: "this project",
         license: "MIT OR Apache-2.0",
         upstream: "",
+        tier: CoreTier::Behavioural,
+        exact: true,
         realtime: true,
         channel_pan: false,
         channel_mute: true,

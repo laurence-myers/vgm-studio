@@ -906,6 +906,23 @@ pub(crate) const CHIP_OUTPUT_SPLIT_OPL_HOVER: &str = "Give the OPL2-generation c
 pub(crate) const CHIP_OUTPUT_MERGE_OPL: &str = "Use one core for OPL2 and OPL3";
 pub(crate) const CHIP_OUTPUT_MERGE_OPL_HOVER: &str =
     "Go back to a single core choice for the whole OPL family.";
+pub(crate) const CHIP_OUTPUT_SPEED_HOVER: &str = "Estimated speed on this machine, times \
+     realtime. Below 1\u{d7}, live playback may stutter; renders are unaffected. Measure this \
+     machine below to sharpen the estimates.";
+pub(crate) const SETTINGS_AUTO_SELECT: &str = "Auto-select cores";
+pub(crate) const SETTINGS_AUTO_SELECT_HOVER: &str = "Set every chip to its most authentic core \
+     that still holds realtime on this machine \u{2014} die simulations included, the day the \
+     machine measures fast enough. Hardware output is never chosen for you.";
+pub(crate) const SETTINGS_MEASURE: &str = "Measure speed";
+pub(crate) const SETTINGS_MEASURE_HOVER: &str = "Render a moment of audio through two probe \
+     cores to measure this machine against the project's reference machine. Takes about a \
+     second; sharpens every core-speed estimate.";
+pub(crate) const SETTINGS_MEASURING: &str = "measuring\u{2026}";
+pub(crate) const SETTINGS_SPEED_UNMEASURED: &str =
+    "speed estimates assume the reference machine \u{2014} measure to calibrate";
+pub(crate) fn settings_speed_measured(ratio: f32) -> String {
+    format!("this machine measured at {ratio:.2}\u{d7} the reference machine")
+}
 
 // ============================================================================
 // widgets/position_panel.rs

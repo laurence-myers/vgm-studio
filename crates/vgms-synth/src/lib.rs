@@ -25,6 +25,7 @@ pub mod peak;
 pub mod registry;
 pub mod resample;
 mod song_gate;
+pub mod speed;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod testing;
@@ -53,8 +54,8 @@ pub use opl_chip_mix::{
 };
 pub use peak::{Peak, measure_vgm_peak, measure_vgm_peak_cancellable};
 pub use registry::{
-    CoreChoices, CoreInfo, CoreMaker, CoreRegistry, LEVEL_UNITY, gate_without_forwarding, install,
-    opl_hardware_core, registry, with_render_choices,
+    CoreChoices, CoreInfo, CoreMaker, CoreRegistry, CoreTier, LEVEL_UNITY, gate_without_forwarding,
+    install, opl_hardware_core, registry, with_render_choices,
 };
 pub use split::{SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable};
 pub use vgm_engine::VgmEngine;

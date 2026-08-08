@@ -98,6 +98,12 @@ pub struct AudioConfig {
     /// The serial port of the RetroWave board, such as `COM3`. `None` picks the
     /// first port that looks like one.
     pub retrowave_port: Option<String>,
+    /// This machine's measured speed relative to the core-speed baseline
+    /// machine (`vgms_synth::speed::BASELINE`), from the Settings "measure"
+    /// action. Scales every core-speed estimate the picker shows and the
+    /// fidelity auto-select gates on. `None` until measured, which the
+    /// estimates then read as "assume the baseline machine".
+    pub machine_speed: Option<f32>,
 }
 
 /// The slot slug the OPL family shares -- one selector for OPL2, OPL3, YM3526
@@ -200,6 +206,7 @@ impl Default for AudioConfig {
             cores: BTreeMap::new(),
             resampling: "sinc".to_owned(),
             retrowave_port: None,
+            machine_speed: None,
         }
     }
 }
@@ -601,6 +608,14 @@ impl AppConfig {
             let value = value.trim();
             self.audio.retrowave_port = (!value.is_empty()).then(|| value.to_owned());
         }
+        if let Some(value) = lookup(&ini, "audio", "machine_speed") {
+            let value = value.trim();
+            self.audio.machine_speed = if value.is_empty() {
+                None
+            } else {
+                Some(parse(value, "audio.machine_speed")?)
+            };
+        }
 
         if let Some(value) = lookup(&ini, "ui", "dro_info_edit_enabled") {
             self.ui.dro_info_edit_enabled = parse_bool(value, "ui.dro_info_edit_enabled")?;
@@ -664,6 +679,10 @@ impl AppConfig {
              # Serial port of the RetroWave board, e.g. COM3 or /dev/ttyACM0.\n\
              # Leave empty to use the first one detected.\n\
              retrowave_port={retrowave_port}\n\
+             # This machine's measured speed relative to the project's\n\
+             # reference machine, from Settings > Output > Measure. Scales the\n\
+             # core speed estimates; empty means unmeasured.\n\
+             machine_speed={machine_speed}\n\
              \n\
              [ui]\n\
              # Tail length is the value for the \"Play last X seconds\" button,\n\
@@ -702,6 +721,11 @@ impl AppConfig {
                 .collect::<String>(),
             resampling = self.audio.resampling,
             retrowave_port = self.audio.retrowave_port.as_deref().unwrap_or_default(),
+            machine_speed = self
+                .audio
+                .machine_speed
+                .map(|ratio| ratio.to_string())
+                .unwrap_or_default(),
             tail_length = self.ui.tail_length,
             maximize_window = self.ui.maximize_window,
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
@@ -1100,6 +1124,7 @@ mod tests {
                 // Not the default, so the round trip is proven to carry it.
                 resampling: "linear".to_owned(),
                 retrowave_port: Some("COM7".to_owned()),
+                machine_speed: Some(1.25),
             },
             ui: UiConfig {
                 dro_info_edit_enabled: true,
