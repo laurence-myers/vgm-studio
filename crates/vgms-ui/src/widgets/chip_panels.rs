@@ -17,7 +17,7 @@
 //! [`Self::chip_muting`] / [`Self::chip_panning`].
 //!
 //! The lamp is the whole-chip mute/solo, one per chip: left-click mutes,
-//! right-click solos (additive), coloured by the chip's play state. The knob
+//! right-click solos (exclusive), coloured by the chip's play state. The knob
 //! trims that chip's level. Both act through the engine's own gain/mask, so they
 //! work on every core. The strip is drawn **always** -- even for a single chip,
 //! even an empty editor -- so the deck's shape does not jump as documents come
@@ -50,6 +50,10 @@ const ROW_GAP: f32 = 4.0;
 const CELL_INNER_GAP: f32 = 4.0;
 /// The lamp's drawn side, for measuring a cell's width.
 const LAMP_SIZE: f32 = 12.0;
+/// The gap below the selector well, so the deck's panel shows between the chip
+/// tabs and the controls beneath them -- a bottom margin matching the space
+/// above the well (the deck zeroes item spacing, so it is added explicitly).
+const SELECTOR_GAP: f32 = 6.0;
 
 /// One chip in the strip: its tab label and its own control panel.
 #[derive(Debug)]
@@ -284,6 +288,9 @@ impl ChipPanels {
         mute_supported: impl Fn(Option<ChipKind>) -> bool,
     ) -> ChannelsResponse {
         let mut response = self.selector(ui, palette);
+        // A bottom margin under the tabs so the deck shows between them and the
+        // controls below, matching the space above the well.
+        ui.add_space(SELECTOR_GAP);
         let chip = self.selected_chip();
         let pan = pan_supported(chip);
         let mute = mute_supported(chip);
@@ -307,6 +314,9 @@ impl ChipPanels {
         let any_solo = self.any_solo();
         let selected_index = self.selected;
         let mut new_selected = self.selected;
+        // The chip whose lamp was right-clicked this frame, applied as an
+        // exclusive solo once the cell loop's borrow of `entries` is released.
+        let mut solo_target: Option<usize> = None;
         // The cells go in a `Grid` broken every `cols` -- a plain wrapping layout
         // will not wrap a multi-widget cell, whose size it cannot know before
         // placing it, so the row count is worked out from the widest cell and the
@@ -327,7 +337,7 @@ impl ChipPanels {
                             let selected = at == selected_index;
                             let ChipEntry { label, panel } = entry;
                             let name = label.as_str();
-                            let clicked = ui
+                            let outcome = ui
                                 .horizontal(|ui| {
                                     generic_cell(
                                         ui,
@@ -340,8 +350,11 @@ impl ChipPanels {
                                     )
                                 })
                                 .inner;
-                            if clicked {
+                            if outcome.select {
                                 new_selected = at;
+                            }
+                            if outcome.solo_clicked {
+                                solo_target = Some(at);
                             }
                             if (at + 1) % cols == 0 && at != last {
                                 ui.end_row();
@@ -350,7 +363,35 @@ impl ChipPanels {
                     });
             });
         self.selected = new_selected;
+        // Apply the lamp's right-click as an exclusive solo now the loop's
+        // borrow of `entries` is gone: it touches every chip, not just the one
+        // clicked, so it cannot live inside the per-cell closure.
+        if let Some(at) = solo_target {
+            self.solo_only(at);
+            response.muting_changed = true;
+        }
         response
+    }
+
+    /// Exclusive solo of chip `at` (the lamp's right-click): make it the only
+    /// soloed chip, or -- if it was already the sole solo -- clear solo entirely,
+    /// so a second right-click brings the rest back. Soloing also un-mutes that
+    /// chip, so soloing a muted chip makes it heard rather than leaving it
+    /// silent.
+    fn solo_only(&mut self, at: usize) {
+        let was_sole_solo = self.entries[at].panel.soloed()
+            && self
+                .entries
+                .iter()
+                .filter(|entry| entry.panel.soloed())
+                .count()
+                == 1;
+        for (index, entry) in self.entries.iter_mut().enumerate() {
+            entry.panel.set_soloed(index == at && !was_sole_solo);
+        }
+        if !was_sole_solo {
+            self.entries[at].panel.set_chip_muted(false);
+        }
     }
 
     /// How many chip cells fit on one row of the well before it must wrap: the
@@ -467,8 +508,16 @@ pub(crate) fn default_opl_panning(song: &DroSong) -> Panning {
     }
 }
 
-/// A generic chip's cell: lamp, trim knob, name. Returns whether the name was
-/// clicked to select the chip.
+/// What a chip cell's controls did this frame.
+struct CellOutcome {
+    /// The name was clicked, selecting this chip's detail panel.
+    select: bool,
+    /// The lamp was right-clicked, requesting an exclusive solo (applied by the
+    /// caller, which alone can reach the sibling chips it clears).
+    solo_clicked: bool,
+}
+
+/// A generic chip's cell: lamp, trim knob, name.
 fn generic_cell(
     ui: &mut egui::Ui,
     palette: &Palette,
@@ -477,7 +526,7 @@ fn generic_cell(
     any_solo: bool,
     selected: bool,
     response: &mut ChannelsResponse,
-) -> bool {
+) -> CellOutcome {
     ui.spacing_mut().item_spacing.x = CELL_INNER_GAP;
     // The lamp: whole-chip mute (left-click) and solo (right-click), on every
     // core -- a whole-chip mask silences the voice in the engine itself. It
@@ -491,10 +540,9 @@ fn generic_cell(
         panel.set_chip_muted(!panel.chip_muted());
         response.muting_changed = true;
     }
-    if lamp.secondary_clicked() {
-        panel.set_soloed(!panel.soloed());
-        response.muting_changed = true;
-    }
+    // Solo is exclusive across chips, so the click is only recorded here; the
+    // selector applies it once it can reach the other chips.
+    let solo_clicked = lamp.secondary_clicked();
 
     // The trim knob.
     let mut trim = panel.trim();
@@ -505,7 +553,11 @@ fn generic_cell(
 
     // The name, in the Editor/Pack tab chrome; clicking it selects the chip's
     // detailed panel below.
-    tabs::tab_button(ui, palette, name, selected).clicked()
+    let select = tabs::tab_button(ui, palette, name, selected).clicked();
+    CellOutcome {
+        select,
+        solo_clicked,
+    }
 }
 
 /// The lamp colour for a chip's play state (the meter roles, no new palette):
@@ -653,6 +705,40 @@ mod tests {
             ChipPanels::for_song(&tone_song()).panning(),
             Panning::Original,
             "a plain OPL2 song keeps its own image"
+        );
+    }
+
+    /// The chip lamp's right-click is an exclusive solo, and soloing a chip
+    /// un-mutes it: the two behaviours behind [`ChipPanels::solo_only`].
+    #[test]
+    fn soloing_a_chip_is_exclusive_and_unmutes_it() {
+        let file = vgm_for(&[
+            (ChipKind::Sn76489, 3_579_545),
+            (ChipKind::Ym2612, 7_670_454),
+        ]);
+        let mut panels = ChipPanels::for_vgm(&file);
+        // Header order: SN76489 is entry 0, YM2612 entry 1.
+        // Mute the SN76489, then solo it: soloing un-mutes it (#5) and makes it
+        // the only soloed chip.
+        panels.entries[0].panel.set_chip_muted(true);
+        panels.solo_only(0);
+        assert!(
+            !panels.entries[0].panel.chip_muted(),
+            "soloing a muted chip un-mutes it"
+        );
+        assert!(panels.entries[0].panel.soloed());
+        assert!(!panels.entries[1].panel.soloed());
+
+        // Solo the other chip: the first chip's solo clears (exclusive).
+        panels.solo_only(1);
+        assert!(!panels.entries[0].panel.soloed(), "solo is exclusive");
+        assert!(panels.entries[1].panel.soloed());
+
+        // Re-solo the sole soloed chip: the solo lifts entirely.
+        panels.solo_only(1);
+        assert!(
+            !panels.any_solo(),
+            "re-soloing the only soloed chip brings the rest back"
         );
     }
 

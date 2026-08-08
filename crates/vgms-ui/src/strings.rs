@@ -785,17 +785,15 @@ pub(crate) fn tasks_song_not_extracted(number: impl std::fmt::Display) -> String
 // widgets/pan_controls.rs
 // ============================================================================
 
-pub(crate) const CHANNELS_SPREAD: &str = "Stereo spread: mono at centre, wide at the extremes";
+pub(crate) const CHANNELS_SPREAD: &str = "Stereo width: centred is mono; turn either way to widen";
 
 // ============================================================================
 // widgets/chip_channels.rs
 // ============================================================================
 
-pub(crate) const CHIP_CHANNELS_CUSTOM: &str =
-    "Custom: the pan knobs drive the output. Original: the chip's own image.";
+pub(crate) const CHIP_CHANNELS_CUSTOM: &str = "Pan with the knobs (off: the chip's own image)";
 pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning is left alone)";
-pub(crate) const CHIP_CHANNELS_RESET: &str =
-    "Reset panning to centred (Original mode: the chip's own image)";
+pub(crate) const CHIP_CHANNELS_RESET: &str = "Reset panning to the chip's own image";
 
 pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
 
@@ -806,9 +804,9 @@ pub(crate) const CHIP_LAMP_PLAYING: &str =
 pub(crate) const CHIP_LAMP_MUTED: &str =
     "Muted. Click to unmute; right-click to solo. The channel toggles keep their pattern.";
 pub(crate) const CHIP_LAMP_SOLOED: &str =
-    "Soloed. Right-click to unsolo; click to mute. Solo is additive across chips.";
+    "Soloed -- the only chip you hear. Right-click again to unsolo; click to mute.";
 pub(crate) const CHIP_LAMP_SILENCED: &str =
-    "Silenced by another chip's solo. Right-click to solo this one too; click to mute it.";
+    "Silenced by another chip's solo. Right-click to solo this one instead; click to mute it.";
 
 pub(crate) fn chip_channels_channel_hover(name: &str) -> String {
     format!("{}. Left-click mutes, right-click solos.", name)

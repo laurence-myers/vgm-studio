@@ -72,9 +72,10 @@ pub(crate) struct GenericChannelPanel {
     /// "muted by you" stays distinct from "silenced for you".
     chip_muted: bool,
     /// The chip soloed by the user -- the chip lamp's right-click. An explicit
-    /// per-chip flag (additive: several chips can be soloed at once), so a solo
-    /// never touches a sibling's `chip_muted`. Effective silence, folded in by
-    /// [`Self::mask_effective`], is `chip_muted || (any_solo && !soloed)`.
+    /// per-chip flag, so a solo never touches a sibling's `chip_muted`; the deck
+    /// keeps it exclusive (soloing one chip clears the rest) in
+    /// [`ChipPanels::solo_only`](super::chip_panels). Effective silence, folded
+    /// in by [`Self::mask_effective`], is `chip_muted || (any_solo && !soloed)`.
     soloed: bool,
     /// The user's listening trim for this chip, `0..=100`% (100% the reference
     /// balance). Set from the chip lamp's knob; folded into the document's
@@ -170,8 +171,9 @@ impl GenericChannelPanel {
         self.soloed
     }
 
-    /// Solos or unsolos this chip. Additive: it touches only this chip's flag,
-    /// never a sibling's mute.
+    /// Sets this chip's solo flag -- only this chip's, never a sibling's mute.
+    /// The deck applies the exclusive-solo rule (soloing one chip clears the
+    /// rest) in [`ChipPanels::solo_only`](super::chip_panels).
     pub(crate) fn set_soloed(&mut self, soloed: bool) {
         self.soloed = soloed;
     }

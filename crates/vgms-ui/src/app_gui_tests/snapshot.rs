@@ -304,10 +304,10 @@ fn spread_and_reset_pan_a_generic_chip_like_the_opl_panel() {
 }
 
 /// A chip's lamp masks that whole chip (left-click) and solos it (right-click,
-/// additive -- every un-soloed chip silenced) -- the isolation workflow: solo
-/// the SN76489 of a Mega Drive rip and only the PSG is left sounding. Works
-/// whatever the cores can do, because a whole-chip mask is honoured by the
-/// engine itself. The lamp replaces the old Mute/Solo pads, one per chip.
+/// exclusive -- every other chip silenced) -- the isolation workflow: solo the
+/// SN76489 of a Mega Drive rip and only the PSG is left sounding. Works whatever
+/// the cores can do, because a whole-chip mask is honoured by the engine itself.
+/// The lamp replaces the old Mute/Solo pads, one per chip.
 #[test]
 fn chip_mute_and_solo_reach_the_audio_as_whole_chip_masks() {
     use vgms_core::ChipKind;

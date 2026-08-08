@@ -92,7 +92,7 @@ const SECTIONS: &[Section] = &[
             ),
             (
                 Keys::Text("Right-click a chip's lamp"),
-                "Solo the chip (again to bring the rest back); solo is additive",
+                "Solo just this chip (again to bring the rest back); unmutes it too",
             ),
             (
                 Keys::Text("Right-click / double-click a chip's knob"),
