@@ -8,6 +8,7 @@ use egui::style::{ScrollStyle, Selection, WidgetVisuals, Widgets};
 use egui::{Color32, CornerRadius, Margin, Shadow, Stroke, Style, Vec2, Visuals};
 
 use super::fonts;
+use super::paint::{darken, is_light, lighten};
 use super::palette::Palette;
 
 /// One widget state: flat fill, a 1px bevel-coloured outline, no rounding, no
@@ -33,6 +34,7 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
         desktop,
         bevel_light,
         bevel_dark,
+        bevel_border,
         data_bg,
         data_stripe,
         data_text,
@@ -71,8 +73,21 @@ pub(crate) fn style_for(palette: &Palette) -> Style {
     visuals.code_bg_color = data_bg;
     visuals.hyperlink_color = bevel_light;
 
-    visuals.window_fill = face; // windows, menus, popups, tooltips
-    visuals.window_stroke = Stroke::new(1.0_f32, bevel_dark);
+    // Windows, menus, popups and tooltips share this fill. A tooltip used to be
+    // the exact `face` of the panel it floats over, so it melted in. Push the
+    // popup fill *away* from the ambient text (`label`) -- darker under light
+    // text, lighter under dark text -- so it stands off the panel while its own
+    // text keeps (indeed gains) contrast, and give it the crisp near-black
+    // keyline rather than the softer `bevel_dark`. Whole dialogs and alerts opt
+    // back to `face` where they are built (`dialogs::dialog_window` /
+    // `dialog_modal_sized`, `alert::show_front`), so this reaches only the small
+    // floating surfaces: tooltips, menu dropdowns and combo popups.
+    visuals.window_fill = if is_light(label) {
+        darken(face, 0.22)
+    } else {
+        lighten(face, 0.22)
+    };
+    visuals.window_stroke = Stroke::new(1.0_f32, bevel_border);
     visuals.window_corner_radius = CornerRadius::ZERO;
     visuals.menu_corner_radius = CornerRadius::ZERO;
     visuals.window_shadow = Shadow::NONE;

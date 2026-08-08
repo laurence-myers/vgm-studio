@@ -48,15 +48,23 @@ pub use vgm_metadata::VgmMetadataDialog;
 /// [`dialog_modal`].
 pub(crate) fn dialog_window(
     ctx: &egui::Context,
+    palette: &crate::theme::Palette,
     title: &str,
     area: egui::Rect,
     body: impl FnOnce(&mut egui::Ui),
 ) -> bool {
     let mut open = true;
+    // Keep the window on the panel `face`, as [`dialog_modal_sized`] does: the
+    // lifted `window_fill` is for small tooltips, not whole dialogs.
+    let style = ctx.style_of(ctx.theme());
+    let frame = egui::Frame::window(&style)
+        .fill(palette.face)
+        .stroke(egui::Stroke::new(1.0, palette.bevel_dark));
     egui::Window::new(title)
         .open(&mut open)
         .resizable(false)
         .collapsible(false)
+        .frame(frame)
         .constrain_to(area)
         .show(ctx, body);
     open
@@ -114,7 +122,14 @@ pub(crate) fn dialog_modal_sized(
     let scrolls = ctx
         .data(|data| data.get_temp::<f32>(height_id))
         .is_some_and(|height| height > max_height);
-    let modal = egui::Modal::new(id).show(ctx, |ui| {
+    // Keep the modal on the panel `face`: the theme lifts `window_fill` off it
+    // to give small tooltips a contrasting surface, but a whole dialog reads
+    // fine flush with the panels and should not shift with that.
+    let style = ctx.style_of(ctx.theme());
+    let frame = egui::Frame::popup(&style)
+        .fill(palette.face)
+        .stroke(egui::Stroke::new(1.0, palette.bevel_dark));
+    let modal = egui::Modal::new(id).frame(frame).show(ctx, |ui| {
         ui.set_width(width);
         ui.heading(title);
         crate::theme::separator_clipped(ui, palette);

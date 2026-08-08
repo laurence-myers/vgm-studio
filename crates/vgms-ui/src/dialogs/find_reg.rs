@@ -126,7 +126,7 @@ impl FindRegDialog {
         actions: &mut Vec<Action>,
     ) -> bool {
         let mut close_clicked = false;
-        let open = super::dialog_window(ctx, "Find Register", area, |ui| {
+        let open = super::dialog_window(ctx, palette, "Find Register", area, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
             ui.add_space(2.0);
             let query = self.find.draw(ui, palette);
