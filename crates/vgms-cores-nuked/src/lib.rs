@@ -57,7 +57,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: opn2::YM2612_CORE_ID,
             chip,
-            label: "Nuked-OPN2 (YM2612 / YM3438)",
+            label: "Nuked-OPN2",
             authors: "Nuke.YKT",
             license: "LGPL-2.1-or-later",
             upstream: "https://github.com/nukeykt/Nuked-OPN2",

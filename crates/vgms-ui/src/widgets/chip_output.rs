@@ -181,9 +181,16 @@ fn choice(info: &CoreInfo) -> CoreChoice {
     }
 }
 
-/// The fixed dropdown width, so the core column is the same width on every
-/// row and the badge and speed columns line up beside it.
-const COMBO_WIDTH: f32 = 188.0;
+/// The fixed dropdown width. Wide enough for the longest core label
+/// ("RetroWave OPL3 (hardware)"), so every dropdown renders at exactly this
+/// width (the width is a *minimum*, and no label exceeds it) -- the core
+/// column is then identical on every row. `.truncate()` guards anything longer.
+const COMBO_WIDTH: f32 = 246.0;
+
+/// The fixed inner width of the accuracy badge box, wide enough for the widest
+/// badge ("DIE SIM"). Every badge box is this width, so the badge column never
+/// shifts when the selected core's tier changes.
+const BADGE_INNER_WIDTH: f32 = 50.0;
 
 /// The badge colour for an accuracy tier -- a fixed accent per rung, tinted to
 /// read on either a light or dark dialog face.
@@ -225,31 +232,36 @@ fn chip_name_cell(ui: &mut egui::Ui, palette: &Palette, chip: ChipKind) {
     });
 }
 
-/// The accuracy badge cell: a colour-coded box, right-aligned, with the tier's
+/// The accuracy badge cell: a fixed-width colour-coded box, with the tier's
 /// one-line description on hover (plus a note when the core is a stand-in for a
 /// related chip rather than the exact one).
+///
+/// The box is a constant width ([`BADGE_INNER_WIDTH`] plus its margin), so the
+/// badge column stays put when the selected core's tier changes from a short
+/// badge (MODEL) to a long one (DIE SIM).
 fn tier_badge_cell(ui: &mut egui::Ui, palette: &Palette, core: &CoreChoice) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let color = tier_color(core.tier);
-        let hover = if core.exact {
-            core.tier.description().to_owned()
-        } else {
-            format!(
-                "{} This core emulates a close relative of the chip, not the exact part.",
-                core.tier.description()
-            )
-        };
-        egui::Frame::new()
-            .fill(color.gamma_multiply(0.18))
-            .stroke(egui::Stroke::new(1.0, palette.bevel_border))
-            .inner_margin(egui::Margin::symmetric(4, 1))
-            .corner_radius(2.0)
-            .show(ui, |ui| {
+    let color = tier_color(core.tier);
+    let hover = if core.exact {
+        core.tier.description().to_owned()
+    } else {
+        format!(
+            "{} This core emulates a close relative of the chip, not the exact part.",
+            core.tier.description()
+        )
+    };
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.18))
+        .stroke(egui::Stroke::new(1.0, palette.bevel_border))
+        .inner_margin(egui::Margin::symmetric(4, 1))
+        .corner_radius(2.0)
+        .show(ui, |ui| {
+            ui.set_width(BADGE_INNER_WIDTH);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.label(egui::RichText::new(core.tier.badge()).small().color(color));
-            })
-            .response
-            .on_hover_text(hover);
-    });
+            });
+        })
+        .response
+        .on_hover_text(hover);
 }
 
 /// The speed cell: the band word (Offline / Slow / Fast), right-aligned and
@@ -464,6 +476,7 @@ pub(crate) fn chip_row(
             let mut choice = selected.clone();
             egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
                 .width(COMBO_WIDTH)
+                .truncate()
                 .selected_text(label_for(row, &choice))
                 .show_ui(ui, |ui| {
                     for core in &row.cores {
@@ -569,7 +582,9 @@ pub(crate) fn legend(ui: &mut egui::Ui, palette: &Palette) {
             crate::strings::CHIP_OUTPUT_LEGEND_ACCURACY,
         );
         for tier in vgms_synth::CoreTier::ALL {
-            ui.horizontal(|ui| {
+            // `horizontal_wrapped` so a long description wraps within the dialog
+            // width instead of running off the right edge.
+            ui.horizontal_wrapped(|ui| {
                 let color = tier_color(tier);
                 egui::Frame::new()
                     .fill(color.gamma_multiply(0.18))
@@ -589,7 +604,7 @@ pub(crate) fn legend(ui: &mut egui::Ui, palette: &Palette) {
         ui.add_space(4.0);
         ui.colored_label(palette.data_label, crate::strings::CHIP_OUTPUT_LEGEND_SPEED);
         for band in vgms_synth::speed::SpeedTier::ALL {
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 ui.label(
                     egui::RichText::new(band.label())
                         .small()
