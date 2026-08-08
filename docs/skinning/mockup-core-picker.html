@@ -1,0 +1,302 @@
+<title>VGM Studio — core picker: accuracy vs speed</title>
+<style>
+  :root{
+    --desktop:#263A3A;
+    --face:#1E2929; --bevelL:#324444; --bevelD:#0D1414; --keyline:#040808;
+    --data:#0C1414; --yellow:#F1E67B;
+    --lab:#B8D0D0; --mut:#86A6A6; --orange:#FF9E3D;
+    --green:#7BE07B; --red:#E07B7B; --cyan:#7BD0E0;
+    --mono:"Cascadia Mono","Consolas","IBM Plex Mono","JetBrains Mono",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--desktop); color:#DCEFEF;
+    font:13px/1.55 var(--mono);
+    padding:36px 20px 64px;
+  }
+  .page{max-width:1080px;margin:0 auto}
+  header{margin-bottom:30px}
+  h1{
+    font-size:21px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--yellow); margin:0 0 6px; font-weight:700; text-wrap:balance;
+  }
+  .sub{color:var(--mut); max-width:78ch; margin:0 0 8px}
+  .sub b{color:#DCEFEF; font-weight:700}
+  .sub code{color:var(--yellow); font-size:12px}
+  h2{
+    font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--yellow); margin:44px 0 4px; font-weight:700;
+  }
+  h2::before{content:"▚ "; color:var(--orange)}
+  .note{color:var(--mut); margin:0 0 12px; max-width:80ch}
+  .note b{color:#DCEFEF}
+  .note code{color:var(--yellow); font-size:12px}
+  .verdict{color:var(--mut); font-size:11.5px; margin:6px 0 3px; max-width:82ch}
+  .verdict b{color:#DCEFEF}
+
+  /* ---- shared chrome ---- */
+  .panel{
+    background:var(--face); max-width:640px;
+    border:2px solid; border-color:var(--bevelL) var(--bevelD) var(--bevelD) var(--bevelL);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:12px 14px; margin:12px 0 4px;
+  }
+  .rowlab{color:#DCEFEF; font-size:12.5px}
+  .dd{
+    display:inline-flex; align-items:center; gap:8px;
+    background:var(--data); color:#DCEFEF;
+    border:2px solid; border-color:var(--bevelD) var(--bevelL) var(--bevelL) var(--bevelD);
+    box-shadow:0 0 0 1px var(--keyline);
+    padding:4px 9px; font-size:12px; white-space:nowrap;
+  }
+  .dd .arr{color:var(--yellow)}
+  .muted{color:var(--mut)}
+  .small{font-size:10.5px}
+  .lnk{color:var(--mut); font-size:10.5px; text-decoration:underline dotted; cursor:pointer}
+
+  /* tier badges */
+  .tier{
+    display:inline-block; font-size:9px; font-weight:700; letter-spacing:.12em;
+    padding:1px 5px; border:1px solid var(--keyline); vertical-align:1px;
+  }
+  .t-die{background:#3A2A4A; color:#D0B0F0}
+  .t-cyc{background:#1F3A2A; color:var(--green)}
+  .t-beh{background:#203A44; color:var(--cyan)}
+  .t-hw{background:#4A3A1A; color:var(--yellow)}
+  .t-clone{background:#40303A; color:#E0A0C0}
+
+  /* LED meters */
+  .meter{display:inline-flex; gap:2px; vertical-align:-1px}
+  .meter i{width:6px; height:9px; background:#15302A; border:1px solid #071010; display:inline-block}
+  .meter i.on{background:var(--green); box-shadow:0 0 3px #4ADF4A66}
+  .meter.acc i.on{background:#C89BF0; box-shadow:0 0 3px #B07BE066}
+  .meter i.warn{background:var(--red); box-shadow:0 0 3px #E07B7B66}
+  .mlab{font-size:9px; letter-spacing:.1em; color:#6E8888; margin-right:4px}
+
+  /* option lists */
+  .opts{background:var(--data); border:1px solid var(--keyline); margin-top:6px; max-width:560px}
+  .opt{
+    display:grid; grid-template-columns:16px 1fr auto; align-items:center; gap:8px;
+    padding:5px 9px; border-bottom:1px solid #14201F; font-size:12px;
+  }
+  .opt:last-child{border-bottom:none}
+  .opt:hover{background:#15302A}
+  .opt.sel{background:#1C3A30; outline:1px solid #3A6A5A}
+  .opt .radio{color:var(--yellow); font-size:11px}
+  .opt .name{color:#DCEFEF}
+  .opt .name small{display:block; color:#6E8888; font-size:10px; letter-spacing:.03em}
+  .opt .gauges{text-align:right; white-space:nowrap}
+  .opt .gauges .line{display:block; line-height:1.5}
+  .warnline{color:var(--red); font-size:10px; letter-spacing:.04em}
+  .okline{color:#6E8888; font-size:10px}
+
+  /* spec card */
+  .spec{
+    background:var(--data); border:1px solid var(--keyline);
+    padding:9px 11px; margin-top:8px; max-width:560px; font-size:11px;
+  }
+  .spec dt{color:#6E8888; font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; margin-top:7px}
+  .spec dt:first-child{margin-top:0}
+  .spec dd{margin:1px 0 0; color:#CFE4E4}
+  .spec dd b{color:var(--yellow)}
+
+  /* 2D map */
+  .map{position:relative; background:var(--data); border:1px solid var(--keyline);
+    height:230px; max-width:560px; margin-top:8px}
+  .map .grid{position:absolute; inset:28px 14px 30px 96px}
+  .map .gl{position:absolute; background:#16302C}
+  .map .axis{position:absolute; color:#6E8888; font-size:9px; letter-spacing:.12em}
+  .map .tick{position:absolute; color:#5A7878; font-size:9px}
+  .core{
+    position:absolute; transform:translate(-50%,-50%);
+    width:13px; height:13px; border:1px solid var(--keyline); cursor:pointer;
+  }
+  .core i{position:absolute; inset:2px}
+  .core.sel{outline:2px solid var(--yellow); outline-offset:1px}
+  .core .tag{
+    position:absolute; left:16px; top:-3px; white-space:nowrap; font-size:10px; color:#CFE4E4;
+  }
+  .core .tag small{color:#6E8888}
+  .rtline{position:absolute; top:0; bottom:0; width:0; border-left:1px dashed #B0504066}
+  .rtlab{position:absolute; color:#C08070; font-size:9px; letter-spacing:.08em}
+
+  /* preference toggle */
+  .pref{display:inline-flex; border:1px solid var(--keyline); margin-top:4px}
+  .pref span{
+    padding:4px 12px; font-size:11px; letter-spacing:.08em; color:var(--mut);
+    background:var(--face); border-right:1px solid var(--keyline); cursor:pointer;
+  }
+  .pref span:last-child{border-right:none}
+  .pref span.on{background:var(--yellow); color:#151A08; font-weight:700}
+  table.resolve{border-collapse:collapse; margin-top:8px; font-size:11px}
+  table.resolve td{padding:2px 14px 2px 0; color:#CFE4E4}
+  table.resolve td:first-child{color:var(--mut)}
+  table.resolve td b{color:var(--yellow); font-weight:400}
+</style>
+<div class="page">
+<header>
+  <h1>Core picker — accuracy vs speed</h1>
+  <p class="sub">Five treatments for the Settings <b>Output</b> tab, replacing or enhancing the plain
+  dropdowns now that a chip can carry four cores spanning three orders of magnitude in cost.
+  All examples use the <b>OPL2</b> slot (the richest row: four cores after the 2026-08 additions)
+  and the app's own chrome. Data shown is illustrative; the "where the numbers come from" section
+  at the end says what would feed it for real.</p>
+  <p class="sub">The accuracy axis is a <b>provenance ladder</b>, not a percentage: a die simulation
+  outranks a cycle model outranks a behavioural one, and hardware is its own row. A clone chip
+  (CQM) is accurate <i>to the clone</i> — flavour, not error — so it carries its own badge rather
+  than a lower rung.</p>
+</header>
+
+<h2>Treatment A — badged dropdown (smallest change)</h2>
+<p class="note">The dropdown stays; every row gains a <b>tier badge</b> and a <b>speed readout</b>,
+and the closed state carries the badge so the trade-off is visible without opening anything.
+No layout change to the Output tab.</p>
+<div class="panel">
+  <div style="display:flex; align-items:center; gap:14px">
+    <span class="rowlab">OPL2</span>
+    <span class="dd">Nuked-OPL2-Lite <span class="tier t-beh">MODEL</span> <span class="arr">▼</span></span>
+  </div>
+  <div class="opts">
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">Nuked OPL3 (emulated)<small>plays OPL2 as an OPL3 in compat mode</small></span>
+      <span class="gauges"><span class="line"><span class="tier t-cyc">CYCLE</span></span><span class="okline">~800× realtime</span></span></div>
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">Nuked-CQM (Creative CQM)<small>the SB16 Vibra's clone chip</small></span>
+      <span class="gauges"><span class="line"><span class="tier t-clone">CLONE</span></span><span class="okline">~600× realtime</span></span></div>
+    <div class="opt sel"><span class="radio">■</span>
+      <span class="name">Nuked-OPL2-Lite<small>a genuine OPL2, modelled</small></span>
+      <span class="gauges"><span class="line"><span class="tier t-beh">MODEL</span></span><span class="okline">~900× realtime</span></span></div>
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">YM3812-LLE<small>the decapped die, gate by gate</small></span>
+      <span class="gauges"><span class="line"><span class="tier t-die">DIE SIM</span></span><span class="warnline">~0.4× realtime — may stutter</span></span></div>
+  </div>
+  <div class="lnk" style="margin-top:7px">Use one core for OPL2 and OPL3</div>
+</div>
+<p class="verdict"><b>Verdict:</b> cheapest to ship; keeps the grid intact. The badge in the closed
+state is the load-bearing part — "below realtime" stops being a parenthesis buried in a label.
+Weakness: two numbers per row is already at the edge of what a dropdown row holds politely.</p>
+
+<h2>Treatment B — the ladder (replace the dropdown with an inline list)</h2>
+<p class="note">The row expands into an always-visible radio ladder sorted <b>most authentic first</b>,
+each core carrying two LED meters in the app's segment style: <b>ACC</b> (violet, the provenance rung)
+and <b>SPD</b> (green, log-scale headroom over realtime; red when below 1×). One glance, no click.</p>
+<div class="panel">
+  <div class="rowlab" style="margin-bottom:4px">OPL2 — core</div>
+  <div class="opts">
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">YM3812-LLE <span class="tier t-die">DIE SIM</span></span>
+      <span class="gauges">
+        <span class="line"><span class="mlab">ACC</span><span class="meter acc"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span>
+        <span class="line"><span class="mlab">SPD</span><span class="meter"><i class="warn"></i><i></i><i></i><i></i><i></i></span></span>
+      </span></div>
+    <div class="opt sel"><span class="radio">■</span>
+      <span class="name">Nuked-OPL2-Lite <span class="tier t-beh">MODEL</span></span>
+      <span class="gauges">
+        <span class="line"><span class="mlab">ACC</span><span class="meter acc"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></span>
+        <span class="line"><span class="mlab">SPD</span><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span>
+      </span></div>
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">Nuked-CQM <span class="tier t-clone">CLONE</span></span>
+      <span class="gauges">
+        <span class="line"><span class="mlab">ACC</span><span class="meter acc"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></span>
+        <span class="line"><span class="mlab">SPD</span><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></span></span>
+      </span></div>
+    <div class="opt"><span class="radio">·</span>
+      <span class="name">Nuked OPL3 (emulated) <span class="tier t-cyc">CYCLE</span></span>
+      <span class="gauges">
+        <span class="line"><span class="mlab">ACC</span><span class="meter acc"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span></span>
+        <span class="line"><span class="mlab">SPD</span><span class="meter"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span></span>
+      </span></div>
+  </div>
+  <div class="warnline" style="margin-top:6px">■ YM3812-LLE renders below realtime on this machine — playback may stutter; renders are unaffected.</div>
+</div>
+<p class="verdict"><b>Verdict:</b> the strongest "enthusiast" treatment and the best match for the
+LED language the mixer already speaks. Costs vertical space: fine for the "Current" song section,
+heavy if every chip in "All chips" expands — pair it with the fold.</p>
+
+<h2>Treatment C — dropdown + spec card</h2>
+<p class="note">The dropdown stays exactly as-is; <b>selecting</b> a core reveals a spec card
+beneath with the two meters, the provenance line, licence and upstream — the About-box facts,
+brought to the moment of choosing.</p>
+<div class="panel">
+  <div style="display:flex; align-items:center; gap:14px">
+    <span class="rowlab">OPL2</span>
+    <span class="dd">YM3812-LLE (die sim, below realtime) <span class="arr">▼</span></span>
+  </div>
+  <div class="spec">
+    <dt>What it is</dt><dd>Travis Goodspeed's decapped YM3812, simulated gate by gate — the die itself, not a model of it.</dd>
+    <dt>Accuracy</dt><dd><span class="meter acc"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></span> &nbsp;die simulation — the reference other cores are measured against</dd>
+    <dt>Speed</dt><dd><span class="meter"><i class="warn"></i><i></i><i></i><i></i><i></i></span> &nbsp;<b>~0.4× realtime</b> — live playback may stutter; WAV renders and the oracle diff are unaffected</dd>
+    <dt>Terms</dt><dd>GPL-2.0-or-later · nukeykt/YM3812-LLE</dd>
+  </div>
+</div>
+<p class="verdict"><b>Verdict:</b> zero cost to the roster layout and teaches the most per pixel,
+but only about the <i>chosen</i> core — comparison still means opening the dropdown and reading
+badges (so it composes well with Treatment A rather than replacing it).</p>
+
+<h2>Treatment D — the map (accuracy × speed, one glance)</h2>
+<p class="note">Every core for the slot plotted: <b>speed</b> across (log scale, the dashed red line
+is 1× realtime), <b>authenticity</b> up. Click a pip to choose. The empty top-right corner is honest:
+nothing is both a die and fast — that corner is what the picker exists to trade about.</p>
+<div class="panel">
+  <div class="rowlab" style="margin-bottom:4px">OPL2 — core</div>
+  <div class="map">
+    <span class="axis" style="left:96px; top:8px">AUTHENTICITY ▲</span>
+    <span class="axis" style="right:14px; bottom:8px">SPEED (LOG) ▶</span>
+    <span class="tick" style="left:8px; top:34px">die sim</span>
+    <span class="tick" style="left:8px; top:76px">model of it</span>
+    <span class="tick" style="left:8px; top:118px">clone chip</span>
+    <span class="tick" style="left:8px; top:160px">compat mode</span>
+    <div class="grid">
+      <div class="gl" style="left:0;right:0;top:25%;height:1px"></div>
+      <div class="gl" style="left:0;right:0;top:50%;height:1px"></div>
+      <div class="gl" style="left:0;right:0;top:75%;height:1px"></div>
+      <div class="rtline" style="left:26%"></div>
+      <span class="rtlab" style="left:20.5%; bottom:-16px">1×</span>
+      <div class="core sel" style="left:14%; top:6%"><i style="background:#C89BF0"></i><span class="tag">YM3812-LLE <small>0.4×</small></span></div>
+      <div class="core" style="left:88%; top:29%"><i style="background:#7BD0E0"></i><span class="tag" style="left:auto;right:16px">OPL2-Lite <small>900×</small></span></div>
+      <div class="core" style="left:82%; top:52%"><i style="background:#E0A0C0"></i><span class="tag" style="left:auto;right:16px">CQM <small>600×</small></span></div>
+      <div class="core" style="left:86%; top:75%"><i style="background:#7BE07B"></i><span class="tag" style="left:auto;right:16px">Nuked OPL3 <small>800×</small></span></div>
+    </div>
+  </div>
+  <div class="warnline" style="margin-top:6px">Selected: YM3812-LLE — left of the 1× line: playback may stutter.</div>
+</div>
+<p class="verdict"><b>Verdict:</b> the clearest statement of the actual trade and a natural home for
+a measured-on-this-machine speed axis. But it is a new widget with real hit-target and keyboard-nav
+work, and it scales awkwardly to chips with one or two cores. A showpiece for the OPL family, not
+the whole roster.</p>
+
+<h2>Treatment E — a preference, not a picker</h2>
+<p class="note">Most users want a policy, not a per-chip choice: <b>Fidelity</b> picks each chip's
+most authentic core that can hold realtime (die sims only when the machine measures fast enough),
+<b>Performance</b> picks the fastest, <b>Balanced</b> the default table. The per-chip pickers move
+behind an "advanced" fold and override the policy where set.</p>
+<div class="panel">
+  <div class="rowlab">Core policy</div>
+  <div class="pref"><span>PERFORMANCE</span><span class="on">BALANCED</span><span>FIDELITY</span></div>
+  <table class="resolve">
+    <tr><td>OPL2</td><td><b>Nuked-OPL2-Lite</b> <span class="muted small">(fidelity would pick YM3812-LLE — measured 0.4×, kept out of live playback)</span></td></tr>
+    <tr><td>OPL3</td><td><b>Nuked OPL3</b></td></tr>
+    <tr><td>YM2612</td><td><b>Nuked-OPN2</b></td></tr>
+    <tr><td>SN76489</td><td><b>libvgm</b></td></tr>
+  </table>
+  <div class="lnk" style="margin-top:8px">▸ Advanced: choose cores per chip…</div>
+</div>
+<p class="verdict"><b>Verdict:</b> the right ceiling for casual use and the only treatment that
+answers "what should a 2035 CPU do?" automatically — the fidelity policy re-measures and promotes
+the die sims the day the machine can hold them. Needs the per-chip pickers kept underneath (soloing
+a specific flavour is a real workflow), so it layers on top of A–D rather than replacing them.</p>
+
+<h2>Where the numbers come from</h2>
+<p class="note"><b>Accuracy</b> is registry metadata, not measurement: a
+<code>CoreInfo::tier</code> enum (<code>HardwareBoard · DieSim · CycleModel · Behavioural</code>)
+plus a <code>flavour</code> marker for the clone/compat rows — all facts the PROVENANCE table
+already states in prose. The parity harness's <code>lvl</code> column can annotate a tier
+("0.9848 median vs the die") where it has been run, but the ladder itself is provenance.</p>
+<p class="note"><b>Speed</b> is measured, once per machine: a short background render of a
+reference register stream through each core at first launch (or on demand — "measure this
+machine"), cached in the config as ×realtime. That number is what turns "below realtime" from
+a label into the red segment, the map position, and the fidelity policy's promotion rule —
+including the day the blistering-fast CPU arrives.</p>
+</div>
