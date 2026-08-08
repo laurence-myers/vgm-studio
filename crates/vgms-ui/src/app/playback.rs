@@ -80,6 +80,11 @@ impl VgmStudioApp {
             self.alerts.push_back(Alert::error(message));
             return;
         }
+        // Hand the loop to the audio service. `ensure_audio` only re-pushes when
+        // the document changed, so on an already-loaded song (the common case)
+        // flipping `loop_enabled` above would never reach the engine -- and the
+        // seam would play once and run off the end without looping.
+        self.push_loop_config();
         // Where the seam is, in milliseconds. Either representation can say:
         // a `DroSong` has the prefix sums already, and a VGM's is its own waits.
         let end = self.editor.markers.end();
