@@ -113,15 +113,7 @@ pub(crate) fn dialog_modal_sized(
     // exact: the cost of over-estimating is a dialog that runs a little closer
     // to the window edge.
     let max_height = (ctx.content_rect().height() - 140.0).max(120.0);
-    // Whether to scroll is decided from what the body measured *last* frame, so
-    // a dialog that fits is drawn plainly -- no scroll area, no fixed height. A
-    // dialog that has just opened measures itself on its first frame and
-    // scrolls from the second.
     let id = egui::Id::new(id);
-    let height_id = id.with("body-height");
-    let scrolls = ctx
-        .data(|data| data.get_temp::<f32>(height_id))
-        .is_some_and(|height| height > max_height);
     // Keep the modal on the panel `face`: the theme lifts `window_fill` off it
     // to give small tooltips a contrasting surface, but a whole dialog reads
     // fine flush with the panels and should not shift with that.
@@ -134,21 +126,21 @@ pub(crate) fn dialog_modal_sized(
         ui.heading(title);
         crate::theme::separator_clipped(ui, palette);
         ui.add_space(6.0);
-        let measured = if scrolls {
-            // A viewport of a stated height, not a shrink-to-fit one: a modal
-            // blocks input outside its own rect, and a scroll area that
-            // under-reports its height leaves everything drawn past that rect
-            // visible but unclickable.
-            let output = egui::ScrollArea::vertical()
-                .max_height(max_height)
-                .auto_shrink([false, false])
-                .show(ui, body);
-            crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
-            output.content_size.y
-        } else {
-            ui.scope(body).response.rect.height()
-        };
-        ctx.data_mut(|data| data.insert_temp(height_id, measured));
+        // The body always lives in the same scroll viewport, capped at
+        // `max_height`: it shrinks to the content when that fits (a short dialog
+        // stays short) and scrolls when it does not (a tall one never runs off
+        // the screen). The wrapper is *unconditional* on purpose. Switching
+        // between a scroll area and a bare scope by last frame's height gave any
+        // id-keyed widget inside -- a `CollapsingHeader`'s open state -- a
+        // different id per branch: it read open in one and closed in the other,
+        // so the measured height flipped every frame and the dialog flickered
+        // between the two. `auto_shrink([false, true])`: fill the width, shrink
+        // the height to the content up to the cap.
+        let output = egui::ScrollArea::vertical()
+            .max_height(max_height)
+            .auto_shrink([false, true])
+            .show(ui, body);
+        crate::theme::frame_scroll_output(ui, palette, output.inner_rect, output.content_size);
         // The footer sits outside the scrolled viewport, so the buttons are on
         // screen whatever the body's height.
         ui.add_space(8.0);
