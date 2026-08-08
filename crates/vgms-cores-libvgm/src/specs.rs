@@ -335,15 +335,21 @@ chip_specs! {
     // core list is `{ NULL }`), so `SndEmu_Start` has nothing to start. The
     // decoder's `0xBE`/`0xD6` conventions are ready for when upstream grows it.
 
+    // libvgm renders the RF5C68 device at ~0.36 of VGMPlay 0.52's level:
+    // measured lvl 0.364 (n=12, corr 1.0000 -- a pure scale difference) over
+    // single-chip RF5C68 corpus files, so `256/0.364 = 703` brings it up to the
+    // reference. All four rows wrap the one `DEVID_RF5C68` device, so the same
+    // scale applies (the 164 rows differ only by the flag that names the 164,
+    // the Gens rows only by the emulation core -- both carry the same DAC scale).
     make_rf5c68: "rf5c68.libvgm" / "libvgm (MAME)" => Rf5c68,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
     make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens)" => Rf5c68,
-        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
     // The same device; `flags` is what makes it the 164.
     make_rf5c164: "rf5c164.libvgm" / "libvgm (MAME)" => Rf5c164,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c164;
     make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens)" => Rf5c164,
-        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c164;
 }
 
 /// A chip whose configuration is only the generic fields (clock, rate mode,

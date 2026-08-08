@@ -208,7 +208,12 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             // row in a `GatedCore`, so per-channel muting works exactly as it
             // does on the other OPL cores.
             channel_mute: false,
-            level: vgms_synth::LEVEL_UNITY,
+            // The OPL2 die's YM3012 float DAC comes out twice as hot as
+            // Nuked-OPL3: measured lvl 2.000 (n=12, tight [1.94..2.04]) over
+            // single-chip OPL2 corpus files, so halve it back to the reference
+            // balance. (The OPL3 die, YMF262-LLE, needs no such correction --
+            // its YAC512 DAC already matches, median lvl ~1.0.)
+            level: vgms_synth::LEVEL_UNITY / 2,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym3812Lle::new())),
         });
     }
