@@ -188,9 +188,10 @@ fn choice(info: &CoreInfo) -> CoreChoice {
 const COMBO_WIDTH: f32 = 246.0;
 
 /// The fixed inner width of the accuracy badge box, wide enough for the widest
-/// badge ("DIE SIM"). Every badge box is this width, so the badge column never
-/// shifts when the selected core's tier changes.
-const BADGE_INNER_WIDTH: f32 = 50.0;
+/// badge ("HARDWARE", measured 64px in the DOS font). Every badge box is this
+/// width, so the badge column never shifts when the selected core's tier
+/// changes and the label sits centred in the same box whatever its length.
+const BADGE_INNER_WIDTH: f32 = 66.0;
 
 /// The badge colour for an accuracy tier -- a fixed accent per rung, tinted to
 /// read on either a light or dark dialog face.
@@ -249,16 +250,25 @@ fn tier_badge_cell(ui: &mut egui::Ui, palette: &Palette, core: &CoreChoice) {
             core.tier.description()
         )
     };
+    // A fixed-size inner box with the label centred both ways, so every badge is
+    // the same pill and the column never shifts as the tier changes.
+    let inner = egui::vec2(
+        BADGE_INNER_WIDTH,
+        ui.text_style_height(&egui::TextStyle::Small),
+    );
     egui::Frame::new()
         .fill(color.gamma_multiply(0.18))
         .stroke(egui::Stroke::new(1.0, palette.bevel_border))
         .inner_margin(egui::Margin::symmetric(4, 1))
         .corner_radius(2.0)
         .show(ui, |ui| {
-            ui.set_width(BADGE_INNER_WIDTH);
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                ui.label(egui::RichText::new(core.tier.badge()).small().color(color));
-            });
+            ui.allocate_ui_with_layout(
+                inner,
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    ui.label(egui::RichText::new(core.tier.badge()).small().color(color));
+                },
+            );
         })
         .response
         .on_hover_text(hover);

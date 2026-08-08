@@ -95,7 +95,7 @@ impl CoreTier {
             Self::Behavioural => "MODEL",
             Self::Cycle => "CYCLE",
             Self::DieSim => "DIE SIM",
-            Self::Hardware => "HW",
+            Self::Hardware => "HARDWARE",
         }
     }
 
