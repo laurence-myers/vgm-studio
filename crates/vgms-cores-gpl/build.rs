@@ -30,6 +30,12 @@ fn main() {
         println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
     }
 
+    let opl2_lite = PathBuf::from(UPSTREAM).join("nuked-opl2-lite");
+    require_submodule(&opl2_lite, "nuked-opl2-lite", "opl2.c");
+    for file in ["opl2.c", "opl2.h"] {
+        println!("cargo::rerun-if-changed={}", opl2_lite.join(file).display());
+    }
+
     let opl2_lle = PathBuf::from(UPSTREAM).join("ym3812-lle");
     require_submodule(&opl2_lle, "ym3812-lle", "fmopl2.c");
     for file in ["fmopl2.c", "fmopl2.h"] {
@@ -40,6 +46,18 @@ fn main() {
     require_submodule(&opl3_lle, "ymf262-lle", "fmopl3.c");
     for file in ["fmopl3.c", "fmopl3.h"] {
         println!("cargo::rerun-if-changed={}", opl3_lle.join(file).display());
+    }
+
+    let opn_lle = PathBuf::from(UPSTREAM).join("ym2203-lle");
+    require_submodule(&opn_lle, "ym2203-lle", "fmopn.c");
+    for file in ["fmopn.c", "fmopn.h"] {
+        println!("cargo::rerun-if-changed={}", opn_lle.join(file).display());
+    }
+
+    let opn2l_lle = PathBuf::from(UPSTREAM).join("ymf276-lle");
+    require_submodule(&opn2l_lle, "ymf276-lle", "fmopn2.c");
+    for file in ["fmopn2.c", "fmopn2.h"] {
+        println!("cargo::rerun-if-changed={}", opn2l_lle.join(file).display());
     }
 
     // The OPN-family dies: one implementation compiled per chip macro. The
@@ -64,21 +82,29 @@ fn main() {
         .file(opll.join("opll.c"))
         .file(psg.join("ympsg.c"))
         .file(opm_lle.join("fmopm.c"))
+        .file(opl2_lite.join("opl2.c"))
         .file(opl2_lle.join("fmopl2.c"))
         .file(opl3_lle.join("fmopl3.c"))
+        .file(opn_lle.join("fmopn.c"))
+        .file(opn2l_lle.join("fmopn2.c"))
         .file(opna_lle.join("fmopna_2612.c"))
         .file(opna_lle.join("fmopna_2608.c"))
         .file("shim/layout.c")
         .file("shim/lle_opm.c")
         .file("shim/lle_opl2.c")
         .file("shim/lle_opl3.c")
+        .file("shim/lle_opn.c")
         .file("shim/lle_opn2.c")
+        .file("shim/lle_opn2l.c")
         .file("shim/lle_opna.c")
         .include(&opll)
         .include(&psg)
         .include(&opm_lle)
+        .include(&opl2_lite)
         .include(&opl2_lle)
         .include(&opl3_lle)
+        .include(&opn_lle)
+        .include(&opn2l_lle)
         .include(&opna_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.

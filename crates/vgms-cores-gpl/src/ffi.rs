@@ -53,6 +53,14 @@ unsafe extern "C" {
     fn vgms_fmopna2612_out_mor(chip: *const c_void) -> i32;
     fn FMOPNA_2612_Clock(chip: *mut c_void, clk: i32);
 
+    fn vgms_opl2lite_sizeof() -> usize;
+    fn vgms_opl2lite_alignof() -> usize;
+
+    fn OPL2_Reset(chip: *mut c_void, samplerate: u32);
+    fn OPL2_WriteReg(chip: *mut c_void, reg: u8, data: u8);
+    fn OPL2_WriteRegBuffered(chip: *mut c_void, reg: u8, data: u8);
+    fn OPL2_GenerateResampled(chip: *mut c_void, sample: *mut i16);
+
     fn vgms_fmopl2_sizeof() -> usize;
     fn vgms_fmopl2_alignof() -> usize;
     fn vgms_fmopl2_set_pins(chip: *mut c_void, ic: i32, cs: i32, wr: i32, a0: i32, data: i32);
@@ -74,6 +82,27 @@ unsafe extern "C" {
     );
     fn vgms_fmopl3_clock(chip: *mut c_void, mclk: i32);
     fn vgms_fmopl3_dac_pins(chip: *const c_void) -> i32;
+
+    fn vgms_fmopn_sizeof() -> usize;
+    fn vgms_fmopn_alignof() -> usize;
+    fn vgms_fmopn_set_pins(chip: *mut c_void, ic: i32, cs: i32, wr: i32, a0: i32, data: i32);
+    fn vgms_fmopn_dac_pins(chip: *const c_void, analog: *mut f32) -> i32;
+    fn FMOPN_Clock(chip: *mut c_void, clk: i32);
+
+    fn vgms_fmopn2_sizeof() -> usize;
+    fn vgms_fmopn2_alignof() -> usize;
+    fn vgms_fmopn2_set_flags(chip: *mut c_void, flags: i32);
+    fn vgms_fmopn2_set_pins(
+        chip: *mut c_void,
+        ic: i32,
+        cs: i32,
+        wr: i32,
+        a0: i32,
+        a1: i32,
+        data: i32,
+    );
+    fn vgms_fmopn2_dac_pins(chip: *const c_void) -> i32;
+    fn FMOPN2_Clock(chip: *mut c_void, clk: i32);
 
     fn vgms_fmopna2608_sizeof() -> usize;
     fn vgms_fmopna2608_alignof() -> usize;
@@ -322,6 +351,57 @@ impl OpmLleChip {
     }
 }
 
+/// A Nuked-OPL2-Lite chip: the behavioural (not die-level) OPL2, with the
+/// same API shape as Nuked-OPL3 -- reset at an output rate, immediate and
+/// buffered writes, and an internal resampler behind a per-sample generate.
+///
+/// The upstream struct carries self-pointers (`slot->chip`, modulation
+/// sources), planted by `OPL2_Reset` at the allocation's address -- safe here
+/// because [`OpaqueChip`]'s heap block never moves or reallocates.
+#[derive(Debug)]
+pub(crate) struct Opl2LiteChip {
+    state: OpaqueChip,
+}
+
+impl Opl2LiteChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (vgms_opl2lite_sizeof(), vgms_opl2lite_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Re-initialises for `samplerate` output: upstream memsets the struct and
+    /// rebuilds its internal pointers, exactly what its own users call.
+    pub(crate) fn reset(&mut self, samplerate: u32) {
+        // SAFETY: the block is sized by the C's own `sizeof(opl2_chip)`, so
+        // the memset inside `OPL2_Reset` stays within the allocation.
+        unsafe { OPL2_Reset(self.state.as_ptr(), samplerate) }
+    }
+
+    pub(crate) fn write_reg(&mut self, reg: u8, data: u8) {
+        // SAFETY: as above; the call writes only inside the chip block.
+        unsafe { OPL2_WriteReg(self.state.as_ptr(), reg, data) }
+    }
+
+    /// The delayed path: upstream's write buffer spaces queued writes a couple
+    /// of samples apart during generation, as Nuked-OPL3's does.
+    pub(crate) fn write_reg_buffered(&mut self, reg: u8, data: u8) {
+        // SAFETY: as above.
+        unsafe { OPL2_WriteRegBuffered(self.state.as_ptr(), reg, data) }
+    }
+
+    /// One output-rate sample (the chip is mono).
+    pub(crate) fn generate_resampled(&mut self) -> i16 {
+        let mut sample = 0i16;
+        // SAFETY: upstream writes exactly one i16 through the pointer, which
+        // is not retained past the call.
+        unsafe { OPL2_GenerateResampled(self.state.as_ptr(), &raw mut sample) }
+        sample
+    }
+}
+
 /// The YM3812-LLE die simulation, driven by its pins.
 ///
 /// The OPL2 package: the same bus as the OPM (one address line, a byte of
@@ -489,6 +569,137 @@ impl Opl3LleChip {
             sy: packed & 4 != 0,
             smpac: packed & 8 != 0,
             smpbd: packed & 16 != 0,
+        }
+    }
+}
+
+/// The YM2203-LLE die simulation, driven by its pins.
+///
+/// The OPN package: the OPM-shaped bus (one address line, a byte of data)
+/// with the SSG's GPIO ports held low, a mono FM serial DAC (the YM3014's
+/// float stream on `OPO`, framed by `SH`, paced by `SY`), and the three SSG
+/// channels on analog pins the shim sums.
+#[derive(Debug)]
+pub(crate) struct OpnLleChip {
+    state: OpaqueChip,
+}
+
+impl OpnLleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (vgms_fmopn_sizeof(), vgms_fmopn_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Zeroes the die, as power-off does; the electrical reset is the
+    /// wrapper's job.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+    }
+
+    /// The bus pins; [`Opl2Pins`] is the same shape this package has.
+    pub(crate) fn set_pins(&mut self, pins: Opl2Pins) {
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            vgms_fmopn_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// One half of the master clock: `high` is the level of the clk pin.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopn_t)`.
+        unsafe { FMOPN_Clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The DAC pins after the last edge: (sh, opo, sy, summed SSG analog).
+    pub(crate) fn dac_pins(&mut self) -> (bool, bool, bool, f32) {
+        let mut analog = 0.0f32;
+        // SAFETY: the shim reads fields of the sized block into our local.
+        let packed = unsafe { vgms_fmopn_dac_pins(self.state.as_ptr(), &raw mut analog) };
+        (packed & 1 != 0, packed & 2 != 0, packed & 4 != 0, analog)
+    }
+}
+
+/// The YMF276-LLE die simulation, driven by its pins.
+///
+/// The OPN2 bus (two address lines), audio leaving on the YMF276's external
+/// serial DAC interface: data on `SO` (MSB first), paced by the `BCO` bit
+/// clock, framed by the `WCO` word clock, sides told apart by `LRO`.
+#[derive(Debug)]
+pub(crate) struct Opn2lLleChip {
+    state: OpaqueChip,
+}
+
+/// The YMF276 serial DAC pins after a clock edge.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Opn2lDacPins {
+    /// The bit clock.
+    pub bco: bool,
+    /// The word clock.
+    pub wco: bool,
+    /// The left/right select.
+    pub lro: bool,
+    /// The serial data line.
+    pub so: bool,
+}
+
+impl Opn2lLleChip {
+    pub(crate) fn new() -> Self {
+        // SAFETY: both shims return a compile-time constant and touch nothing.
+        let (size, align) = unsafe { (vgms_fmopn2_sizeof(), vgms_fmopn2_alignof()) };
+        Self {
+            state: OpaqueChip::new(size, align),
+        }
+    }
+
+    /// Zeroes the die and re-selects the YMF276 configuration -- the only one
+    /// whose audio this upstream drives out on pins.
+    pub(crate) fn power_cycle(&mut self) {
+        self.state.storage.fill(0);
+        // SAFETY: the shim writes one field of the sized block.
+        unsafe { vgms_fmopn2_set_flags(self.state.as_ptr(), 0) }
+    }
+
+    /// The bus pins; `a1` of [`Opn2Pins`] selects the register bank.
+    pub(crate) fn set_pins(&mut self, pins: Opn2Pins) {
+        // SAFETY: the shim writes only the input fields of the sized block.
+        unsafe {
+            vgms_fmopn2_set_pins(
+                self.state.as_ptr(),
+                i32::from(pins.ic),
+                i32::from(pins.cs),
+                i32::from(pins.wr),
+                i32::from(pins.a0),
+                i32::from(pins.a1),
+                i32::from(pins.data),
+            );
+        }
+    }
+
+    /// One half of the master clock: `high` is the level of the clk pin.
+    pub(crate) fn clock_edge(&mut self, high: bool) {
+        // SAFETY: the block is sized by the C's own `sizeof(fmopn2_t)`.
+        unsafe { FMOPN2_Clock(self.state.as_ptr(), i32::from(high)) }
+    }
+
+    /// The serial DAC pins after the last edge.
+    pub(crate) fn dac_pins(&mut self) -> Opn2lDacPins {
+        // SAFETY: the shim reads four fields of the sized block.
+        let packed = unsafe { vgms_fmopn2_dac_pins(self.state.as_ptr()) };
+        Opn2lDacPins {
+            bco: packed & 1 != 0,
+            wco: packed & 2 != 0,
+            lro: packed & 4 != 0,
+            so: packed & 8 != 0,
         }
     }
 }
@@ -723,6 +934,21 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (vgms_fmopl3_sizeof(), vgms_fmopl3_alignof()) };
         assert!(size > 1024, "fmopl3_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (vgms_opl2lite_sizeof(), vgms_opl2lite_alignof()) };
+        assert!(size > 1024, "opl2_chip came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (vgms_fmopn_sizeof(), vgms_fmopn_alignof()) };
+        assert!(size > 1024, "fmopn_t came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+
+        // SAFETY: as above.
+        let (size, align) = unsafe { (vgms_fmopn2_sizeof(), vgms_fmopn2_alignof()) };
+        assert!(size > 1024, "fmopn2_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
     }
 }

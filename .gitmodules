@@ -31,3 +31,12 @@
 [submodule "vendor/upstream/ymf262-lle"]
 	path = vendor/upstream/ymf262-lle
 	url = https://github.com/nukeykt/YMF262-LLE.git
+[submodule "vendor/upstream/nuked-opl2-lite"]
+	path = vendor/upstream/nuked-opl2-lite
+	url = https://github.com/nukeykt/Nuked-OPL2-Lite.git
+[submodule "vendor/upstream/ym2203-lle"]
+	path = vendor/upstream/ym2203-lle
+	url = https://github.com/nukeykt/YM2203-LLE.git
+[submodule "vendor/upstream/ymf276-lle"]
+	path = vendor/upstream/ymf276-lle
+	url = https://github.com/nukeykt/YMF276-LLE.git

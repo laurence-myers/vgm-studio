@@ -12,16 +12,22 @@ mod ffi;
 mod lle_opl2;
 mod lle_opl3;
 mod lle_opm;
+mod lle_opn;
 mod lle_opn2;
+mod lle_opn2l;
 mod lle_opna;
+mod opl2_lite;
 mod opll;
 mod psg;
 
 pub use lle_opl2::Ym3812Lle;
 pub use lle_opl3::Ymf262Lle;
 pub use lle_opm::Ym2151Lle;
+pub use lle_opn::Ym2203Lle;
 pub use lle_opn2::Ym2612Lle;
+pub use lle_opn2l::Ymf276Lle;
 pub use lle_opna::Ym2608Lle;
+pub use opl2_lite::Opl2Lite;
 pub use opll::Ym2413;
 pub use psg::Sn76489Nuked;
 
@@ -110,6 +116,57 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             channel_mute: false,
             level: vgms_synth::LEVEL_UNITY,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2608Lle::new())),
+        });
+    }
+    for chip in lle_opn::CHIPS {
+        registry.register(vgms_synth::CoreInfo {
+            id: lle_opn::CORE_ID,
+            chip,
+            label: "YM2203-LLE (die sim, below realtime)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/YM2203-LLE",
+            realtime: false,
+            channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
+            level: vgms_synth::LEVEL_UNITY,
+            make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2203Lle::new())),
+        });
+    }
+    for chip in lle_opn2l::CHIPS {
+        registry.register(vgms_synth::CoreInfo {
+            id: lle_opn2l::CORE_ID,
+            chip,
+            label: "YMF276-LLE (die sim, below realtime)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/YMF276-LLE",
+            realtime: false,
+            channel_pan: false,
+            // Generic ChipCores with no channel-mute impl (the trait no-op).
+            channel_mute: false,
+            level: vgms_synth::LEVEL_UNITY,
+            make: vgms_synth::CoreMaker::Generic(|| Box::new(Ymf276Lle::new())),
+        });
+    }
+    // Realtime before the die tier, so the OPL2 picker reads fast-to-slow.
+    for chip in lle_opl2::CHIPS {
+        registry.register(vgms_synth::CoreInfo {
+            id: opl2_lite::CORE_ID,
+            chip,
+            label: "Nuked-OPL2-Lite (OPL2)",
+            authors: "Nuke.YKT",
+            license: "GPL-2.0-or-later",
+            upstream: "https://github.com/nukeykt/Nuked-OPL2-Lite",
+            realtime: true,
+            // A real OPL2 has no stereo-ext registers to pan with, and this
+            // models a real OPL2.
+            channel_pan: false,
+            // `false` engages the OPL write gate, as on every OPL row.
+            channel_mute: false,
+            level: vgms_synth::LEVEL_UNITY,
+            make: vgms_synth::CoreMaker::Opl(|rate| Box::new(Opl2Lite::new(rate))),
         });
     }
     for chip in lle_opl2::CHIPS {
@@ -232,6 +289,54 @@ mod tests {
                 chip.name()
             );
         }
+    }
+
+    /// The 2026-08 additions: the YM2203 and YMF276 dies as picker
+    /// alternatives behind their chips' defaults, and Nuked-OPL2-Lite as the
+    /// OPL2 generation's *realtime* authenticity option -- listed ahead of
+    /// the die tier so its picker reads fast-to-slow.
+    #[test]
+    fn the_opn_dies_and_the_opl2_lite_are_offered() {
+        let mut registry = vgms_synth::CoreRegistry::with_builtins();
+        super::register(&mut registry);
+
+        assert!(
+            registry
+                .for_chip(ChipKind::Ym2203)
+                .any(|info| info.id == super::lle_opn::CORE_ID),
+            "the YM2203 die is on the list"
+        );
+        assert!(
+            registry
+                .for_chip(ChipKind::Ym2612)
+                .any(|info| info.id == super::lle_opn2l::CORE_ID),
+            "the YMF276 die is on the list"
+        );
+
+        let lite = registry
+            .for_chip(ChipKind::Ym3812)
+            .find(|info| info.id == super::opl2_lite::CORE_ID)
+            .expect("Nuked-OPL2-Lite is offered for the OPL2 generation");
+        assert!(lite.realtime, "the Lite is the realtime OPL2 option");
+        let order: Vec<&str> = registry
+            .for_chip(ChipKind::Ym3812)
+            .map(|info| info.id)
+            .collect();
+        let lite_at = order
+            .iter()
+            .position(|&id| id == super::opl2_lite::CORE_ID)
+            .expect("listed");
+        let die_at = order
+            .iter()
+            .position(|&id| id == super::lle_opl2::CORE_ID)
+            .expect("listed");
+        assert!(lite_at < die_at, "realtime before the die tier: {order:?}");
+        assert!(
+            !registry
+                .for_chip(ChipKind::Ymf262)
+                .any(|info| info.id == super::opl2_lite::CORE_ID),
+            "an OPL3 song cannot play through an OPL2 model"
+        );
     }
 
     /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers first
