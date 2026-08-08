@@ -319,9 +319,9 @@ impl Find {
 /// The chip a DRO's OPL type projects to, for the find dialog's one-chip
 /// picker. A dual OPL2 is two `Ym3812` instances at playback, but its register
 /// codes are identical on either, so the picker offers just the one chip.
-const fn opl_find_kind(opl_type: OplType) -> ChipKind {
-    match opl_type {
-        OplType::Opl3 => ChipKind::Ymf262,
-        OplType::Opl2 | OplType::DualOpl2 => ChipKind::Ym3812,
-    }
+///
+/// The single source of truth for the DRO-to-chip projection, shared with the
+/// Settings and render/split pickers.
+fn opl_find_kind(opl_type: OplType) -> ChipKind {
+    vgms_synth::opl_projection_kind(opl_type)
 }
