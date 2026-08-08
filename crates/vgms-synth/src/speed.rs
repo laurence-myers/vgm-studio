@@ -20,6 +20,8 @@
 //! at startup, re-set the moment a measurement completes (a measurement is a
 //! fact about the machine, not a preference), persisted by Settings.
 
+// Used only by the native measurement path; wasm compiles it out.
+#[cfg(not(target_arch = "wasm32"))]
 use crate::registry::CoreInfo;
 
 /// Per-core baseline speeds, ×realtime on the reference machine.
@@ -82,6 +84,60 @@ pub fn machine_ratio() -> Option<f32> {
 #[must_use]
 pub fn effective_speed(id: &str) -> Option<f32> {
     baseline_speed(id).map(|speed| speed * machine_ratio().unwrap_or(1.0))
+}
+
+/// A coarse speed band, for the picker's readout -- three words instead of a
+/// number, because a user chooses on "can this play live" not on a decimal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpeedTier {
+    /// Below realtime on this machine: render-only, live playback stutters.
+    Offline,
+    /// Holds realtime, but with little headroom -- a heavy song may struggle.
+    Slow,
+    /// Comfortably above realtime.
+    Fast,
+}
+
+/// Where the "slow" band ends. An estimate below this holds realtime but
+/// leaves the audio callback little room; the fidelity auto-select's
+/// [`crate::registry`] headroom sits inside this band.
+const FAST_FLOOR: f32 = 5.0;
+
+impl SpeedTier {
+    /// Every band, slowest first -- for the picker legend.
+    pub const ALL: [Self; 3] = [Self::Offline, Self::Slow, Self::Fast];
+
+    /// The band an ×realtime estimate falls in.
+    #[must_use]
+    pub fn of(speed: f32) -> Self {
+        if speed < 1.0 {
+            Self::Offline
+        } else if speed < FAST_FLOOR {
+            Self::Slow
+        } else {
+            Self::Fast
+        }
+    }
+
+    /// The picker's one-word readout.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Offline => "Offline",
+            Self::Slow => "Slow",
+            Self::Fast => "Fast",
+        }
+    }
+
+    /// One line for the tooltip and the picker legend.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Offline => "Below realtime here. Use it for renders; live playback stutters.",
+            Self::Slow => "Holds realtime, with little headroom.",
+            Self::Fast => "Comfortably faster than realtime.",
+        }
+    }
 }
 
 /// Measures one core's silent-render speed, ×realtime.

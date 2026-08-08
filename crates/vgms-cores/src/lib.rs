@@ -36,6 +36,11 @@ pub fn register_common_cores(registry: &mut CoreRegistry) {
     registry.promote(ChipKind::Ym2612, "ym2612.nuked");
     registry.promote(ChipKind::Ym2151, "ym2151.nuked");
     registry.promote(ChipKind::Ym2413, "ym2413.nuked");
+    // Nuked-PSG leads the SN76489 too. libvgm registers first and would
+    // otherwise be the default, but the Nuked die trace is the more faithful
+    // SN76489 and runs far above realtime, so it is worth the promotion --
+    // the same reasoning as the three Nuked FM cores above.
+    registry.promote(ChipKind::Sn76489, "sn76489.nuked-psg");
 }
 
 #[cfg(test)]
@@ -60,11 +65,12 @@ mod tests {
             "libvgm should serve SegaPCM after registration"
         );
 
-        // The three deliberate promotions: Nuked stays the default over libvgm.
+        // The four deliberate promotions: Nuked stays the default over libvgm.
         for (chip, id) in [
             (ChipKind::Ym2612, "ym2612.nuked"),
             (ChipKind::Ym2151, "ym2151.nuked"),
             (ChipKind::Ym2413, "ym2413.nuked"),
+            (ChipKind::Sn76489, "sn76489.nuked-psg"),
         ] {
             assert_eq!(
                 registry.default_for(chip).map(|info| info.id),

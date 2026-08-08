@@ -43,7 +43,7 @@ fn snapshot_settings_output_split_opl() {
     );
     harness.run();
     harness
-        .get_by_label(crate::strings::CHIP_OUTPUT_SPLIT_OPL)
+        .get_by_label(crate::strings::CHIP_OUTPUT_OPL_SEPARATE)
         .click();
     harness.run();
 

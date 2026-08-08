@@ -246,6 +246,35 @@ impl ChipKind {
         self.spec().name
     }
 
+    /// The chip's common family nickname, e.g. `"OPL3"` for the YMF262, or
+    /// `None` for a part with no well-known short name.
+    ///
+    /// Yamaha's FM and PSG parts are known by these tags far more than by their
+    /// part numbers, so the picker shows the nickname under the part name. It is
+    /// a display alias only -- never a config key (that is [`slug`](Self::slug))
+    /// and never the hardware variant (that is [`variant_name`](Self::variant_name)).
+    #[must_use]
+    pub const fn nickname(self) -> Option<&'static str> {
+        Some(match self {
+            Self::Ym2413 => "OPLL",
+            Self::Ym2612 => "OPN2",
+            Self::Ym2151 => "OPM",
+            Self::Ym2203 => "OPN",
+            Self::Ym2608 => "OPNA",
+            Self::Ym2610 => "OPNB",
+            Self::Ym3812 => "OPL2",
+            Self::Ym3526 => "OPL",
+            Self::Y8950 => "MSX-AUDIO",
+            Self::Ymf262 => "OPL3",
+            Self::Ymf278b => "OPL4",
+            Self::Ymf271 => "OPX",
+            Self::Sn76489 => "PSG",
+            Self::Ay8910 => "SSG",
+            Self::K051649 => "SCC",
+            _ => return None,
+        })
+    }
+
     /// The chip's id in the spec's own numbering -- the byte the v1.70 extra
     /// header and the `0x90` DAC-stream setup command identify a chip by.
     ///

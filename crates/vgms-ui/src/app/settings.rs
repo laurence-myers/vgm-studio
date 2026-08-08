@@ -128,7 +128,10 @@ impl VgmStudioApp {
             let song = self.editor.dro_song()?;
             Some(crate::dialogs::SongContext {
                 name: song.name.clone(),
-                chips: vec![vgms_core::vgm::ChipKind::Ymf262],
+                // The DRO's own OPL generation, not a hardcoded YMF262: an OPL2
+                // rip is a YM3812, so the Output tab lists the OPL2 row and its
+                // OPL2 cores (e.g. Nuked-OPL2-Lite) rather than the OPL3 row.
+                chips: vec![vgms_synth::opl_projection_kind(song.opl_type)],
             })
         }
     }

@@ -218,11 +218,11 @@ fn core_picker(
         .on_hover_text(crate::strings::SPLIT_CORE_HOVER);
     ui.add_space(4.0);
     egui::Grid::new("split-core-grid")
-        .num_columns(2)
+        .num_columns(4)
         .spacing([10.0, 6.0])
         .show(ui, |ui| {
             for entry in choosable {
-                chip_output::song_chip_row(ui, palette, "split", cores, entry, false);
+                chip_output::song_chip_row(ui, palette, "split", cores, entry);
             }
         });
 }

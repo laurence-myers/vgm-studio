@@ -80,7 +80,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opm::CORE_ID,
             chip,
-            label: "YM2151-LLE (die sim, below realtime)",
+            label: "YM2151-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2151-LLE",
@@ -98,7 +98,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn2::CORE_ID,
             chip,
-            label: "YM2612-LLE (die sim, below realtime)",
+            label: "YM2612-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
@@ -116,7 +116,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opna::CORE_ID,
             chip,
-            label: "YM2608-LLE (die sim, below realtime)",
+            label: "YM2608-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2608-LLE",
@@ -134,7 +134,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn::CORE_ID,
             chip,
-            label: "YM2203-LLE (die sim, below realtime)",
+            label: "YM2203-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM2203-LLE",
@@ -152,7 +152,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn2l::CORE_ID,
             chip,
-            label: "YMF276-LLE (die sim, below realtime)",
+            label: "YMF276-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YMF276-LLE",
@@ -195,7 +195,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opl2::CORE_ID,
             chip,
-            label: "YM3812-LLE (die sim, below realtime)",
+            label: "YM3812-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YM3812-LLE",
@@ -216,7 +216,7 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opl3::CORE_ID,
             chip,
-            label: "YMF262-LLE (die sim, below realtime)",
+            label: "YMF262-LLE",
             authors: "Nuke.YKT",
             license: "GPL-2.0-or-later",
             upstream: "https://github.com/nukeykt/YMF262-LLE",

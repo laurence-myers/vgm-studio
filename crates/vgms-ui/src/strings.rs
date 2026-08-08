@@ -553,8 +553,8 @@ pub(crate) const SETTINGS_OUTPUT_CORE_HOVER: &str =
     "Rendering, splitting and the waveform always use an emulator.";
 pub(crate) const SETTINGS_DEVICE_HOVER: &str =
     "The board's serial port. Recognised boards are matched by USB ID.";
-pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Band-limited is accurate; linear is \
-     aliased but crunchy, like VGMPlay.";
+pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Sinc is \
+     band-limited and accurate; linear is aliased but crunchy, like VGMPlay.";
 pub(crate) const SETTINGS_OPTIMIZER_HOVER: &str = "Which optimiser shrinks a VGM on Edit > Optimize and pack export. \
      Automatic uses the built-in pass where it covers every chip and the \
      external vgmtools otherwise; built-in only never spawns them; tools \
@@ -899,29 +899,39 @@ pub(crate) fn waveform_hover(ms: u32) -> String {
 // ============================================================================
 
 pub(crate) const CHIP_OUTPUT_NO_CORE: &str = "no core yet";
-pub(crate) const CHIP_OUTPUT_SPLIT_OPL: &str = "Choose OPL2 and OPL3 cores separately";
-pub(crate) const CHIP_OUTPUT_SPLIT_OPL_HOVER: &str = "Give the OPL2-generation chips (OPL2, \
-     YM3526, Y8950) their own core \u{2014} e.g. the YM3812 die sim \u{2014} while OPL3 keeps \
-     this one. Hardware output stays a whole-family choice on the OPL3 selector.";
-pub(crate) const CHIP_OUTPUT_MERGE_OPL: &str = "Use one core for OPL2 and OPL3";
-pub(crate) const CHIP_OUTPUT_MERGE_OPL_HOVER: &str =
-    "Go back to a single core choice for the whole OPL family.";
-pub(crate) const CHIP_OUTPUT_SPEED_HOVER: &str = "Estimated speed on this machine, times \
-     realtime. Below 1\u{d7}, live playback may stutter; renders are unaffected. Measure this \
-     machine below to sharpen the estimates.";
+// The OPL split control: one core for the whole family, or a core per generation.
+pub(crate) const CHIP_OUTPUT_OPL_MODE: &str = "OPL cores";
+pub(crate) const CHIP_OUTPUT_OPL_COMBINED: &str = "Combined";
+pub(crate) const CHIP_OUTPUT_OPL_SEPARATE: &str = "Separate";
+pub(crate) const CHIP_OUTPUT_OPL_COMBINED_HOVER: &str =
+    "Use one core for the whole OPL family (OPL2 and OPL3).";
+pub(crate) const CHIP_OUTPUT_OPL_SEPARATE_HOVER: &str = "Give the OPL2-generation chips (OPL2, \
+     YM3526, Y8950) their own core \u{2014} e.g. the YM3812 die simulation \u{2014} while OPL3 \
+     keeps its own. Hardware output stays a whole-family choice on the OPL3 selector.";
+// The picker legend: what the accuracy badge and the speed word mean.
+pub(crate) const CHIP_OUTPUT_LEGEND: &str = "What the labels mean";
+pub(crate) const CHIP_OUTPUT_LEGEND_ACCURACY: &str = "Accuracy";
+pub(crate) const CHIP_OUTPUT_LEGEND_SPEED: &str = "Speed";
 pub(crate) const SETTINGS_AUTO_SELECT: &str = "Auto-select cores";
 pub(crate) const SETTINGS_AUTO_SELECT_HOVER: &str = "Set every chip to its most authentic core \
      that still holds realtime on this machine \u{2014} die simulations included, the day the \
      machine measures fast enough. Hardware output is never chosen for you.";
+// The speed measurement is native-only (it needs a wall clock and a thread),
+// so its labels would be dead code in a wasm build.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) const SETTINGS_MEASURE: &str = "Measure speed";
-pub(crate) const SETTINGS_MEASURE_HOVER: &str = "Render a moment of audio through two probe \
-     cores to measure this machine against the project's reference machine. Takes about a \
-     second; sharpens every core-speed estimate.";
-pub(crate) const SETTINGS_MEASURING: &str = "measuring\u{2026}";
-pub(crate) const SETTINGS_SPEED_UNMEASURED: &str =
-    "speed estimates assume the reference machine \u{2014} measure to calibrate";
-pub(crate) fn settings_speed_measured(ratio: f32) -> String {
-    format!("this machine measured at {ratio:.2}\u{d7} the reference machine")
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const SETTINGS_MEASURING: &str = "Measuring\u{2026}";
+/// The Measure button hover, with the last result appended once measured.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn settings_measure_hover(measured: Option<f32>) -> String {
+    let base = "Render a moment of audio through two probe cores to measure this machine \
+         against the project's reference machine. Takes about a second; sharpens every \
+         core-speed estimate.";
+    match measured {
+        Some(ratio) => format!("{base} This machine measured at {ratio:.2}\u{d7} the reference."),
+        None => base.to_owned(),
+    }
 }
 
 // ============================================================================

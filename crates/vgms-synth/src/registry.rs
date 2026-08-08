@@ -85,6 +85,9 @@ pub enum CoreTier {
 }
 
 impl CoreTier {
+    /// Every tier, most authentic last -- for the picker legend.
+    pub const ALL: [Self; 4] = [Self::Behavioural, Self::Cycle, Self::DieSim, Self::Hardware];
+
     /// The picker's badge text.
     #[must_use]
     pub fn badge(self) -> &'static str {
@@ -93,6 +96,17 @@ impl CoreTier {
             Self::Cycle => "CYCLE",
             Self::DieSim => "DIE SIM",
             Self::Hardware => "HW",
+        }
+    }
+
+    /// One line for the badge tooltip and the picker legend.
+    #[must_use]
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Behavioural => "A model of the chip's sound. Fast and accurate for music.",
+            Self::Cycle => "A model checked against the real chip, cycle by cycle.",
+            Self::DieSim => "The decapped chip itself, simulated gate by gate. The reference.",
+            Self::Hardware => "A real chip on a board. Not emulation.",
         }
     }
 }
@@ -552,7 +566,7 @@ impl CoreRegistry {
             registry.register(CoreInfo {
                 id: NUKED_OPL_ID,
                 chip,
-                label: "Nuked OPL3 (emulated)",
+                label: "Nuked-OPL3",
                 authors: "Nuke.YKT; Rust port by the nuked-opl3 crate authors",
                 license: "LGPL-2.1-or-later",
                 upstream: "https://github.com/nukeykt/Nuked-OPL3",

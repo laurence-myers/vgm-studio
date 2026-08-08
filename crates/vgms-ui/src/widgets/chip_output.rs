@@ -44,8 +44,13 @@ pub(crate) struct CoreChoice {
     pub(crate) routed: bool,
     /// Estimated speed on this machine, ×realtime -- the baseline scaled by
     /// the measured machine ratio. `None` for a core the speed table does
-    /// not track: comfortably fast, and the row says nothing.
+    /// not track. Kept for the fidelity gate and the tooltip; the picker shows
+    /// [`speed_tier`](Self::speed_tier) instead of the number.
     pub(crate) speed: Option<f32>,
+    /// The coarse speed band the picker shows (Offline / Slow / Fast). An
+    /// untracked realtime core reads Fast; an untracked non-realtime core
+    /// (there are none today) would read Offline.
+    pub(crate) speed_tier: vgms_synth::speed::SpeedTier,
 }
 
 /// One row: a chip (or a family of them), and the cores it can play through.
@@ -53,7 +58,7 @@ pub(crate) struct CoreChoice {
 pub(crate) struct ChipOutputRow {
     /// The config slot, e.g. `"opl3"` -- what `core.<slot>=` names.
     pub(crate) slot: &'static str,
-    /// What to call this group, e.g. `"OPL2 / OPL3"`.
+    /// The row title: the representative chip's part name, e.g. `"YMF262"`.
     pub(crate) label: &'static str,
     /// A representative chip, for looking the row back up in the registry.
     pub(crate) chip: ChipKind,
@@ -70,23 +75,15 @@ impl ChipOutputRow {
     }
 }
 
-/// How the OPL family is labelled when one core serves it all: four chips,
-/// one core, one row.
-///
-/// A RetroWave OPL3 plays an OPL2 or an OPL3 rip because an OPL3 *is* an OPL2
-/// with more of it; the Y8950 and YM3526 are the same register file again.
-const OPL_LABEL: &str = "OPL2 / OPL3";
-
-/// The split rows' labels: the OPL2 row also governs the YM3526 and Y8950
-/// (same register file), exactly as the combined label glosses them.
-const OPL2_LABEL: &str = "OPL2";
-const OPL3_LABEL: &str = "OPL3";
-
 /// The chip whose registry entries stand for the whole OPL family (and, when
-/// split, for the OPL3 half).
+/// split, for the OPL3 half). Its part name titles the row -- "YMF262" -- the
+/// same as every other row uses its own chip's [`name`](ChipKind::name); an
+/// OPL3 *is* an OPL2 with more of it, and the Y8950/YM3526 are the same
+/// register file again, so one core (or one board) plays all four.
 const OPL_REPRESENTATIVE: ChipKind = ChipKind::Ymf262;
 
-/// The chip whose registry entries stand for the split OPL2 row.
+/// The chip whose registry entries stand for the split OPL2 row -- titled
+/// "YM3812", and governing the YM3526 and Y8950 with it.
 const OPL2_REPRESENTATIVE: ChipKind = ChipKind::Ym3812;
 
 /// Whether `cores` splits the OPL selector: the optional `opl2` key *is* the
@@ -108,28 +105,13 @@ pub(crate) fn rows(split: bool) -> Vec<ChipOutputRow> {
         // The OPL2 row omits routed (hardware) entries: the board is a whole
         // OPL3 and the backend switch keys off the family slot, so offering
         // it here would set a key nothing routes on -- silence, not hardware.
-        if let Some(row) = row_for(
-            OPL2_REPRESENTATIVE,
-            OPL2_LABEL,
-            vgms_core::config::OPL2_SLOT,
-            false,
-        ) {
+        if let Some(row) = row_for(OPL2_REPRESENTATIVE, vgms_core::config::OPL2_SLOT, false) {
             rows.push(row);
         }
-        if let Some(row) = row_for(
-            OPL_REPRESENTATIVE,
-            OPL3_LABEL,
-            vgms_core::config::OPL_SLOT,
-            true,
-        ) {
+        if let Some(row) = row_for(OPL_REPRESENTATIVE, vgms_core::config::OPL_SLOT, true) {
             rows.push(row);
         }
-    } else if let Some(row) = row_for(
-        OPL_REPRESENTATIVE,
-        OPL_LABEL,
-        vgms_core::config::OPL_SLOT,
-        true,
-    ) {
+    } else if let Some(row) = row_for(OPL_REPRESENTATIVE, vgms_core::config::OPL_SLOT, true) {
         rows.push(row);
     }
     for chip in ChipKind::all() {
@@ -138,20 +120,17 @@ pub(crate) fn rows(split: bool) -> Vec<ChipOutputRow> {
         if registry::is_opl(chip) {
             continue;
         }
-        if let Some(row) = row_for(chip, chip.name(), registry::slot_slug(chip), true) {
+        if let Some(row) = row_for(chip, registry::slot_slug(chip), true) {
             rows.push(row);
         }
     }
     rows
 }
 
-/// A row for `chip` editing `slot`, or `None` when nothing plays it.
-fn row_for(
-    chip: ChipKind,
-    label: &'static str,
-    slot: &'static str,
-    include_routed: bool,
-) -> Option<ChipOutputRow> {
+/// A row for `chip` editing `slot`, or `None` when nothing plays it. The row
+/// is titled by the chip's own [`name`](ChipKind::name), so every row -- OPL
+/// included -- reads as its part number.
+fn row_for(chip: ChipKind, slot: &'static str, include_routed: bool) -> Option<ChipOutputRow> {
     let cores: Vec<CoreChoice> = registry::registry()
         .for_chip(chip)
         .filter(|info| include_routed || !matches!(info.make, vgms_synth::CoreMaker::Routed))
@@ -159,7 +138,7 @@ fn row_for(
         .collect();
     (!cores.is_empty()).then_some(ChipOutputRow {
         slot,
-        label,
+        label: chip.name(),
         chip,
         cores,
     })
@@ -181,6 +160,15 @@ fn display_slot(chip: ChipKind, split: bool) -> &'static str {
 /// `core.opl3=opl3.nuked`.
 fn choice(info: &CoreInfo) -> CoreChoice {
     let prefix = format!("{}.", registry::slot_slug(info.chip));
+    let speed = vgms_synth::speed::effective_speed(info.id);
+    // A tracked core reads its measured band; an untracked one falls back to
+    // the registry's realtime promise -- the fast behavioural cores (libvgm)
+    // are untracked, so this is what gives them a "Fast" readout.
+    let speed_tier = match speed {
+        Some(speed) => vgms_synth::speed::SpeedTier::of(speed),
+        None if info.realtime => vgms_synth::speed::SpeedTier::Fast,
+        None => vgms_synth::speed::SpeedTier::Offline,
+    };
     CoreChoice {
         name: info.id.strip_prefix(&prefix).unwrap_or(info.id).to_owned(),
         label: info.label.to_owned(),
@@ -188,27 +176,100 @@ fn choice(info: &CoreInfo) -> CoreChoice {
         tier: info.tier,
         exact: info.exact,
         routed: matches!(info.make, vgms_synth::CoreMaker::Routed),
-        speed: vgms_synth::speed::effective_speed(info.id),
+        speed,
+        speed_tier,
     }
 }
 
-/// A core's speed readout: `~50×`, `~0.4×`. `None` when the table does not
-/// track it -- a comfortably fast core says nothing rather than inventing a
-/// number.
-fn speed_text(core: &CoreChoice) -> Option<String> {
-    core.speed.map(|speed| {
-        if speed >= 10.0 {
-            format!("~{speed:.0}\u{d7}")
-        } else {
-            format!("~{speed:.1}\u{d7}")
-        }
-    })
+/// The fixed dropdown width, so the core column is the same width on every
+/// row and the badge and speed columns line up beside it.
+const COMBO_WIDTH: f32 = 188.0;
+
+/// The badge colour for an accuracy tier -- a fixed accent per rung, tinted to
+/// read on either a light or dark dialog face.
+fn tier_color(tier: vgms_synth::CoreTier) -> egui::Color32 {
+    use vgms_synth::CoreTier::*;
+    match tier {
+        Behavioural => egui::Color32::from_rgb(0x7B, 0xC8, 0xE0), // cyan
+        Cycle => egui::Color32::from_rgb(0x7B, 0xD0, 0x8C),       // green
+        DieSim => egui::Color32::from_rgb(0xC0, 0x9B, 0xF0),      // violet
+        Hardware => egui::Color32::from_rgb(0xE8, 0xB0, 0x5C),    // amber
+    }
 }
 
-/// Whether this core's estimate falls below realtime -- the red readout, and
-/// what the fidelity auto-select skips.
-fn below_realtime(core: &CoreChoice) -> bool {
-    core.speed.is_some_and(|speed| speed < 1.0)
+/// The readout colour for a speed band, from the meter palette so it tracks
+/// the theme: red below realtime, amber for slow, green for fast.
+fn speed_color(tier: vgms_synth::speed::SpeedTier, palette: &Palette) -> egui::Color32 {
+    use vgms_synth::speed::SpeedTier::*;
+    match tier {
+        Offline => palette.meter_high,
+        Slow => palette.meter_mid,
+        Fast => palette.meter_low,
+    }
+}
+
+/// The chip-name cell: the part name, with the family nickname (OPL3, OPN2,
+/// SSG...) in small type underneath when the chip has one.
+///
+/// Both labels extend rather than wrap: a grid cell's first sizing pass can be
+/// narrow, and a wrapping part name breaks "YMF262" across two lines.
+fn chip_name_cell(ui: &mut egui::Ui, palette: &Palette, chip: ChipKind) {
+    ui.vertical(|ui| {
+        ui.add(egui::Label::new(chip.name()).wrap_mode(egui::TextWrapMode::Extend));
+        if let Some(nickname) = chip.nickname() {
+            ui.add(
+                egui::Label::new(egui::RichText::new(nickname).small().color(palette.muted))
+                    .wrap_mode(egui::TextWrapMode::Extend),
+            );
+        }
+    });
+}
+
+/// The accuracy badge cell: a colour-coded box, right-aligned, with the tier's
+/// one-line description on hover (plus a note when the core is a stand-in for a
+/// related chip rather than the exact one).
+fn tier_badge_cell(ui: &mut egui::Ui, palette: &Palette, core: &CoreChoice) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let color = tier_color(core.tier);
+        let hover = if core.exact {
+            core.tier.description().to_owned()
+        } else {
+            format!(
+                "{} This core emulates a close relative of the chip, not the exact part.",
+                core.tier.description()
+            )
+        };
+        egui::Frame::new()
+            .fill(color.gamma_multiply(0.18))
+            .stroke(egui::Stroke::new(1.0, palette.bevel_border))
+            .inner_margin(egui::Margin::symmetric(4, 1))
+            .corner_radius(2.0)
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(core.tier.badge()).small().color(color));
+            })
+            .response
+            .on_hover_text(hover);
+    });
+}
+
+/// The speed cell: the band word (Offline / Slow / Fast), right-aligned and
+/// colour-coded, with the band's meaning and the exact estimate on hover.
+fn speed_cell(ui: &mut egui::Ui, palette: &Palette, core: &CoreChoice) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let hover = match core.speed {
+            Some(speed) => format!(
+                "{} (about {speed:.1}\u{d7} realtime here)",
+                core.speed_tier.description()
+            ),
+            None => core.speed_tier.description().to_owned(),
+        };
+        ui.label(
+            egui::RichText::new(core.speed_tier.label())
+                .small()
+                .color(speed_color(core.speed_tier, palette)),
+        )
+        .on_hover_text(hover);
+    });
 }
 
 /// The headroom the fidelity auto-select demands over bare realtime: an
@@ -333,12 +394,7 @@ pub(crate) fn plan(song_chips: &[ChipKind], split: bool) -> OutputPlan {
 ///
 /// A no-op when this build has no cores for the OPL2 generation at all.
 pub(crate) fn split_opl(cores: &mut std::collections::BTreeMap<String, String>) {
-    let Some(row) = row_for(
-        OPL2_REPRESENTATIVE,
-        OPL2_LABEL,
-        vgms_core::config::OPL2_SLOT,
-        false,
-    ) else {
+    let Some(row) = row_for(OPL2_REPRESENTATIVE, vgms_core::config::OPL2_SLOT, false) else {
         return;
     };
     let seed = cores
@@ -355,110 +411,93 @@ pub(crate) fn merge_opl(cores: &mut std::collections::BTreeMap<String, String>) 
     cores.remove(vgms_core::config::OPL2_SLOT);
 }
 
-/// Draws one "Current" section entry: the chip's core row when it has one, or
-/// the chip named with a muted "no core yet" when this build plays it silent.
+/// Draws one "Current" section entry across the four-column grid: the chip's
+/// core row when it has one, or the chip named with a muted "no core yet" when
+/// this build plays it silent.
 ///
 /// `salt_prefix` disambiguates this row's `ComboBox` from the same slot's row in
 /// another dialog open at the same time (Settings vs. a render dialog); pass a
 /// stable per-dialog string like `"settings"` or `"render"`.
-///
-/// `opl_toggle` draws the split/merge link on the OPL rows -- Settings passes
-/// `true`; the per-render dialogs pass `false` and simply follow the config's
-/// split state.
 pub(crate) fn song_chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     salt_prefix: &str,
     cores: &mut std::collections::BTreeMap<String, String>,
     entry: &SongChipRow,
-    opl_toggle: bool,
 ) {
     match &entry.row {
-        Some(row) => chip_row(ui, palette, salt_prefix, cores, row, opl_toggle),
+        Some(row) => chip_row(ui, palette, salt_prefix, cores, row),
         None => {
-            ui.label(entry.kind.name());
+            chip_name_cell(ui, palette, entry.kind);
             ui.colored_label(palette.muted, crate::strings::CHIP_OUTPUT_NO_CORE);
             ui.end_row();
         }
     }
 }
 
-/// Draws one roster row into an open two-column grid: the chip's name, then
-/// either a core chooser (when it has alternatives) or the muted name of the one
-/// core that plays it. Editing the chooser writes the choice into `cores`.
+/// Draws one roster row across four grid columns: the chip name (with its
+/// nickname), a fixed-width core chooser, the chosen core's accuracy badge, and
+/// its speed band. Editing the chooser writes the choice into `cores`.
+///
+/// The fixed dropdown width and the four cells make every row a real table:
+/// the badges and speeds line up down the page rather than floating after
+/// labels of different lengths.
 ///
 /// `salt_prefix` scopes the `ComboBox` id so two dialogs showing the same slot
 /// (Settings and a render/split dialog) do not collide -- pass `"settings"`,
 /// `"render"`, or `"split"`.
-///
-/// With `opl_toggle`, the OPL rows carry the split/merge link under their
-/// dropdown: the combined row offers "choose separately", and each split row
-/// offers the way back. Editing the map re-shapes the roster, so the caller's
-/// next frame draws the new row set -- which is why the link belongs to the
-/// row rather than to any one dialog.
 pub(crate) fn chip_row(
     ui: &mut egui::Ui,
     palette: &Palette,
     salt_prefix: &str,
     cores: &mut std::collections::BTreeMap<String, String>,
     row: &ChipOutputRow,
-    opl_toggle: bool,
 ) {
-    ui.label(row.label);
+    // Column 1: the chip name and nickname.
+    chip_name_cell(ui, palette, row.chip);
     let selected = selected_name(cores, row);
+    let selected_core = row.cores.iter().find(|core| core.name == selected);
+    // Column 2: the core chooser, or the single core's name as a fact.
     if row.is_choice() {
-        ui.vertical(|ui| {
-            ui.horizontal(|ui| {
-                ui.scope(|ui| {
-                    crate::theme::style_dropdown(ui, palette);
-                    let mut choice = selected.clone();
-                    egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
-                        .selected_text(label_for(row, &choice))
-                        .show_ui(ui, |ui| {
-                            for core in &row.cores {
-                                ui.selectable_value(
-                                    &mut choice,
-                                    core.name.clone(),
-                                    option_text(ui, palette, core),
-                                );
-                            }
-                        });
-                    if choice != selected {
-                        cores.insert(row.slot.to_owned(), choice);
+        ui.scope(|ui| {
+            crate::theme::style_dropdown(ui, palette);
+            let mut choice = selected.clone();
+            egui::ComboBox::from_id_salt(format!("{salt_prefix}-core-{}", row.slot))
+                .width(COMBO_WIDTH)
+                .selected_text(label_for(row, &choice))
+                .show_ui(ui, |ui| {
+                    for core in &row.cores {
+                        ui.selectable_value(
+                            &mut choice,
+                            core.name.clone(),
+                            option_text(ui, palette, core),
+                        );
                     }
                 });
-                // Treatment A's closed state: the chosen core's tier badge and
-                // speed readout beside the dropdown, so the trade-off is
-                // visible without opening anything.
-                if let Some(core) = row.cores.iter().find(|core| core.name == selected) {
-                    ui.label(
-                        egui::RichText::new(core.tier.badge())
-                            .small()
-                            .color(palette.muted),
-                    );
-                    if let Some(speed) = speed_text(core) {
-                        let color = if below_realtime(core) {
-                            palette.meter_high
-                        } else {
-                            palette.muted
-                        };
-                        ui.label(egui::RichText::new(speed).small().color(color))
-                            .on_hover_text(crate::strings::CHIP_OUTPUT_SPEED_HOVER);
-                    }
-                }
-            });
-            if opl_toggle {
-                opl_toggle_link(ui, palette, cores, row);
+            if choice != selected {
+                cores.insert(row.slot.to_owned(), choice);
             }
         });
     } else {
         ui.colored_label(palette.muted, &row.cores[0].label);
     }
+    // Columns 3 and 4: the accuracy badge and the speed band of the core that
+    // will actually play.
+    match selected_core {
+        Some(core) => {
+            tier_badge_cell(ui, palette, core);
+            speed_cell(ui, palette, core);
+        }
+        None => {
+            ui.label("");
+            ui.label("");
+        }
+    }
     ui.end_row();
 }
 
-/// One open-list row's text: the label, then the tier badge and speed readout
-/// in small muted type -- red when the estimate falls below realtime.
+/// One open-list row's text: the label, then the tier badge and the speed band
+/// in small type, so the popup carries the same trade-off the cells show.
 fn option_text(ui: &egui::Ui, palette: &Palette, core: &CoreChoice) -> egui::text::LayoutJob {
     let body = egui::TextStyle::Body.resolve(ui.style());
     let small = egui::TextStyle::Small.resolve(ui.style());
@@ -471,57 +510,99 @@ fn option_text(ui: &egui::Ui, palette: &Palette, core: &CoreChoice) -> egui::tex
     job.append(
         core.tier.badge(),
         10.0,
-        egui::TextFormat::simple(small.clone(), palette.muted),
+        egui::TextFormat::simple(small.clone(), tier_color(core.tier)),
     );
-    if let Some(speed) = speed_text(core) {
-        let color = if below_realtime(core) {
-            palette.meter_high
-        } else {
-            palette.muted
-        };
-        job.append(&speed, 8.0, egui::TextFormat::simple(small, color));
-    }
+    job.append(
+        core.speed_tier.label(),
+        8.0,
+        egui::TextFormat::simple(small, speed_color(core.speed_tier, palette)),
+    );
     job
 }
 
-/// The split/merge link under an OPL row's dropdown; a no-op on other rows.
-fn opl_toggle_link(
+/// The OPL Combined/Separate control: one core for the whole family, or a core
+/// per generation. Drawn once, below the roster, because the split is a
+/// family-wide, config-wide choice -- not a property of any one row.
+///
+/// Editing the map reshapes the roster on the next frame (an OPL2 row appears
+/// or folds away), which is why the radios live beside the grid, not in it.
+pub(crate) fn opl_mode_radios(
     ui: &mut egui::Ui,
     palette: &Palette,
     cores: &mut std::collections::BTreeMap<String, String>,
-    row: &ChipOutputRow,
 ) {
-    let is_opl_row =
-        row.slot == vgms_core::config::OPL_SLOT || row.slot == vgms_core::config::OPL2_SLOT;
-    if !is_opl_row {
-        return;
-    }
     let split = opl_split(cores);
-    let (text, hover) = if split {
-        (
-            crate::strings::CHIP_OUTPUT_MERGE_OPL,
-            crate::strings::CHIP_OUTPUT_MERGE_OPL_HOVER,
-        )
-    } else {
-        (
-            crate::strings::CHIP_OUTPUT_SPLIT_OPL,
-            crate::strings::CHIP_OUTPUT_SPLIT_OPL_HOVER,
-        )
-    };
-    let link = ui
-        .add(
-            egui::Label::new(egui::RichText::new(text).small().color(palette.muted))
-                .sense(egui::Sense::click()),
-        )
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(hover);
-    if link.clicked() {
-        if split {
+    ui.horizontal(|ui| {
+        ui.colored_label(palette.label, crate::strings::CHIP_OUTPUT_OPL_MODE);
+        if ui
+            .radio(!split, crate::strings::CHIP_OUTPUT_OPL_COMBINED)
+            .on_hover_text(crate::strings::CHIP_OUTPUT_OPL_COMBINED_HOVER)
+            .clicked()
+            && split
+        {
             merge_opl(cores);
-        } else {
+        }
+        if ui
+            .radio(split, crate::strings::CHIP_OUTPUT_OPL_SEPARATE)
+            .on_hover_text(crate::strings::CHIP_OUTPUT_OPL_SEPARATE_HOVER)
+            .clicked()
+            && !split
+        {
             split_opl(cores);
         }
-    }
+    });
+}
+
+/// The picker legend: what the accuracy badge colours and the speed words
+/// mean. Folded away by default (a `CollapsingHeader`), so it explains the
+/// labels on demand without widening or lengthening the dialog.
+pub(crate) fn legend(ui: &mut egui::Ui, palette: &Palette) {
+    egui::CollapsingHeader::new(
+        egui::RichText::new(crate::strings::CHIP_OUTPUT_LEGEND)
+            .small()
+            .color(palette.muted),
+    )
+    .id_salt("chip-output-legend")
+    .show(ui, |ui| {
+        ui.colored_label(
+            palette.data_label,
+            crate::strings::CHIP_OUTPUT_LEGEND_ACCURACY,
+        );
+        for tier in vgms_synth::CoreTier::ALL {
+            ui.horizontal(|ui| {
+                let color = tier_color(tier);
+                egui::Frame::new()
+                    .fill(color.gamma_multiply(0.18))
+                    .stroke(egui::Stroke::new(1.0, palette.bevel_border))
+                    .inner_margin(egui::Margin::symmetric(4, 1))
+                    .corner_radius(2.0)
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(tier.badge()).small().color(color));
+                    });
+                ui.label(
+                    egui::RichText::new(tier.description())
+                        .small()
+                        .color(palette.muted),
+                );
+            });
+        }
+        ui.add_space(4.0);
+        ui.colored_label(palette.data_label, crate::strings::CHIP_OUTPUT_LEGEND_SPEED);
+        for band in vgms_synth::speed::SpeedTier::ALL {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(band.label())
+                        .small()
+                        .color(speed_color(band, palette)),
+                );
+                ui.label(
+                    egui::RichText::new(band.description())
+                        .small()
+                        .color(palette.muted),
+                );
+            });
+        }
+    });
 }
 
 /// The core selected for `row`: the configured one if this build has it, the
@@ -615,7 +696,7 @@ pub(crate) fn install_test_cores() {
             registry.register(CoreInfo {
                 id: "opl3.ym3812-lle",
                 chip,
-                label: "YM3812-LLE (die sim, below realtime)",
+                label: "YM3812-LLE",
                 authors: "Nuke.YKT",
                 license: "GPL-2.0-or-later",
                 upstream: "https://github.com/nukeykt/YM3812-LLE",
@@ -746,7 +827,9 @@ mod tests {
     fn the_opl_row_comes_first_and_names_the_family() {
         install_test_cores();
         let rows = rows(false);
-        assert_eq!(rows[0].label, OPL_LABEL);
+        // The row is titled by its representative chip's part name, as every
+        // other row is (the combined OPL row stands for the YMF262).
+        assert_eq!(rows[0].label, ChipKind::Ymf262.name());
         assert_eq!(rows[0].slot, vgms_core::config::OPL_SLOT);
         assert!(
             rows[0].is_choice(),
@@ -766,7 +849,7 @@ mod tests {
     fn the_split_roster_offers_opl2_and_opl3_rows() {
         install_test_cores();
         let split = rows(true);
-        assert_eq!(split[0].label, OPL2_LABEL);
+        assert_eq!(split[0].label, ChipKind::Ym3812.name());
         assert_eq!(split[0].slot, vgms_core::config::OPL2_SLOT);
         assert!(
             split[0].cores.iter().any(|core| core.name == "ym3812-lle"),
@@ -780,7 +863,7 @@ mod tests {
             "hardware is a whole-family backend keyed on the OPL3 slot, so \
              the OPL2 row must not offer a key nothing routes on"
         );
-        assert_eq!(split[1].label, OPL3_LABEL);
+        assert_eq!(split[1].label, ChipKind::Ymf262.name());
         assert_eq!(split[1].slot, vgms_core::config::OPL_SLOT);
         assert!(
             split[1]
@@ -921,11 +1004,15 @@ mod tests {
                 exact,
                 routed: false,
                 speed,
+                speed_tier: match speed {
+                    Some(speed) => vgms_synth::speed::SpeedTier::of(speed),
+                    None => vgms_synth::speed::SpeedTier::Fast,
+                },
             }
         }
         let mut row = ChipOutputRow {
             slot: "opl2",
-            label: "OPL2",
+            label: "YM3812",
             chip: ChipKind::Ym3812,
             cores: vec![
                 // The real OPL2 roster's shape: a cycle model of the wrong

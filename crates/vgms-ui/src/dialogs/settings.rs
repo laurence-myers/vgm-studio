@@ -239,7 +239,7 @@ impl SettingsDialog {
                 match self.tab {
                     SettingsTab::Output => self.output_tab(ui, palette),
                     SettingsTab::Audio => self.audio_tab(ui, palette),
-                    SettingsTab::Interface => self.interface_tab(ui),
+                    SettingsTab::Interface => self.interface_tab(ui, palette),
                 }
             },
             |ui| footer.show(ui),
@@ -296,18 +296,11 @@ impl SettingsDialog {
         {
             ui.colored_label(palette.data_label, format!("Current \u{2014} {name}"));
             egui::Grid::new("settings-song-grid")
-                .num_columns(2)
+                .num_columns(4)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for entry in &plan.song {
-                        chip_output::song_chip_row(
-                            ui,
-                            palette,
-                            "settings",
-                            &mut self.cores,
-                            entry,
-                            true,
-                        );
+                        chip_output::song_chip_row(ui, palette, "settings", &mut self.cores, entry);
                     }
                 });
             ui.add_space(8.0);
@@ -347,14 +340,21 @@ impl SettingsDialog {
 
         if show_all {
             egui::Grid::new("settings-output-grid")
-                .num_columns(2)
+                .num_columns(4)
                 .spacing([10.0, 6.0])
                 .show(ui, |ui| {
                     for row in &plan.all {
-                        chip_output::chip_row(ui, palette, "settings", &mut self.cores, row, true);
+                        chip_output::chip_row(ui, palette, "settings", &mut self.cores, row);
                     }
                 });
         }
+
+        // The OPL family's Combined/Separate control and the label legend sit
+        // below the roster, once each -- family-wide choices, not per-row.
+        ui.add_space(6.0);
+        chip_output::opl_mode_radios(ui, palette, &mut self.cores);
+        ui.add_space(2.0);
+        chip_output::legend(ui, palette);
 
         // A finished measurement lands here: install it process-wide at once
         // (a measurement is a fact about the machine, not a preference -- the
@@ -378,6 +378,8 @@ impl SettingsDialog {
         }
 
         // The fidelity auto-select and the machine measurement that informs it.
+        // No status line: the last result rides the Measure button's tooltip,
+        // so the dialog keeps its width at the default window size.
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             if ui
@@ -390,11 +392,12 @@ impl SettingsDialog {
             // Measurement needs a wall clock and a thread; the web build has
             // neither in reach, and its estimates stay baseline-relative.
             #[cfg(not(target_arch = "wasm32"))]
-            if self.measuring.is_none()
-                && ui
-                    .button(crate::strings::SETTINGS_MEASURE)
-                    .on_hover_text(crate::strings::SETTINGS_MEASURE_HOVER)
-                    .clicked()
+            if self.measuring.is_some() {
+                ui.add_enabled(false, egui::Button::new(crate::strings::SETTINGS_MEASURING));
+            } else if ui
+                .button(crate::strings::SETTINGS_MEASURE)
+                .on_hover_text(crate::strings::settings_measure_hover(self.machine_speed))
+                .clicked()
             {
                 let (sender, receiver) = std::sync::mpsc::channel();
                 std::thread::spawn(move || {
@@ -402,14 +405,6 @@ impl SettingsDialog {
                 });
                 self.measuring = Some(receiver);
             }
-            let status = if self.measuring.is_some() {
-                crate::strings::SETTINGS_MEASURING.to_owned()
-            } else if let Some(ratio) = self.machine_speed {
-                crate::strings::settings_speed_measured(ratio)
-            } else {
-                crate::strings::SETTINGS_SPEED_UNMEASURED.to_owned()
-            };
-            ui.colored_label(palette.muted, egui::RichText::new(status).small());
         });
 
         // The output-signal settings sit below the roster and stay visible even
@@ -556,46 +551,59 @@ impl SettingsDialog {
 
     /// The Interface page: the case's look and window behaviour. The three skin
     /// dropdowns preview live, so the whole window shows the choice at once.
-    fn interface_tab(&mut self, ui: &mut egui::Ui) {
+    fn interface_tab(&mut self, ui: &mut egui::Ui, palette: &Palette) {
         egui::Grid::new("settings-interface-grid")
             .num_columns(2)
             .spacing([10.0, 6.0])
             .show(ui, |ui| {
                 ui.label("Theme")
                     .on_hover_text(crate::strings::SETTINGS_THEME_HOVER);
-                egui::ComboBox::from_id_salt("settings-theme")
-                    .selected_text(theme_label(self.theme))
-                    .show_ui(ui, |ui| {
-                        for choice in ThemeChoice::ALL {
-                            ui.selectable_value(&mut self.theme, choice, theme_label(choice));
-                        }
-                    });
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-theme")
+                        .selected_text(theme_label(self.theme))
+                        .show_ui(ui, |ui| {
+                            for choice in ThemeChoice::ALL {
+                                ui.selectable_value(&mut self.theme, choice, theme_label(choice));
+                            }
+                        });
+                });
                 ui.end_row();
 
                 ui.label("Pad style")
                     .on_hover_text(crate::strings::SETTINGS_PAD_STYLE_HOVER);
-                egui::ComboBox::from_id_salt("settings-pad-style")
-                    .selected_text(surface_label(self.pad_style))
-                    .show_ui(ui, |ui| {
-                        for choice in SurfaceChoice::ALL {
-                            ui.selectable_value(&mut self.pad_style, choice, surface_label(choice));
-                        }
-                    });
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-pad-style")
+                        .selected_text(surface_label(self.pad_style))
+                        .show_ui(ui, |ui| {
+                            for choice in SurfaceChoice::ALL {
+                                ui.selectable_value(
+                                    &mut self.pad_style,
+                                    choice,
+                                    surface_label(choice),
+                                );
+                            }
+                        });
+                });
                 ui.end_row();
 
                 ui.label("Deck style")
                     .on_hover_text(crate::strings::SETTINGS_DECK_STYLE_HOVER);
-                egui::ComboBox::from_id_salt("settings-deck-style")
-                    .selected_text(surface_label(self.deck_style))
-                    .show_ui(ui, |ui| {
-                        for choice in SurfaceChoice::DECK {
-                            ui.selectable_value(
-                                &mut self.deck_style,
-                                choice,
-                                surface_label(choice),
-                            );
-                        }
-                    });
+                ui.scope(|ui| {
+                    crate::theme::style_dropdown(ui, palette);
+                    egui::ComboBox::from_id_salt("settings-deck-style")
+                        .selected_text(surface_label(self.deck_style))
+                        .show_ui(ui, |ui| {
+                            for choice in SurfaceChoice::DECK {
+                                ui.selectable_value(
+                                    &mut self.deck_style,
+                                    choice,
+                                    surface_label(choice),
+                                );
+                            }
+                        });
+                });
                 ui.end_row();
 
                 // Native only: the web build always fills the browser viewport,
@@ -744,7 +752,7 @@ fn offered_label(port: &HardwarePortInfo) -> String {
 }
 
 /// The two conversions the Settings dialog offers, spelled for humans.
-const RESAMPLING_SINC: &str = "Band-limited (clean)";
+const RESAMPLING_SINC: &str = "Sinc";
 const RESAMPLING_LINEAR: &str = "Linear (aliased, retro)";
 
 /// The label for a config slug, defaulting unknown spellings to the accurate

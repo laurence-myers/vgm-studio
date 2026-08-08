@@ -27,10 +27,10 @@ fn vgm_file(chips: &[(vgms_core::ChipKind, u32)], stream: &[u8]) -> Arc<vgms_cor
     Arc::new(vgms_core::vgm::file::read("smoke.vgm", &bytes).expect("a walkable VGM"))
 }
 
-/// A Master System tone through the registry's default SN76489 -- which is
-/// libvgm's -- must come out audible.
+/// A Master System tone through the registry's default SN76489 -- which the
+/// owner named to Nuked-PSG -- must come out audible.
 #[test]
-fn the_default_sn76489_is_libvgms_and_makes_sound() {
+fn the_default_sn76489_is_nuked_psg_and_makes_sound() {
     vgms_app::install_cores();
 
     let registry = vgms_synth::registry();
@@ -38,8 +38,8 @@ fn the_default_sn76489_is_libvgms_and_makes_sound() {
         .default_for(vgms_core::ChipKind::Sn76489)
         .expect("a default exists");
     assert_eq!(
-        default.id, "sn76489.libvgm",
-        "libvgm is the default provider (the 2026-07-29 decision)"
+        default.id, "sn76489.nuked-psg",
+        "the owner promoted Nuked-PSG over libvgm for the SN76489"
     );
 
     let file = vgm_file(
@@ -59,7 +59,7 @@ fn the_default_sn76489_is_libvgms_and_makes_sound() {
     assert!(peak > 1000, "audible, not silence: peak {peak}");
 }
 
-/// Every libvgm-served chip is that chip's default -- except the three the
+/// Every libvgm-served chip is that chip's default -- except the four the
 /// owner named back to Nuked -- and every default `VgmEngine` can build
 /// actually builds. OPL keeps its own Nuked-OPL3 default, not a libvgm core.
 #[test]
@@ -67,12 +67,13 @@ fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
     vgms_app::install_cores();
     let registry = vgms_synth::registry();
 
-    // The owner's exceptions: Nuked keeps these three defaults, libvgm demoted
+    // The owner's exceptions: Nuked keeps these four defaults, libvgm demoted
     // to the picker.
     let nuked_led = [
         (vgms_core::ChipKind::Ym2612, "ym2612.nuked"),
         (vgms_core::ChipKind::Ym2151, "ym2151.nuked"),
         (vgms_core::ChipKind::Ym2413, "ym2413.nuked"),
+        (vgms_core::ChipKind::Sn76489, "sn76489.nuked-psg"),
     ];
 
     for chip in vgms_core::ChipKind::all() {

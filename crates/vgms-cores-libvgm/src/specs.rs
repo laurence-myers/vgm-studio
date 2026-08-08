@@ -197,60 +197,60 @@ chip_specs! {
     // rows start the one emulator. `every_alternate_row_starts_a_distinct_core`
     // pins that they differ.
 
-    make_sn76489: "sn76489.libvgm" / "libvgm" => Sn76489,
+    make_sn76489: "sn76489.libvgm" / "libvgm (Maxim)" => Sn76489,
         ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
-    make_sn76489_mame: "sn76489.libvgm-mame" / "libvgm (MAME core)" => Sn76489,
+    make_sn76489_mame: "sn76489.libvgm-mame" / "libvgm (MAME)" => Sn76489,
         ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
-    make_huc6280: "huc6280.libvgm" / "libvgm" => HuC6280,
+    make_huc6280: "huc6280.libvgm" / "libvgm (Ootake)" => HuC6280,
         ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_huc6280_mame: "huc6280.libvgm-mame" / "libvgm (MAME core)" => HuC6280,
+    make_huc6280_mame: "huc6280.libvgm-mame" / "libvgm (MAME)" => HuC6280,
         ffi::DEVID_C6280, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // Plain 8-bit register files: `Cmd_Ofs8_Data8` upstream.
-    make_k053260: "k053260.libvgm" / "libvgm" => K053260,
+    make_k053260: "k053260.libvgm" / "libvgm (MAME)" => K053260,
         ffi::DEVID_K053260, 0, WriteRule::Register, [0, 0], 494, configure_none;  // measured 1.930 (n=6)
-    make_ga20: "ga20.libvgm" / "libvgm" => Ga20,
+    make_ga20: "ga20.libvgm" / "libvgm (MAME)" => Ga20,
         ffi::DEVID_GA20, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_upd7759: "upd7759.libvgm" / "libvgm" => Upd7759,
+    make_upd7759: "upd7759.libvgm" / "libvgm (MAME)" => Upd7759,
         ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_okim6258: "okim6258.libvgm" / "libvgm" => Okim6258,
+    make_okim6258: "okim6258.libvgm" / "libvgm (MAME)" => Okim6258,
         ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_msm6258;
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
-    make_es5503: "es5503.libvgm" / "libvgm" => Es5503,
+    make_es5503: "es5503.libvgm" / "libvgm (MAME)" => Es5503,
         ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
-    make_gameboydmg: "gameboydmg.libvgm" / "libvgm" => GameBoyDmg,
+    make_gameboydmg: "gameboydmg.libvgm" / "libvgm (SameBoy)" => GameBoyDmg,
         ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_gameboydmg_mame: "gameboydmg.libvgm-mame" / "libvgm (MAME core)" => GameBoyDmg,
+    make_gameboydmg_mame: "gameboydmg.libvgm-mame" / "libvgm (MAME)" => GameBoyDmg,
         ffi::DEVID_GB_DMG, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_pokey: "pokey.libvgm" / "libvgm" => Pokey,
+    make_pokey: "pokey.libvgm" / "libvgm (MAME)" => Pokey,
         ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
-    make_mikey: "mikey.libvgm" / "libvgm" => Mikey,
+    make_mikey: "mikey.libvgm" / "libvgm (laoo)" => Mikey,
         ffi::DEVID_MIKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
     // Plain files with one upstream quirk each -- the remap is the rule's.
-    make_nesapu: "nesapu.libvgm" / "libvgm" => NesApu,
+    make_nesapu: "nesapu.libvgm" / "libvgm (NSFPlay)" => NesApu,
         ffi::DEVID_NES_APU, 0, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
-    make_nesapu_mame: "nesapu.libvgm-mame" / "libvgm (MAME core)" => NesApu,
+    make_nesapu_mame: "nesapu.libvgm-mame" / "libvgm (MAME)" => NesApu,
         ffi::DEVID_NES_APU, ffi::FCC_MAME, WriteRule::NesApu, [0, 0], LEVEL_UNITY, configure_none;
-    make_okim6295: "okim6295.libvgm" / "libvgm" => Okim6295,
+    make_okim6295: "okim6295.libvgm" / "libvgm (MAME)" => Okim6295,
         ffi::DEVID_MSM6295, 0, WriteRule::Okim6295, [0, 0], LEVEL_UNITY, configure_none;
     make_wonderswan: "wonderswan.libvgm" / "libvgm" => WonderSwan,
         ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], LEVEL_UNITY, configure_none;
-    make_saa1099: "saa1099.libvgm" / "libvgm" => Saa1099,
+    make_saa1099: "saa1099.libvgm" / "libvgm (Valley Bell)" => Saa1099,
         ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
-    make_saa1099_mame: "saa1099.libvgm-mame" / "libvgm (MAME core)" => Saa1099,
+    make_saa1099_mame: "saa1099.libvgm-mame" / "libvgm (MAME)" => Saa1099,
         ffi::DEVID_SAA1099, ffi::FCC_MAME, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
 
     // The AY8910, with its `0x31` stereo mask on the dedicated function.
-    make_ay8910: "ay8910.libvgm" / "libvgm" => Ay8910,
+    make_ay8910: "ay8910.libvgm" / "libvgm (EMU2149)" => Ay8910,
         ffi::DEVID_AY8910, 0, WriteRule::RegisterWithStereo, [0, 0], LEVEL_UNITY, configure_ay8910;
-    make_ay8910_mame: "ay8910.libvgm-mame" / "libvgm (MAME core)" => Ay8910,
+    make_ay8910_mame: "ay8910.libvgm-mame" / "libvgm (MAME)" => Ay8910,
         ffi::DEVID_AY8910, ffi::FCC_MAME, WriteRule::RegisterWithStereo, [0, 0], 399, configure_ay8910;  // measured 1.559 (n=8, 0.5886..0.6938)
 
     // The Yamaha latch pair.
-    make_ymz280b: "ymz280b.libvgm" / "libvgm" => Ymz280b,
+    make_ymz280b: "ymz280b.libvgm" / "libvgm (MAME)" => Ymz280b,
         ffi::DEVID_YMZ280B, 0, WriteRule::RegisterLatch, [0, 0], 303, configure_none;  // measured 1.185 (n=12)
-    make_k051649: "k051649.libvgm" / "libvgm" => K051649,
+    make_k051649: "k051649.libvgm" / "libvgm (MAME)" => K051649,
         ffi::DEVID_K051649, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // EMU2413 against the chip's Nuked-OPLL default. Anchored to that default
     // and not to the reference on purpose: the YM2413's own level sits at 0.370
@@ -258,11 +258,11 @@ chip_specs! {
     // 2026-07-28. Calibrating this row to the reference would put it 2.7x above
     // the chip's own default -- the same complaint, louder. **If that open item
     // is ever settled, this number moves with it.**
-    make_ym2413: "ym2413.libvgm" / "libvgm" => Ym2413,
+    make_ym2413: "ym2413.libvgm" / "libvgm (EMU2413)" => Ym2413,
         ffi::DEVID_YM2413, 0, WriteRule::RegisterLatch, [0, 0], 385, configure_none;  // measured 1.504 (n=12 native; 0.246/0.370 vs the reference)
     // No number for the MAME core: it scatters 0.672..1.014 over eight files, so
     // one scalar does not describe it and a fitted constant would be a guess.
-    make_ym2413_mame: "ym2413.libvgm-mame" / "libvgm (MAME core)" => Ym2413,
+    make_ym2413_mame: "ym2413.libvgm-mame" / "libvgm (MAME)" => Ym2413,
         ffi::DEVID_YM2413, ffi::FCC_MAME, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // With the YM2413 above, the three chips whose default is a Nuked core (see
     // `install_cores`) -- so the three where changing the core in Settings
@@ -270,46 +270,46 @@ chip_specs! {
     // libvgm's YM2612 and YM2151 both render at almost exactly half of Nuked's:
     // left at unity, choosing libvgm for a Mega Drive rip's YM2612 dropped its
     // FM 6 dB under its own PSG.
-    make_ym2612: "ym2612.libvgm" / "libvgm" => Ym2612,
+    make_ym2612: "ym2612.libvgm" / "libvgm (Genesis Plus GX)" => Ym2612,
         ffi::DEVID_YM2612, 0, WriteRule::RegisterLatch, [0, 0], 525, configure_none;  // measured 2.051 (0.466/0.955 vs the reference, n=12; 0.4877 direct, n=8)
-    make_ym2612_gens: "ym2612.libvgm-gens" / "libvgm (Gens core)" => Ym2612,
+    make_ym2612_gens: "ym2612.libvgm-gens" / "libvgm (Gens)" => Ym2612,
         ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], 516, configure_none;  // measured 2.016 (n=8, 0.4744..0.5093)
-    make_ym2151: "ym2151.libvgm" / "libvgm" => Ym2151,
+    make_ym2151: "ym2151.libvgm" / "libvgm (MAME)" => Ym2151,
         ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], 514, configure_none;  // measured 2.008 (0.498/1.000 vs the reference, n=12; 0.4973 direct, n=8)
-    make_ymf271: "ymf271.libvgm" / "libvgm" => Ymf271,
+    make_ymf271: "ymf271.libvgm" / "libvgm (MAME)" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
     // Not an OPL row -- the OPL family's own chips stay on our OPL adapter path.
     // Known gap: rips that lean on the YRW801 wave ROM without embedding it
     // (some MSX MoonSound rips) play only their FM half -- VGMPlay side-loads
     // `yrw801.rom` from disk, and that ROM is not ours to ship.
-    make_ymf278b: "ymf278b.libvgm" / "libvgm" => Ymf278b,
+    make_ymf278b: "ymf278b.libvgm" / "libvgm (openMSX)" => Ymf278b,
         ffi::DEVID_YMF278B, 0, WriteRule::RegisterLatch, [0x524F, 0x5241], LEVEL_UNITY, configure_none;
 
     // The OPN family: the latch pair, a linked SSG, and the YM2203's stereo
     // mask riding the SSG's own function.
-    make_ym2203: "ym2203.libvgm" / "libvgm" => Ym2203,
+    make_ym2203: "ym2203.libvgm" / "libvgm (MAME)" => Ym2203,
         ffi::DEVID_YM2203, 0, WriteRule::OpnFamily, [0, 0], LEVEL_UNITY, configure_none;
-    make_ym2608: "ym2608.libvgm" / "libvgm" => Ym2608,
+    make_ym2608: "ym2608.libvgm" / "libvgm (MAME)" => Ym2608,
         ffi::DEVID_YM2608, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
-    make_ym2610: "ym2610.libvgm" / "libvgm" => Ym2610,
+    make_ym2610: "ym2610.libvgm" / "libvgm (MAME)" => Ym2610,
         ffi::DEVID_YM2610, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
 
     // Memory-space writes with the address arriving whole (`0xC0`, `0xC5`,
     // `0xC7`, `0xC8`).
-    make_segapcm: "segapcm.libvgm" / "libvgm" => SegaPcm,
+    make_segapcm: "segapcm.libvgm" / "libvgm (MAME)" => SegaPcm,
         ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_segapcm;
-    make_x1010: "x1010.libvgm" / "libvgm" => X1010,
+    make_x1010: "x1010.libvgm" / "libvgm (MAME)" => X1010,
         ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
-    make_vsu: "vsu.libvgm" / "libvgm" => Vsu,
+    make_vsu: "vsu.libvgm" / "libvgm (Mednafen)" => Vsu,
         ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
-    make_scsp: "scsp.libvgm" / "libvgm" => Scsp,
+    make_scsp: "scsp.libvgm" / "libvgm (MAME)" => Scsp,
         ffi::DEVID_SCSP, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_scsp;
 
     // ...and with it split across our `port`/`addr` (`0xD3`, `0xD4`).
-    make_c140: "c140.libvgm" / "libvgm" => C140,
+    make_c140: "c140.libvgm" / "libvgm (MAME)" => C140,
         ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_c140;  // measured 1.297 (n=12)
-    make_k054539: "k054539.libvgm" / "libvgm" => K054539,
+    make_k054539: "k054539.libvgm" / "libvgm (MAME)" => K054539,
         ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_k054539;
 
     // The one-off shapes: the three the plan named, the MultiPCM's bank and
@@ -318,31 +318,31 @@ chip_specs! {
     // 4.0000 against the reference, which is VGMPlay's own `_CHIP_VOLUME`
     // entry for the chip (0x40). At unity this was the "500GP is far too
     // loud" report -- a single-C352 rip clipping the mix on its own.
-    make_c352: "c352.libvgm" / "libvgm" => C352,
+    make_c352: "c352.libvgm" / "libvgm (superctr)" => C352,
         ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], 64, configure_c352;  // measured 4.000 (n=12, corr-1.0 rows exact; range 3.21..4.00)
-    make_qsound: "qsound.libvgm" / "libvgm" => QSound,
+    make_qsound: "qsound.libvgm" / "libvgm (superctr)" => QSound,
         ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
-    make_qsound_mame: "qsound.libvgm-mame" / "libvgm (MAME core)" => QSound,
+    make_qsound_mame: "qsound.libvgm-mame" / "libvgm (MAME)" => QSound,
         ffi::DEVID_QSOUND, ffi::FCC_MAME, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
     // `Cmd_YMW_Bank`.
-    make_multipcm: "multipcm.libvgm" / "libvgm" => MultiPcm,
+    make_multipcm: "multipcm.libvgm" / "libvgm (MAME)" => MultiPcm,
         ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_multipcm;
-    make_pwm: "pwm.libvgm" / "libvgm" => Pwm,
+    make_pwm: "pwm.libvgm" / "libvgm (Gens)" => Pwm,
         ffi::DEVID_32X_PWM, 0, WriteRule::Data16, [0, 0], LEVEL_UNITY, configure_none;
     // No ES5505/ES5506 row: libvgm's `es5506.c` is a stub (a `DEV_DECL` whose
     // core list is `{ NULL }`), so `SndEmu_Start` has nothing to start. The
     // decoder's `0xBE`/`0xD6` conventions are ready for when upstream grows it.
 
-    make_rf5c68: "rf5c68.libvgm" / "libvgm" => Rf5c68,
+    make_rf5c68: "rf5c68.libvgm" / "libvgm (MAME)" => Rf5c68,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
-    make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens core)" => Rf5c68,
+    make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens)" => Rf5c68,
         ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c68;
     // The same device; `flags` is what makes it the 164.
-    make_rf5c164: "rf5c164.libvgm" / "libvgm" => Rf5c164,
+    make_rf5c164: "rf5c164.libvgm" / "libvgm (MAME)" => Rf5c164,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
-    make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens core)" => Rf5c164,
+    make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens)" => Rf5c164,
         ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
