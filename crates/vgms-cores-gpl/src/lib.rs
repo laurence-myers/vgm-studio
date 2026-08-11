@@ -144,7 +144,12 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
             channel_mute: false,
-            level: vgms_synth::LEVEL_UNITY,
+            // The die agrees with libvgm's MAME core on scale (measured 1.01
+            // against it, n=12) -- and that shared scale is half the reference
+            // player's, found when the libvgm row was calibrated to lvl 0.508
+            // (see `make_ym2203` in vgms-cores-libvgm). The same correction
+            // keeps the core swap level-neutral: 256 / (1.01 * 0.508) = 499.
+            level: 499,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2203Lle::new())),
         });
     }

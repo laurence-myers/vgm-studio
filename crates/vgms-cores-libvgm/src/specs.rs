@@ -288,8 +288,11 @@ chip_specs! {
 
     // The OPN family: the latch pair, a linked SSG, and the YM2203's stereo
     // mask riding the SSG's own function.
+    // Same story as the YM2612/YM2151 rows above: libvgm's build of the MAME
+    // core renders at almost exactly half the reference's level. Found via
+    // "Cameltry" (YM2203+OKIM6295), where the FM sat 6 dB under the OKI.
     make_ym2203: "ym2203.libvgm" / "libvgm (MAME)" => Ym2203,
-        ffi::DEVID_YM2203, 0, WriteRule::OpnFamily, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YM2203, 0, WriteRule::OpnFamily, [0, 0], 504, configure_none;  // measured 1.969 (lvl 0.508, corr 0.9999, n=12)
     make_ym2608: "ym2608.libvgm" / "libvgm (MAME)" => Ym2608,
         ffi::DEVID_YM2608, 0, WriteRule::OpnFamily, [0x41, 0x42], LEVEL_UNITY, configure_none;
     make_ym2610: "ym2610.libvgm" / "libvgm (MAME)" => Ym2610,

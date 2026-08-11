@@ -350,9 +350,15 @@ pub const THRESHOLDS: &[Threshold] = &[
              ideal, unexplained by the LFO or the resampler",
         ),
     },
-    // Only shared-lineage rows remain: reference and core run the same upstream,
-    // so a low score means the binding or the driver is wrong, never that
-    // "implementations differ" -- the only question this harness answers.
+    // Measured 2026-08-11 once the libvgm cores had become these chips'
+    // defaults: YM2203 corr 0.9999, YM2608 0.9983, YM2610 1.0000, OKIM6295
+    // 1.0000 (all n=12, native rate) -- shared-lineage at the ideal, so they
+    // take the shared bar. The same run caught the YM2203 rendering at half
+    // the reference's level (lvl 0.508), fixed on its specs row.
+    shared(ChipKind::Ym2203),
+    shared(ChipKind::Ym2608),
+    shared(ChipKind::Ym2610),
+    shared(ChipKind::Okim6295),
 ];
 
 /// A shared-core chip's bar: near-identity, because a gap is a driver fault.

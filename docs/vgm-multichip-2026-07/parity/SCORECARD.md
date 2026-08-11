@@ -1092,3 +1092,40 @@ inaudible because every knob defaults to centre. On Hydrocity there is a third:
 the SN76489 is ~6% of the mix (peak 0.0597 against the YM2612's 0.9315), so
 panning it moves the meter by ~1% unless the YM2612 is muted first — with it
 muted, the pan is total (L 0.08438 / R 0.00000, and the exact mirror).
+
+## 2026-08-11 — Cameltry names the YM2203, the fourth half-level libvgm row
+
+Reported from listening: on Cameltry (Taito B System, YM2203+OKIM6295) *"the
+YM2203 chip is too quiet compared to the OKIM6295"* — and so it was, by
+exactly the factor this chronicle has now seen four times. The balance model
+was checked first and is innocent: the file is a plain v1.61 header (no extra
+header, no volume modifier), legacy VGMPlay's arithmetic for the set is
+YM2203 0x100 + OKI 0x200 (PB 0x200) = 0x300, no normalisation, and our
+`voice_gain` reproduces its tilt exactly (now pinned as
+`the_cameltry_pair_keeps_the_references_tilt`). The fault was the anchor
+under the ratio: `ym2203.libvgm` had sat at `LEVEL_UNITY` since the libvgm
+cores took the defaults, *unmeasured* — the only measured YM2203 rows in this
+file were the retired clean-room core's.
+
+Measured against the reference at native rate (n=12), including the fmopn
+siblings the same suspicion covered, none of which had a threshold row:
+
+| chip | corr | lvl | verdict |
+|---|---|---|---|
+| YM2203 | 0.9999 | **0.508** | half the reference — the 2026-08-01 YM2612/YM2151 story again |
+| YM2608 | 0.9983 | 1.000 | nothing to fix (and libvgm carries the rhythm ROM: the clean-room era's 0.60 "ADPCM gap" is gone) |
+| YM2610 | 1.0000 | 1.000 | nothing to fix |
+| OKIM6295 | 1.0000 | 1.000 | nothing to fix — the complaint's other half was never guilty |
+
+**The corrections:** `ym2203.libvgm` level **504** (256/0.508; re-measured
+lvl 0.984, corr unmoved at 0.9999), and YM2203-LLE level **499** to keep the
+die swap level-neutral — the 2026-08-09 LLE audit measured the die at 1.01
+*against the then-miscalibrated default*, so its unity inherited the same
+half-level and moves by the same factor (256 / (1.01 × 0.508)).
+
+**All four chips now hold permanent `shared(...)` rows in
+`parity::THRESHOLDS`** — every one measured at or above the 0.99 shared-
+lineage ideal. Their absence is what let a 6 dB anchor error ship silently:
+`every_cored_chip` prints "no threshold — not compared" and moves on. The
+lesson mirrors lv-2's: a shared-lineage row that has never been read is not
+"probably 1.0", it is unmeasured.

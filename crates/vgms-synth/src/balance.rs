@@ -207,6 +207,19 @@ mod tests {
         assert_eq!(voice_gain(&chips, &chips[1], 0, None), 0x100, "YM2612");
     }
 
+    /// Cameltry's Taito B System pair, the file that exposed the libvgm
+    /// YM2203's half-level miscalibration (the ratio here was never the bug).
+    /// The estimates: YM2203 0x100, OKIM6295 0x200 (PB 0x200) -- sum 0x300,
+    /// no shift. Alone, the YM2203 (0x100) normalises up once where the OKI
+    /// (0x200) does not: the FM at half its solo calibration, the OKI at
+    /// unity, which is upstream's exact tilt for this set.
+    #[test]
+    fn the_cameltry_pair_keeps_the_references_tilt() {
+        let chips = [declared(ChipKind::Ym2203), declared(ChipKind::Okim6295)];
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80, "YM2203");
+        assert_eq!(voice_gain(&chips, &chips[1], 0, None), 0x100, "OKIM6295");
+    }
+
     /// Black Knight 2000's set: three chips summing to 0x2E0 normalise by 1
     /// where each alone normalised by 2 -- every voice at half, which is the
     /// headroom our un-normalised mix was missing when it clipped.
