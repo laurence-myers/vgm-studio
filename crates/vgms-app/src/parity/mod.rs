@@ -359,6 +359,87 @@ pub const THRESHOLDS: &[Threshold] = &[
     shared(ChipKind::Ym2608),
     shared(ChipKind::Ym2610),
     shared(ChipKind::Okim6295),
+    // The 2026-08-12 whole-roster sweep (SCORECARD "the level sweep"): every
+    // row here read at or above the shared ideal against the reference, most
+    // at exactly 1.0000. The sweep's level corrections live on the specs rows.
+    shared(ChipKind::HuC6280),
+    shared(ChipKind::X1010),
+    shared(ChipKind::K054539),
+    shared(ChipKind::Ymf271),
+    shared(ChipKind::QSound),
+    shared(ChipKind::Vsu),
+    shared(ChipKind::C352),
+    shared(ChipKind::Rf5c68),
+    shared(ChipKind::K053260),
+    shared(ChipKind::C140),
+    shared(ChipKind::Ymz280b),
+    shared(ChipKind::Ymf278b),
+    shared(ChipKind::MultiPcm),
+    shared(ChipKind::Upd7759),
+    // Shared-lineage but below the ideal, each with its observed score and
+    // the band that explains the shortfall.
+    Threshold {
+        chip: ChipKind::Rf5c164,
+        min_correlation: 0.20,
+        max_cents: 10.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "OPEN: 0.2605 observed (n=12) with fit gain -0.963 at lvl 1.006 -- \
+             a polarity-inversion signature against the reference, on the \
+             device whose RF5C68 flavour reads corr 1.0000. A driver/binding \
+             question, not a loudness one; see SCORECARD",
+        ),
+    },
+    Threshold {
+        chip: ChipKind::WonderSwan,
+        min_correlation: 0.95,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some("0.9888 observed (n=12); just under the ideal, unexplained residual"),
+    },
+    Threshold {
+        chip: ChipKind::Okim6258,
+        min_correlation: 0.95,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some("0.9766 observed (n=9); the divider/flag-dependent tail"),
+    },
+    Threshold {
+        chip: ChipKind::Saa1099,
+        min_correlation: 0.80,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some("0.8471 observed (n=12); the two noise generators' phase"),
+    },
+    Threshold {
+        chip: ChipKind::Y8950,
+        min_correlation: 0.78,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some("0.8287 observed (n=12); the ADPCM speech half"),
+    },
+    Threshold {
+        chip: ChipKind::Sn76489,
+        min_correlation: 0.30,
+        max_cents: 3.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "0.358 observed (n=12): the noise/HF band decorrelates the pair \
+             (the clean-room era's open item, inherited). The level is pinned \
+             two ways instead -- lvl 0.247 measured and 4.0 derived",
+        ),
+    },
+    Threshold {
+        chip: ChipKind::Ym3526,
+        min_correlation: 0.0,
+        max_cents: 30.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "OPEN: corr 0.0312 with a systematic -24-cent offset (n=12) -- \
+             the AY-class detune signature, on a chip whose level reads 1.009. \
+             A driver/clock question, not a loudness one; see SCORECARD",
+        ),
+    },
 ];
 
 /// A shared-core chip's bar: near-identity, because a gap is a driver fault.

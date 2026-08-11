@@ -72,7 +72,11 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
             channel_pan: false,
             // Generic ChipCores with no channel-mute impl (the trait no-op).
             channel_mute: false,
-            level: vgms_synth::LEVEL_UNITY,
+            // The chip's default row, so the 2026-08-12 sweep's SN76489
+            // measurement is THIS core's: lvl 0.247 against the reference
+            // (n=12; the noise/HF band keeps corr at 0.36, but the RMS ratio
+            // agrees with the staging derivation within 1.2%). 256/0.247:
+            level: 1036,
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Sn76489Nuked::new())),
         });
     }

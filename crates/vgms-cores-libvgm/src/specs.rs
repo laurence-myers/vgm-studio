@@ -197,24 +197,35 @@ chip_specs! {
     // rows start the one emulator. `every_alternate_row_starts_a_distinct_core`
     // pins that they differ.
 
+    // x4 by the same staging the default was measured against: the sweep read
+    // the chip's default (Nuked-PSG, its own row in vgms-cores-gpl) at lvl
+    // 0.247 vs the reference, and the agreement run puts these two at medians
+    // 1.10 / 1.12 of that default -- gross level shared, so the x4 rides
+    // along. Their residual 10-12% scatters 1.5x across files (the noise
+    // band) and is left uncorrected deliberately; the round 1024 is VGMPlay's
+    // staging (0x80 doubled twice = 2.0) over the survey's raw-half note
+    // ("their SN76489 measured 2x off the table derivation").
     make_sn76489: "sn76489.libvgm" / "libvgm (Maxim)" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
+        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], 1024, configure_sn76496;  // x4 with the default; median 1.10 of it (n=12, 0.91..1.44)
     make_sn76489_mame: "sn76489.libvgm-mame" / "libvgm (MAME)" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_sn76496;
+        ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], 1024, configure_sn76496;  // x4 with the default; median 1.12 of it (n=12, 0.94..1.46)
     make_huc6280: "huc6280.libvgm" / "libvgm (Ootake)" => HuC6280,
-        ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     make_huc6280_mame: "huc6280.libvgm-mame" / "libvgm (MAME)" => HuC6280,
-        ffi::DEVID_C6280, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_C6280, ffi::FCC_MAME, WriteRule::Register, [0, 0], 512, configure_none;  // x2 with the default; median 1.047 of it (n=12)
 
     // Plain 8-bit register files: `Cmd_Ofs8_Data8` upstream.
     make_k053260: "k053260.libvgm" / "libvgm (MAME)" => K053260,
         ffi::DEVID_K053260, 0, WriteRule::Register, [0, 0], 494, configure_none;  // measured 1.930 (n=6)
     make_ga20: "ga20.libvgm" / "libvgm (MAME)" => Ga20,
         ffi::DEVID_GA20, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    // One single-chip corpus file, but it reads corr 1.0000 and its lvl 0.448
+    // is the chip's staging arithmetic (0x11E doubled = 2.234) to three
+    // decimals -- measurement and derivation co-sign the constant.
     make_upd7759: "upd7759.libvgm" / "libvgm (MAME)" => Upd7759,
-        ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], 572, configure_none;  // measured 2.232 (lvl 0.448, corr 1.0000, n=1)
     make_okim6258: "okim6258.libvgm" / "libvgm (MAME)" => Okim6258,
-        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_msm6258;
+        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], 219, configure_msm6258;  // measured 0.855 (lvl 1.170, corr 0.9766, n=9)
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
     make_es5503: "es5503.libvgm" / "libvgm (MAME)" => Es5503,
         ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
@@ -222,8 +233,13 @@ chip_specs! {
         ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_gameboydmg_mame: "gameboydmg.libvgm-mame" / "libvgm (MAME)" => GameBoyDmg,
         ffi::DEVID_GB_DMG, ffi::FCC_MAME, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+    // Measured at output rate: the MAME POKEY renders at its ~1.79 MHz clock
+    // and the harness's pitch search is quadratic in rate, so a native-rate
+    // comparison costs hours per file. The resampled corr is meaningless but
+    // the RMS ratio is honest, and it lands on the staging arithmetic
+    // (0x100 doubled) to three decimals.
     make_pokey: "pokey.libvgm" / "libvgm (MAME)" => Pokey,
-        ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_POKEY, 0, WriteRule::Register, [0, 0], 512, configure_none;  // measured 1.996 (lvl 0.501, output-rate, n=12)
     make_mikey: "mikey.libvgm" / "libvgm (laoo)" => Mikey,
         ffi::DEVID_MIKEY, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
 
@@ -235,11 +251,13 @@ chip_specs! {
     make_okim6295: "okim6295.libvgm" / "libvgm (MAME)" => Okim6295,
         ffi::DEVID_MSM6295, 0, WriteRule::Okim6295, [0, 0], LEVEL_UNITY, configure_none;
     make_wonderswan: "wonderswan.libvgm" / "libvgm" => WonderSwan,
-        ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_WSWAN, 0, WriteRule::WonderSwan, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 0.9888, n=12)
+    // lvl reads exactly 0.500 and the collapsed-but-consistent gain (1.878)
+    // concurs; the 0.85 correlation is the noise generators' phase, not scale.
     make_saa1099: "saa1099.libvgm" / "libvgm (Valley Bell)" => Saa1099,
-        ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_SAA1099, 0, WriteRule::ReversedLatch, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 0.8471, n=12)
     make_saa1099_mame: "saa1099.libvgm-mame" / "libvgm (MAME)" => Saa1099,
-        ffi::DEVID_SAA1099, ffi::FCC_MAME, WriteRule::ReversedLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_SAA1099, ffi::FCC_MAME, WriteRule::ReversedLatch, [0, 0], 512, configure_none;  // x2 with the default; median 1.004 of it (n=12)
 
     // The AY8910, with its `0x31` stereo mask on the dedicated function.
     make_ay8910: "ay8910.libvgm" / "libvgm (EMU2149)" => Ay8910,
@@ -277,7 +295,7 @@ chip_specs! {
     make_ym2151: "ym2151.libvgm" / "libvgm (MAME)" => Ym2151,
         ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], 514, configure_none;  // measured 2.008 (0.498/1.000 vs the reference, n=12; 0.4973 direct, n=8)
     make_ymf271: "ymf271.libvgm" / "libvgm (MAME)" => Ymf271,
-        ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
     // Not an OPL row -- the OPL family's own chips stay on our OPL adapter path.
     // Known gap: rips that lean on the YRW801 wave ROM without embedding it
@@ -303,9 +321,9 @@ chip_specs! {
     make_segapcm: "segapcm.libvgm" / "libvgm (MAME)" => SegaPcm,
         ffi::DEVID_SEGAPCM, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_segapcm;
     make_x1010: "x1010.libvgm" / "libvgm (MAME)" => X1010,
-        ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_X1_010, 0, WriteRule::Memory, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     make_vsu: "vsu.libvgm" / "libvgm (Mednafen)" => Vsu,
-        ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_none;
+        ffi::DEVID_VBOY_VSU, 0, WriteRule::Memory, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     make_scsp: "scsp.libvgm" / "libvgm (MAME)" => Scsp,
         ffi::DEVID_SCSP, 0, WriteRule::Memory, [0, 0], LEVEL_UNITY, configure_scsp;
 
@@ -313,7 +331,7 @@ chip_specs! {
     make_c140: "c140.libvgm" / "libvgm (MAME)" => C140,
         ffi::DEVID_C140, 0, WriteRule::MemoryPortHigh, [0, 0], 332, configure_c140;  // measured 1.297 (n=12)
     make_k054539: "k054539.libvgm" / "libvgm (MAME)" => K054539,
-        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], LEVEL_UNITY, configure_k054539;
+        ffi::DEVID_K054539, 0, WriteRule::MemoryPortHigh, [0, 0], 512, configure_k054539;  // measured 2.000 (lvl 0.500, corr 0.9987, n=12)
 
     // The one-off shapes: the three the plan named, the MultiPCM's bank and
     // the PWM's 12-bit values.
@@ -324,14 +342,16 @@ chip_specs! {
     make_c352: "c352.libvgm" / "libvgm (superctr)" => C352,
         ffi::DEVID_C352, 0, WriteRule::RegisterAddr16Data16, [0, 0], 64, configure_c352;  // measured 4.000 (n=12, corr-1.0 rows exact; range 3.21..4.00)
     make_qsound: "qsound.libvgm" / "libvgm (superctr)" => QSound,
-        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
+        ffi::DEVID_QSOUND, 0, WriteRule::QSound, [0, 0], 512, configure_qsound;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     make_qsound_mame: "qsound.libvgm-mame" / "libvgm (MAME)" => QSound,
-        ffi::DEVID_QSOUND, ffi::FCC_MAME, WriteRule::QSound, [0, 0], LEVEL_UNITY, configure_qsound;
+        ffi::DEVID_QSOUND, ffi::FCC_MAME, WriteRule::QSound, [0, 0], 512, configure_qsound;  // x2 with the default; median 0.995 of it (n=12)
     // A register file plus a second command that is not a register write:
     // `0xB5` and `0xC3`, which upstream splits between `Cmd_Ofs8_Data8` and
     // `Cmd_YMW_Bank`.
+    // The one row the sweep found too LOUD: VGMPlay stages the MultiPCM down
+    // (volume 0x40, one doubling = 0.5), so unity here sat 2x above it.
     make_multipcm: "multipcm.libvgm" / "libvgm (MAME)" => MultiPcm,
-        ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], LEVEL_UNITY, configure_multipcm;
+        ffi::DEVID_YMW258, 0, WriteRule::MultiPcmBank, [0, 0], 128, configure_multipcm;  // measured 0.501 (lvl 1.998, corr 0.9999, n=12)
     make_pwm: "pwm.libvgm" / "libvgm (Gens)" => Pwm,
         ffi::DEVID_32X_PWM, 0, WriteRule::Data16, [0, 0], LEVEL_UNITY, configure_none;
     // No ES5505/ES5506 row: libvgm's `es5506.c` is a stub (a `DEV_DECL` whose
@@ -341,18 +361,25 @@ chip_specs! {
     // libvgm renders the RF5C68 device at ~0.36 of VGMPlay 0.52's level:
     // measured lvl 0.364 (n=12, corr 1.0000 -- a pure scale difference) over
     // single-chip RF5C68 corpus files, so `256/0.364 = 703` brings it up to the
-    // reference. All four rows wrap the one `DEVID_RF5C68` device, so the same
-    // scale applies (the 164 rows differ only by the flag that names the 164,
-    // the Gens rows only by the emulation core -- both carry the same DAC scale).
+    // reference (re-verified lvl 0.999 in the 2026-08-12 sweep). The 68 rows
+    // only: the 0.364 is the *reference's staging* of the 68 (0xB0 doubled
+    // twice), not a property of the shared device, so the 164 rows below keep
+    // their own number.
     make_rf5c68: "rf5c68.libvgm" / "libvgm (MAME)" => Rf5c68,
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
     make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens)" => Rf5c68,
         ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
-    // The same device; `flags` is what makes it the 164.
+    // The same device; `flags` is what makes it the 164. It does NOT inherit
+    // the 68's 703: VGMPlay stages the two differently (RF5C68 0xB0 doubled
+    // twice = 2.75, RF5C164 0x80 doubled once = 1.0), so the shared raw scale
+    // that leaves the 68 at 0.364 leaves the 164 at unity. The 2026-08-08 fix
+    // copied 703 onto all four rows and put the 164 at lvl 2.649 (measured,
+    // n=12) -- the sweep caught it 2.65x hot, and 703/2.649 = 265 lands on
+    // this row's derived 256.
     make_rf5c164: "rf5c164.libvgm" / "libvgm (MAME)" => Rf5c164,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c164;
+        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;  // measured: 703 read lvl 2.649 (n=12), so unity
     make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens)" => Rf5c164,
-        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c164;
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
 /// A chip whose configuration is only the generic fields (clock, rate mode,

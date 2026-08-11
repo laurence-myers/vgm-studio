@@ -1129,3 +1129,93 @@ lineage ideal. Their absence is what let a 6 dB anchor error ship silently:
 `every_cored_chip` prints "no threshold — not compared" and moves on. The
 lesson mirrors lv-2's: a shared-lineage row that has never been read is not
 "probably 1.0", it is unmeasured.
+
+## 2026-08-12 — the level sweep: every remaining chip and core
+
+The Cameltry lesson, applied to the whole roster: every buildable chip
+without a threshold row was measured against the reference (native rate,
+n=12 strided single-chip files, the scorecard harness under a temporary
+lenient bar), plus `every_core_for_a_chip_agrees_on_its_level` across every
+realtime alternate. The YM2203's "unmeasured unity anchor" turned out to be
+the rule, not the exception.
+
+**The mechanism, named.** For a single-chip file the reference plays a chip
+at `_CHIP_VOLUME[chip] × 2^shift` — the power-of-two loudness normalisation
+`EstimateOverallVolume` applies to the one-chip set. That staged net is what
+every calibration anchors to, and it retro-predicts every previously
+measured row exactly (RF5C68's 0.364 is its 0xB0-doubled-twice staging;
+YMZ280B's 0.844 its 0x98 × 1.1875). An unmeasured unity anchor is therefore
+wrong by precisely that staging factor whenever the raw cores agree — which,
+for shared-lineage rows, they do.
+
+**Corrected, each verified at lvl ≈ 1.000 against the reference after:**
+
+| chip | corr | lvl before | new level | note |
+|---|---|---|---|---|
+| HuC6280 (Ootake) | 1.0000 | 0.500 | 512 | MAME alternate ×2 with it (1.047 relative) |
+| X1-010 | 1.0000 | 0.500 | 512 | |
+| YMF271 | 1.0000 | 0.500 | 512 | |
+| QSound (superctr) | 1.0000 | 0.500 | 512 | MAME alternate ×2 with it (0.995 relative) |
+| VSU | 1.0000 | 0.500 | 512 | |
+| uPD7759 | 1.0000 (n=1) | 0.448 | 572 | one corpus file; staging derivation co-signs (2.234) |
+| MultiPCM | 0.9999 | **1.998** | 128 | the one row too LOUD (0x40 staged ×2 = 0.5) |
+| K054539 | 0.9987 | 0.500 | 512 | |
+| WonderSwan | 0.9888 | 0.500 | 512 | |
+| OKIM6258 | 0.9766 | 1.170 | 219 | 17% hot |
+| SAA1099 (VB) | 0.8471 | 0.500 | 512 | gain 1.878 concurs; noise-phase band |
+| SN76489 (Nuked-PSG, default) | 0.3581 | **0.247** | 1036 | see below |
+| POKEY | (output rate) | 0.501 | 512 | native rate impractical: MAME renders at its 1.79 MHz clock and the pitch search is quadratic in rate |
+| RF5C164 (both rows) | 0.2605 | **2.649** | 703 → unity | see below |
+
+Also ×4 with their chip's default: `sn76489.libvgm` and `.libvgm-mame`
+(medians 1.10/1.12 of Nuked-PSG, scatter 1.55× left as the deliberate
+residual). Verified clean, no change: YMF278B 1.000, YMZ280B 0.997, C352
+1.000, C140 0.971, K053260 0.968, RF5C68 0.999, Y8950 0.998, NES APU 0.978,
+YM3526 1.009 (levels only — see the open findings).
+
+**The SN76489 was the loudest wrong anchor on the board**: the default
+(Nuked-PSG, the owner's promotion) played at a *quarter* of the reference's
+level — the ×2 staging (0x80 doubled twice) on top of the raw-half scale the
+2026-07 survey had already noted for libvgm's SN. Every Master System rip
+and every Mega Drive PSG sat 12 dB under the reference. The correlation band
+(0.36, the inherited noise/HF item) means the constant is pinned two ways
+rather than one: lvl 0.247 measured, 4.0 derived, 1.2% apart. Post-fix it
+reads lvl 0.998.
+
+**The RF5C164 was the 2026-08-08 fix overshooting**: the 68's 703 was copied
+onto the 164 rows, but the staging that produced the 68's 0.364 (0xB0 ×
+2.75) is not the 164's (0x80 × 1.0 — VGMPlay's own tables). Measured 2.649×
+hot, reverted to unity, re-measured lvl 1.006.
+
+**Threshold rows added** — shared bars for HuC6280, X1-010, K054539,
+YMF271, QSound, VSU, C352, RF5C68, K053260, C140, YMZ280B, YMF278B,
+MultiPCM, uPD7759; known-gap bars under the observed scores for WonderSwan,
+OKIM6258, SAA1099, Y8950, SN76489, and two OPEN rows (below). Nothing
+buildable prints "no threshold" silently wrong again.
+
+**Open findings, not level-shaped, each with a follow-up task chip:**
+
+- **YM3526**: corr 0.0312 with a systematic **−24 cents** (level exactly
+  right at 1.009) — the AY-class detune signature, on the OPL-adapter
+  projection path whose YM3812/YMF262/Y8950 siblings show no detune.
+- **RF5C164**: corr 0.2605 with **fit gain −0.963 at lvl 1.006** — a
+  polarity-inversion signature against the reference, on the same device
+  whose 68 flavour reads 1.0000 (legacy VGMPlay runs Gens' PCM core for the
+  164; ours may not be the core it compares against).
+- **ES5503**: corr 0.0022 — the comparison itself is broken (channel-count
+  configuration is the first suspect); lvl 3.398 suggests the staging (×4 at
+  0x40) will need applying once the pair correlates, but not before.
+
+**Reported and left alone:** Game Boy DMG (different core family: SameBoy vs
+the legacy player's; median 1.336, scatter 1.7×), PWM (one corpus file, corr
+0.017), NES APU (corr 0.45 but lvl 0.978 — nothing to fix by this method),
+and the scattered alternates the agreement run named (SN76489 pair residual,
+YM2413 pair with silent files in range, GB/NES MAME rows, Y8950-CQM).
+
+**Unanchorable — no single-chip corpus files:** SegaPCM, K051649, GA20,
+SCSP, Mikey (the last also unplayable by the legacy reference). Their
+staging derivations (SegaPCM 3.0, K051649 2.0, GA20 2.5, SCSP 4.0) are
+recorded here as *predictions*, deliberately not applied: the SN76489 shows
+raw scales are not always shared, so an unmeasurable derivation stays a
+prediction. If single-chip rips of these ever land in the corpus, measure
+first.
