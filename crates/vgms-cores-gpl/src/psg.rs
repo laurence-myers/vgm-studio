@@ -8,6 +8,11 @@
 //! trace of one chip -- so [`configure`](ChipCore::configure) is the no-op
 //! default, and a non-Sega rip plays with Sega noise.
 //!
+//! The Game Gear's stereo port *is* modelled, on top of the trace rather than
+//! inside it: the mask never touches the PSG bus (address 1 is its own port,
+//! as the reference's `SN76496_W_GGST` has it), and each output side sums the
+//! channels its mask nibble enables, through the die's own mixer-side mute.
+//!
 //! # Determinism at the DAC
 //!
 //! Upstream sums its DAC in `float`, which is fine by [`ChipCore`]'s
@@ -54,6 +59,14 @@ pub struct Sn76489Nuked {
     /// may be presented.
     writes: VecDeque<u8>,
     settle: u32,
+    /// The Game Gear stereo register: bits 0-3 enable channels 0-3 on the
+    /// right, bits 4-7 on the left. `0xFF` -- everything both sides -- is the
+    /// power-on state and what a non-Game-Gear file never changes.
+    ///
+    /// It is the Game Gear's own port, not a PSG register: the mask byte must
+    /// never reach the PSG bus, where its bit pattern would decode as a latch
+    /// (the frequent `0xFF` mask latches the noise channel silent).
+    stereo_mask: u8,
 }
 
 impl Sn76489Nuked {
@@ -65,6 +78,7 @@ impl Sn76489Nuked {
             rate: 44_100,
             writes: VecDeque::new(),
             settle: 0,
+            stereo_mask: 0xFF,
         }
     }
 }
@@ -81,6 +95,7 @@ impl ChipCore for Sn76489Nuked {
         self.writes.clear();
         self.settle = 0;
         self.rate = (clock / CLOCKS_PER_SAMPLE).max(1);
+        self.stereo_mask = 0xFF;
         self.chip.reset();
     }
 
@@ -88,9 +103,15 @@ impl ChipCore for Sn76489Nuked {
         self.rate
     }
 
-    /// One write port, one byte: latch/data telling themselves apart by bit 7,
-    /// inside the chip rather than here.
-    fn write(&mut self, _port: u8, _addr: u16, data: u16) {
+    /// Address 0 is the PSG bus (latch/data telling themselves apart by bit 7,
+    /// inside the chip). Address 1 is the Game Gear stereo port (`0x4F`), which
+    /// only moves the mask -- exactly the reference's dedicated `SN76496_W_GGST`
+    /// entry point, never the data bus.
+    fn write(&mut self, _port: u8, addr: u16, data: u16) {
+        if addr == 1 {
+            self.stereo_mask = (data & 0xFF) as u8;
+            return;
+        }
         self.writes.push_back((data & 0xFF) as u8);
     }
 
@@ -105,12 +126,15 @@ impl ChipCore for Sn76489Nuked {
                 }
                 self.chip.clock();
             }
-            // The one float-to-integer crossing, once per sample. Truncation
-            // rather than rounding, matching upstream's own cast.
-            let sample = (self.chip.output() * OUTPUT_SCALE) as i32;
-            // Mono: the chip has one output pin.
-            frame[0] = sample;
-            frame[1] = sample;
+            // Each side hears the channels its mask nibble enables. The DAC
+            // sum is idempotent within a clock, so the two reads are two views
+            // of one instant; with the power-on mask both sides are the full
+            // mono sum, exactly the single-pin behaviour this had before.
+            // Truncation rather than rounding, matching upstream's own cast.
+            self.chip.set_mute(!(self.stereo_mask >> 4) & 0x0F);
+            frame[0] = (self.chip.output() * OUTPUT_SCALE) as i32;
+            self.chip.set_mute(!self.stereo_mask & 0x0F);
+            frame[1] = (self.chip.output() * OUTPUT_SCALE) as i32;
         }
     }
 }
@@ -211,6 +235,67 @@ mod tests {
         );
     }
 
+    /// The `0x4F` mask must never reach the PSG bus: the frequent all-on mask
+    /// `0xFF` would decode there as "latch channel 3 volume to silence".
+    #[test]
+    fn the_stereo_port_never_touches_the_psg_bus() {
+        let mut chip = Sn76489Nuked::new();
+        chip.reset(CLOCK, false);
+        chip.write(0, 1, 0xFF); // the Game Gear stereo port
+        assert!(
+            chip.writes.is_empty(),
+            "the mask is not a bus byte and must not be queued as one"
+        );
+        assert_eq!(chip.stereo_mask, 0xFF);
+    }
+
+    /// The mask nibbles gate each side: left nibble clear silences the left,
+    /// right nibble clear the right, and the power-on mask is plain mono.
+    #[test]
+    fn the_stereo_mask_pans_channels() {
+        let mut chip = Sn76489Nuked::new();
+        chip.reset(CLOCK, false);
+        for byte in [0x9F, 0xBF, 0xDF, 0xFF] {
+            chip.write(0, 0, byte);
+        }
+        chip.write(0, 0, 0x80 | 0x06);
+        chip.write(0, 0, 0x08);
+        chip.write(0, 0, 0x90); // channel 0, full volume
+        let mut out = vec![0i32; 8000 * 2];
+        chip.render(&mut out);
+        let (left, right): (Vec<i32>, Vec<i32>) = out
+            .chunks_exact(2)
+            .map(|frame| (frame[0], frame[1]))
+            .unzip();
+        assert_eq!(left, right, "the default mask is mono");
+        assert!(energy(&left) > 0);
+
+        chip.write(0, 1, 0x0F); // right nibble only: the left side goes dark
+        let mut out = vec![0i32; 4000 * 2];
+        chip.render(&mut out);
+        let (left, right): (Vec<i32>, Vec<i32>) = out
+            .chunks_exact(2)
+            .map(|frame| (frame[0], frame[1]))
+            .unzip();
+        // The DAC sum is unipolar, so a fully muted side sits at a constant
+        // floor: flat, while the playing side keeps its tone.
+        let swing = |side: &[i32]| {
+            side.iter().max().copied().unwrap_or(0) - side.iter().min().copied().unwrap_or(0)
+        };
+        assert_eq!(swing(&left), 0, "every channel is masked off the left");
+        assert!(swing(&right) > 0, "the right still carries the tone");
+
+        chip.write(0, 1, 0xF0); // and the mirror image
+        let mut out = vec![0i32; 4000 * 2];
+        chip.render(&mut out);
+        let (left, right): (Vec<i32>, Vec<i32>) = out
+            .chunks_exact(2)
+            .map(|frame| (frame[0], frame[1]))
+            .unzip();
+        assert!(swing(&left) > 0);
+        assert_eq!(swing(&right), 0);
+    }
+
     /// A reset must silence a playing chip and forget its queue.
     #[test]
     fn a_reset_silences_and_forgets() {
@@ -222,7 +307,9 @@ mod tests {
         render(&mut chip, 2000);
 
         chip.write(0, 0, 0x93); // left in the queue on purpose
+        chip.write(0, 1, 0x0F); // and a stereo image
         chip.reset(CLOCK, false);
         assert!(chip.writes.is_empty(), "a reset must clear the queue");
+        assert_eq!(chip.stereo_mask, 0xFF, "and restore the mono power-on mask");
     }
 }

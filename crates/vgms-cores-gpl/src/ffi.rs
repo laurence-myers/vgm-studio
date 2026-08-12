@@ -21,6 +21,7 @@ unsafe extern "C" {
     fn YMPSG_Write(chip: *mut c_void, data: u8);
     fn YMPSG_Clock(chip: *mut c_void);
     fn YMPSG_GetOutput(chip: *mut c_void) -> f32;
+    fn YMPSG_SetMute(chip: *mut c_void, mute: u8);
 
     fn vgms_fmopm_sizeof() -> usize;
     fn vgms_fmopm_alignof() -> usize;
@@ -249,9 +250,21 @@ impl PsgChip {
 
     /// The four DAC levels summed, as upstream's float arithmetic has them --
     /// unipolar, `0.0..=4.0` at the rails.
+    ///
+    /// Idempotent within a clock: `YMPSG_GetOutput` recomputes its per-channel
+    /// levels from the counters each call, so sampling twice with different
+    /// mute masks (the Game Gear stereo split) reads two views of one instant.
     pub(crate) fn output(&mut self) -> f32 {
         // SAFETY: as above; reads chip state and touches nothing else.
         unsafe { YMPSG_GetOutput(self.state.as_ptr()) }
+    }
+
+    /// Masks channels out of the DAC sum (bit `n` silences channel `n`;
+    /// channel 3 is the noise). Upstream's `YMPSG_SetMute` -- a mixer-side
+    /// mask, so the tone and noise state underneath keep advancing.
+    pub(crate) fn set_mute(&mut self, mute: u8) {
+        // SAFETY: as above; writes one byte inside the chip block.
+        unsafe { YMPSG_SetMute(self.state.as_ptr(), mute) }
     }
 }
 
