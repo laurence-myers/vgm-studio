@@ -374,17 +374,26 @@ chip_specs! {
         ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
     make_rf5c68_gens: "rf5c68.libvgm-gens" / "libvgm (Gens)" => Rf5c68,
         ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], 703, configure_rf5c68;
-    // The same device; `flags` is what makes it the 164. It does NOT inherit
-    // the 68's 703: VGMPlay stages the two differently (RF5C68 0xB0 doubled
-    // twice = 2.75, RF5C164 0x80 doubled once = 1.0), so the shared raw scale
-    // that leaves the 68 at 0.364 leaves the 164 at unity. The 2026-08-08 fix
-    // copied 703 onto all four rows and put the 164 at lvl 2.649 (measured,
-    // n=12) -- the sweep caught it 2.65x hot, and 703/2.649 = 265 lands on
-    // this row's derived 256.
-    make_rf5c164: "rf5c164.libvgm" / "libvgm (MAME)" => Rf5c164,
-        ffi::DEVID_RF5C68, 0, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;  // measured: 703 read lvl 2.649 (n=12), so unity
-    make_rf5c164_gens: "rf5c164.libvgm-gens" / "libvgm (Gens)" => Rf5c164,
-        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
+    // The same device, but the Gens core leads: every RF5C164 player in the
+    // lineage runs `scd_pcm.c` for it -- libvgm's own player forces FCC_GENS
+    // when `flags == 1` (vgmplayer.cpp), and the pinned reference (legacy
+    // VGMPlay 0.52) has no other 164 core at all. The two cores also read the
+    // sign-magnitude sample bytes with OPPOSITE polarity (MAME: bit 7 set
+    // adds; Gens: bit 7 set subtracts), so the MAME row against the Gens
+    // reference measured corr 0.2605 at fit gain -0.963 -- the inversion
+    // signature the 2026-08-12 sweep flagged OPEN. (`flags` itself is inert
+    // inside both cores; core choice is the real 68-vs-164 switch.)
+    //
+    // Level does NOT inherit the 68's 703: VGMPlay stages the two differently
+    // (RF5C68 0xB0 doubled twice = 2.75, RF5C164 0x80 doubled once = 1.0), so
+    // the shared raw scale that leaves the 68 at 0.364 leaves the 164 at
+    // unity. The 2026-08-08 fix copied 703 onto all four rows and put the 164
+    // at lvl 2.649 (measured, n=12) -- the sweep caught it 2.65x hot, and
+    // 703/2.649 = 265 lands on this row's derived 256.
+    make_rf5c164: "rf5c164.libvgm" / "libvgm (Gens)" => Rf5c164,
+        ffi::DEVID_RF5C68, ffi::FCC_GENS, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;  // measured: 703 read lvl 2.649 (n=12), so unity
+    make_rf5c164_mame: "rf5c164.libvgm-mame" / "libvgm (MAME)" => Rf5c164,
+        ffi::DEVID_RF5C68, ffi::FCC_MAME, WriteRule::RegisterOrMemoryByPort, [0, 0], LEVEL_UNITY, configure_rf5c164;
 }
 
 /// A chip whose configuration is only the generic fields (clock, rate mode,

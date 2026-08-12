@@ -402,20 +402,14 @@ pub const THRESHOLDS: &[Threshold] = &[
     shared(ChipKind::Ymf278b),
     shared(ChipKind::MultiPcm),
     shared(ChipKind::Upd7759),
+    // The sweep's polarity-inversion OPEN finding, closed 2026-08-12: the
+    // 0.2605 / fit gain -0.963 was our default row running the MAME core
+    // against the reference's Gens core -- the two read the sign-magnitude
+    // sample bytes with opposite polarity. With the Gens core as the 164's
+    // default (specs.rs), corr 0.9994, lvl 1.000, cents +0.5 (n=12).
+    shared(ChipKind::Rf5c164),
     // Shared-lineage but below the ideal, each with its observed score and
     // the band that explains the shortfall.
-    Threshold {
-        chip: ChipKind::Rf5c164,
-        min_correlation: 0.20,
-        max_cents: 10.0,
-        max_dropout: 0.01,
-        known_gap: Some(
-            "OPEN: 0.2605 observed (n=12) with fit gain -0.963 at lvl 1.006 -- \
-             a polarity-inversion signature against the reference, on the \
-             device whose RF5C68 flavour reads corr 1.0000. A driver/binding \
-             question, not a loudness one; see SCORECARD",
-        ),
-    },
     Threshold {
         chip: ChipKind::WonderSwan,
         min_correlation: 0.95,

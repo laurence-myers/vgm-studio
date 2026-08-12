@@ -1347,3 +1347,38 @@ be empty for a sample, and an assertion that quietly judges nothing is the
 under the whole-class filter, *all 24* sampled OPL rips carry the
 free-running marker — a strided OPL sample with a genuinely steady file in
 it is the exception, not the rule.
+
+## 2026-08-12 — RF5C164: the reference plays Gens' core, and Gens subtracts
+
+The level sweep's polarity-inversion OPEN row closes: **corr 0.2605 →
+0.9994** (n=12), lvl 1.000, cents +0.5, drop 0.000, and `Rf5c164` takes a
+plain `shared()` bar.
+
+The signature read exactly as flagged. libvgm's one `DEVID_RF5C68` device
+carries two cores that decode the chip's sign-magnitude sample bytes with
+**opposite polarity**: MAME's `rf5c68.c` *adds* the magnitude when bit 7 is
+set, Gens' `scd_pcm.c` *subtracts* it. Two waveforms one sign flip apart —
+fit gain −0.963 at lvl 1.006, with the correlation's 0.26 remainder being
+the alignment search losing its footing on the inverted pair (the "−8
+cents" was the same noise; in tune at +0.5 once the cores matched).
+
+Which core the reference runs is not a `VGMPlay.ini` choice: legacy VGMPlay
+0.52 has no 164 core option at all — its RF5C164 *is* Gens' PCM core
+(`scd_pcm.c`), with the MAME core reserved for the RF5C68. Modern libvgm
+agrees: its own player forces `FCC_GENS` whenever the device starts with
+`flags == 1` (`vgmplayer.cpp`), i.e. the 68-vs-164 distinction *is* the
+core choice — the `flags` byte itself is read by neither core (the Gens
+side accepts it as an unused `smpl0patch` parameter and hardcodes 0). Our
+spec rows select cores by FCC directly and had the MAME core leading the
+164's list, so the scorecard's default-core measurement compared MAME
+against Gens: same magnitudes (lvl 1.006 — why the level sweep's revert to
+unity was still correct), inverted sign.
+
+The fix is one row swap in `vgms-cores-libvgm/src/specs.rs`: the 164's
+default is now `rf5c164.libvgm` / "libvgm (Gens)" (`FCC_GENS`), with the
+MAME core demoted to the `rf5c164.libvgm-mame` alternate — mirroring
+upstream's routing on both sides of the lineage. The RF5C68 rows are
+untouched (the reference runs MAME for the 68, and that pair already read
+corr 1.0000). Levels stay at unity on both 164 rows: the cores' output
+scales agree, only their signs differed, and a sign flip is inaudible —
+this was a parity fault, never a listening one.
