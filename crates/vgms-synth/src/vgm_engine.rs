@@ -940,8 +940,24 @@ impl VgmEngine {
             return;
         }
         for frame in out.chunks_exact_mut(2) {
+            let mut left = 0i64;
+            let mut right = 0i64;
+            for voice in &mut self.voices {
+                let [l, r] = voice.next_frame();
+                left += i64::from(l);
+                right += i64::from(r);
+            }
+            frame[0] = left.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+            frame[1] = right.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
+
             // Streams write on their own clock, so they are serviced per output
             // frame rather than per command -- that is the whole point of them.
+            // After the frame's render, not before: the reference's loop runs
+            // `daccontrol_update` after each sample's `Resmpl_Execute`, so a
+            // command falling due at sample `n` reaches the chip at `n + 1`.
+            // Delivering it a frame early moves every FIFO underrun on a chip
+            // whose stream races its consumption (the OKIM6258 rips), and each
+            // moved slip re-seeds the ADPCM decode from there on.
             self.due.clear();
             self.streams
                 .advance_frame(&mut self.due, self.huc6280_channel);
@@ -960,16 +976,6 @@ impl VgmEngine {
                     false,
                 );
             }
-
-            let mut left = 0i64;
-            let mut right = 0i64;
-            for voice in &mut self.voices {
-                let [l, r] = voice.next_frame();
-                left += i64::from(l);
-                right += i64::from(r);
-            }
-            frame[0] = left.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
-            frame[1] = right.clamp(i64::from(i16::MIN), i64::from(i16::MAX)) as i16;
         }
     }
 }

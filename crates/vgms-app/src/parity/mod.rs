@@ -413,18 +413,18 @@ pub const THRESHOLDS: &[Threshold] = &[
     // the band that explains the shortfall.
     Threshold {
         chip: ChipKind::Okim6258,
-        min_correlation: 0.92,
-        max_cents: 16.0,
+        min_correlation: 0.95,
+        max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.9327 observed (n=9), REGRESSED from 0.9766 by the DAC-stream \
-             rework (de9ec93) -- bisected 2026-08-12: restoring the old \
-             dac_stream/vgm_engine reads 0.9766 exactly, the 12-bit option \
-             and rate mode are innocent. Per-file: most rows drop a few \
-             points, Knight Arms 02 falls to 0.69, and two files gain a flat \
-             -15 cent offset (Nobunaga 01, Syvalion 01) -- a stream \
-             length/timing detail of the port to find and fix, then restore \
-             the 0.95/2.0 bars",
+            "0.9767 observed (n=9); the divider/flag-dependent tail. The \
+             de9ec93 stream-rework regression (0.9327, Knight Arms 02 at \
+             0.69) was the engine delivering stream writes before the \
+             frame's render where the reference delivers after -- fixed by \
+             matching the reference's order. Still open, pre-dating the \
+             rework: Nobunaga 01 and Syvalion 01 carry a flat -15 cent \
+             offset (and slip-phase-sensitive correlation), measured \
+             identically on the pre-rework code",
         ),
     },
     Threshold {
