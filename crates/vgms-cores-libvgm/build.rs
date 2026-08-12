@@ -352,10 +352,13 @@ const DEVICES: &[Device] = &[
 ///
 /// Still absent, deliberately:
 ///
-/// - **The OPL family as chips of their own** (`YM3812`, `YM3526`, `Y8950`) --
+/// - **The pure-FM OPL chips as chips of their own** (`YM3812`, `YM3526`) --
 ///   out of scope by the owner's decision: OPL plays through our own OPL path
 ///   (`VgmEngine`'s `OplCoreAdapter`). `YMF262` is compiled only as the OPL4's
-///   linked FM half; no OPL chip is registered from this crate.
+///   linked FM half. The `Y8950` *is* enabled (owner's decision, 2026-08-12):
+///   its ADPCM-B half exists in no Nuked/LLE core, so the adapter path played
+///   the sample half of every Y8950 rip as silence -- MAME fmopl with its
+///   delta-T unit is the one core that has it.
 /// - **C219** rides the `C140` spec: the header's type byte picks the device
 ///   at start.
 /// - **ES5505/ES5506**: upstream's `es5506.c` is a stub (a `DEV_DECL` whose
@@ -367,7 +370,13 @@ const ENABLED: &[&str] = &[
     "K054539", "C6280", "C140", "C219", "K053260", "QSOUND", "VBOY_VSU", "ES5503", "X1_010",
     "C352", "GA20", "YM2413", "YM2612", "YM2151", "YM2203", "YM2608", "YM2610", "YMF278B",
     "YMF262", "YMF271", "AY8910", "32X_PWM", "GAMEBOY", "NES_APU", "MSM6295", "POKEY", "SCSP",
-    "WSWAN", "SAA1099", "MIKEY",
+    "WSWAN", "SAA1099", "MIKEY", "Y8950",
+    // Not registered as a chip: compiled only because `oplintf.c` guards its
+    // shared `DeviceLinkIDs` helper with `SNDDEV_YM3812 || SNDDEV_YM3526`
+    // while the Y8950 block references it too -- a Y8950-only selection does
+    // not compile (upstream bug, present at the pin). The YM3526 shares
+    // `fmopl.c` with the Y8950 anyway, so this costs one device table.
+    "YM3526",
 ];
 
 /// Cores we deliberately do not compile, and why.

@@ -1015,6 +1015,72 @@ mod tests {
         assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
     }
 
+    /// The Y8950's two halves, end to end: the FM half keys a note on, and the
+    /// ADPCM-B half plays a `0x88`-loaded sample ROM through the delta-T unit.
+    /// The delta-T is the whole reason this chip is served from libvgm -- the
+    /// adapter-tier cores have no sample unit and played this half as silence.
+    #[test]
+    fn the_y8950_plays_both_its_halves() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::Y8950));
+        chip.reset(3_579_545, false);
+        chip.configure(&ChipSettings::default());
+        assert!(chip.is_started(), "the Y8950 device must start");
+
+        let mut quiet = vec![0i32; 8192];
+        chip.render(&mut quiet);
+        let at_rest = energy(&quiet);
+
+        // FM: modulator + carrier levels, a period, and key-on (channel 0).
+        for (reg, value) in [
+            (0x20u16, 0x01u16),
+            (0x23, 0x01),
+            (0x40, 0x10),
+            (0x43, 0x00),
+            (0x60, 0xF0),
+            (0x63, 0xF0),
+            (0x80, 0x77),
+            (0x83, 0x77),
+            (0xA0, 0x98),
+            (0xB0, 0x31),
+        ] {
+            chip.write(0, reg, value);
+        }
+        let mut fm = vec![0i32; 8192];
+        chip.render(&mut fm);
+        assert!(
+            energy(&fm) > at_rest * 4 + 1000,
+            "the FM half must sound after a key-on (rest {at_rest}, playing {})",
+            energy(&fm)
+        );
+
+        // ADPCM-B: an 0x88 ROM lands through y8950_alloc_pcmrom/write_pcmrom,
+        // and the delta-T plays it. Arbitrary bytes decode to audible noise.
+        chip.write(0, 0xB0, 0x11); // key the FM note off again
+        let rom: Vec<u8> = (0..0x10000u32).map(|at| (at * 37) as u8).collect();
+        chip.load_rom(0x88, rom.len() as u32, 0, &rom);
+        for (reg, value) in [
+            (0x08u16, 0x01u16), // control 2: external memory is ROM type
+            (0x09, 0x00),       // start address 0
+            (0x0A, 0x00),
+            (0x0B, 0xFF), // stop address: far end
+            (0x0C, 0xFF),
+            (0x10, 0xFF), // delta-N
+            (0x11, 0x7F),
+            (0x12, 0xFF), // level
+            (0x07, 0xA0), // control 1: START | MEMDATA (play external memory)
+        ] {
+            chip.write(0, reg, value);
+        }
+        let mut adpcm = vec![0i32; 8192];
+        chip.render(&mut adpcm);
+        assert!(
+            energy(&adpcm) > at_rest * 4 + 1000,
+            "the delta-T must sound playing the loaded ROM (rest {at_rest}, \
+             playing {})",
+            energy(&adpcm)
+        );
+    }
+
     /// Non-FM chips run in HIGHEST mode: a core whose derived rate falls below
     /// 44100 synthesises at 44100 instead, as the reference's ChipSmplMode=3
     /// does. The WonderSwan is the audible case -- 24 kHz native at the stock

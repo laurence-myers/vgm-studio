@@ -299,6 +299,21 @@ chip_specs! {
         ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], 516, configure_none;  // measured 2.016 (n=8, 0.4744..0.5093)
     make_ym2151: "ym2151.libvgm" / "libvgm (MAME)" => Ym2151,
         ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], 514, configure_none;  // measured 2.008 (0.498/1.000 vs the reference, n=12; 0.4973 direct, n=8)
+    // The one OPL-family chip served from this crate (owner's decision,
+    // 2026-08-12): MAME fmopl is the only core with the Y8950's ADPCM-B
+    // (delta-T) half -- the Nuked/LLE adapters have no sample unit, so the
+    // speech half of every Y8950 rip was silent. The reference always plays
+    // this same core, so the pairing is also the parity pairing. Level unity
+    // until the harness measures it; `0x88` blocks land through the default
+    // memory space (`y8950_alloc_pcmrom`/`y8950_write_pcmrom`, user 0).
+    //
+    // The id lives in the OPL family's config slot (`opl3.*`), as every OPL
+    // row must: config stores one choice per slot. Registered for the Y8950
+    // alone, so if a user picks it for the *family*, each chip resolves it
+    // per chip -- the Y8950 gets this core, the others fall back to their
+    // default. That per-chip fallback is `CoreRegistry::resolve`'s.
+    make_y8950: "opl3.libvgm-y8950" / "libvgm (MAME + ADPCM)" => Y8950,
+        ffi::DEVID_Y8950, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     make_ymf271: "ymf271.libvgm" / "libvgm (MAME)" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     // The OPL4: its wave half is this device, its FM half a linked YMF262.
@@ -636,6 +651,12 @@ mod tests {
     /// Registry ids are unique and slot-prefixed, as `vgms-synth` requires --
     /// and each chip's default row comes before its alternative-core rows,
     /// because registration order is priority order.
+    ///
+    /// The prefix is the chip's *config slot*, which for most chips is its own
+    /// slug -- but an OPL-family chip (the Y8950) shares the family slot, so
+    /// its row takes the alternate-core shape there (`opl3.libvgm-y8950`) and
+    /// is exempt from the plain-default-first rule: the family's plain default
+    /// is the built-ins' Nuked-OPL3 row, not one of ours.
     #[test]
     fn every_spec_has_a_well_formed_unique_id() {
         let mut seen = std::collections::BTreeSet::new();
@@ -643,15 +664,22 @@ mod tests {
             std::collections::BTreeMap::new();
         for spec in SPECS {
             assert!(seen.insert(spec.id), "duplicate id {}", spec.id);
-            let default_id = format!("{}.{}", spec.kind.slug(), crate::CORE_SUFFIX);
+            let slot = vgms_synth::registry::slot_slug(spec.kind);
+            let default_id = format!("{slot}.{}", crate::CORE_SUFFIX);
             assert!(
-                spec.id == default_id || spec.id.starts_with(&format!("{default_id}-")),
+                spec.id == default_id
+                    || spec.id.starts_with(&format!("{default_id}-"))
+                    || spec
+                        .id
+                        .starts_with(&format!("{slot}.{}-", crate::CORE_SUFFIX)),
                 "{} must be <slot>.libvgm or <slot>.libvgm-<core>",
                 spec.id
             );
-            first_of.entry(spec.kind.slug()).or_insert(spec.id);
+            if slot == spec.kind.slug() {
+                first_of.entry(spec.kind.slug()).or_insert(spec.id);
+            }
         }
-        // The first row seen for every chip is its plain default id.
+        // The first row seen for every own-slot chip is its plain default id.
         for (slug, first_id) in first_of {
             assert_eq!(
                 first_id,

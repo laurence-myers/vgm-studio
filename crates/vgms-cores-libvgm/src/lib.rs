@@ -23,10 +23,13 @@
 //!
 //! # What is not here
 //!
-//! **OPL, by the owner's decision.** libvgm's YM3812/YM3526/Y8950/YMF262 cores
-//! are not compiled: OPL plays through our own OPL path (`VgmEngine`'s
+//! **Pure-FM OPL, by the owner's decision.** libvgm's YM3812/YM3526/YMF262
+//! cores are not compiled: OPL plays through our own OPL path (`VgmEngine`'s
 //! `OplCoreAdapter`), which carries the buffered-write spacing, muting and
-//! panning the DRO editor depends on.
+//! panning the DRO editor depends on. The **Y8950 is the exception** (owner's
+//! decision, 2026-08-12): its ADPCM-B half exists only in MAME fmopl's delta-T
+//! unit, so it is served from here and promoted over the adapter tier -- the
+//! adapter played the sample half of every Y8950 rip as silence.
 //!
 //! **libvgm's own Nuked cores**, which our submodules already serve -- see
 //! `build.rs`'s `CORES_SERVED_ELSEWHERE`.

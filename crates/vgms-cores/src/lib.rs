@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-or-later
+﻿// SPDX-License-Identifier: GPL-2.0-or-later
 //! The core providers every VGM Studio build shares, registered in one place.
 //!
 //! The native app and the wasm worklet each build a [`CoreRegistry`] and install
@@ -22,13 +22,17 @@ use vgms_synth::CoreRegistry;
 /// Order is priority order:
 ///
 /// - **libvgm first** -- the source of truth and the default for every chip it
-///   serves. It carries no OPL rows, so the built-ins' Nuked-OPL3 stays that
-///   family's default.
+///   serves. It carries no pure-FM OPL rows, so the built-ins' Nuked-OPL3 stays
+///   that family's default.
 /// - **Nuked and the GPL die-sims behind it**, as picker options: CQM (Creative's
 ///   YMF262 clone), the OPN2/OPM Nuked flavours, the LLE die and Nuked-OPLL/PSG.
-/// - **Three promotions** where Nuked stays the default over libvgm. A promotion
-///   rather than registration order, because the Nuked OPLL shares its crate with
-///   the PSG and the LLE, which must stay *behind* libvgm.
+/// - **Promotions** where the right default is not the registration order. Nuked
+///   stays the default over libvgm for four chips (a promotion rather than
+///   registration order, because the Nuked OPLL shares its crate with the PSG
+///   and the LLE, which must stay *behind* libvgm); and the libvgm Y8950 goes
+///   *ahead of the built-in OPL row*, because only its MAME fmopl core has the
+///   chip's ADPCM-B half -- on the adapter tier the sample half of every Y8950
+///   rip was silent.
 pub fn register_common_cores(registry: &mut CoreRegistry) {
     vgms_cores_libvgm::register(registry);
     vgms_cores_nuked::register(registry);
@@ -41,6 +45,11 @@ pub fn register_common_cores(registry: &mut CoreRegistry) {
     // SN76489 and runs far above realtime, so it is worth the promotion --
     // the same reasoning as the three Nuked FM cores above.
     registry.promote(ChipKind::Sn76489, "sn76489.nuked-psg");
+    // The Y8950 goes the other way: the built-in OPL row registered before any
+    // provider could, but Nuked-OPL3 has no ADPCM-B unit and libvgm's MAME
+    // fmopl does, so the libvgm row leads. The family stays on Nuked -- this
+    // moves one chip, not the OPL selector.
+    registry.promote(ChipKind::Y8950, "opl3.libvgm-y8950");
 }
 
 #[cfg(test)]
@@ -65,12 +74,15 @@ mod tests {
             "libvgm should serve SegaPCM after registration"
         );
 
-        // The four deliberate promotions: Nuked stays the default over libvgm.
+        // The deliberate promotions: Nuked stays the default over libvgm for
+        // four chips, and the libvgm Y8950 (the one core with the ADPCM-B
+        // half) leads the built-in OPL row.
         for (chip, id) in [
             (ChipKind::Ym2612, "ym2612.nuked"),
             (ChipKind::Ym2151, "ym2151.nuked"),
             (ChipKind::Ym2413, "ym2413.nuked"),
             (ChipKind::Sn76489, "sn76489.nuked-psg"),
+            (ChipKind::Y8950, "opl3.libvgm-y8950"),
         ] {
             assert_eq!(
                 registry.default_for(chip).map(|info| info.id),
@@ -79,6 +91,13 @@ mod tests {
                 chip.name()
             );
         }
+        // The Y8950 promotion moves one chip, not the family: the other OPL
+        // chips keep the built-in Nuked-OPL3 default.
+        assert_eq!(
+            registry.default_for(ChipKind::Ym3812).map(|info| info.id),
+            Some("opl3.nuked"),
+            "the YM3812 stays on the OPL family default"
+        );
     }
 
     #[test]

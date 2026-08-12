@@ -1,4 +1,4 @@
-//! The real-core end-to-end: a synthetic file, the app's own registry, and
+﻿//! The real-core end-to-end: a synthetic file, the app's own registry, and
 //! audio out the other end.
 //!
 //! `vgms-synth`'s engine tests run against a stub (that crate ships no core of
@@ -61,7 +61,9 @@ fn the_default_sn76489_is_nuked_psg_and_makes_sound() {
 
 /// Every libvgm-served chip is that chip's default -- except the four the
 /// owner named back to Nuked -- and every default `VgmEngine` can build
-/// actually builds. OPL keeps its own Nuked-OPL3 default, not a libvgm core.
+/// actually builds. OPL keeps its own Nuked-OPL3 default, not a libvgm core,
+/// with one exception the owner carved out (2026-08-12): the Y8950 leads with
+/// libvgm's MAME fmopl, the only core carrying its ADPCM-B half.
 #[test]
 fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
     vgms_app::install_cores();
@@ -81,10 +83,18 @@ fn libvgm_leads_every_chip_it_serves_and_opl_is_untouched() {
             continue;
         };
         if vgms_synth::registry::is_opl(chip) {
+            let expected = if chip == vgms_core::ChipKind::Y8950 {
+                // The ADPCM-B exception: only libvgm's MAME fmopl has the
+                // chip's sample half, so it leads this one chip while the
+                // family stays on Nuked-OPL3.
+                "opl3.libvgm-y8950"
+            } else {
+                "opl3.nuked"
+            };
             assert_eq!(
                 default.id,
-                "opl3.nuked",
-                "{}: OPL keeps Nuked-OPL3",
+                expected,
+                "{}: the OPL default moved",
                 chip.name()
             );
             continue;
