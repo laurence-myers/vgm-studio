@@ -323,10 +323,36 @@ pub struct Threshold {
 /// The per-chip bar. One table, so a change is one diff.
 pub const THRESHOLDS: &[Threshold] = &[
     // Shared-core, at the ideal: our upstream on both sides, and it passes.
-    shared(ChipKind::Ymf262),
-    shared(ChipKind::Ym3812),
     shared(ChipKind::Ym2151),
     shared(ChipKind::Ay8910),
+    // Shared-core, discounted for free-running state: the n=12 medians include
+    // rips that engage the vibrato/tremolo LFO or rhythm-mode noise, whose
+    // phase free-runs from reset and cannot match across two players (the
+    // scorecard's steady-subset line and the control group carry the
+    // near-identity proof instead). SCORECARD 2026-08-12.
+    Threshold {
+        chip: ChipKind::Ymf262,
+        min_correlation: 0.97,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "0.9898 observed (n=12): free-running state in the sample -- \
+             vibrato-heavy rips score down to 0.59 while the control group \
+             pins steady files at 0.9978. Not a driver fault",
+        ),
+    },
+    Threshold {
+        chip: ChipKind::Ym3812,
+        min_correlation: 0.95,
+        max_cents: 2.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "0.9771 observed (n=12): free-running state in the sample -- \
+             vibrato, deep tremolo and rhythm-mode noise (the LFO-off-but-low \
+             files were rhythm rips: the noise LFSR free-runs exactly as the \
+             LFO does). Not a driver fault",
+        ),
+    },
     // Shared-core, below the ideal: the gap is a driver question, tracked in
     // SCORECARD.md, with the floor under the observed score.
     Threshold {

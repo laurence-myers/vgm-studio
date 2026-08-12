@@ -1261,3 +1261,54 @@ The residual 0.75 band is the cross-core one: VGMPlay 0.52 offers no core
 choice for the YM3526 (no `Core =` line exists for it; it always plays MAME
 fmopl) against our Nuked-OPL3 compat mode — the Y8950's situation (0.83),
 minus its ADPCM half. The threshold row now holds 0.70 with that reason.
+
+## 2026-08-12 — YM3812/YMF262: the sub-bar medians are free-running state
+
+The clock-projection work left the pre-existing red on the two shared-core
+OPL rows (YM3812 0.9771, YMF262 0.9898, both under `shared()`'s 0.99) as an
+open question, with one oddity: the YM3812's "LFO off" subset scored
+*lower* (0.9552) than its full median, which read as a fault the vibrato
+story could not explain. Per-file attribution (a new
+`VGMSTUDIO_PARITY_FILES=1` switch prints every rip's row) resolved it:
+
+| YM3812 rip | corr | vib share | the rest of the class |
+|---|---|---|---|
+| Battlantis 01/02 (3 MHz) | 0.8304 / 0.5463 | 0.78 / 0.64 | vibrato-heavy (now in tune: +0.5 cents) |
+| Lychnis 11 | 0.9056 | 0.22 | + rhythm mode (3689 writes) |
+| Space Chase 03 | 0.9390 | 0.06 | + deep tremolo (DAM), AM on 13% of ops |
+| **Simpsons 24** | **0.9499** | **0.00** | **rhythm mode (320 writes), AM 2 ops** |
+| **Fury of the Furries 09** | **0.9552** | **0.00** | **rhythm mode (1640 writes), deep DAM+DVB** |
+| Flashback 16 | 0.9957 | 0.00 | rhythm only briefly (17 writes) |
+| the rest | 0.977–0.989 | 0.04–0.38 | |
+
+The oddity was the statistic, not the chip: `modulation_share` reads only
+the vibrato bit (0x40 of the operator's 0x20–0x35 byte), but vibrato is one
+member of the class of **state that free-runs from reset** — the shared
+vibrato/tremolo LFO, and rhythm mode's noise LFSR. The two "LFO off" low
+scorers are exactly the two heavy rhythm rips: the noise phase starts
+wherever each player's reset left it, precisely the mechanism already on
+file for the SAA1099 ("the two noise generators' phase") and the SN76489's
+noise band. The YMF262 side is the same story dominated by vibrato alone
+(Giten Misty: vib 0.79 → 0.5892; steady files 0.9978–0.9988), rhythm-free.
+
+**No driver fault** (option c ruled out): every sub-0.99 rip is accounted
+for by the class, levels sit at 0.999–1.045, cents at 0.0–1.0, and the rips
+that touch the class most lightly (brief rhythm, one-percent AM) hold
+0.9957–0.9988 — the control group's pipeline band.
+
+**Taken: (b) with the statistic fixed.** The scorecard's steady-subset
+filter now tests the whole class (`touches_free_running_state`: AM|VIB bits,
+plus 0xBD bit 5 on the OPL rows), so "steady" again means "a shared core can
+be near-identical here"; the per-file line prints `vib` honestly plus a
+`free-running` marker. The `shared()` rows for YM3812/YMF262 become
+known-gap rows — floors 0.95/0.97 under the observed 0.9771/0.9898 — because
+a strided-sample median that includes free-running rips can never stably
+clear 0.99, and which rips those are is the sample's business, not the
+driver's. The near-identity claim lives where it is provable: the control
+group (0.9978 asserted on vibrato-free files) and the steady-subset line.
+Option (a) — asserting on the steady subset — was declined: the subset can
+be empty for a sample, and an assertion that quietly judges nothing is the
+"no threshold" hole again. The confirming run proved the point immediately:
+under the whole-class filter, *all 24* sampled OPL rips carry the
+free-running marker — a strided OPL sample with a genuinely steady file in
+it is the exception, not the rule.

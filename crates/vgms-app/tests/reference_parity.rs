@@ -312,6 +312,44 @@ fn modulation_share(path: &Path, chip: ChipKind) -> Option<f64> {
     (operators > 0).then(|| vibrato as f64 / operators as f64)
 }
 
+/// Whether any write engages state that free-runs from reset: the vibrato *or
+/// tremolo* LFO, or -- on the OPL family -- rhythm mode, whose noise LFSR
+/// free-runs the same way. `None` when the chip has no rule here.
+///
+/// [`modulation_share`] measures vibrato alone, which is the loudest member of
+/// this class but not the whole of it: the 2026-08-12 investigation found
+/// rhythm-mode rips (Simpsons, Fury of the Furries) scoring 0.95 with the
+/// vibrato share reading 0.00 -- the noise phase starts wherever each player's
+/// reset left it, exactly as the LFO's does. The scorecard's steady subset
+/// filters on this whole class, so "steady" actually means "a shared core can
+/// be near-identical here".
+fn touches_free_running_state(path: &Path, chip: ChipKind) -> Option<bool> {
+    use vgms_core::vgm::stream::VgmCommand;
+    // The OPN/OPM rule is unchanged: their LFO switch is what modulation_share
+    // reads, and they keep their noise/SSG questions out of this filter.
+    if !matches!(chip, ChipKind::Ymf262 | ChipKind::Ym3812) {
+        return modulation_share(path, chip).map(|share| share > 0.0);
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let name = path.file_name()?.to_string_lossy().to_string();
+    let file = vgms_core::vgm::file::read(&name, &bytes).ok()?;
+    let stream = file.stream()?;
+    for command in (0..stream.len()).filter_map(|index| stream.get(index)) {
+        if let VgmCommand::Write { addr, data, .. } = command {
+            let register = addr & 0xff;
+            // AM (bit 7) or VIB (bit 6) on an operator's 0x20-0x35 byte.
+            if (0x20..=0x35).contains(&register) && data & 0xc0 != 0 {
+                return Some(true);
+            }
+            // 0xBD bit 5: rhythm mode, the noise generator's switch.
+            if register == 0xbd && data & 0x20 != 0 {
+                return Some(true);
+            }
+        }
+    }
+    Some(false)
+}
+
 /// The reference, or a printed reason and `None`.
 fn reference() -> Option<Reference> {
     match Reference::from_env() {
@@ -660,15 +698,39 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
                 // from, which is the one thing a flagged pair has to say.
                 parity::dump_pair(&short(original), &ours, &theirs);
             }
+            // Per-file attribution, off by default: the medians say which
+            // chip, this says which rip. Three investigations in a row needed
+            // it, so it earned a switch.
+            if std::env::var_os("VGMSTUDIO_PARITY_FILES").is_some() {
+                println!(
+                    "    {:<56} corr {:.4}  lvl {:.3}  cents {}  vib {}{}",
+                    short(original),
+                    score.worst_correlation(),
+                    score.channels[0].rms_ratio,
+                    score
+                        .worst_cents()
+                        .map_or_else(|| "  --".to_owned(), |c| format!("{c:+.1}")),
+                    modulation_share(path, chip)
+                        .map_or_else(|| "--".to_owned(), |m| format!("{m:.2}")),
+                    // Vibrato is only the loudest member of the free-running
+                    // class; the marker says the file is out of the steady set
+                    // even when the vibrato share reads 0.00.
+                    match touches_free_running_state(path, chip) {
+                        Some(true) => "  free-running",
+                        _ => "",
+                    },
+                );
+            }
             correlations.push(score.worst_correlation());
             dropouts.push(score.worst_dropout());
             gains.push(score.channels[0].gain);
             levels.push(score.channels[0].rms_ratio);
-            // Files that leave the chip's LFO alone are scored separately:
+            // Files that leave every piece of free-running state alone --
+            // vibrato and tremolo LFO, rhythm noise -- are scored separately:
             // that is where "the same core driven the same way" is actually
             // true, and where a shared-core bar can mean near-identity. See
-            // `modulation_share`.
-            if modulation_share(path, chip) == Some(0.0) {
+            // `touches_free_running_state`.
+            if touches_free_running_state(path, chip) == Some(false) {
                 unmodulated.push(score.worst_correlation());
             }
             if let Some(measured) = score.worst_cents() {
@@ -704,7 +766,8 @@ fn every_cored_chip_matches_the_reference_within_its_band() {
         );
         if let Some(steady) = steady {
             println!(
-                "   {} of {} files leave the LFO off; those score {steady:.4}",
+                "   {} of {} files touch no free-running state (LFO, rhythm noise); \
+                 those score {steady:.4}",
                 unmodulated.len(),
                 correlations.len()
             );
