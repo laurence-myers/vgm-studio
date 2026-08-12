@@ -195,6 +195,12 @@ pub struct VgmEngine {
     /// bank: where the next `0x8n` command reads its sample byte. `0xE0` seeks
     /// it; each `0x8n` advances it.
     pcm_pos: usize,
+    /// A shadow of each HuC6280 instance's channel-select register (its
+    /// register 0), fed by every write that passes through. A DAC stream's
+    /// channel switch restores this value afterwards -- the reference reads the
+    /// register back from the core; the shadow is that value without a read
+    /// path through the FFI.
+    huc6280_channel: [u8; 2],
     clock: FrameClock,
     /// The next command to execute.
     index: usize,
@@ -309,6 +315,7 @@ impl VgmEngine {
             streams: DacStreams::new(output_rate),
             due: Vec::new(),
             pcm_pos: 0,
+            huc6280_channel: [0, 0],
             clock: FrameClock::new(output_rate, vgms_core::vgm::VGM_SAMPLE_RATE),
             index: 0,
             pending: 0,
@@ -446,6 +453,7 @@ impl VgmEngine {
         self.streams.clear();
         self.due.clear();
         self.pcm_pos = 0;
+        self.huc6280_channel = [0, 0];
         self.clock.reset();
         self.index = 0;
         self.pending = 0;
@@ -749,18 +757,19 @@ impl VgmEngine {
             }
             0x94 => self.streams.stop(id),
             0x95 => {
-                // The fast form: play block `n` of the bound type from its
-                // start to its end. Bit 0 of the flags loops it.
+                // The fast form: play block `n` of the bound type, addressed as
+                // an offset into the whole concatenated bank with a byte-count
+                // length -- upstream's `bankOfs`/`bankSize` plus
+                // `DCTRL_LMODE_BYTES`. Flag bit 0 loops, bit 4 reverses.
                 let bank_type = self.streams.bank_type(id);
                 let block = usize::from(u16_at(0));
-                let data = self
-                    .banks
-                    .nth(bank_type, block)
-                    .map(<[u8]>::to_vec)
-                    .unwrap_or_default();
-                let loops = byte(2) & 0x01 != 0;
-                self.streams
-                    .start(id, &data, 0, if loops { 0x80 } else { 0x00 }, 0);
+                if let Some((offset, size)) = self.banks.nth_offset(bank_type, block) {
+                    let data = self.banks.concatenated(bank_type);
+                    let flags = byte(2);
+                    let mode = 0x04 | (flags & 0x10) | ((flags & 0x01) << 7);
+                    self.streams
+                        .start(id, &data, offset as u32, mode, size as u32);
+                }
             }
             _ => {}
         }
@@ -768,6 +777,12 @@ impl VgmEngine {
 
     /// Routes a register write to the core that owns it.
     fn write(&mut self, target: ChipTarget, addr: u16, data: u16, replay: bool) {
+        // Shadow the HuC6280's channel-select register on the way past, so a
+        // DAC stream can restore the song's selected channel after its own
+        // channel switch (the reference reads the register back instead).
+        if target.kind == vgms_core::vgm::ChipKind::HuC6280 && target.port == 0 && addr == 0 {
+            self.huc6280_channel[usize::from(target.instance != 0)] = data as u8;
+        }
         for voice in &mut self.voices {
             if voice.accepts(target) {
                 if replay {
@@ -792,6 +807,20 @@ impl VgmEngine {
         // Bit 31 of the size field marks a block for the second chip.
         let second_chip = bytes.get(HEADER - 1).is_some_and(|byte| byte & 0x80 != 0);
         let instance = u8::from(second_chip);
+
+        // Stream banks and their tables load on the first pass only: a loop
+        // wrap re-executes the commands, and re-appending the blocks would
+        // grow the bank each pass -- a later play-to-end stream would then run
+        // on into the duplicate. The reference skips types 0x00-0x7F whenever
+        // `_curLoop > 0`; ROM and RAM writes still replay (idempotent).
+        if self.loops_done > 0
+            && matches!(
+                BlockKind::of(kind),
+                BlockKind::Stream | BlockKind::CompressedStream | BlockKind::DecompressionTable
+            )
+        {
+            return;
+        }
 
         match BlockKind::of(kind) {
             BlockKind::Stream => self.banks.push(kind, payload.to_vec()),
@@ -914,7 +943,8 @@ impl VgmEngine {
             // Streams write on their own clock, so they are serviced per output
             // frame rather than per command -- that is the whole point of them.
             self.due.clear();
-            self.streams.advance_frame(&mut self.due);
+            self.streams
+                .advance_frame(&mut self.due, self.huc6280_channel);
             // By index, not by `mem::take`: taking the Vec would drop its
             // allocation each frame, and this runs inside the audio callback.
             for at in 0..self.due.len() {
@@ -923,10 +953,10 @@ impl VgmEngine {
                     ChipTarget {
                         kind: write.target.kind,
                         instance: write.target.instance,
-                        port: write.target.port,
+                        port: write.port,
                     },
-                    u16::from(write.target.register),
-                    u16::from(write.value),
+                    write.addr,
+                    write.value,
                     false,
                 );
             }
@@ -1888,11 +1918,11 @@ mod tests {
         stream.push(0x92);
         stream.push(0x00);
         stream.extend_from_slice(&11_025u32.to_le_bytes());
-        // 0x93: start at 0, length mode 0 (to the end), length ignored.
+        // 0x93: start at 0, length mode 3 (play to the end), length ignored.
         stream.push(0x93);
         stream.push(0x00);
         stream.extend_from_slice(&0u32.to_le_bytes());
-        stream.push(0x00);
+        stream.push(0x03);
         stream.extend_from_slice(&0u32.to_le_bytes());
         // Then a second of silence for it to play into, and the end.
         stream.extend_from_slice(&[0x61, 0x44, 0xAC, 0x66]);

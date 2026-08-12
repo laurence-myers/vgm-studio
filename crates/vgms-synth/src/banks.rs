@@ -212,6 +212,27 @@ impl Banks {
             .map(|(_, data)| data.as_slice())
     }
 
+    /// The `index`th block's `(offset, length)` within the type's concatenated
+    /// bank -- how `0x95` names a sound: the reference keeps a `bankOfs` table
+    /// and starts the stream at that offset of the whole bank, so a stream that
+    /// runs past its block continues into the next one rather than stopping.
+    #[must_use]
+    pub fn nth_offset(&self, kind: u8, index: usize) -> Option<(usize, usize)> {
+        let mut offset = 0usize;
+        let mut seen = 0usize;
+        for (block_kind, data) in &self.blocks {
+            if *block_kind != kind {
+                continue;
+            }
+            if seen == index {
+                return Some((offset, data.len()));
+            }
+            offset += data.len();
+            seen += 1;
+        }
+        None
+    }
+
     /// Every block of type `kind` end to end, which is how a stream bound with
     /// `0x91` addresses its data: the spec's offsets are into the type's whole
     /// concatenated bank, not into one block.
