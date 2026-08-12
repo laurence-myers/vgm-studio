@@ -1,12 +1,13 @@
 # Gap audit: VGMPlay reference against our engine
 
 Audit date: 2026-08-12. Updated: 2026-08-12, after the fix branch.
+Updated again the same day: the OKIM6258 regression is closed, and the M7 fix landed.
 Method: a 13-agent workflow. Six agents examined six areas. Six verifier agents tried to refute each finding. One critic agent searched for areas without examination.
 Reference: VGMPlay 0.52 at `E:\Code\Cpp\vgmplay-libvgm`, with the pinned configuration `docs/vgm-multichip-2026-07/parity/VGMPlay.ini`.
 The two libvgm pins are almost equal. Our pin is one commit newer. That commit does not change the emulation cores.
 
 Result of the audit: 38 confirmed findings, 31 gaps after merge of duplicates.
-Result after the fix branch (`vgmplay-parity-fixes-2026-08`, same day): **12 gaps fixed, 3 gaps planned, 16 gaps open, 1 new regression found**. The sections below list only the open items. The fixed items are in the record directly below.
+Result after the fix branch (`vgmplay-parity-fixes-2026-08`, same day): **13 gaps fixed, 2 gaps planned, 16 gaps open, 1 regression found and fixed**. The sections below list only the open items. The fixed items are in the record directly below.
 
 Note: this report uses ASD-STE100 style. Chip names, file names, and register names are technical names.
 
@@ -31,6 +32,7 @@ results come from the reference-parity harness (n=12, or n=9 for the OKIM6258).
 | L3: OKIM6258 12-bit option was not set | `OPT_MSM6258_FORCE_12BIT` in the default option bits | `56aa513` | — |
 | L5: seven DAC-stream flag details | Fixed inside the H1 port | `de9ec93` | — |
 | L6: loop wraps added data blocks again | Fixed inside the H1 port | `de9ec93` | — |
+| M7: SN76489 header noise parameters | The engine's default core selection now reads the header settings (`core_for_file`). A file with non-Sega noise parameters gets the libvgm Maxim core, which maps all three fields. An explicit user selection stays the winner | `94fb401` | The corpus SN76489 sample has only Sega-default headers, so the row does not move (0.358). A unit test pins the selection |
 
 The parity bars moved with the measurements (`4ce29f9`, `f90d268`): the
 YM2612, Y8950, and WonderSwan now take the shared 0.99 bar; the YM2413 bar
@@ -42,19 +44,49 @@ player's driver — is disproven. Both layers of that gap were ours.
 The owner redirected these to plan documents; the designs are agreed there.
 
 - **H5. DRO v1 opcode tests** (`0x01`/`0x04` disambiguation). A verbatim port misreads our own tool-written v1 files; the corrected design is in `GAP-H5-DRO-V1-PLAN.md`.
-- **M3. T6W28 linking** and **M7. SN76489 header noise parameters**. Both need header-aware core selection (and, for the T6W28, a cross-instance device link); the design is in `GAP-SN76489-CLUSTER-PLAN.md`.
+- **M3. T6W28 linking**. The header-aware selection seam now exists (the M7 fix, `94fb401`), but the T6W28 also needs a cross-instance device link: the second chip's config must carry the first chip's live device pointer. The design is in `GAP-SN76489-CLUSTER-PLAN.md`.
 
-## New issue found by the fixes
+## New issue found by the fixes — now closed
 
-**OKIM6258 regression: 0.9766 before the branch, 0.9327 after.** The H1
-DAC-stream rework causes it, on X68000 stream files. The bisect is conclusive:
-the old stream engine reads 0.9766 exactly, and the L3 option bit and the M2
-rate mode are innocent (the OKIM6258 core ignores the rate mode). Per-file
-evidence: most files drop a few points, one file falls to 0.69, and two files
-gain a new flat −15-cent pitch offset — the sign of a stream length or timing
-detail that diverges from the reference. The parity bar is lowered to 0.92 as
-a tripwire, with the evidence in its note (`f90d268`). A separate fix session
-is running for this item.
+**OKIM6258 regression: 0.9766 before the branch, 0.9327 after H1. Closed at
+1.0000 (n=9).** Two separate causes were found, and neither was in the H1
+port itself.
+
+**Cause 1: the stream delivery order (`0e7d779`).** The H1 port's timing was
+correct, but our mixer serviced the DAC streams *before* each frame's render.
+The reference updates them *after* the render, so a write that falls due at
+sample n reaches the chip at sample n+1. On the X68000 files the stream
+supplies bytes at almost exactly the chip's ADPCM usage rate (a difference
+near 128 ppm). The one-frame shift then moves the moments when the chip's
+8-byte data buffer becomes empty. At each such moment the chip plays one byte
+again, which changes the ADPCM decoder state — and all audio after it is
+different. The old stream engine had no prestep, which cancelled the order
+error by accident; that is why the bisect showed the old code as "correct".
+The fix makes the mixer render the frame first, then service the streams.
+Measured: the 0.69 file (Knight Arms 02) and the two other regressed files
+read 1.0000; the row returned to 0.9767.
+
+**Cause 2: the "−15-cent pitch offset" was not pitch (`d0160cb`).** It
+pre-dated the branch: the pre-H1 code measures the same offset. The harness's
+native-rate probe reset the core without the header chip settings, so every
+OKIM6258 file probed at the default-divider rate (7813 Hz). The divider-512
+files (true rate 15625 Hz) then rendered through both sides' resamplers — the
+comparison the native-rate probe exists to avoid. Our accurate resampler has
+a group delay near 15 samples, and the cents metric fits each window with no
+lag alignment, so a constant lag of D samples reads as approximately D cents
+at this render rate. With the probe configured as the engine is, eight of the
+nine files read 1.0000 with cents 0 — the "offset" on Nobunaga 01 included.
+
+**Bar restored and raised (`d0160cb`):** 0.99 / 2.0 cents on the measured
+1.0000 median (the old bar was 0.95). The full-roster sweep passes with no
+other row moved. One residual stays, recorded in the row's known-gap note:
+Syvalion 01 reads 0.72 with our accurate default resampler. That file changes
+the clock divider two times during the song and the chip never stops; the two
+sides' resamplers align the rate changes differently, which moves the
+buffer-empty moments and re-seeds the ADPCM decoder. With
+`VGMSTUDIO_PARITY_RESAMPLER=linear` (the reference's own conversion shape,
+see L14) the file reads 1.0000, so the emulation is correct and the gap is
+the resampler comparison, not the core. The row's median absorbs the file.
 
 ---
 
@@ -95,11 +127,10 @@ DOSBox writes the register dump in the wrong order. The reference writes 0x105 =
 
 ## Known residuals, updated state
 
-- **Closed at 1.0000**: Y8950 (was 0.8287), WonderSwan (was 0.9888).
+- **Closed at 1.0000**: Y8950 (was 0.8287), WonderSwan (was 0.9888), OKIM6258 (was 0.9766, then the 0.9327 regression — both causes found and fixed, see the new-issue section; one file's resampler residual is in the known-gap note).
 - **Closed at the shared ideal**: YM2612 0.9922 (was 0.904).
 - **Nearly closed**: YM2413 0.9896 (was 0.977). The last 0.004 is open.
-- **Regressed, under repair**: OKIM6258 0.9327 (was 0.9766). See the new-issue note above.
-- **Unchanged, contributors known**: SN76489 0.358 — the H3 fix removes one contributor for future rips; M3 and M7 (planned) hold the others; the core noise texture stays the primary cause.
+- **Unchanged, contributors known**: SN76489 0.358 — the H3 fix removes one contributor for future rips; the M7 fix (`94fb401`) removes another for files that declare non-Sega noise parameters (the current corpus sample has none, so the number does not move); M3 (planned) holds the T6W28 case; the core noise texture stays the primary cause.
 - **Unchanged, explained**: YMF262 0.9898 and YM3812 0.9771 (free-running LFO and noise phase), YM3526 0.7533 (cross-core band), SAA1099 0.8471 (noise phase), ES5503 −6.5 cents (cause still open; the pin check killed the old core-revision theory).
 
 ## One refuted claim
