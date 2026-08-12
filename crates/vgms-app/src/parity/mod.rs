@@ -355,25 +355,21 @@ pub const THRESHOLDS: &[Threshold] = &[
     },
     // Shared-core, below the ideal: the gap is a driver question, tracked in
     // SCORECARD.md, with the floor under the observed score.
-    Threshold {
-        chip: ChipKind::Ym2612,
-        min_correlation: 0.88,
-        max_cents: 2.0,
-        max_dropout: 0.01,
-        known_gap: Some(
-            "0.904 observed (n=12) against a shared core; the LLE oracle puts \
-             Nuked-OPN2 at 0.985 against the 2612 die, so the gap to VGMPlay \
-             lives in the reference player's driver, not our emulation",
-        ),
-    },
+    // Closed 2026-08-12: the "driver" gap was ours after all -- the DAC-stream
+    // rework took the 0.904 to 0.9565, and matching the reference's 15-cycle
+    // half-write pacing (2612intf.c's buffer) took it to 0.9922. At the shared
+    // ideal; the bar is the shared one.
+    shared(ChipKind::Ym2612),
     Threshold {
         chip: ChipKind::Ym2413,
-        min_correlation: 0.95,
+        min_correlation: 0.98,
         max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.977 observed (n=12) against a shared core; short of the 0.99 \
-             ideal, unexplained by the LFO or the resampler",
+            "0.9896 observed (n=12) since removing the binding's DC blocker \
+             (2026-08-12; was 0.9767 -- the filter's sub-bass phase shift was \
+             most of the old 'unexplained' gap). The last 0.004 to the ideal \
+             is open",
         ),
     },
     // Measured 2026-08-11 once the libvgm cores had become these chips'
