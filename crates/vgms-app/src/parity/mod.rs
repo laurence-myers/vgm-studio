@@ -431,13 +431,16 @@ pub const THRESHOLDS: &[Threshold] = &[
     },
     Threshold {
         chip: ChipKind::Ym3526,
-        min_correlation: 0.0,
-        max_cents: 30.0,
+        min_correlation: 0.70,
+        max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "OPEN: corr 0.0312 with a systematic -24-cent offset (n=12) -- \
-             the AY-class detune signature, on a chip whose level reads 1.009. \
-             A driver/clock question, not a loudness one; see SCORECARD",
+            "0.7533 observed (n=12) since the OPL adapter's clock projection \
+             (was 0.0312: every sampled rip is a 4 MHz or 3 MHz arcade board \
+             the adapter used to play at the standard crystal). The reference \
+             offers no Nuked option for the YM3526 -- it always plays MAME \
+             fmopl -- so the band is the cross-core one, like its Y8950 \
+             sibling's",
         ),
     },
 ];

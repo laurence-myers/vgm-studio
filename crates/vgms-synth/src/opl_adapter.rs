@@ -8,16 +8,26 @@
 //! so the one engine plays the OPL family like any other chip. With the separate
 //! OPL engine retired, this is the OPL family's only playback path.
 //!
-//! ## Rate
+//! ## Rate, and a non-standard clock
 //!
-//! An OPL chip resamples internally to whatever rate it is reset at. The adapter
-//! runs it at the chip's **native** rate ([`NATIVE_SAMPLE_RATE`], the YMF262's
-//! 14.318 MHz / 288) and reports that as its [`native_rate`](ChipCore::native_rate),
-//! so the engine's own [`Voice`](crate::vgm_engine) resampler converts to the
-//! output rate — exactly as it does for every other core. At the OPL native rate
-//! that resampler's identity bypass engages, so there is never a double resample;
-//! and no output rate need reach core construction, which is why
-//! [`CoreInfo::build`](crate::CoreInfo) needs no rate parameter.
+//! An OPL chip resamples internally to whatever rate it is reset at, and every
+//! [`OplChip`] assumes the standard crystal. So the adapter always runs the chip
+//! at [`NATIVE_SAMPLE_RATE`] (the standard clock's 49716 Hz, where the chip's
+//! internal resampler is an identity pass) and honours a file's *non-standard*
+//! clock by reporting the projected rate — `clock / 72` for the OPL2 generation,
+//! `clock / 288` for the YMF262 — as its [`native_rate`](ChipCore::native_rate).
+//! The engine's own [`Voice`](crate::vgm_engine) resampler then repitches the
+//! whole render by `clock / standard`: exactly what a different crystal does to
+//! real silicon, envelopes and vibrato included (the corpus's 4 MHz and 3 MHz
+//! YM3526 arcade boards are the population this serves). At the standard clock
+//! the projected rate *is* the native rate, that resampler's identity bypass
+//! engages, and there is never a double resample; and no output rate need reach
+//! core construction, which is why [`CoreInfo::build`](crate::CoreInfo) needs no
+//! rate parameter.
+//!
+//! The [hardware host](crate::registry::opl_hardware_core) uses the un-projected
+//! [`OplCoreAdapter::new`] instead: a real chip runs at its real crystal, and
+//! repitching a board is not something a register stream can do.
 //!
 //! ## Writes
 //!
@@ -49,6 +59,8 @@
 //! retired OPL engine resynced through a `0xC0` shadow) still costs a reset: a
 //! channel returned to the song's own stereo keeps its applied pan until then.
 
+use vgms_core::vgm::ChipKind;
+
 use crate::NATIVE_SAMPLE_RATE;
 use crate::chip::ChipCore;
 use crate::opl::OplChip;
@@ -57,6 +69,15 @@ use crate::opl::OplChip;
 /// can drive the OPL family.
 pub struct OplCoreAdapter {
     opl: Box<dyn OplChip>,
+    /// The clock divider projecting a header clock onto this chip's sample rate
+    /// (72 for the OPL2 generation, 288 for the YMF262), or `None` to pin the
+    /// native rate whatever the clock -- the hardware host's choice, since a
+    /// real chip's crystal is not the file's to change.
+    divider: Option<u32>,
+    /// What [`native_rate`](ChipCore::native_rate) reports:
+    /// [`NATIVE_SAMPLE_RATE`] until a [`reset`](ChipCore::reset) carries a
+    /// projectable clock.
+    native: u32,
     /// A reused `i16` staging buffer: the OPL chip renders `i16`, the engine
     /// wants `i32`.
     scratch: Vec<i16>,
@@ -70,14 +91,33 @@ pub struct OplCoreAdapter {
 }
 
 impl OplCoreAdapter {
-    /// Wraps `opl`, which must already be constructed at [`NATIVE_SAMPLE_RATE`].
+    /// Wraps `opl`, which must already be constructed at [`NATIVE_SAMPLE_RATE`],
+    /// with the native rate pinned: the header clock is ignored. The hardware
+    /// host's constructor; the emulated path wants [`projected`](Self::projected).
     #[must_use]
     pub fn new(opl: Box<dyn OplChip>) -> Self {
         Self {
             opl,
+            divider: None,
+            native: NATIVE_SAMPLE_RATE,
             scratch: Vec::new(),
             panned: false,
             newm: 0,
+        }
+    }
+
+    /// Wraps `opl` as `chip`, honouring a reset's header clock through the
+    /// reported rate (the module's *Rate* section): a 4 MHz YM3526 rip plays
+    /// sharp of a 3.58 MHz one, as its board did.
+    #[must_use]
+    pub fn projected(opl: Box<dyn OplChip>, chip: ChipKind) -> Self {
+        // One sample every 72 clocks on the OPL2 generation; the YMF262's
+        // standard crystal is 4x theirs, one sample every 288 -- both land on
+        // 49716 Hz.
+        let divider = if chip == ChipKind::Ymf262 { 288 } else { 72 };
+        Self {
+            divider: Some(divider),
+            ..Self::new(opl)
         }
     }
 
@@ -149,10 +189,17 @@ impl core::fmt::Debug for OplCoreAdapter {
 }
 
 impl ChipCore for OplCoreAdapter {
-    fn reset(&mut self, _clock: u32, _variant: bool) {
-        // The OPL resamples to the rate it is reset at; the engine's Voice
-        // resampler does the output conversion, so reset at the native rate. The
-        // header clock is not used -- Nuked assumes the standard YMF262 clock.
+    fn reset(&mut self, clock: u32, _variant: bool) {
+        // The chip itself always runs at the standard-clock native rate (every
+        // OplChip assumes the standard crystal); a non-standard header clock is
+        // honoured by *reporting* the projected rate instead, so the engine's
+        // Voice resampler repitches the whole render by clock/standard -- the
+        // module's Rate section. Rounded, so the standard clocks land exactly
+        // on NATIVE_SAMPLE_RATE and the identity bypass still engages.
+        self.native = match self.divider {
+            Some(divider) if clock != 0 => (clock + divider / 2) / divider,
+            _ => NATIVE_SAMPLE_RATE,
+        };
         self.opl.reset(NATIVE_SAMPLE_RATE);
         // A fresh chip is un-panned; the engine restates the pans afterward (its
         // `apply_mix`), so a loop's rewind keeps custom panning.
@@ -161,7 +208,7 @@ impl ChipCore for OplCoreAdapter {
     }
 
     fn native_rate(&self) -> u32 {
-        NATIVE_SAMPLE_RATE
+        self.native
     }
 
     fn write(&mut self, port: u8, addr: u16, data: u16) {
@@ -220,6 +267,50 @@ mod tests {
     #[test]
     fn it_renders_at_the_opl_native_rate() {
         assert_eq!(adapter().native_rate(), NATIVE_SAMPLE_RATE);
+    }
+
+    /// A non-standard header clock repitches through the *reported* rate: the
+    /// chip itself stays at the standard-clock native rate, and the engine's
+    /// resampler does the transposing (the module's Rate section).
+    #[test]
+    fn a_projected_adapter_reports_the_header_clocks_rate() {
+        let mut core = OplCoreAdapter::projected(
+            Box::new(NukedOpl3::new(NATIVE_SAMPLE_RATE)),
+            ChipKind::Ym3526,
+        );
+        // The corpus's YM3526 arcade boards: 4 MHz and 3 MHz crystals.
+        core.reset(4_000_000, false);
+        assert_eq!(core.native_rate(), 55_556);
+        core.reset(3_000_000, false);
+        assert_eq!(core.native_rate(), 41_667);
+        // The standard crystal lands exactly on the native rate (rounded, not
+        // truncated), so the engine's identity bypass still engages.
+        core.reset(3_579_545, false);
+        assert_eq!(core.native_rate(), NATIVE_SAMPLE_RATE);
+        // No header clock at all falls back to the native rate.
+        core.reset(0, false);
+        assert_eq!(core.native_rate(), NATIVE_SAMPLE_RATE);
+    }
+
+    /// The YMF262's standard crystal is 4x the OPL2 generation's; its own
+    /// divider lands it on the same 49716 Hz.
+    #[test]
+    fn the_ymf262_projects_through_its_own_divider() {
+        let mut core = OplCoreAdapter::projected(
+            Box::new(NukedOpl3::new(NATIVE_SAMPLE_RATE)),
+            ChipKind::Ymf262,
+        );
+        core.reset(14_318_180, false);
+        assert_eq!(core.native_rate(), NATIVE_SAMPLE_RATE);
+    }
+
+    /// The hardware host's constructor pins the rate: a real chip's crystal is
+    /// not the file's to change.
+    #[test]
+    fn an_unprojected_adapter_ignores_the_header_clock() {
+        let mut core = adapter();
+        core.reset(4_000_000, false);
+        assert_eq!(core.native_rate(), NATIVE_SAMPLE_RATE);
     }
 
     #[test]

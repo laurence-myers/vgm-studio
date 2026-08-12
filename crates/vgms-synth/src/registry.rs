@@ -218,8 +218,13 @@ impl CoreInfo {
             // An OPL core is built as an `OplChip`; the adapter presents it as a
             // `ChipCore` so `VgmEngine` hosts it. It runs the chip at its native
             // rate and lets the engine's Voice resampler convert to the output
-            // rate, so no output rate need reach here.
-            CoreMaker::Opl(make) => Box::new(OplCoreAdapter::new(make(crate::NATIVE_SAMPLE_RATE))),
+            // rate, so no output rate need reach here. `projected` is what makes
+            // a non-standard header clock (the 4 MHz YM3526 arcade boards)
+            // repitch through that resampler as the real crystal would.
+            CoreMaker::Opl(make) => Box::new(OplCoreAdapter::projected(
+                make(crate::NATIVE_SAMPLE_RATE),
+                self.chip,
+            )),
             CoreMaker::Routed => return None,
         };
         // A core with no native mute gets the write-gating wrapper, so
@@ -398,6 +403,12 @@ impl GatedCore {
 /// gate must gate every channel's key at the register level, a full mask
 /// included. Everything else is a normal gated OPL core: partial mutes, seek
 /// replays and pan all behave exactly as they do on the emulated path.
+///
+/// Built with the un-projected [`OplCoreAdapter::new`], so the native rate stays
+/// pinned whatever clock the header declares: the real chip runs at its real
+/// crystal, and the identity resample keeps writes on the file's exact frame
+/// boundaries (a non-standard-clock rip plays transposed on hardware, as it
+/// must).
 #[must_use]
 pub fn opl_hardware_core(opl: Box<dyn OplChip>, chip: ChipKind) -> Box<dyn ChipCore> {
     let adapter: Box<dyn ChipCore> = Box::new(OplCoreAdapter::new(opl));

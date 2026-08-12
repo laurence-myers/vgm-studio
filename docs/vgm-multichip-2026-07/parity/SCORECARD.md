@@ -1219,3 +1219,45 @@ recorded here as *predictions*, deliberately not applied: the SN76489 shows
 raw scales are not always shared, so an unmeasurable derivation stays a
 prediction. If single-chip rips of these ever land in the corpus, measure
 first.
+
+## 2026-08-12 — YM3526: the OPL adapter now projects the header clock
+
+The level sweep's first OPEN row closes: **corr 0.0312 → 0.7533** (n=12),
+cents −0.0, lvl 0.999, drop 0.000.
+
+The "−24-cent" reading was an artefact of the saturated ±60-cent search; the
+real offsets were −192 and +306 cents. The `OplCoreAdapter` reset its chip
+at the standard crystal's 49716 Hz and reported that as the native rate
+whatever the header said — and *every one* of the twelve sampled single-chip
+YM3526 rips is an arcade board at 4 MHz (Terra Cresta, Galivan, Dangar,
+eight in all) or 3 MHz (DECO8, Renegade, four), none at 3.579545 MHz. The
+reference honours those clocks (fmopl runs at `clock / 72`), so every pair
+compared a chip against a transposition of itself, outside the detune
+search: audible playback scored as pure decorrelation, the OKIM6295 divider
+lesson over again. The siblings never showed it because their sampled rips
+are standard-crystal (the YMF262's twelve entirely so; the YM3812's row is
+pinned unmoved by the control run below either way).
+
+The fix (`opl_adapter.rs`): the chip still renders at 49716 Hz — every
+`OplChip` assumes the standard crystal, and at that rate its internal
+resampler is an identity pass — but a `projected` adapter reports
+`clock / 72` (OPL2 generation) or `clock / 288` (YMF262), rounded, as its
+`native_rate`, so the engine's Voice resampler repitches the whole render by
+`clock / standard`: exactly what the different crystal does to real silicon,
+envelopes and vibrato included. Standard clocks still land exactly on 49716,
+keeping the identity bypass. The RetroWave hardware host keeps the pinned
+un-projected adapter (a real board cannot be repitched, and its write
+timing wants the identity pass), and the LLE die sims already clocked
+correctly (`clock / CLOCKS_PER_SAMPLE`).
+
+**Siblings re-measured, unmoved to four decimals** (YM3812 verified against
+a stashed pre-change control run): YM3812 0.9771 / lvl 1.005 / −0.0 cents,
+Y8950 0.8287 / lvl 0.998 / −0.5 cents, YMF262 0.9898 / lvl 1.003 / −0.0
+cents. The YM3812 and YMF262 medians sit a shade under their shared-core
+0.99 bar with vibrato files in the sample — a pre-existing red the control
+run confirms predates this change, not a product of it.
+
+The residual 0.75 band is the cross-core one: VGMPlay 0.52 offers no core
+choice for the YM3526 (no `Core =` line exists for it; it always plays MAME
+fmopl) against our Nuked-OPL3 compat mode — the Y8950's situation (0.83),
+minus its ADPCM half. The threshold row now holds 0.70 with that reason.
