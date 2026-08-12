@@ -413,18 +413,23 @@ pub const THRESHOLDS: &[Threshold] = &[
     // the band that explains the shortfall.
     Threshold {
         chip: ChipKind::Okim6258,
-        min_correlation: 0.95,
+        min_correlation: 0.99,
         max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.9767 observed (n=9); the divider/flag-dependent tail. The \
-             de9ec93 stream-rework regression (0.9327, Knight Arms 02 at \
-             0.69) was the engine delivering stream writes before the \
-             frame's render where the reference delivers after -- fixed by \
-             matching the reference's order. Still open, pre-dating the \
-             rework: Nobunaga 01 and Syvalion 01 carry a flat -15 cent \
-             offset (and slip-phase-sensitive correlation), measured \
-             identically on the pre-rework code",
+            "1.0000 observed (n=9, lvl 0.978) at the shared ideal, but only \
+             once the harness probes the native rate *with* the header's \
+             divider flags applied: unconfigured, the probe reads the \
+             default-divider 7813 for every file, the 15625-vclk rips render \
+             through both sides' resamplers, and the group-delay offset \
+             reads back as a phantom -15 cents (the un-aligned per-window \
+             detune fit turns a constant lag of D samples into ~D cents at \
+             this rate). Residual: Syvalion 01 alone reads 0.72 under our \
+             accurate default resampler -- its mid-song divider switches \
+             re-seed the OKIM's ADPCM decode differently across the two \
+             resamplers' rate transitions; it reads 1.0000 like-for-like \
+             under VGMSTUDIO_PARITY_RESAMPLER=linear, and the row's median \
+             absorbs the one file",
         ),
     },
     Threshold {

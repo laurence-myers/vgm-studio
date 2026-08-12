@@ -225,7 +225,7 @@ chip_specs! {
     make_upd7759: "upd7759.libvgm" / "libvgm (MAME)" => Upd7759,
         ffi::DEVID_UPD7759, 0, WriteRule::Register, [0, 0], 572, configure_none;  // measured 2.232 (lvl 0.448, corr 1.0000, n=1)
     make_okim6258: "okim6258.libvgm" / "libvgm (MAME)" => Okim6258,
-        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], 219, configure_msm6258;  // measured 0.855 (lvl 1.170, corr 0.9766, n=9)
+        ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], 219, configure_msm6258;  // measured 0.855 (lvl 1.170, corr 0.9766, n=9); at the flag-configured native rate lvl reads 0.978 (corr 1.0000, n=9)
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
     // The 64 is VGMPlay's staging (`_CHIP_VOLUME` 0x40 = 0.25) and the
     // measurement lands on it to within 1% -- only measurable at all once the

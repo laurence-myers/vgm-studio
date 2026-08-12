@@ -255,6 +255,11 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
     // SN76489 at the clean-room rate showed -3.5 cents of resampler pitch error).
     let mut core = build_core(chip)?;
     core.reset(clocked.clock, clocked.variant);
+    // After the reset, as the engine does: the header's chip settings decide
+    // the rate for some chips (the OKIM6258's divider flags put it at 15625
+    // where the unconfigured default reads 7813), and probing without them
+    // renders both sides through a resampler the comparison is meant to avoid.
+    core.configure(file.header.settings());
     Some(core.native_rate())
 }
 
