@@ -176,6 +176,53 @@ pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
     registry.resolve_choice(kind, choice.as_deref())?.build()
 }
 
+/// As [`core_for`], but consulting the file's header settings when no explicit
+/// choice is in force -- the seam the SN76489 gap plan calls for (M7).
+///
+/// A chip's promoted default can be a die trace of one specific part: the
+/// SN76489's is Nuked-PSG, the Sega VDP die, which cannot take the header's
+/// noise feedback taps or shift-register width. A BBC Micro or Tandy rip
+/// declares those, and the reference plays them through its Maxim core -- so
+/// when the header declares non-default noise parameters, the default falls
+/// back to our libvgm Maxim row, which maps every field. An explicit pick
+/// (Settings, or a render override) still wins: the user chose it knowingly.
+#[must_use]
+pub fn core_for_file(
+    kind: ChipKind,
+    settings: &vgms_core::vgm::ChipSettings,
+) -> Option<Box<dyn ChipCore>> {
+    let registry = crate::registry::registry();
+    let choice = crate::registry::render_override(kind)
+        .or_else(|| crate::registry::core_choice(kind))
+        .or_else(|| settings_default(kind, settings).map(str::to_owned));
+    registry.resolve_choice(kind, choice.as_deref())?.build()
+}
+
+/// The core id a file's settings ask for where the promoted default cannot
+/// honour them, or `None` to keep the default.
+fn settings_default(
+    kind: ChipKind,
+    settings: &vgms_core::vgm::ChipSettings,
+) -> Option<&'static str> {
+    match kind {
+        // Sega noise is taps 0x09 into a 16-bit register with no flag bits;
+        // zero means "field not filled in", which every Sega-era log leaves.
+        // Anything else is a different part's noise sequence, which the die
+        // trace cannot play. Flag bit 3 (the /8 divider off) rides along.
+        ChipKind::Sn76489 => {
+            let sega_taps = matches!(settings.sn76489_feedback, 0 | 0x09);
+            let sega_width = matches!(settings.sn76489_shift_width, 0 | 0x10);
+            let sega_flags = settings.sn76489_flags == 0;
+            if sega_taps && sega_width && sega_flags {
+                None
+            } else {
+                Some("sn76489.libvgm")
+            }
+        }
+        _ => None,
+    }
+}
+
 /// What playing a file with these chips through [`VgmEngine`] would sound like.
 ///
 /// Asks whether a core can be *built*, not merely whether one is listed, and
@@ -321,6 +368,43 @@ mod tests {
         assert_eq!(mixed, Playability::Partial(vec![ChipKind::Ym2612]));
         assert!(mixed.can_play());
         assert_eq!(mixed.missing(), [ChipKind::Ym2612]);
+    }
+
+    /// The settings-aware default (SN76489 gap plan, M7): Sega parameters --
+    /// filled in or left zero -- keep the promoted default, and any other
+    /// part's noise declaration asks for the libvgm Maxim row instead.
+    #[test]
+    fn non_sega_noise_parameters_ask_for_the_maxim_row() {
+        use vgms_core::vgm::ChipSettings;
+        let sega_blank = ChipSettings::default();
+        assert_eq!(settings_default(ChipKind::Sn76489, &sega_blank), None);
+        let sega_filled = ChipSettings {
+            sn76489_feedback: 0x09,
+            sn76489_shift_width: 0x10,
+            ..ChipSettings::default()
+        };
+        assert_eq!(settings_default(ChipKind::Sn76489, &sega_filled), None);
+        // A BBC Micro rip: taps 0x03 into a 15-bit register.
+        let bbc = ChipSettings {
+            sn76489_feedback: 0x03,
+            sn76489_shift_width: 0x0F,
+            ..ChipSettings::default()
+        };
+        assert_eq!(
+            settings_default(ChipKind::Sn76489, &bbc),
+            Some("sn76489.libvgm")
+        );
+        // An NCR flag byte alone is a different part too.
+        let ncr = ChipSettings {
+            sn76489_flags: 0x10,
+            ..ChipSettings::default()
+        };
+        assert_eq!(
+            settings_default(ChipKind::Sn76489, &ncr),
+            Some("sn76489.libvgm")
+        );
+        // Other chips never redirect.
+        assert_eq!(settings_default(ChipKind::Ym2612, &bbc), None);
     }
 
     #[test]

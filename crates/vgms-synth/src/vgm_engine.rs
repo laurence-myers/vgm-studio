@@ -22,7 +22,7 @@ use vgms_core::vgm::header::ChipUse;
 use vgms_core::vgm::stream::{ChipTarget, VgmCommand, VgmStream};
 
 use crate::banks::{Banks, BlockKind, block_owner, ram_header, rom_header, stream_owner};
-use crate::chip::{ChipCore, core_for};
+use crate::chip::ChipCore;
 use crate::chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 use crate::clock::{FrameClock, LoopConfig, Position};
 use crate::dac_stream::{DacStreams, PendingWrite};
@@ -251,7 +251,13 @@ impl VgmEngine {
     /// is how a caller finds that out before committing to it.
     #[must_use]
     pub fn new(file: Arc<VgmFile>, output_rate: u32) -> Self {
-        Self::with_cores(file, output_rate, core_for)
+        // By value, so the factory closure owns them: the file's header
+        // settings pick the default core where the promoted one cannot honour
+        // them (the SN76489's noise parameters -- see `core_for_file`).
+        let settings = *file.header.settings();
+        Self::with_cores(file, output_rate, move |kind| {
+            crate::chip::core_for_file(kind, &settings)
+        })
     }
 
     /// The same, taking its cores from `factory` instead of the registry.

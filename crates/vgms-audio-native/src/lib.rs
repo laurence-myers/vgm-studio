@@ -190,7 +190,7 @@ impl NativeAudio {
         // the app seeds it from the config at startup -- so the Settings OPL
         // picker still applies.
         let build_vgm = |file: Arc<vgms_core::VgmFile>| {
-            let mut engine = VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for);
+            let mut engine = VgmEngine::new(file, sample_rate);
             // The config's slug, with an unknown spelling falling back to the
             // accurate default -- same policy as an unknown core name.
             engine.set_resample_mode(

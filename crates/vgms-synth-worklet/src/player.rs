@@ -345,7 +345,7 @@ impl Engine {
         // die-sim included, exactly as the native transport does. The OPL core
         // choice rides the same registry choice the native builder consults.
         let build_vgm = |file: Arc<vgms_core::VgmFile>| {
-            let mut engine = VgmEngine::with_cores(file, sample_rate, vgms_synth::core_for);
+            let mut engine = VgmEngine::new(file, sample_rate);
             engine.set_resample_mode(resample);
             engine
         };

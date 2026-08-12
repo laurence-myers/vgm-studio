@@ -36,7 +36,7 @@ pub mod write_queue;
 
 pub use banks::{Banks, BlockKind};
 pub use channel_gate::{ChannelGate, GateAction};
-pub use chip::{ChipCore, Playability, RecordingChip, core_for, playability};
+pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_file, playability};
 pub use chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 pub use clock::{FrameClock, LoopConfig, LoopCount, Muting, Panning, Position};
 pub use credits::{CoreCredit, credits, credits_text};

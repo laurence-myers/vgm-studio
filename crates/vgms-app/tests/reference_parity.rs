@@ -48,7 +48,18 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
     let file = vgms_core::vgm::file::read(&name, &bytes).ok()?;
     file.stream()?;
 
-    render_with_at(path, rate, build_core)
+    // The app's default selection is settings-aware (`core_for_file`): a
+    // header declaring non-Sega SN76489 noise parameters plays the Maxim row,
+    // as the reference does. An explicit `VGMSTUDIO_PARITY_CORE` still pins.
+    let settings = *file.header.settings();
+    let pinned = std::env::var("VGMSTUDIO_PARITY_CORE").is_ok_and(|choice| !choice.is_empty());
+    render_with_at(path, rate, move |kind| {
+        if pinned {
+            build_core(kind)
+        } else {
+            vgms_synth::core_for_file(kind, &settings)
+        }
+    })
 }
 
 /// Builds `kind`'s core, honouring `VGMSTUDIO_PARITY_CORE`.
