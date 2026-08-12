@@ -393,7 +393,7 @@ impl LibVgmChip {
         {
             let generic = config.generic_mut();
             generic.emu_core = self.spec.emu_core;
-            generic.sr_mode = ffi::DEVRI_SRMODE_NATIVE;
+            generic.sr_mode = sr_mode(self.spec.kind);
             generic.flags = u8::from(self.variant);
             generic.clock = self.clock;
             generic.smpl_rate = REQUESTED_RATE;
@@ -622,6 +622,28 @@ impl LibVgmChip {
                 right: Vec::new(),
             });
         }
+    }
+}
+
+/// The sample-rate mode a chip's device starts in, mirroring the pinned
+/// reference's `ChipSmplMode = 3` (playcfg's `ConvertChipSmplModeOption`):
+/// native rate for the ten FM chips -- their aliasing is part of the sound --
+/// and `max(native, 44100)` for everything else, so a low-rate core (the
+/// WonderSwan's 24 kHz) synthesises on the output grid as the reference does
+/// instead of being band-limited by the resampler at its native rate.
+const fn sr_mode(kind: ChipKind) -> u8 {
+    match kind {
+        ChipKind::Ym3526
+        | ChipKind::Y8950
+        | ChipKind::Ym3812
+        | ChipKind::Ym2413
+        | ChipKind::Ymf262
+        | ChipKind::Ym2151
+        | ChipKind::Ym2203
+        | ChipKind::Ym2608
+        | ChipKind::Ym2610
+        | ChipKind::Ym2612 => ffi::DEVRI_SRMODE_NATIVE,
+        _ => ffi::DEVRI_SRMODE_HIGHEST,
     }
 }
 
@@ -991,6 +1013,30 @@ mod tests {
         assert_eq!(default_option_bits(ChipKind::NesApu), 0x01B7);
         assert_eq!(default_option_bits(ChipKind::Scsp), 0x01);
         assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
+    }
+
+    /// Non-FM chips run in HIGHEST mode: a core whose derived rate falls below
+    /// 44100 synthesises at 44100 instead, as the reference's ChipSmplMode=3
+    /// does. The WonderSwan is the audible case -- 24 kHz native at the stock
+    /// 3.072 MHz clock, which cost the top octave through the resampler.
+    #[test]
+    fn a_low_rate_non_fm_chip_renders_on_the_output_grid() {
+        let mut chip = LibVgmChip::new(spec(ChipKind::WonderSwan));
+        chip.reset(3_072_000, false);
+        assert_eq!(
+            chip.native_rate(),
+            44_100,
+            "ws_audio honours SRATE_CUSTOM_HIGHEST"
+        );
+        // An FM chip stays native: its aliasing is part of the sound.
+        let mut fm = LibVgmChip::new(spec(ChipKind::Ym2612));
+        fm.reset(7_670_454, false);
+        assert_eq!(fm.native_rate(), 7_670_454 / 144);
+        // And a non-FM chip already above 44100 keeps its own rate: HIGHEST
+        // only raises, never lowers (the YMZ280B derives clock/192 = 88200).
+        let mut pcm = LibVgmChip::new(spec(ChipKind::Ymz280b));
+        pcm.reset(16_934_400, false);
+        assert_eq!(pcm.native_rate(), 16_934_400 / 192);
     }
 
     /// The C219 swap reverses each 16-bit pair and drops an odd trailing byte,

@@ -32,9 +32,20 @@ pub(crate) const EERR_OK: u8 = 0x00;
 
 /// Render at the chip's own natural rate and let the caller resample.
 ///
-/// The only mode this crate uses: `vgms_synth::resample` does the conversion, so
-/// libvgm's `Resampler.c` is not even compiled (see `build.rs`).
+/// The FM chips' mode: `vgms_synth::resample` does the conversion, so libvgm's
+/// `Resampler.c` is not even compiled (see `build.rs`).
 pub(crate) const DEVRI_SRMODE_NATIVE: u8 = 0x00;
+
+/// Render at `max(native, smplRate)`: a core whose derived rate falls below
+/// the requested one synthesises *at* the requested rate instead
+/// (`EmuHelper.h`'s `SRATE_CUSTOM_HIGHEST`).
+///
+/// The non-FM chips' mode, matching the pinned reference's `ChipSmplMode = 3`:
+/// a WonderSwan (24 kHz native) steps its waves and timers on the 44.1 kHz
+/// grid and keeps content to 22 kHz, where native-then-resample band-limits at
+/// the lower rate. Cores that ignore the mode still report their real rate
+/// back, and the engine resamples from whatever that is.
+pub(crate) const DEVRI_SRMODE_HIGHEST: u8 = 0x02;
 
 // --- Read/write function selectors (`RWF_*` / `DEVRW_*`) ------------------
 
