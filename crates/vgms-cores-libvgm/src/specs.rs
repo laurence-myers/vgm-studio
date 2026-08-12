@@ -227,8 +227,13 @@ chip_specs! {
     make_okim6258: "okim6258.libvgm" / "libvgm (MAME)" => Okim6258,
         ffi::DEVID_MSM6258, 0, WriteRule::Register, [0, 0], 219, configure_msm6258;  // measured 0.855 (lvl 1.170, corr 0.9766, n=9)
     // `Cmd_Port_Ofs8_Data8`: the port selects nothing on the write itself.
+    // The 64 is VGMPlay's staging (`_CHIP_VOLUME` 0x40 = 0.25) and the
+    // measurement lands on it to within 1% -- only measurable at all once the
+    // dynamic-rate fix held (the oscillator-enable register moves the chip's
+    // output rate; with the resampler stuck at the reset rate the sweep read
+    // corr 0.0022, unrelated waveforms, and its lvl meant nothing).
     make_es5503: "es5503.libvgm" / "libvgm (MAME)" => Es5503,
-        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_es5503;
+        ffi::DEVID_ES5503, 0, WriteRule::Register, [0, 0], 64, configure_es5503;  // measured 0.252 (lvl 3.976, corr 0.9912, n=12, native rate); post-fix lvl 1.005, corr 0.9944
     make_gameboydmg: "gameboydmg.libvgm" / "libvgm (SameBoy)" => GameBoyDmg,
         ffi::DEVID_GB_DMG, 0, WriteRule::Register, [0, 0], LEVEL_UNITY, configure_none;
     make_gameboydmg_mame: "gameboydmg.libvgm-mame" / "libvgm (MAME)" => GameBoyDmg,

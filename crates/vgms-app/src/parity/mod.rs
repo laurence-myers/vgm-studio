@@ -456,6 +456,22 @@ pub const THRESHOLDS: &[Threshold] = &[
         ),
     },
     Threshold {
+        chip: ChipKind::Es5503,
+        min_correlation: 0.98,
+        max_cents: 10.0,
+        max_dropout: 0.01,
+        known_gap: Some(
+            "0.9944 observed (n=12, lvl 1.005) once the dynamic-rate fix and \
+             the x0.25 staging level landed (2026-08-12: the oscillator-enable \
+             register moves the chip's output rate, and with the resampler \
+             stuck at the reset rate the sweep read corr 0.0022). Residual: a \
+             flat offset, median -6.5 cents across the sample -- our rate \
+             arithmetic matches upstream exactly, so the suspect is the \
+             reference's older core revision (the MAME core's loop-phase \
+             handling changed in v2.1); untested",
+        ),
+    },
+    Threshold {
         chip: ChipKind::Ym3526,
         min_correlation: 0.70,
         max_cents: 2.0,

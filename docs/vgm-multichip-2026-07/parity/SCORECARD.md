@@ -1212,6 +1212,41 @@ the legacy player's; median 1.336, scatter 1.7×), PWM (one corpus file, corr
 and the scattered alternates the agreement run named (SN76489 pair residual,
 YM2413 pair with silent files in range, GB/NES MAME rows, Y8950-CQM).
 
+## The ES5503 was never decorrelated — it was playing 11× too fast (2026-08-12)
+
+The sweep's corr 0.0022 row is closed: **0.9944 at lvl 1.005 (n=12)**. The
+channel-count suspect was innocent (`configure_es5503` matches upstream's
+`DEVID_ES5503` case byte for byte, as do the 0xD5 write fold and the 0xE1
+RAM-block routing). The fault was a *rate* the harness's own vocabulary had
+no word for: the ES5503's output rate is **dynamic** — `clock / 8 /
+(oscillators + 2)`, re-derived on every oscillator-enable write (register
+0xE1) and announced through libvgm's `SetSampleRateChangeCallback`, which
+the adapter never registered. `native_rate()` reported the reset rate (one
+oscillator: `clock/24` ≈ 298 kHz on a IIgs) for the whole file, while every
+real rip enables all 32 oscillators (~26 kHz), so the engine consumed
+source frames ~11× too fast. Unrelated waveforms, exactly as measured.
+
+Two seams, both now under test: the adapter routes the callback into an
+atomic rate slot (`the_es5503_rate_follows_the_oscillator_enable_register`),
+and the engine's `Voice::follow_rate` rebuilds the resampler when a core's
+rate moves after a write or a rewind
+(`a_rate_change_after_a_write_rebuilds_the_resampler`). Eight vendored
+cores fire the callback (OKIM6258/6295, MSM5205/5232, ES5503, AY8910,
+BSMT2000, ICS2115); the previously-measured rows among them keep their
+scores — a core that never fires it is a no-op in the new path.
+
+With the comparison sound, the level followed the staging table as the
+sweep predicted: **64** (`_CHIP_VOLUME` 0x40 = 0.25; measured 0.252, within
+1%). The first correlated run read 0.9912 at lvl 3.976; applying the level
+lifted corr to 0.9944 — at 4× hot the 16-bit render had been clipping.
+
+**Residual, on the threshold row as a known gap:** a flat offset, median
+−6.5 cents (per-file −7.0 to −0.0). Our rate arithmetic matches upstream
+exactly, so the suspect is the reference's older core revision — the MAME
+ES5503's loop-phase handling changed in v2.1 ("no longer go out of tune"),
+and legacy VGMPlay predates the current core. Untested; the bar sits at
+0.98/10.0 cents under the observed score.
+
 **Unanchorable — no single-chip corpus files:** SegaPCM, K051649, GA20,
 SCSP, Mikey (the last also unplayable by the legacy reference). Their
 staging derivations (SegaPCM 3.0, K051649 2.0, GA20 2.5, SCSP 4.0) are
