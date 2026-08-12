@@ -633,6 +633,18 @@ const fn default_option_bits(kind: ChipKind) -> u32 {
         ChipKind::NesApu => 0x01B7,
         // `OPT_SCSP_BYPASS_DSP`: the DSP is skipped by default upstream.
         ChipKind::Scsp => 0x01,
+        // `OPT_GB_DMG_LEGACY_MODE`: VGMPlay's `playcfg` defaults `LegacyMode`
+        // on, which reloads a channel's length counter on every trigger and
+        // forces the wave channel on at `NR30` -- the "VGM log fix" that
+        // `vgm_cmp`-optimised rips rely on, having had their redundant length
+        // re-writes stripped. Both GB cores start with it off, so without this
+        // those rips cut notes short or lose the wave channel.
+        ChipKind::GameBoyDmg => 0x80,
+        // `OPT_MSM6258_FORCE_12BIT`: the pinned reference sets `Enable10Bit =
+        // False`, which widens the DAC to full 12-bit precision regardless of
+        // the header's 10-bit default. Left unset, every sample loses its low
+        // two bits against the reference.
+        ChipKind::Okim6258 => 0x01,
         _ => 0,
     }
 }
@@ -935,6 +947,22 @@ mod tests {
 
     fn energy(out: &[i32]) -> i64 {
         out.iter().map(|&s| i64::from(s.abs())).sum()
+    }
+
+    /// The option bits VGMPlay applies by default reach the chips that need
+    /// them. Pinned as values because a wrong bit is silent: the core simply
+    /// runs in a mode the reference never uses.
+    #[test]
+    fn default_option_bits_match_the_reference_defaults() {
+        // `OPT_GB_DMG_LEGACY_MODE` (gbintf.h) and `OPT_MSM6258_FORCE_12BIT`
+        // (okim6258.h). Both cores clear these at `device_start` and neither
+        // reset re-derives them, so the bit set here (before reset) survives.
+        assert_eq!(default_option_bits(ChipKind::GameBoyDmg), 0x80);
+        assert_eq!(default_option_bits(ChipKind::Okim6258), 0x01);
+        // Unchanged neighbours, so a future edit cannot drop them unnoticed.
+        assert_eq!(default_option_bits(ChipKind::NesApu), 0x01B7);
+        assert_eq!(default_option_bits(ChipKind::Scsp), 0x01);
+        assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
     }
 
     /// Construction, native rate, writes and render, end to end through the
