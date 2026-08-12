@@ -117,9 +117,10 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// do not read back. (A `DroSong` is always a DRO, so there is no "already a
 /// VGM" case.)
 pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
+    let opl_type = playback_opl_type(song);
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
-    let mut stream = VgmStream::with_capacity(song.opl_type, song.len() * 3);
+    let mut stream = VgmStream::with_capacity(opl_type, song.len() * 3);
     // The header's `total # samples` field; accumulated here because the stream
     // holds only the (chunked) wait commands, not their sum.
     let mut total_samples = 0u64;
@@ -162,7 +163,7 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     // only the chip clocks, total samples and EOF need patching -- the same
     // fields `vgm::io::write` would patch for this file.
     let mut header = synthesise_header();
-    put_chip_clocks(&mut header, song.opl_type)?;
+    put_chip_clocks(&mut header, opl_type)?;
     let data = stream.into_bytes();
     let end_marker = 1;
     let eof = header.len() + data.len() + end_marker;
@@ -192,6 +193,26 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
 /// If the song will not convert, or the assembled VGM does not read back.
 pub fn opl_song_to_vgm_file(song: &DroSong) -> Result<VgmFile> {
     dro_to_vgm(song)
+}
+
+/// The OPL hardware a DRO actually plays on, which is not always its header type.
+///
+/// DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; only games that use 4-op
+/// mode get the OPL3 label right. VGMPlay's DRO player (`DRO_V2OPL3_DETECT`)
+/// scans the init block and promotes a `DualOPL2` v2 file to OPL3 when it wrote
+/// the OPL3-enable register, so it plays as one OPL3 (with 4-op voices and
+/// waveforms 4-7) rather than two hard-panned OPL2s. This does the same, but for
+/// playback only: `song.opl_type` -- what a save writes back -- is left alone, so
+/// the file still round-trips byte-for-byte. Restricted to v2, as the reference
+/// is: a v1 `DualOPL2` label is trusted.
+fn playback_opl_type(song: &DroSong) -> OplType {
+    if song.opl_type != OplType::DualOpl2 {
+        return song.opl_type;
+    }
+    match song.data() {
+        DroSongData::V2(data) if data.opl3_enabled_in_init_block() => OplType::Opl3,
+        _ => song.opl_type,
+    }
 }
 
 /// The VGM opcode that writes an OPL register on the given chip and bank.
@@ -439,6 +460,30 @@ mod tests {
 
     /// A v2 capture records its own waveform-select if it needs one, so the
     /// projection adds no prime.
+    /// DOSBox mislabels most OPL3 captures as DualOPL2; an init-block OPL3
+    /// enable promotes playback to OPL3, while the stored type -- what a save
+    /// writes -- is left untouched so the file still round-trips.
+    #[test]
+    fn a_mislabeled_dualopl2_v2_capture_plays_as_opl3_but_saves_unchanged() {
+        use crate::song::DroDataV2;
+        // codemap slot 0 -> register 0x05; a high-bank code addresses 0x105,
+        // value bit 0 is the OPL3 enable.
+        let data = DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
+        assert_eq!(playback_opl_type(&song), OplType::Opl3);
+        assert_eq!(song.opl_type, OplType::DualOpl2);
+    }
+
+    /// A DualOPL2 capture that never enables OPL3 stays two OPL2s, and a v1
+    /// DualOPL2 label is trusted outright (the reference only detects for v2).
+    #[test]
+    fn a_genuine_dualopl2_capture_is_not_promoted() {
+        use crate::song::DroDataV2;
+        let data = DroDataV2::new(vec![0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
+        assert_eq!(playback_opl_type(&song), OplType::DualOpl2);
+    }
+
     #[test]
     fn a_v2_capture_is_not_primed() {
         use crate::song::DroDataV2;

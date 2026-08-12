@@ -322,6 +322,35 @@ impl DroDataV2 {
         Some(&self.data[start..start + 2])
     }
 
+    /// Whether the leading init block enables OPL3 mode -- a write to register
+    /// `0x105` with bit 0 set.
+    ///
+    /// DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; VGMPlay's DRO player
+    /// (`DRO_V2OPL3_DETECT`) scans this same block and, finding the OPL3-enable
+    /// write, plays the file as a single OPL3 rather than two OPL2s. Mirrors
+    /// `droplayer`'s `ScanInitBlock` v2 branch: walk from the start, stop at the
+    /// first delay code or an out-of-range register code, and take the last
+    /// value written to `0x105`. Playback-only -- the stored header type is
+    /// untouched, so the file still saves byte-for-byte.
+    #[must_use]
+    pub(crate) fn opl3_enabled_in_init_block(&self) -> bool {
+        let mut opl3_enable: Option<u8> = None;
+        for pair in self.data.chunks_exact(2) {
+            let code = pair[0];
+            if code == self.short_delay_code || code == self.long_delay_code {
+                break;
+            }
+            let Some(&reg) = self.codemap.get(usize::from(code & 0x7F)) else {
+                break;
+            };
+            let full = (u16::from(code & 0x80) << 1) | u16::from(reg);
+            if full == 0x105 {
+                opl3_enable = Some(pair[1]);
+            }
+        }
+        matches!(opl3_enable, Some(value) if value & 0x01 != 0)
+    }
+
     pub(crate) fn delete_many(&mut self, indices: &[usize]) {
         let Some(byte_ranges) = byte_ranges_to_delete(indices, self.len(), Self::byte_offset)
         else {
@@ -450,6 +479,31 @@ mod tests {
                 ms: 0xC100
             })
         );
+    }
+
+    #[test]
+    fn v2_detects_an_init_block_opl3_enable() {
+        // codemap slot 0 -> register 0x05; a high-bank (bit 7) code addresses
+        // register 0x105, and value bit 0 is the OPL3 enable.
+        let on = DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
+        assert!(on.opl3_enabled_in_init_block());
+
+        // The same register, but bit 0 clear -- OPL3 mode is not enabled.
+        let off = DroDataV2::new(vec![0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
+        assert!(!off.opl3_enabled_in_init_block());
+
+        // No write to register 0x105 at all (this one is 0x120).
+        let other = DroDataV2::new(vec![0x80, 0x01], vec![0x20], 0xFE, 0xFF).unwrap();
+        assert!(!other.opl3_enabled_in_init_block());
+
+        // The init block ends at the first delay, so a 0x105 enable *after* a
+        // delay does not count -- it is not part of the initial register dump.
+        let late = DroDataV2::new(vec![0xFE, 0x00, 0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
+        assert!(!late.opl3_enabled_in_init_block());
+
+        // The last 0x105 write in the block wins, as upstream records it.
+        let toggled = DroDataV2::new(vec![0x80, 0x01, 0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
+        assert!(!toggled.opl3_enabled_in_init_block());
     }
 
     #[test]
