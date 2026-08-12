@@ -20,6 +20,7 @@
 //! planes and weaves them.
 
 use std::ffi::c_void;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use vgms_core::vgm::{ChipKind, ChipSettings};
 use vgms_synth::chip::ChipCore;
@@ -275,6 +276,23 @@ pub struct LibVgmChip {
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
     right: Vec<i32>,
+    /// The rate the core is rendering at *now* -- not necessarily what `start`
+    /// read back. A few cores re-derive their output rate from a register
+    /// write (the ES5503's oscillator-enable register divides its clock by
+    /// `oscillators + 2`; the OKIM6258's clock registers move it too) and
+    /// announce it through `SetSampleRateChangeCallback`. This is the slot
+    /// that callback writes into; boxed so the address handed to C stays put
+    /// while the chip itself moves.
+    rate: Box<AtomicU32>,
+}
+
+/// The `DEVCB_SRATE_CHG` trampoline: `param` is the chip's [`LibVgmChip::rate`]
+/// slot. Called from inside `write`/`reset` on the thread driving the chip.
+unsafe extern "C" fn rate_changed(param: *mut c_void, new_rate: u32) {
+    // SAFETY: `param` is the address of the owning chip's boxed slot, which
+    // outlives the device (the device is stopped before the box drops).
+    let slot = unsafe { &*param.cast::<AtomicU32>() };
+    slot.store(new_rate, Ordering::Relaxed);
 }
 
 impl std::fmt::Debug for LibVgmChip {
@@ -316,6 +334,7 @@ impl LibVgmChip {
             ram_bank: 0,
             left: Vec::new(),
             right: Vec::new(),
+            rate: Box::new(AtomicU32::new(0)),
         }
     }
 
@@ -347,6 +366,7 @@ impl LibVgmChip {
         }
         self.dev = DevInfo::empty();
         self.writers = Writers::default();
+        self.rate.store(0, Ordering::Relaxed);
     }
 
     /// Stops whatever is running and starts a device at the current clock and
@@ -402,6 +422,16 @@ impl LibVgmChip {
         }
 
         self.dev = dev;
+        self.rate.store(dev.sample_rate, Ordering::Relaxed);
+        // SAFETY: a live device from the start above; the slot's box outlives
+        // it. Registered before the reset below, because a reset is one of the
+        // places a rate-deriving core (the ES5503) announces its rate.
+        unsafe {
+            if let Some(set_rate_cb) = (*dev.dev_def).set_srate_chg_cb {
+                let slot: *const AtomicU32 = &raw const *self.rate;
+                set_rate_cb(dev.data_ptr, Some(rate_changed), slot.cast_mut().cast());
+            }
+        }
         // SAFETY: a live device definition from the successful start above.
         self.writers = unsafe { Writers::fetch(dev.dev_def, self.spec) };
         if !self.writers.serves(self.spec.write) {
@@ -669,7 +699,7 @@ impl ChipCore for LibVgmChip {
     }
 
     fn native_rate(&self) -> u32 {
-        self.dev.sample_rate.max(1)
+        self.rate.load(Ordering::Relaxed).max(1)
     }
 
     fn write(&mut self, port: u8, addr: u16, data: u16) {
@@ -1218,6 +1248,42 @@ mod tests {
              asked for; if this ever starts following the clock, the core \
              changed and the parity row must be re-measured"
         );
+    }
+
+    /// And it keeps reporting it when the core *changes* its mind: the
+    /// ES5503's output rate is `clock / 8 / (oscillators + 2)`, re-derived on
+    /// every oscillator-enable write and announced through libvgm's
+    /// sample-rate-change callback.
+    ///
+    /// The regression this pins: without the callback registered, the rate
+    /// read at start (one oscillator, `clock / 24` -- ~298 kHz on a IIgs)
+    /// stood for the whole file while a real rip runs all 32 oscillators at
+    /// ~26 kHz, so everything played ~11x too fast. The parity harness read
+    /// corr 0.0022 -- unrelated waveforms -- and the level row was
+    /// unmeasurable until this held.
+    #[test]
+    fn the_es5503_rate_follows_the_oscillator_enable_register() {
+        const IIGS_CLOCK: u32 = 7_159_090;
+        let mut chip = LibVgmChip::new(spec(ChipKind::Es5503));
+        chip.reset(IIGS_CLOCK, false);
+        chip.configure(&ChipSettings::default());
+        assert_eq!(
+            chip.native_rate(),
+            IIGS_CLOCK / 8 / 3,
+            "at reset one oscillator is enabled, so the rate is clock/8/(1+2)"
+        );
+
+        // Register 0xE1 holds (oscillators - 1) * 2: 62 enables all 32.
+        chip.write(0, 0xE1, 62);
+        assert_eq!(
+            chip.native_rate(),
+            IIGS_CLOCK / 8 / 34,
+            "all 32 oscillators enabled, so the rate is clock/8/(32+2)"
+        );
+
+        // A reset returns the core to one oscillator, and the rate with it.
+        chip.reset(IIGS_CLOCK, false);
+        assert_eq!(chip.native_rate(), IIGS_CLOCK / 8 / 3);
     }
 
     /// Rendering repeatedly must not depend on how the caller chunks it: the

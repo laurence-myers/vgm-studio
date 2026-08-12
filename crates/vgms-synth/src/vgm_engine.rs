@@ -37,6 +37,9 @@ struct Voice {
     /// rebuild it without asking the core to re-derive anything.
     native_rate: u32,
     output_rate: u32,
+    /// The conversion method the resampler was built with, kept so a *rate*
+    /// change can rebuild it without forgetting the user's mode choice.
+    resample_mode: ResampleMode,
     /// Band-limited rate conversion from the chip's rate to the engine's.
     ///
     /// Band-limited because linear interpolation is a fair approximation near
@@ -94,6 +97,7 @@ impl Voice {
             core,
             native_rate: native,
             output_rate,
+            resample_mode: ResampleMode::default(),
             resampler: Resampler::new(native, output_rate),
             balance,
             stereo: [crate::balance::GAIN_UNITY; 2],
@@ -107,6 +111,25 @@ impl Voice {
     /// (up to two) instances. The port is the chip's own business.
     fn accepts(&self, target: ChipTarget) -> bool {
         self.target.kind == target.kind && self.target.instance == target.instance
+    }
+
+    /// Rebuilds the resampler if the core's rate has moved since it was built.
+    ///
+    /// A core's rate is not a constant: the ES5503 re-derives its output rate
+    /// from the oscillator-enable register (`clock / 8 / (oscillators + 2)`,
+    /// so ~298 kHz at reset and ~26 kHz once a IIgs rip enables all 32), and
+    /// libvgm announces the change through its sample-rate-change callback.
+    /// Called after every register write -- the only place a rate can move --
+    /// so a stale ratio cannot play a passage 11x too fast, which is what the
+    /// ES5503 did before this existed (parity corr 0.0022). The rebuild drops
+    /// the resampler's ~0.4 ms tail; rips change rate during driver init, not
+    /// mid-note, so nothing audible is lost.
+    fn follow_rate(&mut self) {
+        let native = self.core.native_rate().max(1);
+        if native != self.native_rate {
+            self.native_rate = native;
+            self.resampler = Resampler::with_mode(native, self.output_rate, self.resample_mode);
+        }
     }
 
     /// The next output frame, band-limited from the chip's own rate.
@@ -388,6 +411,7 @@ impl VgmEngine {
     /// restart or reload, exactly as they do for a core change.
     pub fn set_resample_mode(&mut self, mode: ResampleMode) {
         for voice in &mut self.voices {
+            voice.resample_mode = mode;
             voice.resampler = Resampler::with_mode(voice.native_rate, voice.output_rate, mode);
         }
     }
@@ -408,6 +432,9 @@ impl VgmEngine {
                 // together everywhere -- a rewound engine must be the same
                 // chip it was.
                 voice.core.configure(self.file.header.settings());
+                // And it returns a rate-deriving core (the ES5503) to its
+                // reset rate, so the ratio has to be re-read with it.
+                voice.follow_rate();
             }
             // The resampler holds a tail of the passage just left -- about
             // 0.4 ms of it -- so it is cleared with the chip rather than
@@ -748,6 +775,7 @@ impl VgmEngine {
                 } else {
                     voice.core.write(target.port, addr, data);
                 }
+                voice.follow_rate();
                 return;
             }
         }
@@ -943,6 +971,65 @@ mod tests {
         let eof = bytes.len();
         put_u32(&mut bytes, 0x04, (eof - 4) as u32);
         Arc::new(vgms_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    /// A core that re-derives its rate from a register write (the ES5503's
+    /// oscillator-enable divides its clock by `oscillators + 2`) must have its
+    /// resampler follow, or the engine keeps consuming source frames at the
+    /// stale ratio -- which for a real IIgs rip meant playing ~11x too fast.
+    ///
+    /// Measured by counting source pulls: at 44100 -> 44100 the resampler is a
+    /// passthrough (one pull per output frame); after the write drops the core
+    /// to 22050 it must pull about half a frame per output frame.
+    #[test]
+    fn a_rate_change_after_a_write_rebuilds_the_resampler() {
+        use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+        struct RateShift {
+            rate: Arc<AtomicU32>,
+            pulls: Arc<AtomicUsize>,
+        }
+        impl ChipCore for RateShift {
+            fn reset(&mut self, _clock: u32, _variant: bool) {
+                self.rate.store(44_100, Ordering::Relaxed);
+            }
+            fn native_rate(&self) -> u32 {
+                self.rate.load(Ordering::Relaxed)
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {
+                self.rate.store(22_050, Ordering::Relaxed);
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                self.pulls.fetch_add(out.len() / 2, Ordering::Relaxed);
+                out.fill(0);
+            }
+        }
+
+        let rate = Arc::new(AtomicU32::new(44_100));
+        let pulls = Arc::new(AtomicUsize::new(0));
+        // 4410 frames at the start rate, one write, 4410 frames at the new one.
+        let file = vgm(
+            &[(ChipKind::Ym2151, 3_579_545)],
+            &[0x61, 0x3A, 0x11, 0x54, 0x00, 0x00, 0x61, 0x3A, 0x11, 0x66],
+        );
+        let mut engine = VgmEngine::with_cores(Arc::clone(&file), 44_100, |_| {
+            Some(Box::new(RateShift {
+                rate: Arc::clone(&rate),
+                pulls: Arc::clone(&pulls),
+            }))
+        });
+        let mut out = vec![0i16; 2000];
+        while engine.render(&mut out) > 0 {}
+
+        // ~4410 pulls for the first half, ~2205 (plus the sinc kernel's
+        // priming, a few dozen) for the second. A stale ratio would pull
+        // one-per-frame throughout: 8820.
+        let pulled = pulls.load(Ordering::Relaxed);
+        assert!(
+            (6_400..7_000).contains(&pulled),
+            "the resampler did not follow the core's rate: {pulled} pulls \
+             (expected ~6600; a stale 1:1 ratio pulls 8820)"
+        );
     }
 
     #[test]
