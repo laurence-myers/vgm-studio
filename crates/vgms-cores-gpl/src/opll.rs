@@ -39,23 +39,20 @@ const SETTLE: u32 = CLOCKS_PER_SAMPLE;
 /// `a_loud_chord_uses_the_range_without_clipping_it`.
 const OUTPUT_GAIN: i32 = 12;
 
-/// Fixed-point fraction bits for the DC blocker, and its pole (`0.9975`).
-///
-/// The chip's two DACs do not idle at zero, so summing a rotation leaves a
-/// standing offset heard as a click at each note-on. Integer arithmetic
-/// throughout, because [`ChipCore`] forbids output that could differ across
-/// targets.
-const DC_SHIFT: u32 = 16;
-const DC_POLE: i64 = 65_372;
-
 /// The YM2413 (OPLL), Nuke.YKT's emulation of it.
+///
+/// The raw rotation sum goes out unfiltered, standing DC offset and all --
+/// exactly as the reference plays this core. A one-pole DC blocker used to sit
+/// here (the chip's two DACs do not idle at zero, so a note-on steps the
+/// offset audibly), but it moved sub-bass phase on every render and cost real
+/// parity: removing it took the YM2413's reference correlation from 0.9767 to
+/// 0.9896 (n=12, 2026-08-12). If the note-on step ever needs taming again, it
+/// has to happen after the mix, not per chip.
 #[derive(Debug)]
 pub struct Ym2413 {
     chip: OpllChip,
     rate: u32,
     writes: WriteQueue,
-    dc_prev_in: i64,
-    dc_prev_out: i64,
     /// A mirror of the chip's internal 18-cycle counter, which upstream keeps
     /// private: zeroed by reset, advanced by every `NOPLL_Clock`, untouched by
     /// writes. What [`render`](ChipCore::render)'s mute gate keys on.
@@ -73,8 +70,6 @@ impl Ym2413 {
             chip: OpllChip::new(),
             rate: 44_100,
             writes: WriteQueue::new(SETTLE, SETTLE),
-            dc_prev_in: 0,
-            dc_prev_out: 0,
             cycles: 0,
             mute_mask: 0,
         }
@@ -84,19 +79,6 @@ impl Ym2413 {
     #[cfg(test)]
     fn pending(&self) -> usize {
         self.writes.pending()
-    }
-
-    /// Removes the standing offset the summed DACs carry.
-    ///
-    /// Division, *not* an arithmetic shift: `>>` rounds toward negative infinity,
-    /// which gives the filter a fixed point on the negative half and leaves
-    /// exactly the offset it exists to remove.
-    fn block_dc(&mut self, sample: i32) -> i32 {
-        let input = i64::from(sample);
-        let output = input - self.dc_prev_in + (self.dc_prev_out * DC_POLE) / (1 << DC_SHIFT);
-        self.dc_prev_in = input;
-        self.dc_prev_out = output;
-        output.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
     }
 }
 
@@ -113,8 +95,6 @@ impl ChipCore for Ym2413 {
         self.writes.clear();
         self.rate = (clock / MASTER_PER_SAMPLE).max(1);
         self.chip.reset(variant);
-        self.dc_prev_in = 0;
-        self.dc_prev_out = 0;
         // The chip's internal counter restarts with it; the mirror follows.
         self.cycles = 0;
     }
@@ -149,7 +129,9 @@ impl ChipCore for Ym2413 {
                     sum += rhythm;
                 }
             }
-            let sample = self.block_dc(sum * OUTPUT_GAIN);
+            // The raw rotation sum, unfiltered, as the reference outputs this
+            // core -- the type-level doc records why there is no DC blocker.
+            let sample = sum * OUTPUT_GAIN;
             // Mono: the chip has one output pin.
             frame[0] = sample;
             frame[1] = sample;
@@ -209,8 +191,12 @@ mod tests {
         out.chunks_exact(2).map(|f| f[0]).collect()
     }
 
+    /// Energy about the mean. The output carries the chip's standing DC
+    /// offset by design (no DC blocker -- see the type-level doc), so a quiet
+    /// chip sits at a constant nonzero level; what a note adds is *swing*.
     fn energy(samples: &[i32]) -> i64 {
-        samples.iter().map(|&s| i64::from(s.abs())).sum()
+        let mean = samples.iter().map(|&s| i64::from(s)).sum::<i64>() / samples.len().max(1) as i64;
+        samples.iter().map(|&s| (i64::from(s) - mean).abs()).sum()
     }
 
     /// A note on channel 1 using instrument 1 from the ROM, at full volume.
