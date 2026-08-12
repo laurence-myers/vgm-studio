@@ -649,6 +649,22 @@ const fn default_option_bits(kind: ChipKind) -> u32 {
     }
 }
 
+/// Byte-swaps C219 sample ROM into the order its shared C140 core expects.
+///
+/// The core copies ROM verbatim (`c219_write_rom` is a `memcpy`) and reads it in
+/// 16-bit units, so the player must swap each pair. Mirrors upstream's
+/// `Cmd_DataBlock` C219 case (`chipType == 0x1C && flags & 0x01`), including its
+/// `dataLen &= ~0x01`: an odd trailing byte is dropped, which `chunks_exact`
+/// does for free.
+fn c219_byteswap(data: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() & !1);
+    for pair in data.chunks_exact(2) {
+        out.push(pair[1]);
+        out.push(pair[0]);
+    }
+    out
+}
+
 /// Splits a canonical channel mute mask into what the parent device mutes and,
 /// for the OPN family, what its linked SSG child mutes.
 ///
@@ -797,6 +813,18 @@ impl ChipCore for LibVgmChip {
         if !self.is_started() {
             return;
         }
+        // The C219 (ASIC 219) shares the C140 core, which copies sample ROM
+        // verbatim and relies on the player to have byte-swapped each 16-bit
+        // sample first. We started the C219 device from the C140 header's type
+        // byte, so the same `c140_type == 2` condition selects it here --
+        // upstream's `Cmd_DataBlock` swaps on the equivalent per-device flag.
+        let swapped;
+        let data = if self.spec.kind == ChipKind::C140 && self.settings.c140_type == 2 {
+            swapped = c219_byteswap(data);
+            swapped.as_slice()
+        } else {
+            data
+        };
         let space = usize::from(rom_space(block_type));
         // SAFETY: a live device; `data` is valid for its length and libvgm
         // copies out of it before returning.
@@ -963,6 +991,19 @@ mod tests {
         assert_eq!(default_option_bits(ChipKind::NesApu), 0x01B7);
         assert_eq!(default_option_bits(ChipKind::Scsp), 0x01);
         assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
+    }
+
+    /// The C219 swap reverses each 16-bit pair and drops an odd trailing byte,
+    /// exactly as upstream's `dataLen &= ~0x01` does.
+    #[test]
+    fn c219_byteswap_reverses_pairs_and_drops_the_odd_tail() {
+        assert_eq!(
+            c219_byteswap(&[0x11, 0x22, 0x33, 0x44]),
+            [0x22, 0x11, 0x44, 0x33]
+        );
+        assert_eq!(c219_byteswap(&[0xAA, 0xBB, 0xCC]), [0xBB, 0xAA]);
+        assert_eq!(c219_byteswap(&[0x01]), Vec::<u8>::new());
+        assert_eq!(c219_byteswap(&[]), Vec::<u8>::new());
     }
 
     /// Construction, native rate, writes and render, end to end through the
