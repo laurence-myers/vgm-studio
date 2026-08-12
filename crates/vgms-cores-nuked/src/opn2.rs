@@ -35,14 +35,19 @@ const CLOCKS_PER_SAMPLE: u32 = 24;
 /// Master clocks per output sample -- the familiar `clock / 144`.
 const MASTER_PER_SAMPLE: u32 = MASTER_PER_CLOCK * CLOCKS_PER_SAMPLE;
 
-/// This core's write pacing, in [`WriteQueue`] terms: the value follows its
-/// address on the next cycle, and the rest of the rotation is then left alone
-/// so the chip can reach that register's slot and apply it.
+/// This core's write pacing, in [`WriteQueue`] terms: every half-write
+/// (address or value) sits 15 internal cycles after the last, exactly the
+/// reference's `2612intf.c` write buffer. A full register write spans ~30 of
+/// the rotation's 24 cycles, so bursts still throttle -- draining faster looks
+/// like it works (the writes are accepted) and silently loses most of them.
 ///
-/// One *register* per output sample. Draining faster looks like it works -- the
-/// writes are accepted -- and silently loses most of them.
-const ADDRESS_SETTLE: u32 = 0;
-const VALUE_SETTLE: u32 = CLOCKS_PER_SAMPLE - 3;
+/// Measured, not guessed: the old pacing (value one cycle after its address,
+/// then a 21-cycle hold -- one register per sample) put key-on edges on
+/// different output samples than the reference and cost real parity. Matching
+/// the reference took the YM2612's n=12 correlation from 0.9565 to 0.9922
+/// (2026-08-12), closing the audit's "driver difference" residual.
+const ADDRESS_SETTLE: u32 = 15;
+const VALUE_SETTLE: u32 = 15;
 
 /// The output scale, measured against VGMPlay rather than guessed.
 ///
