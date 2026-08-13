@@ -1279,9 +1279,12 @@ mod tests {
     fn vgm_songs_are_never_auto_trimmed() {
         // A VGM opening on a sample delay must load untouched (auto-trim is
         // DRO-only). Convert the bogus-delay song directly, so its leading
-        // delay survives into the VGM.
+        // delay survives into the VGM. The song is OPL3-typed, so the
+        // conversion opens with the two zero-delay reset pre-writes (0x105,
+        // 0x104); the bogus delay sits right after them.
+        const DELAY_AT: usize = 2;
         let vgm = convert::dro_to_vgm(&bogus_leading_delay_song()).unwrap();
-        assert!(vgm.opl().unwrap().instruction(0).unwrap().is_delay());
+        assert!(vgm.opl().unwrap().instruction(DELAY_AT).unwrap().is_delay());
 
         let (editor, report) = loaded_vgm(&vgm);
         assert_eq!(report, LoadReport::default());
@@ -1292,7 +1295,7 @@ mod tests {
                 .unwrap()
                 .opl()
                 .unwrap()
-                .instruction(0)
+                .instruction(DELAY_AT)
                 .unwrap()
                 .is_delay()
         );
