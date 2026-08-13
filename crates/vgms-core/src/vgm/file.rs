@@ -32,11 +32,12 @@ use flate2::write::GzEncoder;
 use crate::chip_state::{self, ChipState};
 use crate::error::{Error, Result};
 use crate::song::{OplType, slide_index_past_deletion};
+use crate::vgm::ChipKind;
 use crate::vgm::data::{Gd3Tag, VgmMeta};
 use crate::vgm::header::{LEGACY_DATA_START, VgmHeader, offset, widen_offset};
 use crate::vgm::io::{is_gzipped, parse_gd3_tag, write_gd3_tag};
 use crate::vgm::projection::{OplProjection, opl_type_of};
-use crate::vgm::stream::{END_OF_DATA, VgmStream};
+use crate::vgm::stream::{END_OF_DATA, VgmCommand, VgmStream};
 
 /// The header block a GD3 tag carries before its strings: magic, version, length.
 const GD3_PREAMBLE: usize = 12;
@@ -864,7 +865,7 @@ pub fn write_gzipped(file: &VgmFile) -> Result<Vec<u8>> {
 // ---------------------------------------------------------------------------
 
 fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
-    let header = VgmHeader::parse(bytes)?;
+    let mut header = VgmHeader::parse(bytes)?;
     let data_start = header.data_start();
 
     // The EOF field is the file's own idea of where it ends. Trust it only as
@@ -911,6 +912,29 @@ fn read_uncompressed(name: &str, bytes: &[u8]) -> Result<VgmFile> {
                 log::warn!(
                     "VGM header claims {declared} samples, but its delays sum to {from_stream}"
                 );
+            }
+            // v1.00/1.01 had one FM clock field, later the YM2413's alone. A
+            // Mega Drive or arcade rip of that age declares its YM2612 or
+            // YM2151 there, so trusting the field builds a silent YM2413 and
+            // the FM writes find no chip. The reference scans the first FM
+            // command to learn which chip the file means
+            // (ParseFileForFMClocks); this is that scan, over the decoded
+            // stream. A projection only -- the raw bytes are untouched.
+            if header.version() < 0x110 && header.has_chip(ChipKind::Ym2413) {
+                for index in 0..stream.len() {
+                    match stream.get(index) {
+                        Some(VgmCommand::Write { target, .. }) => match target.kind {
+                            ChipKind::Ym2413 => break,
+                            ChipKind::Ym2612 | ChipKind::Ym2151 => {
+                                header.retarget_v101_fm(target.kind);
+                                break;
+                            }
+                            _ => {}
+                        },
+                        None => break,
+                        _ => {}
+                    }
+                }
             }
             VgmBody::Commands(stream)
         }
@@ -1074,6 +1098,35 @@ mod tests {
         let eof = out.len();
         put_u32(&mut out, offset::EOF, (eof - offset::EOF) as u32);
         out
+    }
+
+    /// v1.00/1.01 stored every FM chip's clock in the (later) YM2413 field;
+    /// the reader scans the first FM command to learn which chip the file
+    /// means, as the reference's `ParseFileForFMClocks` does. A projection
+    /// only: the raw header bytes are untouched.
+    #[test]
+    fn a_v101_file_gives_its_fm_clock_to_the_chip_it_writes() {
+        let v101 = |body: &[u8]| {
+            let mut header = vec![0u8; 0x40];
+            header[..4].copy_from_slice(crate::vgm::io::MAGIC);
+            put_u32(&mut header, offset::VERSION, 0x101);
+            put_u32(&mut header, ChipKind::Ym2413.clock_offset(), 7_670_454);
+            let mut out = header;
+            out.extend_from_slice(body);
+            let eof = out.len();
+            put_u32(&mut out, offset::EOF, (eof - offset::EOF) as u32);
+            out
+        };
+        // The first FM command is a YM2612 write: the clock moves there.
+        let file = read("t.vgm", &v101(&[0x52, 0x28, 0xF1, 0x66])).unwrap();
+        assert_eq!(file.chip_list(), "YM2612");
+        assert_eq!(file.header.chips()[0].clock, 7_670_454);
+        // A YM2151 write moves it there instead.
+        let file = read("t.vgm", &v101(&[0x54, 0x28, 0xF1, 0x66])).unwrap();
+        assert_eq!(file.chip_list(), "YM2151");
+        // A genuine YM2413 write keeps the field's own meaning.
+        let file = read("t.vgm", &v101(&[0x51, 0x28, 0xF1, 0x66])).unwrap();
+        assert_eq!(file.chip_list(), "YM2413");
     }
 
     #[test]
@@ -1500,7 +1553,7 @@ mod tests {
         let stream = file.stream().unwrap();
         let mut cells: Vec<(String, u16)> = Vec::new();
         for index in 0..stream.len() {
-            if let Some(crate::vgm::VgmCommand::Write { target, addr, data }) = stream.get(index) {
+            if let Some(VgmCommand::Write { target, addr, data }) = stream.get(index) {
                 let key = format!("{} {addr:#06X}", target.label());
                 match cells.iter_mut().find(|(name, _)| *name == key) {
                     Some(cell) => cell.1 = data,

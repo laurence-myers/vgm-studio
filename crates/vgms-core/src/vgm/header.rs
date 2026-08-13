@@ -691,6 +691,24 @@ impl VgmHeader {
         &self.chips
     }
 
+    /// Reassigns a v1.00/1.01 file's shared FM clock to `kind`.
+    ///
+    /// Those versions had one FM clock field (0x10), later the YM2413's alone;
+    /// the reference scans the first FM command to learn which chip the file
+    /// really writes (`ParseFileForFMClocks`) and moves the clock accordingly.
+    /// The file reader performs that scan and calls this with its answer -- a
+    /// projection only: the raw header bytes stay put, so a save still writes
+    /// the file back verbatim.
+    pub(crate) fn retarget_v101_fm(&mut self, kind: ChipKind) {
+        if let Some(entry) = self
+            .chips
+            .iter_mut()
+            .find(|entry| entry.kind == ChipKind::Ym2413)
+        {
+            entry.kind = kind;
+        }
+    }
+
     /// Whether `kind` is one of the chips this file declares.
     #[must_use]
     pub fn has_chip(&self, kind: ChipKind) -> bool {
@@ -796,20 +814,24 @@ fn read_chips(header: &[u8], version: u32) -> Vec<ChipUse> {
         if clock == 0 {
             continue;
         }
-        // A clock field the file's own version does not define is not a chip:
-        // a 1.70 file's header runs to 0x100 whether or not the spec had
-        // assigned 0xC0 yet, so a non-zero byte there is padding, and treating
-        // it as a clock invents chips the stream never writes to. Trusting the
-        // version can lose a genuinely under-declared chip, but that is rarer.
+        // Every clock field that physically fits before the data offset
+        // counts, whatever version the file declares -- the reference reads
+        // the header the same way, so a rip whose tool forgot to bump the
+        // version still gets its chip instead of rendering it silent. The
+        // bound is real: `header` ends at the data offset, and `u32_at` reads
+        // absent fields as zero, so an old short header cannot invent chips
+        // out of the data. A *declared-long* header with junk in a
+        // later-version field is misread identically by the reference, which
+        // is the parity this chooses. The version is still logged, because a
+        // field past the declared version is worth a look.
         if version < spec.since {
             log::debug!(
                 "VGM has bytes at the {} clock, which arrived in v{}, but calls itself v{}; \
-                 not treating them as a chip",
+                 reading them as a chip anyway, as the reference does",
                 spec.name,
                 format_version(spec.since),
                 format_version(version)
             );
-            continue;
         }
         chips.push(ChipUse {
             kind: spec.kind,
@@ -1240,21 +1262,30 @@ mod tests {
         assert!(!parsed.is_opl_only(), "a file this crowded is not OPL-only");
     }
 
-    /// A clock field the file's version does not define is padding, not a chip:
-    /// a 1.70 file's header runs to 0x100 whether or not the spec had assigned
-    /// 0xC0 yet, and whatever sits there is not a clock.
+    /// A clock field past the declared version still counts, as the reference
+    /// reads it: a rip whose tool forgot the version bump keeps its chip. The
+    /// real bound is physical -- a field past the data offset does not exist
+    /// and reads as zero.
     #[test]
-    fn a_clock_field_the_version_predates_is_not_a_chip() {
+    fn a_clock_field_the_version_predates_is_still_a_chip() {
+        // The version predates the field, but the header physically holds it.
         let mut bytes = header(0x151, 0x100);
         put_u32(&mut bytes, ChipKind::Mikey.clock_offset(), 16_000_000);
         let bytes = file(bytes);
-        assert_eq!(VgmHeader::parse(&bytes).unwrap().chip_list(), "");
-
-        // Say the version it needs, and the chip is there.
-        let mut bytes = header(0x172, 0x100);
-        put_u32(&mut bytes, ChipKind::Mikey.clock_offset(), 16_000_000);
-        let bytes = file(bytes);
         assert_eq!(VgmHeader::parse(&bytes).unwrap().chip_list(), "Mikey");
+
+        // A short header ends before the field: no bytes, no chip. The data
+        // offset is the bound, exactly as the reference bounds its reads.
+        let mut bytes = header(0x151, 0x80);
+        let clock = ChipKind::Mikey.clock_offset();
+        assert!(clock >= 0x80, "Mikey's field must sit past this header");
+        // The clock bytes land inside the *data*, where they are commands.
+        while bytes.len() < clock + 4 {
+            bytes.push(0);
+        }
+        bytes[clock..clock + 4].copy_from_slice(&16_000_000u32.to_le_bytes());
+        let bytes = file(bytes);
+        assert_eq!(VgmHeader::parse(&bytes).unwrap().chip_list(), "");
     }
 
     #[test]
