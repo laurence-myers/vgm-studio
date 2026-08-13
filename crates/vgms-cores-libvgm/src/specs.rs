@@ -299,8 +299,8 @@ chip_specs! {
         ffi::DEVID_YM2612, ffi::FCC_GENS, WriteRule::RegisterLatch, [0, 0], 516, configure_none;  // measured 2.016 (n=8, 0.4744..0.5093)
     make_ym2151: "ym2151.libvgm" / "libvgm (MAME)" => Ym2151,
         ffi::DEVID_YM2151, 0, WriteRule::RegisterLatch, [0, 0], 514, configure_none;  // measured 2.008 (0.498/1.000 vs the reference, n=12; 0.4973 direct, n=8)
-    // The one OPL-family chip served from this crate (owner's decision,
-    // 2026-08-12): MAME fmopl is the only core with the Y8950's ADPCM-B
+    // The Y8950, served from this crate (owner's decision, 2026-08-12): MAME
+    // fmopl is the only core with the Y8950's ADPCM-B
     // (delta-T) half -- the Nuked/LLE adapters have no sample unit, so the
     // speech half of every Y8950 rip was silent. The reference always plays
     // this same core, so the pairing is also the parity pairing. Level unity
@@ -314,6 +314,16 @@ chip_specs! {
     // default. That per-chip fallback is `CoreRegistry::resolve`'s.
     make_y8950: "opl3.libvgm-y8950" / "libvgm (MAME + ADPCM)" => Y8950,
         ffi::DEVID_Y8950, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
+    // The YM3526 shares the OPL family's `opl3.*` slot, registered for the
+    // YM3526 alone (per-chip resolve, exactly as the Y8950 above). Not the
+    // ADPCM story -- the YM3526 is pure FM the OPL adapter plays -- but the
+    // parity story: the reference offers the YM3526 no Nuked option and always
+    // plays MAME fmopl, so the OPL adapter's Nuked-OPL3 is a cross-core
+    // comparison (corr 0.75 with cents ~0 -- a waveform difference, not pitch).
+    // This row is that same fmopl, the reference's own core. Level measured
+    // against the harness (unity until then).
+    make_ym3526: "opl3.libvgm-ym3526" / "libvgm (MAME)" => Ym3526,
+        ffi::DEVID_YM3526, 0, WriteRule::RegisterLatch, [0, 0], LEVEL_UNITY, configure_none;
     make_ymf271: "ymf271.libvgm" / "libvgm (MAME)" => Ymf271,
         ffi::DEVID_YMF271, 0, WriteRule::RegisterLatch, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     // The OPL4: its wave half is this device, its FM half a linked YMF262.

@@ -437,7 +437,17 @@ pub const THRESHOLDS: &[Threshold] = &[
         min_correlation: 0.80,
         max_cents: 2.0,
         max_dropout: 0.01,
-        known_gap: Some("0.8471 observed (n=12); the two noise generators' phase"),
+        known_gap: Some(
+            "0.8471 observed (n=12) -- NOT cross-core (2026-08-13): both sides \
+             run libvgm's default Valley Bell core, and the tonal Gaelco rips \
+             match it near-exactly (Master Boy 0.9976, Xor World 0.9991). The \
+             shortfall is the chip's free-running state -- its two noise \
+             generators (register 0x15) and two envelope generators (0x18/0x19), \
+             clocked from reset like the OPL LFO -- which the effect-heavy \
+             Creative Music System demos engage and drag the median down. \
+             touches_free_running_state marks them; the steady subset scores far \
+             higher (VGMSTUDIO_PARITY_FILES=1 shows the split)",
+        ),
     },
     // Closed 2026-08-12: the 0.8287 was the missing ADPCM-B half plus the
     // cross-core FM. Served from libvgm's MAME fmopl (the reference's own
@@ -463,11 +473,19 @@ pub const THRESHOLDS: &[Threshold] = &[
             "0.9944 observed (n=12, lvl 1.005) once the dynamic-rate fix and \
              the x0.25 staging level landed (2026-08-12: the oscillator-enable \
              register moves the chip's output rate, and with the resampler \
-             stuck at the reset rate the sweep read corr 0.0022). Residual: a \
-             flat offset, median -6.5 cents across the sample -- our rate \
-             arithmetic matches upstream exactly, so the suspect is the \
-             reference's older core revision (the MAME core's loop-phase \
-             handling changed in v2.1); untested",
+             stuck at the reset rate the sweep read corr 0.0022). The median \
+             -6.5-cent offset is a harness artifact, not pitch (2026-08-13, the \
+             older-core-revision theory disproven): both sides run the identical \
+             libvgm es5503.c and the waveforms match, per-file corr up to \
+             1.0000. The native-rate probe reads the *reset* rate (298 kHz, one \
+             oscillator) while an Apple IIgs rip enables all 32 and runs near \
+             26 kHz, so both sides resample ~26->298 kHz; our sinc filter's \
+             group delay reads back as flat cents where the reference's linear \
+             one does not. best_correlation's lag search absorbs it (hence corr \
+             ~1), detune_cents does not. Under VGMSTUDIO_PARITY_RESAMPLER=linear \
+             every file's offset vanishes to -0.0 -- same class as the OKIM6258 \
+             phantom -15. The max_cents=10 bar tolerates it; the row passes on \
+             correlation",
         ),
     },
     Threshold {
@@ -476,12 +494,17 @@ pub const THRESHOLDS: &[Threshold] = &[
         max_cents: 2.0,
         max_dropout: 0.01,
         known_gap: Some(
-            "0.7533 observed (n=12) since the OPL adapter's clock projection \
-             (was 0.0312: every sampled rip is a 4 MHz or 3 MHz arcade board \
-             the adapter used to play at the standard crystal). The reference \
-             offers no Nuked option for the YM3526 -- it always plays MAME \
-             fmopl -- so the band is the cross-core one, like its Y8950 \
-             sibling's",
+            "0.7533 observed (n=12, cents ~0, lvl 0.999) -- cross-core: the \
+             reference offers the YM3526 no Nuked option and always plays MAME \
+             fmopl, while the OPL adapter's default is Nuked-OPL3 (exact:false \
+             for the YM3526 -- an OPL3 in compat mode). The pitch and level \
+             already match; only the waveform differs. The reference's own core \
+             ships as the opl3.libvgm-ym3526 alternative (2026-08-13): selecting \
+             it reads 0.9657 (n=12), the same free-running-LFO/rhythm regime its \
+             YM3812 sibling sits in -- which both proves the 0.75 is purely the \
+             cross-core waveform difference and offers the identity path. The \
+             family stays on Nuked-OPL3 by the 'OPL on our own path' decision; \
+             promote opl3.libvgm-ym3526 to close the row",
         ),
     },
 ];

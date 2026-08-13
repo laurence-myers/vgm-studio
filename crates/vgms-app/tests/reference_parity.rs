@@ -330,7 +330,9 @@ fn modulation_share(path: &Path, chip: ChipKind) -> Option<f64> {
 
 /// Whether any write engages state that free-runs from reset: the vibrato *or
 /// tremolo* LFO, or -- on the OPL family -- rhythm mode, whose noise LFSR
-/// free-runs the same way. `None` when the chip has no rule here.
+/// free-runs the same way, or -- on the SAA1099 -- its two noise generators
+/// (register 0x15) and its two envelope generators (0x18/0x19), both clocked
+/// from reset. `None` when the chip has no rule here.
 ///
 /// [`modulation_share`] measures vibrato alone, which is the loudest member of
 /// this class but not the whole of it: the 2026-08-12 investigation found
@@ -342,8 +344,12 @@ fn modulation_share(path: &Path, chip: ChipKind) -> Option<f64> {
 fn touches_free_running_state(path: &Path, chip: ChipKind) -> Option<bool> {
     use vgms_core::vgm::stream::VgmCommand;
     // The OPN/OPM rule is unchanged: their LFO switch is what modulation_share
-    // reads, and they keep their noise/SSG questions out of this filter.
-    if !matches!(chip, ChipKind::Ymf262 | ChipKind::Ym3812) {
+    // reads, and they keep their noise/SSG questions out of this filter. The
+    // chips scanned directly below are the OPL family and the SAA1099.
+    if !matches!(
+        chip,
+        ChipKind::Ymf262 | ChipKind::Ym3812 | ChipKind::Saa1099
+    ) {
         return modulation_share(path, chip).map(|share| share > 0.0);
     }
     let bytes = std::fs::read(path).ok()?;
@@ -353,6 +359,20 @@ fn touches_free_running_state(path: &Path, chip: ChipKind) -> Option<bool> {
     for command in (0..stream.len()).filter_map(|index| stream.get(index)) {
         if let VgmCommand::Write { addr, data, .. } = command {
             let register = addr & 0xff;
+            if chip == ChipKind::Saa1099 {
+                // Two elements free-run from reset and so cannot match across
+                // two players: register 0x15 routes a channel to the two noise
+                // generators, and 0x18/0x19 bit 7 enables an envelope generator
+                // (clocked continuously from reset). A file that touches neither
+                // is pure deterministic tone, where a shared core matches.
+                if register == 0x15 && data & 0x3f != 0 {
+                    return Some(true);
+                }
+                if matches!(register, 0x18 | 0x19) && data & 0x80 != 0 {
+                    return Some(true);
+                }
+                continue;
+            }
             // AM (bit 7) or VIB (bit 6) on an operator's 0x20-0x35 byte.
             if (0x20..=0x35).contains(&register) && data & 0xc0 != 0 {
                 return Some(true);

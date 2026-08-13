@@ -81,9 +81,13 @@ pub(crate) const DEVID_RF5C68: u8 = 0x05;
 pub(crate) const DEVID_YM2203: u8 = 0x06;
 pub(crate) const DEVID_YM2608: u8 = 0x07;
 pub(crate) const DEVID_YM2610: u8 = 0x08;
-/// The OPL3. Never registered as a chip from this crate -- OPL plays through
-/// our own OPL adapter path -- compiled and declared only as the OPL4's linked
-/// FM half.
+/// The original OPL (`0x09` is the YM3812/OPL2, unused here). The YM3526 is
+/// served from this crate as the reference-matching alternative to the OPL
+/// adapter's Nuked-OPL3: the reference plays MAME fmopl for it, the one OPL
+/// chip the family offers no Nuked substitute for.
+pub(crate) const DEVID_YM3526: u8 = 0x0A;
+/// The Y8950 (MSX-AUDIO): an OPL with an ADPCM-B unit. Served from this crate
+/// for that ADPCM-B half, which no Nuked/LLE OPL core carries.
 pub(crate) const DEVID_Y8950: u8 = 0x0B;
 pub(crate) const DEVID_YMF262: u8 = 0x0C;
 /// The OPL4. Not an OPL row here -- the OPL family plays through our own OPL
