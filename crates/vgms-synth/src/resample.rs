@@ -292,9 +292,42 @@ impl Resampler {
         }
 
         if self.mode == ResampleMode::Linear {
-            // The engine's old resampler, verbatim in spirit: the two source
-            // frames straddling the output instant, interpolated. Everything
-            // the sinc path exists to remove is deliberately left in.
+            if self.step > FRAC_ONE {
+                // Decimation is the reference's `Resmpl_Exec_LinearDown`: a
+                // fractional box average over every source frame the output
+                // frame spans -- the fractional head of the current frame,
+                // the whole frames, and a fractional tail -- normalised by
+                // the span. A 2-tap lerp here skipped the frames in between,
+                // which is a different (hotter) aliasing than the reference's
+                // gentle `sinc(f/fs_out)` rolloff; the L14 audit gap.
+                //
+                // `phase` in this branch is the consumed portion of the
+                // newest history frame. The shared pull above has already
+                // wound it below `FRAC_ONE` with the frame in the ring.
+                let mask = self.history.len() - 1;
+                let mut acc = [0.0f64; 2];
+                let mut remaining = self.step;
+                loop {
+                    let frame = self.history[(self.write + mask) & mask];
+                    let take = remaining.min(FRAC_ONE - self.phase);
+                    acc[0] += f64::from(frame[0]) * take as f64;
+                    acc[1] += f64::from(frame[1]) * take as f64;
+                    self.phase += take;
+                    remaining -= take;
+                    if remaining == 0 {
+                        break;
+                    }
+                    // The current frame is spent: pull the next.
+                    self.history[self.write] = source();
+                    self.write = (self.write + 1) % self.history.len();
+                    self.phase -= FRAC_ONE;
+                }
+                let span = self.step as f64;
+                return [clamp(acc[0] / span), clamp(acc[1] / span)];
+            }
+            // Upsampling: the engine's old resampler, verbatim in spirit --
+            // the two source frames straddling the output instant,
+            // interpolated, which is also the reference's `LinearUp`.
             let mask = self.history.len() - 1;
             let next = self.history[(self.write + mask) & mask];
             let prev = self.history[(self.write + mask - 1) & mask];
@@ -535,6 +568,36 @@ mod tests {
     /// is nothing but harmonics, most of them above the output Nyquist, and
     /// every one of them has an unrelated frequency to fold back to.
     ///
+    /// Decimating in Linear mode is the reference's fractional box average
+    /// (`Resmpl_Exec_LinearDown`): every source frame in the span contributes,
+    /// so a source alternating at its own Nyquist averages towards zero. The
+    /// old 2-tap lerp sampled it at full swing -- a different aliasing than
+    /// the reference renders. A constant passes through exactly, proving the
+    /// fractional weights sum to the span.
+    #[test]
+    fn linear_decimation_is_the_references_box_average() {
+        let mut resampler = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+        let mut flip = 1i32;
+        let mut peak = 0i32;
+        for _ in 0..2000 {
+            let frame = resampler.next_frame(|| {
+                flip = -flip;
+                [flip * 1000, flip * 1000]
+            });
+            peak = peak.max(frame[0].abs());
+        }
+        assert!(
+            peak <= 500,
+            "a Nyquist-rate flip must average down through the box, peaked {peak}"
+        );
+
+        let mut resampler = Resampler::with_mode(SN_NATIVE, OUTPUT, ResampleMode::Linear);
+        for _ in 0..200 {
+            let frame = resampler.next_frame(|| [777, -777]);
+            assert_eq!(frame, [777, -777], "a constant is exactly preserved");
+        }
+    }
+
     /// Linear interpolation -- what the engine did before this module -- scores
     /// around -20 dB here, so this test is a demonstration and not merely a
     /// guard.
@@ -633,12 +696,16 @@ mod tests {
         };
 
         let (old, new) = (worst(&lerped), worst(&filtered));
-        println!("worst inharmonic tone: lerp {old:.1} dB, windowed sinc {new:.1} dB");
+        println!("worst inharmonic tone: linear {old:.1} dB, windowed sinc {new:.1} dB");
+        // Linear's decimation is now the reference's box average rather than
+        // the raw 2-tap lerp this test originally measured (-32.7 dB), so its
+        // floor sits lower -- but its sinc(f/fs_out)-shaped rolloff still
+        // leaks aliases the windowed sinc removes, which is the comparison
+        // this test exists to make.
         assert!(
-            old > -45.0,
-            "the old resampler was supposed to be the problem, yet its worst \
-             alias is only {old:.1} dB -- this test is no longer measuring what \
-             it claims"
+            old > -70.0,
+            "linear mode was supposed to leak audible aliases, yet its worst \
+             is {old:.1} dB -- this test is no longer measuring what it claims"
         );
         // Measured: -32.7 dB becomes -117.6 dB, about 85 dB of improvement,
         // which puts the folded energy well below the noise floor of the
