@@ -125,6 +125,26 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     // holds only the (chunked) wait commands, not their sum.
     let mut total_samples = 0u64;
 
+    // An OPL3 capture's init dump is in the wrong order: DOSBox writes the
+    // whole low bank (the E0-F5 waveform selects included) and 0x100-0x104
+    // *before* 0x105, so replayed verbatim on a fresh chip (newm = 0) the
+    // waveform writes are masked to 0-3 and the 4-op enable folds away. The
+    // reference's DRO Reset therefore writes 0x105 = the scanned init-block
+    // enable, then 0x104 = 0, before the replay; these two zero-delay writes
+    // are that. A v2 file replays its scanned value (zero when the block never
+    // wrote one -- two harmless writes on a fresh chip, as upstream). A v1
+    // OPL3 capture has no scan until the H5 init-block machinery lands, so it
+    // primes 1 -- the same DOSBox-had-it-enabled reasoning as the v1
+    // waveform-select prime below.
+    if opl_type == OplType::Opl3 {
+        let enable = match song.data() {
+            DroSongData::V2(data) => data.init_block_opl3_enable(),
+            DroSongData::V1(_) => 0x01,
+        };
+        stream.write(Bank::High, 0x05, enable);
+        stream.write(Bank::High, 0x04, 0x00);
+    }
+
     // DRO v1 (OPL2) captures assume waveform-select is already enabled
     // (`0x01 = 0x20`): DOSBox's chip had the bit set before recording began, so
     // the write is not in the file, and without it the capture's non-sine
@@ -460,6 +480,32 @@ mod tests {
 
     /// A v2 capture records its own waveform-select if it needs one, so the
     /// projection adds no prime.
+    /// An OPL3 conversion opens with the reference's two reset writes --
+    /// 0x105 = the scanned init-block enable, then 0x104 = 0 -- so the init
+    /// dump's waveform-select and 4-op writes land with newm set (DOSBox dumps
+    /// them *before* 0x105; replayed verbatim on a fresh chip they are masked).
+    /// An OPL2 conversion gets neither.
+    #[test]
+    fn an_opl3_conversion_opens_with_the_reset_pre_writes() {
+        use crate::song::DroDataV2;
+        // A promoted DualOPL2: init block writes 0x105 = 0x01.
+        let data = DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
+        let vgm = dro_to_vgm(&song).unwrap();
+        let stream = vgm.stream().expect("a stream");
+        // 0x5F = YMF262 port 1: reg 0x05 = 0x01, then reg 0x04 = 0x00, then
+        // the file's own (promoted-to-port-1) 0x105 write.
+        assert_eq!(stream.raw_command(0), Some(&[0x5F, 0x05, 0x01][..]));
+        assert_eq!(stream.raw_command(1), Some(&[0x5F, 0x04, 0x00][..]));
+
+        // An OPL2 song opens with its own first write, no pre-writes.
+        let data = DroDataV2::new(vec![0x00, 0x30], vec![0x20], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::Opl2);
+        let vgm = dro_to_vgm(&song).unwrap();
+        let stream = vgm.stream().expect("a stream");
+        assert_eq!(stream.raw_command(0), Some(&[0x5A, 0x20, 0x30][..]));
+    }
+
     /// DOSBox mislabels most OPL3 captures as DualOPL2; an init-block OPL3
     /// enable promotes playback to OPL3, while the stored type -- what a save
     /// writes -- is left untouched so the file still round-trips.
@@ -541,7 +587,14 @@ mod tests {
         assert_eq!(
             vgm.body.raw(),
             [
-                // The v1 waveform-select prime leads, on the low bank.
+                // The OPL3 reset pre-writes lead (a v1 capture primes the
+                // enable at 1), then the v1 waveform-select prime.
+                command::YMF262_PORT_1,
+                0x05,
+                0x01,
+                command::YMF262_PORT_1,
+                0x04,
+                0x00,
                 command::YMF262_PORT_0,
                 0x01,
                 0x20,
@@ -559,8 +612,9 @@ mod tests {
         );
         assert_eq!(
             vgm.len(),
-            4,
-            "the WSE prime plus three writes; bank switches leave no VGM command behind"
+            6,
+            "the two reset pre-writes, the WSE prime, and three writes; bank \
+             switches leave no VGM command behind"
         );
     }
 

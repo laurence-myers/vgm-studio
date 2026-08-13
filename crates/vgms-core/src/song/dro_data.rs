@@ -322,19 +322,20 @@ impl DroDataV2 {
         Some(&self.data[start..start + 2])
     }
 
-    /// Whether the leading init block enables OPL3 mode -- a write to register
-    /// `0x105` with bit 0 set.
+    /// The last value the leading init block wrote to register `0x105` (the
+    /// OPL3 enable), or zero if it never wrote one -- upstream's
+    /// `_initOPL3Enable`, from `droplayer`'s `ScanInitBlock` v2 branch: walk
+    /// from the start, stop at the first delay code or an out-of-range
+    /// register code, and take the last `0x105` value.
     ///
-    /// DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; VGMPlay's DRO player
-    /// (`DRO_V2OPL3_DETECT`) scans this same block and, finding the OPL3-enable
-    /// write, plays the file as a single OPL3 rather than two OPL2s. Mirrors
-    /// `droplayer`'s `ScanInitBlock` v2 branch: walk from the start, stop at the
-    /// first delay code or an out-of-range register code, and take the last
-    /// value written to `0x105`. Playback-only -- the stored header type is
-    /// untouched, so the file still saves byte-for-byte.
+    /// Two consumers, both playback-only (the stored header type and bytes are
+    /// untouched, so the file still saves byte-for-byte): the DualOPL2-to-OPL3
+    /// promotion reads bit 0 through
+    /// [`opl3_enabled_in_init_block`](Self::opl3_enabled_in_init_block), and
+    /// the conversion's reset pre-writes replay the value itself.
     #[must_use]
-    pub(crate) fn opl3_enabled_in_init_block(&self) -> bool {
-        let mut opl3_enable: Option<u8> = None;
+    pub(crate) fn init_block_opl3_enable(&self) -> u8 {
+        let mut opl3_enable = 0u8;
         for pair in self.data.chunks_exact(2) {
             let code = pair[0];
             if code == self.short_delay_code || code == self.long_delay_code {
@@ -345,10 +346,19 @@ impl DroDataV2 {
             };
             let full = (u16::from(code & 0x80) << 1) | u16::from(reg);
             if full == 0x105 {
-                opl3_enable = Some(pair[1]);
+                opl3_enable = pair[1];
             }
         }
-        matches!(opl3_enable, Some(value) if value & 0x01 != 0)
+        opl3_enable
+    }
+
+    /// Whether the leading init block enables OPL3 mode -- a `0x105` write
+    /// with bit 0 set. DOSBox 0.73+ labels most OPL3 captures `DualOPL2`;
+    /// VGMPlay (`DRO_V2OPL3_DETECT`) scans the block and, finding the enable,
+    /// plays the file as a single OPL3 rather than two OPL2s.
+    #[must_use]
+    pub(crate) fn opl3_enabled_in_init_block(&self) -> bool {
+        self.init_block_opl3_enable() & 0x01 != 0
     }
 
     pub(crate) fn delete_many(&mut self, indices: &[usize]) {
