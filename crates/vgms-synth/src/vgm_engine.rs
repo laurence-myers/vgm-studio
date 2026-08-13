@@ -285,6 +285,24 @@ impl VgmEngine {
                         instance,
                         port: 0,
                     };
+                    // The second instance's clock can differ: the v1.70 extra
+                    // header lists per-instance clocks, and the reference
+                    // resolves instance 1 through it (GetChipClock walks
+                    // _xHdrChipClk). Without this, a dual-chip file whose two
+                    // chips run at different clocks played the second at the
+                    // first's clock -- wrong pitch and rate.
+                    let mut chip = *chip;
+                    if instance == 1
+                        && let Some(entry) = file.header.extra().and_then(|extra| {
+                            extra.clocks.iter().find(|entry| {
+                                vgms_core::vgm::ChipKind::from_id(entry.chip_id) == Some(chip.kind)
+                            })
+                        })
+                    {
+                        chip.clock = entry.clock & 0x3FFF_FFFF;
+                        chip.variant = entry.clock & 0x8000_0000 != 0;
+                    }
+                    let chip = &chip;
                     // The reference's cross-chip balance for this instance in
                     // this file's chip set -- unity for a single-chip file.
                     let balance = crate::balance::voice_gain(
@@ -1013,6 +1031,63 @@ mod tests {
         let eof = bytes.len();
         put_u32(&mut bytes, 0x04, (eof - 4) as u32);
         Arc::new(vgms_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
+    }
+
+    /// A dual declaration whose second instance names its own clock in the
+    /// v1.70 extra header: the reference resolves instance 1 through the
+    /// extra-header list (GetChipClock), and so must the engine -- without it
+    /// the second chip reset at the first's clock, wrong pitch and rate.
+    #[test]
+    fn the_second_instance_takes_its_extra_header_clock() {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        let mut bytes = vec![0u8; 0x120];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, 0x120 - 0x34); // data at 0x120
+        // A dual OKIM6295 (bit 30), first instance at 1.056 MHz.
+        put_u32(
+            &mut bytes,
+            ChipKind::Okim6295.clock_offset(),
+            1_056_000 | (1 << 30),
+        );
+        // The extra header at 0x100 (pointer at 0xBC): size 8, then the
+        // clock-list offset, relative to its own position (0x104).
+        put_u32(&mut bytes, 0xBC, 0x100 - 0xBC);
+        put_u32(&mut bytes, 0x100, 8);
+        put_u32(&mut bytes, 0x104, 0x10C - 0x104);
+        bytes[0x10C] = 1; // one entry: the second OKIM6295 at 2.112 MHz
+        bytes[0x10D] = ChipKind::Okim6295.id();
+        put_u32(&mut bytes, 0x10E, 2_112_000);
+        bytes.push(0x66);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        let file = Arc::new(vgms_core::vgm::file::read("dual.vgm", &bytes).expect("walkable"));
+
+        let clocks: Log<u32> = Arc::new(Mutex::new(Vec::new()));
+        struct ClockTap(Log<u32>);
+        impl ChipCore for ClockTap {
+            fn reset(&mut self, clock: u32, _variant: bool) {
+                self.0.lock().expect("not poisoned").push(clock);
+            }
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+        let for_factory = Arc::clone(&clocks);
+        let _engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            Some(Box::new(ClockTap(Arc::clone(&for_factory))))
+        });
+        assert_eq!(
+            *clocks.lock().expect("not poisoned"),
+            [1_056_000, 2_112_000],
+            "each instance resets at its own clock"
+        );
     }
 
     /// A core that re-derives its rate from a register write (the ES5503's
