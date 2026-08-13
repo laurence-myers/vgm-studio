@@ -41,7 +41,16 @@ pub fn read(name: &str, bytes: &[u8]) -> Result<DroSong> {
         )));
     }
 
-    let version = (reader.u16_le()?, reader.u16_le()?);
+    // DRO v0 (DOSBox 0.62) wrote no version field: offset 0x08 holds the
+    // millisecond length directly. The reference detects it by the mask test
+    // below -- a version pair never has those bits set (the known pairs are
+    // tiny numbers), while a v0 length usually does. Tested *before* the
+    // version match, as `droplayer` orders it.
+    let word = reader.u32_le()?;
+    if word & 0xFF00_FF00 != 0 {
+        return read_v0(name, reader, word);
+    }
+    let version = ((word & 0xFFFF) as u16, (word >> 16) as u16);
     match version {
         VERSION_V1_OLD | VERSION_V1_NEW => read_v1(name, reader),
         VERSION_V2 => read_v2(name, reader),
@@ -61,6 +70,42 @@ pub fn write(song: &DroSong) -> Result<Vec<u8>> {
         DroSongData::V1(_) => Ok(write_v1(song)),
         DroSongData::V2(data) => Ok(write_v2(song, data)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// v0
+// ---------------------------------------------------------------------------
+
+/// Reads a versionless DRO v0 (DOSBox 0.62): the v1 layout shifted four bytes
+/// down -- `ms_length` at 0x08 (already consumed by the detection, passed in),
+/// byte length at 0x0C, a one-byte OPL type at 0x10, data from 0x11. The
+/// instruction stream is v1's, so the song loads as a v1 and a save upgrades
+/// it the same way a one-byte-type v1 is upgraded.
+fn read_v0(name: &str, mut reader: ByteReader<'_>, ms_length: u32) -> Result<DroSong> {
+    let byte_length = reader.u32_le()? as usize;
+    let opl_type_code = reader.u8()?;
+    let opl_type = OplType::from_v1_code(opl_type_code)
+        .ok_or_else(|| Error::file(format!("Unknown DRO v0 OPL type: {opl_type_code}")))?;
+
+    if reader.remaining() < byte_length {
+        return Err(Error::file(format!(
+            "DRO v0 header declares {byte_length} bytes of data, but only {} remain",
+            reader.remaining()
+        )));
+    }
+    let raw = reader.take(byte_length)?.to_vec();
+    let trailing = reader.remaining();
+    if trailing > 0 {
+        log::warn!(
+            "DRO v0 file has {trailing} byte(s) after the {byte_length} bytes its header \
+             declares; ignoring them"
+        );
+    }
+    let (data, dropped) = DroDataV1::new_truncating(raw)?;
+    if dropped > 0 {
+        log::warn!("DRO v0 data ends mid-instruction; dropping the last {dropped} byte(s)");
+    }
+    Ok(DroSong::dro_v1(name.to_owned(), data, ms_length, opl_type))
 }
 
 // ---------------------------------------------------------------------------
@@ -200,6 +245,15 @@ fn read_v2(name: &str, mut reader: ByteReader<'_>) -> Result<DroSong> {
     }
 
     let data = DroDataV2::new(raw, codemap, short_delay_code, long_delay_code)?;
+    let invalid = data.invalid_pair_count();
+    if invalid > 0 {
+        // Tolerated, as the reference tolerates them: each such pair plays as
+        // nothing, and a save writes the bytes back untouched.
+        log::warn!(
+            "DRO v2 file has {invalid} register pair(s) whose code is past the codemap; \
+             they play as nothing"
+        );
+    }
     Ok(DroSong::dro_v2(name.to_owned(), data, ms_length, opl_type))
 }
 
@@ -470,6 +524,38 @@ mod tests {
         assert_eq!(
             u32::from_le_bytes(written[0x10..0x14].try_into().unwrap()),
             12_345
+        );
+    }
+
+    /// A versionless DRO v0 (DOSBox 0.62): the millisecond length sits where
+    /// v1 keeps its version, and the reference's mask test tells them apart.
+    /// The song loads as a v1 (same instruction stream) and a save upgrades it,
+    /// like the one-byte-type upgrade.
+    #[test]
+    fn v0_is_detected_and_read_through_the_v1_layout() {
+        let data: &[u8] = &[
+            0x20, 0x01, // register 0x20 = 0x01
+            0x00, 0xB0, // short delay: 177 ms
+        ];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MAGIC);
+        // 70,000 ms: bits in the 0xFF00FF00 mask, so this cannot be a version.
+        bytes.extend_from_slice(&70_000u32.to_le_bytes());
+        bytes.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        bytes.push(1); // OPL3, v1 code ordering, one byte
+        bytes.extend_from_slice(data);
+
+        let song = read("t.dro", &bytes).unwrap();
+        assert_eq!(song.file_version, DRO_FILE_V1);
+        assert_eq!(song.opl_type, OplType::Opl3);
+        assert_eq!(song.ms_length, 70_000);
+        assert_eq!(song.len(), 2);
+        assert_eq!(
+            song.instruction(1).unwrap(),
+            Instruction::DelayMs {
+                kind: DelayKind::Short,
+                ms: 177
+            }
         );
     }
 

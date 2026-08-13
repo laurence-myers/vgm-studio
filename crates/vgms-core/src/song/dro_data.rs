@@ -227,26 +227,34 @@ impl DroDataV2 {
                 codemap.len()
             )));
         }
-        for pair in data.chunks_exact(2) {
-            let code = pair[0];
-            if code == short_delay_code || code == long_delay_code {
-                continue;
-            }
-            let slot = usize::from(code & 0x7F);
-            if slot >= codemap.len() {
-                return Err(Error::file(format!(
-                    "DRO v2 register code {code:#04X} indexes codemap slot {slot}, but the \
-                     codemap has only {} entries. Is the file corrupt?",
-                    codemap.len()
-                )));
-            }
-        }
+        // A register code past the codemap is tolerated, not fatal: the
+        // reference skips just the bad pair at play time (`reg >= regCmdCnt`
+        // simply returns), so a capture with a stray corrupt pair still plays.
+        // [`get`](Self::get) decodes such a pair as a zero-millisecond delay
+        // -- the do-nothing instruction -- and the raw bytes stay in place, so
+        // a save still writes the file back byte-for-byte.
         Ok(Self {
             data,
             codemap,
             short_delay_code,
             long_delay_code,
         })
+    }
+
+    /// How many pairs carry a register code past the codemap -- the pairs
+    /// [`get`](Self::get) decodes as do-nothing delays. For the reader's
+    /// warning; a well-formed file answers zero.
+    #[must_use]
+    pub fn invalid_pair_count(&self) -> usize {
+        self.data
+            .chunks_exact(2)
+            .filter(|pair| {
+                let code = pair[0];
+                code != self.short_delay_code
+                    && code != self.long_delay_code
+                    && usize::from(code & 0x7F) >= self.codemap.len()
+            })
+            .count()
     }
 
     /// The instruction stream, exactly as it sits in the file.
@@ -303,12 +311,21 @@ impl DroDataV2 {
                 kind: DelayKind::Long,
                 ms: (u32::from(value) + 1) << 8,
             }
-        } else {
+        } else if let Some(&reg) = self.codemap.get(usize::from(code & 0x7F)) {
             Instruction::Register {
-                // `new` proved every code indexes a real codemap slot.
-                reg: self.codemap[usize::from(code & 0x7F)],
+                reg,
                 value,
                 bank: Some(Bank::from_bit(code >> 7)),
+            }
+        } else {
+            // A code past the codemap: the reference skips the pair at play
+            // time, so it decodes as the do-nothing instruction -- a
+            // zero-millisecond delay, which no well-formed pair produces (a
+            // real short delay is at least 1 ms). The converters skip it; the
+            // raw bytes stay for the byte-exact save.
+            Instruction::DelayMs {
+                kind: DelayKind::Short,
+                ms: 0,
             }
         })
     }
@@ -465,11 +482,34 @@ mod tests {
         assert!(DroDataV2::new(vec![1, 2, 3], vec![0x10], 0xFE, 0xFF).is_err());
     }
 
+    /// A register code past the codemap is tolerated: the reference skips the
+    /// pair at play time, so it decodes as the do-nothing zero-millisecond
+    /// delay, the raw bytes stay put, and the count is reported for the
+    /// reader's warning.
     #[test]
-    fn v2_rejects_codes_past_the_codemap() {
+    fn v2_tolerates_codes_past_the_codemap_as_do_nothing_pairs() {
         // Code 0x05 needs codemap slot 5, but the codemap has two entries.
-        let err = DroDataV2::new(vec![0x05, 0x00], vec![0x10, 0x20], 0xFE, 0xFF).unwrap_err();
-        assert!(matches!(err, Error::File(_)));
+        let data =
+            DroDataV2::new(vec![0x05, 0x77, 0x01, 0x30], vec![0x10, 0x20], 0xFE, 0xFF).unwrap();
+        assert_eq!(data.invalid_pair_count(), 1);
+        assert_eq!(
+            data.get(0),
+            Some(Instruction::DelayMs {
+                kind: DelayKind::Short,
+                ms: 0
+            }),
+            "the bad pair plays as nothing"
+        );
+        assert_eq!(
+            data.get(1),
+            Some(Instruction::Register {
+                reg: 0x20,
+                value: 0x30,
+                bank: Some(Bank::Low)
+            }),
+            "and the pairs after it decode in place"
+        );
+        assert_eq!(data.raw(), &[0x05, 0x77, 0x01, 0x30], "bytes untouched");
     }
 
     #[test]

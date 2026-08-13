@@ -63,8 +63,14 @@ impl VgmStream {
     }
 
     fn write(&mut self, bank: Bank, reg: u8, value: u8) {
-        self.out
-            .extend_from_slice(&[write_command(self.opl_type, bank), reg, value]);
+        let Some(opcode) = write_command(self.opl_type, bank) else {
+            // A single OPL2's high bank does not exist: the reference's
+            // WriteReg drops every write to the absent second device, so a v1
+            // file's stray `0x03` chip-select swallows what follows rather
+            // than corrupting chip 1's registers.
+            return;
+        };
+        self.out.extend_from_slice(&[opcode, reg, value]);
         self.count += 1;
     }
 
@@ -167,6 +173,11 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
                 // DRO v2 carries the bank on the write; v1 tracks it separately.
                 stream.write(own.unwrap_or(bank), reg, value);
             }
+            Instruction::DelayMs { ms: 0, .. } => {
+                // The zero-millisecond sentinel: a v2 pair whose register code
+                // is past the codemap. The reference skips such a pair
+                // entirely, so it converts to nothing -- not even a zero wait.
+            }
             Instruction::DelayMs { ms, .. } => {
                 let samples = clock.samples_for_ms(ms);
                 total_samples = total_samples.saturating_add(samples);
@@ -235,15 +246,19 @@ fn playback_opl_type(song: &DroSong) -> OplType {
     }
 }
 
-/// The VGM opcode that writes an OPL register on the given chip and bank.
-const fn write_command(opl_type: OplType, bank: Bank) -> u8 {
-    match (opl_type, bank) {
-        // A single OPL2 has one bank; the high bank cannot be addressed.
-        (OplType::Opl2, _) | (OplType::DualOpl2, Bank::Low) => command::YM3812,
+/// The VGM opcode that writes an OPL register on the given chip and bank, or
+/// `None` where the write has no chip to land on.
+const fn write_command(opl_type: OplType, bank: Bank) -> Option<u8> {
+    Some(match (opl_type, bank) {
+        // A single OPL2 has one bank; a write steered to the absent second
+        // chip is dropped, as the reference's WriteReg drops it. Folding it
+        // into chip 1 instead corrupted its registers.
+        (OplType::Opl2, Bank::High) => return None,
+        (OplType::Opl2, Bank::Low) | (OplType::DualOpl2, Bank::Low) => command::YM3812,
         (OplType::DualOpl2, Bank::High) => command::YM3812_CHIP_2,
         (OplType::Opl3, Bank::Low) => command::YMF262_PORT_0,
         (OplType::Opl3, Bank::High) => command::YMF262_PORT_1,
-    }
+    })
 }
 
 /// Converts a DRO v2 song to DRO v1.
@@ -266,6 +281,10 @@ pub fn dro2_to_dro1(song: &DroSong) -> Result<DroSong> {
 
     for instruction in song.data().iter() {
         match instruction {
+            // The zero-millisecond sentinel: a pair whose register code is
+            // past the codemap. The reference skips it, so the conversion
+            // drops it rather than encoding an impossible delay.
+            Instruction::DelayMs { ms: 0, .. } => {}
             Instruction::DelayMs {
                 kind: DelayKind::Short,
                 ms,
@@ -548,20 +567,65 @@ mod tests {
 
     #[test]
     fn write_commands_follow_the_chip_and_bank() {
-        assert_eq!(write_command(OplType::Opl2, Bank::Low), command::YM3812);
-        assert_eq!(write_command(OplType::Opl2, Bank::High), command::YM3812);
-        assert_eq!(write_command(OplType::DualOpl2, Bank::Low), command::YM3812);
+        assert_eq!(
+            write_command(OplType::Opl2, Bank::Low),
+            Some(command::YM3812)
+        );
+        // A single OPL2 has no second chip: the reference drops writes steered
+        // there (a v1 file's stray 0x03 chip-select), so no opcode comes back.
+        assert_eq!(write_command(OplType::Opl2, Bank::High), None);
+        assert_eq!(
+            write_command(OplType::DualOpl2, Bank::Low),
+            Some(command::YM3812)
+        );
         assert_eq!(
             write_command(OplType::DualOpl2, Bank::High),
-            command::YM3812_CHIP_2
+            Some(command::YM3812_CHIP_2)
         );
         assert_eq!(
             write_command(OplType::Opl3, Bank::Low),
-            command::YMF262_PORT_0
+            Some(command::YMF262_PORT_0)
         );
         assert_eq!(
             write_command(OplType::Opl3, Bank::High),
-            command::YMF262_PORT_1
+            Some(command::YMF262_PORT_1)
+        );
+    }
+
+    /// A single-OPL2 v1 file that briefly selects the absent second chip: the
+    /// writes made there vanish, as the reference's WriteReg drops them, and
+    /// playback resumes when the file selects chip 1 again.
+    #[test]
+    fn a_single_opl2_drops_writes_to_the_absent_second_chip() {
+        let song = DroSong::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![
+                0x20, 0x01, // low bank register
+                0x03, // select the second chip -- which does not exist
+                0xB0, 0x31, // swallowed
+                0x02, // back to chip 1
+                0x40, 0x10,
+            ])
+            .unwrap(),
+            0,
+            OplType::Opl2,
+        );
+        let vgm = dro_to_vgm(&song).unwrap();
+        assert_eq!(
+            vgm.body.raw(),
+            [
+                command::YM3812,
+                0x01,
+                0x20, // the v1 waveform-select prime
+                command::YM3812,
+                0x20,
+                0x01,
+                // no 0xB0 write: the second chip does not exist
+                command::YM3812,
+                0x40,
+                0x10,
+                command::END,
+            ]
         );
     }
 
