@@ -358,18 +358,21 @@ impl ChipUse {
         matches!(self.kind, ChipKind::Sn76489) && self.variant && self.dual
     }
 
-    /// Whether this is a `dro2vgm` dual-OPL2 with the SB Pro stereo image: two
-    /// YM3812s with the (spec-meaningless-for-OPL) bit-31 flag `dro2vgm` sets
-    /// alongside the dual bit, meaning chip 1 plays hard left and chip 2 hard
-    /// right. The player owes that image itself -- an OPL2 has no pan of its own
-    /// -- so the VGM engine reads this to hard-pan the two instances. `libvgm`
-    /// keys the same behaviour on the same bit.
+    /// Whether this YM3812 asks for the SB Pro stereo image: the
+    /// (spec-meaningless-for-OPL) bit-31 flag `dro2vgm` sets, meaning chip 1
+    /// plays hard left and chip 2 hard right. The player owes that image
+    /// itself -- an OPL2 has no pan of its own -- so the VGM engine reads this
+    /// to hard-pan the instances.
     ///
-    /// The 27 genuine twin-YM3812 arcade boards carry the dual bit *without* bit
-    /// 31 (one mono speaker), so they correctly answer `false` and stay centred.
+    /// Keyed on bit 31 alone, per the reference: `vgmplayer.cpp` pans any
+    /// YM3812 whose clock carries it, dual bit or not, so a degenerate
+    /// single-chip file with bit 31 plays hard left at doubled level there --
+    /// and now here too. The 27 genuine twin-YM3812 arcade boards carry the
+    /// dual bit *without* bit 31 (one mono speaker), so they answer `false`
+    /// and stay centred.
     #[must_use]
     pub const fn is_dual_opl2_stereo(&self) -> bool {
-        matches!(self.kind, ChipKind::Ym3812) && self.variant && self.dual
+        matches!(self.kind, ChipKind::Ym3812) && self.variant
     }
 
     /// How to name this chip in a description or a UI, e.g. `"YM3438"`,
@@ -1201,6 +1204,12 @@ mod tests {
             "a mono arcade twin, bit 30 only"
         );
         assert!(!ym3812(3_579_545), "a lone YM3812");
+        // Bit 31 without the dual bit: the reference pans it all the same
+        // (hard left at doubled level), so the flag alone answers true.
+        assert!(
+            ym3812(3_579_545 | VARIANT_FLAG),
+            "bit 31 alone still asks for the image, as the reference pans it"
+        );
 
         // An OPL3 with both bits is a different chip, never this.
         let mut bytes = header(0x151, 0x80);
