@@ -5,8 +5,8 @@
 //! 1. **Per chip**, `GetChipVolume`: a fixed table (`_CHIP_VOLUME`), halved
 //!    per instance for a dual-chip declaration (except the T6W28, two half
 //!    chips that make one), overridden by the v1.70 extra header's per-chip
-//!    volumes, then two per-core patches of its own (K051649 ×8/5, C140
-//!    ×2/3).
+//!    volumes, then two per-core patches of its own (K051649 x8/5, C140
+//!    x2/3).
 //! 2. **Per file**, `EstimateOverallVolume` / `NormalizeOverallVolume`: the
 //!    chip volumes are summed -- weighted by a second table,
 //!    `_PB_VOL_AMNT` -- and every chip volume is then doubled while the sum
@@ -106,6 +106,63 @@ fn estimate_contribution(chip: &ChipUse, instance: u8, extra: Option<&ExtraHeade
     mul_8x8(volume * 2, u32::from(PB_VOL[chip.kind.id() as usize])) / 2
 }
 
+/// The linked child a declared chip starts beside itself -- an OPN's SSG, the
+/// OPL4's FM half -- as the reference's estimate counts it: every started
+/// device enters `EstimateOverallVolume`, links included, at
+/// `GetChipVolume(.., isLinked)` (the SSG at half the FM, the OPL4's OPL3 at
+/// parity). Both children's PB weight is 0x100, so the weighted contribution
+/// is the volume itself. Without this, a YM2203 + OKIM6295 set estimated
+/// 0x300 (no shift) where the reference reads 0x380 (halve everything) -- the
+/// whole mix +6 dB.
+///
+/// A v1.70 extra-header volume entry with the paired bit (the parent's id
+/// with bit 7) overrides the linked half, absolutely or relatively, as the
+/// reference folds `isLinked` into the matched type. (The override reaches
+/// the *estimate* here; the linked child's audible gain inside the core
+/// binding stays its constant -- the rare files carrying such entries are the
+/// remaining gap, recorded in the audit.)
+fn linked_contribution(chip: &ChipUse, instance: u8, extra: Option<&ExtraHeader>) -> u32 {
+    let base: u32 = match chip.kind {
+        ChipKind::Ym2203 | ChipKind::Ym2608 | ChipKind::Ym2610 => 0x80,
+        ChipKind::Ymf278b => 0x100,
+        _ => return 0,
+    };
+    let mut volume = base;
+    if chip.dual && !chip.is_t6w28() {
+        volume /= 2;
+    }
+    if let Some(extra) = extra
+        && let Some(entry) = extra.volumes.iter().find(|entry| {
+            usize::from(entry.chip_id) == chip.kind.id() as usize
+                && entry.paired
+                && entry.second_instance == (instance == 1)
+        })
+    {
+        volume = if entry.relative {
+            mul_8x8(volume, u32::from(entry.volume))
+        } else {
+            u32::from(entry.volume)
+        };
+    }
+    volume
+}
+
+/// The estimate weight of the chips past our roster -- the reference's tail
+/// rows (extra-header ids `0x2A`-`0x2F`: K007232, K005289, MSM5205, MSM5232,
+/// BSMT2000, ICS2115). We cannot play them, but their declared presence still
+/// weights the reference's whole-mix normalisation: a YM2151 + K007232 rip
+/// estimates 0x200 there (no shift), and ignoring the K007232 normalised the
+/// YM2151 up to its solo level, +6 dB over the reference. Each value is
+/// `volume x PB >> 8` from the reference's `_CHIP_VOLUME`/`_PB_VOL_AMNT` tail
+/// entries.
+pub(crate) fn tail_contribution(tail_ids: &[u8]) -> u32 {
+    const TAIL: [u32; 6] = [0x100, 0x100, 0x200, 0x100, 0x200, 0x200];
+    tail_ids
+        .iter()
+        .filter_map(|&id| TAIL.get(usize::from(id.wrapping_sub(0x2A))))
+        .sum()
+}
+
 /// `NormalizeOverallVolume`'s factor for an estimate, as a power-of-two
 /// exponent: `+n` doubles every chip volume `n` times, `-n` halves.
 fn normalization_shift(mut estimate: u32) -> i32 {
@@ -138,22 +195,30 @@ pub(crate) fn voice_gain(
     voice: &ChipUse,
     instance: u8,
     extra: Option<&ExtraHeader>,
+    tail_ids: &[u8],
 ) -> u32 {
     let mix_estimate: u32 = chips
         .iter()
         .flat_map(|chip| {
             let instances = if chip.dual && !chip.is_t6w28() { 2 } else { 1 };
-            (0..instances).map(move |at| estimate_contribution(chip, at, extra))
+            (0..instances).map(move |at| {
+                estimate_contribution(chip, at, extra) + linked_contribution(chip, at, extra)
+            })
         })
-        .sum();
+        .sum::<u32>()
+        + tail_contribution(tail_ids);
 
     // The chip alone, single-instance, no overrides: the file every
-    // calibration was measured on.
+    // calibration was measured on. The linked term is included on both sides
+    // -- the reference's solo-file estimate counts the started SSG or OPL4-FM
+    // child too, and the calibration was measured against exactly that render
+    // -- so a solo file's ratio stays unity by construction.
     let alone = ChipUse {
         dual: false,
         ..*voice
     };
-    let single_estimate = estimate_contribution(&alone, 0, None);
+    let single_estimate =
+        estimate_contribution(&alone, 0, None) + linked_contribution(&alone, 0, None);
 
     let effective = chip_volume(voice, instance, extra);
     let single = chip_volume(&alone, 0, None);
@@ -187,7 +252,7 @@ mod tests {
         for kind in ChipKind::all() {
             let chips = [declared(kind)];
             assert_eq!(
-                voice_gain(&chips, &chips[0], 0, None),
+                voice_gain(&chips, &chips[0], 0, None, &[]),
                 GAIN_UNITY,
                 "{} moved on a single-chip file",
                 kind.name()
@@ -203,21 +268,47 @@ mod tests {
     #[test]
     fn the_mega_drive_pair_keeps_the_references_tilt() {
         let chips = [declared(ChipKind::Sn76489), declared(ChipKind::Ym2612)];
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80, "SN76489");
-        assert_eq!(voice_gain(&chips, &chips[1], 0, None), 0x100, "YM2612");
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x80, "SN76489");
+        assert_eq!(voice_gain(&chips, &chips[1], 0, None, &[]), 0x100, "YM2612");
     }
 
-    /// Cameltry's Taito B System pair, the file that exposed the libvgm
-    /// YM2203's half-level miscalibration (the ratio here was never the bug).
-    /// The estimates: YM2203 0x100, OKIM6295 0x200 (PB 0x200) -- sum 0x300,
-    /// no shift. Alone, the YM2203 (0x100) normalises up once where the OKI
-    /// (0x200) does not: the FM at half its solo calibration, the OKI at
-    /// unity, which is upstream's exact tilt for this set.
+    /// Cameltry's Taito B System pair, with the linked SSG counted as the
+    /// reference counts every started device. The estimates: YM2203 0x100 +
+    /// its SSG 0x80, OKIM6295 0x200 (PB 0x200) -- sum 0x380, over 0x300, so
+    /// the set halves once. Alone, the YM2203 (0x180 with its SSG) normalises
+    /// up once and the OKI (0x200) does not: in-set the FM sits at a quarter
+    /// of its solo calibration and the OKI at half -- upstream's exact
+    /// arithmetic for this set. (The pre-M8 code missed the SSG term, read
+    /// the sum as 0x300, and played the whole file +6 dB over the reference;
+    /// the audit's M8.)
     #[test]
     fn the_cameltry_pair_keeps_the_references_tilt() {
         let chips = [declared(ChipKind::Ym2203), declared(ChipKind::Okim6295)];
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80, "YM2203");
-        assert_eq!(voice_gain(&chips, &chips[1], 0, None), 0x100, "OKIM6295");
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x40, "YM2203");
+        assert_eq!(
+            voice_gain(&chips, &chips[1], 0, None, &[]),
+            0x80,
+            "OKIM6295"
+        );
+    }
+
+    /// The M9 half of the estimate: a declared tail chip (past our roster)
+    /// still weights the normalisation. YM2151 + K007232: the reference
+    /// estimates 0x100 + 0x100 = 0x200 -- no shift -- where ignoring the
+    /// K007232 read 0x100 and normalised the YM2151 up to its solo doubling.
+    #[test]
+    fn a_declared_tail_chip_weights_the_estimate() {
+        let chips = [declared(ChipKind::Ym2151)];
+        // Alone: estimate 0x100, normalise x2; with the K007232 counted the
+        // set sits at 0x200 (no shift), so the YM2151 plays at half its solo
+        // calibration -- the reference's tilt.
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x100);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[0x2A]), 0x80);
+        // The six tail contributions, from the reference's tables.
+        assert_eq!(tail_contribution(&[0x2A]), 0x100, "K007232");
+        assert_eq!(tail_contribution(&[0x2C]), 0x200, "MSM5205: PB 0x200");
+        assert_eq!(tail_contribution(&[0x2F]), 0x200, "ICS2115: 0x800 x 0x40");
+        assert_eq!(tail_contribution(&[0x30]), 0, "past the table: nothing");
     }
 
     /// Black Knight 2000's set: three chips summing to 0x2E0 normalise by 1
@@ -232,7 +323,7 @@ mod tests {
         ];
         for chip in &chips {
             assert_eq!(
-                voice_gain(&chips, chip, 0, None),
+                voice_gain(&chips, chip, 0, None, &[]),
                 0x80,
                 "{}",
                 chip.kind.name()
@@ -249,8 +340,8 @@ mod tests {
         let chips = [dual];
         // Alone: estimate 0x100 -> x2. Dual: two instances at 0x80 each ->
         // estimate 0x100 -> x2. Ratio per instance: (0x80 * 2) / (0x100 * 2).
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80);
-        assert_eq!(voice_gain(&chips, &chips[0], 1, None), 0x80);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x80);
+        assert_eq!(voice_gain(&chips, &chips[0], 1, None, &[]), 0x80);
     }
 
     /// The T6W28 is two half-chips making one chip: declared dual, not halved.
@@ -260,7 +351,7 @@ mod tests {
         t6w28.dual = true;
         t6w28.variant = true;
         let chips = [t6w28];
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), GAIN_UNITY);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), GAIN_UNITY);
     }
 
     /// An extra-header volume override lands in the effective volume: an
@@ -275,8 +366,8 @@ mod tests {
         let chips = [declared(ChipKind::Ym2612), declared(ChipKind::Ym2151)];
         // Without an override the pair estimates 0x200 (no shift) and each
         // chip alone 0x100 (one doubling): both voices at half.
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80);
-        assert_eq!(voice_gain(&chips, &chips[1], 0, None), 0x80);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x80);
+        assert_eq!(voice_gain(&chips, &chips[1], 0, None, &[]), 0x80);
 
         let entry = |relative: bool, volume: u16| ExtraHeader {
             clocks: Vec::new(),
@@ -293,11 +384,17 @@ mod tests {
         // half while the other doubles to unity. The asked-for 1:2 balance
         // survives; the absolute level is the normaliser's business.
         let absolute = entry(false, 0x80);
-        assert_eq!(voice_gain(&chips, &chips[0], 0, Some(&absolute)), 0x80);
-        assert_eq!(voice_gain(&chips, &chips[1], 0, Some(&absolute)), 0x100);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, Some(&absolute), &[]), 0x80);
+        assert_eq!(
+            voice_gain(&chips, &chips[1], 0, Some(&absolute), &[]),
+            0x100
+        );
         let relative = entry(true, 0x80);
-        assert_eq!(voice_gain(&chips, &chips[0], 0, Some(&relative)), 0x80);
-        assert_eq!(voice_gain(&chips, &chips[1], 0, Some(&relative)), 0x100);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, Some(&relative), &[]), 0x80);
+        assert_eq!(
+            voice_gain(&chips, &chips[1], 0, Some(&relative), &[]),
+            0x100
+        );
     }
 
     /// The estimate counts every declared chip, cored here or not: the
@@ -308,7 +405,7 @@ mod tests {
         let chips = [declared(ChipKind::Ym2151), declared(ChipKind::Es5505)];
         // ES5506: V 0x20, PB 0x1000 -> contribution 0x200. YM2151: 0x100.
         // Sum 0x300 -> shift 0. Alone YM2151: 0x100 -> x2.
-        assert_eq!(voice_gain(&chips, &chips[0], 0, None), 0x80);
+        assert_eq!(voice_gain(&chips, &chips[0], 0, None, &[]), 0x80);
     }
 
     /// The two per-core patches upstream applies after everything else.

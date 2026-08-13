@@ -691,6 +691,24 @@ impl VgmHeader {
         &self.chips
     }
 
+    /// The declared chips past this table's 42 kinds -- the reference's tail
+    /// rows (K007232, K005289, MSM5205, MSM5232, BSMT2000, ICS2115), returned
+    /// as their extra-header ids `0x2A`-`0x2F`.
+    ///
+    /// The engine cannot play them (a roster gap), but the reference's
+    /// whole-mix loudness normalisation counts every declared chip, so their
+    /// presence must still weight the balance estimate. Clock offsets `0xE8`,
+    /// `0xEC`, `0xF0`, `0xF4`, `0xF8`, `0xFC`, from the reference's
+    /// `_CHIPCLK_OFS` table; the same physical bound applies (a header ending
+    /// before an offset reads it as zero).
+    #[must_use]
+    pub fn tail_chip_ids(&self) -> Vec<u8> {
+        (0u8..6)
+            .filter(|&index| u32_at(&self.raw, 0xE8 + usize::from(index) * 4) & CLOCK_MASK != 0)
+            .map(|index| 0x2A + index)
+            .collect()
+    }
+
     /// Reassigns a v1.00/1.01 file's shared FM clock to `kind`.
     ///
     /// Those versions had one FM clock field (0x10), later the YM2413's alone;

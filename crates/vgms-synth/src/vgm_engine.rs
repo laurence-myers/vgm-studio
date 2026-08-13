@@ -310,6 +310,7 @@ impl VgmEngine {
                         chip,
                         instance,
                         file.header.extra(),
+                        &file.header.tail_chip_ids(),
                     );
                     let mut voice = Voice::new(
                         target,
