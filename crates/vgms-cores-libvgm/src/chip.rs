@@ -591,6 +591,19 @@ impl LibVgmChip {
             // `LinkDevice(parent, linkID, &child)` call.
             unsafe { link_device(self.dev.data_ptr, declaration.link_id, &raw const child) };
 
+            // The reference pushes the AY option bits to an OPN's linked SSG
+            // as well as to a standalone AY8910 -- the PCM3CH detection reads
+            // the same on both.
+            if declaration.dev_id == ffi::DEVID_AY8910 {
+                let bits = default_option_bits(ChipKind::Ay8910);
+                // SAFETY: a live child device from the start above.
+                unsafe {
+                    if let Some(set_options) = (*child.dev_def).set_option_bits {
+                        set_options(child.data_ptr, bits);
+                    }
+                }
+            }
+
             // The stereo mask function lives on the SSG child for the OPN
             // family -- `Cmd_AY_Stereo` fetches it from the linked device.
             // Upstream invokes it with the *parent's* data pointer, which reads
@@ -651,8 +664,19 @@ const fn sr_mode(kind: ChipKind) -> u8 {
 /// `InitDevOptions` defaults, so the cores run in the reference's mode.
 const fn default_option_bits(kind: ChipKind) -> u32 {
     match kind {
-        // NSFPlay's recommended APU/DMC options.
-        ChipKind::NesApu => 0x01B7,
+        // The pinned reference's NSFPlay options: SharedOpts 0x03, APUOpts
+        // 0x01, DMCOpts 0x3B assemble to 0x3B7. One bit above libvgm's own
+        // 0x1B7 default: bit 9, `OPT_TRI_NULL`, drains a halted triangle
+        // channel to the null level instead of freezing it mid-step -- without
+        // it every triangle stop leaves a DC pedestal and a click, and shifts
+        // the nonlinear mixer's operating point while held.
+        ChipKind::NesApu => 0x03B7,
+        // `OPT_AY8910_PCM3CH_DETECT`, on by default in both the reference's
+        // playcfg and libvgm's own player: 3-channel PCM songs (Atari ST
+        // style) drop per-channel panning so the correlated channels sum
+        // cleanly. Identical output at centre pans; audible once our chip
+        // mixer pans channels apart.
+        ChipKind::Ay8910 => 0x01,
         // `OPT_SCSP_BYPASS_DSP`: the DSP is skipped by default upstream.
         ChipKind::Scsp => 0x01,
         // `OPT_GB_DMG_LEGACY_MODE`: VGMPlay's `playcfg` defaults `LegacyMode`
@@ -1009,8 +1033,12 @@ mod tests {
         // reset re-derives them, so the bit set here (before reset) survives.
         assert_eq!(default_option_bits(ChipKind::GameBoyDmg), 0x80);
         assert_eq!(default_option_bits(ChipKind::Okim6258), 0x01);
+        // The pinned NES value is 0x3B7 (SharedOpts | APUOpts << 2 |
+        // DMCOpts << 4), NOT libvgm's own 0x1B7 -- the one differing bit is
+        // OPT_TRI_NULL. The AY carries the PCM3CH detection bit.
+        assert_eq!(default_option_bits(ChipKind::NesApu), 0x03B7);
+        assert_eq!(default_option_bits(ChipKind::Ay8910), 0x01);
         // Unchanged neighbours, so a future edit cannot drop them unnoticed.
-        assert_eq!(default_option_bits(ChipKind::NesApu), 0x01B7);
         assert_eq!(default_option_bits(ChipKind::Scsp), 0x01);
         assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
     }
