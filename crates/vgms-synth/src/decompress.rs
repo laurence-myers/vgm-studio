@@ -129,7 +129,17 @@ fn read_le(bytes: &[u8]) -> u32 {
         .fold(0u32, |value, &byte| (value << 8) | u32::from(byte))
 }
 
-/// Reads values of a fixed bit width, most significant bit first.
+/// Reads values of a fixed bit width, the reference's way (`READ_BITS` in
+/// `player/dblk_compr.c`): the stream is consumed most significant bit first,
+/// in chunks of up to eight bits (eight at a time while more than eight
+/// remain), and the chunks assemble **low chunk first** -- the first chunk
+/// lands in bits 0-7, the next in bits 8-15, and so on.
+///
+/// For widths of eight bits or fewer there is one chunk and the two orders
+/// coincide, which is every common block. At 9-16 bits they differ: a 12-bit
+/// value is `byte0 | top4(byte1) << 8`, not `(byte0 << 4) | top4(byte1)` --
+/// reading it the other way decodes every wide bank to different values than
+/// the reference plays.
 struct BitReader<'a> {
     bytes: &'a [u8],
     /// The next bit to read, counted from the start of `bytes`.
@@ -150,11 +160,18 @@ impl<'a> BitReader<'a> {
             return None;
         }
         let mut value = 0u32;
-        for _ in 0..bits {
-            let byte = self.bytes[self.at / 8];
-            let bit = (byte >> (7 - (self.at % 8))) & 1;
-            value = (value << 1) | u32::from(bit);
-            self.at += 1;
+        let mut assembled = 0u8;
+        while assembled < bits {
+            let take = (bits - assembled).min(8);
+            let mut chunk = 0u32;
+            for _ in 0..take {
+                let byte = self.bytes[self.at / 8];
+                let bit = (byte >> (7 - (self.at % 8))) & 1;
+                chunk = (chunk << 1) | u32::from(bit);
+                self.at += 1;
+            }
+            value |= chunk << assembled;
+            assembled += take;
         }
         Some(value)
     }
@@ -324,10 +341,19 @@ mod tests {
         payload.extend_from_slice(&[bits_out, bits_in, sub_type]);
         payload.extend_from_slice(&operand.to_le_bytes());
 
+        // The reference's chunking, mirrored (`WRITE_BITS`): each value goes
+        // out in chunks of up to eight bits, low chunk first, each chunk
+        // written to the stream most significant bit first.
         let mut bits = Vec::new();
         for value in values {
-            for shift in (0..bits_in).rev() {
-                bits.push(((value >> shift) & 1) as u8);
+            let mut emitted = 0u8;
+            while emitted < bits_in {
+                let take = (bits_in - emitted).min(8);
+                let chunk = (value >> emitted) & ((1u32 << take) - 1);
+                for shift in (0..take).rev() {
+                    bits.push(((chunk >> shift) & 1) as u8);
+                }
+                emitted += take;
             }
         }
         for chunk in bits.chunks(8) {
@@ -470,5 +496,23 @@ mod tests {
         assert_eq!(reader.read(4), Some(0b1010));
         assert_eq!(reader.read(4), Some(0b0110));
         assert_eq!(reader.read(4), None, "and then there are none left");
+    }
+
+    /// Wide values assemble low chunk first, as the reference's `READ_BITS`
+    /// does. Hand-derived bytes, **not** the test packer -- the packer shares
+    /// the reader's convention, so a round trip alone cannot catch an order
+    /// bug on either side (which is how the original one survived).
+    #[test]
+    fn wide_values_assemble_low_chunk_first_as_the_reference_reads() {
+        // Stream 0xAB 0xCD 0x50, read as two 12-bit values:
+        // value 1: chunk 0xAB into bits 0-7, chunk 0xC into bits 8-11 -> 0xCAB
+        // value 2: chunk 0xD5 into bits 0-7, chunk 0x0 into bits 8-11 -> 0x0D5
+        let mut reader = BitReader::new(&[0xAB, 0xCD, 0x50]);
+        assert_eq!(reader.read(12), Some(0x0CAB));
+        assert_eq!(reader.read(12), Some(0x00D5));
+
+        // A 9-bit read: eight bits then one, the single bit into bit 8.
+        let mut reader = BitReader::new(&[0xFF, 0x80]);
+        assert_eq!(reader.read(9), Some(0x1FF));
     }
 }
