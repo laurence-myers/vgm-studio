@@ -445,7 +445,7 @@ impl LibVgmChip {
 
         // Option bits VGMPlay sets by default, applied before any register
         // arrives so the core never runs in a state the reference never uses.
-        let option_bits = default_option_bits(self.spec.kind);
+        let option_bits = start_option_bits(self.spec.kind, self.variant);
         if option_bits != 0 {
             // SAFETY: a live device from the start above.
             unsafe {
@@ -658,6 +658,27 @@ const fn sr_mode(kind: ChipKind) -> u8 {
         | ChipKind::Ym2612 => ffi::DEVRI_SRMODE_NATIVE,
         _ => ffi::DEVRI_SRMODE_HIGHEST,
     }
+}
+
+/// The option bits a device starts with: the per-chip defaults plus what the
+/// header's variant flag adds.
+///
+/// The YM2612's GPGX and Gens starts ignore `cfg->flags` entirely -- the
+/// reference pushes the YM3438 mode through `SetOptionBits`
+/// (`OPT_YM2612_TYPE_OPN2C_ASIC`, 0x10) when clock bit 31 is set, and so does
+/// this. Each core reads the bits it knows (Gens has no type bit and ignores
+/// it, exactly as under the reference). The reference's other YM2612 arm --
+/// the Project2612 legacy-mode fix (`OPT_YM2612_LEGACY_MODE` for v<=1.50
+/// single-YM2612 files, cleared at the first render) -- is deliberately not
+/// ported: it needs a file-level fact and a render hook this layer lacks, it
+/// exists for one archive's old trims, and the default Nuked row never
+/// consults it.
+const fn start_option_bits(kind: ChipKind, variant: bool) -> u32 {
+    let variant_bits = match kind {
+        ChipKind::Ym2612 if variant => 0x10,
+        _ => 0,
+    };
+    default_option_bits(kind) | variant_bits
 }
 
 /// The option bits VGMPlay applies to a chip before playing anything, from its
@@ -1041,6 +1062,16 @@ mod tests {
         // Unchanged neighbours, so a future edit cannot drop them unnoticed.
         assert_eq!(default_option_bits(ChipKind::Scsp), 0x01);
         assert_eq!(default_option_bits(ChipKind::Ym2612), 0x00);
+        // The header's bit-31 variant reaches the YM2612 rows as the YM3438
+        // mode bit (the GPGX/Gens starts ignore cfg->flags, so SetOptionBits
+        // is the only road, as the reference drives it).
+        assert_eq!(start_option_bits(ChipKind::Ym2612, true), 0x10);
+        assert_eq!(start_option_bits(ChipKind::Ym2612, false), 0x00);
+        assert_eq!(
+            start_option_bits(ChipKind::GameBoyDmg, true),
+            0x80,
+            "a variant means nothing to the other chips"
+        );
     }
 
     /// The Y8950's two halves, end to end: the FM half keys a note on, and the
