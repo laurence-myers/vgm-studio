@@ -7,7 +7,7 @@ Reference: VGMPlay 0.52 at `E:\Code\Cpp\vgmplay-libvgm`, with the pinned configu
 The two libvgm pins are almost equal. Our pin is one commit newer. That commit does not change the emulation cores.
 
 Result of the audit: 38 confirmed findings, 31 gaps after merge of duplicates.
-Result after the fix branch (`vgmplay-parity-fixes-2026-08`, same day): **13 gaps fixed, 2 gaps planned, 16 gaps open, 1 regression found and fixed**. The sections below list only the open items. The fixed items are in the record directly below.
+Final state (2026-08-13, branch `vgmplay-parity-fixes-2026-08`): **29 gaps fixed, 2 gaps planned (H5 and the T6W28 half of M3), 0 gaps open, 1 regression found and fixed**. The full-roster sweep after the last batch moved no scorecard row. The fixed items are in the two records below.
 
 Note: this report uses ASD-STE100 style. Chip names, file names, and register names are technical names.
 
@@ -90,38 +90,37 @@ the resampler comparison, not the core. The row's median absorbs the file.
 
 ---
 
-## Open: medium severity
+## The second batch: the 16 remaining gaps, all fixed (2026-08-13)
 
-### M4. QSound: the old-clock key-on aid is missing
-For QSound files with the old 4 MHz clock, the reference keeps each channel's start address. It writes the address again when the pitch goes from zero to a value, and at each phase write. This replaces key-on writes that vgm_cmp removed. Our engine only corrects the clock (x15) and keeps no addresses. Effect: old CPS1/CPS2 rips do not start some notes.
+Eleven more commits on the same branch closed every open issue. The
+full-roster sweep afterwards moved no row: every at-ideal chip still reads at
+or above 0.998, the fixed rows hold, and the known-gap rows are unchanged.
 
-### M5. The extra-header clock for a second chip is not applied
-The reference reads the second instance's clock from the v1.70 extra header. Our parser reads `ExtraHeader::clocks`, but only the balance code uses it. Both instances get the first chip's clock. Effect: dual-chip files with two different clocks play the second chip at a wrong pitch and rate.
+| Gap | Fix | Commit |
+|---|---|---|
+| M4: QSound old-clock key-on aid | Per-channel start-address and pitch caches on the binding; the cached address is injected on a pitch rising from zero and on phase writes, keyed on the same clock-under-5-MHz condition the clock rescue uses | `82a2dfe` |
+| M5: extra-header second-chip clock | Instance 1 resets at its extra-header clock (and bit-31 variant), as `GetChipClock` resolves it | `28bdf3b` |
+| M6: NES OPT_TRI_NULL | The pinned 0x3B7 option value replaces libvgm's 0x1B7 | `badd272` |
+| M8: linked devices in the estimate | The estimate follows OPN SSG (0x80) and OPL4 FM (0x100) links; solo files stay at unity because the anchor includes the link too | `f5cf27a` |
+| M9: the six tail chips | Their declared clocks (offsets 0xE8-0xFC) weight the estimate with the reference's volume x PB values; playback stays a roster gap | `f5cf27a` |
+| M10: DRO OPL3 reset order | Conversions open with 0x105 = the scanned enable, then 0x104 = 0; a v1 OPL3 capture primes 1 | `990226d` |
+| L4: 9-16 bit unpack order | Values assemble low-chunk-first as `READ_BITS` does; a hand-derived byte test pins it independently of the packer | `fbc4630` |
+| L7: v1.00/1.01 FM clock | The reader scans the first FM command and reassigns the shared clock (`ParseFileForFMClocks`, over our decoded stream) | `ea36c73` |
+| L8: version-gated clock reads | The gate is gone; the physical data-offset bound stays, and the mismatch is still logged | `ea36c73` |
+| L9: loop base and modifier | `LoopConfig::for_vgm` scales a finite count by `GetModifiedLoopCount`'s formula, exactly when the region is the file's own loop | `f6ce31e` |
+| L10: YM2612 alternate rows | The bit-31 variant reaches the GPGX/Gens rows as the YM3438 mode bit through `SetOptionBits` | `94d9018` |
+| L11: bit-31 pan without the dual bit | The pan keys on the variant alone, per the reference; mono arcade twins stay centred | `e9979d1` |
+| L12: paired volume overrides | Honoured in the estimate (the parent's id with bit 7, absolute or relative) | `f5cf27a` |
+| L13: AY PCM3CH option | Set on the standalone AY and pushed to the OPN-linked SSG | `badd272` |
+| L14: downsample shape | Linear mode's decimation is the reference's fractional box average (`Resmpl_Exec_LinearDown`); upsampling keeps the 2-tap lerp, which is the reference's `LinearUp` | `91ac833` |
+| L15: DRO tolerance | A bad v2 pair plays as nothing (the file loads); versionless v0 reads through the mask detect and the shifted layout; a single OPL2's high-bank writes are dropped | `fa122f6` |
 
-### M6. NES APU: one option bit is different
-The pinned configuration gives option value 0x3B7. Our engine sends 0x1B7. The one different bit is OPT_TRI_NULL. With the bit set, a stopped triangle channel goes down to the null level. Without it, the channel holds its last step. Effect: a DC step and a click at each triangle stop.
-
-### M8. The loudness estimate does not count connected devices
-The reference's volume estimate follows each device link. A YM2203 counts as FM 0x100 plus SSG 0x80. Our estimate counts only the parent chip. Effect: for YM2203 + OKIM6295, the reference halves all chips and we do not. Our whole mix is then +6 dB against the reference. The relative levels stay correct.
-
-### M9. Six chips are absent from the roster and from the estimate
-The reference tables hold 48 chips. Ours hold 42. K007232, K005289, MSM5205, MSM5232, BSMT2000, and ICS2115 are absent. Effect: the chips we do play become a power of two too loud in such files, and the absent chip itself is silent.
-
-### M10. DRO OPL3: the reset does not send register 0x105 first
-DOSBox writes the register dump in the wrong order. The reference writes 0x105 = 1 and 0x104 = 0 before it replays an OPL3 file. Our conversion replays the dump on a fresh chip with newm=0. Effect: wrong timbres and broken 4-op patches until the game writes those registers again. (More relevant now: the H4 fix makes many more files play as OPL3.)
-
-## Open: low severity
-
-- **L4. Compressed blocks, widths 9-16 bits.** The reference builds values low-chunk first; our reader builds them MSB first. Widths above 8 are rare.
-- **L7. Old headers (v1.00/1.01).** The reference finds the first FM command and gives the clock to the YM2612 or YM2151. Our parser always makes a YM2413. Such files are rare.
-- **L8. Version-gated clock reads.** The reference reads each clock field that fits in the header. We obey the declared version. This is deliberate and documented.
-- **L9. Loop base and loop modifier.** The reference scales the loop count with header bytes 0x7E/0x7F. Our playback loop count is app policy only.
-- **L10. YM2612 alternate rows.** The GPGX and Gens picker rows never get option bits, so the YM3438 variant and the Project2612 repair stay off there. The default Nuked row is correct.
-- **L11. YM3812 with clock bit 31, single chip.** The reference pans it hard left at double level. We play it in the center. Only degenerate files do this.
-- **L12. Extra-header volume for connected devices.** The reference accepts a volume entry for a linked SSG or OPL4 FM half. Our balance code drops paired entries.
-- **L13. AY PCM3CH option.** Not set on our side. With center pans, the output is identical. It becomes audible only with custom pans from our chip mixer.
-- **L14. Downsample shape.** The reference's linear mode is a box average across all source samples; ours is a two-tap interpolation or a sharp sinc. Noise texture from fast PSGs differs a little.
-- **L15. DRO tolerance.** A bad v2 code-map pair: the reference skips the pair, we refuse the file. DRO v0: the reference plays it, we refuse it. A stray second-chip select in a single-OPL2 v1 file: the reference drops those writes, we fold them into chip 1.
+Two deliberate part-scopes, recorded in the code where they live: the YM2612
+Project2612 legacy arm is not ported (it needs a file-level fact and a render
+hook, exists for one archive's old trims, and the default Nuked row never
+consults it -- see `start_option_bits`), and the paired volume override
+reaches the estimate but not the linked child's audible gain inside the core
+binding (the rare files carrying such entries -- see `linked_contribution`).
 
 ---
 
