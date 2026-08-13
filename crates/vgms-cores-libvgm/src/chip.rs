@@ -273,6 +273,15 @@ pub struct LibVgmChip {
     /// window masks to 4 KiB) and the block writer takes absolute addresses.
     /// Zero for every other chip.
     ram_bank: u32,
+    /// The QSound old-log key-on caches, upstream's `QSOUND_WORK`: per
+    /// channel, the last start-address and pitch writes. Old (4 MHz clock)
+    /// QSound VGMs were logged against an HLE where an address or phase write
+    /// implied key-on, and `vgm_cmp` then stripped the "redundant" address
+    /// rewrites -- so the reference re-injects the cached start address on a
+    /// pitch rising from zero and on any phase write. Only read for an
+    /// old-clock QSound; zero for every other chip.
+    qsound_start: [u16; 16],
+    qsound_pitch: [u16; 16],
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
     right: Vec<i32>,
@@ -332,6 +341,8 @@ impl LibVgmChip {
             mute_mask: 0,
             pans: Vec::new(),
             ram_bank: 0,
+            qsound_start: [0; 16],
+            qsound_pitch: [0; 16],
             left: Vec::new(),
             right: Vec::new(),
             rate: Box::new(AtomicU32::new(0)),
@@ -470,6 +481,26 @@ impl LibVgmChip {
         // muted before it.
         self.apply_muting();
         self.apply_panning();
+    }
+
+    /// Re-writes a QSound channel's cached start address as the old HLE's
+    /// implied key-on -- upstream's `qsWork->write(cDev, (chn << 3) | 0x01,
+    /// startAddrCache[chn])`, put on the bus exactly as the fold's QSound
+    /// triple would (data MSB, data LSB, then the committing register write).
+    /// Deliberately not routed back through [`write`](ChipCore::write): the
+    /// injection must not re-enter the caches.
+    fn qsound_key_on(&mut self, addr: u16, start: u16) {
+        let Some(write) = self.writers.reg8 else {
+            return;
+        };
+        let register = ((addr & !0x07) | 0x01) as u8;
+        // SAFETY: a live device (only `write` calls this, after its started
+        // check), through the writer fetched from it at start.
+        unsafe {
+            write(self.dev.data_ptr, 0x00, (start >> 8) as u8);
+            write(self.dev.data_ptr, 0x01, (start & 0xFF) as u8);
+            write(self.dev.data_ptr, 0x02, register);
+        }
     }
 
     /// Pushes the stored mute mask into the device (and, for the OPN family,
@@ -780,6 +811,9 @@ impl ChipCore for LibVgmChip {
         self.settings = ChipSettings::default();
         // ...and the RF5C bank: the device restart clears the core's own.
         self.ram_bank = 0;
+        // ...and the QSound key-on caches, which describe the previous song.
+        self.qsound_start = [0; 16];
+        self.qsound_pitch = [0; 16];
         self.start();
     }
 
@@ -811,6 +845,29 @@ impl ChipCore for LibVgmChip {
             && data & 0x40 == 0
         {
             self.ram_bank = u32::from(data & 0x0F) << 12;
+        }
+        // Upstream's `Cmd_QSound_Reg` hacks, active for old (4 MHz clock) logs
+        // on the DSP core -- the same clock condition `configure_qsound`
+        // rescues. Channel registers sit below 0x80, eight per channel:
+        // 1 = start address, 2 = pitch, 3 = phase. The old HLE keyed a note on
+        // at a pitch rising from zero or a phase write, and `vgm_cmp` stripped
+        // the address rewrites those logs relied on, so the cached start
+        // address is injected back exactly where the reference injects it.
+        if self.spec.kind == ChipKind::QSound && self.clock < 5_000_000 && addr < 0x80 {
+            let chn = usize::from(addr >> 3);
+            match addr & 0x07 {
+                0x01 => self.qsound_start[chn] = data,
+                0x02 => {
+                    if self.qsound_pitch[chn] == 0 && data != 0 {
+                        self.qsound_key_on(addr, self.qsound_start[chn]);
+                    }
+                    self.qsound_pitch[chn] = data;
+                }
+                0x03 => {
+                    self.qsound_key_on(addr, self.qsound_start[chn]);
+                }
+                _ => {}
+            }
         }
         let chip = self.dev.data_ptr;
         // SAFETY: a live device, and every writer below was fetched from it
