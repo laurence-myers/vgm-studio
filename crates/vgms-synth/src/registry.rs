@@ -543,6 +543,11 @@ impl ChipCore for GatedCore {
 #[derive(Debug, Default)]
 pub struct CoreRegistry {
     entries: Vec<CoreInfo>,
+    /// Rows pinned to a chip against a shared-slot downgrade (see
+    /// [`require`](Self::require)). A chip that shares its config slot with
+    /// siblings would otherwise resolve whatever the shared key names, even a
+    /// core that cannot serve it; only the Y8950 needs this today.
+    required: Vec<(ChipKind, &'static str)>,
 }
 
 impl CoreRegistry {
@@ -552,6 +557,7 @@ impl CoreRegistry {
     pub const fn new() -> Self {
         Self {
             entries: Vec::new(),
+            required: Vec::new(),
         }
     }
 
@@ -639,6 +645,25 @@ impl CoreRegistry {
         true
     }
 
+    /// Pins `id` as the core for `chip` even against a stored *family* choice,
+    /// and promotes it to the default.
+    ///
+    /// The owner's capability pin, on top of [`promote`](Self::promote). A chip
+    /// that shares its config slot with siblings (the OPL family) resolves
+    /// whatever the shared key names, so a family choice can name a core that
+    /// cannot serve this chip -- only libvgm's MAME FMOPL carries the Y8950's
+    /// ADPCM-B, so a stored `opl3=nuked` would silence its samples. A pin keeps
+    /// this row for the chip whatever the slot says. Returns whether the row
+    /// was found; a `false` (the web build has no libvgm) is a normal build
+    /// difference, not an error -- the chip then keeps its family default.
+    pub fn require(&mut self, chip: ChipKind, id: &'static str) -> bool {
+        if self.find(chip, id).is_none() {
+            return false;
+        }
+        self.required.push((chip, id));
+        self.promote(chip, id)
+    }
+
     /// Every core, in registration order.
     pub fn all(&self) -> impl Iterator<Item = &CoreInfo> {
         self.entries.iter()
@@ -713,7 +738,20 @@ impl CoreRegistry {
     #[must_use]
     pub fn resolve_choice(&self, chip: ChipKind, choice: Option<&str>) -> Option<&CoreInfo> {
         let id = choice.map(|choice| format!("{}.{}", slot_slug(chip), choice));
-        self.resolve(chip, id.as_deref())
+        let resolved = self.resolve(chip, id.as_deref());
+        // A chip that does not own its config slot (the OPL family shares
+        // `opl3`) can have the shared key resolve to a sibling's core that
+        // cannot serve it -- opl3=nuked would drop the Y8950's ADPCM-B. A
+        // capability pin keeps the required row for the chip whatever the
+        // family choice named; an explicit choice for the pinned row itself
+        // still lands there (the id check short-circuits).
+        if slot_slug(chip) != chip.slug()
+            && let Some(&(_, pinned_id)) = self.required.iter().find(|&&(c, _)| c == chip)
+            && resolved.is_none_or(|info| info.id != pinned_id)
+        {
+            return self.find(chip, pinned_id);
+        }
+        resolved
     }
 
     /// Builds the generic core for `chip`, honouring a configured id.
@@ -1074,6 +1112,32 @@ mod tests {
         assert_eq!(
             registry.default_for(ChipKind::Sn76489).map(|i| i.id),
             Some("sn76489.second")
+        );
+    }
+
+    /// `resolve_choice` prefixes the chip's slot exactly once, so the stored
+    /// value is the short provider name. A full id passed by mistake
+    /// double-prefixes to an unmatchable row and falls back to the default --
+    /// the contract `settings_default` (bug #2) depends on.
+    #[test]
+    fn resolve_choice_prefixes_the_slot_once() {
+        let mut registry = CoreRegistry::new();
+        registry.register(info("sn76489.nuked-psg"));
+        registry.register(info("sn76489.libvgm"));
+
+        assert_eq!(
+            registry
+                .resolve_choice(ChipKind::Sn76489, Some("libvgm"))
+                .map(|i| i.id),
+            Some("sn76489.libvgm"),
+            "the short name composes to the real id"
+        );
+        assert_eq!(
+            registry
+                .resolve_choice(ChipKind::Sn76489, Some("sn76489.libvgm"))
+                .map(|i| i.id),
+            Some("sn76489.nuked-psg"),
+            "a full id double-prefixes to sn76489.sn76489.libvgm and falls back"
         );
     }
 

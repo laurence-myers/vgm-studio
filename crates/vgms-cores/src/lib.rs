@@ -47,9 +47,12 @@ pub fn register_common_cores(registry: &mut CoreRegistry) {
     registry.promote(ChipKind::Sn76489, "sn76489.nuked-psg");
     // The Y8950 goes the other way: the built-in OPL row registered before any
     // provider could, but Nuked-OPL3 has no ADPCM-B unit and libvgm's MAME
-    // fmopl does, so the libvgm row leads. The family stays on Nuked -- this
-    // moves one chip, not the OPL selector.
-    registry.promote(ChipKind::Y8950, "opl3.libvgm-y8950");
+    // fmopl does, so the libvgm row leads. `require`, not `promote`: the Y8950
+    // shares the `opl3` config slot, so a stored family choice (set_output_backend's
+    // opl3=nuked, the fidelity auto-select, any OPL pick) would otherwise drag it
+    // onto the sample-less Nuked core. The pin keeps it on libvgm whatever the
+    // slot names, while the rest of the family stays free to choose.
+    registry.require(ChipKind::Y8950, "opl3.libvgm-y8950");
 }
 
 #[cfg(test)]
@@ -97,6 +100,33 @@ mod tests {
             registry.default_for(ChipKind::Ym3812).map(|info| info.id),
             Some("opl3.nuked"),
             "the YM3812 stays on the OPL family default"
+        );
+    }
+
+    /// The Y8950 shares the `opl3` slot, so a stored family choice would resolve
+    /// its shared key -- but only the libvgm row carries ADPCM-B, so the
+    /// capability pin keeps the Y8950 there whatever the family chose, while the
+    /// rest of the family still honours the choice.
+    #[test]
+    fn a_stored_opl_family_choice_keeps_the_y8950_adpcm_core() {
+        let mut registry = CoreRegistry::with_builtins();
+        register_common_cores(&mut registry);
+        for choice in [Some("nuked"), Some("cqm"), None] {
+            assert_eq!(
+                registry
+                    .resolve_choice(ChipKind::Y8950, choice)
+                    .map(|info| info.id),
+                Some("opl3.libvgm-y8950"),
+                "the Y8950 pin must hold against family choice {choice:?}"
+            );
+        }
+        // Narrow: an unpinned family member still follows the shared choice.
+        assert_eq!(
+            registry
+                .resolve_choice(ChipKind::Ymf262, Some("nuked"))
+                .map(|info| info.id),
+            Some("opl3.nuked"),
+            "the pin does not touch the rest of the OPL family"
         );
     }
 

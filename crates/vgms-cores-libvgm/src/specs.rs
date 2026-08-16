@@ -683,11 +683,7 @@ mod tests {
             let slot = vgms_synth::registry::slot_slug(spec.kind);
             let default_id = format!("{slot}.{}", crate::CORE_SUFFIX);
             assert!(
-                spec.id == default_id
-                    || spec.id.starts_with(&format!("{default_id}-"))
-                    || spec
-                        .id
-                        .starts_with(&format!("{slot}.{}-", crate::CORE_SUFFIX)),
+                spec.id == default_id || spec.id.starts_with(&format!("{default_id}-")),
                 "{} must be <slot>.libvgm or <slot>.libvgm-<core>",
                 spec.id
             );

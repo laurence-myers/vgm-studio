@@ -52,14 +52,7 @@ fn render_ours_at(path: &Path, rate: u32) -> Option<Render> {
     // header declaring non-Sega SN76489 noise parameters plays the Maxim row,
     // as the reference does. An explicit `VGMSTUDIO_PARITY_CORE` still pins.
     let settings = *file.header.settings();
-    let pinned = std::env::var("VGMSTUDIO_PARITY_CORE").is_ok_and(|choice| !choice.is_empty());
-    render_with_at(path, rate, move |kind| {
-        if pinned {
-            build_core(kind)
-        } else {
-            vgms_synth::core_for_file(kind, &settings)
-        }
-    })
+    render_with_at(path, rate, move |kind| core_as_app(kind, &settings))
 }
 
 /// Builds `kind`'s core, honouring `VGMSTUDIO_PARITY_CORE`.
@@ -80,6 +73,25 @@ fn build_core(kind: ChipKind) -> Option<Box<dyn vgms_synth::ChipCore>> {
     match std::env::var("VGMSTUDIO_PARITY_CORE") {
         Ok(choice) if !choice.is_empty() => registry.resolve_choice(kind, Some(&choice))?.build(),
         _ => registry.build(kind, None),
+    }
+}
+
+/// The core the app itself would build for `kind`: the settings-aware default
+/// (`core_for_file`), unless `VGMSTUDIO_PARITY_CORE` pins a provider.
+///
+/// The one selection policy the render and the native-rate probe share, so a
+/// chip is always measured at the rate the core it renders through runs at --
+/// a non-Sega SN76489 renders through the 44100 Maxim row, and the probe must
+/// read that, not the settings-blind Nuked-PSG default (clock/16).
+fn core_as_app(
+    kind: ChipKind,
+    settings: &vgms_core::vgm::ChipSettings,
+) -> Option<Box<dyn vgms_synth::ChipCore>> {
+    let pinned = std::env::var("VGMSTUDIO_PARITY_CORE").is_ok_and(|choice| !choice.is_empty());
+    if pinned {
+        build_core(kind)
+    } else {
+        vgms_synth::core_for_file(kind, settings)
     }
 }
 
@@ -260,11 +272,14 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
     let name = path.file_name()?.to_string_lossy().to_string();
     let file = vgms_core::vgm::file::read(&name, &bytes).ok()?;
     let clocked = file.header.chips().iter().find(|c| c.kind == chip)?;
-    // The core under test, not the default: two cores for one chip need not
-    // agree on a native rate, and asking the default while rendering through a
-    // challenger puts our resampler back into the measurement (measuring libvgm's
-    // SN76489 at the clean-room rate showed -3.5 cents of resampler pitch error).
-    let mut core = build_core(chip)?;
+    // The core `render_ours_at` renders through, not the settings-blind
+    // registry default: two cores for one chip need not agree on a native rate,
+    // and probing the default while rendering a challenger puts our resampler
+    // back into the measurement. A non-Sega SN76489 renders through the 44100
+    // Maxim row, so it must be probed there, not at Nuked-PSG's clock/16 --
+    // else the mismatched rate resamples our side into phantom detune.
+    let settings = *file.header.settings();
+    let mut core = core_as_app(chip, &settings)?;
     core.reset(clocked.clock, clocked.variant);
     // After the reset, as the engine does: the header's chip settings decide
     // the rate for some chips (the OKIM6258's divider flags put it at 15625
@@ -272,6 +287,61 @@ fn native_rate_of(path: &Path, chip: ChipKind) -> Option<u32> {
     // renders both sides through a resampler the comparison is meant to avoid.
     core.configure(file.header.settings());
     Some(core.native_rate())
+}
+
+/// The native-rate probe must build the same core the render does. A non-Sega
+/// SN76489 renders through the settings-aware Maxim (libvgm) row; probing the
+/// settings-blind Nuked-PSG default (clock/16) instead resampled our side into
+/// phantom detune. Non-ignored: it needs only the built-in + libvgm cores.
+#[test]
+fn native_rate_probes_the_same_core_the_render_uses() {
+    vgms_app::install_cores();
+    fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+        bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+    }
+    let mut bytes = vec![0u8; 0x40];
+    bytes[..4].copy_from_slice(b"Vgm ");
+    put_u32(&mut bytes, 0x08, 0x151);
+    put_u32(&mut bytes, ChipKind::Sn76489.clock_offset(), 3_579_545);
+    // Non-Sega noise: feedback 0x0003, shift width 15, flags 0x02 -- a BBC/TI
+    // part, which core_for_file plays through the Maxim row.
+    bytes[0x28] = 0x03;
+    bytes[0x2A] = 0x0F;
+    bytes[0x2B] = 0x02;
+    put_u32(&mut bytes, 0x34, (0x40 - 0x34) as u32); // data at 0x40
+    bytes.push(0x66); // end
+    let eof = bytes.len();
+    put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+
+    let dir = work_dir();
+    std::fs::create_dir_all(&dir).expect("work dir");
+    let path = dir.join("non-sega-sn76489.vgm");
+    std::fs::write(&path, &bytes).expect("write fixture");
+
+    let file = vgms_core::vgm::file::read("x.vgm", &bytes).expect("walkable");
+    let settings = *file.header.settings();
+
+    // The render core (core_for_file) and the probe must report the same rate.
+    let mut render_core = vgms_synth::core_for_file(ChipKind::Sn76489, &settings).expect("a core");
+    render_core.reset(3_579_545, false);
+    render_core.configure(&settings);
+    let render_rate = render_core.native_rate();
+    assert_eq!(
+        native_rate_of(&path, ChipKind::Sn76489),
+        Some(render_rate),
+        "the probe must build the core the render uses"
+    );
+
+    // ...and that is a different rate from the settings-blind default, which is
+    // exactly the mismatch the old probe hid.
+    let mut default_core = build_core(ChipKind::Sn76489).expect("a core");
+    default_core.reset(3_579_545, false);
+    default_core.configure(&settings);
+    assert_ne!(
+        default_core.native_rate(),
+        render_rate,
+        "the settings-blind Nuked-PSG default probes a different rate"
+    );
 }
 
 /// What fraction of an OPL file's operator writes switch vibrato on.

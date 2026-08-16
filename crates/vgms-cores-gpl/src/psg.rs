@@ -67,6 +67,12 @@ pub struct Sn76489Nuked {
     /// never reach the PSG bus, where its bit pattern would decode as a latch
     /// (the frequent `0xFF` mask latches the noise channel silent).
     stereo_mask: u8,
+    /// The 4-bit DAC mute mask last sent to the chip, so `render` only makes the
+    /// `set_mute` FFI call when it changes -- the mono (non-Game-Gear) common
+    /// case keeps one mask for the whole song. The sentinel `0xFF` (outside the
+    /// valid 4-bit range) forces the first call, so nothing depends on the
+    /// core's power-on mute default.
+    applied_mute: u8,
 }
 
 impl Sn76489Nuked {
@@ -79,6 +85,7 @@ impl Sn76489Nuked {
             writes: VecDeque::new(),
             settle: 0,
             stereo_mask: 0xFF,
+            applied_mute: 0xFF,
         }
     }
 }
@@ -96,6 +103,7 @@ impl ChipCore for Sn76489Nuked {
         self.settle = 0;
         self.rate = (clock / CLOCKS_PER_SAMPLE).max(1);
         self.stereo_mask = 0xFF;
+        self.applied_mute = 0xFF;
         self.chip.reset();
     }
 
@@ -116,6 +124,14 @@ impl ChipCore for Sn76489Nuked {
     }
 
     fn render(&mut self, out: &mut [i32]) {
+        // Each side hears the channels its mask nibble enables. The stereo mask
+        // cannot change during a render (an addr==1 write only happens between
+        // renders), so the per-side mutes are computed once. When they agree --
+        // the power-on mono mask every non-Game-Gear file keeps -- one read of
+        // the full sum serves both sides, with no per-sample mute change.
+        let left_mute = !(self.stereo_mask >> 4) & 0x0F;
+        let right_mute = !self.stereo_mask & 0x0F;
+        let mono = left_mute == right_mute;
         for frame in out.chunks_exact_mut(2) {
             for _ in 0..CLOCKS_PER_SAMPLE {
                 if self.settle > 0 {
@@ -126,15 +142,32 @@ impl ChipCore for Sn76489Nuked {
                 }
                 self.chip.clock();
             }
-            // Each side hears the channels its mask nibble enables. The DAC
-            // sum is idempotent within a clock, so the two reads are two views
-            // of one instant; with the power-on mask both sides are the full
-            // mono sum, exactly the single-pin behaviour this had before.
             // Truncation rather than rounding, matching upstream's own cast.
-            self.chip.set_mute(!(self.stereo_mask >> 4) & 0x0F);
-            frame[0] = (self.chip.output() * OUTPUT_SCALE) as i32;
-            self.chip.set_mute(!self.stereo_mask & 0x0F);
-            frame[1] = (self.chip.output() * OUTPUT_SCALE) as i32;
+            if mono {
+                self.apply_mute(left_mute);
+                let sample = (self.chip.output() * OUTPUT_SCALE) as i32;
+                frame[0] = sample;
+                frame[1] = sample;
+            } else {
+                // The DAC sum is idempotent within a clock, so the two reads are
+                // two views of one instant, each under its own side's mute.
+                self.apply_mute(left_mute);
+                frame[0] = (self.chip.output() * OUTPUT_SCALE) as i32;
+                self.apply_mute(right_mute);
+                frame[1] = (self.chip.output() * OUTPUT_SCALE) as i32;
+            }
+        }
+    }
+}
+
+impl Sn76489Nuked {
+    /// Sends a DAC mute mask to the chip only when it changes: `set_mute` is an
+    /// FFI call and `output` is idempotent within a clock, so a redundant
+    /// re-mute would be pure overhead.
+    fn apply_mute(&mut self, mute: u8) {
+        if self.applied_mute != mute {
+            self.chip.set_mute(mute);
+            self.applied_mute = mute;
         }
     }
 }
@@ -155,8 +188,21 @@ mod tests {
         out.chunks_exact(2).map(|f| f[0]).collect()
     }
 
+    /// The left and right channels of `frames` rendered frames.
+    fn render_sides(chip: &mut Sn76489Nuked, frames: usize) -> (Vec<i32>, Vec<i32>) {
+        let mut out = vec![0i32; frames * 2];
+        chip.render(&mut out);
+        out.chunks_exact(2).map(|f| (f[0], f[1])).unzip()
+    }
+
     fn energy(samples: &[i32]) -> i64 {
         samples.iter().map(|&s| i64::from(s.abs())).sum()
+    }
+
+    /// A side's peak-to-peak: the DAC sum is unipolar, so a fully muted side
+    /// sits at a constant floor and swings 0.
+    fn swing(side: &[i32]) -> i32 {
+        side.iter().max().copied().unwrap_or(0) - side.iter().min().copied().unwrap_or(0)
     }
 
     #[test]
@@ -261,39 +307,52 @@ mod tests {
         chip.write(0, 0, 0x80 | 0x06);
         chip.write(0, 0, 0x08);
         chip.write(0, 0, 0x90); // channel 0, full volume
-        let mut out = vec![0i32; 8000 * 2];
-        chip.render(&mut out);
-        let (left, right): (Vec<i32>, Vec<i32>) = out
-            .chunks_exact(2)
-            .map(|frame| (frame[0], frame[1]))
-            .unzip();
+        let (left, right) = render_sides(&mut chip, 8000);
         assert_eq!(left, right, "the default mask is mono");
         assert!(energy(&left) > 0);
 
         chip.write(0, 1, 0x0F); // right nibble only: the left side goes dark
-        let mut out = vec![0i32; 4000 * 2];
-        chip.render(&mut out);
-        let (left, right): (Vec<i32>, Vec<i32>) = out
-            .chunks_exact(2)
-            .map(|frame| (frame[0], frame[1]))
-            .unzip();
-        // The DAC sum is unipolar, so a fully muted side sits at a constant
-        // floor: flat, while the playing side keeps its tone.
-        let swing = |side: &[i32]| {
-            side.iter().max().copied().unwrap_or(0) - side.iter().min().copied().unwrap_or(0)
-        };
+        let (left, right) = render_sides(&mut chip, 4000);
         assert_eq!(swing(&left), 0, "every channel is masked off the left");
         assert!(swing(&right) > 0, "the right still carries the tone");
 
         chip.write(0, 1, 0xF0); // and the mirror image
-        let mut out = vec![0i32; 4000 * 2];
-        chip.render(&mut out);
-        let (left, right): (Vec<i32>, Vec<i32>) = out
-            .chunks_exact(2)
-            .map(|frame| (frame[0], frame[1]))
-            .unzip();
+        let (left, right) = render_sides(&mut chip, 4000);
         assert!(swing(&left) > 0);
         assert_eq!(swing(&right), 0);
+    }
+
+    /// The mute change-tracking must re-mute on every mask transition, not just
+    /// the first: mono -> left-only -> mono keeps each side correct even though
+    /// the fast path skips a `set_mute` when the mask is unchanged.
+    #[test]
+    fn switching_between_mono_and_stereo_masks_keeps_each_side_correct() {
+        let mut chip = Sn76489Nuked::new();
+        chip.reset(CLOCK, false);
+        for byte in [0x9F, 0xBF, 0xDF, 0xFF] {
+            chip.write(0, 0, byte);
+        }
+        chip.write(0, 0, 0x80 | 0x06);
+        chip.write(0, 0, 0x08);
+        chip.write(0, 0, 0x90); // channel 0, full volume
+
+        // Mono (power-on mask): both sides carry the tone.
+        let (left, right) = render_sides(&mut chip, 4000);
+        assert_eq!(left, right, "mono");
+        assert!(energy(&left) > 0);
+
+        // Left-only stereo: the right side goes flat.
+        chip.write(0, 1, 0xF0);
+        let (left, right) = render_sides(&mut chip, 4000);
+        assert!(swing(&left) > 0);
+        assert_eq!(swing(&right), 0);
+
+        // Back to mono: the mask changed from a per-side state, so the fast
+        // path must re-mute -- both sides carry the tone again.
+        chip.write(0, 1, 0xFF);
+        let (left, right) = render_sides(&mut chip, 4000);
+        assert_eq!(left, right, "mono again");
+        assert!(energy(&left) > 0);
     }
 
     /// A reset must silence a playing chip and forget its queue.

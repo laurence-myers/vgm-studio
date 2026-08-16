@@ -170,10 +170,11 @@ impl Playability {
 /// rather than something the engine pulls samples from.
 #[must_use]
 pub fn core_for(kind: ChipKind) -> Option<Box<dyn ChipCore>> {
-    let registry = crate::registry::registry();
-    let choice =
-        crate::registry::render_override(kind).or_else(|| crate::registry::core_choice(kind));
-    registry.resolve_choice(kind, choice.as_deref())?.build()
+    // The blank-settings case of `core_for_file`: `settings_default` returns
+    // `None` for `ChipSettings::default()` on every chip (the SN76489's Sega
+    // branch included), so this takes exactly `core_for_file`'s non-redirecting
+    // path -- render override, then user choice, then the promoted default.
+    core_for_file(kind, &vgms_core::vgm::ChipSettings::default())
 }
 
 /// As [`core_for`], but consulting the file's header settings when no explicit
@@ -198,8 +199,14 @@ pub fn core_for_file(
     registry.resolve_choice(kind, choice.as_deref())?.build()
 }
 
-/// The core id a file's settings ask for where the promoted default cannot
-/// honour them, or `None` to keep the default.
+/// The core *name* -- the short provider suffix, no slot prefix -- a file's
+/// settings ask for where the promoted default cannot honour them, or `None`
+/// to keep the default.
+///
+/// The name goes to [`resolve_choice`](crate::registry::CoreRegistry::resolve_choice),
+/// which prefixes the chip's slot itself, so this returns `"libvgm"` (which
+/// composes to `sn76489.libvgm`), never the full id (which would double-prefix
+/// to an unmatchable `sn76489.sn76489.libvgm` and fall back to the default).
 fn settings_default(
     kind: ChipKind,
     settings: &vgms_core::vgm::ChipSettings,
@@ -216,7 +223,7 @@ fn settings_default(
             if sega_taps && sega_width && sega_flags {
                 None
             } else {
-                Some("sn76489.libvgm")
+                Some("libvgm")
             }
         }
         _ => None,
@@ -390,21 +397,52 @@ mod tests {
             sn76489_shift_width: 0x0F,
             ..ChipSettings::default()
         };
-        assert_eq!(
-            settings_default(ChipKind::Sn76489, &bbc),
-            Some("sn76489.libvgm")
-        );
+        assert_eq!(settings_default(ChipKind::Sn76489, &bbc), Some("libvgm"));
         // An NCR flag byte alone is a different part too.
         let ncr = ChipSettings {
             sn76489_flags: 0x10,
             ..ChipSettings::default()
         };
-        assert_eq!(
-            settings_default(ChipKind::Sn76489, &ncr),
-            Some("sn76489.libvgm")
-        );
+        assert_eq!(settings_default(ChipKind::Sn76489, &ncr), Some("libvgm"));
         // Other chips never redirect.
         assert_eq!(settings_default(ChipKind::Ym2612, &bbc), None);
+    }
+
+    /// `settings_default` must return the short provider name, not a full id:
+    /// `resolve_choice` prefixes the slot itself, so a full id would
+    /// double-prefix to an unmatchable row and fall back to the default,
+    /// silently defeating the whole redirect.
+    #[test]
+    fn the_settings_default_is_a_short_name_resolve_choice_can_prefix() {
+        use vgms_core::vgm::ChipSettings;
+        let bbc = ChipSettings {
+            sn76489_feedback: 0x03,
+            sn76489_shift_width: 0x0F,
+            ..ChipSettings::default()
+        };
+        let name = settings_default(ChipKind::Sn76489, &bbc).expect("a redirect");
+        assert_eq!(name, "libvgm");
+        assert!(
+            !name.contains('.'),
+            "a full id here would double-prefix in resolve_choice"
+        );
+    }
+
+    /// The safety net for [`core_for`]'s delegation to [`core_for_file`]: no
+    /// chip redirects on blank settings, so passing default settings takes the
+    /// non-redirecting path for every chip.
+    #[test]
+    fn default_settings_never_redirect_so_core_for_can_delegate() {
+        use vgms_core::vgm::ChipSettings;
+        let blank = ChipSettings::default();
+        for kind in ChipKind::all() {
+            assert_eq!(
+                settings_default(kind, &blank),
+                None,
+                "{} redirects on blank settings",
+                kind.name()
+            );
+        }
     }
 
     #[test]
