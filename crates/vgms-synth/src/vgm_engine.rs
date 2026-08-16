@@ -274,7 +274,15 @@ impl VgmEngine {
         factory: impl Fn(vgms_core::vgm::ChipKind) -> Option<Box<dyn ChipCore>>,
     ) -> Self {
         let mut voices = Vec::new();
-        for chip in file.header.chips() {
+        // The whole-file balance inputs are pure functions of the header, so
+        // they are read once here rather than rebuilt per voice (the estimate
+        // was an O(chips) re-sum inside the loop, and `tail_chip_ids` allocated
+        // a Vec each call).
+        let declared = file.header.chips();
+        let extra = file.header.extra();
+        let mix_estimate =
+            crate::balance::mix_estimate(declared, extra, file.header.tail_chip_ids());
+        for chip in declared {
             // A dual-chip declaration is two instances of the same chip, each
             // needing its own core.
             let instances = if chip.dual { 2 } else { 1 };
@@ -305,13 +313,7 @@ impl VgmEngine {
                     let chip = &chip;
                     // The reference's cross-chip balance for this instance in
                     // this file's chip set -- unity for a single-chip file.
-                    let balance = crate::balance::voice_gain(
-                        file.header.chips(),
-                        chip,
-                        instance,
-                        file.header.extra(),
-                        &file.header.tail_chip_ids(),
-                    );
+                    let balance = crate::balance::voice_gain(chip, instance, extra, mix_estimate);
                     let mut voice = Voice::new(
                         target,
                         core,

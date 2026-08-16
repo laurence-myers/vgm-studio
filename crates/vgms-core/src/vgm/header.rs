@@ -12,14 +12,21 @@
 //! Versions before 1.50 have no data-offset field at all; their data always
 //! starts at 0x40.
 //!
-//! # Two rules, both strict
+//! # Where the chip clocks end
 //!
-//! The data-start rule is enforced because breaking it means misreading command
-//! bytes as clocks. The **version** is enforced for the same reason: a clock
-//! field the declared version predates is not a chip, it is whatever happens to
-//! sit at that offset. A 1.70 file's header runs to 0x100 whether or not the
-//! spec had assigned 0xC0 yet, so a non-zero byte there is padding, not a chip;
-//! trusting it invents chips a file's stream never writes to.
+//! The data offset is the hard bound: past `0x34 + data offset` the bytes are
+//! the command stream, not header fields, and every field read stops there. A
+//! v1.70 extra header, pointed at from `0xBC`, tightens that bound for the
+//! chip-clock and settings reads -- the main header ends where the extra header
+//! begins, mirroring the reference's `_hdrLenFile = min(dataOfs, extraHdrOfs)`
+//! (vgmplayer.cpp ~289-298), so extra-header bytes are never misread as chip
+//! clocks. The round-trip `raw` bytes keep the whole `..data_start` slice, so
+//! an unedited save still writes the file back verbatim.
+//!
+//! The declared **version** is advisory, not a bound: a clock field the version
+//! predates is still read as a chip (as the reference does), only logged --
+//! the physical bounds above already stop a short header from inventing chips
+//! out of the command stream.
 
 use crate::error::{Error, Result};
 use crate::io::ByteReader;
@@ -469,6 +476,7 @@ pub struct VgmHeader {
     loop_base: u8,
     loop_modifier: u8,
     chips: Vec<ChipUse>,
+    tail_chip_ids: Vec<u8>,
     settings: ChipSettings,
     extra: Option<ExtraHeader>,
 }
@@ -509,13 +517,24 @@ impl VgmHeader {
         // Reads stop at the data, never past it: beyond this point the bytes are
         // the command stream, not header fields.
         let header = &bytes[..data_start];
+        // The chip clocks and settings stop earlier still, where a v1.70 extra
+        // header begins -- the reference's `_hdrLenFile = min(dataOfs,
+        // extraHdrOfs)` (vgmplayer.cpp ~289-298). `raw` keeps the full slice;
+        // only the read views are bounded, so extra-header bytes below the data
+        // offset are never decoded as phantom chip clocks.
+        let chip_header = &bytes[..chip_header_end(header, data_start)];
 
         let gd3_offset = match u32_at(header, offset::GD3) {
             0 => None,
             relative => Some(widen_offset(offset::GD3, relative)),
         };
 
-        let chips = read_chips(header, version);
+        let chips = read_chips(chip_header, version);
+        let tail_chip_ids = read_tail_chip_ids(chip_header);
+        // The extra header is parsed from the full bytes, its pointer read from
+        // the (always in-range) 0xBC field -- so the clocks/volumes lists that
+        // sit past the cut stay readable, as the reference reads them from the
+        // untouched file data.
         let extra = read_extra_header(bytes, header, version);
 
         Ok(Self {
@@ -531,7 +550,8 @@ impl VgmHeader {
             loop_base: u8_at(header, offset::LOOP_BASE),
             loop_modifier: u8_at(header, offset::LOOP_MODIFIER),
             chips,
-            settings: read_settings(header),
+            tail_chip_ids,
+            settings: read_settings(chip_header),
             extra,
         })
     }
@@ -697,16 +717,13 @@ impl VgmHeader {
     ///
     /// The engine cannot play them (a roster gap), but the reference's
     /// whole-mix loudness normalisation counts every declared chip, so their
-    /// presence must still weight the balance estimate. Clock offsets `0xE8`,
-    /// `0xEC`, `0xF0`, `0xF4`, `0xF8`, `0xFC`, from the reference's
-    /// `_CHIPCLK_OFS` table; the same physical bound applies (a header ending
-    /// before an offset reads it as zero).
+    /// presence must still weight the balance estimate. Computed once at parse
+    /// from the bounded chip header (so an extra header below the data offset
+    /// cannot forge them) and filtered so a tail id can never also be a real
+    /// chip -- see [`read_tail_chip_ids`].
     #[must_use]
-    pub fn tail_chip_ids(&self) -> Vec<u8> {
-        (0u8..6)
-            .filter(|&index| u32_at(&self.raw, 0xE8 + usize::from(index) * 4) & CLOCK_MASK != 0)
-            .map(|index| 0x2A + index)
-            .collect()
+    pub fn tail_chip_ids(&self) -> &[u8] {
+        &self.tail_chip_ids
     }
 
     /// Reassigns a v1.00/1.01 file's shared FM clock to `kind`.
@@ -822,6 +839,45 @@ fn u8_at(header: &[u8], at: usize) -> u8 {
 /// legal header, so the slot always exists.
 fn put_u32(header: &mut [u8], at: usize, value: u32) {
     header[at..at + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// Where the chip-clock and settings reads must stop: the data offset, or the
+/// v1.70 extra header if one is pointed at from `0xBC` and begins below the
+/// data. Mirrors the reference's `_hdrLenFile = min(dataOfs, extraHdrOfs)`
+/// (vgmplayer.cpp ~289-293), which reads `0xBC` only for a header long enough
+/// to hold it.
+fn chip_header_end(header: &[u8], data_start: usize) -> usize {
+    if data_start < offset::EXTRA_HEADER + 4 {
+        return data_start;
+    }
+    match u32_at(header, offset::EXTRA_HEADER) {
+        0 => data_start,
+        // `.min` cuts only when the extra header resolves strictly below the
+        // data (equal yields no cut, matching the reference's `>` test);
+        // `widen_offset` saturates, so a bogus far pointer yields data_start.
+        relative => widen_offset(offset::EXTRA_HEADER, relative).min(data_start),
+    }
+}
+
+/// The declared tail chips, as their extra-header ids `0x2A`-`0x2F`.
+///
+/// The ids run from the roster boundary ([`CHIP_COUNT`]) up, at clock offsets
+/// `0xE8`, `0xEC`, ... from the reference's `_CHIPCLK_OFS` table (the byte
+/// after Mikey's clock at `0xE4`). The `from_id` filter is the double-count
+/// guard: if the roster ever grows so an id in this range becomes a real
+/// [`ChipKind`], `read_chips` counts it and this loop skips it, instead of both
+/// counting it.
+fn read_tail_chip_ids(chip_header: &[u8]) -> Vec<u8> {
+    const TAIL_CLOCK_BASE: usize = 0xE8;
+    let base = CHIP_COUNT as u8;
+    (0u8..6)
+        .map(|index| base + index)
+        .filter(|&id| ChipKind::from_id(id).is_none())
+        .filter(|&id| {
+            let at = TAIL_CLOCK_BASE + usize::from(id - base) * 4;
+            u32_at(chip_header, at) & CLOCK_MASK != 0
+        })
+        .collect()
 }
 
 fn read_chips(header: &[u8], version: u32) -> Vec<ChipUse> {
@@ -1439,6 +1495,76 @@ mod tests {
         let bytes = file(bytes);
         let extra = VgmHeader::parse(&bytes).unwrap().extra().cloned().unwrap();
         assert_eq!(extra, ExtraHeader::default());
+    }
+
+    /// A v1.70 file whose extra header sits below the data offset: its bytes
+    /// must never be read as chip clocks. The reference cuts the main header at
+    /// the extra-header offset (`_hdrLenFile = min(dataOfs, extraHdrOfs)`); this
+    /// fixture would otherwise decode phantom chips at 0xC0, 0xC4, 0xC8, ...
+    #[test]
+    fn an_extra_header_below_the_data_start_is_not_read_as_chips() {
+        let mut bytes = header(0x171, 0x140); // data starts at 0x140
+        put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
+
+        // Extra header at 0xC0 -- below the data, so it must bound the reads.
+        let extra_at = 0xC0usize;
+        put_u32(&mut bytes, offset::EXTRA_HEADER, (extra_at - 0xBC) as u32);
+        put_u32(&mut bytes, extra_at, 12); // size: both lists present
+        put_u32(&mut bytes, extra_at + 4, 8); // clock list at 0xCC
+        put_u32(&mut bytes, extra_at + 8, 11); // volume list at 0xD3
+        let clocks_at = extra_at + 4 + 8;
+        bytes[clocks_at] = 1;
+        bytes[clocks_at + 1] = 0x02; // the Ym2612's second-instance clock
+        put_u32(&mut bytes, clocks_at + 2, 8_000_000);
+        let volumes_at = extra_at + 8 + 11;
+        bytes[volumes_at] = 1;
+        bytes[volumes_at + 1] = 0x02 | 0x80; // paired
+        bytes[volumes_at + 2] = 0x01; // second instance
+        bytes[volumes_at + 3..volumes_at + 5].copy_from_slice(&(0x8000u16 | 0x180).to_le_bytes());
+        let bytes = file(bytes);
+
+        let parsed = VgmHeader::parse(&bytes).unwrap();
+        // Only the real chip is read; the extra-header bytes at 0xC0+ are not
+        // decoded as WonderSwan/VSU/SAA1099/ES5503/... phantom clocks.
+        let kinds: Vec<ChipKind> = parsed.chips().iter().map(|c| c.kind).collect();
+        assert_eq!(kinds, [ChipKind::Ym2612]);
+        assert!(parsed.tail_chip_ids().is_empty());
+        // The cut does not break extra-header parsing: it is read from the full
+        // file data, as the reference reads it.
+        let extra = parsed.extra().expect("declared");
+        assert_eq!(
+            extra.clocks,
+            [ExtraClock {
+                chip_id: 0x02,
+                clock: 8_000_000
+            }]
+        );
+        assert_eq!(extra.volumes.len(), 1);
+        // The round-trip bytes keep the whole `..data_start` slice.
+        assert_eq!(parsed.raw().len(), 0x140);
+        assert_eq!(parsed.data_start(), 0x140);
+    }
+
+    /// The extra header in [`file_with_extra_header`] sits at the tail-clock
+    /// offsets (0xE8+); without the bound its size/list bytes would forge six
+    /// tail chips. The cut zeroes those reads while leaving extra parsing
+    /// intact (proven by the still-passing `the_extra_header_is_parsed`).
+    #[test]
+    fn an_extra_header_at_the_tail_offsets_forges_no_tail_chips() {
+        let parsed = VgmHeader::parse(&file_with_extra_header()).unwrap();
+        assert!(parsed.tail_chip_ids().is_empty());
+    }
+
+    /// The tail ids run from the roster boundary up, and none may collide with
+    /// a real chip -- the invariant the tail loop and the balance TAIL table
+    /// both rest on. This fails the day the roster grows into the tail range.
+    #[test]
+    fn no_tail_id_is_ever_a_real_chip() {
+        for id in 0x2Au8..0x30 {
+            assert!(ChipKind::from_id(id).is_none(), "id {id:#X} is a real chip");
+        }
+        assert_eq!(CHIP_COUNT, 0x2A);
+        assert_eq!(ChipKind::Mikey.clock_offset() + 4, 0xE8);
     }
 
     // -- rejections ---------------------------------------------------------
