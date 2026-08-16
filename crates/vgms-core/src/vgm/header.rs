@@ -705,6 +705,25 @@ impl VgmHeader {
         true
     }
 
+    /// How many times a file that asks to loop `loops` times actually plays,
+    /// scaled by the loop base and modifier -- the reference's
+    /// `GetModifiedLoopCount`: `(loops * modifier + 8) / 16 - base`, where a
+    /// modifier of 0 means `0x10` (no scaling) and the base is a signed byte.
+    /// Clamped to at least one play.
+    ///
+    /// The one home for this arithmetic: the player scales a user loop count
+    /// with it, and `pack`'s track durations count `modified_loop_count(2)`.
+    #[must_use]
+    pub fn modified_loop_count(&self, loops: u32) -> u32 {
+        let modifier = match self.loop_modifier {
+            0 => 0x10,
+            other => i64::from(other),
+        };
+        let base = i64::from(self.loop_base as i8);
+        let count = (i64::from(loops) * modifier + 8) / 16 - base;
+        u32::try_from(count.max(1)).unwrap_or(u32::MAX)
+    }
+
     /// Every chip the file declares a non-zero clock for, in header order.
     #[must_use]
     pub fn chips(&self) -> &[ChipUse] {
@@ -784,6 +803,30 @@ impl VgmHeader {
     #[must_use]
     pub const fn extra(&self) -> Option<&ExtraHeader> {
         self.extra.as_ref()
+    }
+
+    /// The clock and variant one instance of `kind` runs at.
+    ///
+    /// Instance 0 -- and any instance the extra header does not list -- takes
+    /// the base clock field. A second instance resolves through the v1.70
+    /// extra-header clock list, as the reference's `GetChipClock` walks
+    /// `_xHdrChipClk`, so a dual declaration whose two chips run at different
+    /// clocks plays each at its own. The single source of truth for this, used
+    /// at both core construction and rewind, so the two cannot drift.
+    #[must_use]
+    pub fn instance_clock(&self, kind: ChipKind, instance: u8) -> Option<(u32, bool)> {
+        let base = self.chips.iter().find(|chip| chip.kind == kind)?;
+        if instance != 0
+            && let Some(entry) = self.extra.as_ref().and_then(|extra| {
+                extra
+                    .clocks
+                    .iter()
+                    .find(|entry| ChipKind::from_id(entry.chip_id) == Some(kind))
+            })
+        {
+            return Some((entry.clock & CLOCK_MASK, entry.clock & VARIANT_FLAG != 0));
+        }
+        Some((base.clock, base.variant))
     }
 }
 
@@ -1565,6 +1608,30 @@ mod tests {
         }
         assert_eq!(CHIP_COUNT, 0x2A);
         assert_eq!(ChipKind::Mikey.clock_offset() + 4, 0xE8);
+    }
+
+    /// `GetModifiedLoopCount`: the shared home for the loop-count scaling both
+    /// the player and `pack`'s durations use.
+    #[test]
+    fn modified_loop_count_matches_vgm_stat() {
+        let cases = [
+            (0u8, 0u8, 2u32),
+            (0, 0x10, 2),
+            (0, 0x20, 4),
+            // base 1 halves a user's Times(2) to a single play -- the #10 case.
+            (1, 0, 1),
+            (255, 0, 3), // base -1 as i8
+            (10, 0, 1),  // clamped to >= 1
+        ];
+        for (base, modifier, expected) in cases {
+            let mut parsed = VgmHeader::parse(&file(header(0x171, 0x100))).unwrap();
+            assert!(parsed.set_loop_counts(base, modifier));
+            assert_eq!(
+                parsed.modified_loop_count(2),
+                expected,
+                "base {base:#X} modifier {modifier:#X}"
+            );
+        }
     }
 
     // -- rejections ---------------------------------------------------------

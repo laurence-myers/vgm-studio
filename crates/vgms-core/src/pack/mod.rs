@@ -132,24 +132,11 @@ impl TrackEntry {
             title,
             total_samples: u64::from(file.total_samples()),
             loop_samples: file.loop_samples().map(u64::from),
-            plays: vgm_play_count(file.header.loop_base(), file.header.loop_modifier()),
+            // `vgm_stat` counts a file's own loop played twice, scaled by the
+            // header's base/modifier -- the same formula the player uses.
+            plays: file.header.modified_loop_count(2),
         }
     }
-}
-
-/// The number of times a VGM plays, from its loop-base and loop-modifier header
-/// fields. This is `vgm_stat`'s formula; the modifier is treated as `0x10` when
-/// zero, and the base is a signed byte.
-#[must_use]
-pub fn vgm_play_count(loop_base: u8, loop_modifier: u8) -> u32 {
-    let modifier = if loop_modifier == 0 {
-        0x10
-    } else {
-        i32::from(loop_modifier)
-    };
-    let base = i32::from(loop_base as i8);
-    let plays = (2 * modifier + 0x08) / 0x10 - base;
-    u32::try_from(plays.max(1)).expect("plays is clamped to >= 1")
 }
 
 /// Formats a sample count as `M:SS` (or `H:MM:SS` past an hour), rounding to the
@@ -1119,16 +1106,6 @@ mod tests {
         assert_eq!(format_track_time(secs(90)), "1:30");
         assert_eq!(format_track_time(secs(3600)), "1:00:00");
         assert_eq!(format_track_time(secs(6528)), "1:48:48");
-    }
-
-    #[test]
-    fn vgm_play_count_matches_vgm_stat() {
-        assert_eq!(vgm_play_count(0, 0), 2);
-        assert_eq!(vgm_play_count(0, 0x10), 2);
-        assert_eq!(vgm_play_count(0, 0x20), 4);
-        assert_eq!(vgm_play_count(1, 0), 1);
-        assert_eq!(vgm_play_count(255, 0), 3); // loop_base -1 as i8
-        assert_eq!(vgm_play_count(10, 0), 1); // clamped to at least one play
     }
 
     #[test]

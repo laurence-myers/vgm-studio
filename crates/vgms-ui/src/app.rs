@@ -344,8 +344,14 @@ pub struct VgmStudioApp {
     /// Whether playback repeats the marked region. Off by default: Play means
     /// "play the song" until asked otherwise.
     loop_enabled: bool,
-    /// How many times the region repeats while looping.
+    /// How many times the region repeats while looping. The user's chosen
+    /// target, shown by the stepper.
     loop_count: LoopCount,
+    /// The count the engine actually plays: `loop_count` after the file's own
+    /// loop base/modifier scale it (`GetModifiedLoopCount`). Shown by the
+    /// progress readout, so it agrees with what is heard. Equal to `loop_count`
+    /// for a user-drawn region or a DRO, which are not rescaled.
+    loop_total: LoopCount,
     /// Whether the previous frame was playing, so the frame after playback
     /// ends can display the exact final position.
     was_playing: bool,

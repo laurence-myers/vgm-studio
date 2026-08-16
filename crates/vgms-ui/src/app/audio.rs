@@ -163,7 +163,15 @@ impl VgmStudioApp {
                 )),
                 (None, None) => None,
             });
-        self.audio.set_loop(config.flatten());
+        // The armed config carries the scaled count (a file's own loop is
+        // rescaled by its base/modifier); surface that as the readout total so
+        // it agrees with what plays. With nothing armed, fall back to the
+        // user's chosen count. This is the one chokepoint every count change,
+        // marker move, and load routes through, and both shells read the same
+        // already-scaled config -- so no per-backend plumbing is needed.
+        let armed = config.flatten();
+        self.loop_total = armed.map_or(self.loop_count, |config| config.count);
+        self.audio.set_loop(armed);
     }
 
     pub(super) fn menu_state(&self) -> MenuState {

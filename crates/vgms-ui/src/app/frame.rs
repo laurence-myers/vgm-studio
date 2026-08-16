@@ -1235,8 +1235,11 @@ impl VgmStudioApp {
                     self.waveform.cursor_ms = position.elapsed_ms;
                     self.position.set_position(position);
                     self.position.set_loop_progress(
+                        // The scaled total, not the user's pick: the numerator
+                        // counts passes the engine derives from the same scaled
+                        // count, so the two agree.
                         (self.loop_enabled && playing)
-                            .then_some((position.loop_iteration, self.loop_count)),
+                            .then_some((position.loop_iteration, self.loop_total)),
                     );
                 }
                 ctx.request_repaint_after(Duration::from_millis(16));

@@ -306,8 +306,7 @@ impl LoopConfig {
         rate: u32,
     ) -> Self {
         // The header's loop base and modifier scale how many times the file
-        // asks its own loop to play (the reference's GetModifiedLoopCount:
-        // `(loops * modifier + 8) / 16 - base`, modifier 0 meaning 0x10).
+        // asks its own loop to play (the reference's GetModifiedLoopCount).
         // Applied only when the region *is* the file's own loop -- a region
         // the user drew is the user's to count -- and only to a finite count,
         // since infinity scales to itself.
@@ -318,13 +317,7 @@ impl LoopConfig {
                         .loop_end_index()
                         .map_or(file.len() == end, |at| at == end) =>
             {
-                let modifier = match file.header.loop_modifier() {
-                    0 => 0x10,
-                    other => i64::from(other),
-                };
-                let base = i64::from(file.header.loop_base() as i8);
-                let scaled = (i64::from(times) * modifier + 8) / 16 - base;
-                LoopCount::Times(u32::try_from(scaled).unwrap_or(0).max(1))
+                LoopCount::Times(file.header.modified_loop_count(times))
             }
             other => other,
         };

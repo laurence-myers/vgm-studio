@@ -295,20 +295,14 @@ impl VgmEngine {
                     };
                     // The second instance's clock can differ: the v1.70 extra
                     // header lists per-instance clocks, and the reference
-                    // resolves instance 1 through it (GetChipClock walks
-                    // _xHdrChipClk). Without this, a dual-chip file whose two
-                    // chips run at different clocks played the second at the
-                    // first's clock -- wrong pitch and rate.
+                    // resolves instance 1 through it. `instance_clock` is that
+                    // single resolver -- shared with rewind, so the two cannot
+                    // reset the same instance at different clocks.
                     let mut chip = *chip;
-                    if instance == 1
-                        && let Some(entry) = file.header.extra().and_then(|extra| {
-                            extra.clocks.iter().find(|entry| {
-                                vgms_core::vgm::ChipKind::from_id(entry.chip_id) == Some(chip.kind)
-                            })
-                        })
+                    if let Some((clock, variant)) = file.header.instance_clock(chip.kind, instance)
                     {
-                        chip.clock = entry.clock & 0x3FFF_FFFF;
-                        chip.variant = entry.clock & 0x8000_0000 != 0;
+                        chip.clock = clock;
+                        chip.variant = variant;
                     }
                     let chip = &chip;
                     // The reference's cross-chip balance for this instance in
@@ -452,16 +446,16 @@ impl VgmEngine {
 
     pub fn rewind(&mut self) {
         for voice in &mut self.voices {
-            // The header's clock and variant are what it was built with; a reset
-            // has to say them again, so read them back off the file.
-            if let Some(chip) = self
+            // The clock and variant this voice was built with, resolved through
+            // the same per-instance path construction used -- so a second
+            // instance with its own extra-header clock is reset at that clock,
+            // not the first instance's (which `chips().find(kind)` would return).
+            if let Some((clock, variant)) = self
                 .file
                 .header
-                .chips()
-                .iter()
-                .find(|chip| chip.kind == voice.target.kind)
+                .instance_clock(voice.target.kind, voice.target.instance)
             {
-                voice.core.reset(chip.clock, chip.variant);
+                voice.core.reset(clock, variant);
                 // A reset clears what `configure` set, so the two travel
                 // together everywhere -- a rewound engine must be the same
                 // chip it was.
@@ -1036,12 +1030,9 @@ mod tests {
         Arc::new(vgms_core::vgm::file::read("test.vgm", &bytes).expect("a walkable VGM"))
     }
 
-    /// A dual declaration whose second instance names its own clock in the
-    /// v1.70 extra header: the reference resolves instance 1 through the
-    /// extra-header list (GetChipClock), and so must the engine -- without it
-    /// the second chip reset at the first's clock, wrong pitch and rate.
-    #[test]
-    fn the_second_instance_takes_its_extra_header_clock() {
+    /// A dual OKIM6295 whose second instance names its own clock (2.112 MHz)
+    /// in the v1.70 extra header, the first at 1.056 MHz.
+    fn dual_okim6295_extra_clock_file() -> Arc<VgmFile> {
         fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
             bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -1066,22 +1057,32 @@ mod tests {
         bytes.push(0x66);
         let eof = bytes.len();
         put_u32(&mut bytes, 0x04, (eof - 4) as u32);
-        let file = Arc::new(vgms_core::vgm::file::read("dual.vgm", &bytes).expect("walkable"));
+        Arc::new(vgms_core::vgm::file::read("dual.vgm", &bytes).expect("walkable"))
+    }
 
-        let clocks: Log<u32> = Arc::new(Mutex::new(Vec::new()));
-        struct ClockTap(Log<u32>);
-        impl ChipCore for ClockTap {
-            fn reset(&mut self, clock: u32, _variant: bool) {
-                self.0.lock().expect("not poisoned").push(clock);
-            }
-            fn native_rate(&self) -> u32 {
-                44_100
-            }
-            fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
-            fn render(&mut self, out: &mut [i32]) {
-                out.fill(0);
-            }
+    /// A core that records the clock it is reset at.
+    struct ClockTap(Log<u32>);
+    impl ChipCore for ClockTap {
+        fn reset(&mut self, clock: u32, _variant: bool) {
+            self.0.lock().expect("not poisoned").push(clock);
         }
+        fn native_rate(&self) -> u32 {
+            44_100
+        }
+        fn write(&mut self, _port: u8, _addr: u16, _data: u16) {}
+        fn render(&mut self, out: &mut [i32]) {
+            out.fill(0);
+        }
+    }
+
+    /// A dual declaration whose second instance names its own clock in the
+    /// v1.70 extra header: the reference resolves instance 1 through the
+    /// extra-header list (GetChipClock), and so must the engine -- without it
+    /// the second chip reset at the first's clock, wrong pitch and rate.
+    #[test]
+    fn the_second_instance_takes_its_extra_header_clock() {
+        let file = dual_okim6295_extra_clock_file();
+        let clocks: Log<u32> = Arc::new(Mutex::new(Vec::new()));
         let for_factory = Arc::clone(&clocks);
         let _engine = VgmEngine::with_cores(file, 44_100, move |_| {
             Some(Box::new(ClockTap(Arc::clone(&for_factory))))
@@ -1090,6 +1091,29 @@ mod tests {
             *clocks.lock().expect("not poisoned"),
             [1_056_000, 2_112_000],
             "each instance resets at its own clock"
+        );
+    }
+
+    /// And rewind must resolve the per-instance clock the same way. Before the
+    /// fix, rewind read `chips().find(kind)` for both voices and snapped the
+    /// second instance back to the first's clock on every seek/replay.
+    #[test]
+    fn rewind_re_resets_the_second_instance_at_its_extra_header_clock() {
+        let file = dual_okim6295_extra_clock_file();
+        let clocks: Log<u32> = Arc::new(Mutex::new(Vec::new()));
+        let for_factory = Arc::clone(&clocks);
+        let mut engine = VgmEngine::with_cores(file, 44_100, move |_| {
+            Some(Box::new(ClockTap(Arc::clone(&for_factory))))
+        });
+        assert_eq!(
+            *clocks.lock().expect("not poisoned"),
+            [1_056_000, 2_112_000]
+        );
+        engine.rewind();
+        assert_eq!(
+            clocks.lock().expect("not poisoned")[2..],
+            [1_056_000, 2_112_000],
+            "rewind resets each instance at its own clock, not the first's"
         );
     }
 

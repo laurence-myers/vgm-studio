@@ -57,6 +57,52 @@ fn changing_the_repeat_count_re_arms_the_region() {
     assert_eq!(armed.count, LoopCount::Times(3));
 }
 
+/// When a file's own loop base/modifier rescale the user's chosen count, the
+/// progress readout must show what actually plays, not the user's pick. Here a
+/// loop base of 1 halves a Times(2) request to a single play; the stepper keeps
+/// the 2, the readout total (and the armed engine config) are 1.
+#[test]
+fn the_loop_readout_total_reflects_the_scaled_count_not_the_users_pick() {
+    // other_chip_vgm_bytes declares its own loop at command 1; set loop_base 1.
+    let mut bytes = other_chip_vgm_bytes(
+        &[
+            0x58, 0x28, 0xF0, // YM2610 port 0
+            0x61, 0x10, 0x27, // wait 10000
+            0xA0, 0x07, 0x38, // AY8910
+            0x62, // wait 735
+            0x66, // end
+        ],
+        10_735,
+        10_735,
+    );
+    bytes[0x7E] = 1; // loop_base
+    let file = vgms_core::vgm::file::read("loop.vgm", &bytes).unwrap();
+    let (mut harness, handles) = harness_with_vgm(&file);
+
+    // Mark the file's own loop (command 1 to the end) and ask for two plays.
+    act(&mut harness, Action::Loop(LoopAction::SetStart(1)));
+    act(&mut harness, Action::Loop(LoopAction::TogglePlayback));
+    act(
+        &mut harness,
+        Action::Loop(LoopAction::SetCount(LoopCount::Times(2))),
+    );
+
+    // (2 * 0x10 + 8) / 0x10 - 1 = 1: the engine plays the loop once.
+    let armed = handles
+        .audio
+        .borrow()
+        .loops
+        .last()
+        .copied()
+        .flatten()
+        .expect("a region is armed");
+    assert_eq!(armed.count, LoopCount::Times(1), "the engine plays it once");
+    // The stepper keeps the user's chosen target...
+    assert_eq!(harness.state().loop_count, LoopCount::Times(2));
+    // ...while the readout total agrees with what actually plays.
+    assert_eq!(harness.state().loop_total, LoopCount::Times(1));
+}
+
 #[test]
 fn a_waveform_click_scrolls_the_table_to_the_row_it_will_play_from() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
