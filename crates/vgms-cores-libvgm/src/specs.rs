@@ -506,11 +506,17 @@ fn configure_c352(config: &mut DevConfig, settings: &ChipSettings) {
     }
 }
 
+/// Below this clock a QSound header carries the old 4 MHz serial clock rather
+/// than the 60 MHz DSP clock -- the single trigger shared by the `* 15` rescale
+/// in [`configure_qsound`] and `chip.rs`'s `Cmd_QSound_Reg` key-on hacks
+/// (upstream's `hdrClock < devCfg->clock`).
+pub(crate) const QSOUND_OLD_CLOCK_MAX_HZ: u32 = 5_000_000;
+
 /// The QSound's clock rescue: old logs stored the 4 MHz serial clock where
 /// the 60 MHz DSP clock belongs.
 fn configure_qsound(config: &mut DevConfig, _settings: &ChipSettings) {
     let generic = config.generic_mut();
-    if generic.clock < 5_000_000 {
+    if generic.clock < QSOUND_OLD_CLOCK_MAX_HZ {
         generic.clock *= 15;
     }
 }

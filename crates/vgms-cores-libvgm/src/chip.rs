@@ -282,6 +282,12 @@ pub struct LibVgmChip {
     /// old-clock QSound; zero for every other chip.
     qsound_start: [u16; 16],
     qsound_pitch: [u16; 16],
+    /// Whether the started QSound core wants those old-log key-on injections:
+    /// true only for an old-clock QSound VGM whose started core is not MAME.
+    /// Mirrors upstream's `chipDev.flags & 0x01` -- set for an old clock, then
+    /// cleared again for the MAME core, whose HLE never needed the hacks.
+    /// Computed at `start`; false for every other chip.
+    qsound_hacks: bool,
     /// The two planes `Update` writes, grown as needed and never shrunk.
     left: Vec<i32>,
     right: Vec<i32>,
@@ -343,6 +349,7 @@ impl LibVgmChip {
             ram_bank: 0,
             qsound_start: [0; 16],
             qsound_pitch: [0; 16],
+            qsound_hacks: false,
             left: Vec::new(),
             right: Vec::new(),
             rate: Box::new(AtomicU32::new(0)),
@@ -378,6 +385,7 @@ impl LibVgmChip {
         self.dev = DevInfo::empty();
         self.writers = Writers::default();
         self.rate.store(0, Ordering::Relaxed);
+        self.qsound_hacks = false;
     }
 
     /// Stops whatever is running and starts a device at the current clock and
@@ -434,6 +442,17 @@ impl LibVgmChip {
 
         self.dev = dev;
         self.rate.store(dev.sample_rate, Ordering::Relaxed);
+        // Upstream's QSound flag (vgmplayer.cpp:1567-1585): the old-log key-on
+        // hacks apply to an old-clock QSound VGM, but are cleared when the
+        // *started* core is MAME, whose HLE emulates the implied key-on itself.
+        // Testing the started core id (not the requested emu_core) is exactly
+        // what the reference does.
+        // SAFETY: a live device definition from the successful start above
+        // (dev.dev_def was null-checked).
+        let core_id = unsafe { (*dev.dev_def).core_id };
+        self.qsound_hacks = self.spec.kind == ChipKind::QSound
+            && self.clock < crate::specs::QSOUND_OLD_CLOCK_MAX_HZ
+            && core_id != ffi::FCC_MAME;
         // SAFETY: a live device from the start above; the slot's box outlives
         // it. Registered before the reset below, because a reset is one of the
         // places a rate-deriving core (the ES5503) announces its rate.
@@ -485,21 +504,74 @@ impl LibVgmChip {
 
     /// Re-writes a QSound channel's cached start address as the old HLE's
     /// implied key-on -- upstream's `qsWork->write(cDev, (chn << 3) | 0x01,
-    /// startAddrCache[chn])`, put on the bus exactly as the fold's QSound
-    /// triple would (data MSB, data LSB, then the committing register write).
-    /// Deliberately not routed back through [`write`](ChipCore::write): the
-    /// injection must not re-enter the caches.
-    fn qsound_key_on(&mut self, addr: u16, start: u16) {
-        let Some(write) = self.writers.reg8 else {
-            return;
-        };
-        let register = ((addr & !0x07) | 0x01) as u8;
-        // SAFETY: a live device (only `write` calls this, after its started
-        // check), through the writer fetched from it at start.
+    /// startAddrCache[chn])`, folded to the QSound bus triple (data MSB, data
+    /// LSB, then the committing register write). Routed through the shared
+    /// [`put_bus`](Self::put_bus) dispatch but *not* through
+    /// [`write`](ChipCore::write): the injection must not re-enter the caches.
+    fn qsound_key_on(&self, addr: u16, start: u16) {
+        let register = (addr & !0x07) | 0x01;
+        self.put_bus(fold(WriteRule::QSound, 0, register, start));
+    }
+
+    /// Puts one folded [`Bus`] onto libvgm's FFI writers -- the single dispatch
+    /// every write goes through, whether from a register write or a QSound
+    /// key-on injection.
+    fn put_bus(&self, bus: Bus) {
+        let chip = self.dev.data_ptr;
+        // SAFETY: a live device, and every writer below was fetched from it and
+        // is called with the signature libvgm filed it under. What to send was
+        // decided by `fold`, which is pure and tested on its own.
         unsafe {
-            write(self.dev.data_ptr, 0x00, (start >> 8) as u8);
-            write(self.dev.data_ptr, 0x01, (start & 0xFF) as u8);
-            write(self.dev.data_ptr, 0x02, register);
+            match bus {
+                Bus::Reg8(address, value) => {
+                    if let Some(write) = self.writers.reg8 {
+                        write(chip, address, value);
+                    }
+                }
+                Bus::Reg8Pair(first, second) => {
+                    if let Some(write) = self.writers.reg8 {
+                        write(chip, first.0, first.1);
+                        write(chip, second.0, second.1);
+                    }
+                }
+                Bus::Reg8Triple(first, second, third) => {
+                    if let Some(write) = self.writers.reg8 {
+                        write(chip, first.0, first.1);
+                        write(chip, second.0, second.1);
+                        write(chip, third.0, third.1);
+                    }
+                }
+                Bus::Mem8(address, value) => {
+                    if let Some(write) = self.writers.mem8 {
+                        write(chip, address, value);
+                    }
+                }
+                Bus::Reg16(address, value) => {
+                    if let Some(write) = self.writers.reg16 {
+                        write(chip, address, value);
+                    }
+                }
+                Bus::RegD16(address, value) => {
+                    if let Some(write) = self.writers.data16 {
+                        write(chip, address, value);
+                    }
+                }
+                Bus::StereoMask(mask) => {
+                    if let Some(write) = self.writers.stereo {
+                        // The AY's own chip for a bare AY8910; the linked SSG's
+                        // for an OPN -- `start_links` fetched the function from
+                        // whichever device carries it, and its data pointer
+                        // travels with it.
+                        let target = self
+                            .links
+                            .iter()
+                            .find(|link| !link.dev.data_ptr.is_null())
+                            .map_or(chip, |link| link.dev.data_ptr);
+                        write(target, u32::from(mask));
+                    }
+                }
+                Bus::Nothing => {}
+            }
         }
     }
 
@@ -754,6 +826,11 @@ const fn default_option_bits(kind: ChipKind) -> u32 {
 /// `Cmd_DataBlock` C219 case (`chipType == 0x1C && flags & 0x01`), including its
 /// `dataLen &= ~0x01`: an odd trailing byte is dropped, which `chunks_exact`
 /// does for free.
+///
+/// The fresh `Vec` is a deliberate cold-path choice: this runs on a data-block
+/// load (file load, and a loop wrap that replays ROM blocks), never per sample,
+/// so a reused scratch field would trade a standing per-chip ROM-sized buffer
+/// for a saving too small to measure.
 fn c219_byteswap(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() & !1);
     for pair in data.chunks_exact(2) {
@@ -846,14 +923,14 @@ impl ChipCore for LibVgmChip {
         {
             self.ram_bank = u32::from(data & 0x0F) << 12;
         }
-        // Upstream's `Cmd_QSound_Reg` hacks, active for old (4 MHz clock) logs
-        // on the DSP core -- the same clock condition `configure_qsound`
-        // rescues. Channel registers sit below 0x80, eight per channel:
+        // Upstream's `Cmd_QSound_Reg` hacks, gated by `chipDev.flags & 0x01`
+        // (our `qsound_hacks`): an old (4 MHz clock) QSound log on a core other
+        // than MAME. Channel registers sit below 0x80, eight per channel:
         // 1 = start address, 2 = pitch, 3 = phase. The old HLE keyed a note on
         // at a pitch rising from zero or a phase write, and `vgm_cmp` stripped
         // the address rewrites those logs relied on, so the cached start
         // address is injected back exactly where the reference injects it.
-        if self.spec.kind == ChipKind::QSound && self.clock < 5_000_000 && addr < 0x80 {
+        if self.qsound_hacks && addr < 0x80 {
             let chn = usize::from(addr >> 3);
             match addr & 0x07 {
                 0x01 => self.qsound_start[chn] = data,
@@ -869,62 +946,7 @@ impl ChipCore for LibVgmChip {
                 _ => {}
             }
         }
-        let chip = self.dev.data_ptr;
-        // SAFETY: a live device, and every writer below was fetched from it
-        // and is called with the signature libvgm filed it under. What to send
-        // was decided by `fold`, which is pure and tested on its own.
-        unsafe {
-            match fold(self.spec.write, port, addr, data) {
-                Bus::Reg8(address, value) => {
-                    if let Some(write) = self.writers.reg8 {
-                        write(chip, address, value);
-                    }
-                }
-                Bus::Reg8Pair(first, second) => {
-                    if let Some(write) = self.writers.reg8 {
-                        write(chip, first.0, first.1);
-                        write(chip, second.0, second.1);
-                    }
-                }
-                Bus::Reg8Triple(first, second, third) => {
-                    if let Some(write) = self.writers.reg8 {
-                        write(chip, first.0, first.1);
-                        write(chip, second.0, second.1);
-                        write(chip, third.0, third.1);
-                    }
-                }
-                Bus::Mem8(address, value) => {
-                    if let Some(write) = self.writers.mem8 {
-                        write(chip, address, value);
-                    }
-                }
-                Bus::Reg16(address, value) => {
-                    if let Some(write) = self.writers.reg16 {
-                        write(chip, address, value);
-                    }
-                }
-                Bus::RegD16(address, value) => {
-                    if let Some(write) = self.writers.data16 {
-                        write(chip, address, value);
-                    }
-                }
-                Bus::StereoMask(mask) => {
-                    if let Some(write) = self.writers.stereo {
-                        // The AY's own chip for a bare AY8910; the linked
-                        // SSG's for an OPN -- `start_links` fetched the
-                        // function from whichever device carries it, and its
-                        // data pointer travels with it.
-                        let target = self
-                            .links
-                            .iter()
-                            .find(|link| !link.dev.data_ptr.is_null())
-                            .map_or(chip, |link| link.dev.data_ptr);
-                        write(target, u32::from(mask));
-                    }
-                }
-                Bus::Nothing => {}
-            }
-        }
+        self.put_bus(fold(self.spec.write, port, addr, data));
     }
 
     /// Hands a sample ROM block to the memory space its block type names.
@@ -1232,6 +1254,51 @@ mod tests {
         assert_eq!(c219_byteswap(&[0xAA, 0xBB, 0xCC]), [0xBB, 0xAA]);
         assert_eq!(c219_byteswap(&[0x01]), Vec::<u8>::new());
         assert_eq!(c219_byteswap(&[]), Vec::<u8>::new());
+    }
+
+    /// The QSound old-log key-on hack follows the *started* core: on for an
+    /// old-clock DSP QSound, but off for the MAME row (whose HLE keys on
+    /// itself, so the reference clears `chipDev.flags` for FCC_MAME) and off
+    /// for a modern-clock QSound.
+    #[test]
+    fn the_qsound_key_on_hack_is_off_for_the_mame_core() {
+        let mut dsp = LibVgmChip::new(spec(ChipKind::QSound));
+        dsp.reset(4_000_000, false);
+        dsp.configure(&ChipSettings::default());
+        assert!(dsp.is_started(), "the DSP QSound must start");
+        assert!(
+            dsp.qsound_hacks,
+            "an old-clock DSP QSound wants the injections"
+        );
+
+        let mame_spec = SPECS
+            .iter()
+            .find(|row| row.id == "qsound.libvgm-mame")
+            .expect("the MAME QSound row");
+        let mut mame = LibVgmChip::new(mame_spec);
+        mame.reset(4_000_000, false);
+        mame.configure(&ChipSettings::default());
+        assert!(mame.is_started(), "the MAME QSound must start");
+        assert!(
+            !mame.qsound_hacks,
+            "the MAME core keys on itself, so the hack is cleared for it"
+        );
+
+        let mut modern = LibVgmChip::new(spec(ChipKind::QSound));
+        modern.reset(60_000_000, false);
+        modern.configure(&ChipSettings::default());
+        assert!(
+            !modern.qsound_hacks,
+            "a modern-clock QSound carries the DSP clock and needs no hacks"
+        );
+
+        // Drive the injection dispatch (put_bus) on the DSP core: cache a start
+        // address, then a pitch rising from zero fires the key-on. It must
+        // render without reading a dangling pointer.
+        dsp.write(0, 0x01, 0x0040);
+        dsp.write(0, 0x02, 0x0001);
+        let mut out = vec![0i32; 512];
+        dsp.render(&mut out);
     }
 
     /// Construction, native rate, writes and render, end to end through the
