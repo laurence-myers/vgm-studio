@@ -217,6 +217,12 @@ pub struct VgmEngine {
     wraps_remaining: Option<u32>,
     /// Wraps done since the last seek, for the position readout.
     loops_done: u32,
+    /// The highest command index of a `0x67` stream/table block already loaded.
+    /// A loop wrap re-executes the block commands, and re-appending them would
+    /// grow the bank each pass; keying the skip on the block's own index rather
+    /// than the loop count means a block sitting *after* a user loop region
+    /// still loads on its first arrival.
+    data_block_hwm: Option<usize>,
     output_rate: u32,
     /// The channel mutes in force, kept so every reset (rewind, seek) can
     /// say them again -- a core's mask does not survive its own reset.
@@ -345,6 +351,7 @@ impl VgmEngine {
             loop_config: None,
             wraps_remaining: None,
             loops_done: 0,
+            data_block_hwm: None,
             output_rate: output_rate.max(1),
             muting: ChipMuting::new(),
             panning: ChipPanning::new(),
@@ -470,6 +477,7 @@ impl VgmEngine {
             voice.resampler.reset();
         }
         self.banks.clear();
+        self.data_block_hwm = None;
         self.table = None;
         self.streams.clear();
         self.due.clear();
@@ -772,11 +780,19 @@ impl VgmEngine {
             0x92 => self.streams.set_rate(id, u32_at(0)),
             0x93 => {
                 // The bank a `0x91` bound, as one run: the spec's offsets are
-                // into the whole type, not into one block.
-                let data = self.banks.concatenated(self.streams.bank_type(id));
-                self.streams.start(id, &data, u32_at(0), byte(4), u32_at(5));
+                // into the whole type, not into one block. Shared, not copied:
+                // the stream holds an `Arc` clone of the cached concatenation.
+                let bank_type = self.streams.bank_type(id);
+                let data = self.banks.concatenated_arc(bank_type);
+                self.streams.start(id, data, u32_at(0), byte(4), u32_at(5));
             }
-            0x94 => self.streams.stop(id),
+            0x94 => {
+                if id == 0xFF {
+                    self.streams.stop_all();
+                } else {
+                    self.streams.stop(id);
+                }
+            }
             0x95 => {
                 // The fast form: play block `n` of the bound type, addressed as
                 // an offset into the whole concatenated bank with a byte-count
@@ -785,11 +801,11 @@ impl VgmEngine {
                 let bank_type = self.streams.bank_type(id);
                 let block = usize::from(u16_at(0));
                 if let Some((offset, size)) = self.banks.nth_offset(bank_type, block) {
-                    let data = self.banks.concatenated(bank_type);
+                    let data = self.banks.concatenated_arc(bank_type);
                     let flags = byte(2);
                     let mode = 0x04 | (flags & 0x10) | ((flags & 0x01) << 7);
                     self.streams
-                        .start(id, &data, offset as u32, mode, size as u32);
+                        .start(id, data, offset as u32, mode, size as u32);
                 }
             }
             _ => {}
@@ -829,18 +845,25 @@ impl VgmEngine {
         let second_chip = bytes.get(HEADER - 1).is_some_and(|byte| byte & 0x80 != 0);
         let instance = u8::from(second_chip);
 
-        // Stream banks and their tables load on the first pass only: a loop
-        // wrap re-executes the commands, and re-appending the blocks would
-        // grow the bank each pass -- a later play-to-end stream would then run
-        // on into the duplicate. The reference skips types 0x00-0x7F whenever
-        // `_curLoop > 0`; ROM and RAM writes still replay (idempotent).
-        if self.loops_done > 0
-            && matches!(
-                BlockKind::of(kind),
-                BlockKind::Stream | BlockKind::CompressedStream | BlockKind::DecompressionTable
-            )
-        {
-            return;
+        // Stream banks and their tables load once: a loop wrap re-executes the
+        // commands, and re-appending the blocks would grow the bank each pass
+        // -- a later play-to-end stream would then run on into the duplicate.
+        // The reference keys this on `_curLoop > 0`, but our loop can be a
+        // user-drawn region that ends before the file does, so a block sitting
+        // *after* the region would never load once the region has wrapped. Key
+        // on the block's own command index instead: blocks arrive in ascending
+        // index order (the forward walk and the seek fold both), so a
+        // high-water-mark loads each block exactly on its first arrival and
+        // skips it on every re-execution. ROM/RAM writes still replay
+        // (idempotent), so only the bank/table kinds are gated.
+        if matches!(
+            BlockKind::of(kind),
+            BlockKind::Stream | BlockKind::CompressedStream | BlockKind::DecompressionTable
+        ) {
+            if self.data_block_hwm.is_some_and(|hwm| index <= hwm) {
+                return;
+            }
+            self.data_block_hwm = Some(index);
         }
 
         match BlockKind::of(kind) {
@@ -984,18 +1007,11 @@ impl VgmEngine {
                 .advance_frame(&mut self.due, self.huc6280_channel);
             // By index, not by `mem::take`: taking the Vec would drop its
             // allocation each frame, and this runs inside the audio callback.
+            // The write's target already carries the per-write port, so it goes
+            // straight to `write` -- the same shape an ordinary command takes.
             for at in 0..self.due.len() {
                 let write = self.due[at];
-                self.write(
-                    ChipTarget {
-                        kind: write.target.kind,
-                        instance: write.target.instance,
-                        port: write.port,
-                    },
-                    write.addr,
-                    write.value,
-                    false,
-                );
+                self.write(write.target, write.addr, write.value, false);
             }
         }
     }
@@ -1889,6 +1905,73 @@ mod tests {
         let frames = drain(&mut engine, 44_100 * 30);
         assert_eq!(frames, 44_100 * 4, "its own three seconds plus one more");
         assert!(engine.is_finished());
+    }
+
+    /// A `0x67` stream block sitting *after* a user loop region still loads on
+    /// its first arrival, once the region's wraps are spent. The old guard
+    /// keyed the skip on `loops_done > 0`, which a user region bumps before the
+    /// block is ever reached, so the block was dropped and its `0x95` played
+    /// silence; the high-water-mark keys on the block's own index instead.
+    #[test]
+    fn a_data_block_after_a_loop_region_still_loads_once_the_region_wraps() {
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&[0x61, 0x44, 0xAC]); // index 0: wait 1s (the region body)
+        // index 1: a type-0 stream block of four bytes, past the region end.
+        stream.extend_from_slice(&[0x67, 0x66, 0x00]);
+        stream.extend_from_slice(&4u32.to_le_bytes());
+        stream.extend_from_slice(&[0x11, 0x22, 0x33, 0x44]);
+        stream.extend_from_slice(&[0x90, 0x00, 0x02, 0x00, 0x2A]); // index 2: setup YM2612 reg 0x2A
+        stream.extend_from_slice(&[0x91, 0x00, 0x00, 0x01, 0x00]); // index 3: bind type 0
+        stream.push(0x92); // index 4: rate 11025
+        stream.push(0x00);
+        stream.extend_from_slice(&11_025u32.to_le_bytes());
+        stream.extend_from_slice(&[0x95, 0x00, 0x00, 0x00, 0x00]); // index 5: play block 0
+        stream.extend_from_slice(&[0x61, 0x44, 0xAC]); // index 6: a second to play into
+        stream.push(0x66); // index 7: end
+
+        let file = vgm(&[(ChipKind::Ym2612, 7_670_454)], &stream);
+        let writes: Log<(u16, u16)> = Arc::new(Mutex::new(Vec::new()));
+        struct Tap(Log<(u16, u16)>);
+        impl ChipCore for Tap {
+            fn reset(&mut self, _clock: u32, _variant: bool) {}
+            fn native_rate(&self) -> u32 {
+                44_100
+            }
+            fn write(&mut self, _port: u8, addr: u16, data: u16) {
+                self.0.lock().expect("not poisoned").push((addr, data));
+            }
+            fn render(&mut self, out: &mut [i32]) {
+                out.fill(0);
+            }
+        }
+        let for_factory = Arc::clone(&writes);
+        let mut engine = VgmEngine::with_cores(Arc::clone(&file), 44_100, move |_| {
+            Some(Box::new(Tap(Arc::clone(&for_factory))))
+        });
+        // The region [0, 1) plays twice: one wrap (loops_done -> 1), then
+        // playback continues past it and reaches the data block for the first
+        // time -- with loops_done already non-zero.
+        engine.set_loop(Some(LoopConfig::for_vgm(
+            &file,
+            0,
+            1,
+            crate::clock::LoopCount::Times(2),
+            44_100,
+        )));
+        drain(&mut engine, 44_100 * 10);
+
+        let dac: Vec<u16> = writes
+            .lock()
+            .expect("not poisoned")
+            .iter()
+            .filter(|(addr, _)| *addr == 0x2A)
+            .map(|(_, data)| *data)
+            .collect();
+        assert_eq!(
+            dac,
+            vec![0x11, 0x22, 0x33, 0x44],
+            "the block loaded and its stream played, despite the wrap"
+        );
     }
 
     #[test]

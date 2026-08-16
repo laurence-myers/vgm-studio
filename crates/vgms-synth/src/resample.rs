@@ -285,9 +285,12 @@ impl Resampler {
         if self.identity {
             return source();
         }
+        // The ring is a power of two, so every wrap is a mask rather than a
+        // modulo -- computed once for all three branches below.
+        let mask = self.history.len() - 1;
         while self.phase >= FRAC_ONE {
             self.history[self.write] = source();
-            self.write = (self.write + 1) % self.history.len();
+            self.write = (self.write + 1) & mask;
             self.phase -= FRAC_ONE;
         }
 
@@ -304,11 +307,12 @@ impl Resampler {
                 // `phase` in this branch is the consumed portion of the
                 // newest history frame. The shared pull above has already
                 // wound it below `FRAC_ONE` with the frame in the ring.
-                let mask = self.history.len() - 1;
                 let mut acc = [0.0f64; 2];
                 let mut remaining = self.step;
+                // Hold the current frame in a local rather than writing it to
+                // the ring and reading it straight back next iteration.
+                let mut frame = self.history[(self.write + mask) & mask];
                 loop {
-                    let frame = self.history[(self.write + mask) & mask];
                     let take = remaining.min(FRAC_ONE - self.phase);
                     acc[0] += f64::from(frame[0]) * take as f64;
                     acc[1] += f64::from(frame[1]) * take as f64;
@@ -318,8 +322,9 @@ impl Resampler {
                         break;
                     }
                     // The current frame is spent: pull the next.
-                    self.history[self.write] = source();
-                    self.write = (self.write + 1) % self.history.len();
+                    frame = source();
+                    self.history[self.write] = frame;
+                    self.write = (self.write + 1) & mask;
                     self.phase -= FRAC_ONE;
                 }
                 let span = self.step as f64;
@@ -328,7 +333,6 @@ impl Resampler {
             // Upsampling: the engine's old resampler, verbatim in spirit --
             // the two source frames straddling the output instant,
             // interpolated, which is also the reference's `LinearUp`.
-            let mask = self.history.len() - 1;
             let next = self.history[(self.write + mask) & mask];
             let prev = self.history[(self.write + mask - 1) & mask];
             let t = self.phase as f64 / FRAC_ONE as f64;
@@ -354,7 +358,6 @@ impl Resampler {
         // This is not premature: the naive form cost 7 ns a tap, which at a
         // 1445-tap ratio is 1.1x realtime -- one voice eating a whole core.
         let table = kernel();
-        let mask = self.history.len() - 1;
         let step_per_tap = self.lobes_per_frame * SAMPLES_PER_LOBE as f64;
         let mut position = (centre + self.half_taps as f64) * step_per_tap;
         let mut index = (self.write + self.history.len() - 1 - span) & mask;

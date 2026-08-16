@@ -34,7 +34,10 @@
 //! | `0x94` | stop |
 //! | `0x95` | start the *n*th block of the bound bank type -- the fast form |
 
+use std::sync::Arc;
+
 use vgms_core::vgm::ChipKind;
+use vgms_core::vgm::stream::ChipTarget;
 
 /// Where a stream's bytes are written, once `0x90` has said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -67,18 +70,20 @@ struct Stream {
     cmd_size: u8,
     /// Commands per second.
     hz: u32,
-    /// The bank being played, copied at start: a later block must not change
-    /// what a running stream is playing.
-    data: Vec<u8>,
+    /// The bank being played, shared at start: a later block must not change
+    /// what a running stream is playing, so the stream holds an `Arc` clone of
+    /// the concatenated bank rather than a fresh copy (the whole-bank copy was
+    /// a per-trigger allocation on the audio thread).
+    data: Arc<[u8]>,
     /// First byte of command 0, `DataPos + cmd_size * step_base` clamped to
     /// the bank. Upstream's `DataStart`.
     data_start: usize,
     /// How many commands one pass plays. Upstream's `CmdsToSend`.
     commands_total: u32,
-    /// Commands left in this pass. Upstream's `RemainCmds`.
+    /// Commands left in this pass. Upstream's `RemainCmds`. The only cursor:
+    /// the command index is derived from it (forward `commands_total -
+    /// remaining`, reverse `remaining - 1`).
     remaining: u32,
-    /// The command about to play, an index scaled by the data step.
-    cmd_index: u32,
     /// Play the pass backwards (`0x93`/`0x95` flag bit 4).
     reverse: bool,
     looping: bool,
@@ -88,14 +93,16 @@ struct Stream {
 }
 
 /// A register write a stream wants performed, right now, in the engine's
-/// normalised `(port, addr, data)` form -- the same shape the command decoder
+/// normalised `(target, addr, data)` form -- the same shape the command decoder
 /// produces, so it takes the same per-chip write rules on the way to a core.
+///
+/// `target.port` is the port of *this* write, which is not always the setup
+/// port: a PWM pair or an SN76496 latch write goes to port 0 whatever `pp`
+/// said. It is a [`ChipTarget`] because that is exactly what the engine hands
+/// to [`write`](super::vgm_engine), so the consumer forwards it verbatim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PendingWrite {
-    pub target: StreamTarget,
-    /// The port of *this* write, which is not always the setup port: a PWM
-    /// pair or an SN76496 latch write goes to port 0 whatever `pp` said.
-    pub port: u8,
+    pub target: ChipTarget,
     pub addr: u16,
     pub value: u16,
 }
@@ -164,6 +171,12 @@ impl DacStreams {
     /// rest of the format uses. An unknown chip id leaves the stream unset,
     /// which makes every later command on it a no-op rather than a misroute.
     pub fn setup(&mut self, id: u8, chip_id: u8, port: u8, register: u8) {
+        // `0xFF` is the reference's "all streams" sentinel (Cmd_DACCtrl_Stop),
+        // never a real stream: Cmd_DACCtrl_Setup ignores it rather than
+        // creating slot 255, so every later command on 0xFF stays inert too.
+        if id == 0xFF {
+            return;
+        }
         let Some(kind) = ChipKind::from_id(chip_id & 0x7F) else {
             return;
         };
@@ -235,12 +248,16 @@ impl DacStreams {
     /// arriving mid-playback cannot change what is being played. Starting with
     /// no rate set is legal: the stream arms and begins when `0x92` arrives
     /// (upstream's `Running` flag works the same way).
-    pub fn start(&mut self, id: u8, data: &[u8], offset: u32, mode: u8, length: u32) {
+    pub fn start(&mut self, id: u8, data: Arc<[u8]>, offset: u32, mode: u8, length: u32) {
         let stream = &mut self.streams[id as usize];
         let Some(_) = stream.target else {
             return;
         };
-        stream.data = data.to_vec();
+        // A shared `Arc` move, not a byte copy: the bank is the engine's cached
+        // concatenation, so a restart in place (offset == u32::MAX) and every
+        // fast-form trigger cost O(1) rather than a whole-bank allocation on
+        // the audio thread.
+        stream.data = data;
         let data_step = Self::data_step(stream);
         let cmd_step_base = usize::from(stream.cmd_size.max(1)) * usize::from(stream.step_base);
 
@@ -277,14 +294,13 @@ impl DacStreams {
         stream.reverse = mode & 0x10 != 0;
         stream.looping = mode & 0x80 != 0;
         stream.remaining = stream.commands_total;
-        stream.cmd_index = if stream.reverse {
-            stream.commands_total.saturating_sub(1)
-        } else {
-            0
-        };
-        // Upstream's `RC_RESET_PRESTEP`: the first command fires on the very
-        // next output frame, not one full stream period later.
-        stream.accumulator = u64::from(self.output_rate.saturating_sub(stream.hz));
+        // Upstream's `RC_RESET_PRESTEP` seeds the ratio counter at `2^32 - inc`,
+        // an *unsigned* wrap (RatioCntr.h:59-62), so the first update lands
+        // exactly on `2^32` -> one command, even when the rate exceeds the
+        // output (`inc > 2^32`). A saturating subtraction clamped that to 0 and
+        // fired `floor(hz / rate)` on the first frame; the wrapping subtraction
+        // reproduces the reference's single first command.
+        stream.accumulator = u64::from(self.output_rate).wrapping_sub(u64::from(stream.hz));
         stream.playing = stream.remaining > 0;
         let playing = stream.playing;
         self.set_active(id, playing);
@@ -294,6 +310,14 @@ impl DacStreams {
     pub fn stop(&mut self, id: u8) {
         self.streams[id as usize].playing = false;
         self.set_active(id, false);
+    }
+
+    /// `0x94 0xFF` — Cmd_DACCtrl_Stop stops *every* stream when the id is
+    /// `0xFF`, not the one in slot 255.
+    pub fn stop_all(&mut self) {
+        for id in self.active.drain(..) {
+            self.streams[id as usize].playing = false;
+        }
     }
 
     /// Whether stream `id` is playing.
@@ -320,7 +344,12 @@ impl DacStreams {
             let Some(target) = stream.target else {
                 continue;
             };
-            stream.accumulator += u64::from(stream.hz);
+            // The wrapped prestep seed (see `start`) can leave the accumulator
+            // near `u64::MAX` for one frame when `hz > rate`; `wrapping_add`
+            // completes the reference's `2^32 - inc` then `+= inc` to land on
+            // `2^32` without a debug overflow. After the first frame the
+            // accumulator is always below `rate`, so no further wrap occurs.
+            stream.accumulator = stream.accumulator.wrapping_add(u64::from(stream.hz));
             // Whole ticks fire, the fraction carries -- and any tick beyond
             // the remaining commands is discarded, exactly as upstream masks
             // its ratio counter after clamping to `RemainCmds`.
@@ -328,22 +357,19 @@ impl DacStreams {
             stream.accumulator %= rate;
             let fire = ticks.min(stream.remaining);
             for _ in 0..fire {
-                emit_command(stream, target, huc6280_channel, due);
-                stream.cmd_index = if stream.reverse {
-                    stream.cmd_index.wrapping_sub(1)
+                // The command index is derived from `remaining`, the single
+                // cursor: forward it counts up from 0, reverse it counts down.
+                let cmd = if stream.reverse {
+                    stream.remaining - 1
                 } else {
-                    stream.cmd_index + 1
+                    stream.commands_total - stream.remaining
                 };
+                emit_command(stream, cmd, target, huc6280_channel, due);
+                stream.remaining -= 1;
             }
-            stream.remaining -= fire;
             if stream.remaining == 0 {
                 if stream.looping && stream.commands_total > 0 {
                     stream.remaining = stream.commands_total;
-                    stream.cmd_index = if stream.reverse {
-                        stream.commands_total - 1
-                    } else {
-                        0
-                    };
                 } else {
                     stream.playing = false;
                     stopped = true;
@@ -365,19 +391,23 @@ impl DacStreams {
 /// emits nothing but still advances, as upstream's early return does.
 fn emit_command(
     stream: &Stream,
+    cmd: u32,
     target: StreamTarget,
     huc6280_channel: [u8; 2],
     due: &mut Vec<PendingWrite>,
 ) {
-    let base = stream.data_start + stream.cmd_index as usize * DacStreams::data_step(stream);
+    let base = stream.data_start + cmd as usize * DacStreams::data_step(stream);
     let Some(&b0) = stream.data.get(base) else {
         return;
     };
     let b1 = stream.data.get(base + 1).copied().unwrap_or(0);
     let mut put = |port: u8, addr: u16, value: u16| {
         due.push(PendingWrite {
-            target,
-            port,
+            target: ChipTarget {
+                kind: target.kind,
+                instance: target.instance,
+                port,
+            },
             addr,
             value,
         });
@@ -459,6 +489,11 @@ fn emit_command(
 mod tests {
     use super::*;
 
+    /// Wraps a test's byte slice as the shared bank `start` now takes.
+    fn arc(bytes: &[u8]) -> Arc<[u8]> {
+        Arc::from(bytes)
+    }
+
     /// Runs `frames` output frames and returns every write that fell due.
     fn run_writes(streams: &mut DacStreams, frames: usize) -> Vec<PendingWrite> {
         let mut due = Vec::new();
@@ -484,7 +519,7 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 4_410); // one command every ten output frames
-        streams.start(0, &[10, 20, 30], 0, 0x03, 0);
+        streams.start(0, arc(&[10, 20, 30]), 0, 0x03, 0);
 
         // The pre-stepped counter sends the first command on the very next
         // frame (upstream's RC_RESET_PRESTEP), then one per period.
@@ -504,7 +539,7 @@ mod tests {
         streams.set_rate(0, u32::MAX);
         // A tiny looping bank: unclamped, one frame would emit ~97k bytes and
         // keep looping forever.
-        streams.start(0, &[0x11; 16], 0, 0x83, 0);
+        streams.start(0, arc(&[0x11; 16]), 0, 0x83, 0);
 
         let mut due = Vec::new();
         streams.advance_frame(&mut due, [0, 0]);
@@ -521,20 +556,18 @@ mod tests {
         streams.setup(3, 0x82, 1, 0x2A); // bit 7: the second YM2612
         streams.bind(3, 0x00, 1, 0);
         streams.set_rate(3, 1);
-        streams.start(3, &[99], 0, 0x03, 0);
+        streams.start(3, arc(&[99]), 0, 0x03, 0);
 
         let mut due = Vec::new();
         streams.advance_frame(&mut due, [0, 0]);
         assert_eq!(
             due,
             [PendingWrite {
-                target: StreamTarget {
+                target: ChipTarget {
                     kind: ChipKind::Ym2612,
                     instance: 1,
                     port: 1,
-                    register: 0x2A,
                 },
-                port: 1,
                 addr: 0x2A,
                 value: 99,
             }]
@@ -547,7 +580,7 @@ mod tests {
         streams.setup(0, 0x7E, 0, 0x2A); // past the last chip id
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 1);
-        streams.start(0, &[1, 2, 3], 0, 0x03, 0);
+        streams.start(0, arc(&[1, 2, 3]), 0, 0x03, 0);
         assert!(!streams.is_playing(0), "an unrouted stream never starts");
         assert!(run(&mut streams, 10).is_empty());
     }
@@ -559,7 +592,7 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 2, 1);
         streams.set_rate(0, 4); // one command per frame
-        streams.start(0, &[1, 2, 3, 4, 5, 6], 0, 0x03, 0);
+        streams.start(0, arc(&[1, 2, 3, 4, 5, 6]), 0, 0x03, 0);
         assert_eq!(run(&mut streams, 3), vec![2, 4, 6]);
     }
 
@@ -570,7 +603,7 @@ mod tests {
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2); // one command per frame
         // Length mode 1 (a command count) with the loop bit set.
-        streams.start(0, &[7, 8, 9], 0, 0x81, 2);
+        streams.start(0, arc(&[7, 8, 9]), 0, 0x81, 2);
         assert_eq!(run(&mut streams, 6), vec![7, 8, 7, 8, 7, 8]);
         assert!(streams.is_playing(0), "and it never stops on its own");
     }
@@ -584,7 +617,7 @@ mod tests {
         // Mode 2: upstream computes `1000 * Length / Frequency` commands --
         // dimensionally inverted (3 ms at 500 Hz is 1.5 commands, not 6), but
         // it is what the reference renders, so it is what this engine does.
-        streams.start(0, &[1, 2, 3, 4, 5, 6, 7, 8], 0, 0x02, 3);
+        streams.start(0, arc(&[1, 2, 3, 4, 5, 6, 7, 8]), 0, 0x02, 3);
         assert_eq!(run(&mut streams, 12), vec![1, 2, 3, 4, 5, 6]);
     }
 
@@ -594,10 +627,10 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2);
-        streams.start(0, &[1, 2, 3, 4], 0, 0x01, 2); // two commands...
+        streams.start(0, arc(&[1, 2, 3, 4]), 0, 0x01, 2); // two commands...
         assert_eq!(run(&mut streams, 2), vec![1, 2]);
         // ...and mode 0 reuses that length rather than playing to the end.
-        streams.start(0, &[1, 2, 3, 4], 0, 0x00, 0);
+        streams.start(0, arc(&[1, 2, 3, 4]), 0, 0x00, 0);
         assert_eq!(run(&mut streams, 10), vec![1, 2]);
     }
 
@@ -607,10 +640,10 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2);
-        streams.start(0, &[1, 2, 3, 4], 2, 0x01, 1);
+        streams.start(0, arc(&[1, 2, 3, 4]), 2, 0x01, 1);
         assert_eq!(run(&mut streams, 1), vec![3]);
         // `0xFFFFFFFF`: play again from the same place.
-        streams.start(0, &[1, 2, 3, 4], u32::MAX, 0x01, 2);
+        streams.start(0, arc(&[1, 2, 3, 4]), u32::MAX, 0x01, 2);
         assert_eq!(run(&mut streams, 2), vec![3, 4]);
     }
 
@@ -621,7 +654,7 @@ mod tests {
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2);
         // Mode 3 (to end) with bit 4: the whole bank, last byte first.
-        streams.start(0, &[1, 2, 3], 0, 0x13, 0);
+        streams.start(0, arc(&[1, 2, 3]), 0, 0x13, 0);
         assert_eq!(run(&mut streams, 5), vec![3, 2, 1]);
         assert!(!streams.is_playing(0));
     }
@@ -633,7 +666,7 @@ mod tests {
         streams.bind(0, 0x00, 1, 0);
         // `0x93` before any `0x92`: upstream starts the stream and it begins
         // playing when the frequency arrives.
-        streams.start(0, &[5, 6], 0, 0x03, 0);
+        streams.start(0, arc(&[5, 6]), 0, 0x03, 0);
         assert!(streams.is_playing(0));
         assert_eq!(run(&mut streams, 3), vec![5], "the pre-step fires one");
         streams.set_rate(0, 2);
@@ -646,7 +679,7 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2);
-        streams.start(0, &[1, 2, 3, 4], 0, 0x03, 0);
+        streams.start(0, arc(&[1, 2, 3, 4]), 0, 0x03, 0);
         assert_eq!(run(&mut streams, 1), vec![1]);
         streams.stop(0);
         assert_eq!(run(&mut streams, 10), Vec::<u16>::new());
@@ -658,9 +691,14 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 250); // two and a half commands per frame
-        streams.start(0, &(1..=10).collect::<Vec<u8>>(), 0, 0x03, 0);
+        streams.start(0, arc(&(1..=10).collect::<Vec<u8>>()), 0, 0x03, 0);
 
         let mut due = Vec::new();
+        // RC_RESET_PRESTEP: the first frame fires exactly one command even when
+        // the stream outruns the output, then the ratio counter cadences 2, 3.
+        streams.advance_frame(&mut due, [0, 0]);
+        assert_eq!(due.len(), 1, "the pre-step fires exactly one");
+        due.clear();
         streams.advance_frame(&mut due, [0, 0]);
         assert_eq!(due.len(), 2);
         due.clear();
@@ -674,10 +712,60 @@ mod tests {
         streams.setup(0, 0x02, 0, 0x2A);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 2);
-        streams.start(0, &[1, 2], 0, 0x03, 0);
+        streams.start(0, arc(&[1, 2]), 0, 0x03, 0);
         streams.clear();
         assert!(!streams.is_playing(0));
         assert_eq!(streams.bank_type(0), 0);
+    }
+
+    /// The prestep fires exactly one command on the first frame however far the
+    /// stream outruns the output -- the reference's unsigned RatioCntr wrap, not
+    /// a saturating seed that would fire `floor(hz / rate)`.
+    #[test]
+    fn the_prestep_fires_exactly_one_command_when_faster_than_the_output() {
+        let mut streams = DacStreams::new(100);
+        streams.setup(0, 0x02, 0, 0x2A);
+        streams.bind(0, 0x00, 1, 0);
+        streams.set_rate(0, 300); // three commands per frame after the prestep
+        streams.start(0, arc(&(1..=20).collect::<Vec<u8>>()), 0, 0x03, 0);
+
+        let mut due = Vec::new();
+        streams.advance_frame(&mut due, [0, 0]);
+        assert_eq!(due.len(), 1, "the prestep, not floor(300/100) = 3");
+        due.clear();
+        streams.advance_frame(&mut due, [0, 0]);
+        assert_eq!(due.len(), 3);
+    }
+
+    /// `0x94 0xFF` stops every stream, not the one in slot 255.
+    #[test]
+    fn stopping_with_id_255_stops_every_stream() {
+        let mut streams = DacStreams::new(2);
+        for id in [0, 1] {
+            streams.setup(id, 0x02, 0, 0x2A);
+            streams.bind(id, 0x00, 1, 0);
+            streams.set_rate(id, 2);
+            streams.start(id, arc(&[1, 2, 3, 4]), 0, 0x03, 0);
+            assert!(streams.is_playing(id));
+        }
+        assert!(streams.any_playing());
+        streams.stop_all();
+        assert!(!streams.is_playing(0));
+        assert!(!streams.is_playing(1));
+        assert!(!streams.any_playing());
+    }
+
+    /// Stream id 0xFF is the reference's "all streams" sentinel, never a real
+    /// stream: setting one up is ignored, so it never plays.
+    #[test]
+    fn setting_up_stream_255_is_ignored() {
+        let mut streams = DacStreams::new(2);
+        streams.setup(0xFF, 0x02, 0, 0x2A);
+        streams.bind(0xFF, 0x00, 1, 0);
+        streams.set_rate(0xFF, 2);
+        streams.start(0xFF, arc(&[1, 2, 3, 4]), 0, 0x03, 0);
+        assert!(!streams.is_playing(0xFF), "slot 255 never arms");
+        assert!(run(&mut streams, 10).is_empty());
     }
 
     // -- per-chip command translation (daccontrol_SendCommand) --------------
@@ -689,14 +777,17 @@ mod tests {
         streams.setup(0, chip_id, pp, cc);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 1);
-        streams.start(0, data, 0, 0x01, 1);
+        streams.start(0, arc(data), 0, 0x01, 1);
         let mut due = Vec::new();
         streams.advance_frame(&mut due, [0, 0]);
         due
     }
 
     fn flat(writes: &[PendingWrite]) -> Vec<(u8, u16, u16)> {
-        writes.iter().map(|w| (w.port, w.addr, w.value)).collect()
+        writes
+            .iter()
+            .map(|w| (w.target.port, w.addr, w.value))
+            .collect()
     }
 
     /// The PWM (chip id 0x11) assembles a 12-bit value from two little-endian
@@ -711,7 +802,7 @@ mod tests {
         streams.setup(0, 0x11, 0, 0x02);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 1);
-        streams.start(0, &[0x55, 0x01, 0xAA, 0x02], 0, 0x03, 0);
+        streams.start(0, arc(&[0x55, 0x01, 0xAA, 0x02]), 0, 0x03, 0);
         let writes = run_writes(&mut streams, 2);
         assert_eq!(flat(&writes), [(0, 0x02, 0x0155), (0, 0x02, 0x02AA)]);
     }
@@ -766,7 +857,7 @@ mod tests {
         streams.setup(0, 0x1B, 0x04, 0x06);
         streams.bind(0, 0x00, 1, 0);
         streams.set_rate(0, 1);
-        streams.start(0, &[0x7F], 0, 0x01, 1);
+        streams.start(0, arc(&[0x7F]), 0, 0x01, 1);
         let mut due = Vec::new();
         streams.advance_frame(&mut due, [0x02, 0x00]); // the song had channel 2
         assert_eq!(

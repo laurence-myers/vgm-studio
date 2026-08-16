@@ -15,6 +15,9 @@
 //!
 //! Only the first two need storing, which is why this module is about them.
 
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use vgms_core::error::{Error, Result};
 use vgms_core::vgm::ChipKind;
 
@@ -189,6 +192,11 @@ pub const fn stream_owner(kind: u8) -> Option<ChipKind> {
 pub struct Banks {
     /// `(uncompressed type, payload)`, in arrival order.
     blocks: Vec<(u8, Vec<u8>)>,
+    /// The concatenated bank per type, built on demand and shared with the
+    /// streams that play it, so a `0x93`/`0x95` trigger costs an `Arc` clone
+    /// rather than a whole-bank copy on the audio thread. Invalidated wholesale
+    /// when a block arrives (only on the first pass) or on clear.
+    concat_cache: HashMap<u8, Arc<[u8]>>,
 }
 
 impl Banks {
@@ -200,6 +208,7 @@ impl Banks {
     /// Stores a decoded sample stream of (uncompressed) type `kind`.
     pub fn push(&mut self, kind: u8, data: Vec<u8>) {
         self.blocks.push((kind, data));
+        self.concat_cache.clear();
     }
 
     /// The `index`th block of type `kind`, as `0x95` addresses it.
@@ -243,6 +252,33 @@ impl Banks {
             .filter(|(block_kind, _)| *block_kind == kind)
             .flat_map(|(_, data)| data.iter().copied())
             .collect()
+    }
+
+    /// The same concatenation as [`concatenated`](Self::concatenated), but
+    /// shared and cached: a stream that plays it clones the `Arc` rather than
+    /// copying the bank, and repeated triggers of the same type are cache hits.
+    /// Built with the exact capacity, so the one build that does happen makes a
+    /// single allocation.
+    #[must_use]
+    pub fn concatenated_arc(&mut self, kind: u8) -> Arc<[u8]> {
+        if let Some(cached) = self.concat_cache.get(&kind) {
+            return Arc::clone(cached);
+        }
+        let capacity: usize = self
+            .blocks
+            .iter()
+            .filter(|(block_kind, _)| *block_kind == kind)
+            .map(|(_, data)| data.len())
+            .sum();
+        let mut out = Vec::with_capacity(capacity);
+        for (block_kind, data) in &self.blocks {
+            if *block_kind == kind {
+                out.extend_from_slice(data);
+            }
+        }
+        let arc: Arc<[u8]> = Arc::from(out);
+        self.concat_cache.insert(kind, Arc::clone(&arc));
+        arc
     }
 
     /// The byte at `offset` into the type's concatenated bank, without
@@ -297,6 +333,7 @@ impl Banks {
     /// Forgets everything, as a seek back to the start does.
     pub fn clear(&mut self) {
         self.blocks.clear();
+        self.concat_cache.clear();
     }
 }
 
