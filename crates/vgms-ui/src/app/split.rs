@@ -170,8 +170,9 @@ impl VgmStudioApp {
                     if let Some(song) = self.editor.snapshot() {
                         // An OPL document: the OPL panel speaks Muting/Panning, so
                         // translate to the generic mutes/pans keyed on the chips
-                        // its type projects to.
-                        let opl_type = song.opl_type;
+                        // its *playback* type projects to -- the same type the
+                        // panel deck stored, so the two vocabularies agree.
+                        let opl_type = song.playback_opl_type();
                         let panning = if use_panning {
                             vgms_synth::opl_chip_panning(&self.channels.panning(), opl_type)
                         } else {

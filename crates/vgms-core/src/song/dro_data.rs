@@ -242,18 +242,15 @@ impl DroDataV2 {
     }
 
     /// How many pairs carry a register code past the codemap -- the pairs
-    /// [`get`](Self::get) decodes as do-nothing delays. For the reader's
+    /// [`get`](Self::get) decodes as do-nothing zero-ms delays. For the reader's
     /// warning; a well-formed file answers zero.
     #[must_use]
     pub fn invalid_pair_count(&self) -> usize {
-        self.data
-            .chunks_exact(2)
-            .filter(|pair| {
-                let code = pair[0];
-                code != self.short_delay_code
-                    && code != self.long_delay_code
-                    && usize::from(code & 0x7F) >= self.codemap.len()
-            })
+        // A code past the codemap is the only thing that decodes to a zero-ms
+        // delay (a real delay is always ms >= 1), so that is exactly the invalid
+        // set -- read through `get` rather than re-deriving the pair rules.
+        (0..self.len())
+            .filter(|&i| matches!(self.get(i), Some(Instruction::DelayMs { ms: 0, .. })))
             .count()
     }
 
@@ -337,45 +334,6 @@ impl DroDataV2 {
         }
         let start = Self::byte_offset(index);
         Some(&self.data[start..start + 2])
-    }
-
-    /// The last value the leading init block wrote to register `0x105` (the
-    /// OPL3 enable), or zero if it never wrote one -- upstream's
-    /// `_initOPL3Enable`, from `droplayer`'s `ScanInitBlock` v2 branch: walk
-    /// from the start, stop at the first delay code or an out-of-range
-    /// register code, and take the last `0x105` value.
-    ///
-    /// Two consumers, both playback-only (the stored header type and bytes are
-    /// untouched, so the file still saves byte-for-byte): the DualOPL2-to-OPL3
-    /// promotion reads bit 0 through
-    /// [`opl3_enabled_in_init_block`](Self::opl3_enabled_in_init_block), and
-    /// the conversion's reset pre-writes replay the value itself.
-    #[must_use]
-    pub(crate) fn init_block_opl3_enable(&self) -> u8 {
-        let mut opl3_enable = 0u8;
-        for pair in self.data.chunks_exact(2) {
-            let code = pair[0];
-            if code == self.short_delay_code || code == self.long_delay_code {
-                break;
-            }
-            let Some(&reg) = self.codemap.get(usize::from(code & 0x7F)) else {
-                break;
-            };
-            let full = (u16::from(code & 0x80) << 1) | u16::from(reg);
-            if full == 0x105 {
-                opl3_enable = pair[1];
-            }
-        }
-        opl3_enable
-    }
-
-    /// Whether the leading init block enables OPL3 mode -- a `0x105` write
-    /// with bit 0 set. DOSBox 0.73+ labels most OPL3 captures `DualOPL2`;
-    /// VGMPlay (`DRO_V2OPL3_DETECT`) scans the block and, finding the enable,
-    /// plays the file as a single OPL3 rather than two OPL2s.
-    #[must_use]
-    pub(crate) fn opl3_enabled_in_init_block(&self) -> bool {
-        self.init_block_opl3_enable() & 0x01 != 0
     }
 
     pub(crate) fn delete_many(&mut self, indices: &[usize]) {
@@ -534,26 +492,38 @@ mod tests {
     #[test]
     fn v2_detects_an_init_block_opl3_enable() {
         // codemap slot 0 -> register 0x05; a high-bank (bit 7) code addresses
-        // register 0x105, and value bit 0 is the OPL3 enable.
-        let on = DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
-        assert!(on.opl3_enabled_in_init_block());
-
+        // register 0x105, and value bit 0 is the OPL3 enable. The scan now lives
+        // on DroSongData, so the tests exercise it through the enum.
+        let v2 =
+            |data: Vec<u8>| DroSongData::V2(DroDataV2::new(data, vec![0x05], 0xFE, 0xFF).unwrap());
+        assert!(v2(vec![0x80, 0x01]).opl3_enabled_in_init_block());
         // The same register, but bit 0 clear -- OPL3 mode is not enabled.
-        let off = DroDataV2::new(vec![0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
-        assert!(!off.opl3_enabled_in_init_block());
-
+        assert!(!v2(vec![0x80, 0x00]).opl3_enabled_in_init_block());
         // No write to register 0x105 at all (this one is 0x120).
-        let other = DroDataV2::new(vec![0x80, 0x01], vec![0x20], 0xFE, 0xFF).unwrap();
-        assert!(!other.opl3_enabled_in_init_block());
-
+        assert!(
+            !DroSongData::V2(DroDataV2::new(vec![0x80, 0x01], vec![0x20], 0xFE, 0xFF).unwrap())
+                .opl3_enabled_in_init_block()
+        );
         // The init block ends at the first delay, so a 0x105 enable *after* a
         // delay does not count -- it is not part of the initial register dump.
-        let late = DroDataV2::new(vec![0xFE, 0x00, 0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
-        assert!(!late.opl3_enabled_in_init_block());
-
+        assert!(!v2(vec![0xFE, 0x00, 0x80, 0x01]).opl3_enabled_in_init_block());
         // The last 0x105 write in the block wins, as upstream records it.
-        let toggled = DroDataV2::new(vec![0x80, 0x01, 0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
-        assert!(!toggled.opl3_enabled_in_init_block());
+        assert!(!v2(vec![0x80, 0x01, 0x80, 0x00]).opl3_enabled_in_init_block());
+    }
+
+    /// The unified scan reads a v1 stream too, tracking the bank on a
+    /// `BankSwitch` -- as the reference's v1 `ScanInitBlock` branch does.
+    #[test]
+    fn v1_detects_an_init_block_opl3_enable() {
+        let v1 = |data: Vec<u8>| DroSongData::V1(DroDataV1::new(data).unwrap());
+        // High-bank switch (0x03), then reg 0x05 = 0x01 -> register 0x105.
+        assert!(v1(vec![0x03, 0x05, 0x01]).opl3_enabled_in_init_block());
+        // Same, but bit 0 clear.
+        assert!(!v1(vec![0x03, 0x05, 0x00]).opl3_enabled_in_init_block());
+        // Low-bank reg 0x05 is register 0x005, not 0x105.
+        assert!(!v1(vec![0x05, 0x01]).opl3_enabled_in_init_block());
+        // A short delay (0x00) ends the block before the later 0x105 write.
+        assert!(!v1(vec![0x00, 0x00, 0x03, 0x05, 0x01]).opl3_enabled_in_init_block());
     }
 
     #[test]

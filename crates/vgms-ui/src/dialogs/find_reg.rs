@@ -82,7 +82,7 @@ impl FindRegDialog {
     /// The dialog for a DRO: its single OPL chip.
     #[must_use]
     pub fn new(song: &DroSong) -> Self {
-        let kind = opl_find_kind(song.opl_type);
+        let kind = opl_find_kind(song.playback_opl_type());
         let chips = vec![ChipChoice {
             label: kind.name().to_owned(),
             kind,

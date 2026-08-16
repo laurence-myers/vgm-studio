@@ -278,7 +278,7 @@ impl VgmStudioApp {
                             .editor
                             .dro_song()
                             .map_or(vgms_core::vgm::ChipKind::Ymf262, |song| {
-                                vgms_synth::opl_projection_kind(song.opl_type)
+                                vgms_synth::opl_projection_kind(song.playback_opl_type())
                             });
                         let opl_can_pan = self.output_renders_samples()
                             && vgms_synth::registry().pan_capable(opl_projection);

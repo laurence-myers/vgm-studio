@@ -158,7 +158,7 @@ impl VgmStudioApp {
             // The DRO's own OPL generation, so a render/split core picker lists
             // the OPL2 row for an OPL2 rip, not a hardcoded YMF262.
             Some(vgms_core::DocSource::Dro(song)) => {
-                vec![vgms_synth::opl_projection_kind(song.opl_type)]
+                vec![vgms_synth::opl_projection_kind(song.playback_opl_type())]
             }
             Some(vgms_core::DocSource::Vgm(file)) => {
                 file.header.chips().iter().map(|chip| chip.kind).collect()

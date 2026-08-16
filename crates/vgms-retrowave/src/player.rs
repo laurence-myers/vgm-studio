@@ -553,7 +553,7 @@ mod tests {
     /// Projects a DRO fixture the way the service does, tagging it as an OPL
     /// document (the `Some(opl_type)` vocabulary the pump translates).
     fn dro(song: DroSong) -> (Arc<VgmFile>, Option<OplType>) {
-        let opl_type = song.opl_type;
+        let opl_type = song.playback_opl_type();
         let file = vgms_core::convert::opl_song_to_vgm_file(&song).expect("a DRO projects");
         (Arc::new(file), Some(opl_type))
     }

@@ -251,8 +251,14 @@ impl VgmStudioApp {
         self.editor.update_header(opl_type, ms_length);
         // The chip type may have changed the projection chips and the Original
         // pan policy; after_edit invalidates the audio revision, so the next
-        // ensure_audio pushes the fresh panning.
-        self.channels.set_opl_type(opl_type);
+        // ensure_audio pushes the fresh panning. Feed the deck the *playback*
+        // type (a stored DualOPL2 whose init block enables OPL3 plays as one
+        // YMF262), computed after the header update and before touching
+        // self.channels so the editor borrow is released (OplType is Copy).
+        let playback = self.editor.dro_song().map(|song| song.playback_opl_type());
+        if let Some(playback) = playback {
+            self.channels.set_opl_type(playback);
+        }
         self.after_edit();
     }
 

@@ -62,7 +62,7 @@ pub fn run(args: &Args) -> Result<()> {
                         vgms_core::convert::opl_song_to_vgm_file(&song)
                             .context("projecting the DRO for the OPL3")?,
                     ),
-                    Some(song.opl_type),
+                    Some(song.playback_opl_type()),
                 ),
                 LoadedSong::Vgm(file) if file.is_opl() => (Arc::new(*file), None),
                 LoadedSong::Vgm(_) => anyhow::bail!(

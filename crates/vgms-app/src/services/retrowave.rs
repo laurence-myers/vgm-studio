@@ -98,7 +98,7 @@ impl AudioService for RetroWaveAudioService {
                         )
                     })?,
                 ),
-                Some(song.opl_type),
+                Some(song.playback_opl_type()),
             ),
             // An OPL VGM: use its own bytes (re-projecting would canonicalise a
             // non-standard chip clock); refuse a non-OPL one.

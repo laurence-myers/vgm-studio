@@ -87,9 +87,24 @@ fn read_v0(name: &str, mut reader: ByteReader<'_>, ms_length: u32) -> Result<Dro
     let opl_type = OplType::from_v1_code(opl_type_code)
         .ok_or_else(|| Error::file(format!("Unknown DRO v0 OPL type: {opl_type_code}")))?;
 
+    finish_v1_body(name, reader, byte_length, ms_length, opl_type, "v0")
+}
+
+/// Bound-checks the declared data length, takes it, warns about trailing bytes,
+/// truncates a partial final instruction, and wraps it as a v1 [`DroSong`] --
+/// the tail a v0 and a v1 read share. `label` names the version (`"v0"`/`"v1"`)
+/// for the messages, which stay byte-identical to the two inlined copies.
+fn finish_v1_body(
+    name: &str,
+    mut reader: ByteReader<'_>,
+    byte_length: usize,
+    ms_length: u32,
+    opl_type: OplType,
+    label: &str,
+) -> Result<DroSong> {
     if reader.remaining() < byte_length {
         return Err(Error::file(format!(
-            "DRO v0 header declares {byte_length} bytes of data, but only {} remain",
+            "DRO {label} header declares {byte_length} bytes of data, but only {} remain",
             reader.remaining()
         )));
     }
@@ -97,13 +112,13 @@ fn read_v0(name: &str, mut reader: ByteReader<'_>, ms_length: u32) -> Result<Dro
     let trailing = reader.remaining();
     if trailing > 0 {
         log::warn!(
-            "DRO v0 file has {trailing} byte(s) after the {byte_length} bytes its header \
+            "DRO {label} file has {trailing} byte(s) after the {byte_length} bytes its header \
              declares; ignoring them"
         );
     }
     let (data, dropped) = DroDataV1::new_truncating(raw)?;
     if dropped > 0 {
-        log::warn!("DRO v0 data ends mid-instruction; dropping the last {dropped} byte(s)");
+        log::warn!("DRO {label} data ends mid-instruction; dropping the last {dropped} byte(s)");
     }
     Ok(DroSong::dro_v1(name.to_owned(), data, ms_length, opl_type))
 }
@@ -137,30 +152,9 @@ fn read_v1(name: &str, mut reader: ByteReader<'_>) -> Result<DroSong> {
         .and_then(OplType::from_v1_code)
         .ok_or_else(|| Error::file(format!("Unknown DRO v1 OPL type: {opl_type_code}")))?;
 
-    if reader.remaining() < byte_length {
-        return Err(Error::file(format!(
-            "DRO v1 header declares {byte_length} bytes of data, but only {} remain",
-            reader.remaining()
-        )));
-    }
-    let raw = reader.take(byte_length)?.to_vec();
-
-    // Trailing bytes are not rejected. Rejecting a file over some slop at the end
-    // helps nobody.
-    let trailing = reader.remaining();
-    if trailing > 0 {
-        log::warn!(
-            "DRO v1 file has {trailing} byte(s) after the {byte_length} bytes its header \
-             declares; ignoring them"
-        );
-    }
-
-    let (data, dropped) = DroDataV1::new_truncating(raw)?;
-    if dropped > 0 {
-        log::warn!("DRO v1 data ends mid-instruction; dropping the last {dropped} byte(s)");
-    }
-
-    Ok(DroSong::dro_v1(name.to_owned(), data, ms_length, opl_type))
+    // Trailing bytes are not rejected. Rejecting a file over some slop at the
+    // end helps nobody -- the shared tail warns and moves on.
+    finish_v1_body(name, reader, byte_length, ms_length, opl_type, "v1")
 }
 
 fn write_v1(song: &DroSong) -> Vec<u8> {
@@ -597,6 +591,22 @@ mod tests {
                 .to_string()
                 .contains("only")
         );
+    }
+
+    /// A v0 file whose declared data length exceeds the bytes present reports a
+    /// *v0* error -- guarding that the shared `finish_v1_body` threads its "v0"
+    /// label through (behaviour-preserving, so it passes before and after R3).
+    #[test]
+    fn v0_short_file_reports_a_v0_error() {
+        let data: &[u8] = &[0x20, 0x01];
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MAGIC);
+        bytes.extend_from_slice(&70_000u32.to_le_bytes()); // ms_length: forces v0
+        bytes.extend_from_slice(&((data.len() + 100) as u32).to_le_bytes()); // over-declared
+        bytes.push(1); // OPL type
+        bytes.extend_from_slice(data);
+        let error = read("t.dro", &bytes).unwrap_err().to_string();
+        assert!(error.contains("DRO v0"), "got {error}");
     }
 
     // -- container ---------------------------------------------------------

@@ -358,7 +358,7 @@ impl Engine {
                     .map_err(|error| error.to_string())?;
                 Self {
                     inner: Box::new(build_vgm(Arc::new(file))),
-                    opl: Some(song.opl_type),
+                    opl: Some(song.playback_opl_type()),
                 }
             }
             AudioSource::Vgm(file) => Self {

@@ -105,25 +105,30 @@ fn put_u32(bytes: &mut [u8], offset: usize, value: u32) {
 /// EOF patched in, then the stream and an end marker -- and read straight back
 /// through [`vgm::file::read`](crate::vgm::file::read), so the result is a real
 /// `VgmFile` rather than a VGM-flavoured `DroSong`. That assembled byte image is
-/// exactly what `dro2vgm` emits, byte for byte, for a v2 capture (pinned against
-/// the fixture), which is why the conversion carries no `DroSong::vgm`
-/// intermediate.
+/// exactly what `dro2vgm` emits, byte for byte, for a v2 capture that needs no
+/// OPL3 promotion (an OPL2, or an un-promoted `DualOPL2`, capture; pinned
+/// against the OPL2 fixture), which is why the conversion carries no
+/// `DroSong::vgm` intermediate.
 ///
-/// A DRO v1 (OPL2) capture is the one exception: it assumes waveform-select was
-/// enabled (`0x01 = 0x20`) before it ran -- DOSBox set the bit before recording,
-/// so the write is not in the file -- and without it the capture's non-sine
-/// timbres collapse to sine. So this primes it, and since this projection is the
-/// only OPL playback path a v1 file's playback, export and conversion all sound
-/// the same. The prime is deliberately absent from `dro2vgm`'s own v1 output, so
-/// a v1 conversion trades exact parity with that tool for a correct-sounding
-/// file.
+/// Two deliberate divergences from `dro2vgm`, both because this one projection
+/// is the only OPL playback path -- so a file's playback, export and conversion
+/// all sound the same (hear == export):
+///
+/// - A DRO v1 (OPL2) capture assumes waveform-select was enabled (`0x01 =
+///   0x20`) before it ran -- DOSBox set the bit before recording, so the write
+///   is not in the file, and without it the capture's non-sine timbres collapse
+///   to sine. This primes it.
+/// - A promoted `DualOPL2`/OPL3 capture (see [`DroSong::playback_opl_type`])
+///   gets the reference's reset pre-writes -- `0x105` = the scanned init-block
+///   enable, `0x104` = 0 -- which hoist DOSBox's wrong-order init dump so the
+///   exported OPL3 VGM is correct on a fresh chip.
 ///
 /// # Errors
 /// If the synthesised header cannot hold the OPL clocks, or the assembled bytes
 /// do not read back. (A `DroSong` is always a DRO, so there is no "already a
 /// VGM" case.)
 pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
-    let opl_type = playback_opl_type(song);
+    let opl_type = song.playback_opl_type();
     let mut clock = SampleClock::new();
     let mut bank = Bank::Low;
     let mut stream = VgmStream::with_capacity(opl_type, song.len() * 3);
@@ -137,16 +142,12 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
     // waveform writes are masked to 0-3 and the 4-op enable folds away. The
     // reference's DRO Reset therefore writes 0x105 = the scanned init-block
     // enable, then 0x104 = 0, before the replay; these two zero-delay writes
-    // are that. A v2 file replays its scanned value (zero when the block never
-    // wrote one -- two harmless writes on a fresh chip, as upstream). A v1
-    // OPL3 capture has no scan until the H5 init-block machinery lands, so it
-    // primes 1 -- the same DOSBox-had-it-enabled reasoning as the v1
-    // waveform-select prime below.
+    // are that. Both versions replay the *scanned* value (zero when the block
+    // never wrote one -- two harmless writes on a fresh chip, as upstream's
+    // Reset writes `_initOPL3Enable` for v1 and v2 alike), read through the
+    // shared init-block scan.
     if opl_type == OplType::Opl3 {
-        let enable = match song.data() {
-            DroSongData::V2(data) => data.init_block_opl3_enable(),
-            DroSongData::V1(_) => 0x01,
-        };
+        let enable = song.data().init_block_opl3_enable();
         stream.write(Bank::High, 0x05, enable);
         stream.write(Bank::High, 0x04, 0x00);
     }
@@ -224,26 +225,6 @@ pub fn dro_to_vgm(song: &DroSong) -> Result<VgmFile> {
 /// If the song will not convert, or the assembled VGM does not read back.
 pub fn opl_song_to_vgm_file(song: &DroSong) -> Result<VgmFile> {
     dro_to_vgm(song)
-}
-
-/// The OPL hardware a DRO actually plays on, which is not always its header type.
-///
-/// DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; only games that use 4-op
-/// mode get the OPL3 label right. VGMPlay's DRO player (`DRO_V2OPL3_DETECT`)
-/// scans the init block and promotes a `DualOPL2` v2 file to OPL3 when it wrote
-/// the OPL3-enable register, so it plays as one OPL3 (with 4-op voices and
-/// waveforms 4-7) rather than two hard-panned OPL2s. This does the same, but for
-/// playback only: `song.opl_type` -- what a save writes back -- is left alone, so
-/// the file still round-trips byte-for-byte. Restricted to v2, as the reference
-/// is: a v1 `DualOPL2` label is trusted.
-fn playback_opl_type(song: &DroSong) -> OplType {
-    if song.opl_type != OplType::DualOpl2 {
-        return song.opl_type;
-    }
-    match song.data() {
-        DroSongData::V2(data) if data.opl3_enabled_in_init_block() => OplType::Opl3,
-        _ => song.opl_type,
-    }
 }
 
 /// The VGM opcode that writes an OPL register on the given chip and bank, or
@@ -525,6 +506,42 @@ mod tests {
         assert_eq!(stream.raw_command(0), Some(&[0x5A, 0x20, 0x30][..]));
     }
 
+    /// A v1 OPL3 conversion replays the *scanned* init-block enable, not a
+    /// hardcoded 1: a capture that never enabled OPL3 must not force newm = 1
+    /// (which silences OPL2-era C0 writes under Nuked-OPL3).
+    #[test]
+    fn a_v1_opl3_conversion_replays_the_scanned_init_enable() {
+        // No 0x105 anywhere in the init block: the scanned enable is 0.
+        let song = DroSong::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0x20, 0x30]).unwrap(),
+            0,
+            OplType::Opl3,
+        );
+        let stream = dro_to_vgm(&song).unwrap();
+        let stream = stream.stream().expect("a stream");
+        assert_eq!(
+            stream.raw_command(0),
+            Some(&[command::YMF262_PORT_1, 0x05, 0x00][..]),
+            "no 0x105 in the block -> the pre-write replays 0"
+        );
+
+        // A high-bank 0x105 = 0x01 in the init block is scanned and replayed.
+        let song = DroSong::dro_v1(
+            "t.dro".to_owned(),
+            DroDataV1::new(vec![0x03, 0x05, 0x01, 0x20, 0x30]).unwrap(),
+            0,
+            OplType::Opl3,
+        );
+        let stream = dro_to_vgm(&song).unwrap();
+        let stream = stream.stream().expect("a stream");
+        assert_eq!(
+            stream.raw_command(0),
+            Some(&[command::YMF262_PORT_1, 0x05, 0x01][..]),
+            "the scanned 0x105 enable is replayed"
+        );
+    }
+
     /// DOSBox mislabels most OPL3 captures as DualOPL2; an init-block OPL3
     /// enable promotes playback to OPL3, while the stored type -- what a save
     /// writes -- is left untouched so the file still round-trips.
@@ -535,7 +552,7 @@ mod tests {
         // value bit 0 is the OPL3 enable.
         let data = DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
         let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
-        assert_eq!(playback_opl_type(&song), OplType::Opl3);
+        assert_eq!(song.playback_opl_type(), OplType::Opl3);
         assert_eq!(song.opl_type, OplType::DualOpl2);
     }
 
@@ -546,7 +563,7 @@ mod tests {
         use crate::song::DroDataV2;
         let data = DroDataV2::new(vec![0x80, 0x00], vec![0x05], 0xFE, 0xFF).unwrap();
         let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
-        assert_eq!(playback_opl_type(&song), OplType::DualOpl2);
+        assert_eq!(song.playback_opl_type(), OplType::DualOpl2);
     }
 
     #[test]
@@ -651,11 +668,11 @@ mod tests {
         assert_eq!(
             vgm.body.raw(),
             [
-                // The OPL3 reset pre-writes lead (a v1 capture primes the
-                // enable at 1), then the v1 waveform-select prime.
+                // The OPL3 reset pre-writes lead (the scanned init-block enable,
+                // 0 here -- the block writes no 0x105), then the v1 WSE prime.
                 command::YMF262_PORT_1,
                 0x05,
-                0x01,
+                0x00,
                 command::YMF262_PORT_1,
                 0x04,
                 0x00,

@@ -93,13 +93,16 @@ impl ChipPanels {
         Self::default()
     }
 
-    /// The deck for an OPL song: the chip(s) its type projects to.
+    /// The deck for an OPL song: the chip(s) its *playback* type projects to
+    /// (a promoted DualOPL2 shows one YMF262 tab), stored so `muting`/`panning`
+    /// key on the same chip the mixer seams do.
     #[must_use]
     pub(crate) fn for_song(song: &DroSong) -> Self {
+        let opl_type = song.playback_opl_type();
         Self {
-            entries: opl_entries(song.opl_type),
+            entries: opl_entries(opl_type),
             selected: 0,
-            opl_type: Some(song.opl_type),
+            opl_type: Some(opl_type),
         }
     }
 
@@ -502,7 +505,9 @@ fn dual_opl2_image() -> [u8; 18] {
 /// preview) that want the song's own default rather than the editor's live mix.
 #[must_use]
 pub(crate) fn default_opl_panning(song: &DroSong) -> Panning {
-    match song.opl_type {
+    // A promoted DualOPL2 plays as one OPL3, so its default is centred, not the
+    // dual-OPL2 hard-L/R image.
+    match song.playback_opl_type() {
         OplType::DualOpl2 => Panning::Custom(dual_opl2_image()),
         _ => Panning::Original,
     }
@@ -638,12 +643,26 @@ mod tests {
     }
 
     /// Dual OPL2 is two YM3812 tabs now -- a user mutes one board of the pair.
+    /// (A v1 DualOPL2 like this one is trusted, never promoted.)
     #[test]
     fn dual_opl2_is_two_instance_tabs() {
         let mut song = tone_song();
         song.opl_type = OplType::DualOpl2;
         let panels = ChipPanels::for_song(&song);
         assert_eq!(labels(&panels), ["YM3812", "YM3812 #2"]);
+    }
+
+    /// A v2 DualOPL2 capture whose init block enables OPL3 shows one YMF262 tab
+    /// -- its playback type -- so the deck's mute/pan keys agree with the mixer
+    /// seams. Before the seam fix it showed two phantom YM3812 tabs and every
+    /// mute/pan went inert.
+    #[test]
+    fn a_promoted_dualopl2_capture_shows_one_ymf262_tab() {
+        // codemap slot 0 -> reg 0x05; a high-bank code writes 0x105 = 0x01.
+        let data = vgms_core::DroDataV2::new(vec![0x80, 0x01], vec![0x05], 0xFE, 0xFF).unwrap();
+        let song = DroSong::dro_v2("t.dro".to_owned(), data, 0, OplType::DualOpl2);
+        let panels = ChipPanels::for_song(&song);
+        assert_eq!(labels(&panels), ["YMF262"]);
     }
 
     #[test]

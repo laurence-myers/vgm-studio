@@ -77,6 +77,51 @@ impl DroSongData {
         })
     }
 
+    /// The last value the leading init block writes to register `0x105` (the
+    /// OPL3 enable), or `0` if it never writes one -- upstream's
+    /// `_initOPL3Enable` (`droplayer`'s `ScanInitBlock`; `Reset` writes it for
+    /// both versions, defaulting to 0).
+    ///
+    /// Walks decoded instructions from the start, tracking the current bank (v1
+    /// carries it on a `BankSwitch`, v2 on each write), and stops at the first
+    /// delay. A v2 code past the codemap decodes to a zero-ms delay (see
+    /// `DroDataV2::get`), so it ends the block exactly as the reference's
+    /// out-of-range break does. A v1 stream is read through the same escape-aware
+    /// decoder every other path uses, not the reference's raw byte walk (which
+    /// mis-parses this app's escaped v1 files -- GAP-H5-DRO-V1-PLAN.md), so the
+    /// scan inherits the corrected decode for free once H5 lands.
+    #[must_use]
+    pub(crate) fn init_block_opl3_enable(&self) -> u8 {
+        let mut bank = Bank::Low;
+        let mut enable = 0u8;
+        for instruction in self.iter() {
+            match instruction {
+                Instruction::BankSwitch(selected) => bank = selected,
+                Instruction::Register {
+                    reg,
+                    value,
+                    bank: own,
+                } => {
+                    let full = own.unwrap_or(bank).register_offset() | u16::from(reg);
+                    if full == 0x105 {
+                        enable = value;
+                    }
+                }
+                Instruction::DelayMs { .. } | Instruction::DelaySamples { .. } => break,
+            }
+        }
+        enable
+    }
+
+    /// Whether the leading init block enables OPL3 mode -- a `0x105` write with
+    /// bit 0 set. DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; VGMPlay
+    /// (`DRO_V2OPL3_DETECT`) scans the block and, finding the enable, plays the
+    /// file as a single OPL3 rather than two OPL2s.
+    #[must_use]
+    pub(crate) fn opl3_enabled_in_init_block(&self) -> bool {
+        self.init_block_opl3_enable() & 0x01 != 0
+    }
+
     /// The whole instruction stream, exactly as it sits in the file.
     #[must_use]
     pub fn raw(&self) -> &[u8] {
@@ -311,6 +356,30 @@ impl DroSong {
     #[must_use]
     pub fn instruction(&self, index: usize) -> Option<Instruction> {
         self.data.get(index)
+    }
+
+    /// The OPL hardware a DRO actually plays on, which is not always its stored
+    /// header type ([`Self::opl_type`]).
+    ///
+    /// DOSBox 0.73+ labels most OPL3 captures `DualOPL2`; VGMPlay's DRO player
+    /// (`DRO_V2OPL3_DETECT`) scans the init block and promotes a v2 `DualOPL2`
+    /// to OPL3 when it enabled OPL3, so it plays as one OPL3 rather than two
+    /// hard-panned OPL2s. This is the single public seam every playback consumer
+    /// reads -- the [`dro_to_vgm`](crate::convert::dro_to_vgm) projection, the
+    /// mixer builders, the panel deck -- so they agree on the chip the file
+    /// fills. The stored type is untouched (a save round-trips it; the DRO Info
+    /// dialog shows and edits it). Restricted to v2, as the reference is: a v1
+    /// `DualOPL2` label is trusted.
+    #[must_use]
+    pub fn playback_opl_type(&self) -> OplType {
+        if self.opl_type == OplType::DualOpl2
+            && matches!(self.data, DroSongData::V2(_))
+            && self.data.opl3_enabled_in_init_block()
+        {
+            OplType::Opl3
+        } else {
+            self.opl_type
+        }
     }
 
     // -- timing ------------------------------------------------------------

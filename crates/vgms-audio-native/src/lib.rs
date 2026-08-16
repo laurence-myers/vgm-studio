@@ -211,7 +211,7 @@ impl NativeAudio {
                     .map_err(|error| AudioError::Projection(error.to_string()))?;
                 Engine {
                     inner: Box::new(build_vgm(Arc::new(file))),
-                    opl: Some(song.opl_type),
+                    opl: Some(song.playback_opl_type()),
                 }
             }
             AudioSource::Vgm(file) => Engine {
