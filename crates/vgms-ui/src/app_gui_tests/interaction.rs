@@ -55,6 +55,32 @@ fn the_chip_deck_folds_behind_its_disclosure() {
     );
 }
 
+/// While the OS hovers a file over the window, the central well invites the
+/// drop; the invitation goes with the hover, and reads as refused while a
+/// dialog is open.
+#[test]
+fn hovering_a_file_shows_the_drop_invitation() {
+    let (mut harness, _handles) = empty_harness();
+    assert!(harness.query_by_label("Drop to open").is_none());
+
+    harness.input_mut().hovered_files.push(egui::HoveredFile {
+        path: Some(std::path::PathBuf::from("C:/songs/x.dro")),
+        mime: String::new(),
+    });
+    harness.run_steps(1);
+    assert!(
+        harness.query_by_label("Drop to open").is_some(),
+        "the invitation shows while a file hovers"
+    );
+
+    harness.input_mut().hovered_files.clear();
+    harness.run();
+    assert!(
+        harness.query_by_label("Drop to open").is_none(),
+        "the invitation goes with the hover"
+    );
+}
+
 #[test]
 fn e2e_hook_dispatches_actions_and_reports_state() {
     // The web e2e hook (`window.__vgms_e2e`) is a thin JS wrapper over exactly

@@ -296,7 +296,7 @@ impl VgmStudioApp {
         // The editor's central panel is one big data well; the pack view sits on
         // the FT2 desktop tint, with its own sunken wells inside.
         let central_fill = if editor_tab { p.data_bg } else { p.desktop };
-        egui::CentralPanel::default()
+        let central = egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(ui.style()).fill(central_fill))
             .show(ui, |ui| match self.active_tab {
                 AppTab::Editor => {
@@ -335,6 +335,9 @@ impl VgmStudioApp {
                     }
                 }
             });
+        // While the OS hovers a file over the window, the central well invites
+        // the drop.
+        drop_target(&ctx, p, central.response.rect, self.dialogs.any_open());
 
         // 2px beveled grooves at the seams between the stacked panels. Painted
         // into the shared background layer *after* the panels, so they sit over
@@ -1273,4 +1276,47 @@ impl VgmStudioApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
     }
+}
+
+/// The drag-over invitation: while the OS hovers a file over the window, tint
+/// the central well, frame it with a dashed inset border, and say what the
+/// drop does (or, with a dialog open, why it is refused). Foreground order, so
+/// it reads over the table; the hint is a real label so the headless tests can
+/// see it.
+fn drop_target(ctx: &egui::Context, p: &Palette, rect: egui::Rect, blocked: bool) {
+    if ctx.input(|input| input.raw.hovered_files.is_empty()) {
+        return;
+    }
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Foreground,
+        egui::Id::new("drop-target"),
+    ));
+    painter.rect_filled(rect, 0.0, egui::Color32::from_black_alpha(0x70));
+    let inset = rect.shrink(10.0);
+    let corners = [
+        inset.left_top(),
+        inset.right_top(),
+        inset.right_bottom(),
+        inset.left_bottom(),
+        inset.left_top(),
+    ];
+    painter.extend(egui::Shape::dashed_line(
+        &corners,
+        egui::Stroke::new(2.0, p.data_label),
+        8.0,
+        6.0,
+    ));
+    let hint = if blocked {
+        crate::strings::APP_STATUS_DROP_DIALOG_OPEN
+    } else {
+        crate::strings::APP_DROP_HINT
+    };
+    egui::Area::new(egui::Id::new("drop-target-hint"))
+        .order(egui::Order::Foreground)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .fixed_pos(inset.center())
+        .interactable(false)
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new(hint).heading().color(p.data_label));
+        });
 }
