@@ -22,7 +22,9 @@
 //! work on every core. The strip is drawn **always** -- even for a single chip,
 //! even an empty editor -- so the deck's shape does not jump as documents come
 //! and go, and it wraps to a second row rather than scrolling when a wide chip
-//! set outgrows the deck.
+//! set outgrows the deck. A fold icon right-aligned beside the strip shows or
+//! hides the selected chip's control panel (folded by default); folding hides
+//! only those controls, never the strip, and the mix keeps applying.
 //!
 //! A generic multichip file gets one entry per chip *instance* -- a dual
 //! SN76489 is two cells -- because a user mutes one of the pair, not the kind;
@@ -269,17 +271,6 @@ impl ChipPanels {
             .map(|entry| entry.label.as_str())
     }
 
-    /// The chip names joined for the folded deck header ("YM2612 \u{00B7}
-    /// SN76489"), so folding hides the controls but never which chips play.
-    #[must_use]
-    pub(crate) fn summary(&self) -> String {
-        self.entries
-            .iter()
-            .map(|entry| entry.label.as_str())
-            .collect::<Vec<_>>()
-            .join(" \u{00B7} ")
-    }
-
     /// Toggles channel `index` on the *selected* chip's panel -- so the number
     /// keys act on whatever tab is open.
     pub(crate) fn toggle_selected_channel(&mut self, index: usize) {
@@ -288,7 +279,10 @@ impl ChipPanels {
         }
     }
 
-    /// Draws the selector strip (always) and the selected chip's controls.
+    /// Draws the selector strip (always), a right-aligned fold icon, and --
+    /// while `expanded` -- the selected chip's controls. The icon toggles
+    /// `expanded`; folding hides only the controls below the strip, so the
+    /// lamps, trims and tabs stay reachable and the mix keeps applying.
     ///
     /// `pan_supported(chip)` / `mute_supported(chip)` answer whether pan and mute
     /// controls should be live for a given chip -- `None` for the OPL rules,
@@ -298,13 +292,25 @@ impl ChipPanels {
         &mut self,
         ui: &mut egui::Ui,
         palette: &Palette,
+        expanded: &mut bool,
         pan_supported: impl Fn(Option<ChipKind>) -> bool,
         mute_supported: impl Fn(Option<ChipKind>) -> bool,
     ) -> ChannelsResponse {
-        let mut response = self.selector(ui, palette);
+        let mut response = ui
+            .horizontal(|ui| {
+                let response = self.selector(ui, palette);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    fold_icon(ui, palette, expanded);
+                });
+                response
+            })
+            .inner;
         // A bottom margin under the tabs so the deck shows between them and the
         // controls below, matching the space above the well.
         ui.add_space(SELECTOR_GAP);
+        if !*expanded {
+            return response;
+        }
         let chip = self.selected_chip();
         let pan = pan_supported(chip);
         let mute = mute_supported(chip);
@@ -409,8 +415,9 @@ impl ChipPanels {
     }
 
     /// How many chip cells fit on one row of the well before it must wrap: the
-    /// deck's width divided by the widest cell. At least one, so a deck narrower
-    /// than a single cell still shows it (clipped) rather than dividing by zero.
+    /// deck's width (less the fold icon's slot) divided by the widest cell. At
+    /// least one, so a deck narrower than a single cell still shows it (clipped)
+    /// rather than dividing by zero.
     fn columns_that_fit(&self, ui: &mut egui::Ui) -> usize {
         let font = egui::TextStyle::Button.resolve(ui.style());
         // The name is a `tabs::tab_button`, padded on each side; a small
@@ -435,7 +442,7 @@ impl ChipPanels {
                 LAMP_SIZE + CELL_INNER_GAP + pan_knob::SIZE + CELL_INNER_GAP + name_cell
             })
             .fold(1.0_f32, f32::max);
-        let avail = ui.available_width();
+        let avail = ui.available_width() - FOLD_ICON_ALLOWANCE;
         (((avail + CELL_GAP) / (widest + CELL_GAP)).floor() as usize).max(1)
     }
 
@@ -521,6 +528,37 @@ pub(crate) fn default_opl_panning(song: &DroSong) -> Panning {
     match song.playback_opl_type() {
         OplType::DualOpl2 => Panning::Custom(dual_opl2_image()),
         _ => Panning::Original,
+    }
+}
+
+/// Width kept clear beside the selector well for the fold icon, so the strip's
+/// wrap never pushes the icon off the row.
+const FOLD_ICON_ALLOWANCE: f32 = 24.0;
+
+/// The deck's fold icon, right-aligned beside the strip: a CP437 triangle in a
+/// clickable muted label (the app's disclosure idiom). Toggles `expanded`.
+fn fold_icon(ui: &mut egui::Ui, palette: &Palette, expanded: &mut bool) {
+    let (glyph, tip) = if *expanded {
+        ("\u{25BC}", crate::strings::CHIP_DECK_TIP_HIDE)
+    } else {
+        ("\u{25BA}", crate::strings::CHIP_DECK_TIP_SHOW)
+    };
+    let icon = ui
+        .add(
+            egui::Label::new(egui::RichText::new(glyph).color(palette.muted))
+                // Not selectable: selection would swallow the click.
+                .selectable(false)
+                .sense(egui::Sense::click()),
+        )
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(tip);
+    // A stable accessible name: the bare triangle glyph would collide with the
+    // volume stepper's arrows in the accessibility tree.
+    icon.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "chip deck fold")
+    });
+    if icon.clicked() {
+        *expanded = !*expanded;
     }
 }
 

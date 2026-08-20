@@ -260,35 +260,7 @@ impl VgmStudioApp {
                         ui.add_space(PAD);
                         theme::separator_full(ui, p);
                         ui.add_space(PAD);
-                        // The chip mixer deck sits behind a disclosure, folded
-                        // by default. Folding hides only the controls: the mix
-                        // keeps applying, and the header still names the chips.
-                        // CP437 triangles in a clickable muted label, the same
-                        // idiom as the pack view's Hardware disclosure.
-                        let (glyph, tip) = if self.chips_expanded {
-                            ("\u{25BC}", crate::strings::CHIP_DECK_TIP_HIDE)
-                        } else {
-                            ("\u{25BA}", crate::strings::CHIP_DECK_TIP_SHOW)
-                        };
-                        let header_text =
-                            crate::strings::chip_deck_header(glyph, &self.channels.summary());
-                        let header = ui
-                            .add(
-                                egui::Label::new(egui::RichText::new(header_text).color(p.muted))
-                                    // Not selectable: selection would swallow
-                                    // the click that folds the deck.
-                                    .selectable(false)
-                                    .sense(egui::Sense::click()),
-                            )
-                            .on_hover_cursor(egui::CursorIcon::PointingHand)
-                            .on_hover_text(tip);
-                        if header.clicked() {
-                            self.chips_expanded = !self.chips_expanded;
-                        }
-                        if self.chips_expanded {
-                            ui.add_space(PAD);
-                            self.chip_deck(ui, p, &mut actions);
-                        }
+                        self.chip_deck(ui, p, &mut actions);
                         ui.add_space(PAD);
                     });
                 })
@@ -413,8 +385,9 @@ impl VgmStudioApp {
         self.playback_tick(&ctx);
     }
 
-    /// Draws the unfolded chip mixer deck: the selector strip and the selected
-    /// chip's controls, with the capability answers the panels need.
+    /// Draws the chip mixer deck: the selector strip (always) with its fold
+    /// icon, and -- while unfolded -- the selected chip's controls, with the
+    /// capability answers the panels need. Folded by default.
     fn chip_deck(&mut self, ui: &mut egui::Ui, p: &Palette, actions: &mut Vec<Action>) {
         // Whether the selected chip's pan controls should be
         // drawn: for the OPL panel, the output must render
@@ -450,7 +423,13 @@ impl VgmStudioApp {
             Some(kind) => vgms_synth::registry().mute_capable(kind),
         };
         // The panel hides its own high bank for a plain OPL2 song.
-        let channels = self.channels.show(ui, p, pan_supported, mute_supported);
+        let channels = self.channels.show(
+            ui,
+            p,
+            &mut self.chips_expanded,
+            pan_supported,
+            mute_supported,
+        );
         if channels.muting_changed {
             actions.push(Action::Mixer(MixerAction::MutingChanged));
         }

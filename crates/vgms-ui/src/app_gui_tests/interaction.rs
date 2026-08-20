@@ -15,39 +15,43 @@ fn starts_with_placeholder() {
     assert!(handles.tasks.borrow().submitted.is_empty());
 }
 
-/// The chip deck folds behind its disclosure header: folded (the app's
-/// default, asserted in `build_sized`) it draws none of the mixer widgets,
-/// and a click on the header brings them back. Folding leaves the mix itself
-/// untouched.
+/// The deck's fold icon hides only the selected chip's control panel: the
+/// chip strip (lamps, trims, tabs) stays while folded (the app's default,
+/// asserted in `build_sized`), and a click on the icon brings the controls
+/// back. Folding leaves the mix itself untouched.
 #[test]
 fn the_chip_deck_folds_behind_its_disclosure() {
     let (mut harness, _handles) = harness_with_song(&tone_song());
     // build() opened the deck for the mixer tests; fold it back to the default.
     // The extra run() after each change lets the bottom panel re-settle: its
     // height follows its content with a one-frame lag, and clicking off a
-    // stale accessibility rect would miss the header.
+    // stale accessibility rect would miss the icon.
     harness.state_mut().chips_expanded = false;
     harness.run();
     harness.run();
     assert!(
-        harness.query_by_label("YM3812 lamp").is_none(),
-        "a folded deck draws no mixer widgets"
-    );
-
-    harness.get_by_label_contains("Chips:").click();
-    harness.run();
-    harness.run();
-    assert!(
         harness.query_by_label("YM3812 lamp").is_some(),
-        "clicking the header unfolds the deck"
+        "the chip strip stays while folded"
+    );
+    assert!(
+        harness.query_by_label("Channels:").is_none(),
+        "folding hides the channel controls"
     );
 
-    harness.get_by_label_contains("Chips:").click();
+    harness.get_by_label("chip deck fold").click();
     harness.run();
     harness.run();
     assert!(
-        harness.query_by_label("YM3812 lamp").is_none(),
-        "a second click folds it again"
+        harness.query_by_label("Channels:").is_some(),
+        "clicking the icon unfolds the controls"
+    );
+
+    harness.get_by_label("chip deck fold").click();
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label("Channels:").is_none(),
+        "a second click folds them again"
     );
 }
 
