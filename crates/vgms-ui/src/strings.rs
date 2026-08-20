@@ -110,6 +110,7 @@ pub(crate) const APP_STATUS_DATE_CONVERTED: &str = "Converted the pack date to h
 pub(crate) const APP_STATUS_NO_DATES: &str = "No slash-separated dates to convert.";
 pub(crate) const APP_STATUS_NAMES_MATCH: &str = "Every file name already matches its tag.";
 pub(crate) const APP_STATUS_SEARCHING_LOOPS: &str = "Searching for loops...";
+pub(crate) const APP_STATUS_NO_LOOPS_FOUND: &str = "No loops found.";
 pub(crate) const APP_STATUS_NO_MORE_DELAYS: &str = "No more delays found.";
 pub(crate) const APP_STATUS_SETTINGS_SAVED: &str = "Settings saved.";
 pub(crate) const APP_STATUS_NEEDS_DRO: &str = "This applies to DRO files.";

@@ -435,10 +435,13 @@ pub fn run_task(
                     }
                 }
             }
-            // A final ranked snapshot so the last (fewer than a stride) candidates
-            // show. Skipped when cancelled, so a superseded search emits nothing
-            // new, and when nothing remains unshown.
-            if !is_cancelled() && found.len() != emitted_len {
+            // A final ranked snapshot, emitted whenever the search ran to the
+            // end -- even when it repeats the last stride, and even when it is
+            // empty. It is the completion signal: without it a search finding
+            // nothing (or ending exactly on a stride) leaves the app showing
+            // "Searching for loops..." forever. Skipped only when cancelled,
+            // so a superseded search emits nothing new.
+            if !is_cancelled() {
                 rank(&mut found);
                 emit(TaskResult::LoopCandidates(found));
             }
@@ -671,6 +674,21 @@ mod tests {
         };
         // The body repeats once and runs to the end: the top candidate is "!".
         assert_eq!(candidates.first().map(|c| c.quality_label()), Some("!"));
+    }
+
+    /// A search that finds nothing still emits one final (empty) snapshot: it
+    /// is the completion signal the status line waits on.
+    #[test]
+    fn a_loop_search_finding_nothing_still_emits_a_final_snapshot() {
+        let search = TaskRequest::LoopSearch {
+            source: LoopSearchSource::Vgm(Arc::new(looping_vgm())),
+            min_len_commands: 10_000,
+        };
+        let results = collect(&search, || false);
+        let Some(TaskResult::LoopCandidates(candidates)) = results.last() else {
+            panic!("expected a final empty snapshot, got {results:?}");
+        };
+        assert!(candidates.is_empty());
     }
 
     #[test]

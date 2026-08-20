@@ -814,7 +814,11 @@ impl VgmStudioApp {
         if let Some(dialog) = self.dialogs.find_loop.as_mut() {
             dialog.set_candidates(candidates);
         }
-        self.status = crate::strings::app_status_loop_candidates(count);
+        self.status = if count == 0 {
+            crate::strings::APP_STATUS_NO_LOOPS_FOUND.to_owned()
+        } else {
+            crate::strings::app_status_loop_candidates(count)
+        };
     }
 
     /// Stores a finished pack volume scan's peaks (keyed by file name) for the Peak
