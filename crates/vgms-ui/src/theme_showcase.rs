@@ -101,6 +101,7 @@ impl ShowcaseState {
                 buckets,
                 start_ms: 90,
                 cursor_ms: 210,
+                trail: Vec::new(),
                 // A marked, actively looping region so the brackets, their solid
                 // flags and the wash are all on screen for the per-theme baseline
                 // to guard. (`loop_overlay` covers the hollow, unapplied flags.)

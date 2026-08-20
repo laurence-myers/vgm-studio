@@ -64,7 +64,7 @@ fn hovering_a_file_shows_the_drop_invitation() {
     assert!(harness.query_by_label("Drop to open").is_none());
 
     harness.input_mut().hovered_files.push(egui::HoveredFile {
-        path: Some(std::path::PathBuf::from("C:/songs/x.dro")),
+        path: Some(PathBuf::from("C:/songs/x.dro")),
         mime: String::new(),
     });
     harness.run_steps(1);

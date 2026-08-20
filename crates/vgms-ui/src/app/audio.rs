@@ -127,6 +127,9 @@ impl VgmStudioApp {
     pub(super) fn reset_playback_start(&mut self) {
         self.waveform.start_ms = 0;
         self.waveform.cursor_ms = 0;
+        // The afterglow belongs to the old document's playback; a fresh song
+        // starts with a clean screen.
+        self.waveform.trail.clear();
         self.position.set_position_ms(0);
         self.audio.rewind();
     }

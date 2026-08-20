@@ -10,6 +10,10 @@
 //! - Hovering also shows the snapped time as a tooltip.
 //! - A time scale runs along the bottom edge: a tick and an MM:SS label at
 //!   each multiple of a round step, the step chosen so labels never crowd.
+//! - The playback cursor leaves a phosphor afterglow: its recent positions
+//!   fade behind it, each ghost splitting into a warm and a cool fringe as it
+//!   decays -- a little chromatic aberration, like a bright trace on a worn
+//!   CRT.
 //!
 //! Everything here is denominated in the document's own summed delays -- via
 //! [`TimeSource`], the OPL song's or the whole VGM's -- never the header's
@@ -31,6 +35,12 @@ pub(crate) const NUM_BUCKETS: usize = 768;
 /// Headroom above the tallest bucket.
 const HEADROOM: f32 = 5.0;
 
+/// How long a cursor ghost persists in the afterglow.
+const TRAIL_SECS: f64 = 0.35;
+/// The afterglow's widest chromatic fringe, in points: how far the warm and
+/// cool components of a ghost have drifted apart by the time it dies.
+const TRAIL_FRINGE: f32 = 2.0;
+
 /// The waveform's displayed state, owned by the app.
 #[derive(Debug, Default)]
 pub(crate) struct WaveformState {
@@ -42,6 +52,31 @@ pub(crate) struct WaveformState {
     pub(crate) cursor_ms: u32,
     /// The loop brackets, when there is a region worth showing.
     pub(crate) loop_overlay: Option<LoopOverlay>,
+    /// The cursor's recent positions with the time each was recorded, newest
+    /// last -- the phosphor afterglow. Fed and aged by the playback tick;
+    /// cleared with the cursor on load.
+    pub(crate) trail: Vec<(u32, f64)>,
+}
+
+impl WaveformState {
+    /// Feeds the afterglow: records the cursor's position at `now`, once per
+    /// position. The playback tick calls this while playing.
+    pub(crate) fn record_trail(&mut self, now: f64) {
+        if self
+            .trail
+            .last()
+            .is_none_or(|&(ms, _)| ms != self.cursor_ms)
+        {
+            self.trail.push((self.cursor_ms, now));
+        }
+    }
+
+    /// Ages the afterglow, dropping ghosts past [`TRAIL_SECS`]. Returns whether
+    /// any remain -- the caller keeps the repaints coming while they do.
+    pub(crate) fn prune_trail(&mut self, now: f64) -> bool {
+        self.trail.retain(|&(_, at)| now - at <= TRAIL_SECS);
+        !self.trail.is_empty()
+    }
 }
 
 /// The loop region as the panel needs it: in milliseconds, plus the two facts
@@ -109,6 +144,10 @@ pub(crate) fn show(
         vertical_line(&painter, rect, x, pen, palette.wf_hover);
     }
 
+    // The afterglow goes under the live cursor, so the trace stays crisp on top
+    // of its own decay.
+    draw_afterglow(ui, &painter, rect, &state.trail, total_ms, pen, palette);
+
     let start_x = x_for_ms(rect, state.start_ms, total_ms);
     vertical_line(&painter, rect, start_x, pen, palette.wf_start);
     vertical_line(
@@ -146,6 +185,42 @@ pub(crate) fn show(
         out.modifiers = ui.input(|input| input.modifiers);
     }
     out
+}
+
+/// Draws the cursor's phosphor afterglow: each recent position a fading
+/// vertical in the cursor's own colour, splitting into a warm and a cool
+/// fringe that drift apart as the ghost decays -- the chromatic smear of a
+/// bright trace on a worn CRT. The fade is quadratic, which reads more like a
+/// phosphor than a linear one.
+fn draw_afterglow(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    rect: Rect,
+    trail: &[(u32, f64)],
+    total_ms: u32,
+    pen: f32,
+    palette: &Palette,
+) {
+    if trail.is_empty() {
+        return;
+    }
+    let now = ui.input(|input| input.time);
+    let base = palette.wf_cursor;
+    let warm = Color32::from_rgb(base.r(), base.g() / 3, base.b() / 3);
+    let cool = Color32::from_rgb(base.r() / 3, base.g(), base.b());
+    for &(ms, at) in trail {
+        let age = (((now - at) / TRAIL_SECS) as f32).clamp(0.0, 1.0);
+        let strength = (1.0 - age).powi(2);
+        if strength <= 0.0 {
+            continue;
+        }
+        let x = x_for_ms(rect, ms, total_ms);
+        let alpha = strength * 0.5;
+        let spread = TRAIL_FRINGE * age;
+        vertical_line(painter, rect, x - spread, pen, warm.gamma_multiply(alpha));
+        vertical_line(painter, rect, x + spread, pen, cool.gamma_multiply(alpha));
+        vertical_line(painter, rect, x, pen, base.gamma_multiply(alpha * 0.8));
+    }
 }
 
 /// Height of the marker flags, in points.
@@ -376,6 +451,25 @@ fn vertical_line(painter: &egui::Painter, rect: Rect, x: f32, pen: f32, color: C
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The afterglow records each cursor position once and ages ghosts out
+    /// past [`TRAIL_SECS`].
+    #[test]
+    fn the_trail_records_movement_and_ages_out() {
+        let mut state = WaveformState {
+            cursor_ms: 10,
+            ..WaveformState::default()
+        };
+        state.record_trail(0.0);
+        state.record_trail(0.05);
+        assert_eq!(state.trail.len(), 1, "an unmoved cursor records once");
+        state.cursor_ms = 20;
+        state.record_trail(0.1);
+        assert_eq!(state.trail.len(), 2);
+        assert!(state.prune_trail(0.2), "young ghosts remain");
+        assert!(!state.prune_trail(0.1 + TRAIL_SECS + 0.01), "all aged out");
+        assert!(state.trail.is_empty());
+    }
 
     /// The scale picks the finest round step that keeps labels apart, and
     /// declines to draw at all when nothing fits.

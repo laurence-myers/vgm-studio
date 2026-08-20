@@ -1308,6 +1308,16 @@ impl VgmStudioApp {
             }
         }
         self.was_playing = playing;
+        // The cursor's phosphor afterglow: record its position while playing,
+        // age the ghosts out, and keep the repaints coming while any still glow
+        // (so the trail finishes fading after playback stops).
+        let now = ctx.input(|input| input.time);
+        if playing && self.active_tab == AppTab::Editor {
+            self.waveform.record_trail(now);
+        }
+        if self.waveform.prune_trail(now) {
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
         if self.tasks.is_busy() || self.pack_service.is_busy() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
