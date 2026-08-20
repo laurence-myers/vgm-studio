@@ -8,6 +8,8 @@
 //! - The buckets are true min/max, so the wave is drawn symmetrically around a
 //!   centre line rather than as bars growing from the bottom.
 //! - Hovering also shows the snapped time as a tooltip.
+//! - A time scale runs along the bottom edge: a tick and an MM:SS label at
+//!   each multiple of a round step, the step chosen so labels never crowd.
 //!
 //! Everything here is denominated in the document's own summed delays -- via
 //! [`TimeSource`], the OPL song's or the whole VGM's -- never the header's
@@ -87,6 +89,7 @@ pub(crate) fn show(
     let total_ms = timeline.total_ms();
 
     draw_buckets(&painter, rect, &state.buckets, palette);
+    draw_time_markers(ui, &painter, rect, total_ms, palette);
 
     // Pen width scales with the panel: `width // 768 + 1`.
     let pen = (rect.width() / NUM_BUCKETS as f32 + 1.0).floor();
@@ -210,6 +213,68 @@ fn flag(painter: &egui::Painter, x: f32, top: f32, width: f32, colour: Color32, 
     }
 }
 
+/// Minimum space between two time labels, so the scale never crowds.
+const MARKER_SPACING: f32 = 80.0;
+/// The tick stub each label sits on, up from the bottom edge.
+const TICK_HEIGHT: f32 = 5.0;
+/// The round steps the time scale may use, finest first.
+const MARKER_STEPS: [u32; 12] = [
+    1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000, 900_000,
+    1_800_000,
+];
+
+/// The finest round step that keeps labels at least [`MARKER_SPACING`] apart,
+/// or `None` when even the coarsest would crowd (a very narrow panel) or there
+/// is no duration to divide.
+fn marker_step(total_ms: u32, width: f32) -> Option<u32> {
+    if total_ms == 0 {
+        return None;
+    }
+    MARKER_STEPS
+        .into_iter()
+        .find(|&step| width * (step as f32 / total_ms as f32) >= MARKER_SPACING)
+}
+
+/// Draws the time scale: a tick and an MM:SS label at each multiple of the
+/// round step. Tinted between the background and the wave, like the grid, so
+/// the scale reads as part of the graticule; the start dim and the loop wash
+/// paint over it like everything else.
+fn draw_time_markers(
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    rect: Rect,
+    total_ms: u32,
+    palette: &Palette,
+) {
+    let Some(step) = marker_step(total_ms, rect.width()) else {
+        return;
+    };
+    let colour = lerp_color(palette.wf_bg, palette.wf_wave, 0.55);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    // u64 so a pathological near-u32::MAX duration cannot overflow the walk.
+    let mut ms = u64::from(step);
+    while ms < u64::from(total_ms) {
+        let x = x_for_ms(rect, ms as u32, total_ms);
+        // The last label would jam against the well's right edge; the frame is
+        // scale enough there.
+        if x > rect.right() - MARKER_SPACING * 0.5 {
+            break;
+        }
+        painter.line_segment(
+            [pos2(x, rect.bottom() - TICK_HEIGHT), pos2(x, rect.bottom())],
+            Stroke::new(1.0, colour),
+        );
+        painter.text(
+            pos2(x, rect.bottom() - TICK_HEIGHT),
+            egui::Align2::CENTER_BOTTOM,
+            vgms_core::util::ms_to_timestr(ms as u32),
+            font.clone(),
+            colour,
+        );
+        ms += u64::from(step);
+    }
+}
+
 fn draw_buckets(
     painter: &egui::Painter,
     rect: Rect,
@@ -306,4 +371,24 @@ fn vertical_line(painter: &egui::Painter, rect: Rect, x: f32, pen: f32, color: C
         [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
         Stroke::new(pen, color),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scale picks the finest round step that keeps labels apart, and
+    /// declines to draw at all when nothing fits.
+    #[test]
+    fn the_time_scale_picks_the_finest_uncrowded_step() {
+        // A minute across 900px: 5s markers sit 75px apart (crowded), 10s fit.
+        assert_eq!(marker_step(60_000, 900.0), Some(10_000));
+        // A short jingle gets one-second markers.
+        assert_eq!(marker_step(8_000, 800.0), Some(1_000));
+        // Nothing to divide: no scale.
+        assert_eq!(marker_step(0, 800.0), None);
+        // A hundred-hour log squeezed into 100px: even the coarsest step
+        // crowds, so the scale stands down rather than smearing labels.
+        assert_eq!(marker_step(100 * 3_600_000, 100.0), None);
+    }
 }
