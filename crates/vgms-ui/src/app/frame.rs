@@ -125,6 +125,21 @@ impl VgmStudioApp {
             .show_separator_line(false)
             .show(ui, |ui| {
                 theme::plate_panel(ui, p, |ui| {
+                    // A brief amber wash over the row when the status text
+                    // changes, so a new message catches the eye. The slot is
+                    // claimed before the row so the wash paints under the text;
+                    // egui's animation drives the decay (and its repaints).
+                    let flash_slot = ui.painter().add(egui::Shape::Noop);
+                    if self.status != self.status_shown {
+                        self.status_shown.clone_from(&self.status);
+                        ui.ctx()
+                            .animate_value_with_time(egui::Id::new("status-flash"), 1.0, 0.0);
+                    }
+                    let flash = ui.ctx().animate_value_with_time(
+                        egui::Id::new("status-flash"),
+                        0.0,
+                        STATUS_FLASH_SECS,
+                    );
                     ui.horizontal(|ui| {
                         // Truncate rather than run off the right edge, and reveal
                         // the whole message on hover -- some statuses (a crop
@@ -134,25 +149,46 @@ impl VgmStudioApp {
                             status.on_hover_text(&self.status);
                         }
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Each busy label carries the spinner, so a long job
+                            // visibly lives (the busy repaint cadence comes from
+                            // `playback_tick`'s 100ms request while tasks run).
+                            let spin = spinner_frame(ui.input(|input| input.time));
                             if self.pack_service.is_busy() {
                                 // The status text names the operation (export or a
                                 // screenshot optimise); this just shows liveness.
-                                ui.label(crate::strings::APP_BUSY_WORKING);
+                                ui.label(format!("{spin} {}", crate::strings::APP_BUSY_WORKING));
                             }
                             // Name the job rather than just "busy": a WAV render can
                             // take a while, and the waveform's own render runs after
                             // every edit.
                             if self.tasks.is_busy_kind(TaskKind::RenderWav) {
-                                ui.label(crate::strings::APP_BUSY_RENDER_WAV);
+                                ui.label(format!("{spin} {}", crate::strings::APP_BUSY_RENDER_WAV));
                             }
                             if self.tasks.is_busy_kind(TaskKind::Split) {
-                                ui.label(crate::strings::APP_STATUS_SPLITTING_CHANNELS);
+                                ui.label(format!(
+                                    "{spin} {}",
+                                    crate::strings::APP_STATUS_SPLITTING_CHANNELS
+                                ));
                             }
                             if self.tasks.is_busy_kind(TaskKind::RenderWaveform) {
-                                ui.label(crate::strings::APP_BUSY_RENDER_WAVEFORM);
+                                ui.label(format!(
+                                    "{spin} {}",
+                                    crate::strings::APP_BUSY_RENDER_WAVEFORM
+                                ));
                             }
                         });
                     });
+                    if flash > 0.0 {
+                        let rect = ui.min_rect().expand2(egui::vec2(0.0, 2.0));
+                        ui.painter().set(
+                            flash_slot,
+                            egui::Shape::rect_filled(
+                                rect,
+                                0.0,
+                                p.latch_bottom.gamma_multiply(flash * 0.25),
+                            ),
+                        );
+                    }
                 });
             });
         let position = audio_panels.then(|| {
@@ -1276,6 +1312,16 @@ impl VgmStudioApp {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
     }
+}
+
+/// How long the status bar's change flash takes to fade.
+const STATUS_FLASH_SECS: f32 = 0.35;
+
+/// The CP437 spinner frame for `time`: a quarter-turn every eighth of a second,
+/// prefixed to the busy labels so a long job visibly lives.
+fn spinner_frame(time: f64) -> char {
+    const FRAMES: [char; 4] = ['-', '\\', '|', '/'];
+    FRAMES[((time * 8.0) as usize) % FRAMES.len()]
 }
 
 /// The drag-over invitation: while the OS hovers a file over the window, tint

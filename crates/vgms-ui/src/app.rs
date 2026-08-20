@@ -334,6 +334,9 @@ pub struct VgmStudioApp {
     volume_field_editing: bool,
     position: PositionPanel,
     channels: ChipPanels,
+    /// The status text as of the last frame, so the status bar can flash when
+    /// it changes. Display-only state; `status` itself stays the truth.
+    status_shown: String,
     /// Whether the selected chip's control panel is unfolded below the chip
     /// strip. Folded by default; the strip (lamps, trims, tabs) always shows,
     /// and folding hides only the controls: mutes, pans and trims keep
