@@ -61,12 +61,9 @@ const SECTIONS: &[Section] = &[
                 "Undo -- the song in the editor, the file edits in pack mode",
             ),
             (Keys::Bound(&[menus::REDO]), "Redo"),
-            (
-                Keys::Bound(&[menus::REDO_ALT]),
-                "Redo (the other convention)",
-            ),
+            (Keys::Bound(&[menus::REDO_ALT]), "Redo"),
             (Keys::Bound(&[menus::HELP]), "This dialog"),
-            (Keys::Text("Esc"), "Close the dialog on screen"),
+            (Keys::Text("Esc"), "Close the open dialog"),
         ],
     },
     Section {
@@ -80,19 +77,19 @@ const SECTIONS: &[Section] = &[
             ),
             (
                 Keys::Text("Shift+1 - 9"),
-                "Mute or unmute channels 10 to 18 (chips with more)",
+                "Mute or unmute channels 10 to 18",
             ),
             (
                 Keys::Text("Right-click a channel"),
-                "Solo it (again to bring the rest back)",
+                "Solo it; right-click again to restore the rest",
             ),
             (
                 Keys::Text("Click a chip's lamp"),
-                "Mute or unmute that whole chip, whatever its core",
+                "Mute or unmute the whole chip",
             ),
             (
                 Keys::Text("Right-click a chip's lamp"),
-                "Solo just this chip (again to bring the rest back); unmutes it too",
+                "Solo the chip and unmute it; right-click again to restore the rest",
             ),
             (
                 Keys::Text("Right-click / double-click a chip's knob"),

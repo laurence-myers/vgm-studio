@@ -2169,7 +2169,7 @@ fn cancelling_the_export_save_says_so_rather_than_reading_as_done() {
     harness.run_steps(4);
     let status = harness.state().status.clone();
     assert!(
-        status.contains("cancelled") && status.contains("not saved"),
+        status.contains("cancelled"),
         "a cancelled export must not read as a finished one, got {status:?}"
     );
 }

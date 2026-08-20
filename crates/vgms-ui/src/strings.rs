@@ -29,8 +29,7 @@ pub(crate) const APP_MISMATCH_ADVICE_V1: &str =
 pub(crate) const APP_MISMATCH_ADVICE_V2: &str = "Please enable \"Allow editing in DRO Info\" in the\n\
                                           Settings dialog, then edit the song length on\n\
                                           the DRO Info screen.";
-pub(crate) const APP_NOTHING_MARKED: &str =
-    "Mark a region first -- the loop markers cover the whole song.";
+pub(crate) const APP_NOTHING_MARKED: &str = "Mark a loop region first.";
 pub(crate) const APP_TARGET_ANY_DELAY: &str = "a delay";
 pub(crate) const APP_TARGET_ANY_WRITE: &str = "a register write";
 pub(crate) const APP_TARGET_BANK_SWITCH: &str = "a bank switch";
@@ -73,7 +72,7 @@ pub(crate) const APP_STATUS_PACKAGE_SAVE_FAILED: &str =
     "Some package files could not be saved; changes kept.";
 pub(crate) const APP_STATUS_PACKAGE_SAVED: &str = "Saved the package .txt and .m3u.";
 pub(crate) const APP_MSG_SAVE_CANCELLED: &str = "The save was cancelled.";
-pub(crate) const APP_STATUS_EXPORT_CANCELLED: &str = "Export cancelled; the zip was not saved.";
+pub(crate) const APP_STATUS_EXPORT_CANCELLED: &str = "Export cancelled.";
 pub(crate) const APP_STATUS_DROP_SINGLE: &str = "Drop a single file at a time.";
 pub(crate) const APP_STATUS_DROP_DIALOG_OPEN: &str =
     "Close the open dialog before dropping a file.";
@@ -91,8 +90,7 @@ pub(crate) const APP_STATUS_CONVERTED_DRO1: &str = "Successfully converted to DR
 pub(crate) const APP_STATUS_HEADER_AGREES: &str = "The header already agrees with the stream.";
 pub(crate) const APP_STATUS_HEADER_FIXED_ONE: &str = "Corrected 1 header field. Remember to save.";
 pub(crate) const APP_STATUS_ONLY_VGM_OPTIMIZE: &str = "Only VGMs can be optimized";
-pub(crate) const APP_STATUS_NOTHING_TO_OPTIMIZE: &str =
-    "Nothing to optimize -- the VGM is already compact";
+pub(crate) const APP_STATUS_NOTHING_TO_OPTIMIZE: &str = "Nothing to optimize";
 pub(crate) const APP_STATUS_LOOP_RESET: &str = "Loop markers reset to the whole song.";
 pub(crate) const APP_STATUS_LOOP_SEARCH_CANCELLED: &str = "Loop search cancelled.";
 pub(crate) const APP_STATUS_VGM_METADATA_UPDATED: &str = "Updated VGM metadata.";
@@ -117,8 +115,7 @@ pub(crate) const APP_STATUS_SETTINGS_SAVED: &str = "Settings saved.";
 pub(crate) const APP_STATUS_NEEDS_DRO: &str = "This applies to DRO files.";
 pub(crate) const APP_STATUS_NOTHING_TO_PLAY: &str = "There is nothing here this app can play.";
 pub(crate) const APP_STATUS_OPEN_FILE_FIRST: &str = "Please open a file first.";
-pub(crate) const APP_STATUS_HEADER_AGREES_NOTHING: &str =
-    "The header agrees with the stream; nothing to fix.";
+pub(crate) const APP_STATUS_HEADER_AGREES_NOTHING: &str = "The header agrees with the stream.";
 pub(crate) const APP_STATUS_ALREADY_RENDERING: &str = "Already rendering a WAV.";
 pub(crate) const APP_STATUS_RENDERING_WAV: &str = "Rendering to WAV...";
 pub(crate) const APP_STATUS_NOTHING_TO_SPLIT: &str = "There is nothing here to split.";
@@ -150,13 +147,13 @@ pub(crate) const APP_LOOP_CLEARED_BODY: &str =
 pub(crate) const APP_DESC_NOT_PARSED_TITLE: &str = "Description not parsed";
 pub(crate) const APP_NOT_PNG_TITLE: &str = "Not a PNG";
 pub(crate) const APP_NOT_VGM_TITLE: &str = "Not a VGM";
-pub(crate) const APP_NOT_VGM_BODY: &str = "Only a VGM file stores loop points. Convert the song to VGM first \
-                                    (File > Convert > Convert to VGM).";
+pub(crate) const APP_NOT_VGM_BODY: &str =
+    "Convert the song to VGM first (File > Convert > Convert to VGM) to store loop points.";
 pub(crate) const APP_SONGS_EXPORTED_TITLE: &str = "Songs exported";
 pub(crate) const APP_FIX_HEADER_TITLE: &str = "Fix Header";
 pub(crate) const APP_AUDIT_HEADER_INTRO: &str =
     "This file's header disagrees with its own music:\n\n";
-pub(crate) const APP_AUDIT_HEADER_OUTRO: &str = "\nCorrect them? The stream is taken as the truth.";
+pub(crate) const APP_AUDIT_HEADER_OUTRO: &str = "\nCorrect them to the stream's values?";
 
 pub(crate) fn app_about_text(
     version: impl std::fmt::Display,
@@ -409,7 +406,7 @@ pub(crate) fn app_status_loop_marked(start: usize, end: usize, count: usize) -> 
 }
 
 pub(crate) fn app_status_loop_saved_range(start: usize, end: usize) -> String {
-    format!("Loop saved: {start} - {end}. Other players loop the whole tail until it is trimmed.")
+    format!("Loop saved: {start} - {end}.")
 }
 
 pub(crate) fn app_status_loop_saved_end(start: usize) -> String {
@@ -464,8 +461,7 @@ pub(crate) const PACK_DIRTY_TIP: &str = "The package metadata has unsaved edits"
 pub(crate) const PACK_SCAN_VOLUMES_TIP_SCANNING: &str = "Measuring every track's peak volume...";
 pub(crate) const PACK_SCAN_VOLUMES_TIP: &str = "Measure every track's peak volume (dBFS)";
 pub(crate) const PACK_APPLY_TIP_SCANNED: &str = "Write volume modifiers to each track";
-pub(crate) const PACK_APPLY_TIP_UNSCANNED: &str =
-    "Scan volumes first -- there is no peak to level from yet";
+pub(crate) const PACK_APPLY_TIP_UNSCANNED: &str = "Scan volumes first";
 pub(crate) const PACK_ALBUM_TIP: &str =
     "ON: use the loudest track's peak level.\nOFF: use each track's peak level.";
 pub(crate) const PACK_BULK_TAG_TIP: &str = "Write shared GD3 fields (game, system, composer\u{2026}) to many tracks at \
@@ -483,16 +479,15 @@ pub(crate) const PACK_READINESS_TIP_NONE: &str = "Every submission check passes"
 pub(crate) const PACK_READINESS_TIP_ERROR: &str =
     "This must be fixed before the pack can be exported";
 pub(crate) const PACK_READINESS_TIP_WARNING: &str = "Exporting will ask you to confirm these first";
-pub(crate) const PACK_READINESS_TIP_NOTE: &str = "Worth a look, but nothing here blocks an export";
+pub(crate) const PACK_READINESS_TIP_NOTE: &str = "Notes to review before submitting";
 pub(crate) const PACK_VIEW_CHECKLIST_TIP: &str = "Open the submission checklist";
 pub(crate) const PACK_EXPORT_ZIP_TIP: &str =
     "Build the submission zip (songs, screenshot, description, playlist)";
 pub(crate) const PACK_SAVE_DOCS_TIP: &str = "Write Game Name.txt and Game Name.m3u into the folder";
-pub(crate) const PACK_SAVE_ARCHIVE_TIP: &str =
-    "Save this zip pack: re-export the archive (optimized, gzipped) back to a .zip";
+pub(crate) const PACK_SAVE_ARCHIVE_TIP: &str = "Save the pack back to a .zip (optimized, gzipped)";
 pub(crate) const PACK_OPT_TIP: &str =
-    "Strip redundant register writes from each VGM before packing (vgm_cmp-style)";
-pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export -- the VGMRips convention";
+    "Strip redundant register writes from each VGM before packing";
+pub(crate) const PACK_VGZ_TIP: &str = "Gzip each .vgm to .vgz on export";
 pub(crate) const PACK_CHECKLIST_LINK_TIP: &str = "Click to jump to the fix";
 pub(crate) const PACK_TRACK_READY_TIP: &str = "Ready for submission";
 pub(crate) const PACK_TRACK_UNREADABLE_TIP: &str = "This file could not be read.";
@@ -554,11 +549,11 @@ pub(crate) const SETTINGS_OUTPUT_CORE_HOVER: &str =
 pub(crate) const SETTINGS_DEVICE_HOVER: &str =
     "The board's serial port. Recognised boards are matched by USB ID.";
 pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Sinc is \
-     band-limited and accurate; linear is aliased but crunchy, like VGMPlay.";
+     band-limited and accurate; linear is aliased but crunchy.";
 pub(crate) const SETTINGS_OPTIMIZER_HOVER: &str = "Which optimiser shrinks a VGM on Edit > Optimize and pack export. \
      Automatic uses the built-in pass where it covers every chip and the \
-     external vgmtools otherwise; built-in only never spawns them; tools \
-     always does.";
+     external vgmtools otherwise; the other choices always use the named \
+     optimiser.";
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
 pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str = "Frames per audio callback. Smaller seeks and mutes sooner; larger \
      avoids dropouts.";
@@ -582,20 +577,19 @@ pub(crate) const SPLIT_SONG_HOVER: &str = "Rewrite each channel into its own VGM
 pub(crate) const SPLIT_SKIPPED_NOTE: &str =
     "Silent channels are skipped; existing files are overwritten.";
 pub(crate) const SPLIT_MIX_APPLY: &str = "Apply to each stem:";
-pub(crate) const SPLIT_SKIP_MUTED_HOVER: &str =
-    "Leave out the channels you have muted, splitting only the rest";
+pub(crate) const SPLIT_SKIP_MUTED_HOVER: &str = "Leave out the muted channels";
 pub(crate) const SPLIT_PANNING_HOVER: &str = "Place each stem where its channel's pan knob is set";
 pub(crate) const SPLIT_BOOST_HOVER: &str = "Drive each stem through the peak limiter";
 pub(crate) const SPLIT_CORE: &str = "Core for this split:";
-pub(crate) const SPLIT_CORE_HOVER: &str = "The core to render each channel with, starting from your Settings choice. This split \
-     only -- playback and your saved settings are untouched.";
+pub(crate) const SPLIT_CORE_HOVER: &str =
+    "The core to render each channel with, for this split only";
 
 // ============================================================================
 // dialogs/split_songs.rs
 // ============================================================================
 
 pub(crate) const SPLIT_SONGS_PREVIEW_UNAVAILABLE: &str =
-    "No core for this file's chips yet -- can't audition, but export still works.";
+    "No core for this file's chips yet; export still works.";
 pub(crate) const SPLIT_SONGS_GAP_EXPLAIN: &str =
     "Songs are split where the capture goes silent for at least this long.";
 pub(crate) const SPLIT_SONGS_TAIL_HOVER: &str =
@@ -639,8 +633,7 @@ pub(crate) const RENDER_WAV_BOOST_HOVER: &str = "Drive the signal through the pe
 pub(crate) const RENDER_WAV_FREQ_NOTE: &str = "Frequency and bit depth: see Settings.";
 pub(crate) const RENDER_WAV_INVALID_TITLE: &str = "Invalid boost";
 pub(crate) const RENDER_WAV_CORE: &str = "Core for this render:";
-pub(crate) const RENDER_WAV_CORE_HOVER: &str = "The core to render with, starting from your Settings choice. This render only -- \
-     playback and your saved settings are untouched.";
+pub(crate) const RENDER_WAV_CORE_HOVER: &str = "The core to render with, for this render only";
 
 pub(crate) fn render_wav_boost_range(min: f32, max: f32) -> String {
     format!("{min}x to {max}x")
@@ -675,10 +668,9 @@ pub(crate) const FIND_LOOP_APPLY_VGM_ONLY_HINT: &str = "Only VGM files store loo
 pub(crate) const FIND_LOOP_SEARCHING: &str = "Searching...";
 pub(crate) const FIND_LOOP_NONE_FOUND: &str = "No loops found. Try a shorter minimum length.";
 pub(crate) const FIND_LOOP_PROMPT: &str = "Click Search to look for loop points.";
-pub(crate) const FIND_LOOP_QUALITY_IDEAL: &str =
-    "ends at the song's end and is a clean repeat -- the ideal loop";
+pub(crate) const FIND_LOOP_QUALITY_IDEAL: &str = "a clean repeat running to the song's end";
 pub(crate) const FIND_LOOP_QUALITY_TO_END: &str = "the repeat runs to the end of the song";
-pub(crate) const FIND_LOOP_QUALITY_CLEAN: &str = "a clean repeat, but not at the song's end";
+pub(crate) const FIND_LOOP_QUALITY_CLEAN: &str = "a clean repeat ending before the song's end";
 pub(crate) const FIND_LOOP_QUALITY_PARTIAL: &str = "a partial or overlapping repeat";
 
 pub(crate) fn find_loop_searching_count(found: usize) -> String {
@@ -739,7 +731,8 @@ pub(crate) fn bulk_tag_selected_count(selected: usize, total: usize) -> String {
 // dialogs/unwalkable_vgm.rs
 // ============================================================================
 
-pub(crate) const UNWALKABLE_VGM_BODY: &str = "Can't read this file's command stream, so there are no rows. Open the folder as a pack to edit its tags.";
+pub(crate) const UNWALKABLE_VGM_BODY: &str =
+    "Can't read this file's command stream. Open the folder as a pack to edit its tags.";
 pub(crate) const UNWALKABLE_VGM_OPEN_PACK_HINT: &str = "Pack mode can edit this file's tags";
 
 // ============================================================================
@@ -792,19 +785,18 @@ pub(crate) const CHANNELS_SPREAD: &str = "Stereo width: centred is mono; turn ei
 // ============================================================================
 
 pub(crate) const CHIP_CHANNELS_CUSTOM: &str = "Pan with the knobs (off: the chip's own image)";
-pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel (panning is left alone)";
+pub(crate) const CHIP_CHANNELS_UNMUTE_ALL: &str = "Unmute every channel";
 pub(crate) const CHIP_CHANNELS_RESET: &str = "Reset panning to the chip's own image";
 
-pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str = "This chip's core can't mute individual channels. Pick the libvgm core for it in Settings > Output to enable muting.";
+pub(crate) const CHIP_CHANNELS_MUTE_UNAVAILABLE: &str =
+    "To mute individual channels, pick this chip's libvgm core in Settings > Output.";
 
 /// The chip lamp's hover text, one per play state. Left-click mutes the whole
 /// chip, right-click solos it, on every core.
 pub(crate) const CHIP_LAMP_PLAYING: &str =
     "Playing. Click to mute this whole chip; right-click to solo it.";
-pub(crate) const CHIP_LAMP_MUTED: &str =
-    "Muted. Click to unmute; right-click to solo. The channel toggles keep their pattern.";
-pub(crate) const CHIP_LAMP_SOLOED: &str =
-    "Soloed -- the only chip you hear. Right-click again to unsolo; click to mute.";
+pub(crate) const CHIP_LAMP_MUTED: &str = "Muted. Click to unmute; right-click to solo.";
+pub(crate) const CHIP_LAMP_SOLOED: &str = "Soloed. Right-click to unsolo; click to mute.";
 pub(crate) const CHIP_LAMP_SILENCED: &str =
     "Silenced by another chip's solo. Right-click to solo this one instead; click to mute it.";
 
@@ -822,8 +814,7 @@ pub(crate) const BOOST_STEPPER_LOCK_OFF: &str = "Each song starts from its heade
      this volume across songs.";
 pub(crate) const BOOST_STEPPER_QUIETER: &str = "Quieter";
 pub(crate) const BOOST_STEPPER_LOUDER: &str = "Louder";
-pub(crate) const BOOST_STEPPER_AT_LIMIT: &str =
-    "At this song's clipping limit -- lower the volume to go quieter";
+pub(crate) const BOOST_STEPPER_AT_LIMIT: &str = "At this song's clipping limit";
 pub(crate) const BOOST_STEPPER_MEASURING: &str = "Measuring the song's peak...";
 pub(crate) const BOOST_STEPPER_MATCH: &str =
     "Set the volume to bring the song's peak to full scale.";
@@ -915,17 +906,16 @@ pub(crate) const CHIP_OUTPUT_OPL_COMBINED: &str = "Combined";
 pub(crate) const CHIP_OUTPUT_OPL_SEPARATE: &str = "Separate";
 pub(crate) const CHIP_OUTPUT_OPL_COMBINED_HOVER: &str =
     "Use one core for the whole OPL family (OPL2 and OPL3).";
-pub(crate) const CHIP_OUTPUT_OPL_SEPARATE_HOVER: &str = "Give the OPL2-generation chips (OPL2, \
-     YM3526, Y8950) their own core \u{2014} e.g. the YM3812 die simulation \u{2014} while OPL3 \
-     keeps its own. Hardware output stays a whole-family choice on the OPL3 selector.";
+pub(crate) const CHIP_OUTPUT_OPL_SEPARATE_HOVER: &str = "One core for the OPL2-generation chips \
+     (OPL2, YM3526, Y8950), another for OPL3. Hardware output follows the OPL3 selector for \
+     the whole family.";
 // The picker legend: what the accuracy badge and the speed word mean.
 pub(crate) const CHIP_OUTPUT_LEGEND: &str = "What the labels mean";
 pub(crate) const CHIP_OUTPUT_LEGEND_ACCURACY: &str = "Accuracy";
 pub(crate) const CHIP_OUTPUT_LEGEND_SPEED: &str = "Speed";
 pub(crate) const SETTINGS_AUTO_SELECT: &str = "Auto-select cores";
 pub(crate) const SETTINGS_AUTO_SELECT_HOVER: &str = "Set every chip to its most authentic core \
-     that still holds realtime on this machine \u{2014} die simulations included, the day the \
-     machine measures fast enough. Hardware output is never chosen for you.";
+     that still holds realtime on this machine.";
 // The speed measurement is native-only (it needs a wall clock and a thread),
 // so its labels would be dead code in a wasm build.
 #[cfg(not(target_arch = "wasm32"))]
@@ -935,9 +925,8 @@ pub(crate) const SETTINGS_MEASURING: &str = "Measuring\u{2026}";
 /// The Measure button hover, with the last result appended once measured.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn settings_measure_hover(measured: Option<f32>) -> String {
-    let base = "Render a moment of audio through two probe cores to measure this machine \
-         against the project's reference machine. Takes about a second; sharpens every \
-         core-speed estimate.";
+    let base = "Render a short probe to measure this machine against the reference machine. \
+         Takes about a second; sharpens every core-speed estimate.";
     match measured {
         Some(ratio) => format!("{base} This machine measured at {ratio:.2}\u{d7} the reference."),
         None => base.to_owned(),

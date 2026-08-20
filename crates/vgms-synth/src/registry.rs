@@ -106,7 +106,7 @@ impl CoreTier {
             Self::Behavioural => "A model of the chip's sound. Fast and accurate for music.",
             Self::Cycle => "A model checked against the real chip, cycle by cycle.",
             Self::DieSim => "The decapped chip itself, simulated gate by gate. The reference.",
-            Self::Hardware => "A real chip on a board. Not emulation.",
+            Self::Hardware => "A real chip on a board.",
         }
     }
 }

@@ -245,7 +245,7 @@ fn the_region_edits_need_a_region_to_act_on() {
         assert_eq!(state.editor.len(), len);
         assert!(!state.editor.can_undo());
         assert!(
-            state.status.starts_with("Mark a region first"),
+            state.status.starts_with("Mark a loop region first"),
             "{}",
             state.status
         );
@@ -339,9 +339,8 @@ fn applying_a_loop_writes_the_vgm_metadata() {
     assert!((2..len).contains(&stored), "a real region, got {stored}");
     assert_eq!(harness.state().editor.markers.end(), stored);
     assert!(!harness.state().editor.loop_markers_are_unapplied());
-    // The end stops short of the tail, so the status says what that means.
     assert!(
-        harness.state().status.contains("trimmed"),
+        harness.state().status.starts_with("Loop saved:"),
         "status was {:?}",
         harness.state().status
     );
