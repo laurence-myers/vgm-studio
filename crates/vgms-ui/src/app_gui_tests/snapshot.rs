@@ -233,7 +233,7 @@ fn a_generic_chips_pan_knobs_are_shown_before_custom_and_go_live_with_it() {
 
     // Shown under Original, and inert: a drag pushes no panning at all.
     let knob = harness.get_by_label("Tone 1").rect().center();
-    drag_by(&mut harness, knob, egui::vec2(-200.0, 0.0));
+    drag_knob(&mut harness, knob, -200.0);
     assert!(
         handles.audio.borrow().chip_pannings.is_empty(),
         "an Original-mode knob must not move the output"
@@ -242,7 +242,7 @@ fn a_generic_chips_pan_knobs_are_shown_before_custom_and_go_live_with_it() {
     harness.get_by_label("Custom").click();
     harness.run();
     let knob = harness.get_by_label("Tone 1").rect().center();
-    drag_by(&mut harness, knob, egui::vec2(-200.0, 0.0));
+    drag_knob(&mut harness, knob, -200.0);
 
     let audio = handles.audio.borrow();
     let last = audio
@@ -273,7 +273,7 @@ fn spread_and_reset_pan_a_generic_chip_like_the_opl_panel() {
     harness.run();
 
     let spread = harness.get_by_label("Spread").rect().center();
-    drag_by(&mut harness, spread, egui::vec2(200.0, 0.0));
+    drag_knob(&mut harness, spread, 200.0);
     {
         let audio = handles.audio.borrow();
         let last = audio
@@ -369,9 +369,9 @@ fn dragging_a_chip_trim_knob_pushes_the_attenuation() {
     let (mut harness, handles) = build(Some(mega_drive_vgm_file()), false, false);
     harness.run();
 
-    // Drag the SN76489's level knob down (left lowers, as on the pan knobs).
+    // Turn the SN76489's level knob anticlockwise, which lowers it.
     let knob = harness.get_by_label("SN76489 level").rect().center();
-    drag_by(&mut harness, knob, egui::vec2(-30.0, 0.0));
+    drag_knob(&mut harness, knob, -60.0);
 
     let audio = handles.audio.borrow();
     let last = audio.chip_trims.last().expect("a chip trim was pushed");
@@ -395,7 +395,7 @@ fn right_clicking_a_chip_trim_knob_resets_it_to_unity() {
     harness.run();
 
     let knob = harness.get_by_label("SN76489 level").rect().center();
-    drag_by(&mut harness, knob, egui::vec2(-40.0, 0.0));
+    drag_knob(&mut harness, knob, -60.0);
     assert!(
         handles
             .audio
@@ -499,7 +499,7 @@ fn dragging_the_opl_trim_knob_pushes_the_attenuation() {
     harness.run();
 
     let knob = harness.get_by_label("YM3812 level").rect().center();
-    drag_by(&mut harness, knob, egui::vec2(-30.0, 0.0));
+    drag_knob(&mut harness, knob, -60.0);
 
     let audio = handles.audio.borrow();
     let last = audio.chip_trims.last().expect("a chip trim was pushed");

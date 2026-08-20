@@ -244,14 +244,27 @@ fn other_chip_vgm_file() -> PickedFile {
     }
 }
 
-/// Drags the widget centred at `from` by `delta`, in the three steps the
-/// harness needs (press, move, release).
-fn drag_by(harness: &mut Harness<'static, VgmStudioApp>, from: egui::Pos2, delta: egui::Vec2) {
-    harness.drag_at(from);
+/// Turns a knob centred at `center` with the circular gesture the widget reads:
+/// press on the knob, sweep the pointer `degrees` clockwise (negative for
+/// anticlockwise) along a circle around it, release. One full 270-degree sweep
+/// spans the knob's whole range, so +/-200 degrees clamps to an extreme.
+fn drag_knob(harness: &mut Harness<'static, VgmStudioApp>, center: egui::Pos2, degrees: f32) {
+    const RADIUS: f32 = 30.0;
+    let at = |deg: f32| {
+        // Degrees clockwise from 12 o'clock, in egui's y-down space.
+        let t = (deg - 90.0).to_radians();
+        center + egui::vec2(t.cos() * RADIUS, t.sin() * RADIUS)
+    };
+    harness.drag_at(center);
     harness.run();
-    harness.hover_at(from + delta);
-    harness.run();
-    harness.drop_at(from + delta);
+    // Sub-half-turn hops, so each per-frame sweep reads as the short arc.
+    let steps = (degrees.abs() / 45.0).ceil().max(1.0) as usize;
+    for i in 0..=steps {
+        let deg = degrees * (i as f32 / steps as f32);
+        harness.hover_at(at(deg));
+        harness.run();
+    }
+    harness.drop_at(at(degrees));
     harness.run();
 }
 

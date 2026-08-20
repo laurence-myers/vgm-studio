@@ -34,20 +34,15 @@ fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
     harness.run();
     let mutings_before = handles.audio.borrow().mutings.len();
 
-    // Drag channel 1's knob far to the left: the relative mapping clamps it hard
-    // left regardless of the exact per-frame split.
+    // Turn channel 1's knob well past a full anticlockwise sweep: the turn
+    // clamps it hard left regardless of the exact per-frame split.
     let center = harness.get_by_label("FM 1").rect().center();
-    harness.drag_at(center);
-    harness.run();
-    harness.hover_at(center - egui::vec2(200.0, 0.0));
-    harness.run();
-    harness.drop_at(center - egui::vec2(200.0, 0.0));
-    harness.run();
+    drag_knob(&mut harness, center, -200.0);
 
     let audio = handles.audio.borrow();
     match audio.pannings.last().expect("a panning was pushed") {
         vgms_synth::Panning::Custom(pans) => {
-            assert_eq!(pans[0], 0x00, "channel 1 dragged hard left");
+            assert_eq!(pans[0], 0x00, "channel 1 turned hard left");
             assert_eq!(pans[1], 0x80, "channel 2 stays centred");
         }
         other => panic!("expected Custom panning, got {other:?}"),
@@ -60,20 +55,15 @@ fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
 }
 
 #[test]
-fn pan_knob_drag_up_pans_left_like_dragging_left() {
+fn pan_knob_partial_anticlockwise_turn_pans_partway_left() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.get_by_label("Custom").click();
     harness.run();
 
-    // Dragging a knob straight up pans it hard left, exactly as dragging left
-    // does: the vertical axis feeds the same relative mapping.
+    // A partial anticlockwise turn pans left by the swept fraction of the
+    // 270-degree range, without reaching the hard-left clamp.
     let center = harness.get_by_label("FM 1").rect().center();
-    harness.drag_at(center);
-    harness.run();
-    harness.hover_at(center - egui::vec2(0.0, 200.0));
-    harness.run();
-    harness.drop_at(center - egui::vec2(0.0, 200.0));
-    harness.run();
+    drag_knob(&mut harness, center, -60.0);
 
     match handles
         .audio
@@ -83,7 +73,11 @@ fn pan_knob_drag_up_pans_left_like_dragging_left() {
         .expect("a panning was pushed")
     {
         vgms_synth::Panning::Custom(pans) => {
-            assert_eq!(pans[0], 0x00, "channel 1 dragged straight up = hard left");
+            assert!(
+                pans[0] < 0x80 && pans[0] > 0x00,
+                "a 60-degree turn pans partway left, got {:#04x}",
+                pans[0]
+            );
             assert_eq!(pans[1], 0x80, "channel 2 stays centred");
         }
         other => panic!("expected Custom panning, got {other:?}"),
@@ -133,15 +127,10 @@ fn dual_opl2_original_pans_hard_left_and_right() {
 fn spread_knob_spreads_the_pans_and_engages_custom() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
-    // Drag the Spread knob to the right: a positive spread leans even channels
+    // Turn the Spread knob clockwise: a positive spread leans even channels
     // left, odd channels right, and engages Custom so the knobs go live.
     let center = harness.get_by_label("Spread").rect().center();
-    harness.drag_at(center);
-    harness.run();
-    harness.hover_at(center + egui::vec2(200.0, 0.0));
-    harness.run();
-    harness.drop_at(center + egui::vec2(200.0, 0.0));
-    harness.run();
+    drag_knob(&mut harness, center, 200.0);
 
     match handles
         .audio

@@ -29,17 +29,12 @@ use crate::theme::{Palette, deck_stops, pad_caps};
 pub(crate) const SIZE: f32 = 20.0;
 /// The centred pan value.
 const CENTER: u8 = 0x80;
-/// Half-width of the snap-to-centre band, in pan units. At [`DRAG_UNITS_PER_POINT`]
-/// per point that is ~2 points of travel to escape the detent.
+/// Half-width of the snap-to-centre band, in pan units: a few degrees of turn to
+/// escape the detent.
 const SNAP_BAND: u8 = 8;
-/// Pan units moved per point of horizontal drag: ~64 points spans the full range,
-/// regardless of the knob's on-screen size.
-const DRAG_UNITS_PER_POINT: f32 = 4.0;
 /// The dot's angular sweep from hard left to hard right (270 degrees).
 const SWEEP: f32 = 1.5 * std::f32::consts::PI;
 
-/// Spread units moved per point of drag: ~128 points spans the full `-1..=1`.
-const SPREAD_UNITS_PER_POINT: f32 = 1.0 / 64.0;
 /// Half-width of the snap-to-mono band, in spread units.
 const SPREAD_SNAP: f32 = 0.06;
 
@@ -47,26 +42,97 @@ const SPREAD_SNAP: f32 = 0.06;
 /// untouched. Mirrors [`vgms_synth::ChipTrims`]'s full; the widget keeps its own
 /// so it stays a plain `0..=100` control.
 const TRIM_FULL: u8 = 100;
-/// Trim percent moved per point of drag: ~64 points spans the full `0..=100`%,
-/// matching the pan knob's feel.
-const TRIM_UNITS_PER_POINT: f32 = 100.0 / 64.0;
+/// Half-width of the snap-to-full band, in trim percent: nudging the trim near
+/// the top settles it at exactly 100%.
+const TRIM_SNAP: u8 = 3;
 /// The angle of the trim arc's 0% end: 7:30, the same corner hard-left pan
 /// reaches. The lit arc fills from here to the value, so 100% is a full ring.
 const TRIM_MIN_ANGLE: f32 = -SWEEP / 2.0;
 
-/// The new raw pan after a drag of `dx` (rightward) and `dy` (downward) points
-/// from `raw`, clamped to `0..=255`. Right and down both pan right; left and up
-/// both pan left -- the two axes add, so the knob answers whichever way you drag.
-fn drag_value(raw: f32, dx: f32, dy: f32) -> f32 {
-    (raw + (dx + dy) * DRAG_UNITS_PER_POINT).clamp(0.0, 255.0)
+/// Radius around the knob centre, in points, inside which the pointer's angle is
+/// too unstable to read; motion there sweeps nothing.
+const GESTURE_DEADZONE: f32 = 6.0;
+/// How much Shift slows a gesture, for fine adjustment. Shift also lifts the
+/// snap detents, so a fine turn can settle anywhere.
+const FINE_FACTOR: f32 = 5.0;
+/// Fraction of the full range one point of scroll moves: a ~50-point wheel notch
+/// steps 10% of the range.
+const SCROLL_FRACTION_PER_POINT: f32 = 0.1 / 50.0;
+
+/// The angle the pointer swept around `center` moving from `prev` to `cur`, in
+/// radians, clockwise positive (egui's y grows downward). The shortest arc, so
+/// any per-frame jump under a half-turn reads correctly; motion inside
+/// [`GESTURE_DEADZONE`] sweeps nothing.
+fn swept_angle(center: Pos2, prev: Pos2, cur: Pos2) -> f32 {
+    let a = prev - center;
+    let b = cur - center;
+    if a.length() < GESTURE_DEADZONE || b.length() < GESTURE_DEADZONE {
+        return 0.0;
+    }
+    (a.x * b.y - a.y * b.x).atan2(a.x * b.x + a.y * b.y)
 }
 
-/// The new raw trim after a drag of `dx` (rightward) and `dy` (downward) points
-/// from `raw`, clamped to `0..=100`. The axes add exactly as the pan knob's do,
-/// so the trim answers a drag identically to the pan knobs beside it: right or
-/// down raises the level, left or up lowers it.
-fn trim_drag_value(raw: f32, dx: f32, dy: f32) -> f32 {
-    (raw + (dx + dy) * TRIM_UNITS_PER_POINT).clamp(0.0, f32::from(TRIM_FULL))
+/// Applies this frame's knob gestures to the continuous raw value the widget
+/// keeps in per-widget memory, returning the new raw while an input moved it.
+///
+/// - **Drag**: the pointer's swept angle around the knob turns it -- clockwise
+///   raises, anticlockwise lowers -- scaled so one full 270-degree sweep spans
+///   `min..=max`, at any drag radius.
+/// - **Wheel**: hovering and scrolling steps the value (up raises).
+/// - **Shift** slows either gesture by [`FINE_FACTOR`].
+///
+/// The raw accumulates un-snapped, so a caller's detent can hold the *output*
+/// without the gesture sticking there.
+fn gesture(
+    ui: &mut Ui,
+    response: &Response,
+    center: Pos2,
+    current: f32,
+    min: f32,
+    max: f32,
+) -> Option<f32> {
+    let range = max - min;
+    if response.drag_started() {
+        ui.data_mut(|d| d.insert_temp(response.id, current));
+    }
+    let fine = ui.input(|i| i.modifiers.shift);
+    let mut moved = None;
+    if response.dragged()
+        && let Some(pos) = response.interact_pointer_pos()
+    {
+        let prev = pos - response.drag_delta();
+        let mut swept = swept_angle(center, prev, pos);
+        if fine {
+            swept /= FINE_FACTOR;
+        }
+        let raw = ui.data_mut(|d| {
+            let seed = d.get_temp::<f32>(response.id).unwrap_or(current);
+            let raw = (seed + swept / SWEEP * range).clamp(min, max);
+            d.insert_temp(response.id, raw);
+            raw
+        });
+        moved = Some(raw);
+    }
+    if response.drag_stopped() {
+        ui.data_mut(|d| d.remove::<f32>(response.id));
+    }
+    if moved.is_none() && response.hovered() {
+        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+        if scroll != 0.0 {
+            let mut step = scroll * SCROLL_FRACTION_PER_POINT * range;
+            if fine {
+                step /= FINE_FACTOR;
+            }
+            moved = Some((current + step).clamp(min, max));
+        }
+    }
+    moved
+}
+
+/// Whether Shift is held: fine-adjust mode, which also lifts the snap detents so
+/// a precise value near one can actually be set.
+fn fine_mode(ui: &Ui) -> bool {
+    ui.input(|i| i.modifiers.shift)
 }
 
 /// The trim marker's angle in radians, clockwise from 12 o'clock: `0` -> -135 deg
@@ -80,6 +146,15 @@ fn trim_angle(percent: u8) -> f32 {
 fn snap_to_center(value: u8) -> u8 {
     if value.abs_diff(CENTER) <= SNAP_BAND {
         CENTER
+    } else {
+        value
+    }
+}
+
+/// Snaps a trim within [`TRIM_SNAP`] of full to exactly 100%.
+fn snap_to_full(value: u8) -> u8 {
+    if value >= TRIM_FULL - TRIM_SNAP {
+        TRIM_FULL
     } else {
         value
     }
@@ -102,11 +177,14 @@ fn dot_angle(value: u8) -> f32 {
 
 /// Draws a pan knob for `value` (`0x00` left .. `0x80` centre .. `0xFF` right).
 ///
-/// When `enabled`, dragging repositions the pan (relative, ~64 points for the
-/// full range, with a snap-to-centre detent): left or up pans left, right or down
-/// pans right. Double-click or right-click recentres. When disabled it is inert and dimmed, showing the pan the policy
-/// implies. `label` names it for accessibility and the headless tests. Returns the
-/// [`Response`]; `response.changed()` is true on the frames the pan moved.
+/// When `enabled`, dragging in a circle around the knob turns it -- clockwise
+/// pans right, anticlockwise pans left, one full 270-degree sweep for the full
+/// range -- and the wheel steps it while hovered. Shift makes either gesture
+/// fine; without Shift a snap-to-centre detent holds. Double-click or
+/// right-click recentres. When disabled it is inert and dimmed, showing the pan
+/// the policy implies. `label` names it for accessibility and the headless
+/// tests. Returns the [`Response`]; `response.changed()` is true on the frames
+/// the pan moved.
 pub(crate) fn show(
     ui: &mut Ui,
     palette: &Palette,
@@ -122,29 +200,21 @@ pub(crate) fn show(
     let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), sense);
 
     if enabled {
-        // The drag tracks a continuous raw value in per-widget memory so the
-        // centre detent can hold the *output* at centre without the drag sticking
+        // The gesture tracks a continuous raw value in per-widget memory so the
+        // centre detent can hold the *output* at centre without the turn sticking
         // there: the raw keeps moving and the output escapes once it leaves the
-        // band.
-        if response.drag_started() {
-            ui.data_mut(|d| d.insert_temp(response.id, f32::from(*value)));
-        }
-        if response.dragged() {
-            let delta = response.drag_delta();
-            let raw = ui.data_mut(|d| {
-                let seed = d.get_temp::<f32>(response.id).unwrap_or(f32::from(*value));
-                let raw = drag_value(seed, delta.x, delta.y);
-                d.insert_temp(response.id, raw);
-                raw
-            });
-            let snapped = snap_to_center(raw.round() as u8);
+        // band. Shift lifts the detent, so a fine turn can settle just off centre.
+        if let Some(raw) = gesture(ui, &response, rect.center(), f32::from(*value), 0.0, 255.0) {
+            let stepped = raw.round() as u8;
+            let snapped = if fine_mode(ui) {
+                stepped
+            } else {
+                snap_to_center(stepped)
+            };
             if snapped != *value {
                 *value = snapped;
                 response.mark_changed();
             }
-        }
-        if response.drag_stopped() {
-            ui.data_mut(|d| d.remove::<f32>(response.id));
         }
         if (response.double_clicked() || response.secondary_clicked()) && *value != CENTER {
             *value = CENTER;
@@ -161,11 +231,13 @@ pub(crate) fn show(
 }
 
 /// Draws the bipolar stereo-spread knob for `spread` (`-1.0` .. `0.0` mono ..
-/// `+1.0`). Dragging right or up widens one way, left or down the other (the
-/// axes add, like the pan knob); double-click or right-click returns to mono.
-/// `label` names it for accessibility and the headless tests. Always live -- a
-/// drag engages Custom panning in the caller. Returns the [`Response`];
-/// `response.changed()` is true on the frames the spread moved.
+/// `+1.0`). Dragging in a circle turns it -- clockwise widens one way,
+/// anticlockwise the other -- and the wheel steps it while hovered; Shift makes
+/// either gesture fine and lifts the snap-to-mono detent. Double-click or
+/// right-click returns to mono. `label` names it for accessibility and the
+/// headless tests. Always live -- a turn engages Custom panning in the caller.
+/// Returns the [`Response`]; `response.changed()` is true on the frames the
+/// spread moved.
 pub(crate) fn show_spread(
     ui: &mut Ui,
     palette: &Palette,
@@ -175,26 +247,17 @@ pub(crate) fn show_spread(
     let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
 
     // A continuous raw value in per-widget memory, so the snap-to-mono detent can
-    // hold the output at 0 without the drag sticking there (as the pan knob does).
-    if response.drag_started() {
-        ui.data_mut(|d| d.insert_temp(response.id, *spread));
-    }
-    if response.dragged() {
-        let delta = response.drag_delta();
-        let raw = ui.data_mut(|d| {
-            let seed = d.get_temp::<f32>(response.id).unwrap_or(*spread);
-            let raw = (seed + (delta.x - delta.y) * SPREAD_UNITS_PER_POINT).clamp(-1.0, 1.0);
-            d.insert_temp(response.id, raw);
+    // hold the output at 0 without the turn sticking there (as the pan knob does).
+    if let Some(raw) = gesture(ui, &response, rect.center(), *spread, -1.0, 1.0) {
+        let snapped = if !fine_mode(ui) && raw.abs() <= SPREAD_SNAP {
+            0.0
+        } else {
             raw
-        });
-        let snapped = if raw.abs() <= SPREAD_SNAP { 0.0 } else { raw };
+        };
         if snapped != *spread {
             *spread = snapped;
             response.mark_changed();
         }
-    }
-    if response.drag_stopped() {
-        ui.data_mut(|d| d.remove::<f32>(response.id));
     }
     if (response.double_clicked() || response.secondary_clicked()) && *spread != 0.0 {
         *spread = 0.0;
@@ -214,35 +277,36 @@ pub(crate) fn show_spread(
 /// Draws the per-chip trim knob for `value` (`0` silent .. `100` the reference
 /// balance). Always live; the lit arc fills from the 0% end (7:30) up to the
 /// value, so the whole ring is lit at the 100% default and pulling a chip down
-/// visibly shortens it. Dragging raises or lowers the level, relative and in the
-/// pan knob's units; double-click or right-click resets to 100%. `label` names it
-/// for accessibility and the headless tests. Returns the [`Response`];
-/// `response.changed()` is true on the frames the trim moved.
+/// visibly shortens it. Dragging in a circle turns it -- clockwise raises,
+/// anticlockwise lowers -- and the wheel steps it while hovered; Shift makes
+/// either gesture fine and lifts the snap-to-full detent. Double-click or
+/// right-click resets to 100%. `label` names it for accessibility and the
+/// headless tests. Returns the [`Response`]; `response.changed()` is true on
+/// the frames the trim moved.
 pub(crate) fn show_trim(ui: &mut Ui, palette: &Palette, value: &mut u8, label: &str) -> Response {
     let (rect, mut response) = ui.allocate_exact_size(vec2(SIZE, SIZE), Sense::click_and_drag());
 
-    // A continuous raw value in per-widget memory, so relative drag accumulates
-    // smoothly across frames as the pan knob's does. No detent: the reset gesture
-    // covers returning to the 100% extreme, so the drag writes the value straight.
-    if response.drag_started() {
-        ui.data_mut(|d| d.insert_temp(response.id, f32::from(*value)));
-    }
-    if response.dragged() {
-        let delta = response.drag_delta();
-        let raw = ui.data_mut(|d| {
-            let seed = d.get_temp::<f32>(response.id).unwrap_or(f32::from(*value));
-            let raw = trim_drag_value(seed, delta.x, delta.y);
-            d.insert_temp(response.id, raw);
-            raw
-        });
+    // A continuous raw value in per-widget memory, so the turn accumulates
+    // smoothly across frames as the pan knob's does. The detent holds the output
+    // at the 100% reference; Shift lifts it for a trim just under full.
+    if let Some(raw) = gesture(
+        ui,
+        &response,
+        rect.center(),
+        f32::from(*value),
+        0.0,
+        f32::from(TRIM_FULL),
+    ) {
         let stepped = raw.round() as u8;
-        if stepped != *value {
-            *value = stepped;
+        let snapped = if fine_mode(ui) {
+            stepped
+        } else {
+            snap_to_full(stepped)
+        };
+        if snapped != *value {
+            *value = snapped;
             response.mark_changed();
         }
-    }
-    if response.drag_stopped() {
-        ui.data_mut(|d| d.remove::<f32>(response.id));
     }
     if (response.double_clicked() || response.secondary_clicked()) && *value != TRIM_FULL {
         *value = TRIM_FULL;
@@ -408,20 +472,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn drag_value_scales_and_clamps() {
-        assert_eq!(drag_value(128.0, 0.0, 0.0), 128.0);
-        assert_eq!(drag_value(128.0, 10.0, 0.0), 128.0 + 40.0); // right: 4 units/point
-        assert_eq!(
-            drag_value(128.0, 0.0, 10.0),
-            128.0 + 40.0,
-            "down pans right"
+    fn swept_angle_reads_the_turn_about_the_centre() {
+        let c = Pos2::new(0.0, 0.0);
+        // A quarter-turn from 12 o'clock to 3 o'clock is clockwise on screen
+        // (y grows downward): +90 degrees.
+        let quarter = swept_angle(c, Pos2::new(0.0, -30.0), Pos2::new(30.0, 0.0));
+        assert!(
+            (quarter - std::f32::consts::FRAC_PI_2).abs() < 1e-4,
+            "clockwise quarter-turn, got {quarter}"
         );
-        assert_eq!(drag_value(128.0, -5.0, 0.0), 128.0 - 20.0, "left pans left");
-        assert_eq!(drag_value(128.0, 0.0, -5.0), 128.0 - 20.0, "up pans left");
-        // The axes add, so a diagonal that cancels leaves the pan put.
-        assert_eq!(drag_value(128.0, 8.0, -8.0), 128.0, "opposed axes cancel");
-        assert_eq!(drag_value(0.0, -5.0, 0.0), 0.0, "clamps at the left");
-        assert_eq!(drag_value(255.0, 5.0, 5.0), 255.0, "clamps at the right");
+        // The same arc the other way is anticlockwise: -90 degrees.
+        let back = swept_angle(c, Pos2::new(30.0, 0.0), Pos2::new(0.0, -30.0));
+        assert!((back + std::f32::consts::FRAC_PI_2).abs() < 1e-4);
+        // The shortest arc, so a jump across the downward axis never reads as
+        // a near-full turn the long way round.
+        let wrap = swept_angle(c, Pos2::new(-10.0, 30.0), Pos2::new(10.0, 30.0));
+        assert!(
+            wrap < 0.0,
+            "crossing 6 o'clock rightward turns anticlockwise"
+        );
+        assert!(wrap.abs() < 1.0, "and by the short arc");
+        // The turn reads the same at any radius.
+        let wide = swept_angle(c, Pos2::new(0.0, -300.0), Pos2::new(300.0, 0.0));
+        assert!((wide - quarter).abs() < 1e-4, "radius-independent");
+    }
+
+    #[test]
+    fn swept_angle_ignores_the_deadzone() {
+        let c = Pos2::new(0.0, 0.0);
+        assert_eq!(
+            swept_angle(c, Pos2::new(0.0, -2.0), Pos2::new(2.0, 0.0)),
+            0.0,
+            "both points inside the deadzone"
+        );
+        assert_eq!(
+            swept_angle(c, c, Pos2::new(30.0, 0.0)),
+            0.0,
+            "a move out from the exact centre sweeps nothing"
+        );
     }
 
     #[test]
@@ -474,23 +562,14 @@ mod tests {
     }
 
     #[test]
-    fn trim_drag_scales_and_clamps() {
-        // Same axes and ~64pt-spans-the-range feel as the pan knob.
-        assert_eq!(trim_drag_value(50.0, 0.0, 0.0), 50.0);
-        assert!(
-            (trim_drag_value(50.0, 6.4, 0.0) - 60.0).abs() < 1e-4,
-            "right raises"
+    fn trim_snaps_to_full_near_the_top() {
+        assert_eq!(snap_to_full(100), 100);
+        assert_eq!(snap_to_full(TRIM_FULL - TRIM_SNAP), 100, "inclusive edge");
+        assert_eq!(
+            snap_to_full(TRIM_FULL - TRIM_SNAP - 1),
+            TRIM_FULL - TRIM_SNAP - 1
         );
-        assert!(
-            (trim_drag_value(50.0, 0.0, 6.4) - 60.0).abs() < 1e-4,
-            "down raises"
-        );
-        assert!(
-            (trim_drag_value(50.0, -6.4, 0.0) - 40.0).abs() < 1e-4,
-            "left lowers"
-        );
-        assert_eq!(trim_drag_value(0.0, -5.0, 0.0), 0.0, "clamps at 0%");
-        assert_eq!(trim_drag_value(100.0, 5.0, 5.0), 100.0, "clamps at 100%");
+        assert_eq!(snap_to_full(0), 0);
     }
 
     #[test]
