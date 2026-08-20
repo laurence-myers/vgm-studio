@@ -92,6 +92,15 @@ const SECTIONS: &[Section] = &[
                 "Solo the chip and unmute it; right-click again to restore the rest",
             ),
             (
+                Keys::Text("Drag a knob in a circle"),
+                "Turn it: clockwise raises, anticlockwise lowers",
+            ),
+            (Keys::Text("Scroll over a knob"), "Step its value"),
+            (
+                Keys::Text("Shift+turn / Shift+scroll"),
+                "Fine adjustment (also lifts the snap detents)",
+            ),
+            (
                 Keys::Text("Right-click / double-click a chip's knob"),
                 "Reset that chip's level to 100%",
             ),
