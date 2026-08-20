@@ -309,6 +309,11 @@ impl ChipPanels {
         // controls below, matching the space above the well.
         ui.add_space(SELECTOR_GAP);
         if !*expanded {
+            // A number-key toggle while folded still mutes, but its pad glow
+            // would otherwise sit armed and flash on a much later unfold.
+            for entry in &mut self.entries {
+                entry.panel.clear_flash();
+            }
             return response;
         }
         let chip = self.selected_chip();

@@ -39,6 +39,9 @@ const ROW: usize = 9;
 /// balance untouched. Mirrors [`vgms_synth::ChipTrims`]'s full.
 const TRIM_FULL: u8 = 100;
 
+/// How long a keyboard-toggled pad's acknowledgment glow takes to fade.
+const FLASH_SECS: f64 = 0.4;
+
 /// Converts a pan byte (`0x00` left .. `0x80` centre .. `0xFF` right) to
 /// libvgm's `-0x100 ..= 0x100` position.
 ///
@@ -89,6 +92,12 @@ pub(crate) struct GenericChannelPanel {
     /// Whether the pan knobs drive the output (Custom) or the chip's own image
     /// does (Original).
     custom: bool,
+    /// A pad to glow briefly: armed when a number key toggles a channel, so the
+    /// keystroke has a visible acknowledgment on the pad it hit. The start time
+    /// is stamped on the first frame the pad draws (the toggle happens outside
+    /// the draw, with no clock in reach); the deck clears it while folded, so a
+    /// stale glow never greets a later unfold.
+    flash: Option<(usize, Option<f64>)>,
 }
 
 impl GenericChannelPanel {
@@ -107,6 +116,7 @@ impl GenericChannelPanel {
             pans: vec![PAN_CENTER; channels.len()],
             spread: 0.0,
             custom: false,
+            flash: None,
         }
     }
 
@@ -218,11 +228,19 @@ impl GenericChannelPanel {
     }
 
     /// Toggles channel `index`, for the number-key shortcuts. Out-of-range
-    /// indices (a key past this chip's channel count) are ignored.
+    /// indices (a key past this chip's channel count) are ignored. Arms the
+    /// pad's acknowledgment glow, so the keystroke is visible on the pad it hit.
     pub(crate) fn toggle_channel(&mut self, index: usize) {
         if let Some(audible) = self.audible.get_mut(index) {
             *audible = !*audible;
+            self.flash = Some((index, None));
         }
+    }
+
+    /// Drops any armed pad glow. The deck calls this while it is folded, so a
+    /// keystroke made then does not flash a pad long after, on unfold.
+    pub(crate) fn clear_flash(&mut self) {
+        self.flash = None;
     }
 
     /// Solo channel `index`: the only audible voice, or everything back if it
@@ -424,6 +442,7 @@ impl GenericChannelPanel {
                 )
             })
             .inner;
+        self.draw_flash(ui, palette, index, response.rect);
         if !mute_supported {
             response.on_disabled_hover_text(crate::strings::CHIP_CHANNELS_MUTE_UNAVAILABLE);
             return false;
@@ -437,11 +456,56 @@ impl GenericChannelPanel {
         }
         changed
     }
+
+    /// The keyboard acknowledgment: a brief amber glow over the pad a number
+    /// key toggled. Stamps its start on the first frame the pad draws, fades
+    /// over [`FLASH_SECS`], and keeps the repaints coming while it lives.
+    fn draw_flash(&mut self, ui: &egui::Ui, palette: &Palette, index: usize, rect: egui::Rect) {
+        let Some((at, started)) = self.flash else {
+            return;
+        };
+        if at != index {
+            return;
+        }
+        let now = ui.input(|input| input.time);
+        let started = started.unwrap_or_else(|| {
+            self.flash = Some((at, Some(now)));
+            now
+        });
+        let age = now - started;
+        if age >= FLASH_SECS {
+            self.flash = None;
+            return;
+        }
+        // A quadratic fade reads more like a phosphor than a linear one.
+        let strength = (1.0 - (age / FLASH_SECS) as f32).powi(2);
+        ui.painter().rect_filled(
+            rect.expand(2.0),
+            egui::CornerRadius::same(3),
+            palette.latch_bottom.gamma_multiply(strength * 0.45),
+        );
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(30));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A keyboard toggle arms the pad glow (unstamped until it first draws);
+    /// the deck's fold-time clear disarms it.
+    #[test]
+    fn a_keyboard_toggle_arms_the_pad_flash() {
+        let mut panel = GenericChannelPanel::new(ChipKind::Sn76489, 0, false);
+        panel.toggle_channel(1);
+        assert_eq!(panel.flash, Some((1, None)));
+        panel.clear_flash();
+        assert_eq!(panel.flash, None);
+        // An out-of-range key toggles nothing and arms nothing.
+        panel.toggle_channel(99);
+        assert_eq!(panel.flash, None);
+    }
 
     #[test]
     fn the_mask_sets_a_bit_per_muted_channel() {
