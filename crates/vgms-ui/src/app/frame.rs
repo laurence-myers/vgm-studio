@@ -260,51 +260,34 @@ impl VgmStudioApp {
                         ui.add_space(PAD);
                         theme::separator_full(ui, p);
                         ui.add_space(PAD);
-                        // Whether the selected chip's pan controls should be
-                        // drawn: for the OPL panel, the output must render
-                        // samples (hardware mixes its own) and the chosen OPL
-                        // core must pan (CQM and OPL2-Lite cannot); for a
-                        // generic chip, its core must pan. Computed before the
-                        // panel's mutable borrow so the closure captures a bool,
-                        // not `self`.
-                        //
-                        // Key off the chip the DRO's OPL type projects to
-                        // (Ym3812 for OPL2/dual, Ymf262 for OPL3), not a fixed
-                        // YMF262: an OPL2-only core (the YM3812 die sim) is not
-                        // registered for the YMF262, so asking about the YMF262
-                        // would resolve to the default OPL3 core and wrongly
-                        // report an OPL2 song pannable.
-                        let opl_projection = self
-                            .editor
-                            .dro_song()
-                            .map_or(vgms_core::vgm::ChipKind::Ymf262, |song| {
-                                vgms_synth::opl_projection_kind(song.playback_opl_type())
-                            });
-                        let opl_can_pan = self.output_renders_samples()
-                            && vgms_synth::registry().pan_capable(opl_projection);
-                        let pan_supported = move |chip: Option<vgms_core::vgm::ChipKind>| match chip
-                        {
-                            None => opl_can_pan,
-                            Some(kind) => vgms_synth::registry().pan_capable(kind),
+                        // The chip mixer deck sits behind a disclosure, folded
+                        // by default. Folding hides only the controls: the mix
+                        // keeps applying, and the header still names the chips.
+                        // CP437 triangles in a clickable muted label, the same
+                        // idiom as the pack view's Hardware disclosure.
+                        let (glyph, tip) = if self.chips_expanded {
+                            ("\u{25BC}", crate::strings::CHIP_DECK_TIP_HIDE)
+                        } else {
+                            ("\u{25BA}", crate::strings::CHIP_DECK_TIP_SHOW)
                         };
-                        // Muting: an OPL document is always mutable (register
-                        // gating); a generic chip only when its resolved core
-                        // honours channel mutes (the Nuked family does not).
-                        let mute_supported =
-                            move |chip: Option<vgms_core::vgm::ChipKind>| match chip {
-                                None => true,
-                                Some(kind) => vgms_synth::registry().mute_capable(kind),
-                            };
-                        // The panel hides its own high bank for a plain OPL2 song.
-                        let channels = self.channels.show(ui, p, pan_supported, mute_supported);
-                        if channels.muting_changed {
-                            actions.push(Action::Mixer(MixerAction::MutingChanged));
+                        let header_text =
+                            crate::strings::chip_deck_header(glyph, &self.channels.summary());
+                        let header = ui
+                            .add(
+                                egui::Label::new(egui::RichText::new(header_text).color(p.muted))
+                                    // Not selectable: selection would swallow
+                                    // the click that folds the deck.
+                                    .selectable(false)
+                                    .sense(egui::Sense::click()),
+                            )
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text(tip);
+                        if header.clicked() {
+                            self.chips_expanded = !self.chips_expanded;
                         }
-                        if channels.panning_changed {
-                            actions.push(Action::Mixer(MixerAction::PanningChanged));
-                        }
-                        if channels.trim_changed {
-                            actions.push(Action::Mixer(MixerAction::TrimChanged));
+                        if self.chips_expanded {
+                            ui.add_space(PAD);
+                            self.chip_deck(ui, p, &mut actions);
                         }
                         ui.add_space(PAD);
                     });
@@ -428,6 +411,55 @@ impl VgmStudioApp {
         // rather than at each of the places any of them can change.
         self.sync_loop_overlay();
         self.playback_tick(&ctx);
+    }
+
+    /// Draws the unfolded chip mixer deck: the selector strip and the selected
+    /// chip's controls, with the capability answers the panels need.
+    fn chip_deck(&mut self, ui: &mut egui::Ui, p: &Palette, actions: &mut Vec<Action>) {
+        // Whether the selected chip's pan controls should be
+        // drawn: for the OPL panel, the output must render
+        // samples (hardware mixes its own) and the chosen OPL
+        // core must pan (CQM and OPL2-Lite cannot); for a
+        // generic chip, its core must pan. Computed before the
+        // panel's mutable borrow so the closure captures a bool,
+        // not `self`.
+        //
+        // Key off the chip the DRO's OPL type projects to
+        // (Ym3812 for OPL2/dual, Ymf262 for OPL3), not a fixed
+        // YMF262: an OPL2-only core (the YM3812 die sim) is not
+        // registered for the YMF262, so asking about the YMF262
+        // would resolve to the default OPL3 core and wrongly
+        // report an OPL2 song pannable.
+        let opl_projection = self
+            .editor
+            .dro_song()
+            .map_or(vgms_core::vgm::ChipKind::Ymf262, |song| {
+                vgms_synth::opl_projection_kind(song.playback_opl_type())
+            });
+        let opl_can_pan =
+            self.output_renders_samples() && vgms_synth::registry().pan_capable(opl_projection);
+        let pan_supported = move |chip: Option<vgms_core::vgm::ChipKind>| match chip {
+            None => opl_can_pan,
+            Some(kind) => vgms_synth::registry().pan_capable(kind),
+        };
+        // Muting: an OPL document is always mutable (register
+        // gating); a generic chip only when its resolved core
+        // honours channel mutes (the Nuked family does not).
+        let mute_supported = move |chip: Option<vgms_core::vgm::ChipKind>| match chip {
+            None => true,
+            Some(kind) => vgms_synth::registry().mute_capable(kind),
+        };
+        // The panel hides its own high bank for a plain OPL2 song.
+        let channels = self.channels.show(ui, p, pan_supported, mute_supported);
+        if channels.muting_changed {
+            actions.push(Action::Mixer(MixerAction::MutingChanged));
+        }
+        if channels.panning_changed {
+            actions.push(Action::Mixer(MixerAction::PanningChanged));
+        }
+        if channels.trim_changed {
+            actions.push(Action::Mixer(MixerAction::TrimChanged));
+        }
     }
 
     // -- frame plumbing ------------------------------------------------------

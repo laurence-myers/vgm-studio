@@ -15,6 +15,42 @@ fn starts_with_placeholder() {
     assert!(handles.tasks.borrow().submitted.is_empty());
 }
 
+/// The chip deck folds behind its disclosure header: folded (the app's
+/// default, asserted in `build_sized`) it draws none of the mixer widgets,
+/// and a click on the header brings them back. Folding leaves the mix itself
+/// untouched.
+#[test]
+fn the_chip_deck_folds_behind_its_disclosure() {
+    let (mut harness, _handles) = harness_with_song(&tone_song());
+    // build() opened the deck for the mixer tests; fold it back to the default.
+    // The extra run() after each change lets the bottom panel re-settle: its
+    // height follows its content with a one-frame lag, and clicking off a
+    // stale accessibility rect would miss the header.
+    harness.state_mut().chips_expanded = false;
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label("YM3812 lamp").is_none(),
+        "a folded deck draws no mixer widgets"
+    );
+
+    harness.get_by_label_contains("Chips:").click();
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label("YM3812 lamp").is_some(),
+        "clicking the header unfolds the deck"
+    );
+
+    harness.get_by_label_contains("Chips:").click();
+    harness.run();
+    harness.run();
+    assert!(
+        harness.query_by_label("YM3812 lamp").is_none(),
+        "a second click folds it again"
+    );
+}
+
 #[test]
 fn e2e_hook_dispatches_actions_and_reports_state() {
     // The web e2e hook (`window.__vgms_e2e`) is a thin JS wrapper over exactly

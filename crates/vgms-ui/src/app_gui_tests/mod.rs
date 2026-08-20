@@ -139,6 +139,19 @@ fn build_sized(
         builder.build_eframe(app_builder)
     };
     harness.run();
+    // The chip deck ships folded -- asserted here so every test guards that
+    // default -- then opened, because the mixer tests drive its widgets. The
+    // fold itself is covered by
+    // `interaction::the_chip_deck_folds_behind_its_disclosure`.
+    assert!(
+        !harness.state().chips_expanded,
+        "the chip deck ships folded"
+    );
+    harness.state_mut().chips_expanded = true;
+    // Twice: the bottom panel's height follows its content with a one-frame
+    // lag, and tests click by (possibly stale) accessibility rects.
+    harness.run();
+    harness.run();
     (harness, handles)
 }
 

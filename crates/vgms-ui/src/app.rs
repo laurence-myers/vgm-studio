@@ -334,6 +334,11 @@ pub struct VgmStudioApp {
     volume_field_editing: bool,
     position: PositionPanel,
     channels: ChipPanels,
+    /// Whether the chip mixer deck is unfolded. Folded by default -- the
+    /// transport is the everyday row -- and folding hides only the controls:
+    /// mutes, pans and trims keep applying, and the number keys still toggle
+    /// the selected chip's channels.
+    chips_expanded: bool,
 
     /// A row the table should scroll into view next frame.
     scroll_to: Option<table::ScrollTo>,

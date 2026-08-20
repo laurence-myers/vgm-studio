@@ -269,6 +269,17 @@ impl ChipPanels {
             .map(|entry| entry.label.as_str())
     }
 
+    /// The chip names joined for the folded deck header ("YM2612 \u{00B7}
+    /// SN76489"), so folding hides the controls but never which chips play.
+    #[must_use]
+    pub(crate) fn summary(&self) -> String {
+        self.entries
+            .iter()
+            .map(|entry| entry.label.as_str())
+            .collect::<Vec<_>>()
+            .join(" \u{00B7} ")
+    }
+
     /// Toggles channel `index` on the *selected* chip's panel -- so the number
     /// keys act on whatever tab is open.
     pub(crate) fn toggle_selected_channel(&mut self, index: usize) {

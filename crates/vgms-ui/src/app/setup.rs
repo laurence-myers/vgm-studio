@@ -46,6 +46,7 @@ impl VgmStudioApp {
             volume_field_editing: false,
             position: PositionPanel::new(initial_frequency),
             channels: ChipPanels::new(),
+            chips_expanded: false,
             scroll_to: None,
             last_first_selected: None,
             audio_revision: None,

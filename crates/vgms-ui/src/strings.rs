@@ -893,6 +893,18 @@ pub(crate) fn waveform_hover(ms: u32) -> String {
 }
 
 // ============================================================================
+// app/frame.rs -- the chip deck disclosure
+// ============================================================================
+
+pub(crate) const CHIP_DECK_TIP_SHOW: &str = "Show the chip mixer";
+pub(crate) const CHIP_DECK_TIP_HIDE: &str = "Hide the chip mixer";
+
+/// The disclosure header: the fold glyph and the chip names.
+pub(crate) fn chip_deck_header(glyph: &str, chips: &str) -> String {
+    format!("{glyph} Chips: {chips}")
+}
+
+// ============================================================================
 // widgets/chip_output.rs
 // ============================================================================
 
