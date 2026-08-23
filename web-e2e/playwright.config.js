@@ -52,6 +52,13 @@ export default defineConfig({
       },
     },
     {
+      // Firefox has no bundled software rasteriser like Chromium's SwiftShader,
+      // so headless CI (no GPU) gives it none and eframe's WebGL2 canvas never
+      // comes up -- the `__vgms_e2e` hook installs inside eframe's creator, so
+      // the specs then time out. The renderer is supplied out-of-band by Mesa's
+      // llvmpipe: the CI job sets `LIBGL_ALWAYS_SOFTWARE=1` for this process.
+      // `webgl.force-enabled` then bypasses the blocklist so the software context
+      // is accepted; `webgl.disabled: false` guards against a headless default.
       name: "firefox",
       use: {
         ...devices["Desktop Firefox"],
@@ -60,6 +67,7 @@ export default defineConfig({
             "media.autoplay.default": 0,
             "media.autoplay.blocking_policy": 0,
             "webgl.force-enabled": true,
+            "webgl.disabled": false,
           },
         },
       },

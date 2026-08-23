@@ -166,8 +166,13 @@ jobs:
       - name: Differential test against the C sources
         run: cargo test -p vgms-synth --features c-parity --test c_parity
 
-  web-e2e:
-    name: web e2e (Playwright)
+  # The e2e work is split so the two browser suites run in parallel: one heavy
+  # job builds the wasm bundle once and publishes target/web-dist as an artifact,
+  # and two lightweight jobs (Chromium, Firefox) each fan out from it, needing
+  # only Node + Playwright. The browser jobs skip the Rust toolchain and the
+  # submodules entirely.
+  web-e2e-build:
+    name: web e2e (build bundle)
     runs-on: ubuntu-latest
 
     steps:
@@ -196,6 +201,40 @@ jobs:
         shell: pwsh
         run: ./tools/build-web.ps1 -E2e -SkipWasiTools
 
+      # The servable bundle is all the browser suites need; publish it so both
+      # download it instead of rebuilding the wasm.
+      - name: Upload the web bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-dist
+          path: target/web-dist
+          retention-days: 1
+          include-hidden-files: true
+
+  web-e2e:
+    name: web e2e (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    needs: web-e2e-build
+
+    strategy:
+      # One browser failing should not cancel the other's run -- we want both
+      # reports.
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+
+    steps:
+      # Only the harness (web-e2e/, serve.mjs, specs) is needed here, not the
+      # Rust sources or their submodules.
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Download the web bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: web-dist
+          path: target/web-dist
+
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
@@ -205,18 +244,30 @@ jobs:
         working-directory: web-e2e
         run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Install the Playwright browser
         working-directory: web-e2e
-        run: npx playwright install --with-deps chromium firefox
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      # Firefox ships no software rasteriser (Chromium carries SwiftShader), so
+      # on a GPU-less runner its WebGL2 canvas -- and thus the `__vgms_e2e` hook
+      # inside eframe's creator -- never comes up. Mesa's llvmpipe supplies a
+      # software GL; force it on and make sure its DRI driver is present.
+      - name: Enable software WebGL for Firefox
+        if: matrix.browser == 'firefox'
+        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri
 
       - name: Run the web e2e suite
         working-directory: web-e2e
-        run: npx playwright test
+        run: npx playwright test --project=${{ matrix.browser }}
+        env:
+          # Harmless to Chromium (its ANGLE/SwiftShader path ignores system GL).
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          GALLIUM_DRIVER: llvmpipe
 
       - name: Upload the report on failure
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: web-e2e/playwright-report/
           retention-days: 7
