@@ -55,11 +55,10 @@ jobs:
 
       # The C sound cores compile to wasm through clang (`-ffreestanding`); the
       # worklet and app modules link them, so the wasm job needs a C compiler
-      # that can target wasm32. lld is for the wasip1 tool build below: linking
-      # a full command module goes through wasm-ld, which apt's clang package
-      # does not ship.
+      # that can target wasm32. The wasip1 tool build below brings its own
+      # clang+wasm-ld (the wasi-sdk bundle), so apt need not supply lld.
       - name: Install clang
-        run: sudo apt-get update && sudo apt-get install -y clang lld
+        run: sudo apt-get update && sudo apt-get install -y clang
 
       # Catches an accidental `std::fs`, `std::time::Instant` or native-only
       # dependency at the moment it is introduced. Every wasm-facing crate is
@@ -114,8 +113,8 @@ jobs:
       # silently when the modules are absent, so CI has to build them here or
       # the parity claim is never actually checked.
 
-      # The sysroot + builtins downloads (~120 MB), keyed on the version pinned
-      # in the build script: bumping $wasiVersion there rolls the cache with it.
+      # The wasi-sdk toolchain bundle (~180 MB), keyed on the version pinned in
+      # the build script: bumping $wasiVersion there rolls the cache with it.
       - name: Read the pinned wasi-sdk version
         id: wasi-sdk
         run: |
@@ -123,7 +122,7 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the wasi sysroot and builtins
+      - name: Cache the wasi-sdk toolchain
         uses: actions/cache@v4
         with:
           path: target/wasi

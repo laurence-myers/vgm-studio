@@ -340,9 +340,10 @@ with the native exe on the first try** -- real printf output included.
 **What replaced what (commits `ow-8`..`ow-10`):**
 
 - `tools/build-wasi-tools.ps1` compiles the three tools to `wasm32-wasip1`
-  command modules in `target/wasi-tools/` (sysroot + builtins downloaded once
-  and cached under `target/wasi`, the CJK-font pattern; `-nodefaultlibs`
-  keeps the clang install untouched). The link carries the promised
+  command modules in `target/wasi-tools/` (the full wasi-sdk toolchain bundle
+  -- its own clang, wasm-ld, sysroot and builtins -- downloaded once and cached
+  under `target/wasi`, the CJK-font pattern; using the bundle's own linker
+  avoids a sysroot/wasm-ld version skew). The link carries the promised
   `--max-memory=256M` ceiling, `--stack-first`, and a 1 MiB stack. ~280-320 KB
   per module against 36-70 KB freestanding -- wasi-libc's weight, irrelevant
   at these sizes.

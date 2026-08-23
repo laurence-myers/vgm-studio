@@ -39,11 +39,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       # The C sound cores compile to wasm through clang (`-ffreestanding`); the
-      # worklet and app modules link them. lld is wasm-ld for the wasip1 tool
-      # build, and binaryen gives build-web.ps1 the wasm-opt it uses to shrink
-      # the ~12.7 MB app module.
-      - name: Install clang, lld and binaryen
-        run: sudo apt-get update && sudo apt-get install -y clang lld binaryen
+      # worklet and app modules link them. The wasip1 tool build brings its own
+      # clang+wasm-ld (the wasi-sdk bundle), so apt need not supply lld; binaryen
+      # gives build-web.ps1 the wasm-opt it uses to shrink the ~12.7 MB app
+      # module.
+      - name: Install clang and binaryen
+        run: sudo apt-get update && sudo apt-get install -y clang binaryen
 
       # The CLI's version must match the `wasm-bindgen` version Cargo.lock
       # resolves (pinned `=0.2.126` in vgms-web), or the generated glue will not
@@ -52,8 +53,8 @@ jobs:
         run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
 
       # The wasip1 optimiser modules (the pack-mode optimisers) need the wasi-sdk
-      # sysroot + builtins (~120 MB). Cache them keyed on the version pinned in
-      # the build script, so bumping $wasiVersion there rolls the cache with it.
+      # toolchain bundle (~180 MB). Cache it keyed on the version pinned in the
+      # build script, so bumping $wasiVersion there rolls the cache with it.
       - name: Read the pinned wasi-sdk version
         id: wasi-sdk
         run: |
@@ -61,7 +62,7 @@ jobs:
           test -n "$version"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Cache the wasi sysroot and builtins
+      - name: Cache the wasi-sdk toolchain
         uses: actions/cache@v4
         with:
           path: target/wasi
